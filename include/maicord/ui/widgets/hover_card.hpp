@@ -41,7 +41,7 @@ void ui_hover_card_publish(UiHoverCard* card, u64 content_hash) noexcept;
 // (then bumps the revision).
 bool ui_hover_card_advance(UiHoverCard* card, const UiHoverCardMotion& motion, u64 now_ms,
                            bool reduced_motion) noexcept;
-u64 ui_hover_card_next_wake(const UiHoverCard& card, const UiHoverCardMotion& motion, u64 now_ms,
+u64 ui_hover_card_next_wake(const UiHoverCard& card, const UiHoverCardMotion& motion,
                             bool reduced_motion) noexcept;
 // The settled card, so a pointer moving onto it during the slide counts.
 bool ui_hover_card_contains(const UiHoverCard& card, float x, float y) noexcept;

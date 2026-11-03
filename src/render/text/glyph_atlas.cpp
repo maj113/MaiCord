@@ -579,23 +579,6 @@ GlyphAtlasAllocation glyph_atlas_allocate_unique_indexed(GlyphAtlasAllocator* at
     return allocation;
 }
 
-GlyphAtlasAllocation glyph_atlas_allocate_indexed(GlyphAtlasAllocator* atlas, GlyphAtlasIndex* index,
-                                                  u64 key, u16 width, u16 height) noexcept {
-    if (!atlas || !index_usable(*atlas, index)) {
-        return glyph_atlas_allocate(atlas, key, width, height);
-    }
-    if (width != 0 && height != 0) {
-        GlyphAtlasAllocation cached = glyph_atlas_find_indexed(atlas, index, key);
-        if (cached.ok()) {
-            if (cached.width != width || cached.height != height) {
-                cached.error = GlyphAtlasError::invalid_input;
-            }
-            return cached;
-        }
-    }
-    return glyph_atlas_allocate_unique_indexed(atlas, index, key, width, height);
-}
-
 bool glyph_atlas_validate(const GlyphAtlasAllocator& atlas, GlyphAtlasHandle handle,
                           GlyphAtlasAllocation* allocation) noexcept {
     if (!atlas.entries || handle.generation == 0 || handle.slot >= atlas.entry_capacity) {

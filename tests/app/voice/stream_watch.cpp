@@ -302,8 +302,8 @@ void card(Check check) noexcept {
               scene.progress < 1 && ui_stream_card_spinner_visible(scene),
           "stream card: hovering a live user opens the card beside the row with a spring entrance");
     u64 now = 1000;
-    for (u32 i = 0; i < 64 && ui_stream_card_next_wake(scene, now, false); ++i) {
-        now = ui_stream_card_next_wake(scene, now, false);
+    for (u32 i = 0; i < 64 && ui_stream_card_next_wake(scene, false); ++i) {
+        now = ui_stream_card_next_wake(scene, false);
         ui_stream_card_tick(&scene, now, false);
     }
     check(scene.progress >= .999f && ui_rect_equal(scene.panel, scene.settled),

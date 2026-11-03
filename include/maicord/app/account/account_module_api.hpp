@@ -149,7 +149,6 @@ struct AccountModuleStatus {
     u64 retry_at_ms;
     u64 next_wake_at_ms;
     u32 native_error;
-    u32 gateway_sources;
     u32 gateway_ready;
     u32 session_saves;
     u32 session_save_skips;
@@ -291,7 +290,7 @@ using AccountModulePumpFunction = AccountModuleStatus(WINAPI*)(void* instance, u
                                                                u64 unix_now_ms) noexcept;
 using AccountModuleNotificationHandlesFunction = u32(WINAPI*)(void* instance, HANDLE* output,
                                                               u32 capacity) noexcept;
-using AccountModuleGatewaySourceFunction = void*(WINAPI*)(void* instance, u32 source_index) noexcept;
+using AccountModuleGatewaySourceFunction = void*(WINAPI*)(void* instance) noexcept;
 using AccountModuleGatewayPopFunction = GatewayClientPopResult(WINAPI*)(void* source,
                                                                         GatewayClientEvent* event,
                                                                         Slice<u8> payload_output) noexcept;
@@ -671,7 +670,7 @@ struct AccountModuleApi {
 // the perf probe's synthetic module). The module loads the DPAPI profile itself
 // and returns an opaque handle. Login copies caller-owned locked input into the
 // module's locked arena; neither plaintext nor internal worker pointers are
-// retained across the boundary. Gateway sources are borrowed only for immediate
+// retained across the boundary. The Gateway source is borrowed only for immediate
 // UI-thread mailbox drains. Completed REST bodies are copied into caller-owned
 // output before stop. Decoded media frames are borrowed until the next media
 // request/pump and must be uploaded during the media_take call sequence before

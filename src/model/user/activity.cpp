@@ -248,10 +248,6 @@ bool user_activity_find(const UserActivityStore& s, u64 user, UserActivitySet* o
     return row && user_activities_read({bank(s) + row->offset + sizeof(Entry), entry(s, row->offset).bytes}, user,
                                        output);
 }
-u32 user_activity_count(const UserActivityStore& s, u64 user) noexcept {
-    const Row* row = find_row(s, user);
-    return row ? bank(s)[row->offset + sizeof(Entry) + 1] : 0;
-}
 bool user_activity_first_type(const UserActivityStore& s, u64 user, UserActivityType* output) noexcept {
     const Row* row = output ? find_row(s, user) : nullptr;
     const u8* record = row ? bank(s) + row->offset + sizeof(Entry) : nullptr;

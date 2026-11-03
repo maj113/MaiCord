@@ -24,6 +24,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/text/clipboard.hpp"
 #include "maicord/sys/shell.hpp"
 
@@ -634,8 +635,7 @@ bool application_settings_synchronize() noexcept {
     {
         // Dialog entrance: a spring from the scrim fade to full scale.
         const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
-        const bool motion = g_app.window && !g_app.preferences.reduced_motion && !g_app.renderer.live_resize &&
-                            (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
+        const bool motion = g_app.window && !application_reduced_motion() && !g_app.renderer.live_resize;
         if (settings->entrance_opens != settings->scene.opens) {
             settings->entrance_opens = settings->scene.opens;
             settings->entrance_started_ms = motion ? now : 0;

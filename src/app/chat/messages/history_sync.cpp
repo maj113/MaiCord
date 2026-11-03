@@ -10,9 +10,9 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(MessageHistoryCatchup) == 64);
-static_assert(sizeof(MessageHistoryOlder) == 64);
-static_assert(sizeof(AttachmentRefresh) == 48);
+static_assert(sizeof(MessageHistoryCatchup) == 40);
+static_assert(sizeof(MessageHistoryOlder) == 32);
+static_assert(sizeof(AttachmentRefresh) == 40);
 
 bool history_transient_failure(const RestClientResponse& response) noexcept {
     if (api_rejection_requires_action(response.rejection))
@@ -267,7 +267,6 @@ bool page_retry(Machine* machine, MessageHistoryCatchupFailure failure, u64 retr
     machine->last_failure = failure;
     machine->retry_at_ms = retry_at_ms;
     machine->state = State::waiting_retry;
-    ++machine->failures;
     return true;
 }
 
@@ -288,7 +287,6 @@ bool page_fail(Machine* machine, MessageHistoryCatchupFailure failure) noexcept 
     }
     machine->last_failure = failure;
     machine->state = State::failed;
-    ++machine->failures;
     return true;
 }
 
@@ -525,7 +523,6 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
     UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
-    const u32 previous_compactions = store.compactions;
     u32 rich_skipped = 0;
     for (u32 index = 0; index < eviction_count; ++index) {
         const u32 victim = direction == MessageHistoryDirection::newer ? 0 : store.count - 1;
@@ -602,7 +599,6 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     result.resident = resident;
     result.rich_skipped = rich_skipped;
     result.evicted = eviction_count + removed_locals;
-    result.compactions = store.compactions - previous_compactions;
     const u32 first_changed = direction == MessageHistoryDirection::older || eviction_count != 0 ||
                                       removed_locals || gap_count
                                   ? 0
@@ -612,7 +608,6 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
         first_changed, first_changed < changed_end ? changed_end - first_changed : 1, true,
         timeline->scroll_units != previous_scroll || timeline->scroll_units != before_local_scroll};
     timeline->evicted += eviction_count + removed_locals;
-    timeline->compactions += result.compactions;
     ++timeline->history_pages;
     return result;
 }
@@ -653,7 +648,6 @@ MessageHistoryApplyResult message_history_refresh_attachment(
     if (!validation.ok()) {
         return apply_error(MessageHistoryApplyError::reconcile);
     }
-    const u32 previous_compactions = timeline->store->compactions;
     const MessageReconcileResult updated = message_reconcile_create(
         timeline->store, message, resolved_availability(message, empty_content_availability));
     if (!updated.ok() || updated.inserted) {
@@ -665,7 +659,6 @@ MessageHistoryApplyResult message_history_refresh_attachment(
         return apply_error(MessageHistoryApplyError::rich_store, true);
     }
     MessageHistoryApplyResult result{};
-    result.compactions = timeline->store->compactions - previous_compactions;
     result.invalidation = MessageTimelineInvalidation{updated.order_index, 1, false, false};
     ++timeline->applied;
     return result;
@@ -853,7 +846,6 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
         if (response.rate_limited && response.retry_at_ms != 0) {
             refresh->retry_at_ms = response.retry_at_ms;
             refresh->state = AttachmentRefreshState::waiting_retry;
-            ++refresh->failures;
             result.disposition = MessageHistoryRestDisposition::retry_scheduled;
             return result;
         }
@@ -1005,7 +997,6 @@ bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
                                  catchup->cursor_after == 0 ? MessageHistoryPosition::latest
                                                                    : MessageHistoryPosition::after};
     catchup->state = MessageHistoryCatchupState::awaiting_page;
-    ++catchup->requests;
     return true;
 }
 
@@ -1046,11 +1037,7 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
         }
         return applied;
     }
-    ++catchup->pages;
     catchup->transient_retries = 0;
-    catchup->received += messages.count;
-    catchup->inserted += applied.inserted;
-    catchup->evicted += applied.evicted;
     const bool deferred_since_basis = pump->timeline->deferred != catchup->deferred_mark;
     catchup->deferred_mark = pump->timeline->deferred;
     if ((messages.count == 0 || messages.count < catchup->request_limit) && deferred_since_basis) {
@@ -1120,7 +1107,6 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
     }
     older->channel_id = channel_id;
     older->request_limit = minimum(request_limit, resident_capacity);
-    ++older->demands;
     if (store.count == 0) {
         older->state = MessageHistoryOlderState::exhausted;
         return true;
@@ -1130,7 +1116,6 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
     if (first->channel_id != channel_id || first->id == 0) {
         older->state = MessageHistoryOlderState::failed;
         older->last_failure = MessageHistoryCatchupFailure::apply;
-        ++older->failures;
         return false;
     }
     older->cursor_before = first->id;
@@ -1147,7 +1132,6 @@ bool message_history_older_take_query(MessageHistoryOlder* older,
     *query = MessageHistoryQuery{older->cursor_before, older->request_limit,
                                  MessageHistoryPosition::before};
     older->state = MessageHistoryOlderState::awaiting_page;
-    ++older->requests;
     return true;
 }
 
@@ -1176,11 +1160,7 @@ MessageHistoryApplyResult message_history_older_apply_page(
         page_fail<MessageHistoryOlderState>(older, MessageHistoryCatchupFailure::apply);
         return applied;
     }
-    ++older->pages;
     older->transient_retries = 0;
-    older->received += messages.count;
-    older->inserted += applied.inserted;
-    older->evicted += applied.evicted;
     // Older paging is a sliding resident window. If the tail was evicted,
     // remember that the resident newest edge is incomplete. The catch-up
     // scheduler waits until the user returns to the bottom before refilling

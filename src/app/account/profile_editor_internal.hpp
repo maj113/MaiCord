@@ -9,7 +9,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
 #include "maicord/ui/account/profile_media.hpp"
@@ -164,6 +163,7 @@ bool scope_current() noexcept;
 bool busy() noexcept;
 bool saving() noexcept;
 bool editable() noexcept;
+using Editors = SettingsEditors<&owner, editable>;
 ProfileEditorGate gate() noexcept;
 char* editor_buffer(u32 index) noexcept;
 u32 editor_capacity(u32 index) noexcept;

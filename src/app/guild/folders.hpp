@@ -14,7 +14,7 @@ void application_guild_folders_gateway(const GatewayClientEvent& event, ConstSli
 // Frame time: binds the layout to the navigation view, applies pending
 // rebuilds and advances folder expand/collapse motion.
 bool application_guild_folders_synchronize(u64 now_ms) noexcept;
-u64 application_guild_folders_next_wake(u64 now_ms) noexcept;
+u64 application_guild_folders_next_wake() noexcept;
 bool application_guild_folders_toggle(u64 folder_row_id) noexcept;
 // Home with "Close folders on Home": every open folder closes.
 bool application_guild_folders_close_all() noexcept;

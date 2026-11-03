@@ -16,9 +16,7 @@
 namespace maicord {
 namespace {
 bool current(const UiQuickSwitcherScene& s) noexcept {
-    return s.active && s.content && s.content->revision == s.content_revision &&
-        (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
-                      (!s.source->current || s.source->current(s.source->context))));
+    return ui_row_scene_current(s);
 }
 bool row_valid(const UiQuickSwitcherRow& row) noexcept {
     return row.key && row.kind <= UiQuickSwitcherKind::user && row.presence <= UiPresence::offline &&

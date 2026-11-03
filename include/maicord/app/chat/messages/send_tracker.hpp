@@ -95,8 +95,6 @@ struct MessageSendTracker {
     u32 completion_read;
     u32 completion_write;
     u32 completion_count;
-    u32 active_count;
-    u32 unmatched_gateway;
     bool initialized;
 };
 

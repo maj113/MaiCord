@@ -182,7 +182,7 @@ bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionSco
     return transition->value != previous;
 }
 
-u64 ui_motion_transition_next_wake(const UiMotionTransition& transition, UiMotionScope scope, u64,
+u64 ui_motion_transition_next_wake(const UiMotionTransition& transition, UiMotionScope scope,
                                    bool reduced_motion, bool visible) noexcept {
     if (!motion_scope_matches(transition, scope) || !transition.active || reduced_motion || !visible)
         return 0;

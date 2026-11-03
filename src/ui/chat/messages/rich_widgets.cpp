@@ -53,7 +53,7 @@ UiWidgetResult add_group(UiWidgetManager* manager, UiWidgetHandle parent, u32 id
     return ui_widget_manager_add_prevalidated(
         manager, parent,
         UiWidgetDesc{id, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{Utf8View{name, c_string_length(name)}, style, UiSize{}, 0.0f, id}});
+                     UiLayoutNodeSpec{Utf8View{name, c_string_length(name)}, style, UiSize{}, id}});
 }
 
 UiWidgetResult add_item(UiWidgetManager* manager, UiWidgetHandle parent, u32 id, const char* name,
@@ -62,7 +62,7 @@ UiWidgetResult add_item(UiWidgetManager* manager, UiWidgetHandle parent, u32 id,
         manager, parent,
         UiWidgetDesc{id, kind, flags,
                      UiLayoutNodeSpec{Utf8View{name, c_string_length(name)}, item_style(height), UiSize{},
-                                      0.0f, id}});
+                                      id}});
 }
 
 UiWidgetResult add_reaction(UiWidgetManager* manager, UiWidgetHandle parent, u32 id, float width) noexcept {
@@ -71,7 +71,7 @@ UiWidgetResult add_reaction(UiWidgetManager* manager, UiWidgetHandle parent, u32
         UiWidgetDesc{id, UiWidgetKind::button,
                      static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
                      UiLayoutNodeSpec{utf8_literal("ReactionButton"), reaction_button_style(width),
-                                      UiSize{}, 0.0f, id}});
+                                      UiSize{}, id}});
 }
 
 bool set_fixed_height(UiWidgetManager* manager, UiWidgetHandle handle, float height) noexcept {
@@ -344,7 +344,6 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
                          {utf8_literal("ComponentItem"),
                           message_component_style(*rich, index, row->rich_item_layout),
                           {},
-                          0,
                           rich_id + slot}});
         if (!item.ok()) {
             return false;

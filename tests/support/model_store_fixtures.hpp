@@ -52,6 +52,12 @@ inline bool user_activity_upsert(UserActivityStore* store, const UserActivitySet
     return user_activity_apply(store, value, 0, false);
 }
 
+// How many activities the store holds for a user (zero when none).
+inline u32 user_activity_count(const UserActivityStore& store, u64 user_id) noexcept {
+    UserActivitySet set{};
+    return user_activity_find(store, user_id, &set) ? set.count : 0;
+}
+
 inline void voice_channel_info_store_reset(VoiceChannelInfoStore* store) noexcept {
     store->count = store->text_used = store->dropped = 0;
     ++store->revision;

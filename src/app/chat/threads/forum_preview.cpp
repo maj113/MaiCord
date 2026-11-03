@@ -7,18 +7,16 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "../../media/local_preview_entry.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {
 inline constexpr u32 kPreviewSlots = 24; // Ten current rows plus eight draining lanes and spare slots.
-struct PreviewEntry {
-    AccountMediaLocalPreviewRequest request;
+struct PreviewEntry : LocalPreviewEntry {
     ApplicationForumPostTicket ticket;
-    void* instance;
-    u64 account_scope, profile, self, poll_at;
-    bool occupied, admitted, ready, failed, retired;
+    u64 account_scope, self;
 };
 struct PreviewOwner {
     PreviewEntry entries[kPreviewSlots];
@@ -38,11 +36,7 @@ bool actor_current(const PreviewEntry& entry) noexcept {
            g_app.account_ui->chat_state.self_user_id == entry.self;
 }
 PreviewEntry* find(MediaAssetKey key) noexcept {
-    if (owner)
-        for (auto& entry : owner->entries)
-            if (entry.occupied && media_asset_key_equal(entry.request.key, key))
-                return &entry;
-    return nullptr;
+    return owner ? local_preview_find(owner->entries, key) : nullptr;
 }
 bool visible(u64 id) noexcept {
     auto* scene = application_forum_form_scene();
@@ -87,22 +81,7 @@ MediaAttachmentFormat format(Utf8View filename) noexcept {
 void retire(PreviewEntry& entry, u64 now) noexcept {
     if (!entry.retired)
         changed();
-    entry.retired = true;
-    entry.ready = false;
-    if (!entry.admitted || !actor_current(entry) || !g_app.account.api.media_local_preview) {
-        reset_value(&entry);
-        return;
-    }
-    AccountMediaLocalPreviewRequest exact{};
-    exact.key = entry.request.key;
-    exact.owner_scope = entry.request.owner_scope;
-    exact.owner_generation = entry.request.owner_generation;
-    const auto result = g_app.account.api.media_local_preview(
-        entry.instance, AccountLocalPreviewOperation::retire, &exact, 0, 0);
-    if (result.state == AccountMediaRequestState::pending)
-        entry.poll_at = deadline_after(now, 100);
-    else
-        reset_value(&entry);
+    local_preview_retire(entry, now, actor_current(entry));
 }
 PreviewEntry* current_frame_entry(const AccountMediaFrame& frame) noexcept {
     auto* entry = find(frame.key);
@@ -131,21 +110,12 @@ bool application_forum_preview_frame_current(const AccountMediaFrame& frame) noe
 }
 void application_forum_preview_frame_uploaded(const AccountMediaFrame& frame) noexcept {
     auto* entry = current_frame_entry(frame);
-    if (!entry)
-        return;
-    if (!entry->ready)
+    if (entry && local_preview_uploaded(*entry))
         changed();
-    entry->ready = true;
-    entry->poll_at = 0;
 }
 void application_forum_preview_rejected(MediaAssetKey key) noexcept {
-    if (auto* entry = find(key)) {
-        if (!entry->failed || entry->ready)
-            changed();
-        entry->ready = false;
-        entry->failed = true;
-        entry->poll_at = 0;
-    }
+    if (auto* entry = find(key); entry && local_preview_rejected(*entry))
+        changed();
 }
 bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
     if (!now || !unix_now)
@@ -218,26 +188,12 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             }
         }
-        if (in_view && entry->ready && g_app.renderer.preview_media_atlas &&
-            !media_atlas_peek(g_app.renderer.preview_media_atlas, entry->request.key).ok()) {
+        if (in_view && local_preview_evicted(*entry))
             changed();
-            entry->ready = false;
-            entry->poll_at = 0;
-        }
         if (entry->ready || entry->failed || now < entry->poll_at)
             continue;
-        const auto result = g_app.account.api.media_local_preview(
-            entry->instance, AccountLocalPreviewOperation::request, &entry->request, now, unix_now);
-        if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
-            result.state == AccountMediaRequestState::ready)
-            entry->admitted = true;
-        else if (result.state != AccountMediaRequestState::busy) {
+        if (local_preview_admit(*entry, now, unix_now))
             changed();
-            entry->failed = true;
-            entry->poll_at = 0;
-            continue;
-        }
-        entry->poll_at = deadline_after(now, 100);
     }
     return true;
 }
@@ -261,11 +217,6 @@ u32 application_forum_preview_revision() noexcept {
     return publication;
 }
 u64 application_forum_preview_next_wake() noexcept {
-    u64 wake = 0;
-    if (owner)
-        for (const auto& entry : owner->entries)
-            if (entry.occupied && entry.poll_at && (!wake || entry.poll_at < wake))
-                wake = entry.poll_at;
-    return wake;
+    return owner ? local_preview_next_wake(owner->entries) : 0;
 }
 } // namespace maicord::app_detail

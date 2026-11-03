@@ -1,4 +1,5 @@
 #include "ui_host.hpp"
+#include "plugins.hpp"
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
 #include "../shell/content_input.hpp"
@@ -18,11 +19,6 @@
 // trust confirmation, and the clipboard and navigation actions.
 namespace maicord::app_detail {
 namespace {
-
-bool account_ready() noexcept {
-    return g_app.account_ui && g_app.account.instance && !g_app.login.visible &&
-           g_app.account.status.required_action == AccountRequirement::none;
-}
 
 // ---- Modal ---------------------------------------------------------------------------------
 
@@ -61,7 +57,7 @@ void modal_closed(TextFormOwnerKey key) noexcept {
 }
 
 bool open_modal(const PluginModalRequest& modal) noexcept {
-    if (!account_ready() || g_app.text_form) return false;
+    if (!plugin_account_ready() || g_app.text_form) return false;
     g_answer = {};
     ++g_serial;
     ApplicationTextFormRequest request{};
@@ -115,7 +111,7 @@ void banner_changed() noexcept {
 }
 
 PluginUiStatus open_url(Utf8View url) noexcept {
-    if (!account_ready()) return PluginUiStatus::busy;
+    if (!plugin_account_ready()) return PluginUiStatus::busy;
     // Not trusted text: a host the user hasn't trusted asks first.
     return application_link_open(url, false) ? PluginUiStatus::ok : PluginUiStatus::denied;
 }
@@ -126,13 +122,13 @@ PluginUiStatus copy_text(Utf8View text) noexcept {
 }
 
 PluginUiStatus open_channel(u64 channel_id) noexcept {
-    if (!account_ready()) return PluginUiStatus::busy;
+    if (!plugin_account_ready()) return PluginUiStatus::busy;
     if (!chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id)) return PluginUiStatus::not_found;
     return application_navigate_known_message(channel_id, 0) ? PluginUiStatus::ok : PluginUiStatus::denied;
 }
 
 PluginUiStatus open_profile(u64 user_id, u64) noexcept {
-    if (!account_ready()) return PluginUiStatus::busy;
+    if (!plugin_account_ready()) return PluginUiStatus::busy;
     // No on-screen source: the card opens at the middle of the window.
     const UiRect viewport = application_viewport_dips();
     const float x = (viewport.left + viewport.right) * 0.5f, y = (viewport.top + viewport.bottom) * 0.5f;

@@ -706,8 +706,7 @@ void application_log_account_observations(const AccountModuleStatus& status, u32
                        values);
     }
     if ((observations & account_host_observation_ready) != 0) {
-        const u64 values[] = {status.gateway_ready, status.gateway_sources};
-        log_u64_fields(LogLevel::info, "account", "gateway_ready\0gateway_sources", values);
+        log_u64(LogLevel::info, "account", "gateway_ready", status.gateway_ready);
     }
     if ((observations & account_host_observation_session_saves) != 0) {
         log_u64(LogLevel::info, "account", "session_saves", status.session_saves);

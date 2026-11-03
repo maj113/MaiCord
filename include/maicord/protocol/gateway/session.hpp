@@ -4,7 +4,6 @@
 #include "maicord/media/compression/zstd.hpp"
 #include "maicord/protocol/gateway/etf.hpp"
 #include "maicord/protocol/http/cookie_jar.hpp"
-#include "maicord/protocol/gateway/commands.hpp"
 #include "maicord/protocol/gateway/lifecycle.hpp"
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"

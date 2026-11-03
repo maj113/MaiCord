@@ -29,8 +29,6 @@ bool valid_style(const UiLayoutNodeSpec& specification) noexcept {
            style.minimum_size.height <= style.maximum_size.height && ui_insets_valid(style.margin) &&
            ui_insets_valid(style.padding) && ui_extent_valid(style.gap) &&
            ui_size_valid_or_empty(specification.intrinsic_size) &&
-           ui_extent_valid(specification.intrinsic_baseline) &&
-           specification.intrinsic_baseline <= specification.intrinsic_size.height &&
            (specification.debug_name.data || specification.debug_name.bytes == 0);
 }
 
@@ -85,15 +83,13 @@ UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport)
             continue;
         }
         UiSize measured{};
-        float baseline = 0.0f;
         const UiLayoutMeasureRequest request{UiLayoutNodeHandle{static_cast<u16>(index), node.generation},
                                              node.spec.key, node.measure_constraint};
-        if (!engine->measure_callback(engine->measure_context, request, &measured, &baseline) ||
-            !ui_size_valid_or_empty(measured) || !ui_extent_valid(baseline) || baseline > measured.height) {
+        if (!engine->measure_callback(engine->measure_context, request, &measured) ||
+            !ui_size_valid_or_empty(measured)) {
             return UiLayoutError::measurement_failed;
         }
         node.spec.intrinsic_size = measured;
-        node.spec.intrinsic_baseline = baseline;
     }
     return UiLayoutError::none;
 }

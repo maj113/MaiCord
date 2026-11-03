@@ -5,6 +5,7 @@
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
@@ -39,9 +40,6 @@ struct Worker {
 };
 Worker* g_worker;
 
-template <typename T> T* allocate(u64 bytes = sizeof(T)) noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-}
 void release(void* memory) noexcept {
     if (memory) VirtualFree(memory, 0, MEM_RELEASE);
 }
@@ -74,7 +72,7 @@ u8* read_file(const wchar_t* path, u32 maximum, u32* bytes) noexcept {
     LARGE_INTEGER size{};
     u8* data = nullptr;
     if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= maximum) {
-        data = allocate<u8>(static_cast<u64>(size.QuadPart));
+        data = commit_pages<u8>(static_cast<u64>(size.QuadPart));
         DWORD read = 0;
         if (data && (!ReadFile(file, data, static_cast<DWORD>(size.QuadPart), &read, nullptr) || read != size.QuadPart)) {
             release(data);
@@ -140,7 +138,7 @@ struct Network {
             transport = w->transport;
             return true;
         }
-        https = allocate<UpdateHttpsTransport>();
+        https = commit_pages<UpdateHttpsTransport>();
         if (!https || !update_https_initialize(https)) return false;
         w->https = https;
         transport = update_https_transport(https);
@@ -160,7 +158,7 @@ bool location(const Worker& w, Utf8View relative, UpdateLocation* out) noexcept 
     for (u32 i = 0; i < slash; ++i) l.origin[i] = ascii_lower(repository.data[i]);
     copy_bytes(l.origin + slash, pages.data, pages.bytes);
     l.origin_bytes = slash + pages.bytes;
-    UpdateTextWriter t{{l.target, kUpdateTargetCapacity}, 0, true};
+    TextWriter t{{l.target, kUpdateTargetCapacity}, 0, true};
     t.add("/", 1);
     t.add({repository.data + slash + 1, repository.bytes - slash - 1});
     t.add("/", 1);
@@ -193,7 +191,7 @@ CatalogError fetch(Worker& w, Network& net, const Utf8View& relative, u32 maximu
                    u32* bytes, u64* retry_at = nullptr) noexcept {
     UpdateLocation start{};
     if (!net.open() || !location(w, relative, &start)) return CatalogError::unreachable;
-    ProgressSink sink{{allocate<u8>(exact ? exact : maximum), exact ? exact : maximum, 0}, &w};
+    ProgressSink sink{{commit_pages<u8>(exact ? exact : maximum), exact ? exact : maximum, 0}, &w};
     if (!sink.buffer.data) return CatalogError::storage;
     InterlockedExchange64(&w.progress_bytes, 0);
     InterlockedExchange64(&w.progress_total, exact);
@@ -226,8 +224,8 @@ CatalogError verify(Worker& w, Crypto& crypto, const CatalogJob& job, const Cons
                     const Utf8View& document, bool accept_expired, CatalogIndex** out) noexcept {
     Keys keys{};
     if (!keys.open(w) || !crypto.open()) return CatalogError::not_configured;
-    auto* index = allocate<CatalogIndex>();
-    auto* scratch = allocate<u32>(kCatalogIndexStructuralCapacity * sizeof(u32));
+    auto* index = commit_pages<CatalogIndex>();
+    auto* scratch = commit_pages<u32>(kCatalogIndexStructuralCapacity * sizeof(u32));
     CatalogError error = CatalogError::none;
     if (!index || !scratch) {
         error = CatalogError::storage;
@@ -282,7 +280,7 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
                          false, &r.index);
     if (r.error == CatalogError::none) {
         // The cache is the signature, then the document: one file, so the pair can't tear.
-        auto* record = allocate<u8>(kSignatureBytes + document_bytes);
+        auto* record = commit_pages<u8>(kSignatureBytes + document_bytes);
         wchar_t path[600];
         if (record && catalog_path(base(w), L"catalog.bin", path) && directory_ensure(w.base)) {
             copy_bytes(record, signature, kSignatureBytes);
@@ -394,7 +392,7 @@ void asset(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
         char relative[96];
         char digest[64];
         hex(job.blob.sha256, 32, digest);
-        UpdateTextWriter t{{relative, sizeof(relative)}, 0, true};
+        TextWriter t{{relative, sizeof(relative)}, 0, true};
         t.add(job.asset == CatalogAssetKind::details ? utf8_literal("details/") : utf8_literal("previews/"));
         t.add(digest, 64);
         t.add(job.asset == CatalogAssetKind::details ? utf8_literal(".md") : utf8_literal(".png"));
@@ -527,7 +525,7 @@ bool catalog_worker_start(const CatalogWorkerOptions& options) noexcept {
     if (!options.base.count || options.base.count >= 480 || options.repository.bytes > kUpdateRepositoryMaximumBytes ||
         options.keys.count > 2)
         return false;
-    auto* w = allocate<Worker>();
+    auto* w = commit_pages<Worker>();
     if (!w) return false;
     copy_bytes(w->base, options.base.data, options.base.count * 2);
     w->base_characters = options.base.count;

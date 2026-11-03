@@ -1,6 +1,7 @@
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "../../../support/send_tracker_probe.hpp"
 
 namespace maicord {
 namespace {
@@ -296,7 +297,7 @@ void test_message_composer_stickers(void (*check)(bool, const char*) noexcept) n
         submit.nonce == forward.nonce && submit.forward_reference.channel_id == 7 && submit.forward_reference.guild_id == 6,
         "forward automatic and manual retry preserve nonce and source while inflight cancellation is refused");
     check(message_composer_controller_cancel_unsent(&controller, forward.nonce).ok() &&
-        controller.request_count == 1 && controller.sends.active_count == 1 &&
+        controller.request_count == 1 && send_tracker_active(controller.sends) == 1 &&
         message_composer_controller_prepare_submit(&controller, 703, &submit).ok() &&
         submit.nonce == second_forward.nonce && submit.channel_id == 9 && !submit.content.bytes &&
         submit.forward_reference.message_id == 80 &&
@@ -307,7 +308,7 @@ void test_message_composer_stickers(void (*check)(bool, const char*) noexcept) n
     check(message_composer_controller_restore_local(&controller, 9, &forward_restored) && forward_restored && store.count == 1,
         "destination outbox can restore empty forward preview without fabricating a server snapshot");
     check(message_composer_controller_cancel_unsent(&controller, second_forward.nonce).ok() &&
-        !store.count && !controller.request_count && !controller.sends.active_count &&
+        !store.count && !controller.request_count && !send_tracker_active(controller.sends) &&
         message_composer_controller_prepare_submit(nullptr, 705, &submit).error == MessageComposerControllerError::invalid_input &&
         !submit.forward_reference.message_id && !submit.forward_reference.channel_id && !submit.forward_reference.guild_id,
         "cancelling last unsent forward removes restored preview and failed preparation clears source authority");

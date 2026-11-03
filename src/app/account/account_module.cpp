@@ -115,7 +115,6 @@ AccountModuleStatus build_status(AccountModuleRuntime* runtime) noexcept {
         static_cast<u64>(ReadAcquire64(&runtime->coordinator.gateway.frecency_settings_revision));
     status.required_action = gateway_client_required_action(&runtime->coordinator.gateway);
     status.native_error = coordinator.native_error;
-    status.gateway_sources = 1;
     status.gateway_ready = coordinator.phase == UserAccountCoordinatorPhase::running ? 1u : 0u;
     status.session_saves = runtime->session_saves;
     status.session_save_skips = runtime->session_save_skips;
@@ -308,9 +307,9 @@ u32 WINAPI module_notification_handles(void* instance, HANDLE* output, u32 capac
     return count;
 }
 
-void* WINAPI module_gateway_source(void* instance, u32 source_index) noexcept {
+void* WINAPI module_gateway_source(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && source_index == 0 ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
 }
 
 GatewayClientPopResult WINAPI module_gateway_pop(void* source, GatewayClientEvent* event,

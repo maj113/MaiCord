@@ -67,7 +67,7 @@ bool ui_guild_card_show(UiGuildCardScene*, u64 identity, const UiGuildCardConten
                         u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept;
 void ui_guild_card_close(UiGuildCardScene*) noexcept;
 bool ui_guild_card_tick(UiGuildCardScene*, u64 now_ms, bool reduced_motion) noexcept;
-u64 ui_guild_card_next_wake(const UiGuildCardScene&, u64 now_ms, bool reduced_motion) noexcept;
+u64 ui_guild_card_next_wake(const UiGuildCardScene&, bool reduced_motion) noexcept;
 bool ui_guild_card_contains(const UiGuildCardScene&, float x, float y) noexcept;
 UiGuildCardControl ui_guild_card_hit(const UiGuildCardScene&, float x, float y) noexcept;
 bool ui_guild_card_set_hover(UiGuildCardScene*, float x, float y) noexcept;

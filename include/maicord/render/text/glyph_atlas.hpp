@@ -176,8 +176,6 @@ static_assert(sizeof(GlyphAtlasIndex) == 16);
 bool glyph_atlas_index_initialize(GlyphAtlasIndex* index, Slice<u16> buckets) noexcept;
 GlyphAtlasAllocation glyph_atlas_find_indexed(GlyphAtlasAllocator* atlas, GlyphAtlasIndex* index,
                                               u64 key) noexcept;
-GlyphAtlasAllocation glyph_atlas_allocate_indexed(GlyphAtlasAllocator* atlas, GlyphAtlasIndex* index,
-                                                  u64 key, u16 width, u16 height) noexcept;
 GlyphAtlasAllocation glyph_atlas_allocate_unique_indexed(GlyphAtlasAllocator* atlas,
                                                          GlyphAtlasIndex* index, u64 key, u16 width,
                                                          u16 height) noexcept;

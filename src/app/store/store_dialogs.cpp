@@ -243,7 +243,7 @@ void build_link(Ctx& c) noexcept {
     fact(c, "Author", l.authors);
     fact(c, "License", l.license);
     fact(c, "Based on", l.based_on);
-    fact(c, "Size", l.size_text.bytes || !l.bytes ? l.size_text : size_text(c.b, l.bytes));
+    fact(c, "Size", l.bytes ? size_text(c.b, l.bytes) : Utf8View{});
     if (l.kind == CatalogKind::effect) {
         // The dot is the measured class: green light, amber medium, red heavy or refused.
         const u8 dot = l.cost_refused || l.cost_level >= 2 ? 3 : l.cost_level == 1 ? 4 : 5;

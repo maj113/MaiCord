@@ -250,28 +250,12 @@ bool editable() noexcept {
     return owner && owner->scene.active && owner->phase != Phase::submitting && owner->phase != Phase::loading;
 }
 
-} // namespace community_detail
-namespace {
-
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
-}
-
-} // namespace
-namespace community_detail {
-
 // Binds editor slot `slot` to `control` with initial text.
 void bind_editor(u32 slot, u64 control, const Utf8View& text, u32 limit, bool multiline) noexcept {
-    auto& p = *owner;
     const u32 bytes = minimum<u32>(text.bytes, kEditorBytes);
-    copy_bytes(p.editor_text[slot], text.data, bytes);
-    message_composer_refresh_borrowed(&p.models[slot], bytes);
-    message_composer_set_selection(&p.models[slot], bytes, bytes);
-    bounded_edit_bind(&p.bindings[slot], &p.models[slot], limit, multiline, p.lifetime, binding_ready,
-                      &p.models[slot]);
-    p.editor_controls[slot] = control;
+    copy_bytes(owner->editor_text[slot], text.data, bytes);
+    Editors::load(slot, bytes, limit, multiline);
+    owner->editor_controls[slot] = control;
 }
 int editor_slot(u64 control) noexcept {
     for (u32 i = 0; owner && i < kEditors; ++i)
@@ -337,13 +321,9 @@ void set_footer(const Utf8View& status, const Utf8View& save, const Utf8View& re
                 bool saving, bool failed) noexcept {
     owner->footer = {status, save, reset, visible, can_save, saving, failed};
 }
-UiSettingsEditor* editor_view(u64 control, Utf8View placeholder, bool enabled) noexcept {
+const UiSettingsEditor* editor_view(u64 control, Utf8View placeholder, bool enabled) noexcept {
     const int slot = editor_slot(control);
-    if (slot < 0)
-        return nullptr;
-    owner->editors[slot] =
-        settings_layer_editor_view(&owner->layer, control, owner->models[slot], placeholder, enabled);
-    return &owner->editors[slot];
+    return slot < 0 ? nullptr : Editors::view(slot, control, placeholder, enabled);
 }
 
 } // namespace

@@ -117,12 +117,6 @@ template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcep
     to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
 }
 
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
-}
-
 } // namespace
 namespace profile_editor_detail {
 
@@ -149,12 +143,8 @@ u32 editor_limit(u32 index) noexcept {
 namespace profile_editor_detail {
 
 void load_editor(u32 index, const Utf8View& text) noexcept {
-    auto& model = owner->models[index];
     const u32 bytes = utf8_copy_truncated(editor_buffer(index), editor_capacity(index), text);
-    message_composer_refresh_borrowed(&model, bytes);
-    message_composer_set_selection(&model, bytes, bytes);
-    bounded_edit_bind(&owner->bindings[index], &model, editor_limit(index), index == editor_bio, owner->lifetime,
-                      binding_ready, &model);
+    Editors::load(index, bytes, editor_limit(index), index == editor_bio);
 }
 
 } // namespace profile_editor_detail
@@ -421,8 +411,7 @@ bool layout_preview(const UiRect& anchor, const UiRect& visible) noexcept {
         s.pending_banner = {p.banner.request.key, p.banner.crop, true};
     s.measure = &g_app.account_ui->text_measure_cache;
     s.effect = p.effect.sku && p.effect.sku == p.effect_wanted ? &p.effect : nullptr;
-    s.reduced_motion = g_app.preferences.reduced_motion ||
-                       (g_app.surface_motion.system_preference_cached && !g_app.surface_motion.client_area_animation);
+    s.reduced_motion = application_reduced_motion();
     s.phase = ProfilePhase::ready;
     s.presence = UiPresence::online;
     const auto viewport = ui_rect_has_area(visible) ? visible : application_viewport_dips();
@@ -669,19 +658,16 @@ void project_controls(Bank& bank) noexcept {
     const bool name_allowed = (g.enabled & profile_editor_name) != 0;
     const auto& s = p.saved;
     const Utf8View account_name = s.global_name.bytes ? s.global_name.view() : s.username.view();
-    p.editors[editor_name] = settings_layer_editor_view(&p.layer, control_name, p.models[editor_name],
-                                                        guild ? account_name : s.username.view(), edit && name_allowed);
     push({control_name, guild ? utf8_literal("Server Nickname") : utf8_literal("Display Name"),
           profile_editor_gate_reason(p.tab, g, profile_editor_name), UiSettingsControlKind::edit, edit && name_allowed,
-          false, {}, 0, {}, &p.editors[editor_name]});
+          false, {}, 0, {},
+          Editors::view(editor_name, control_name, guild ? account_name : s.username.view(), edit && name_allowed)});
     push_error(control_name_error, guild ? ProfileEditErrorField::nick : ProfileEditErrorField::global_name);
     // Pronouns: open to everyone.
     const Utf8View account_pronouns = s.pronouns.view();
-    p.editors[editor_pronouns] = settings_layer_editor_view(
-        &p.layer, control_pronouns, p.models[editor_pronouns],
-        guild && account_pronouns.bytes ? account_pronouns : utf8_literal("Add your pronouns"), edit);
     push({control_pronouns, utf8_literal("Pronouns"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          &p.editors[editor_pronouns]});
+          Editors::view(editor_pronouns, control_pronouns,
+                        guild && account_pronouns.bytes ? account_pronouns : utf8_literal("Add your pronouns"), edit)});
     push_error(control_pronouns_error, ProfileEditErrorField::pronouns);
     // Per-server Nitro group explanation (no upsell).
     if (guild && !nitro())
@@ -746,14 +732,13 @@ void project_controls(Bank& bank) noexcept {
     const bool bio_allowed = (g.enabled & profile_editor_bio) != 0;
     const auto bio = editor_text(editor_bio);
     const i32 remaining = profile_editor_bio_remaining(bio);
-    p.editors[editor_bio] = settings_layer_editor_view(
-        &p.layer, control_bio, p.models[editor_bio],
-        guild ? utf8_literal("Tell this server a bit about yourself") : Utf8View{}, edit && bio_allowed);
     const Utf8View counter = bank.number(remaining);
     const Utf8View bio_reason = profile_editor_gate_reason(p.tab, g, profile_editor_bio);
     push({control_bio, utf8_literal("Bio"),
           bio_reason.bytes ? bio_reason : utf8_literal("You can use markdown and links if you\xE2\x80\x99" "d like."),
-          UiSettingsControlKind::multiline, edit && bio_allowed, false, {}, 0, counter, &p.editors[editor_bio]},
+          UiSettingsControlKind::multiline, edit && bio_allowed, false, {}, 0, counter,
+          Editors::view(editor_bio, control_bio,
+                        guild ? utf8_literal("Tell this server a bit about yourself") : Utf8View{}, edit && bio_allowed)},
          {remaining < 0 ? UiSettingsVariant::critical : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
     push_error(control_bio_error, ProfileEditErrorField::bio);
     push_error(control_misc_error, ProfileEditErrorField::misc);

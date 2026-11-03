@@ -1,5 +1,6 @@
 #include "pipeline_internal.hpp"
 #include "maicord/app/plugins/keep.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -20,13 +21,9 @@ PluginBinding* active(mc_ctx* ctx) noexcept {
     return ctx && ctx->call ? reinterpret_cast<PluginBinding*>(ctx) : nullptr;
 }
 
-Utf8View view(const mc_str& text) noexcept {
-    return {text.data, text.bytes};
-}
-
 // UTF-8 of 1..maximum bytes; line breaks are allowed.
 bool text_ok(const mc_str& text, u32 maximum) noexcept {
-    return text.data && text.bytes && text.bytes <= maximum && utf8_validate(view(text)).valid;
+    return text.data && text.bytes && text.bytes <= maximum && utf8_validate(plugin_view(text)).valid;
 }
 bool optional_text_ok(const mc_str& text, u32 maximum) noexcept {
     return !text.bytes || text_ok(text, maximum);
@@ -74,7 +71,7 @@ mc_status MC_CALL api_local_message(mc_ctx* ctx, uint64_t channel, mc_str text, 
     if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_local); status != MC_OK) return status;
     u64 id = 0;
-    const mc_status status = sink->local_message(binding->owner_id, channel, view(text), &id);
+    const mc_status status = sink->local_message(binding->owner_id, channel, plugin_view(text), &id);
     if (status == MC_OK && message_id) *message_id = id;
     return status;
 }
@@ -102,7 +99,7 @@ mc_status MC_CALL api_composer_insert(mc_ctx* ctx, mc_str text) noexcept {
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     if (!text_ok(text, MC_ACTION_TEXT_MAX)) return MC_E_INVALID;
     const auto* sink = sink_for(&PluginPipelineSink::composer_insert);
-    return sink ? sink->composer_insert(view(text)) : MC_E_UNSUPPORTED;
+    return sink ? sink->composer_insert(plugin_view(text)) : MC_E_UNSUPPORTED;
 }
 
 mc_status MC_CALL api_composer_replace(mc_ctx* ctx, mc_str text) noexcept {
@@ -112,7 +109,7 @@ mc_status MC_CALL api_composer_replace(mc_ctx* ctx, mc_str text) noexcept {
     // An empty text clears the draft.
     if (!optional_text_ok(text, MC_ACTION_TEXT_MAX) || (text.bytes && !text.data)) return MC_E_INVALID;
     const auto* sink = sink_for(&PluginPipelineSink::composer_replace);
-    return sink ? sink->composer_replace(view(text)) : MC_E_UNSUPPORTED;
+    return sink ? sink->composer_replace(plugin_view(text)) : MC_E_UNSUPPORTED;
 }
 
 mc_status MC_CALL api_composer_focus(mc_ctx* ctx) noexcept {
@@ -151,7 +148,7 @@ mc_status MC_CALL api_send_message(mc_ctx* ctx, const mc_send* send) noexcept {
     const auto* sink = sink_for(&PluginPipelineSink::send);
     if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_messages); status != MC_OK) return status;
-    return sink->send(binding->owner_id, {send->channel_id, send->reply_to, view(send->text), send->flags});
+    return sink->send(binding->owner_id, {send->channel_id, send->reply_to, plugin_view(send->text), send->flags});
 }
 
 mc_status MC_CALL api_edit_message(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str text) noexcept {
@@ -162,7 +159,7 @@ mc_status MC_CALL api_edit_message(mc_ctx* ctx, uint64_t channel, uint64_t messa
     const auto* sink = sink_for(&PluginPipelineSink::edit);
     if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_messages); status != MC_OK) return status;
-    return sink->edit(binding->owner_id, channel, message, view(text));
+    return sink->edit(binding->owner_id, channel, message, plugin_view(text));
 }
 
 mc_status MC_CALL api_react(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str emoji, uint32_t flags) noexcept {
@@ -173,7 +170,7 @@ mc_status MC_CALL api_react(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_
     const auto* sink = sink_for(&PluginPipelineSink::react);
     if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_reactions); status != MC_OK) return status;
-    return sink->react(binding->owner_id, channel, message, view(emoji), (flags & MC_REACT_REMOVE) != 0);
+    return sink->react(binding->owner_id, channel, message, plugin_view(emoji), (flags & MC_REACT_REMOVE) != 0);
 }
 
 mc_status MC_CALL api_delete_own(mc_ctx* ctx, uint64_t channel, uint64_t message) noexcept {
@@ -319,7 +316,7 @@ mc_status MC_CALL api_keep_restore(mc_ctx* ctx, const mc_kept* items, uint32_t c
         KeepInfo existing{};
         const bool known = keep_info(item.channel_id, item.message_id, &existing);
         const KeepMessage message{item.channel_id, item.message_id, item.author_id, item.timestamp_ms,
-                                  item.edited_ms,  view(item.content), view(item.author_name)};
+                                  item.edited_ms,  plugin_view(item.content), plugin_view(item.author_name)};
         u32 first_edit = 0;
         bool stored;
         if (item.flags & MC_KEPT_DELETED) {
@@ -327,13 +324,13 @@ mc_status MC_CALL api_keep_restore(mc_ctx* ctx, const mc_kept* items, uint32_t c
         } else {
             // Not deleted: the newest earlier text and the latest one make the edit.
             KeepMessage before = message;
-            before.content = view(item.edits[0]);
-            stored = keep_edited(before, view(item.content), item.edited_ms);
+            before.content = plugin_view(item.edits[0]);
+            stored = keep_edited(before, plugin_view(item.content), item.edited_ms);
             first_edit = 1;
         }
         // Earlier texts of a message already kept stay as they are.
         if (stored && !(known && existing.edit_count))
-            for (u32 edit = first_edit; edit < item.edit_count; ++edit) keep_add_edit(item.channel_id, item.message_id, view(item.edits[edit]));
+            for (u32 edit = first_edit; edit < item.edit_count; ++edit) keep_add_edit(item.channel_id, item.message_id, plugin_view(item.edits[edit]));
         if (!stored) result = MC_E_BUDGET;
     }
     if (const auto* sink = plugin_sink(); sink && sink->keep_changed) sink->keep_changed();

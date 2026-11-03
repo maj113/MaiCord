@@ -129,7 +129,6 @@ struct MessageReactionOutcome {
     MessageReactionOutcomeKind kind;
     MessageReactionError error;
     bool project;
-    bool authority_conflict;
     constexpr bool ok() const noexcept {
         return error == MessageReactionError::none;
     }

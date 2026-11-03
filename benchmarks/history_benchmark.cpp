@@ -213,7 +213,6 @@ int run() noexcept {
     if (decode_us == 0 || batch_us == 0 || older_us == 0 ||
         g_history_checksum == 0 ||
         timeline.history_pages != kBatchIterations + kOlderIterations ||
-        older.pages != kOlderIterations || older.demands != kOlderIterations ||
         list.structural_updates !=
             (kBatchIterations + kOlderIterations) * 2) {
         return 10;

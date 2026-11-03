@@ -4,6 +4,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "../../../support/layout_validation.hpp"
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
+#include "../../../support/send_tracker_probe.hpp"
 #include "maicord/protocol/messages/edit.hpp"
 #include "maicord/protocol/messages/typing.hpp"
 #include "maicord/protocol/messages/delete.hpp"
@@ -682,7 +683,7 @@ void test_message_composer_controller() noexcept {
         message_composer_controller_select_channel(&controller, 8);
     expect(channel_seven_draft && channel_eight_draft && seven_restored && restored_eight.ok() &&
                utf8_equal(message_composer_text(composer), utf8_literal("beta")) &&
-               composer.anchor == 4 && composer.caret == 3 && controller.channel_switches == 3 &&
+               composer.anchor == 4 && composer.caret == 3 &&
                drafts.count == 2,
            "message_composer_controller_per_channel_draft_restore");
 
@@ -781,7 +782,7 @@ void test_message_composer_controller() noexcept {
                completion.kind == MessageSendCompletionKind::expired && retry_after_timeout.ok() &&
                discard_prepare.ok() && discard_marked && discard_failure.ok() && discarded.ok() &&
                discarded.invalidation.structural && controller.request_count == 0 &&
-               controller.sends.active_count == 0 &&
+               send_tracker_active(controller.sends) == 0 &&
                message_store_find(message_store, deferred_send.nonce).error == MessageStoreError::not_found,
            "message_composer_controller_timeout_retry_and_discard");
     char profile_text[128]{};

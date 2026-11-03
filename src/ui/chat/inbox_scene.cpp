@@ -47,8 +47,7 @@ UiRect mention_avatar(UiRect card) noexcept {
 }
 bool current(const UiInboxScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision && s.content->tab == s.tab &&
-           (!s.source || (s.source->revision == s.source_revision && s.source->count == s.measured_count &&
-                          (!s.source->current || s.source->current(s.source->context))));
+           ui_source_current(s.source, s.source_revision, s.measured_count);
 }
 // Server headers carry a quiet "Mark all read" text button; channel rows a
 // check icon button that only shows while the row is hovered or focused

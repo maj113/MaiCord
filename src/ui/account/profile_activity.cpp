@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -39,29 +40,14 @@ template <u32 N> void put(ProfileString<N>* out, Utf8View value) noexcept {
     copy_bytes(out->data + out->bytes, value.data, bytes);
     out->bytes = static_cast<u16>(out->bytes + bytes);
 }
-struct Writer {
-    Slice<char> output;
-    u32 used = 0;
-    bool ok = true;
-    void text(Utf8View value) noexcept {
-        if (!ok || value.bytes > output.count - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(output.data + used, value.data, value.bytes);
-        used += value.bytes;
-    }
-    void number(u64 value, u32 width = 0) noexcept {
-        char digits[20];
-        const u32 bytes = decimal_write(digits, value);
-        for (u32 i = bytes; i < width; ++i)
-            text(utf8_literal("0"));
-        text({digits, bytes});
-    }
-    u32 finish() const noexcept {
-        return ok ? used : 0;
-    }
-};
+// Digits left-padded with zeros to width.
+void padded(TextWriter& w, u64 value, u32 width) noexcept {
+    char digits[20];
+    const u32 bytes = decimal_write(digits, value);
+    for (u32 i = bytes; i < width; ++i)
+        w.add("0");
+    w.add(digits, bytes);
+}
 bool word(char c) noexcept {
     return ascii_is_alnum(c) || c == '_';
 }
@@ -114,27 +100,27 @@ u32 profile_activity_order(const UserActivitySet& set, const Slice<u8>& order) n
     return used;
 }
 u32 profile_activity_clock_text(u64 seconds, const Slice<char>& output) noexcept {
-    Writer w{output};
+    TextWriter w{output};
     const u64 hours = seconds / 3600, minutes = seconds / 60 % 60;
     if (hours) {
         w.number(hours);
-        w.text(utf8_literal(":"));
-        w.number(minutes, 2);
+        w.add(":");
+        padded(w, minutes, 2);
     } else
         w.number(minutes);
-    w.text(utf8_literal(":"));
-    w.number(seconds % 60, 2);
+    w.add(":");
+    padded(w, seconds % 60, 2);
     return w.finish();
 }
 u32 profile_activity_track_text(u64 seconds, const Slice<char>& output) noexcept {
-    Writer w{output};
+    TextWriter w{output};
     if (seconds >= 3600) {
-        w.number(seconds / 3600, 2);
-        w.text(utf8_literal(":"));
+        padded(w, seconds / 3600, 2);
+        w.add(":");
     }
-    w.number(seconds / 60 % 60, 2);
-    w.text(utf8_literal(":"));
-    w.number(seconds % 60, 2);
+    padded(w, seconds / 60 % 60, 2);
+    w.add(":");
+    padded(w, seconds % 60, 2);
     return w.finish();
 }
 ProfileActivityGlyph profile_activity_placeholder(UserActivityType type) noexcept {
@@ -180,23 +166,23 @@ bool profile_activity_progress(const UserActivity& a, u64 now, ProfileActivityPr
 }
 u32 profile_activity_party_text(const Utf8View& state, u32 size, u32 max, const Slice<char>& output) noexcept {
     char count[48];
-    Writer n{{count, sizeof(count)}};
+    TextWriter n{{count, sizeof(count)}};
     if (size && max) {
         n.number(size);
-        n.text(utf8_literal(" of "));
+        n.add(" of ");
         n.number(max);
     } else if (size)
         n.number(size);
-    Writer w{output};
+    TextWriter w{output};
     if (state.bytes) {
-        w.text(state);
+        w.add(state);
         if (n.used) {
-            w.text(utf8_literal(" ("));
-            w.text({count, n.used});
-            w.text(utf8_literal(")"));
+            w.add(" (");
+            w.add({count, n.used});
+            w.add(")");
         }
     } else
-        w.text({count, n.used});
+        w.add({count, n.used});
     return w.finish();
 }
 u32 profile_activity_episode_text(const Utf8View& s, const Slice<char>& output) noexcept {
@@ -212,11 +198,11 @@ u32 profile_activity_episode_text(const Utf8View& s, const Slice<char>& output) 
         const u32 episode_end = word_number(s, season_end + 2, &episode);
         if (!episode_end)
             continue;
-        Writer w{output};
-        w.text(utf8_literal("S"));
-        w.text({s.data + season, season_end - season});
-        w.text(utf8_literal("E"));
-        w.text({s.data + episode, episode_end - episode});
+        TextWriter w{output};
+        w.add("S");
+        w.add({s.data + season, season_end - season});
+        w.add("E");
+        w.add({s.data + episode, episode_end - episode});
         return w.finish();
     }
     return 0;
@@ -261,18 +247,18 @@ bool profile_activity_content(const UserActivity& a, bool bot, bool self, Profil
         add_line(details);
         if (embedded && (a.party_size || a.party_max)) {
             char line[192];
-            Writer w{{line, sizeof(line)}};
+            TextWriter w{{line, sizeof(line)}};
             if (state.bytes) {
-                w.text(state);
-                w.text(utf8_literal(" "));
+                w.add(state);
+                w.add(" ");
             }
-            w.text(utf8_literal("("));
+            w.add("(");
             w.number(a.party_size);
             if (a.party_max) {
-                w.text(utf8_literal(" of "));
+                w.add(" of ");
                 w.number(a.party_max);
             }
-            w.text(utf8_literal(")"));
+            w.add(")");
             add_line({line, w.finish()});
         } else if (!party)
             add_line(state);

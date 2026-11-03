@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/account/profile_scene.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 namespace maicord {
 struct MemberListScene;
 struct ProfileMedia {
@@ -43,12 +44,7 @@ bool member_media_resolve(const MemberListScene& scene, u32 index, MemberMedia l
                           ProfileMedia* output, bool visible_only = true) noexcept;
 // A visible member row without a guild avatar draws the shared user-avatar
 // identity, requested and cached like message authors.
-struct MemberAvatarMedia {
-    MediaAssetKey key;
-    Utf8View hash;
-    UiRect rectangle, clip;
-};
-bool member_plain_avatar_resolve(const MemberListScene& scene, u32 index, MemberAvatarMedia* output,
+bool member_plain_avatar_resolve(const MemberListScene& scene, u32 index, AvatarMedia* output,
                                  bool visible_only = true) noexcept;
 bool member_plain_avatar_current(const MemberListScene& scene, MediaAssetKey key) noexcept;
 

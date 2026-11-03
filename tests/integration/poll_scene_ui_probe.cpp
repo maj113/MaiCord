@@ -118,7 +118,7 @@ struct Fixture {
             {1,
              UiWidgetKind::button,
              static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-             {utf8_literal("Poll voters"), ui_layout_style(), {}, 0, 1}});
+             {utf8_literal("Poll voters"), ui_layout_style(), {}, 1}});
         inspector_root = added.handle;
         for (u32 i = 0; i < 25; ++i) {
             voters[i].id = 1000 + i;

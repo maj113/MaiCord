@@ -2108,7 +2108,7 @@ bool probe_friends_scene() noexcept {
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         !probe_present(&g_probe.renderer, kDefaultTheme))
         return false;
-    FriendsAvatarMedia avatar{};
+    AvatarMedia avatar{};
     bool avatar_quad = false;
     if (!friends_avatar_media_resolve(friends, g_probe.users, 0, &avatar) ||
         !media_atlas_peek(&g_probe.media_atlas, avatar.key).ok())
@@ -2340,7 +2340,7 @@ bool probe_friends_requests_scene() noexcept {
         renderer.friends_requests_text_end_batch > renderer.menu_text_first_batch)
         return false;
     UiFriendsVisibleRow row{};
-    FriendsAvatarMedia avatar{};
+    AvatarMedia avatar{};
     if (!ui_friends_scene_visible_row(requests, 0, &row) || !row.row.ignored || row.row.spam ||
         !friends_avatar_media_resolve(requests, g_probe.users, 0, &avatar) ||
         !media_atlas_peek(&g_probe.media_atlas, avatar.key).ok())

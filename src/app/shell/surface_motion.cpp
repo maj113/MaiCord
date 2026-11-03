@@ -87,12 +87,12 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, Re
 
 u64 application_surface_motion_owner_next_wake(const ApplicationSurfaceMotionOwner& owner,
                                                RendererLayerSurface surface,
-                                               ApplicationSurfaceMotionKey key, u64 now_ms) noexcept {
+                                               ApplicationSurfaceMotionKey key) noexcept {
     if (!valid_surface(surface) || !valid_key(surface, key))
         return 0;
     const auto& slot = owner.slots[static_cast<u32>(surface)];
     return same_key(slot.key, key)
-               ? ui_motion_transition_next_wake(slot.motion, slot.motion.scope, now_ms, false, true)
+               ? ui_motion_transition_next_wake(slot.motion, slot.motion.scope, false, true)
                : 0;
 }
 
@@ -247,18 +247,18 @@ void application_surface_motion_synchronize(u64 now_ms) noexcept {
     }
 }
 
-u64 application_surface_motion_next_wake(u64 now_ms) noexcept {
+u64 application_surface_motion_next_wake() noexcept {
     const bool allowed = host_motion_allowed();
     if (!allowed)
         return 0;
-    u64 wake = earliest_deadline(application_unread_banner_next_wake(now_ms),
-                                 application_guild_folders_next_wake(now_ms));
+    u64 wake = earliest_deadline(application_unread_banner_next_wake(),
+                                 application_guild_folders_next_wake());
     const auto& rail = g_app.guild_rail_scene;
     if (rail.active && !g_app.renderer.login_visible &&
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)) {
-        wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.home_indicator, now_ms));
+        wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.home_indicator));
         for (u32 i = 0; i < rail.count; ++i)
-            wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.rows[i].indicator, now_ms));
+            wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.rows[i].indicator));
     }
     for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
         const auto surface = static_cast<RendererLayerSurface>(i);
@@ -266,7 +266,7 @@ u64 application_surface_motion_next_wake(u64 now_ms) noexcept {
         if (!current.animate)
             continue;
         wake = earliest_deadline(
-            wake, application_surface_motion_owner_next_wake(g_app.surface_motion, surface, current.key, now_ms));
+            wake, application_surface_motion_owner_next_wake(g_app.surface_motion, surface, current.key));
     }
     return wake;
 }
@@ -274,7 +274,7 @@ u64 application_surface_motion_next_wake(u64 now_ms) noexcept {
 bool application_surface_motion_request_frame_if_due(u64 now_ms, bool frame_available) noexcept {
     if (!frame_available)
         return false;
-    const u64 wake = application_surface_motion_next_wake(now_ms);
+    const u64 wake = application_surface_motion_next_wake();
     if (!wake || now_ms < wake)
         return false;
     application_request_frame();

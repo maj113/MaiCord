@@ -51,10 +51,10 @@ bool ui_hover_card_advance(UiHoverCard* card, const UiHoverCardMotion& motion, u
     return true;
 }
 
-u64 ui_hover_card_next_wake(const UiHoverCard& card, const UiHoverCardMotion& motion, u64 now_ms,
+u64 ui_hover_card_next_wake(const UiHoverCard& card, const UiHoverCardMotion& motion,
                             bool reduced_motion) noexcept {
     return card.active
-               ? ui_motion_transition_next_wake(card.entrance, scope(card, motion), now_ms, reduced_motion, true)
+               ? ui_motion_transition_next_wake(card.entrance, scope(card, motion), reduced_motion, true)
                : 0;
 }
 
@@ -80,7 +80,7 @@ bool ui_hover_card_set_pressed(UiHoverCard* card, bool pressed) noexcept {
 
 bool ui_hover_card_paint_surface(PaintStream* paint, const UiHoverCard& card, const Theme& theme,
                                  float radius) noexcept {
-    const float a = card.progress < 0 ? 0.f : card.progress > 1 ? 1.f : card.progress;
+    const float a = clamp_unit(card.progress);
     const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
     const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
     return ui_surface_paint(paint, card.panel, theme, UiElevation::popover, radius, &fill, &border);

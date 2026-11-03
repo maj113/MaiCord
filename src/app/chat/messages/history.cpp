@@ -576,10 +576,8 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
                     static_cast<u64>(submitted.error));
             return false;
         }
-        if (owner == MessageHistoryRequestOwner::attachment_refresh) {
+        if (owner == MessageHistoryRequestOwner::attachment_refresh)
             g_app.attachment_refresh.state = AttachmentRefreshState::awaiting_response;
-            ++g_app.attachment_refresh.requests;
-        }
         if (owner == MessageHistoryRequestOwner::reply_refresh)
             g_app.reply_refresh.state = AttachmentRefreshState::awaiting_response;
         g_app.message_history_request_owner = owner;

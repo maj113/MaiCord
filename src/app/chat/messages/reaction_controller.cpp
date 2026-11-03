@@ -412,20 +412,17 @@ void complete_flight(MessageReactionOutcome* out, MessageReactionController* con
                                   achieved ? MessageReactionOutcomeKind::settled
                                            : MessageReactionOutcomeKind::expired);
     }
-    bool authority_conflict = false;
     if (completion == MessageReactionCompletion::success) {
         if (intent.mine_revision == flight.intent.mine_revision) {
             auto authority = intent.authority;
             set_mine(authority, intent.target.type, flight.intent.desired_mine);
             shared_authority(*controller, intent, authority, ++controller->mine_revision);
-        } else
-            authority_conflict = mine(intent.authority, intent.target.type) != flight.intent.desired_mine;
+        }
         intent.retries = 0;
         if (mine(intent.authority, intent.target.type) == intent.desired_mine) {
             if (flight.intent.desired_mine != intent.desired_mine) {
                 intent.due_at_ms = now_ms;
                 make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
-                out->authority_conflict = authority_conflict;
                 return;
             }
             intent.awaiting_echo = !intent.echo_matches;
@@ -433,12 +430,10 @@ void complete_flight(MessageReactionOutcome* out, MessageReactionController* con
                 make_outcome(out, *controller, intent, MessageReactionOutcomeKind::settled);
             else
                 erase_with_outcome(out, *controller, index, MessageReactionOutcomeKind::settled);
-            out->authority_conflict = authority_conflict;
             return;
         }
         intent.due_at_ms = now_ms;
         make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
-        out->authority_conflict = authority_conflict;
         return;
     }
     if (intent.echo_matches && mine(intent.authority, intent.target.type) == intent.desired_mine)

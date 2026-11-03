@@ -262,9 +262,8 @@ int run() noexcept {
     }
     write_metric("snapshot_event_reaction", elapsed_ns(clock, begin, kEventIterations), "ns");
     const auto* entry = message_snapshot_cache_find(g_cache, kChannel);
-    if (!entry || entry->count != kRows || g_cache.event_drops)
+    if (!entry || entry->count != kRows)
         return 7;
-    write_metric("snapshot_events_applied", g_cache.event_updates, "events");
     message_snapshot_cache_release(&g_cache);
     message_rich_store_release(&g_timeline.rich);
     return 0;

@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
@@ -8,7 +9,7 @@ namespace maicord::app_detail {
 // while its feature is open. Null when the system refuses.
 template <typename T>
 [[nodiscard]] inline T* owner_allocate() noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    return commit_pages<T>();
 }
 
 // Wipes an owner (it may hold typed text or tokens), returns its pages and clears the pointer; null

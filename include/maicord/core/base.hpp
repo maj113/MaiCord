@@ -65,6 +65,16 @@ template <typename T> constexpr T clamp_value(T value, T low, T high) noexcept {
     return value < low ? low : value > high ? high : value;
 }
 
+// 0..1: what an opacity or a progress is held to.
+constexpr float clamp_unit(float value) noexcept {
+    return clamp_value(value, 0.f, 1.f);
+}
+
+// Nonzero with one bit set.
+constexpr bool is_power_of_two(u64 value) noexcept {
+    return value != 0 && (value & (value - 1)) == 0;
+}
+
 template <typename T> constexpr T absolute_value(T value) noexcept {
     return value < 0 ? -value : value;
 }

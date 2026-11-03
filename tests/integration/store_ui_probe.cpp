@@ -206,7 +206,7 @@ void plugins() noexcept {
     StoreItem& clear = add(CatalogKind::plugin, utf8_literal("clear-urls"), utf8_literal("Clear URLs"),
                            utf8_literal("Removes tracking parameters from links you send."), utf8_literal("Maj Sokoli\xC4\x8D"), utf8_literal("1.0.0"),
                            utf8_literal("Privacy"), utf8_literal("Chat"));
-    clear.installed = clear.enabled = clear.running = true;
+    clear.installed = clear.enabled = true;
     clear.risk = 1;
     clear.has_settings = true;
     clear.order = 0;
@@ -221,7 +221,7 @@ void plugins() noexcept {
     StoreItem& names = add(CatalogKind::plugin, utf8_literal("show-me-your-name"), utf8_literal("Show Me Your Name"),
                            utf8_literal("Shows usernames next to nicknames in chat, so you always know who's who."), utf8_literal("MaiCord"),
                            utf8_literal("1.2.0"), utf8_literal("Appearance"), utf8_literal("Chat"));
-    names.installed = names.enabled = names.running = true;
+    names.installed = names.enabled = true;
     names.installed_version = utf8_literal("1.1.0");
     names.update = true;
     names.update_version = utf8_literal("1.2.0");
@@ -230,7 +230,7 @@ void plugins() noexcept {
     StoreItem& reverse = add(CatalogKind::plugin, utf8_literal("reverse-image-search"), utf8_literal("Reverse Image Search"),
                              utf8_literal("Adds a Search image submenu to images: Google Lens, Bing, Yandex and TinEye."), utf8_literal("MaiCord"),
                              utf8_literal("1.0.0"), utf8_literal("Chat"), utf8_literal("Utility"));
-    reverse.installed = reverse.enabled = reverse.running = true;
+    reverse.installed = reverse.enabled = true;
     reverse.has_settings = true;
     reverse.can_roll_back = true;
     reverse.previous_version = utf8_literal("0.9.2");
@@ -244,7 +244,7 @@ void plugins() noexcept {
     silent.order = 2;
     StoreItem& pin = add(CatalogKind::plugin, utf8_literal("pin-counter"), utf8_literal("Pin Counter"), utf8_literal("Counts pins."),
                          utf8_literal("Lumen"), utf8_literal("0.3.0"), utf8_literal("Utility"));
-    pin.installed = pin.enabled = pin.running = true;
+    pin.installed = pin.enabled = true;
     pin.sideloaded = true;
     pin.item = ~0u;
     pin.folder = utf8_literal("D:\\dev\\pin-counter");
@@ -352,7 +352,7 @@ void effects() noexcept {
         item.source = utf8_literal("https://github.com/maj113/MaiCord/tree/master/samples/effects");
     }
     StoreItem& aurora = m.items[1];
-    aurora.installed = aurora.active = aurora.has_knobs = true;
+    aurora.installed = aurora.active = true;
     aurora.library = 0;
     aurora.order = 0;
 }
@@ -549,7 +549,7 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     };
     // 01 Plugins > Browse
     plugins();
-    f.model.items[3].installed = f.model.items[3].enabled = f.model.items[3].running = false; // Reverse Image Search: not installed yet
+    f.model.items[3].installed = f.model.items[3].enabled = false; // Reverse Image Search: not installed yet
     f.state[0].tab = StoreTab::browse;
     next(L"store-01-browse-plugins.bmp", kPlugins, nullptr, sunset);
     // 11 the same page in the flat dark theme
@@ -697,7 +697,7 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     f.model.link.authors = utf8_literal("lumen");
     f.model.link.license = utf8_literal("CC-BY-NC-SA-4.0");
     f.model.link.based_on = utf8_literal("Plasma by MaiCord");
-    f.model.link.size_text = utf8_literal("18.4 KB");
+    f.model.link.bytes = 18842;
     f.model.link.cost_known = true;
     f.model.link.cost_level = 0;
     f.model.link.cost_text = utf8_literal("Light \xC2\xB7 0.6 ms");

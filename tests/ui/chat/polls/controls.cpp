@@ -43,7 +43,7 @@ bool measure(void* context, const UiTextMeasureRequest& request, UiTextMeasureVa
         }
         x += 7;
     }
-    *value = {{maximum(widest, x), static_cast<float>(lines) * 16}, 12, lines};
+    *value = {{maximum(widest, x), static_cast<float>(lines) * 16}, lines};
     return true;
 }
 struct Fixture {
@@ -65,7 +65,7 @@ struct Fixture {
             {1,
              UiWidgetKind::button,
              static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-             {utf8_literal("Poll owner"), ui_layout_style(), {}, 0, 1}});
+             {utf8_literal("Poll owner"), ui_layout_style(), {}, 1}});
         root = added.handle;
         answers[0].id = 7;
         answers[0].text = utf8_literal("A quiet walk beside the river");
@@ -397,7 +397,7 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
               ui_poll_voters_target_enabled(scene, {UiPollVotersControl::next}),
           "poll voters: narrow Light panel keeps bounded visible page and arbitrary answer tabs above "
           "independent pagination");
-    PollVotersAvatarMedia voter_avatar{}, blank_avatar{};
+    AvatarMedia voter_avatar{}, blank_avatar{};
     check(poll_voters_avatar_media_resolve(scene, 0, &voter_avatar) &&
               voter_avatar.key.kind == MediaAssetKind::user_avatar && voter_avatar.key.id == 1000 &&
               voter_avatar.key.variant == users[0].avatar_variant &&

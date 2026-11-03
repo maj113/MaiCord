@@ -93,7 +93,7 @@ u8 scratch[3 * (kEmojiPreferencesMaximumGroupBytes + 8) + 32];
 u8 json[kEmojiPreferencesMaximumPatchBytes];
 
 // The application's identity: custom IDs, or a tagged catalog index.
-u64 identity(void*, Utf8View key) noexcept {
+u64 identity(Utf8View key) noexcept {
     const auto emoji = reaction_emoji_from_settings_key(key);
     return !emoji.valid() ? 0 : emoji.custom() ? emoji.custom_id : (1ull << 63) | emoji.catalog_index;
 }

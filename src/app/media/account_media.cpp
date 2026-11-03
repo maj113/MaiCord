@@ -13,10 +13,6 @@
 namespace maicord {
 namespace account_media_detail {
 
-// A committed private allocation; null on failure.
-__declspec(noinline) void* commit_pages(usize bytes) noexcept {
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-}
 ProgressiveVideoFetch* allocate_fetch() noexcept {
     return static_cast<ProgressiveVideoFetch*>(commit_pages(sizeof(ProgressiveVideoFetch)));
 }

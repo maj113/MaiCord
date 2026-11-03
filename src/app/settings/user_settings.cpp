@@ -2,6 +2,7 @@
 #include "../guild/folders.hpp"
 #include "../account/account_access.hpp"
 #include "../shell/owner.hpp"
+#include "account_broker.hpp"
 #include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../chat/application_link_trust.hpp"
@@ -85,11 +86,6 @@ MessageSceneDisplay scene_display(bool compact) noexcept {
             g_app.preferences.reply_timestamps, g_app.preferences.role_colors_everywhere};
 }
 
-bool online() noexcept {
-    return g_app.account.instance && g_app.account_ui && g_app.account.status.profile_id &&
-           g_app.account_ui->chat_state.self_user_id && g_app.account.status.running &&
-           !g_app.account.status.failed && g_app.account.status.required_action == AccountRequirement::none;
-}
 UserSettingsStore* store() noexcept {
     return g_owner.bank ? &g_owner.bank->store : nullptr;
 }
@@ -100,7 +96,7 @@ AccountContentPolicy content_policy() noexcept {
     return g_app.account_ui ? g_app.account_ui->chat_state.content_policy : AccountContentPolicy{};
 }
 bool content_confirmation_valid(TextFormOwnerKey key) noexcept {
-    return online() && key.scope == reinterpret_cast<u64>(g_app.account.instance) &&
+    return account_online() && key.scope == reinterpret_cast<u64>(g_app.account.instance) &&
            key.collection == g_app.account.status.profile_id &&
            key.item == g_app.account_ui->chat_state.self_user_id &&
            account_content_confirmation_required(content_policy());
@@ -284,7 +280,7 @@ void application_user_settings_gateway(const GatewayClientEvent& event, ConstSli
 void application_user_settings_synchronize() noexcept {
     scope();
     if (auto* s = store())
-        s->live = online();
+        s->live = account_online();
     const u64 revision = store() ? store()->revision : 0;
     if (revision != g_owner.applied_revision)
         application_user_settings_apply_display();
@@ -292,7 +288,7 @@ void application_user_settings_synchronize() noexcept {
 
 bool application_user_settings_pending(u64 now_ms) noexcept {
     auto* s = store();
-    if (!s || g_owner.request_id || !online() || !g_app.account.api.account_settings || g_owner.retry_at_ms > now_ms)
+    if (!s || g_owner.request_id || !account_online() || !g_app.account.api.account_settings || g_owner.retry_at_ms > now_ms)
         return false;
     s->live = true;
     return s->refetch || user_settings_store_due(*s, now_ms);
@@ -489,7 +485,7 @@ bool application_user_settings_content_confirmation_required() noexcept {
 }
 
 void application_user_settings_request_content_confirmation() noexcept {
-    if (!online() || !application_user_settings_content_confirmation_required())
+    if (!account_online() || !application_user_settings_content_confirmation_required())
         return;
     ApplicationTextFormRequest request{};
     request.title = utf8_literal("Confirm your age in Discord");
@@ -536,9 +532,9 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     const auto notice = [&]() noexcept {
         if (ready && !g_owner.failed)
             return false;
-        control->description = g_owner.failed  ? g_owner.status
-                               : !online()     ? utf8_literal("Connect to Discord to change these settings.")
-                                               : utf8_literal("Loading your Discord settings…");
+        control->description = g_owner.failed      ? g_owner.status
+                               : !account_online() ? utf8_literal("Connect to Discord to change these settings.")
+                                                   : utf8_literal("Loading your Discord settings…");
         control->label = g_owner.failed ? utf8_literal("Settings not saved") : utf8_literal("Synced settings");
         if (g_owner.failed)
             presentation->variant = UiSettingsVariant::critical;

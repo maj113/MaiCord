@@ -7,16 +7,14 @@
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "../../media/local_preview_entry.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {
 inline constexpr u32 kComposerPreviewSlots = 16; // Ten visible tiles plus draining retirements.
-struct ComposerPreviewEntry {
-    AccountMediaLocalPreviewRequest request;
-    void* instance;
-    u64 draft_id, profile, poll_at;
-    bool occupied, admitted, ready, failed, retired;
+struct ComposerPreviewEntry : LocalPreviewEntry {
+    u64 draft_id;
 };
 struct ComposerPreviewOwner {
     ComposerPreviewEntry entries[kComposerPreviewSlots];
@@ -35,11 +33,7 @@ bool actor_current(const ComposerPreviewEntry& entry) noexcept {
            g_app.account.status.profile_id == entry.profile;
 }
 ComposerPreviewEntry* find(MediaAssetKey key) noexcept {
-    if (owner)
-        for (auto& entry : owner->entries)
-            if (entry.occupied && media_asset_key_equal(entry.request.key, key))
-                return &entry;
-    return nullptr;
+    return owner ? local_preview_find(owner->entries, key) : nullptr;
 }
 // The draft still exists unsent in the active channel with the same source.
 bool source_current(const ComposerPreviewEntry& entry) noexcept {
@@ -66,22 +60,7 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
         changed();
         unpin(entry.request.key);
     }
-    entry.retired = true;
-    entry.ready = false;
-    if (!entry.admitted || !actor_current(entry) || !g_app.account.api.media_local_preview) {
-        reset_value(&entry);
-        return;
-    }
-    AccountMediaLocalPreviewRequest exact{};
-    exact.key = entry.request.key;
-    exact.owner_scope = entry.request.owner_scope;
-    exact.owner_generation = entry.request.owner_generation;
-    const auto result = g_app.account.api.media_local_preview(entry.instance, AccountLocalPreviewOperation::retire,
-                                                              &exact, 0, 0);
-    if (result.state == AccountMediaRequestState::pending)
-        entry.poll_at = deadline_after(now, 100);
-    else
-        reset_value(&entry);
+    local_preview_retire(entry, now, actor_current(entry));
 }
 } // namespace
 
@@ -123,22 +102,12 @@ bool application_composer_preview_frame_current(const AccountMediaFrame& frame) 
            local_draft_preview_frame_matches(frame, entry->request);
 }
 void application_composer_preview_frame_uploaded(const AccountMediaFrame& frame) noexcept {
-    if (!application_composer_preview_frame_current(frame))
-        return;
-    auto* entry = find(frame.key);
-    if (!entry->ready)
+    if (application_composer_preview_frame_current(frame) && local_preview_uploaded(*find(frame.key)))
         changed();
-    entry->ready = true;
-    entry->poll_at = 0;
 }
 void application_composer_preview_rejected(MediaAssetKey key) noexcept {
-    if (auto* entry = find(key)) {
-        if (!entry->failed || entry->ready)
-            changed();
-        entry->ready = false;
-        entry->failed = true;
-        entry->poll_at = 0;
-    }
+    if (auto* entry = find(key); entry && local_preview_rejected(*entry))
+        changed();
 }
 
 void application_composer_preview_deferred(MediaAssetKey key, u64 retry_at_ms) noexcept {
@@ -221,30 +190,15 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             }
         }
-        if (entry->ready && g_app.renderer.preview_media_atlas &&
-            !media_atlas_peek(g_app.renderer.preview_media_atlas, entry->request.key).ok()) {
-            // Evicted under atlas pressure: decode again from the retained source.
+        if (local_preview_evicted(*entry))
             changed();
-            entry->ready = false;
-            entry->poll_at = 0;
-        }
         if (entry->ready || entry->failed || now < entry->poll_at)
             continue;
         // The path view borrows draft payload storage; refresh it per admission.
         if (!entry->request.content.context)
             entry->request.path = message_attachment_drafts_path(&state->drafts, id);
-        const auto result = g_app.account.api.media_local_preview(entry->instance, AccountLocalPreviewOperation::request,
-                                                                  &entry->request, now, unix_now);
-        if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
-            result.state == AccountMediaRequestState::ready) {
-            entry->admitted = true;
-        } else if (result.state != AccountMediaRequestState::busy) {
+        if (local_preview_admit(*entry, now, unix_now))
             changed();
-            entry->failed = true;
-            entry->poll_at = 0;
-            continue;
-        }
-        entry->poll_at = deadline_after(now, 100);
     }
     return true;
 }
@@ -268,12 +222,7 @@ void application_composer_preview_release() noexcept {
 }
 
 u64 application_composer_preview_next_wake() noexcept {
-    u64 wake = 0;
-    if (owner)
-        for (const auto& entry : owner->entries)
-            if (entry.occupied && entry.poll_at && (!wake || entry.poll_at < wake))
-                wake = entry.poll_at;
-    return wake;
+    return owner ? local_preview_next_wake(owner->entries) : 0;
 }
 
 u32 application_composer_preview_revision() noexcept {

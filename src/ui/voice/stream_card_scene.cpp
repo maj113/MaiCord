@@ -14,9 +14,6 @@ constexpr float kNameHeight = 20, kChannelHeight = 18, kButtonHeight = 36, kLive
 constexpr float kCardHeight = kUiStreamCardPadding + kThumbnailHeight + 10 + kNameHeight + 2 + kChannelHeight + 12 +
                               kButtonHeight + kUiStreamCardPadding;
 constexpr UiHoverCardMotion kEntrance{{kUiStreamCardEntranceMs, UiMotionCurve::spring}, 0x5743'a8d0'0000'0001ull};
-u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
-    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
 UiRect offset(UiRect r, float dx) noexcept {
     return {r.left + dx, r.top, r.right + dx, r.bottom};
 }
@@ -45,9 +42,6 @@ void layout(UiStreamCardScene& s) noexcept {
     s.button = {p.left + kUiStreamCardPadding, p.bottom - kUiStreamCardPadding - kButtonHeight,
                 p.right - kUiStreamCardPadding, p.bottom - kUiStreamCardPadding};
 }
-float opacity(const UiStreamCardScene& s) noexcept {
-    return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
-}
 UiRect name_line(const UiStreamCardScene& s) noexcept {
     return {s.live.right + 8, s.live.top, s.thumbnail.right, s.live.top + kNameHeight};
 }
@@ -69,8 +63,8 @@ bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardC
     s->identity = identity;
     s->anchor = anchor;
     s->viewport = viewport;
-    s->name_bytes = copy_text(s->name, kUiStreamCardTextBytes, content.name);
-    s->channel_bytes = copy_text(s->channel, kUiStreamCardTextBytes, content.channel);
+    s->name_bytes = utf8_copy_truncated(s->name, kUiStreamCardTextBytes, content.name);
+    s->channel_bytes = utf8_copy_truncated(s->channel, kUiStreamCardTextBytes, content.channel);
     s->preview = content.preview;
     s->preview_state = content.preview_state;
     s->watching = content.watching;
@@ -105,8 +99,8 @@ bool ui_stream_card_tick(UiStreamCardScene* s, u64 now_ms, bool reduced_motion) 
     return true;
 }
 
-u64 ui_stream_card_next_wake(const UiStreamCardScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return ui_hover_card_next_wake(s, kEntrance, now_ms, reduced_motion);
+u64 ui_stream_card_next_wake(const UiStreamCardScene& s, bool reduced_motion) noexcept {
+    return ui_hover_card_next_wake(s, kEntrance, reduced_motion);
 }
 
 bool ui_stream_card_contains(const UiStreamCardScene& s, float x, float y) noexcept {
@@ -132,7 +126,7 @@ bool ui_stream_card_spinner_visible(const UiStreamCardScene& s) noexcept {
 bool ui_stream_card_media(const UiStreamCardScene& s, const Theme& theme, UiStreamCardMedia* output) noexcept {
     if (!output || !s.active || s.preview_state != UiStreamCardPreview::ready || !media_asset_key_valid(s.preview))
         return false;
-    *output = {s.preview, s.thumbnail, s.thumbnail, theme.scale.radius_sm, opacity(s)};
+    *output = {s.preview, s.thumbnail, s.thumbnail, theme.scale.radius_sm, clamp_unit(s.progress)};
     return true;
 }
 
@@ -140,7 +134,7 @@ bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintS
     if (!s.active)
         return true;
     UiPaint p{paint, theme};
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     p.use<ui_hover_card_paint_surface>(s, theme, theme.scale.radius_md);
     // Thumbnail plate (media scrim): the preview covers it once resident.
     Color plate = theme.tokens.overlay.media;
@@ -175,7 +169,7 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
         return true;
     UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
     const auto owner = s.owner.handle;
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     text(owner, utf8_literal("LIVE"), s.live, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
          text_style_subtext | text_style_bold, ui_text_center);
     if (s.preview_state == UiStreamCardPreview::unavailable) {

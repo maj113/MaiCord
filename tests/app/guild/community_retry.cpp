@@ -78,7 +78,7 @@ void settings_layer_begin_entrance(SettingsLayer*) noexcept {
 }
 void settings_layer_cancel_pointer(SettingsLayer*) noexcept {
 }
-bool settings_layer_choice_current(const SettingsLayer&) noexcept {
+bool settings_layer_choice_lapsed(SettingsLayer&) noexcept {
     return false;
 }
 void settings_layer_tick(SettingsLayer*, u64) noexcept {

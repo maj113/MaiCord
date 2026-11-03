@@ -75,7 +75,7 @@ struct EmojiFrecencyEntry {
 // Observed keys match edits and entries by identity (by exact key when 0), so
 // "slight_smile" from another client and this client's key for the same
 // emoji are one entry, kept under the observed key.
-using EmojiPreferenceIdentity = u64 (*)(void* context, Utf8View key) noexcept;
+using EmojiPreferenceIdentity = u64 (*)(Utf8View key) noexcept;
 struct EmojiPreferencesPatch {
     // Group 5 is written only when edits exist. Observed favorites keep their
     // bytes and order; a removal drops every observed key of that emoji, and
@@ -91,7 +91,6 @@ struct EmojiPreferencesPatch {
     ConstSlice<u8> observed_frecency, observed_reaction_frecency;
     ConstSlice<EmojiFrecencyEntry> frecency, reaction_frecency;
     EmojiPreferenceIdentity identity;
-    void* identity_context;
     u32 required_data_version;
     bool write_frecency;
 };

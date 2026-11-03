@@ -5,6 +5,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -73,10 +74,6 @@ void make_entropy(u64 profile_id, u8* output) noexcept {
     copy_bytes(output, label, sizeof(label));
     byte_store_le64(output + 12, profile_id);
     byte_store_le32(output + 20, kStartupShellVersion);
-}
-
-u8* allocate(u32 bytes) noexcept {
-    return static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
 }
 
 } // namespace
@@ -287,7 +284,7 @@ StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_i
     u32 bytes = 0;
     if (GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kStartupShellFileBytes) {
         bytes = static_cast<u32>(size.QuadPart);
-        image = allocate(bytes);
+        image = commit_pages<u8>(bytes);
         if (image && !file_persistence_read_complete(file, {image, bytes}, &native_error)) {
             file_persistence_secure_release(image, bytes);
             image = nullptr;
@@ -296,7 +293,7 @@ StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_i
     CloseHandle(file);
     if (!image)
         return StartupShellOpenError::format;
-    u8* plaintext = allocate(kStartupShellPlaintextBytes);
+    u8* plaintext = commit_pages<u8>(kStartupShellPlaintextBytes);
     const StartupShellOpenError result =
         plaintext ? startup_shell_open({image, bytes}, profile_id, now_unix_ms, key,
                                        {plaintext, kStartupShellPlaintextBytes}, shell)
@@ -315,8 +312,8 @@ bool startup_shell_save_file(const wchar_t* path, StartupShellKey* key, const St
         if (!startup_shell_key_create(key, shell.profile_id))
             return false;
     }
-    u8* plaintext = allocate(kStartupShellPlaintextBytes);
-    u8* image = allocate(kStartupShellFileBytes);
+    u8* plaintext = commit_pages<u8>(kStartupShellPlaintextBytes);
+    u8* image = commit_pages<u8>(kStartupShellFileBytes);
     const u32 encoded = plaintext ? startup_shell_encode(shell, {plaintext, kStartupShellPlaintextBytes}) : 0;
     const u32 sealed = encoded && image ? startup_shell_seal(*key, {plaintext, encoded}, {image, kStartupShellFileBytes})
                                         : 0;

@@ -6,7 +6,7 @@ namespace maicord {
 namespace {
 
 MessageDraftStoreResult draft_error(MessageDraftStoreError error) noexcept {
-    return MessageDraftStoreResult{~0u, error, false, false};
+    return MessageDraftStoreResult{~0u, error, false};
 }
 
 bool store_valid(const MessageDraftStore& store) noexcept {
@@ -120,7 +120,6 @@ void erase_index(MessageDraftStore* store, u32 index) noexcept {
     store->text_wasted += record.text_bytes;
     reset_value<MessageDraftRecord>(&record);
     --store->count;
-    ++store->deleted;
     ++store->revision;
 }
 
@@ -158,18 +157,15 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
                                                  const MessageDraftInput& input) noexcept {
     const MessageDraftStoreError validation = validate_input(store, input);
     if (validation != MessageDraftStoreError::none) {
-        if (store) {
-            ++store->rejected;
-        }
         return draft_error(validation);
     }
     const u32 found = find_index(*store, input.channel_id);
     if (input.text.bytes == 0 && input.reply_message_id == 0) {
         if (found == store->capacity) {
-            return MessageDraftStoreResult{~0u, MessageDraftStoreError::none, false, false};
+            return MessageDraftStoreResult{~0u, MessageDraftStoreError::none, false};
         }
         erase_index(store, found);
-        return MessageDraftStoreResult{found, MessageDraftStoreError::none, true, true};
+        return MessageDraftStoreResult{found, MessageDraftStoreError::none, true};
     }
     if (found != store->capacity) {
         MessageDraftRecord& record = store->records[found];
@@ -179,11 +175,10 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
             record.reply_message_id == input.reply_message_id &&
             record.mention_reply_author == mention_reply_author) {
             record.touched = touch(store);
-            return MessageDraftStoreResult{found, MessageDraftStoreError::none, false, false};
+            return MessageDraftStoreResult{found, MessageDraftStoreError::none, false};
         }
         const u32 live_without_previous = store->text_used - store->text_wasted - record.text_bytes;
         if (input.text.bytes > store->text_capacity - live_without_previous) {
-            ++store->rejected;
             return draft_error(MessageDraftStoreError::text_capacity);
         }
         const bool tail = record.text_offset + record.text_bytes == store->text_used;
@@ -214,7 +209,6 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
             store->text_wasted += record.text_bytes;
             record.text_bytes = 0;
             if (input.text.bytes > store->text_capacity - store->text_used && !compact(store)) {
-                ++store->rejected;
                 return draft_error(MessageDraftStoreError::text_capacity);
             }
             record.text_offset = store->text_used;
@@ -232,22 +226,18 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
         }
         record.touched = touch(store);
         saturating_increment(record.revision);
-        ++store->saved;
         ++store->revision;
-        return MessageDraftStoreResult{found, MessageDraftStoreError::none, true, false};
+        return MessageDraftStoreResult{found, MessageDraftStoreError::none, true};
     }
     if (store->count == store->capacity) {
-        ++store->rejected;
         return draft_error(MessageDraftStoreError::record_capacity);
     }
     if (input.text.bytes > store->text_capacity - store->text_used &&
         (!compact(store) || input.text.bytes > store->text_capacity - store->text_used)) {
-        ++store->rejected;
         return draft_error(MessageDraftStoreError::text_capacity);
     }
     const u32 index = empty_index(*store);
     if (index == store->capacity) {
-        ++store->rejected;
         return draft_error(MessageDraftStoreError::record_capacity);
     }
     MessageDraftRecord& record = store->records[index];
@@ -265,35 +255,30 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
                input.text.bytes);
     store->text_used += input.text.bytes;
     ++store->count;
-    ++store->saved;
     ++store->revision;
-    return MessageDraftStoreResult{index, MessageDraftStoreError::none, true, false};
+    return MessageDraftStoreResult{index, MessageDraftStoreError::none, true};
 }
 
 MessageDraftStoreResult message_draft_store_clear_reply(MessageDraftStore* store, u64 channel_id,
                                                         u64 reply_message_id) noexcept {
     if (!store || !store_valid(*store) || channel_id == 0 || reply_message_id == 0) {
-        if (store) {
-            ++store->rejected;
-        }
         return draft_error(MessageDraftStoreError::invalid_input);
     }
     const u32 index = find_index(*store, channel_id);
     if (index == store->capacity || store->records[index].reply_message_id != reply_message_id) {
-        return MessageDraftStoreResult{~0u, MessageDraftStoreError::none, false, false};
+        return MessageDraftStoreResult{~0u, MessageDraftStoreError::none, false};
     }
     MessageDraftRecord& record = store->records[index];
     if (record.text_bytes == 0) {
         erase_index(store, index);
-        return MessageDraftStoreResult{index, MessageDraftStoreError::none, true, true};
+        return MessageDraftStoreResult{index, MessageDraftStoreError::none, true};
     }
     record.reply_message_id = 0;
     record.mention_reply_author = true;
     record.touched = touch(store);
     saturating_increment(record.revision);
-    ++store->saved;
     ++store->revision;
-    return MessageDraftStoreResult{index, MessageDraftStoreError::none, true, false};
+    return MessageDraftStoreResult{index, MessageDraftStoreError::none, true};
 }
 
 MessageDraftStoreResult message_draft_store_find(const MessageDraftStore& store, u64 channel_id) noexcept {
@@ -302,7 +287,7 @@ MessageDraftStoreResult message_draft_store_find(const MessageDraftStore& store,
     }
     const u32 index = find_index(store, channel_id);
     return index != store.capacity
-               ? MessageDraftStoreResult{index, MessageDraftStoreError::none, false, false}
+               ? MessageDraftStoreResult{index, MessageDraftStoreError::none, false}
                : draft_error(MessageDraftStoreError::not_found);
 }
 
@@ -334,9 +319,6 @@ bool message_draft_store_snapshot(const MessageDraftStore& store, u64 channel_id
 
 bool message_draft_store_delete(MessageDraftStore* store, u64 channel_id) noexcept {
     if (!store || !store_valid(*store) || channel_id == 0) {
-        if (store) {
-            ++store->rejected;
-        }
         return false;
     }
     const u32 index = find_index(*store, channel_id);

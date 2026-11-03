@@ -76,7 +76,7 @@ bool measure(void*, const UiTextMeasureRequest& r, UiTextMeasureValue* out) noex
     if (!out)
         return false;
     const float width = minimum(maximum(1.f, r.constraint.width), r.text.bytes * 7.f);
-    *out = {{width, 18.f}, 14.f, 1};
+    *out = {{width, 18.f}, 1};
     return true;
 }
 RestClientSubmitResult WINAPI submit(void* instance, const PollRequest* request,

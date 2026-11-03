@@ -272,6 +272,8 @@ extern const u32 kGuildRoleColors[kGuildRoleColorCount];
 u32 guild_role_color_format(u32 color, Slice<char> output) noexcept;
 // Packed RGBA for presentation, with a neutral grey for no colour.
 u32 guild_role_color_rgba(u32 color) noexcept;
+// Avatar fill for a person without a role colour, stable per user.
+u32 guild_person_color(u64 user_id) noexcept;
 
 // Boost-tier limits. Emoji slots apply to static and animated emoji
 // separately; MORE_EMOJI raises them to 200 and MORE_STICKERS at tier 3 to 120.

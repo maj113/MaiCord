@@ -2,7 +2,6 @@
 #include "../../settings/layer.hpp"
 #include "../../settings/modal.hpp"
 #include "../../guild/channel_overview.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "../../shell/state.hpp"
 #include "../composer/text_input.hpp"
 #include "../threads/actions.hpp"
@@ -99,21 +98,13 @@ u32 editor_bytes(u32 index) noexcept {
     auto& d = owner->draft;
     return !index ? d.question_bytes : index <= kAnswers ? d.answer_bytes[index - 1] : d.emoji_bytes[index - 1 - kAnswers];
 }
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
-}
+using Editors = SettingsEditors<&owner, editable>;
 // Adopts the draft's bytes after the draft changed underneath the editor.
 void load_editor(u32 index) noexcept {
-    auto& model = owner->models[index];
-    const u32 bytes = editor_bytes(index);
-    message_composer_refresh_borrowed(&model, bytes);
-    message_composer_set_selection(&model, bytes, bytes);
     const u32 limit = !index               ? kPollQuestionMaximumCodepoints
                       : index <= kAnswers ? kPollAnswerMaximumCodepoints
                                           : kEmojiCodepoints;
-    bounded_edit_bind(&owner->bindings[index], &model, limit, false, owner->lifetime, binding_ready, &model);
+    Editors::load(index, editor_bytes(index), limit, false);
 }
 void load_editors() noexcept {
     application_composer_text_input_suspend();
@@ -141,11 +132,6 @@ void push(const UiSettingsControl& control) noexcept {
     if (owner->control_count < kControlCapacity)
         owner->controls[owner->control_count++] = control;
 }
-UiSettingsEditor* editor_view(u32 index, u64 control, Utf8View placeholder) noexcept {
-    owner->editors[index] =
-        settings_layer_editor_view(&owner->layer, control, owner->models[index], placeholder, editable());
-    return &owner->editors[index];
-}
 Utf8View footer_status(PollDraftIssue issue) noexcept {
     if (owner->request_id || owner->queued) return utf8_literal("Posting poll…");
     if (owner->failed && owner->status.bytes) return owner->status;
@@ -162,14 +148,14 @@ bool project() noexcept {
     TextBank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
     p.control_count = 0;
     push({control_question, utf8_literal("Question"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          editor_view(0, control_question, utf8_literal("What do you want to ask?"))});
+          Editors::view(0, control_question, utf8_literal("What do you want to ask?"), edit)});
     push({control_answers, utf8_literal("Answers"), {}, UiSettingsControlKind::category, true, false, {}, 0, {},
           nullptr});
     for (u32 i = 0; i < d.answer_count; ++i) {
         push({control_answer + i, numbered(bank, utf8_literal("Answer "), i + 1), {}, UiSettingsControlKind::edit,
-              edit, false, {}, 0, {}, editor_view(1 + i, control_answer + i, utf8_literal("Type an answer"))});
+              edit, false, {}, 0, {}, Editors::view(1 + i, control_answer + i, utf8_literal("Type an answer"), edit)});
         push({control_emoji + i, utf8_literal("Emoji"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-              editor_view(1 + kAnswers + i, control_emoji + i, utf8_literal("Optional emoji"))});
+              Editors::view(1 + kAnswers + i, control_emoji + i, utf8_literal("Optional emoji"), edit)});
     }
     if (d.answer_count < kAnswers)
         push({control_add, utf8_literal("Add answer"), {}, UiSettingsControlKind::action, edit, false, {}, 0,
@@ -311,15 +297,10 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     owner->failed = false;
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
-                 bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const u32 index = owner ? editor_of(control) : kEditorCount;
-    if (index == kEditorCount)
-        return false;
-    *model = &owner->models[index];
-    *binding = &owner->bindings[index];
-    *multiline = false;
-    return true;
+    return index == kEditorCount ? SettingsLayerEditor{}
+                                 : SettingsLayerEditor{&owner->models[index], &owner->bindings[index], false};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook,
                                     edited,
@@ -403,10 +384,8 @@ bool application_poll_create_synchronize() noexcept {
         application_poll_create_close(false);
         return true;
     }
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer))
         return repaint();
-    }
     return settings_modal_refresh(p);
 }
 

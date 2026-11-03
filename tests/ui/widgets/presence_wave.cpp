@@ -754,7 +754,7 @@ void requests() noexcept {
     style.width = style.height = ui_layout_fill();
     const auto root = ui_widget_manager_add(&widgets, ui_widget_invalid_handle(),
                                             {1, UiWidgetKind::container, ui_widget_enabled,
-                                             {utf8_literal("Root"), style, {}, 0, 1}});
+                                             {utf8_literal("Root"), style, {}, 1}});
     const UiBannerNotice notice{50, utf8_literal("Message request"), utf8_literal("Accept to reply."),
                                 utf8_literal("Accept"), utf8_literal("Ignore"), false, false};
     const UiRect viewport{0, 0, 800, 600};

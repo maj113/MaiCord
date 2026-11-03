@@ -67,7 +67,7 @@ bool ui_expression_card_show(UiExpressionCardScene*, u64 identity, const UiExpre
                              UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept;
 void ui_expression_card_close(UiExpressionCardScene*) noexcept;
 bool ui_expression_card_tick(UiExpressionCardScene*, u64 now_ms, bool reduced_motion) noexcept;
-u64 ui_expression_card_next_wake(const UiExpressionCardScene&, u64 now_ms, bool reduced_motion) noexcept;
+u64 ui_expression_card_next_wake(const UiExpressionCardScene&, bool reduced_motion) noexcept;
 bool ui_expression_card_contains(const UiExpressionCardScene&, float x, float y) noexcept;
 UiExpressionCardControl ui_expression_card_hit(const UiExpressionCardScene&, float x, float y) noexcept;
 // True when the hovered control changed.

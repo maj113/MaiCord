@@ -34,7 +34,6 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/text/clipboard.hpp"
 #include "maicord/ui/guild/channel_context_policy.hpp"
 #include "../threads/browser.hpp"
 #include "../threads/creation.hpp"

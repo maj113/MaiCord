@@ -7,6 +7,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/model/voice/stage_policy.hpp"
 #include "maicord/media/core/asset.hpp"
 
@@ -22,7 +23,6 @@ constexpr UiMotionStyle kMorphStyle{kUiCallMorphMs, UiMotionCurve::spring};
 constexpr u64 kMorphOwner = 0xca11'5ce4'e000'0001ull;
 
 using call_stage::centered;
-using call_stage::copy_text;
 
 inline u32 codepoints(Utf8View text) noexcept {
     u32 count = 0;
@@ -488,12 +488,12 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
     s->participant_count = minimum<u32>(content.participants.count, kUiCallMaximumTiles);
     for (u32 i = 0; i < s->participant_count; ++i) {
         auto p = content.participants[i];
-        const u32 bytes = copy_text(s->names[i], kUiCallNameBytes, p.name);
+        const u32 bytes = utf8_copy_truncated(s->names[i], kUiCallNameBytes, p.name);
         p.name = {s->names[i], bytes};
-        p.effect = {s->effects[i], copy_text(s->effects[i], kUiCallEffectBytes, p.effect)};
+        p.effect = {s->effects[i], utf8_copy_truncated(s->effects[i], kUiCallEffectBytes, p.effect)};
         s->participants[i] = p;
     }
-    s->title_bytes = copy_text(s->title, kUiCallTitleBytes, content.title);
+    s->title_bytes = utf8_copy_truncated(s->title, kUiCallTitleBytes, content.title);
     s->focus_user = content.focus_user;
     s->fullscreen = content.fullscreen;
     s->connected = content.connected;
@@ -602,8 +602,8 @@ void ui_call_scene_release(UiCallScene* s) noexcept {
     ui_motion_transition_reset(&s->morph, morph_scope(*s), 1);
 }
 
-u64 ui_call_scene_next_wake(const UiCallScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return s.active ? ui_motion_transition_next_wake(s.morph, morph_scope(s), now_ms, reduced_motion, true) : 0;
+u64 ui_call_scene_next_wake(const UiCallScene& s, bool reduced_motion) noexcept {
+    return s.active ? ui_motion_transition_next_wake(s.morph, morph_scope(s), reduced_motion, true) : 0;
 }
 
 bool ui_call_scene_contains(const UiCallScene& s, float x, float y) noexcept {

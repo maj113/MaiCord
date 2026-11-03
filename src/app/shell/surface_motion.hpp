@@ -37,10 +37,10 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner*, Renderer
                                         ApplicationSurfaceMotionKey, u64 now_ms, bool animate) noexcept;
 void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner*, RendererLayerSurface) noexcept;
 u64 application_surface_motion_owner_next_wake(const ApplicationSurfaceMotionOwner&, RendererLayerSurface,
-                                               ApplicationSurfaceMotionKey, u64 now_ms) noexcept;
+                                               ApplicationSurfaceMotionKey) noexcept;
 
 void application_surface_motion_synchronize(u64 now_ms) noexcept;
-u64 application_surface_motion_next_wake(u64 now_ms) noexcept;
+u64 application_surface_motion_next_wake() noexcept;
 bool application_surface_motion_request_frame_if_due(u64 now_ms, bool frame_available) noexcept;
 void application_surface_motion_refresh_system_preference() noexcept;
 // Call before closing/releasing an owner, including close/reopen between frames.

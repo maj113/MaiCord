@@ -5,14 +5,13 @@ namespace {
 struct Measurement {
     u32 calls{}, key{};
 };
-bool measure(void* opaque, const UiLayoutMeasureRequest& request, UiSize* size, float* baseline) noexcept {
+bool measure(void* opaque, const UiLayoutMeasureRequest& request, UiSize* size) noexcept {
     auto& observed = *static_cast<Measurement*>(opaque);
     ++observed.calls;
     observed.key = request.key;
-    if (request.key != 2 || !size || !baseline)
+    if (request.key != 2 || !size)
         return false;
     *size = {minimum(70.0f, request.constraint.width), 18.0f};
-    *baseline = 13.0f;
     return true;
 }
 } // namespace
@@ -92,7 +91,7 @@ void test_widget_builder(void (*check)(bool, const char*) noexcept) noexcept {
     const auto* node = ui_widget_manager_layout_node(measured_manager, measured_text.handle);
     check(measured_text.ok() && laid_out.ok() && measured.calls && measured.key == 2 && node &&
               node->spec.intrinsic_size.width == 70 && node->spec.intrinsic_size.height == 18 &&
-              node->spec.intrinsic_baseline == 13 && ui_rect_width(node->rectangle) == 70 &&
+              ui_rect_width(node->rectangle) == 70 &&
               ui_rect_height(node->rectangle) == 18 &&
               !(ordinary_text_style.flags & ui_layout_node_text_content) && measured_manager.count == 2,
           "widget builder text measures callback content rather than the fallback extent, without altering "

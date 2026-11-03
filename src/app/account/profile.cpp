@@ -616,9 +616,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->scene.effect = &p->effect;
     p->scene.effect_started_ms = 0;
     load_note(*p);
-    BOOL animations = TRUE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-    p->scene.reduced_motion = !animations || g_app.preferences.reduced_motion;
+    p->scene.reduced_motion = application_reduced_motion();
     p->scene.measure = &g_app.account_ui->text_measure_cache;
     p->scene.applications = p->applications.view();
     profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id,

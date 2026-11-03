@@ -90,7 +90,6 @@ void apply_result(MessageDraftSession& session, const MessageDraftStore& drafts,
         session.persist_at_ms = 0;
         session.persist_failures = 0;
         session.cleanup_required = false;
-        ++session.persist_saves;
         message_draft_session_observe(session, drafts, now_ms);
         return;
     }

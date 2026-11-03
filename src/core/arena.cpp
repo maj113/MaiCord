@@ -6,11 +6,6 @@
 
 namespace maicord {
 namespace {
-
-inline bool is_power_of_two(usize value) noexcept {
-    return value != 0 && (value & (value - 1)) == 0;
-}
-
 volatile LONG g_page_size;
 
 usize system_page_size() noexcept {

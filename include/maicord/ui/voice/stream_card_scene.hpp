@@ -45,7 +45,7 @@ bool ui_stream_card_show(UiStreamCardScene*, u64 identity, const UiStreamCardCon
                          UiRect viewport, u64 now_ms, bool reduced_motion) noexcept;
 void ui_stream_card_close(UiStreamCardScene*) noexcept;
 bool ui_stream_card_tick(UiStreamCardScene*, u64 now_ms, bool reduced_motion) noexcept;
-u64 ui_stream_card_next_wake(const UiStreamCardScene&, u64 now_ms, bool reduced_motion) noexcept;
+u64 ui_stream_card_next_wake(const UiStreamCardScene&, bool reduced_motion) noexcept;
 bool ui_stream_card_contains(const UiStreamCardScene&, float x, float y) noexcept;
 UiStreamCardControl ui_stream_card_hit(const UiStreamCardScene&, float x, float y) noexcept;
 // True when hover/pressed state changed.

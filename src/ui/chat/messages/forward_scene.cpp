@@ -10,9 +10,7 @@
 namespace maicord {
 namespace {
 bool current(const UiMessageForwardScene& s) noexcept {
-    return s.active && s.content && s.content->revision == s.content_revision &&
-        (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
-        (!s.source->current || s.source->current(s.source->context))));
+    return ui_row_scene_current(s);
 }
 // The 32-DIP destination tile leading each row; identity images cover it.
 constexpr float kDestinationTileRadius = 8.f;

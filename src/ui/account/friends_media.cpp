@@ -1,5 +1,4 @@
 #include "maicord/ui/account/friends_media.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/media/core/asset.hpp"
 
@@ -8,7 +7,7 @@ u32 friends_avatar_media_count(const UiFriendsScene& scene) noexcept {
     return ui_friends_scene_visible_count(scene) + ui_friends_scene_active_avatar_count(scene);
 }
 bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& users,
-    u32 slot, FriendsAvatarMedia* output) noexcept {
+    u32 slot, AvatarMedia* output) noexcept {
     if (!output) return false;
     u64 user_id = 0;
     UiRect avatar{}, clip{};
@@ -26,9 +25,10 @@ bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& 
     const auto* user = user_store_find(users, user_id);
     if (!user) return false;
     const auto hash = user_store_avatar_hash(*user);
-    const u32 variant = user_avatar_variant(hash);
-    if (!variant) return false; // Defaults and malformed hashes keep the native placeholder.
-    *output = {media_asset_user_avatar(user->id, variant, asset_hash_animated(hash)), hash, avatar, clip};
+    MediaAssetKey key;
+    // Defaults and malformed hashes keep the native placeholder.
+    if (!avatar_media_key(user->id, hash, &key)) return false;
+    *output = {key, hash, avatar, clip};
     return true;
 }
 bool friends_avatar_media_current(const UiFriendsScene& scene, const UserStore& users,
@@ -36,11 +36,9 @@ bool friends_avatar_media_current(const UiFriendsScene& scene, const UserStore& 
     if (key.kind != MediaAssetKind::user_avatar || !media_asset_key_valid(key)) return false;
     const u32 count = friends_avatar_media_count(scene);
     if (count > kUiFriendsMaximumVisibleRows + kUiFriendsActiveNowCards * kUiFriendsActiveNowAvatars) return false;
-    for (u32 i = 0; i < count; ++i) {
-        FriendsAvatarMedia media{};
-        if (friends_avatar_media_resolve(scene, users, i, &media) && media_asset_key_equal(media.key, key)) return true;
-    }
-    return false;
+    return avatar_media_current(0, count, key, [&](u32 slot, AvatarMedia* media) noexcept {
+        return friends_avatar_media_resolve(scene, users, slot, media);
+    });
 }
 FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene& scene,
     const UserStore& users, const FriendsAvatarMediaCallbacks& callbacks) noexcept {
@@ -50,7 +48,7 @@ FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene& s
     if (count > kUiFriendsMaximumVisibleRows + kUiFriendsActiveNowCards * kUiFriendsActiveNowAvatars) { result.ok = false;return result; }
     for (u32 i = 0; i < count; ++i) {
         ++result.visited;
-        FriendsAvatarMedia media{};
+        AvatarMedia media{};
         if (!friends_avatar_media_resolve(scene, users, i, &media)) continue;
         ++result.candidates;
         const bool resident = callbacks.resident(callbacks.context, media.key);

@@ -53,7 +53,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               f.resolves == resolves && s.revision == revision && s.widgets.generation == generation,
           "pins scene: unchanged publication performs no row resolution or retained rebuild");
     const auto card = s.cards[0];
-    PinnedMessagesAvatarMedia avatar{};
+    AvatarMedia avatar{};
     check(pinned_messages_avatar_media_resolve(s, 0, &avatar) &&
               avatar.key.id == 200 && pinned_messages_avatar_media_current(s, avatar.key),
           "pins scene: visible avatar belongs to original accepted author and validated hash");

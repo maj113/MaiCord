@@ -256,11 +256,6 @@ bool splice_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u32 of
     return true;
 }
 
-void drop_stale(MessageSnapshotCache* cache, MessageSnapshotEntry* entry) noexcept {
-    remove_entry(cache, entry);
-    ++cache->event_drops;
-}
-
 // Writes the single scratch row back over the entry row at offset.
 bool scratch_store_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u32 offset,
                        MessageSnapshotScratch* value) noexcept {
@@ -609,10 +604,8 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
             value->store.count == 1 && scratch_store_row(cache, entry, offset, value);
         if (value)
             scratch_clear(value);
-        if (applied)
-            ++cache->event_updates;
-        else if ((entry = find_entry(cache, event.message.channel_id)) != nullptr)
-            drop_stale(cache, entry);
+        if (!applied && (entry = find_entry(cache, event.message.channel_id)) != nullptr)
+            remove_entry(cache, entry);
         return;
     }
     case GatewayClientDispatchKind::message_reaction_add:
@@ -638,10 +631,8 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
         }
         if (value)
             scratch_clear(value);
-        if (applied)
-            ++cache->event_updates;
-        else if ((entry = find_entry(cache, reaction.channel_id)) != nullptr)
-            drop_stale(cache, entry);
+        if (!applied && (entry = find_entry(cache, reaction.channel_id)) != nullptr)
+            remove_entry(cache, entry);
         return;
     }
     default:
@@ -652,8 +643,6 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
 void channel_prefetch_hover(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept {
     if (!prefetch || prefetch->hover_channel_id == channel_id)
         return;
-    if (prefetch->hover_channel_id && !prefetch->fired)
-        ++prefetch->cancelled;
     if (prefetch->hover_channel_id && prefetch->hover_channel_id == prefetch->inflight_channel_id)
         prefetch->left_at_ms = now_ms;
     prefetch->hover_channel_id = channel_id;
@@ -670,7 +659,6 @@ void channel_prefetch_hover(ChannelPrefetch* prefetch, u64 channel_id, u64 now_m
         if (prefetch->recent_channel_ids[index] == channel_id &&
             now_ms - prefetch->recent_at_ms[index] < kChannelPrefetchRepeatMs) {
             prefetch->fired = true;
-            ++prefetch->deduplicated;
             return;
         }
 }
@@ -716,7 +704,6 @@ bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 chann
         return false;
     prefetch->inflight_channel_id = prefetch->inflight_request_id = 0;
     prefetch->left_at_ms = 0;
-    ++prefetch->adopted;
     return true;
 }
 
@@ -727,8 +714,6 @@ bool channel_prefetch_complete(ChannelPrefetch* prefetch, u64 request_id, u64 no
                         (prefetch->left_at_ms && now_ms - prefetch->left_at_ms <= kChannelPrefetchKeepMs);
     prefetch->inflight_channel_id = prefetch->inflight_request_id = 0;
     prefetch->left_at_ms = 0;
-    if (!wanted)
-        ++prefetch->discarded;
     return wanted;
 }
 

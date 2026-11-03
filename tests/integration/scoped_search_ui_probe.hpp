@@ -274,7 +274,7 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
         return fail();
     for (u32 slot = 0; slot < minimum(scene.count, 3u); ++slot) {
         stage = 220 + slot * 4;
-        SearchAvatarMedia media{};
+        AvatarMedia media{};
         if (!search_avatar_media_resolve(scene, slot, &media))
             return fail();
         const auto r = media.rectangle;

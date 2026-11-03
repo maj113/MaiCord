@@ -65,8 +65,8 @@ void ui_motion_transition_cancel(UiMotionTransition*) noexcept;
 bool ui_motion_transition_tick(UiMotionTransition*, const UiMotionScope&, float target, u64 now_ms,
                                const UiMotionStyle&, bool reduced_motion, bool visible) noexcept;
 // Absolute deadline anchored to the last tick, never postponed by observation.
-u64 ui_motion_transition_next_wake(const UiMotionTransition&, UiMotionScope, u64 now_ms,
-                                   bool reduced_motion, bool visible) noexcept;
+u64 ui_motion_transition_next_wake(const UiMotionTransition&, UiMotionScope, bool reduced_motion,
+                                   bool visible) noexcept;
 
 static_assert(sizeof(UiMotionStyle) == 8);
 static_assert(sizeof(UiMotionScope) == 16);

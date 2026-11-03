@@ -8,6 +8,7 @@
 #include "../shell/overlay_input.hpp"
 #include "../shell/input.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "account_access.hpp"
 
 namespace maicord::app_detail {
@@ -25,14 +26,10 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     reset_value(&owner->status);
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const u32 index = owner ? editor_of(control) : editor_count;
-    if (index == editor_count)
-        return false;
-    *model = &owner->models[index];
-    *binding = &owner->bindings[index];
-    *multiline = index == editor_bio;
-    return true;
+    return index == editor_count ? SettingsLayerEditor{}
+                                 : SettingsLayerEditor{&owner->models[index], &owner->bindings[index], index == editor_bio};
 }
 void close_hook(SettingsLayer*) noexcept {
     if (guard())
@@ -250,10 +247,8 @@ bool application_profile_editor_synchronize() noexcept {
     }
     if (pump_previews(clock_monotonic_milliseconds()))
         changed = true;
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer))
         changed = true;
-    }
     if (changed)
         return refresh_dialog();
     if (!project())

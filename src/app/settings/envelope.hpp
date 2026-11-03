@@ -2,6 +2,7 @@
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
@@ -11,9 +12,6 @@ inline void dispose(void* data, u32 bytes) noexcept {
         secure_clear_bytes(data, bytes);
         VirtualFree(data, 0, MEM_RELEASE);
     }
-}
-template <class T> T* committed_allocate(u32 bytes) noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
 }
 
 using SettingsDecode = bool (*)(void* context, Utf8View settings) noexcept;
@@ -52,7 +50,7 @@ inline bool application_settings_envelope(Utf8View body, bool* out_of_date, Sett
     if (measured.error != JsonStringDecodeError::output_too_small || !measured.bytes ||
         measured.bytes > kRestClientMaximumResponseBytes)
         return false;
-    char* temporary = committed_allocate<char>(measured.bytes);
+    char* temporary = commit_pages<char>(measured.bytes);
     if (!temporary)
         return false;
     const auto decoded = json_string_decode_utf8(envelope.settings, {temporary, measured.bytes});

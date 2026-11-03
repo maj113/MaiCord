@@ -56,7 +56,7 @@ struct OwnerFixture {
         const auto added = ui_widget_manager_add(
             &manager, ui_widget_invalid_handle(),
             {1, UiWidgetKind::button, static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-             {utf8_literal("Owner"), ui_layout_style(), {}, 0, 1}});
+             {utf8_literal("Owner"), ui_layout_style(), {}, 1}});
         root = added.handle;
         return added.ok() && ui_widget_manager_layout_rectangle(&manager, {0, 0, 800, 600}).ok();
     }
@@ -69,7 +69,7 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* val
     const float natural = static_cast<float>(valid.codepoints) * 7;
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 7));
     const u32 lines = request.no_wrap ? 1u : maximum(1u, (valid.codepoints + columns - 1) / columns);
-    *value = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 16}, 12, lines};
+    *value = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 16}, lines};
     return true;
 }
 
@@ -83,7 +83,7 @@ void test_generic_widgets(Check check) noexcept {
     row.width = ui_layout_fill();
     row.height = ui_layout_fixed(40);
     const auto add = [&](UiWidgetHandle parent, u32 id, UiWidgetKind kind, u16 flags, UiLayoutStyle s) noexcept {
-        return ui_widget_manager_add(&manager, parent, {id, kind, flags, {utf8_literal("Cursor"), s, {}, 0, id}})
+        return ui_widget_manager_add(&manager, parent, {id, kind, flags, {utf8_literal("Cursor"), s, {}, id}})
             .handle;
     };
     constexpr u16 live = ui_widget_enabled | ui_widget_hit_test;

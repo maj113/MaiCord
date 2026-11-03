@@ -17,9 +17,6 @@ constexpr UiHoverCardMotion kEntrance{{kUiExpressionCardEntranceMs, UiMotionCurv
                                       0x4558'5052'4341'5244ull};
 constexpr u64 kMeasureSource = 0x4558505243415244ull; // "EXPRCARD"
 
-u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
-    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
 // The description's plain and bold runs (the pack's name).
 u32 description_runs(const UiExpressionCardScene& s, TextStyleSpan* runs) noexcept {
     if (!s.emphasis_bytes || s.emphasis_offset + s.emphasis_bytes > s.description_bytes) {
@@ -64,9 +61,6 @@ float measure(UiTextMeasureCache* cache, const Utf8View& text, const ConstSlice<
 }
 UiRect at(UiRect r, float dx, float dy) noexcept {
     return ui_rect_has_area(r) ? UiRect{r.left + dx, r.top + dy, r.right + dx, r.bottom + dy} : UiRect{};
-}
-float opacity(const UiExpressionCardScene& s) noexcept {
-    return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
 }
 // Geometry relative to the card's top-left; returns the card's height.
 float arrange(UiExpressionCardScene& s, UiTextMeasureCache* cache) noexcept {
@@ -177,16 +171,16 @@ bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExp
     s->viewport = viewport;
     s->layout = content.layout;
     s->picture_key = content.picture;
-    s->glyph_bytes = content.glyph.bytes <= sizeof(s->glyph) ? copy_text(s->glyph, sizeof(s->glyph), content.glyph) : 0;
-    s->title_bytes = copy_text(s->title_text, sizeof(s->title_text), content.title);
-    s->description_bytes = copy_text(s->description_text, sizeof(s->description_text), content.description);
+    s->glyph_bytes = content.glyph.bytes <= sizeof(s->glyph) ? utf8_copy_truncated(s->glyph, content.glyph) : 0;
+    s->title_bytes = utf8_copy_truncated(s->title_text, content.title);
+    s->description_bytes = utf8_copy_truncated(s->description_text, content.description);
     s->emphasis_offset = content.emphasis_offset;
     s->emphasis_bytes = content.emphasis_bytes;
-    s->button_bytes = copy_text(s->button_text, sizeof(s->button_text), content.button);
-    s->guild_heading_bytes = copy_text(s->guild_heading_text, sizeof(s->guild_heading_text), content.guild_heading);
-    s->guild_name_bytes = copy_text(s->guild_name_text, sizeof(s->guild_name_text), content.guild_name);
-    s->guild_subtitle_bytes = copy_text(s->guild_subtitle_text, sizeof(s->guild_subtitle_text), content.guild_subtitle);
-    s->guild_acronym_bytes = copy_text(s->guild_acronym_text, sizeof(s->guild_acronym_text), content.guild_acronym);
+    s->button_bytes = utf8_copy_truncated(s->button_text, content.button);
+    s->guild_heading_bytes = utf8_copy_truncated(s->guild_heading_text, content.guild_heading);
+    s->guild_name_bytes = utf8_copy_truncated(s->guild_name_text, content.guild_name);
+    s->guild_subtitle_bytes = utf8_copy_truncated(s->guild_subtitle_text, content.guild_subtitle);
+    s->guild_acronym_bytes = utf8_copy_truncated(s->guild_acronym_text, content.guild_acronym);
     s->guild_icon_key = content.guild_icon;
     s->guild_link = content.guild_link;
     s->preview_count = content.preview_count;
@@ -231,8 +225,8 @@ bool ui_expression_card_tick(UiExpressionCardScene* s, u64 now_ms, bool reduced_
     return true;
 }
 
-u64 ui_expression_card_next_wake(const UiExpressionCardScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return ui_hover_card_next_wake(s, kEntrance, now_ms, reduced_motion);
+u64 ui_expression_card_next_wake(const UiExpressionCardScene& s, bool reduced_motion) noexcept {
+    return ui_hover_card_next_wake(s, kEntrance, reduced_motion);
 }
 
 bool ui_expression_card_contains(const UiExpressionCardScene& s, float x, float y) noexcept {
@@ -271,7 +265,7 @@ bool ui_expression_card_media(const UiExpressionCardScene& s, u32 index, UiExpre
     if (!output || !s.active || index >= kUiExpressionCardMediaCount)
         return false;
     const auto f = frame(s);
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     if (index == 0) {
         if (!media_asset_key_valid(s.picture_key) || !ui_rect_has_area(s.picture))
             return false;
@@ -295,7 +289,7 @@ bool ui_expression_card_paint(const UiExpressionCardScene& s, const Theme& theme
     if (!s.active)
         return true;
     UiPaint p{paint, theme};
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     const auto f = frame(s);
     const float radius = theme.scale.radius_md;
     p.use<ui_hover_card_paint_surface>(s, theme, radius);
@@ -335,7 +329,7 @@ bool ui_expression_card_text_output(const UiExpressionCardScene& s, const Theme&
         return true;
     UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
     const auto owner = s.owner.handle;
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     const auto f = frame(s);
     const Color normal = ui_theme_color_alpha(theme.tokens.text.normal, a);
     const Color muted = ui_theme_color_alpha(theme.tokens.text.muted, a);

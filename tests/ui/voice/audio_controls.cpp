@@ -45,7 +45,7 @@ struct WidgetFixture {
             {1,
              UiWidgetKind::button,
              static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-             {utf8_literal("Audio owner"), ui_layout_style(), {}, 0, 1}});
+             {utf8_literal("Audio owner"), ui_layout_style(), {}, 1}});
         root = added.handle;
         return added.ok();
     }

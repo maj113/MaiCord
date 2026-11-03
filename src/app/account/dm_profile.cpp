@@ -233,9 +233,7 @@ bool show(u64 user, UiRect slot) noexcept {
         s.relation = relation_of(user);
         s.effect = nullptr;
         s.note_visible = false;
-        BOOL animations = TRUE;
-        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-        s.reduced_motion = !animations || g_app.preferences.reduced_motion;
+        s.reduced_motion = application_reduced_motion();
         s.measure = &g_app.account_ui->text_measure_cache;
         const auto& state = g_app.account_ui->chat_state;
         resolve_commands(*entry, state.selected_channel_id);

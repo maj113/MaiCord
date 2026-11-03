@@ -17,7 +17,6 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* out
     const u32 lines = request.no_wrap ? 1u : maximum(1u, (text.codepoints + columns - 1u) / columns);
     *out = {{minimum(request.constraint.width, static_cast<float>(text.codepoints) * 6.f),
              static_cast<float>(lines) * 16.f},
-            12,
             lines};
     return true;
 }

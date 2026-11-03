@@ -25,10 +25,6 @@ struct Modal {
 Modal g_modal;
 u32 g_banner_serial;
 
-Utf8View view(const mc_str& text) noexcept {
-    return {text.data, text.bytes};
-}
-
 // Short human text: UTF-8 without control characters, minimum..maximum bytes.
 bool text_ok(const mc_str& text, u32 minimum, u32 maximum) noexcept {
     return text.bytes >= minimum && text.bytes <= maximum && plugin_text_clean(text.data, text.bytes);
@@ -62,7 +58,7 @@ Slot* slot_of(const PluginBinding& binding) noexcept {
 }
 
 bool http_url(mc_str url) noexcept {
-    if (!url.bytes || url.bytes > MC_HTTP_URL_MAX || !url.data || !utf8_validate(view(url)).valid) return false;
+    if (!url.bytes || url.bytes > MC_HTTP_URL_MAX || !url.data || !utf8_validate(plugin_view(url)).valid) return false;
     for (u32 i = 0; i < url.bytes; ++i)
         if (static_cast<u8>(url.data[i]) <= 0x20 || static_cast<u8>(url.data[i]) == 0x7f) return false;
     const auto prefix = [&](const char* scheme) noexcept {
@@ -180,14 +176,14 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
 mc_status open_url(PluginBinding& binding, mc_str url) noexcept {
     if (!http_url(url)) return MC_E_INVALID;
     if (!gesture(binding)) return MC_E_GESTURE;
-    return g_host && g_host->open_url ? status_of(g_host->open_url(view(url))) : MC_E_UNSUPPORTED;
+    return g_host && g_host->open_url ? status_of(g_host->open_url(plugin_view(url))) : MC_E_UNSUPPORTED;
 }
 
 mc_status copy_text(PluginBinding& binding, mc_str text) noexcept {
     if (!(binding.permissions & MC_PERM_CLIPBOARD)) return MC_E_DENIED;
-    if (!text.bytes || text.bytes > MC_ACTION_TEXT_MAX || !text.data || !utf8_validate(view(text)).valid) return MC_E_INVALID;
+    if (!text.bytes || text.bytes > MC_ACTION_TEXT_MAX || !text.data || !utf8_validate(plugin_view(text)).valid) return MC_E_INVALID;
     if (!gesture(binding)) return MC_E_GESTURE;
-    return g_host && g_host->copy_text ? status_of(g_host->copy_text(view(text))) : MC_E_UNSUPPORTED;
+    return g_host && g_host->copy_text ? status_of(g_host->copy_text(plugin_view(text))) : MC_E_UNSUPPORTED;
 }
 
 mc_status open_target(PluginBinding& binding, u32 what, u64 id, u64 sub) noexcept {

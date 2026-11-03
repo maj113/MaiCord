@@ -26,19 +26,12 @@ const UserActivity* first_activity(const ActiveNowInput& input, u64 user_id, Use
 u64 started(const UserActivity* activity) noexcept {
     return !activity ? 0 : activity->start_ms ? activity->start_ms : activity->created_ms;
 }
-void copy_text(char* out, u16* bytes, Utf8View text) noexcept {
-    u32 take = minimum<u32>(text.bytes, kActiveNowNameBytes);
-    while (take && take < text.bytes && (static_cast<u8>(text.data[take]) & 0xC0) == 0x80)
-        --take; // keep whole code points
-    copy_bytes(out, text.data, take);
-    *bytes = static_cast<u16>(take);
-}
 void describe(ActiveNowCard& card, const UserActivity& activity) noexcept {
-    copy_text(card.name, &card.name_bytes, user_activity_text(activity, UserActivityField::name));
+    utf8_assign(card.name, card.name_bytes, user_activity_text(activity, UserActivityField::name));
     auto detail = user_activity_text(activity, UserActivityField::details);
     if (!detail.bytes)
         detail = user_activity_text(activity, UserActivityField::state);
-    copy_text(card.detail, &card.detail_bytes, detail);
+    utf8_assign(card.detail, card.detail_bytes, detail);
     card.activity_type = activity.type;
 }
 bool same_name(const ActiveNowCard& card, Utf8View name) noexcept {

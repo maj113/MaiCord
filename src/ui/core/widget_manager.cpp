@@ -139,7 +139,7 @@ UiWidgetResult ui_widget_manager_add_prevalidated(UiWidgetManager* manager, UiWi
 UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manager, UiWidgetHandle parent, u32 id,
                                            UiWidgetKind kind, u16 flags, const char* name, u32 name_bytes,
                                            const UiLayoutStyle& style) noexcept {
-    return add_widget(manager, parent, {id, kind, flags, {{name, name_bytes}, style, {}, 0, id}}, true);
+    return add_widget(manager, parent, {id, kind, flags, {{name, name_bytes}, style, {}, id}}, true);
 }
 
 bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, const Slice<UiWidget>& widget_storage,
@@ -149,7 +149,7 @@ bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, const Slic
         return false;
     const auto root = ui_widget_manager_add(
         manager, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {name, ui_layout_fill_style(flags), {}, 0, 1}});
+        {1, UiWidgetKind::container, ui_widget_none, {name, ui_layout_fill_style(flags), {}, 1}});
     if (!root.ok())
         return false;
     *owner = {manager, root.handle};
@@ -175,7 +175,7 @@ UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHa
     style.margin.top = rectangle.top - origin.top;
     style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
     const u32 id = manager->count + 1;
-    return ui_widget_manager_add_prevalidated(manager, parent, {id, kind, flags, {name, style, {}, 0, id}});
+    return ui_widget_manager_add_prevalidated(manager, parent, {id, kind, flags, {name, style, {}, id}});
 }
 
 bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, const UiRect& rectangle,

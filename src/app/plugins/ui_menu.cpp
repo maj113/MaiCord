@@ -1,5 +1,6 @@
 #include "ui_internal.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/app/plugins/text.hpp"
 
 // Context menu items: which of the enabled plugins' items a target shows, and running one.
 namespace maicord {
@@ -15,14 +16,10 @@ constexpr u32 target_bit(PluginMenuKind kind) noexcept {
     return bits[static_cast<u32>(kind)];
 }
 
-mc_str to_mc(const Utf8View& text) noexcept {
-    return {text.data, text.bytes, 0};
-}
-
 mc_menu_target to_mc(const PluginMenuTarget& target) noexcept {
     return {target_bit(target.kind), target.flags,   target.user_id,      target.channel_id, target.guild_id,
-            target.message_id,       target.item_id,  to_mc(target.url),   to_mc(target.text),
-            to_mc(target.content_type), target.attachment_index, target.width, target.height, 0};
+            target.message_id,       target.item_id,  plugin_str(target.url),   plugin_str(target.text),
+            plugin_str(target.content_type), target.attachment_index, target.width, target.height, 0};
 }
 
 // The argument of one call into a plugin's visible or select function.

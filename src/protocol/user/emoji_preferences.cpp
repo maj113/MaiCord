@@ -230,7 +230,7 @@ struct Identities {
     u64 edits[64];
     u64 entries[2][kEmojiPreferencesMaximumFrecencyEntries];
     u64 of(Utf8View key) const noexcept {
-        return patch->identity ? patch->identity(patch->identity_context, key) : 0;
+        return patch->identity ? patch->identity(key) : 0;
     }
     u64 observed(const u64* cache, u32 ordinal, const Utf8View& key) const noexcept {
         return ordinal < kCachedIdentities ? cache[ordinal] : of(key);

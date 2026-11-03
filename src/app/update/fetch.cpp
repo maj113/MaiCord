@@ -45,8 +45,8 @@ Utf8View location_host(ConstSlice<u8> location, Utf8View current) noexcept {
     return {text.data + at, end - at};
 }
 // "major.minor.patch", then tag and the sequence for a preview.
-UpdateTextWriter version_writer(u64 version, Slice<char> output, Utf8View preview_tag) noexcept {
-    UpdateTextWriter w{output, 0, true};
+TextWriter version_writer(u64 version, Slice<char> output, Utf8View preview_tag) noexcept {
+    TextWriter w{output, 0, true};
     const u64 n = version % 1000, base = version / 1000;
     w.number(base / 1000000); w.add(".", 1); w.number(base / 1000 % 1000); w.add(".", 1); w.number(base % 1000);
     if (n != kUpdateStableSequence) { w.add(preview_tag); w.number(n); }
@@ -56,13 +56,13 @@ UpdateTextWriter version_writer(u64 version, Slice<char> output, Utf8View previe
 
 u32 update_version_text(u64 version, const Slice<char>& output) noexcept {
     if (!output.data) return 0;
-    const UpdateTextWriter w = version_writer(version, output, utf8_literal("-preview."));
+    const TextWriter w = version_writer(version, output, utf8_literal("-preview."));
     return w.ok ? w.used : 0;
 }
 
 u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept {
     if (!output.data || commit.bytes > 12) return 0;
-    UpdateTextWriter w = version_writer(version, output, utf8_literal("-dev."));
+    TextWriter w = version_writer(version, output, utf8_literal("-dev."));
     if (commit.bytes) { w.add("+", 1); w.add(commit); }
     return w.ok ? w.used : 0;
 }
@@ -142,7 +142,7 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         asset > UpdateAsset::changelog_signature) return false;
     u32 slash = 0;
     while (repository.data[slash] != '/') ++slash;
-    UpdateTextWriter w{{out->target, kUpdateTargetCapacity}, 0, true};
+    TextWriter w{{out->target, kUpdateTargetCapacity}, 0, true};
     out->origin_bytes = 0;
     const bool stable_package = update_version_channel(version) == UpdateChannel::stable;
     if (asset == UpdateAsset::package && (!(version % 1000) || version / 1000000000 >= 1000)) return false;

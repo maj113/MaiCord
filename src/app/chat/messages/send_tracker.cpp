@@ -60,15 +60,10 @@ void push_completion(MessageSendTracker* tracker, const MessageSendAttempt& atte
     ++tracker->completion_count;
 }
 
-void retire_attempt(MessageSendTracker* tracker, MessageSendAttempt* attempt) noexcept {
-    --tracker->active_count;
-    reset_value<MessageSendAttempt>(attempt);
-}
-
 void finish_attempt(MessageSendTracker* tracker, MessageSendAttempt* attempt,
                     MessageSendCompletionKind kind, bool history_observed = false, bool response_observed = false) noexcept {
     push_completion(tracker, *attempt, kind, history_observed, response_observed);
-    retire_attempt(tracker, attempt);
+    reset_value<MessageSendAttempt>(attempt);
 }
 
 u64 next_nonce(MessageSendTracker* tracker, const MessageTimeline& timeline, u64 now_unix_ms) noexcept {
@@ -113,7 +108,7 @@ MessageSendObserveResult drop_attempt(MessageSendTracker* tracker, MessageTimeli
     } else if (local.error != MessageStoreError::not_found) {
         return observe_error(MessageSendTrackerError::timeline);
     }
-    retire_attempt(tracker, attempt);
+    reset_value<MessageSendAttempt>(attempt);
     return MessageSendObserveResult{invalidation, MessageSendTrackerError::none, false,
                                     invalidation.count != 0};
 }
@@ -159,7 +154,6 @@ MessageSendBeginResult message_send_tracker_begin(
     attempt->started_at_ms = now_monotonic_ms;
     attempt->deadline_ms = deadline_after(now_monotonic_ms, kMessageSendTrackerTimeoutMs);
     attempt->active = true;
-    ++tracker->active_count;
     return MessageSendBeginResult{nonce, inserted.invalidation, MessageSendTrackerError::none};
 }
 
@@ -271,7 +265,6 @@ MessageSendObserveResult message_send_tracker_observe_gateway(MessageSendTracker
     }
     MessageSendAttempt* const attempt = find_attempt(tracker, nonce);
     if (!attempt) {
-        ++tracker->unmatched_gateway;
         return MessageSendObserveResult{{}, MessageSendTrackerError::none, false, false};
     }
     if (attempt->channel_id != channel_id) {

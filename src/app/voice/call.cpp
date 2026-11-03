@@ -687,7 +687,7 @@ bool application_call_pump(bool* repaint_requested) noexcept {
     const auto result = synchronize_video(poll);
     const bool signaled = video_notification() != nullptr;
     view.next_poll_ms = call_video_poll_after(view.next_poll_ms, now, poll, result, signaled);
-    const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, now, g_app.preferences.reduced_motion) : 0;
+    const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion) : 0;
     if ((result.presented || result.changed || (morph && now >= morph)) && repaint_requested) {
         *repaint_requested = true;
         if (result.changed)
@@ -716,7 +716,7 @@ u64 application_call_next_wake() noexcept {
     if (const u64 stream_wake = application_stream_next_wake(); stream_wake && (!wake || stream_wake < wake))
         wake = stream_wake;
     if (scene_visible()) {
-        const u64 morph = ui_call_scene_next_wake(view.scene, GetTickCount64(), g_app.preferences.reduced_motion);
+        const u64 morph = ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion);
         if (morph && (!wake || morph < wake))
             wake = morph;
     }

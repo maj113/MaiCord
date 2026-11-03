@@ -255,8 +255,8 @@ void application_unread_banner_synchronize(u64 now_ms) noexcept {
         application_request_frame();
 }
 
-u64 application_unread_banner_next_wake(u64 now_ms) noexcept {
-    return ui_unread_banner_next_wake(g_banner, now_ms, motion_allowed());
+u64 application_unread_banner_next_wake() noexcept {
+    return ui_unread_banner_next_wake(g_banner, motion_allowed());
 }
 
 bool application_unread_banner_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {

@@ -76,33 +76,25 @@ bool plugin_current() noexcept {
     return false;
 }
 
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return form && form->lifetime == identity && form->scene.active &&
-           settings_layer_editor(&form->layer, nullptr, &focused, nullptr) && focused == model;
+using Editors = SettingsEditors<&form, application_plugin_settings_active>;
+
+bool multiline(const mc_setting_def& setting) noexcept {
+    return setting.type == MC_SET_TEXT_LIST || setting.type == MC_SET_USER_LIST ||
+           (setting.type == MC_SET_TEXT && (setting.flags & MC_SET_MULTILINE));
 }
 // Puts what the plugin holds for setting into its editor (a secret's editor starts empty).
 void load_editor(u32 index) noexcept {
     auto& f = *form;
-    const mc_setting_def& setting = setting_of(index);
     char* text = reinterpret_cast<char*>(f.storage + f.offsets[index]);
     const u32 bytes = secret(index) ? 0 : plugin_setting_format(*binding(), index, {text, f.capacities[index]});
-    message_composer_refresh_borrowed(&f.models[index], bytes);
-    message_composer_set_selection(&f.models[index], bytes, bytes);
-    bounded_edit_bind(&f.bindings[index], &f.models[index], f.capacities[index],
-                      setting.type == MC_SET_TEXT_LIST || setting.type == MC_SET_USER_LIST ||
-                          (setting.type == MC_SET_TEXT && (setting.flags & MC_SET_MULTILINE)),
-                      f.lifetime, binding_ready, &f.models[index]);
+    Editors::load(index, bytes, f.capacities[index], multiline(setting_of(index)));
 }
 
 const UiSettingsEditor* editor_view(void*, u32 index, bool, bool masked) noexcept {
-    auto& f = *form;
     const mc_setting_def& setting = setting_of(index);
     const Utf8View hint{setting.hint.data, setting.hint.bytes};
-    f.editors[index] = settings_layer_editor_view(
-        &f.layer, index + 1, f.models[index],
-        masked && secret_set(index) ? utf8_literal("Saved. Type to replace it.") : hint, true);
-    return &f.editors[index];
+    return Editors::view(index, index + 1,
+                         masked && secret_set(index) ? utf8_literal("Saved. Type to replace it.") : hint, true);
 }
 
 bool project() noexcept {
@@ -211,16 +203,10 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     form->status = {};
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** edit_binding,
-                 bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const u32 index = form ? index_of(control) : ~0u;
-    if (index == ~0u || !typed(setting_of(index))) return false;
-    *model = &form->models[index];
-    *edit_binding = &form->bindings[index];
-    const mc_setting_def& setting = setting_of(index);
-    *multiline = setting.type == MC_SET_TEXT_LIST || setting.type == MC_SET_USER_LIST ||
-                 (setting.type == MC_SET_TEXT && (setting.flags & MC_SET_MULTILINE));
-    return true;
+    if (index == ~0u || !typed(setting_of(index))) return {};
+    return {&form->models[index], &form->bindings[index], multiline(setting_of(index))};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook,
                                     edited,
@@ -304,10 +290,8 @@ bool application_plugin_settings_synchronize() noexcept {
         application_plugin_settings_close(false);
         return true;
     }
-    if (f.layer.choice && !settings_layer_choice_current(f.layer)) {
-        f.layer.choice = false;
+    if (settings_layer_choice_lapsed(f.layer))
         return repaint();
-    }
     return settings_modal_refresh(f);
 }
 

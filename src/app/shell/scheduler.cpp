@@ -187,7 +187,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         limit_timeout(timeout, now_ms, application_downloads_next_wake());
         if (!frame_clock_armed) {
             limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
-            limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
+            limit_timeout(timeout, now_ms, application_surface_motion_next_wake());
             if (application_effect_frame_due(now_ms))
                 timeout = 0;
             else if (g_app.renderer.text_effect_animated)
@@ -231,7 +231,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
         limit_timeout(timeout, now_ms, application_voice_timer_next_wake());
         limit_timeout(timeout, now_ms, g_app.dm_profile_clock_ms);
-        limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
+        limit_timeout(timeout, now_ms, application_surface_motion_next_wake());
         limit_timeout(timeout, now_ms, application_loading_spinner_wake());
         // Once a visual frame is due, DXGI paces it. An overdue visual timer
         // must not turn the display-slot wait into a zero-timeout polling loop.
@@ -299,7 +299,7 @@ bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
     if (application_account_logout_blocked())
         return g_app.frame_pending || application_effect_frame_due(now_ms) ||
                deadline_due(now_ms, application_background_next_wake(now_ms)) ||
-               deadline_due(now_ms, application_surface_motion_next_wake(now_ms)) ||
+               deadline_due(now_ms, application_surface_motion_next_wake()) ||
                deadline_due(now_ms, application_downloads_next_wake());
     return g_app.frame_pending || application_effect_frame_due(now_ms) ||
            deadline_due(now_ms, application_background_next_wake(now_ms)) ||
@@ -310,7 +310,7 @@ bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
            deadline_due(now_ms, application_guild_banner_next_wake()) ||
            deadline_due(now_ms, application_voice_timer_next_wake()) ||
            deadline_due(now_ms, g_app.dm_profile_clock_ms) ||
-           deadline_due(now_ms, application_surface_motion_next_wake(now_ms)) ||
+           deadline_due(now_ms, application_surface_motion_next_wake()) ||
            deadline_due(now_ms, application_search_edit_next_wake()) ||
            deadline_due(now_ms, application_media_picker_caret_wake()) ||
            deadline_due(now_ms, application_downloads_next_wake()) ||

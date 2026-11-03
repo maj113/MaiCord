@@ -309,7 +309,7 @@ bool ensure_owner() noexcept {
                                             {1,
                                              UiWidgetKind::container,
                                              ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable,
-                                             {utf8_literal("PollVoters"), style, {}, 0, 1}});
+                                             {utf8_literal("PollVoters"), style, {}, 1}});
     if (!root.ok()) {
         VirtualFree(owner, 0, MEM_RELEASE);
         owner = nullptr;

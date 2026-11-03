@@ -74,7 +74,7 @@ __declspec(noinline) bool ui_unread_banner_update(UiUnreadBannerScene*, const Ui
 // Replaces the notice card (null or a zero id hides it) before the next
 // update; returns true when its content changed. Text is truncated to fit.
 bool ui_unread_banner_set_notice(UiUnreadBannerScene*, const UiBannerNotice*) noexcept;
-u64 ui_unread_banner_next_wake(const UiUnreadBannerScene&, u64 now_ms, bool animate) noexcept;
+u64 ui_unread_banner_next_wake(const UiUnreadBannerScene&, bool animate) noexcept;
 bool ui_unread_banner_visible(const UiUnreadBannerScene&) noexcept;
 // Painted surfaces that sit above timeline content this frame, clipped to the
 // viewport: [0] the unread banner (top), [1] the jump pill (bottom). Hidden

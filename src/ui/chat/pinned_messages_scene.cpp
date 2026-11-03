@@ -30,9 +30,7 @@ bool row_valid(const UiPinnedMessagesRow& row, u64 channel) noexcept {
 bool current(const UiPinnedMessagesScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
            s.content->channel_id == s.channel_id && s.content->page_index == s.page_index &&
-           (!s.source || (s.source->revision == s.source_revision &&
-                          s.source->count == s.measured_count &&
-                          (!s.source->current || s.source->current(s.source->context))));
+           ui_source_current(s.source, s.source_revision, s.measured_count);
 }
 bool rebuild(UiPinnedMessagesScene& s) noexcept {
     clear_bytes(s.targets, sizeof(s.targets));

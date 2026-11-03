@@ -158,6 +158,7 @@ bool onboarding_presentation_complete(const Owner& p) noexcept;
 bool modal_presentation_complete(const Owner& p) noexcept;
 bool onboarding_required_complete(const GuildOnboarding& model) noexcept;
 bool editable() noexcept;
+using Editors = SettingsEditors<&owner, editable>;
 void bind_editor(u32 slot, u64 control, const Utf8View& text, u32 limit, bool multiline) noexcept;
 int editor_slot(u64 control) noexcept;
 bool rules_answers(GuildVerificationAnswer* answers) noexcept;

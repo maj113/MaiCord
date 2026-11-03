@@ -37,10 +37,9 @@ struct StoreItem {
     Utf8View effect_slug; // a theme's effect
     u32 bytes;
     // Installed state.
-    bool installed, enabled, running, auto_update, sideloaded, unreviewed, can_roll_back, incompatible;
+    bool installed, enabled, auto_update, sideloaded, unreviewed, can_roll_back, incompatible;
     bool active;        // theme: applied; effect: the current background
     bool has_settings;  // a plugin with a settings page
-    bool has_knobs;     // an installed effect
     bool installable;   // the catalog can install or update now (fresh signed index)
     u8 revoked;         // CatalogRevocationSeverity
     Utf8View reason, installed_version, update_version, previous_version, folder, changelog, sha, commit, contrast;
@@ -99,11 +98,11 @@ struct StoreLink {
     bool open;     // the install-from-link entry or the card
     u8 phase;      // 0 entry, 1 working, 2 card, 3 failed
     u8 error;      // PackageError
-    Utf8View host, name, authors, license, based_on, size_text, cost_text;
+    Utf8View host, name, authors, license, based_on, cost_text;
     CatalogKind kind;
     bool replaces, has_effect, effect_installed, cost_known, cost_refused, previewing;
     u8 cost_level; // EffectCostClass of the measured cost: the dot's colour
-    u32 bytes;     // the candidate file; size_text overrides it
+    u32 bytes;     // the candidate file
     u32 swatches[4];
     Utf8View effect_slug;
 };

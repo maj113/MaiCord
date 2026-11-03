@@ -696,7 +696,7 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
         log_u64(LogLevel::error, "text", "measure_shape_error", static_cast<u32>(measured.error));
         return false;
     }
-    *value = UiTextMeasureValue{UiSize{measured.width_including_trailing_whitespace, measured.height}, 0.0f,
+    *value = UiTextMeasureValue{UiSize{measured.width_including_trailing_whitespace, measured.height},
                                 measured.line_count};
     return true;
 }

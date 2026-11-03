@@ -410,7 +410,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
-bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, MemberAvatarMedia* out,
+bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedia* out,
                                  bool visible_only) noexcept {
     if (!out || !s.active || !s.users || !s.source || index >= s.count)
         return false;
@@ -429,24 +429,18 @@ bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, MemberAvat
     if (!user)
         return false;
     const Utf8View hash = user_store_avatar_hash(*user);
-    const u32 variant = user_avatar_variant(hash);
-    if (!variant)
+    MediaAssetKey key;
+    if (!avatar_media_key(row.user_id, hash, &key))
         return false;
-    *out = {media_asset_user_avatar(row.user_id, variant, asset_hash_animated(hash)), hash, avatar->rectangle,
-            s.viewport};
+    *out = {key, hash, avatar->rectangle, s.viewport};
     return true;
 }
 bool member_plain_avatar_current(const MemberListScene& s, MediaAssetKey key) noexcept {
     if (key.kind != MediaAssetKind::user_avatar || !s.active)
         return false;
-    for (u32 i = 0; i < s.count; ++i) {
-        if (s.rows[i].user_id != key.id)
-            continue;
-        MemberAvatarMedia media{};
-        if (member_plain_avatar_resolve(s, i, &media) && media_asset_key_equal(media.key, key))
-            return true;
-    }
-    return false;
+    return avatar_media_current(0, s.count, key, [&](u32 i, AvatarMedia* media) noexcept {
+        return s.rows[i].user_id == key.id && member_plain_avatar_resolve(s, i, media);
+    });
 }
 bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, ProfileMedia* out) noexcept {
     if (!out || !s.active || !s.effect || !s.effect->sku)

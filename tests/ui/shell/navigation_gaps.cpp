@@ -111,7 +111,7 @@ void unread_banner() noexcept {
     UiLayoutStyle style = ui_layout_style();
     const auto root = ui_widget_manager_add(&manager, ui_widget_invalid_handle(),
                                             {1, UiWidgetKind::container, ui_widget_enabled,
-                                             {utf8_literal("Messages"), style, {}, 0, 1}});
+                                             {utf8_literal("Messages"), style, {}, 1}});
     check(root.ok(), "banner owner widget");
     UiUnreadBannerScene scene{};
     UiUnreadBannerView view{kChannel, 1, 4, false, true, true};
@@ -131,9 +131,9 @@ void unread_banner() noexcept {
               scene.banner_motion.active && ui_unread_banner_visible(scene) && scene.label_bytes &&
               ui_unread_banner_hit_test(scene, 200, 60) == UiUnreadBannerAction::none,
           "retiring bars animate out with their label and ignore pointer input");
-    check(ui_unread_banner_next_wake(scene, 2000, true) != 0, "running transitions request a wake");
+    check(ui_unread_banner_next_wake(scene, true) != 0, "running transitions request a wake");
     ui_unread_banner_update(&scene, view, {}, viewport, {&manager, root.handle}, 2000 + kUiUnreadBannerMotionMs, true);
-    check(!ui_unread_banner_visible(scene) && !ui_unread_banner_next_wake(scene, 2200, true),
+    check(!ui_unread_banner_visible(scene) && !ui_unread_banner_next_wake(scene, true),
           "bars disappear after the 150 ms transition");
     view = {kChannel + 1, 0, 2, false, true, false};
     ui_unread_banner_update(&scene, view, utf8_literal("2 new messages"), viewport, {&manager, root.handle}, 3000,
@@ -366,10 +366,10 @@ void guild_folders() noexcept {
           "an expanding folder starts with zero-extent members");
     check(guild_rail_scene_tick(&rail, 1075, true) && guild_rail_scene_update(&rail, &view, rail.viewport, 0).ok() &&
               rail.count == 7 && rail.content_height > 6 + 6 * 46.f && rail.content_height < 6 + 8 * 46.f &&
-              guild_rail_scene_next_wake(rail, 1075),
+              guild_rail_scene_next_wake(rail),
           "members grow during the 150 ms transition");
     check(guild_rail_scene_tick(&rail, 1200, true) && guild_rail_scene_update(&rail, &view, rail.viewport, 0).ok() &&
-              rail.content_height == 6 + 8 * 46.f && !guild_rail_scene_next_wake(rail, 1200) &&
+              rail.content_height == 6 + 8 * 46.f && !guild_rail_scene_next_wake(rail) &&
               guild_rail_scene_hit_test(rail, 32, 6 + 7 * 46.f + 20).add_server,
           "expanded folders settle at full height");
     view.selected_guild_id = 40;

@@ -1,5 +1,6 @@
 #include "maicord/app/voice/soundboard_audio.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/media/audio/mp3_stream.hpp"
 #include "maicord/media/containers/ogg_opus.hpp"
@@ -12,9 +13,6 @@ namespace {
 constexpr usize align_up(usize value, usize alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
-void* reserve(usize bytes) noexcept {
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-}
 void release(void* block) noexcept {
     if (block)
         VirtualFree(block, 0, MEM_RELEASE);
@@ -24,7 +22,7 @@ SoundboardClip* allocate_clip(u64 sound_id, u32 frames) noexcept {
         return nullptr;
     const usize header = align_up(sizeof(SoundboardClip), 64);
     const usize bytes = header + usize{frames} * 2 * sizeof(i16);
-    auto* block = static_cast<u8*>(reserve(bytes));
+    auto* block = commit_pages<u8>(bytes);
     if (!block)
         return nullptr;
     auto* clip = reinterpret_cast<SoundboardClip*>(block);
@@ -58,7 +56,7 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     const usize packet_bytes = align_up(usize{kMp3MaximumFrames} * 2 * sizeof(float), 64);
     const usize source_offset = packet_offset + packet_bytes;
     const usize total = source_offset + usize{source_capacity} * 2 * sizeof(float);
-    auto* work = static_cast<u8*>(reserve(total));
+    auto* work = commit_pages<u8>(total);
     if (!work)
         return nullptr;
     Mp3Decoder decoder{};
@@ -125,7 +123,7 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     const usize state_offset = pcm_offset + align_up(usize{kOpusDecoderMaximumFrames} * 2 * sizeof(i16), 64);
     const u32 state_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(2), 64));
     const usize opus_scratch_offset = state_offset + state_bytes;
-    auto* work = static_cast<u8*>(reserve(opus_scratch_offset + sizeof(OpusScratch)));
+    auto* work = commit_pages<u8>(opus_scratch_offset + sizeof(OpusScratch));
     if (!work)
         return nullptr;
     const Slice<u8> scratch{work, kSoundboardProbeScratchBytes};

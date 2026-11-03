@@ -79,7 +79,7 @@ UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const U
         &s->widgets, parent,
         {id, clip ? UiWidgetKind::container : interactive ? UiWidgetKind::button : UiWidgetKind::text,
          static_cast<u16>(ui_widget_enabled | (interactive ? ui_widget_hit_test | ui_widget_focusable : 0)),
-         {utf8_literal("ProfileDialogPart"), layout, {}, 0, id}});
+         {utf8_literal("ProfileDialogPart"), layout, {}, id}});
     if (!widget.ok()) {
         s->failed = true;
         return &sink;
@@ -290,7 +290,7 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(&s->widgets, ui_widget_invalid_handle(),
                                             {1, UiWidgetKind::container, ui_widget_enabled,
-                                             {utf8_literal("ProfileDialog"), style, {}, 0, 1}});
+                                             {utf8_literal("ProfileDialog"), style, {}, 1}});
     if (!root.ok())
         return false;
     s->failed = false;

@@ -39,10 +39,7 @@ struct MessageDraftStore {
     u32 text_used;
     u32 text_wasted;
     u32 revision;
-    u32 saved;
-    u32 deleted;
     u32 compactions;
-    u32 rejected;
     u64 clock;
 };
 
@@ -71,7 +68,6 @@ struct MessageDraftStoreResult {
     u32 index;
     MessageDraftStoreError error;
     bool changed;
-    bool erased;
 
     constexpr bool ok() const noexcept {
         return error == MessageDraftStoreError::none;

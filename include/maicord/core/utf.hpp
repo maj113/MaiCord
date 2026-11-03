@@ -62,16 +62,22 @@ constexpr u32 utf8_truncated_length(const Utf8View& text, u32 maximum_bytes) noe
     return bytes;
 }
 
-// Copies that prefix into destination and returns its length.
+// Copies that prefix into destination and returns its length. Text without data copies nothing.
 __declspec(noinline) inline u32 utf8_copy_truncated(char* destination, u32 capacity,
                                                     const Utf8View& text) noexcept {
-    const u32 bytes = utf8_truncated_length(text, capacity);
+    const u32 bytes = text.data ? utf8_truncated_length(text, capacity) : 0;
     copy_bytes(destination, text.data, bytes);
     return bytes;
 }
 
-template <u32 Capacity> u32 utf8_copy_truncated(char (&destination)[Capacity], const Utf8View& text) noexcept {
+template <u32 Capacity> __forceinline u32 utf8_copy_truncated(char (&destination)[Capacity], const Utf8View& text) noexcept {
     return utf8_copy_truncated(destination, Capacity, text);
+}
+
+// Copies text into a fixed field and stores the copied length in the field's byte count.
+template <u32 Capacity, typename Count>
+__forceinline void utf8_assign(char (&destination)[Capacity], Count& bytes, const Utf8View& text) noexcept {
+    bytes = static_cast<Count>(utf8_copy_truncated(destination, Capacity, text));
 }
 
 } // namespace maicord

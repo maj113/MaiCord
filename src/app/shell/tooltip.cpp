@@ -733,7 +733,7 @@ ApplicationTooltip* ensure() noexcept {
     style.flags |= ui_layout_node_clip_children;
     const auto root = ui_widget_manager_add(
         &owner->widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Tooltip overlay"), style, {}, 0, 1}});
+        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Tooltip overlay"), style, {}, 1}});
     if (!root.ok() || !ui_tooltip_bind_text_owner(&owner->scene, {&owner->widgets, root.handle})) {
         VirtualFree(owner, 0, MEM_RELEASE);
         return nullptr;

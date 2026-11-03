@@ -142,7 +142,7 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     message_reaction_controller_observe(&fixture.controller, target, false, true);
     result = message_reaction_controller_complete(&fixture.controller, ticket,
                                                   MessageReactionCompletion::success, 1);
-    check(result.authority_conflict && !result.projection.authority.mine_normal &&
+    check(result.kind == MessageReactionOutcomeKind::retained && !result.projection.authority.mine_normal &&
               result.projection.desired_normal,
           "reaction intent: newer own Gateway authority fences stale HTTP membership");
     fixture.reset();
@@ -374,7 +374,7 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     message_reaction_controller_snapshot(&fixture.controller, target, full);
     result = message_reaction_controller_complete(&fixture.controller, ticket,
                                                   MessageReactionCompletion::success, 1);
-    check(result.authority_conflict && result.projection.authority.normal == 7 &&
+    check(result.kind == MessageReactionOutcomeKind::retained && result.projection.authority.normal == 7 &&
               !result.projection.authority.mine_normal,
           "reaction intent: full authoritative snapshot fences earlier HTTP and preserves new foreign "
           "aggregate");
@@ -446,7 +446,7 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     result = message_reaction_controller_complete(&fixture.controller, ticket,
                                                   MessageReactionCompletion::success, 1);
     check(result.projection.authority.total == 6 && result.projection.authority.normal == 5 &&
-              result.projection.authority.mine_normal && !result.authority_conflict,
+              result.projection.authority.mine_normal,
           "reaction intent: normal HTTP confirmation preserves foreign residual vote contribution");
     fixture.reset();
     fixture.choose(target, true);

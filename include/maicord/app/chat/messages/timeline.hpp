@@ -46,7 +46,6 @@ struct MessageTimelineApplyResult {
     u32 evicted;
     GatewayMessageApplyKind kind;
     MessageTimelineError error;
-    bool compacted;
 
     constexpr bool ok() const noexcept {
         return error == MessageTimelineError::none;
@@ -70,7 +69,6 @@ struct MessageTimeline {
     u32 rejected;
     u32 evicted;
     u32 deferred;
-    u32 compactions;
     u32 history_pages;
     u32 reset_generation;
     bool follow_bottom;

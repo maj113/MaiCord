@@ -20,7 +20,7 @@ enum AccessInternal : u8 {
 constexpr u32 kNameFromContentRoles =
     ui_access_role_bit(UiAccessRole::button) | ui_access_role_bit(UiAccessRole::toggle_button) |
     ui_access_role_bit(UiAccessRole::check_box) | ui_access_role_bit(UiAccessRole::radio_button) |
-    ui_access_role_bit(UiAccessRole::list_item) | ui_access_role_bit(UiAccessRole::tree_item) |
+    ui_access_role_bit(UiAccessRole::list_item) |
     ui_access_role_bit(UiAccessRole::tab) | ui_access_role_bit(UiAccessRole::menu_item) |
     ui_access_role_bit(UiAccessRole::link) | ui_access_role_bit(UiAccessRole::header) |
     ui_access_role_bit(UiAccessRole::status) | ui_access_role_bit(UiAccessRole::text);
@@ -39,10 +39,9 @@ constexpr u32 kContainerRoles =
     ui_access_role_bit(UiAccessRole::window) | ui_access_role_bit(UiAccessRole::pane) |
     ui_access_role_bit(UiAccessRole::dialog) | ui_access_role_bit(UiAccessRole::list) |
     ui_access_role_bit(UiAccessRole::tree) | ui_access_role_bit(UiAccessRole::menu) |
-    ui_access_role_bit(UiAccessRole::tab_list) | ui_access_role_bit(UiAccessRole::document);
+    ui_access_role_bit(UiAccessRole::tab_list);
 // Nodes that get a humanized debug name when nothing better is known.
-constexpr u32 kFallbackNameRoles = kCompositeRoles | kLabelledRoles | kContainerRoles |
-                                   ui_access_role_bit(UiAccessRole::scroll_bar);
+constexpr u32 kFallbackNameRoles = kCompositeRoles | kLabelledRoles | kContainerRoles;
 
 constexpr bool has_role(u32 mask, UiAccessRole role) noexcept {
     return (mask & ui_access_role_bit(role)) != 0;

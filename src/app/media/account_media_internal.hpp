@@ -2,6 +2,7 @@
 // Shared by account_media.cpp and its parts (account_media_*.cpp); private to them.
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/sys/crt.hpp"
@@ -11,7 +12,6 @@ namespace account_media_detail {}
 using namespace account_media_detail;
 namespace account_media_detail {
 
-__declspec(noinline) void* commit_pages(usize bytes) noexcept;
 ProgressiveVideoFetch* allocate_fetch() noexcept;
 
 } // namespace account_media_detail

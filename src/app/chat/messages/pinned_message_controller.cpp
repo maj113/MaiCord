@@ -42,9 +42,6 @@ bool request_equal(const PinnedMessageController& value, const PinnedMessageRequ
         request.payload.query.limit == value.pending.query.limit &&
         cursor_equal(request.payload.query.before, value.pending.query.before);
 }
-u16 excerpt(char* destination, u32 capacity, const Utf8View& source) noexcept {
-    return static_cast<u16>(utf8_copy_truncated(destination, capacity, source));
-}
 bool page_valid(const PinnedMessageController& value, const MessagePinsPage& page,
                 ConstSlice<MessagePin> items) noexcept {
     if (page.channel_id != value.scope.channel_id || page.count != items.count ||
@@ -82,8 +79,8 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
         row.timestamp_ms = message.timestamp_ms;
         row.type = message.type;
         row.pinned_at_ms = item.pinned_at_ms;
-        row.author_bytes = excerpt(row.author, sizeof(row.author), message.author_name);
-        row.avatar_bytes = excerpt(row.avatar_hash, sizeof(row.avatar_hash), message.author_avatar_hash);
+        utf8_assign(row.author, row.author_bytes, message.author_name);
+        utf8_assign(row.avatar_hash, row.avatar_bytes, message.author_avatar_hash);
         row.forwarded = message.reference.type == 1 || message.snapshot.present;
         const auto card = message_card_excerpt({message.content,
             message.snapshot.present ? message.snapshot.content : Utf8View{}, row.forwarded},

@@ -32,7 +32,7 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* out
     const float width = minimum(request.constraint.width, static_cast<float>(request.text.bytes) * 7);
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 7));
     const u32 lines = request.no_wrap ? 1 : (request.text.bytes + columns - 1) / columns;
-    *output = {{width, static_cast<float>(lines) * 18}, 14, lines};
+    *output = {{width, static_cast<float>(lines) * 18}, lines};
     return true;
 }
 bool finish(void*, const Theme&) noexcept { return true; }

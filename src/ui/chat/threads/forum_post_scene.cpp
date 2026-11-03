@@ -74,7 +74,7 @@ bool natural(ForumPostScene* s, u32 key, UiSize constraint, UiTextMeasureValue* 
                value)
         .ok();
 }
-bool measure(void* context, const UiLayoutMeasureRequest& r, UiSize* size, float* baseline) noexcept {
+bool measure(void* context, const UiLayoutMeasureRequest& r, UiSize* size) noexcept {
     auto* s = static_cast<ForumPostScene*>(context);
     if (!s || !r.key)
         return false;
@@ -83,14 +83,12 @@ bool measure(void* context, const UiLayoutMeasureRequest& r, UiSize* size, float
                                      : label(s->content, key))
              .bytes) {
         reset_value(size);
-        *baseline = 0;
         return true;
     }
     UiTextMeasureValue value{};
     if (!natural(s, key, r.constraint, &value))
         return false;
     *size = value.size;
-    *baseline = value.baseline;
     if (key >= kForumPostElements || button(static_cast<ForumPostElement>(key)))
         size->width = minimum(size->width, r.constraint.width);
     return true;

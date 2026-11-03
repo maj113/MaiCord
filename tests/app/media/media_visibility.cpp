@@ -867,7 +867,7 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
     const auto* previous_search = g_app.renderer.search_scene;
     bool valid = ui_search_scene_update(&scene, &source, &content, {312, 0, 1200, 800}, {312, 0, 1200, 48});
     g_app.renderer.search_scene = &scene;
-    SearchAvatarMedia media{};
+    AvatarMedia media{};
     valid = valid && search_avatar_media_resolve(scene, 0, &media);
     check(valid && !user_store_find(g_app.account_ui->user_store, 770) &&
               pump.avatar_key_is_current(media.key),

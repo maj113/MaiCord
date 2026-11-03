@@ -37,7 +37,7 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* val
     const float natural = static_cast<float>(valid.codepoints) * 8;
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
     const u32 lines = request.no_wrap ? 1u : maximum(1u, (valid.codepoints + columns - 1) / columns);
-    *value = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 20}, 16, lines};
+    *value = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 20}, lines};
     return true;
 }
 // The first quad of an elevation surface carries the gradient-material marker

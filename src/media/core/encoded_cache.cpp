@@ -13,10 +13,6 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 constexpr u32 kIndexTombstone = 0xFFFFFFFFu;
 volatile LONG64 next_content_identity = 0;
 
-bool power_of_two(u32 value) noexcept {
-    return value != 0 && (value & (value - 1)) == 0;
-}
-
 void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
     for (u32 bucket = 0; bucket < cache->index_bucket_capacity; ++bucket) {
         cache->index_buckets[bucket] = 0;
@@ -208,7 +204,7 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
                                     Slice<u32> index_buckets) noexcept {
     if (!cache || !entries.data || entries.count == 0 || entries.count >= kEncodedMediaCacheFreePage ||
         !storage.data || storage.count == 0 || storage.count % kEncodedMediaCachePageBytes != 0 ||
-        !index_buckets.data || !power_of_two(index_buckets.count) || index_buckets.count < entries.count * 2u) {
+        !index_buckets.data || !is_power_of_two(index_buckets.count) || index_buckets.count < entries.count * 2u) {
         return false;
     }
     const u32 pages = storage.count / kEncodedMediaCachePageBytes;

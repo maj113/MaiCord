@@ -16,7 +16,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/protocol/encoding/base64.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

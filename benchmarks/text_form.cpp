@@ -12,7 +12,7 @@ bool measure(void* opaque, const UiTextMeasureRequest& request, UiTextMeasureVal
     const auto measured = text_measure_utf8(&context->text, request.text, request.styles,
         request.constraint.width, request.constraint.height, {context->scratch, 2048}, TextWrapping::wrap);
     if (!measured.ok()) return false;
-    *value = {{measured.width_including_trailing_whitespace, measured.height}, 0, measured.line_count};
+    *value = {{measured.width_including_trailing_whitespace, measured.height}, measured.line_count};
     return true;
 }
 }

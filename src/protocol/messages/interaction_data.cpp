@@ -2,6 +2,7 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -12,27 +13,14 @@ constexpr u32 kValueBytes = 512;
 constexpr u32 kSubCommand = 1, kSubCommandGroup = 2, kUser = 6, kChannel = 7, kRole = 8, kMentionable = 9,
               kAttachment = 11;
 
-struct Out {
-    char* data;
-    u32 capacity, used;
-    bool overflow;
-    void put(const Utf8View& text) noexcept {
-        if (overflow)
-            return;
-        if (text.bytes > capacity - used) {
-            overflow = true;
-            return;
-        }
-        copy_bytes(data + used, text.data, text.bytes);
-        used += text.bytes;
-    }
-    // Line breaks read as spaces on the one-line card.
+// A one-line card: line breaks read as spaces.
+struct Out : TextWriter {
     void put_line(const Utf8View& text) noexcept {
         const u32 begin = used;
-        put(text);
+        add(text);
         for (u32 i = begin; i < used; ++i)
-            if (data[i] == '\n' || data[i] == '\r' || data[i] == '\t')
-                data[i] = ' ';
+            if (output.data[i] == '\n' || output.data[i] == '\r' || output.data[i] == '\t')
+                output.data[i] = ' ';
     }
 };
 
@@ -85,7 +73,7 @@ void put_raw(State& state, const JsonValue& value) noexcept {
     if (command_json_text(value, {text, sizeof(text)}, &decoded))
         state.out.put_line(decoded);
     else
-        state.out.put(utf8_literal("\xE2\x80\xA6"));
+        state.out.add("\xE2\x80\xA6");
 }
 
 void put_entity(State& state, const JsonValue& value, InteractionDataEntity entity, const char* prefix) noexcept {
@@ -95,7 +83,7 @@ void put_entity(State& state, const JsonValue& value, InteractionDataEntity enti
                               : Utf8View{};
     if (!name.bytes)
         return put_raw(state, value); // an unknown entity shows its raw value
-    state.out.put({prefix, 1});
+    state.out.add(prefix, 1);
     state.out.put_line(name);
 }
 
@@ -115,7 +103,7 @@ void put_value(State& state, u32 type, const JsonValue& value) noexcept {
         return put_entity(state, value, InteractionDataEntity::user, "@");
     }
     case kAttachment:
-        return state.out.put(utf8_literal("[attachment]"));
+        return state.out.add("[attachment]");
     default:
         return put_raw(state, value);
     }
@@ -130,8 +118,8 @@ void put_option(State& state, const JsonValue& object, u32 depth) noexcept {
     json_visit_indexed_object(*state.document, object, kDepthLimit, visit_option_member, &option);
     if (!option.name_bytes)
         return;
-    state.out.put(utf8_literal(" "));
-    state.out.put({option.name, option.name_bytes});
+    state.out.add(" ");
+    state.out.add(option.name, option.name_bytes);
     if (option.type == kSubCommand || option.type == kSubCommandGroup) {
         if (option.options.kind == JsonValueKind::array && option.options.source.bytes)
             json_visit_indexed_array(*state.document, option.options, kDepthLimit, visit_option, &state);
@@ -139,7 +127,7 @@ void put_option(State& state, const JsonValue& object, u32 depth) noexcept {
     }
     if (!option.value.source.bytes || option.value.kind == JsonValueKind::null_value)
         return;
-    state.out.put(utf8_literal(": "));
+    state.out.add(": ");
     put_value(state, option.type, option.value);
 }
 
@@ -190,15 +178,15 @@ u32 interaction_data_text(Utf8View body, const InteractionDataNames& names, Slic
         name = member_name(root, "name");
     if (!name.bytes)
         return 0;
-    State state{&document, &names, {output.data, output.count - kEllipsisBytes, 0, false}};
-    state.out.put(utf8_literal("/"));
+    State state{&document, &names, {{{output.data, output.count - kEllipsisBytes}}}};
+    state.out.add("/");
     state.out.put_line(name);
     const JsonValue options = command_member(document, root, utf8_literal("options"));
     if (options.kind == JsonValueKind::array && options.source.bytes)
         json_visit_indexed_array(document, options, kDepthLimit, visit_option, &state);
     u32 used = state.out.used;
     // Every piece is whole UTF-8, so the cut after the last piece that fitted is a character boundary.
-    if (state.out.overflow) {
+    if (!state.out.ok) {
         copy_bytes(output.data + used, "\xE2\x80\xA6", kEllipsisBytes);
         used += kEllipsisBytes;
     }

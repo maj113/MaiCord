@@ -148,10 +148,9 @@ bool supports(const Resolved& r, int pattern) noexcept {
 constexpr u16 kControlTypes[]{
     control_custom,      control_window,     control_pane,      control_group,        control_window,
     control_button,      control_button,     control_check_box, control_radio_button, control_combo_box,
-    control_list,        control_list_item,  control_tree,      control_tree_item,    control_tab,
-    control_tab_item,    control_menu,       control_menu_item, control_text,         control_header,
-    control_edit,        control_slider,     control_image,     control_hyperlink,    control_document,
-    control_status_bar,  control_scroll_bar};
+    control_list,        control_list_item,  control_tree,      control_tab,          control_tab_item,
+    control_menu,        control_menu_item,  control_text,      control_header,       control_edit,
+    control_slider,      control_image,      control_hyperlink, control_status_bar};
 static_assert(sizeof(kControlTypes) / sizeof(kControlTypes[0]) == static_cast<usize>(UiAccessRole::count));
 
 int control_type(UiAccessRole role) noexcept {

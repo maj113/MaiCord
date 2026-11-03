@@ -773,7 +773,6 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
                 }
             }
         }
-        ++result.decoded_mcus;
         if (++mcu_x == image.mcu_columns) {
             mcu_x = 0;
             ++mcu_y;

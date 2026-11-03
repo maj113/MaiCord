@@ -40,17 +40,6 @@ namespace channel_overview_detail {
 Overview* owner;
 u64 lifetime;
 
-} // namespace channel_overview_detail
-namespace {
-
-u32 person_color(u64 user_id) noexcept {
-    static constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
-    return colors[(user_id >> 22) % 6];
-}
-
-} // namespace
-namespace channel_overview_detail {
-
 const ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
 }
@@ -164,9 +153,7 @@ bool page_dirty() noexcept {
     return selected_permissions() ? overwrites_dirty() : overview_dirty();
 }
 bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return editable() && owner->lifetime == identity &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model &&
+    return Editors::ready(model, identity) &&
            channel_overview_scope_equal(scope(owner->identity.channel_id), owner->identity);
 }
 
@@ -232,11 +219,6 @@ UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& de
     reset_value(&owner->avatar_media[index]);
     return owner->controls[index];
 }
-UiSettingsEditor* editor(u32 index, u64 control, Utf8View placeholder, bool enabled) noexcept {
-    owner->editors[index] =
-        settings_layer_editor_view(&owner->layer, control, owner->models[index], placeholder, enabled);
-    return &owner->editors[index];
-}
 u32 slowmode_index(u32 seconds) noexcept {
     for (u32 i = 0; i < 14; ++i)
         if (slowmode_values[i] == seconds)
@@ -247,9 +229,9 @@ void project_text_overview() noexcept {
     auto& p = *owner;
     const bool edit = editable();
     add_control(1, utf8_literal("Channel name"), {}, UiSettingsControlKind::edit, edit).editor =
-        editor(0, 1, utf8_literal("Channel name"), edit);
+        Editors::view(0, 1, utf8_literal("Channel name"), edit);
     add_control(2, utf8_literal("Channel topic"), {}, UiSettingsControlKind::multiline, edit).editor =
-        editor(1, 2, utf8_literal("Tell members what this channel is for"), edit);
+        Editors::view(1, 2, utf8_literal("Tell members what this channel is for"), edit);
     auto& slowmode = add_control(3, utf8_literal("Slowmode"),
                                  utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
                                  UiSettingsControlKind::choice, edit);
@@ -284,7 +266,8 @@ void project_generic_overview() noexcept {
             .action_label = utf8_literal("Load latest");
     add_control(1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), {},
                 UiSettingsControlKind::edit, edit)
-        .editor = editor(0, 1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), edit);
+        .editor =
+        Editors::view(0, 1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), edit);
     if (p.type == 4)
         return;
     // Bitrate marks: the standard steps plus the stored value when higher.
@@ -456,7 +439,7 @@ void project_permissions(Bank& bank) noexcept {
         // Member targets draw the cached avatar over their initials once resident.
         if (member && target < kControlCapacity)
             p.avatar_media[target] = application_user_avatar_media(entry.id);
-        p.row_accent[order[i]] = member ? person_color(entry.id) : (color ? color : guild_role_color_rgba(0));
+        p.row_accent[order[i]] = member ? guild_person_color(entry.id) : (color ? color : guild_role_color_rgba(0));
     }
     // Grid for the selected target.
     const u32 selected = permission_overwrite_draft_find(p.overwrite_draft, p.selected_target);
@@ -911,13 +894,10 @@ void choose_hook(SettingsLayer*, u32 action) noexcept {
             p.selected_target = p.menu_ids[index];
     }
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     if (selected_permissions() || !(control == 1 || (control == 2 && owner->text)))
-        return false;
-    *model = &owner->models[control - 1];
-    *binding = &owner->bindings[control - 1];
-    *multiline = control == 2;
-    return true;
+        return {};
+    return {&owner->models[control - 1], &owner->bindings[control - 1], control == 2};
 }
 bool edited_hook(SettingsLayer*, u64 control) noexcept {
     const auto text = message_composer_text(owner->models[control - 1]);

@@ -9,9 +9,6 @@
 #include "maicord/model/voice/stage_policy.hpp"
 
 namespace maicord::call_stage {
-u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
-    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
 UiRect centered(float x, float y, float width, float height) noexcept {
     return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
 }
@@ -20,7 +17,7 @@ constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInv
                 kAcceptWidth = 96, kStartWidth = 104, kEndWidth = 92, kIconButton = 32;
 
 u8 format(char* output, u32 capacity, Utf8View prefix, u32 value) noexcept {
-    u32 at = copy_text(output, capacity, prefix);
+    u32 at = utf8_copy_truncated(output, capacity, prefix);
     char digits[10];
     const u32 count = decimal_write(digits, value);
     for (u32 i = 0; i < count && at < capacity; ++i)
@@ -90,14 +87,14 @@ void copy(UiCallScene& s, const UiCallStage& stage) noexcept {
     s.stage_request_shown = stage.active ? minimum<u32>(stage.requests.count, kUiCallStageRequestsShown) : 0;
     const auto take = [&](u32 slot, const UiCallStagePerson& person) noexcept {
         s.stage_people[slot] = {person.user_id,
-                                {s.stage_names[slot], copy_text(s.stage_names[slot], kUiCallNameBytes, person.name)}};
+                                {s.stage_names[slot], utf8_copy_truncated(s.stage_names[slot], kUiCallNameBytes, person.name)}};
     };
     for (u32 i = 0; i < s.stage_audience_shown; ++i)
         take(i, stage.audience[i]);
     for (u32 i = 0; i < s.stage_request_shown; ++i)
         take(kUiCallStageAudienceShown + i, stage.requests[i]);
-    s.stage_topic_bytes = stage.active && stage.live ? copy_text(s.stage_topic, kUiCallStageTopicBytes, stage.topic) : 0;
-    s.stage_notice_bytes = stage.active ? copy_text(s.stage_notice, kUiCallStageNoticeBytes, stage.notice) : 0;
+    s.stage_topic_bytes = stage.active && stage.live ? utf8_copy_truncated(s.stage_topic, kUiCallStageTopicBytes, stage.topic) : 0;
+    s.stage_notice_bytes = stage.active ? utf8_copy_truncated(s.stage_notice, kUiCallStageNoticeBytes, stage.notice) : 0;
     s.stage_text_bytes[0] = format(s.stage_text[0], 32, utf8_literal("Audience \xC2\xB7 "), s.stage_audience_count);
     s.stage_text_bytes[1] = 0;
     s.stage_text_bytes[2] =

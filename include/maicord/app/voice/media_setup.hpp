@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/app/voice/packet_crypto.hpp"
 #include "maicord/protocol/voice/media_events.hpp"
 

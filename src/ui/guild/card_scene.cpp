@@ -17,9 +17,6 @@ constexpr u32 kDescriptionLines = 5;
 constexpr UiHoverCardMotion kEntrance{{kUiGuildCardEntranceMs, UiMotionCurve::spring}, 0x4743'4152'4400'0001ull};
 constexpr u64 kMeasureSource = 0x4743415244ull; // "GCARD"
 
-u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
-    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
 // Measured size of text in a box width wide (wrapping unless single).
 UiSize measure(UiTextMeasureCache* cache, const Utf8View& text, u32 style, float width, bool single, u16 item) noexcept {
     const float estimate = static_cast<float>(text.bytes) * (style & text_style_subtext ? 6.5f : 7.5f);
@@ -42,9 +39,6 @@ UiSize measure(UiTextMeasureCache* cache, const Utf8View& text, u32 style, float
 }
 UiRect offset(UiRect r, float dx, float dy) noexcept {
     return ui_rect_has_area(r) ? UiRect{r.left + dx, r.top + dy, r.right + dx, r.bottom + dy} : UiRect{};
-}
-float opacity(const UiGuildCardScene& s) noexcept {
-    return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
 }
 // "Est. Mar 2021" from the guild snowflake (UTC month).
 u32 established(u64 guild_id, char* output) noexcept {
@@ -175,7 +169,7 @@ UiRect at(const UiGuildCardScene& s, UiRect r) noexcept {
 }
 void place_panel(UiGuildCardScene& s) noexcept {
     const float side = s.settled.left >= s.anchor.right ? -1.f : 1.f;
-    const float dx = side * kSlide * (1 - opacity(s));
+    const float dx = side * kSlide * (1 - clamp_unit(s.progress));
     s.panel = {s.settled.left + dx, s.settled.top, s.settled.right + dx, s.settled.bottom};
 }
 // The server name's initials stand in for a missing icon.
@@ -234,12 +228,12 @@ bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardCont
     s->viewport = viewport;
     s->phase = content.phase;
     s->action = content.phase == UiGuildCardPhase::ready ? content.action : UiGuildCardAction::none;
-    s->name_bytes = copy_text(s->name_text, kUiGuildCardNameBytes, content.name);
-    s->description_bytes = copy_text(s->description_text, kUiGuildCardDescriptionBytes, content.description);
-    s->tag_bytes = copy_text(s->tag, kUiGuildCardTagBytes, content.tag);
+    s->name_bytes = utf8_copy_truncated(s->name_text, kUiGuildCardNameBytes, content.name);
+    s->description_bytes = utf8_copy_truncated(s->description_text, kUiGuildCardDescriptionBytes, content.description);
+    s->tag_bytes = utf8_copy_truncated(s->tag, kUiGuildCardTagBytes, content.tag);
     s->trait_count = minimum(content.trait_count, kUiGuildCardTraits);
     for (u32 i = 0; i < s->trait_count; ++i)
-        s->trait_bytes[i] = copy_text(s->trait_text[i], kUiGuildCardTraitBytes, content.traits[i]);
+        s->trait_bytes[i] = utf8_copy_truncated(s->trait_text[i], kUiGuildCardTraitBytes, content.traits[i]);
     u32 bytes = ui_guild_card_format_count(content.online_count, s->online_text, 20);
     copy_bytes(s->online_text + bytes, " Online", 7);
     s->online_bytes = bytes + 7;
@@ -292,8 +286,8 @@ bool ui_guild_card_tick(UiGuildCardScene* s, u64 now_ms, bool reduced_motion) no
     return true;
 }
 
-u64 ui_guild_card_next_wake(const UiGuildCardScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return ui_hover_card_next_wake(s, kEntrance, now_ms, reduced_motion);
+u64 ui_guild_card_next_wake(const UiGuildCardScene& s, bool reduced_motion) noexcept {
+    return ui_hover_card_next_wake(s, kEntrance, reduced_motion);
 }
 
 bool ui_guild_card_contains(const UiGuildCardScene& s, float x, float y) noexcept {
@@ -328,18 +322,18 @@ bool ui_guild_card_media(const UiGuildCardScene& s, u32 index, UiGuildCardMedia*
         return false;
     if (index == 0 && media_asset_key_valid(s.icon_key) && s.phase != UiGuildCardPhase::loading) {
         const auto r = at(s, s.icon);
-        *output = {s.icon_key, r, s.panel, 18, opacity(s)};
+        *output = {s.icon_key, r, s.panel, 18, clamp_unit(s.progress)};
         return true;
     }
     if (index == 1 && media_asset_key_valid(s.badge_key) && ui_rect_has_area(s.tag_badge)) {
         const auto r = at(s, s.tag_badge);
-        *output = {s.badge_key, r, s.panel, 0, opacity(s)};
+        *output = {s.badge_key, r, s.panel, 0, clamp_unit(s.progress)};
         return true;
     }
     if (index == kUiGuildCardBannerMedia && media_asset_key_valid(s.banner_key)) {
         // Centred cover fit; the card rounds its top corners.
         const auto r = at(s, s.banner);
-        *output = {s.banner_key, r, ui_rect_intersection(r, s.panel), 0, opacity(s),
+        *output = {s.banner_key, r, ui_rect_intersection(r, s.panel), 0, clamp_unit(s.progress),
                    {r.left, r.top, r.right, r.bottom + kRadius}, kRadius, true};
         return true;
     }
@@ -357,7 +351,7 @@ bool ui_guild_card_paint(const UiGuildCardScene& s, const Theme& theme, PaintStr
     if (!s.active)
         return true;
     UiPaint p{paint, theme};
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     p.use<ui_hover_card_paint_surface>(s, theme, kRadius).clip(s.panel);
     // Banner: the brand colour (else the accent) brightening towards the
     // bottom centre, its top corners rounded with the card and its bottom
@@ -373,7 +367,7 @@ bool ui_guild_card_paint_foreground(const UiGuildCardScene& s, const Theme& them
     if (!s.active)
         return true;
     UiPaint p{paint, theme};
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
     p.clip(s.panel);
     // Icon: a ring in the card colour, then the plate the host's icon covers.
@@ -407,7 +401,7 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
         return true;
     UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
     const auto owner = s.owner.handle;
-    const float a = opacity(s);
+    const float a = clamp_unit(s.progress);
     const Color strong = ui_theme_color_alpha(theme.tokens.text.normal, a), muted = ui_theme_color_alpha(theme.tokens.text.muted, a);
     if (!media_asset_key_valid(s.icon_key) && s.phase == UiGuildCardPhase::ready) {
         char initials[8];

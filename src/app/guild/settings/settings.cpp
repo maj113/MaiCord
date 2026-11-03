@@ -186,12 +186,6 @@ bool editable() noexcept {
 
 namespace {
 
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
-}
-
 struct EditorStorage {
     char* text;
     u32 capacity, codepoints;
@@ -213,15 +207,11 @@ EditorStorage editor_storage(Editor index) noexcept {
 
 void set_editor(Editor index, const Utf8View& text) noexcept {
     application_composer_text_input_suspend();
-    auto& model = owner->models[index];
     const auto storage = editor_storage(index);
     const u32 bytes = minimum(text.bytes, storage.capacity);
     if (text.data != storage.text)
         copy_bytes(storage.text, text.data, bytes);
-    message_composer_refresh_borrowed(&model, bytes);
-    message_composer_set_selection(&model, bytes, bytes);
-    bounded_edit_bind(&owner->bindings[index], &model, storage.codepoints, storage.multiline, owner->lifetime,
-                      binding_ready, &model);
+    Editors::load(index, bytes, storage.codepoints, storage.multiline);
 }
 
 namespace {
@@ -292,7 +282,7 @@ u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiS
 }
 u32 push_editor(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
                 Editor index, const Utf8View& placeholder, const Utf8View& action) noexcept {
-    const UiSettingsEditor* view = &editor_view(index, id, placeholder, enabled);
+    const UiSettingsEditor* view = Editors::view(index, id, placeholder, enabled);
     const u32 row = push_row(id, label, description, kind, enabled, false, action);
     if (row != ~0u)
         owner->controls[row].editor = view;
@@ -325,16 +315,6 @@ Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcep
     bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
     bank.add(chat_state_store_channel_name(state(), *channel));
     return bank.since(start);
-}
-UiSettingsEditor& editor_view(Editor index, u64 control, const Utf8View& placeholder, bool enabled) noexcept {
-    owner->editors[index] =
-        settings_layer_editor_view(&owner->layer, control, owner->models[index], placeholder, enabled);
-    return owner->editors[index];
-}
-// Avatar fill for people without a role colour, stable per user.
-u32 person_color(u64 user_id) noexcept {
-    static constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
-    return colors[(user_id >> 22) % 6];
 }
 
 // "512×512 PNG · 1.0 MB", plus the source size when it was resized.
@@ -1037,14 +1017,11 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     }
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const Editor editor = editor_of(control);
-    if (editor == editor_count)
-        return false;
-    *model = &owner->models[editor];
-    *binding = &owner->bindings[editor];
-    *multiline = editor == editor_description;
-    return true;
+    return editor == editor_count
+               ? SettingsLayerEditor{}
+               : SettingsLayerEditor{&owner->models[editor], &owner->bindings[editor], editor == editor_description};
 }
 void context_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
     if (editable() && ops().context)
@@ -1400,8 +1377,7 @@ bool application_guild_settings_synchronize() noexcept {
         }
         changed = true;
     }
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer)) {
         p.menu = Menu::none;
         changed = true;
     }

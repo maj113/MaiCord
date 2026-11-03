@@ -8,14 +8,12 @@
 #include "ui.hpp"
 #include "../../shell/state.hpp"
 
-#include "maicord/app/account/account_paths.hpp"
 #include "maicord/app/account/login/continuations.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/protocol/auth/remote_auth.hpp"
 
 namespace maicord::app_detail {
 namespace auth_detail {}

@@ -155,8 +155,8 @@ struct AccountUiRuntime {
     MessageScenePollBinding message_poll_binding;
     u64 poll_gateway_serial;
     u64 message_history_poll_serial;
-    u64 poll_source_sequences[8];
-    u8 poll_source_sequence_mask;
+    u64 poll_sequence;
+    bool poll_sequence_known;
     MediaAtlas media_atlas;
     MediaAtlas preview_media_atlas;
     MessageDraftStore message_drafts;
@@ -293,9 +293,12 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // the navigation view's voice extras binding (16 bytes), the message text
 // projection's scroll shift (8 bytes), the member role
 // overflow, the 2,048 voice states that moved to their own owned storage, and dead presentation and
-// cache counters removed since (see the base literal).
+// cache counters removed since (see the base literal). One embedded layout node also shrank by 8
+// bytes when the layout baseline went away (the 16 + 8 - 8 terms); the composer controller lost two
+// counters, its send tracker two more and the draft store three (the - 24 term); the poll receipt
+// sequence guard shrank from eight sources to one (the - 56 term).
 static_assert(kAccountUiFixedBytes ==
-              4'261'068 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'068 + 16 + 8 - 8 - 24 - 56 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

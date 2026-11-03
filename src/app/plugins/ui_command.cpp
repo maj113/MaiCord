@@ -1,5 +1,6 @@
 #include "ui_internal.hpp"
 #include "maicord/core/json_reader.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -27,12 +28,8 @@ constexpr u32 option_type(u32 type) noexcept {
     return types[type];
 }
 
-Utf8View view(const mc_str& text) noexcept {
-    return {text.data, text.bytes};
-}
-
 bool write_argument(ProtocolWriter* w, const mc_arg_def& arg) noexcept {
-    const Utf8View name = view(arg.name), description = view(arg.description);
+    const Utf8View name = plugin_view(arg.name), description = plugin_view(arg.description);
     if (!protocol_write(w, "{\"name\":", json_text(name), ",\"description\":", json_text(description), ",\"type\":",
                         option_type(arg.type)))
         return false;
@@ -53,7 +50,7 @@ bool write_argument(ProtocolWriter* w, const mc_arg_def& arg) noexcept {
     if (arg.choice_count) {
         if (!protocol_write(w, ",\"choices\":[")) return false;
         for (u32 i = 0; i < arg.choice_count; ++i) {
-            const Utf8View choice = view(arg.choices[i]);
+            const Utf8View choice = plugin_view(arg.choices[i]);
             if (!protocol_write(w, i ? "," : "", "{\"name\":", json_text(choice), ",\"value\":", json_text(choice), '}'))
                 return false;
         }
@@ -66,7 +63,7 @@ bool write_command(ProtocolWriter* w, const PluginBinding& binding, u32 item) no
     const mc_command_def& def = descriptor_of(binding).commands[item];
     if (!protocol_write(w, "{\"id\":", snowflake_text(command_id(binding.owner_id, item)), ",\"application_id\":",
                         snowflake_text(application_id(binding.owner_id)), ",\"version\":\"1\",\"type\":1,\"name\":",
-                        json_text(view(def.name)), ",\"description\":", json_text(view(def.description)),
+                        json_text(plugin_view(def.name)), ",\"description\":", json_text(plugin_view(def.description)),
                         (def.flags & MC_COMMAND_GUILD_ONLY) ? ",\"dm_permission\":false" : "", ",\"options\":["))
         return false;
     for (u32 i = 0; i < def.arg_count; ++i)
@@ -214,7 +211,7 @@ u32 plugin_command_index_json(Slice<char> output) noexcept {
         const mc_descriptor& descriptor = descriptor_of(binding);
         if (!callable(binding) || !descriptor.command_count) continue;
         if (!protocol_write(&w, comma ? "," : "", "{\"id\":", snowflake_text(application_id(binding.owner_id)),
-                            ",\"name\":", json_text(view(descriptor.name)), '}'))
+                            ",\"name\":", json_text(plugin_view(descriptor.name)), '}'))
             return 0;
         comma = true;
     }

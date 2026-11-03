@@ -61,9 +61,6 @@ bool allowed_user(QuickSwitcherSources sources, u64 id) noexcept {
     return relation && relation->type == RelationshipType::friend_ && !relation->ignored && !relation->spam &&
         user_store_find(*sources.users, id);
 }
-u16 copy_text(char* output, u32 capacity, const Utf8View& text) noexcept {
-    return static_cast<u16>(utf8_copy_truncated(output, capacity, text));
-}
 u32 field_score(const Utf8View& query, const Utf8View& field) noexcept {
     if (!field.bytes) return 0;
     if (ascii_equal_ignore_case(query, field)) return 1000;
@@ -124,14 +121,14 @@ void channel_row(QuickSwitcherSources sources, const ChannelRecord& c, QuickSwit
     auto name = chat_state_store_channel_name(state, c);
     if (c.guild_id) {
         const auto* guild = chat_state_store_find_guild(state, c.guild_id);
-        row->detail_bytes = copy_text(row->detail, sizeof(row->detail), chat_state_store_guild_name(state, *guild));
+        utf8_assign(row->detail, row->detail_bytes, chat_state_store_guild_name(state, *guild));
     } else {
-        row->detail_bytes = copy_text(row->detail, sizeof(row->detail), c.type == 1 ? utf8_literal("Direct message") : utf8_literal("Group message"));
+        utf8_assign(row->detail, row->detail_bytes, c.type == 1 ? utf8_literal("Direct message") : utf8_literal("Group message"));
         const auto* user = sources.users ? user_store_find(*sources.users, row->target.user_id) : nullptr;
         if (user) {
             *alternate = user_store_username(*sources.users, *user);
             const auto avatar = user_store_avatar_hash(*user);
-            row->avatar_hash_bytes = static_cast<u8>(copy_text(row->avatar_hash, sizeof(row->avatar_hash), avatar));
+            utf8_assign(row->avatar_hash, row->avatar_hash_bytes, avatar);
         }
         if (!name.bytes && c.type == 1 && user) {
             const auto nickname = state.private_channels ? private_channel_store_nickname(*state.private_channels, c.id, user->id) : Utf8View{};
@@ -150,15 +147,15 @@ void channel_row(QuickSwitcherSources sources, const ChannelRecord& c, QuickSwit
                     if (row->label_bytes && row->label_bytes + 2 < sizeof(row->label)) {
                         row->label[row->label_bytes++] = ','; row->label[row->label_bytes++] = ' ';
                     }
-                    row->label_bytes += copy_text(row->label + row->label_bytes, sizeof(row->label) - row->label_bytes, display);
+                    row->label_bytes += static_cast<u16>(utf8_copy_truncated(row->label + row->label_bytes, sizeof(row->label) - row->label_bytes, display));
                     if (row->label_bytes == sizeof(row->label)) break;
                 }
-                row->avatar_hash_bytes = static_cast<u8>(copy_text(row->avatar_hash, sizeof(row->avatar_hash), {priv->icon, priv->icon_bytes}));
+                utf8_assign(row->avatar_hash, row->avatar_hash_bytes, Utf8View{priv->icon, priv->icon_bytes});
             }
         }
     }
-    if (name.bytes) row->label_bytes = copy_text(row->label, sizeof(row->label), name);
-    if (!row->label_bytes) row->label_bytes = copy_text(row->label, sizeof(row->label), c.guild_id ? utf8_literal("Channel") :
+    if (name.bytes) utf8_assign(row->label, row->label_bytes, name);
+    if (!row->label_bytes) utf8_assign(row->label, row->label_bytes, c.guild_id ? utf8_literal("Channel") :
         c.type == 3 ? utf8_literal("Group message") : utf8_literal("Direct message"));
 }
 bool better(const QuickSwitcherRow& a, const QuickSwitcherRow& b) noexcept {
@@ -347,9 +344,9 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
             if (!guild.occupied || guild.unavailable || guild.id == state.selected_guild_id) continue;
             QuickSwitcherRow row{};
             row.target = {guild.id, guild.id, 0, 0, guild.generation, QuickSwitcherKind::guild};
-            row.label_bytes = copy_text(row.label, sizeof(row.label), chat_state_store_guild_name(state, guild));
-            row.detail_bytes = copy_text(row.detail, sizeof(row.detail), utf8_literal("Server"));
-            row.avatar_hash_bytes = static_cast<u8>(copy_text(row.avatar_hash, sizeof(row.avatar_hash), chat_state_store_guild_icon_hash(guild)));
+            utf8_assign(row.label, row.label_bytes, chat_state_store_guild_name(state, guild));
+            utf8_assign(row.detail, row.detail_bytes, utf8_literal("Server"));
+            utf8_assign(row.avatar_hash, row.avatar_hash_bytes, chat_state_store_guild_icon_hash(guild));
             consider(c, row, match, {}, limit);
         }
     }
@@ -361,10 +358,10 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
             const auto* user = user_store_find(*sources.users, relation.user_id);
             QuickSwitcherRow row{};
             row.target = {user->id, 0, 0, user->id, user->generation, QuickSwitcherKind::user};
-            row.label_bytes = copy_text(row.label, sizeof(row.label), relationship_display_name(relation, *sources.users));
-            row.detail_bytes = copy_text(row.detail, sizeof(row.detail),
+            utf8_assign(row.label, row.label_bytes, relationship_display_name(relation, *sources.users));
+            utf8_assign(row.detail, row.detail_bytes,
                 friends ? user_store_username(*sources.users, *user) : utf8_literal("Friend"));
-            row.avatar_hash_bytes = static_cast<u8>(copy_text(row.avatar_hash, sizeof(row.avatar_hash), user_store_avatar_hash(*user)));
+            utf8_assign(row.avatar_hash, row.avatar_hash_bytes, user_store_avatar_hash(*user));
             consider(c, row, match, user_store_username(*sources.users, *user), limit);
         }
         if (!friends) resolve_cached_friend_routes(c, sources);

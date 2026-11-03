@@ -483,8 +483,7 @@ namespace {
 constexpr u64 shake_duration_ms = 200, shake_frame_ms = 16;
 constexpr float shake_intensity = 2;
 bool shake_motion() noexcept {
-    return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion &&
-           (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
+    return !application_reduced_motion();
 }
 
 } // namespace

@@ -34,7 +34,6 @@ enum class UiAccessRole : u8 {
     list,
     list_item,
     tree,
-    tree_item,
     tab_list,
     tab,
     menu,
@@ -45,9 +44,7 @@ enum class UiAccessRole : u8 {
     slider,
     image,
     link,
-    document,
     status,
-    scroll_bar,
     count,
 };
 

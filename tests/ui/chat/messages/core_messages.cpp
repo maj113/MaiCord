@@ -936,7 +936,7 @@ void test_message_text_presentation() noexcept {
         *value = UiTextMeasureValue{
             UiSize{minimum(request.constraint.width, static_cast<float>(request.text.bytes) * 8.0f),
                    height},
-            minimum(14.0f, height), lines};
+            lines};
         return true;
     };
     const auto coordinator_finalize = +[](void* opaque, const Theme&) noexcept -> bool {
@@ -1731,7 +1731,7 @@ void test_message_rich_widget_materializer() noexcept {
             ? ui_widget_manager_add(
                   &manager, ui_widget_invalid_handle(),
                   UiWidgetDesc{100, UiWidgetKind::container, ui_widget_enabled,
-                               UiLayoutNodeSpec{utf8_literal("RichRoot"), root_style, UiSize{}, 0.0f, 100}})
+                               UiLayoutNodeSpec{utf8_literal("RichRoot"), root_style, UiSize{}, 100}})
             : UiWidgetResult{};
 
     MessageRichRecord rich{};
@@ -1849,7 +1849,7 @@ void test_message_rich_widget_materializer() noexcept {
         tiny_ready ? ui_widget_manager_add(&tiny_manager, ui_widget_invalid_handle(),
                                            UiWidgetDesc{300, UiWidgetKind::container, ui_widget_enabled,
                                                         UiLayoutNodeSpec{utf8_literal("TinyRichRoot"),
-                                                                         root_style, UiSize{}, 0.0f, 300}})
+                                                                         root_style, UiSize{}, 300}})
                    : UiWidgetResult{};
     MessageSceneRowWidget tiny_row{};
     tiny_row.attachments = UiWidgetHandle{19, 88};

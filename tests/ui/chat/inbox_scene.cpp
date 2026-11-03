@@ -65,7 +65,7 @@ void test_inbox_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_rect_height(first_card) == 48 + 22 + 10 && second_card.top - first_card.bottom == 8 &&
               ui_rect_width(first_card) == ui_rect_width(scene.panel) - 28,
           "inbox scene: mention cards fit a one-line message with an 8 DIP gap between cards");
-    InboxAvatarMedia avatar{}, blank{};
+    AvatarMedia avatar{}, blank{};
     UiRect avatar_rect{}, avatar_clip{};
     const bool avatar_ok = inbox_avatar_media_resolve(scene, 0, &avatar);
     check(avatar_ok && avatar.key.kind == MediaAssetKind::user_avatar && avatar.key.id == 40 &&

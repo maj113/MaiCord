@@ -1,8 +1,8 @@
 #include "maicord/app/chat/messages/interaction_rules.hpp"
 #include "maicord/core/ascii.hpp"
 
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 
@@ -18,21 +18,6 @@ Utf8View trim(Utf8View text) noexcept {
         --last;
     return {text.data + first, last - first};
 }
-
-struct Writer {
-    Slice<char> output;
-    u32 used;
-    bool ok;
-
-    void append(const Utf8View& value) noexcept {
-        if (!ok || value.bytes > output.count - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(output.data + used, value.data, value.bytes);
-        used += value.bytes;
-    }
-};
 
 // Optional argument after the command word; nullptr data means no match.
 bool command_argument(Utf8View text, Utf8View command, Utf8View* argument) noexcept {
@@ -63,14 +48,9 @@ float smooth(float t) noexcept {
     return t * t * (3 - 2 * t);
 }
 
-void append_two_digits(Writer* writer, u64 value) noexcept {
+void append_two_digits(TextWriter* writer, u64 value) noexcept {
     const char digits[2] = {static_cast<char>('0' + value / 10 % 10), static_cast<char>('0' + value % 10)};
-    writer->append({digits, 2});
-}
-
-void append_number(Writer* writer, u64 value) noexcept {
-    char digits[20];
-    writer->append({digits, decimal_write(digits, value)});
+    writer->add(digits, 2);
 }
 
 } // namespace
@@ -96,22 +76,22 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
         if (!command_argument(text, rewrite.name, &argument))
             continue;
         argument = message_text(argument);
-        Writer writer{output, 0, output.data != nullptr};
+        TextWriter writer{output, 0, output.data != nullptr};
         if (argument.bytes) {
-            writer.append(argument);
-            writer.append(utf8_literal(" "));
+            writer.add(argument);
+            writer.add(" ");
         }
-        writer.append(rewrite.suffix);
+        writer.add(rewrite.suffix);
         if (writer.ok)
             command = {ComposerTextCommandKind::rewrite, writer.used};
         return command;
     }
     if (command_argument(text, utf8_literal("/me"), &argument)) {
         argument = message_text(argument);
-        Writer writer{output, 0, output.data != nullptr};
-        writer.append(utf8_literal("_"));
-        writer.append(argument);
-        writer.append(utf8_literal("_"));
+        TextWriter writer{output, 0, output.data != nullptr};
+        writer.add("_");
+        writer.add(argument);
+        writer.add("_");
         if (argument.bytes && writer.ok)
             command = {ComposerTextCommandKind::rewrite, writer.used};
         return command;
@@ -169,7 +149,7 @@ constexpr char kEmoticons[] =
 bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) noexcept {
     if (!bytes || (!text.data && text.bytes) || (!output.data && output.count))
         return false;
-    Writer writer{output, 0, true};
+    TextWriter writer{output, 0, true};
     bool converted = false, code_block = false, code_span = false;
     for (u32 at = 0; at < text.bytes;) {
         if (text.data[at] == '`') {
@@ -179,7 +159,7 @@ bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) n
             else if (!code_block)
                 code_span = !code_span;
             const u32 run = fence ? 3 : 1;
-            writer.append({text.data + at, run});
+            writer.add(text.data + at, run);
             at += run;
             continue;
         }
@@ -203,11 +183,11 @@ bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) n
                 entry = emoji + emoji_bytes + 1;
             }
         if (match_bytes) {
-            writer.append(match_emoji);
+            writer.add(match_emoji);
             at += match_bytes;
             converted = true;
         } else {
-            writer.append({text.data + at, 1});
+            writer.add(text.data + at, 1);
             ++at;
         }
     }
@@ -219,18 +199,18 @@ bool composer_text_substitute(Utf8View content, Utf8View pattern, Utf8View repla
                              Slice<char> output, u32* bytes) noexcept {
     if (!bytes || !pattern.bytes || !output.data)
         return false;
-    Writer writer{output, 0, true};
+    TextWriter writer{output, 0, true};
     bool matched = false;
     u32 cursor = 0;
     while (cursor < content.bytes) {
         const bool match = (!matched || global) && content.bytes - cursor >= pattern.bytes &&
                            bytes_equal(content.data + cursor, pattern.data, pattern.bytes);
         if (match) {
-            writer.append(replacement);
+            writer.add(replacement);
             cursor += pattern.bytes;
             matched = true;
         } else {
-            writer.append({content.data + cursor, 1});
+            writer.add(content.data + cursor, 1);
             ++cursor;
         }
     }
@@ -242,29 +222,29 @@ bool composer_text_substitute(Utf8View content, Utf8View pattern, Utf8View repla
 
 u32 message_delete_preview_format(Utf8View author, Utf8View content, bool has_attachments,
                                   Slice<char> output) noexcept {
-    Writer writer{output, 0, output.data != nullptr};
+    TextWriter writer{output, 0, output.data != nullptr};
     if (author.bytes) {
-        writer.append(author);
-        writer.append(utf8_literal(": "));
+        writer.add(author);
+        writer.add(": ");
     }
     content = trim(content);
     if (!content.bytes) {
-        writer.append(has_attachments ? utf8_literal("Attachment") : utf8_literal("Empty message"));
+        writer.add(has_attachments ? utf8_literal("Attachment") : utf8_literal("Empty message"));
         return writer.ok ? writer.used : 0;
     }
     u32 cursor = 0;
     while (writer.ok && cursor < content.bytes) {
         if (cursor >= kMessageDeletePreviewContentBytes) {
-            writer.append(utf8_literal("\xE2\x80\xA6"));
+            writer.add("\xE2\x80\xA6");
             break;
         }
         const Utf8DecodeResult scalar = utf8_decode_one(content.data + cursor, content.bytes - cursor);
         if (!scalar.valid || !scalar.width)
             return 0;
         // A single line keeps the dialog compact.
-        writer.append(content.data[cursor] == '\n' || content.data[cursor] == '\r'
-                          ? utf8_literal(" ")
-                          : Utf8View{content.data + cursor, scalar.width});
+        writer.add(content.data[cursor] == '\n' || content.data[cursor] == '\r'
+                       ? utf8_literal(" ")
+                       : Utf8View{content.data + cursor, scalar.width});
         cursor += scalar.width;
     }
     return writer.ok ? writer.used : 0;
@@ -340,16 +320,16 @@ u32 slowmode_label_format(u64 remaining_ms, Slice<char> output) noexcept {
     if (!remaining_ms)
         return 0;
     const u64 seconds = (remaining_ms + 999) / 1000;
-    Writer writer{output, 0, output.data != nullptr};
-    writer.append(utf8_literal("Slowmode: "));
+    TextWriter writer{output, 0, output.data != nullptr};
+    writer.add("Slowmode: ");
     if (seconds >= 3600) {
-        append_number(&writer, seconds / 3600);
-        writer.append(utf8_literal(":"));
+        writer.number(seconds / 3600);
+        writer.add(":");
         append_two_digits(&writer, seconds / 60 % 60);
     } else {
-        append_number(&writer, seconds / 60);
+        writer.number(seconds / 60);
     }
-    writer.append(utf8_literal(":"));
+    writer.add(":");
     append_two_digits(&writer, seconds % 60);
     return writer.ok ? writer.used : 0;
 }

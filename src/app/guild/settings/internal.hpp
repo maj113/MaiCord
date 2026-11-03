@@ -487,6 +487,7 @@ bool mutation_pending() noexcept;
 bool page_allowed(Page page) noexcept;
 bool can_manage_guild() noexcept;
 bool editable() noexcept;
+using Editors = SettingsEditors<&owner, editable>;
 void queue(Op op, u64 target = 0) noexcept;
 // A page's read, queued once per visit. Clears `failed` with the new request; false when already requested.
 bool request_read(bool& requested, bool& failed, Op op) noexcept;
@@ -529,8 +530,6 @@ u32 push_loading(const Utf8View& description, u64 id = control_notice) noexcept;
 // The list heading "<title><count>".
 u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept;
 Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcept;
-UiSettingsEditor& editor_view(Editor index, u64 control, const Utf8View& placeholder, bool enabled) noexcept;
-u32 person_color(u64 user_id) noexcept;
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept;
 Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept;

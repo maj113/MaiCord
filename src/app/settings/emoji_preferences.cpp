@@ -1,7 +1,7 @@
 #include "emoji_preferences.hpp"
 #include "maicord/core/memory.hpp"
 #include "../media/picker.hpp"
-#include "envelope.hpp"
+#include "account_broker.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
@@ -18,7 +18,7 @@ constexpr u32 kScratchBytes = 3 * (kEmojiPreferencesMaximumGroupBytes + 8) + 32;
 // The patch codec bounds edits per write; later edits follow in the next write.
 constexpr u32 kPatchEdits = 64;
 
-struct Broker {
+struct Broker : AccountBroker {
     ReactionPreferenceRemoteUsage remote[kReactionPreferenceKindCount][kReactionPreferenceUsageCapacity];
     ReactionEmojiRef remote_favorites[kReactionPreferenceFavoriteCapacity];
     EmojiFrecencyEntry entries[kReactionPreferenceKindCount][kReactionPreferenceUsageCapacity];
@@ -29,12 +29,9 @@ struct Broker {
     u8* groups; // observed snapshot groups
     u32 group_bytes;
     EmojiPreferencesSnapshot snapshot;
-    u8* response_body;
-    u64 profile_id, self_user_id, request_id, gateway_revision, retry_at;
-    u32 generation, submitted_generation, submitted_edits, submitted_uses;
-    AccountGifFavoritesOperation operation;
-    u8 attempts;
-    bool authoritative, stale, fetch_wanted, was_running, receipt_consumed, admission_busy, terminal_rate_limit;
+    u64 retry_at;
+    u32 submitted_edits, submitted_uses;
+    bool stale, terminal_rate_limit;
 };
 Broker* broker;
 
@@ -42,15 +39,7 @@ ReactionPreferenceStore* store() noexcept {
     return g_app.account_ui ? &g_app.account_ui->reaction_preferences : nullptr;
 }
 bool online() noexcept {
-    return g_app.account.instance && g_app.account_ui && g_app.account.status.profile_id &&
-           g_app.account_ui->chat_state.self_user_id && g_app.account.status.running &&
-           !g_app.account.status.failed && g_app.account.api.emoji_preferences &&
-           g_app.account.status.required_action == AccountRequirement::none;
-}
-bool scope(const Broker& p) noexcept {
-    return g_app.account.instance && g_app.account_ui && p.profile_id && p.self_user_id &&
-           p.profile_id == g_app.account.status.profile_id &&
-           p.self_user_id == g_app.account_ui->chat_state.self_user_id;
+    return account_online() && g_app.account.api.emoji_preferences;
 }
 void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnapshot& snapshot) noexcept {
     dispose(p.groups, p.group_bytes);
@@ -62,25 +51,21 @@ void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnap
         p.snapshot.favorites = p.snapshot.frecency = p.snapshot.reaction_frecency = p.snapshot.sticker_frecency = {};
 }
 void clear_scope(Broker& p) noexcept {
-    if (!++p.generation)
-        ++p.generation;
+    p.generation = next_generation(p.generation);
     replace_groups(p, nullptr, 0, {});
     p.authoritative = p.stale = p.fetch_wanted = p.terminal_rate_limit = false;
     p.attempts = 0;
     p.retry_at = 0;
 }
 void bind_scope(Broker& p) noexcept {
-    p.profile_id = g_app.account.status.profile_id;
-    p.self_user_id = g_app.account_ui->chat_state.self_user_id;
-    p.gateway_revision = g_app.account.status.frecency_settings_revision;
-    p.was_running = g_app.account.status.running;
+    broker_bind(p);
     // Fetched lazily: on the first picker open or before the first write.
     p.fetch_wanted = false;
     p.retry_at = 0;
 }
 Broker* ensure() noexcept {
     if (!broker) {
-        broker = committed_allocate<Broker>(sizeof(Broker));
+        broker = commit_pages<Broker>();
         if (broker)
             broker->generation = 1;
     }
@@ -101,7 +86,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     }
     if (measured.bytes > kRestClientMaximumResponseBytes)
         return false;
-    u8* raw = committed_allocate<u8>(measured.bytes);
+    u8* raw = commit_pages<u8>(measured.bytes);
     if (!raw)
         return false;
     bool ok = base64_decode(settings, {raw, measured.bytes}).ok();
@@ -109,7 +94,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     EmojiPreferencesSnapshot measure{};
     const auto size = ok ? emoji_preferences_decode(proto, {}, &measure) : EmojiPreferencesResult{};
     ok = ok && size.ok();
-    u8* bank = ok && size.group_bytes ? committed_allocate<u8>(size.group_bytes) : nullptr;
+    u8* bank = ok && size.group_bytes ? commit_pages<u8>(size.group_bytes) : nullptr;
     ok = ok && (bank || !size.group_bytes) &&
          emoji_preferences_decode(proto, {bank, size.group_bytes}, snapshot).ok();
     dispose(raw, measured.bytes);
@@ -191,7 +176,7 @@ void apply_snapshot(Broker& p) noexcept {
 
 // Keys match observed entries by emoji, so keys other clients wrote are sent
 // back as received; this client's own key is only used for new entries.
-u64 preference_identity(void*, Utf8View key) noexcept {
+u64 preference_identity(Utf8View key) noexcept {
     const auto emoji = reaction_emoji_from_settings_key(key);
     return !emoji.valid() ? 0 : emoji.custom() ? emoji.custom_id : (1ull << 63) | emoji.catalog_index;
 }
@@ -281,7 +266,7 @@ void application_emoji_preferences_track_message(const ApplicationEmojiUse& uses
 
 ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept {
     const auto* p = broker;
-    return p && scope(*p) ? p->snapshot.sticker_frecency : ConstSlice<u8>{};
+    return p && broker_scope(*p) ? p->snapshot.sticker_frecency : ConstSlice<u8>{};
 }
 
 void application_emoji_preferences_open() noexcept {
@@ -290,7 +275,7 @@ void application_emoji_preferences_open() noexcept {
     application_emoji_preferences_synchronize();
     auto& p = *broker;
     p.terminal_rate_limit = false;
-    if (scope(p) && (p.stale || !p.authoritative) && !p.request_id) {
+    if (broker_scope(p) && (p.stale || !p.authoritative) && !p.request_id) {
         p.fetch_wanted = true;
         p.retry_at = 0;
     }
@@ -300,7 +285,7 @@ void application_emoji_preferences_synchronize() noexcept {
     auto* p = broker;
     if (!p)
         return;
-    if (!scope(*p)) {
+    if (!broker_scope(*p)) {
         if (p->profile_id || p->self_user_id) {
             clear_scope(*p);
             p->profile_id = p->self_user_id = 0;
@@ -327,7 +312,7 @@ bool application_emoji_preferences_pending(u64 now_ms) noexcept {
         ensure();
     application_emoji_preferences_synchronize();
     const auto* p = broker;
-    if (!p || !scope(*p) || !online() || p->request_id || p->response_body)
+    if (!p || !broker_scope(*p) || !online() || p->request_id || p->response_body)
         return false;
     const u64 due = due_at(*p);
     return due && due <= now_ms;
@@ -398,7 +383,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
             reaction_preferences_commit(preferences, sending, 0);
             return false;
         }
-        write = committed_allocate<u8>(write_bytes);
+        write = commit_pages<u8>(write_bytes);
         if (!write) {
             p.retry_at = now_ms + kFailureBackoffMs;
             return false;
@@ -417,7 +402,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
         p.submitted_edits = sending;
         p.submitted_uses = preferences->pending_use_count;
     }
-    p.response_body = committed_allocate<u8>(kRestClientMaximumResponseBytes);
+    p.response_body = commit_pages<u8>(kRestClientMaximumResponseBytes);
     if (!p.response_body) {
         dispose(write, write_bytes);
         p.retry_at = now_ms + kFailureBackoffMs;
@@ -426,34 +411,27 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
     const auto admitted = g_app.account.api.emoji_preferences(g_app.account.instance, operation, patch, id);
     dispose(write, write_bytes);
     if (!admitted.ok()) {
-        dispose(p.response_body, kRestClientMaximumResponseBytes);
-        p.response_body = nullptr;
+        broker_drop_response(p);
         p.admission_busy = admitted.error == RestClientSubmitError::busy;
         if (!p.admission_busy)
             fail(p, operation);
         return false;
     }
-    p.request_id = id;
-    p.operation = operation;
-    p.submitted_generation = p.generation;
-    p.admission_busy = false;
+    broker_admitted(p, id, operation);
     return true;
 }
 
 bool application_emoji_preferences_response(const RestClientResponse& response, Utf8View body) noexcept {
-    auto* owner = broker;
-    if (!owner || !owner->request_id || owner->request_id != response.request_id)
+    if (!broker_awaits(broker, response.request_id))
         return false;
-    auto& p = *owner;
+    auto& p = *broker;
     const auto operation = p.operation;
-    const bool current = scope(p) && p.submitted_generation == p.generation && store();
-    p.request_id = 0;
-    p.admission_busy = false;
-    p.receipt_consumed = true;
+    const bool current = broker_scope(p) && p.submitted_generation == p.generation && store();
+    broker_received(p);
     const u64 now = clock_monotonic_milliseconds();
     if (!current) {
         p.authoritative = false;
-        p.fetch_wanted = scope(p);
+        p.fetch_wanted = broker_scope(p);
         return true;
     }
     if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
@@ -496,23 +474,16 @@ bool application_emoji_preferences_response(const RestClientResponse& response, 
 }
 
 void application_emoji_preferences_response_drained() noexcept {
-    auto* p = broker;
-    if (!p || p->request_id || !p->receipt_consumed)
-        return;
-    dispose(p->response_body, kRestClientMaximumResponseBytes);
-    p->response_body = nullptr;
-    p->receipt_consumed = false;
+    broker_drain(broker);
 }
 
 Slice<u8> application_emoji_preferences_response_buffer() noexcept {
-    const auto* p = broker;
-    return p && p->response_body ? Slice<u8>{p->response_body, kRestClientMaximumResponseBytes}
-                                 : Slice<u8>{};
+    return broker_response_buffer(broker);
 }
 
 u64 application_emoji_preferences_next_wake() noexcept {
     const auto* p = broker;
-    if (!p || !scope(*p) || !online() || p->request_id || p->response_body || p->admission_busy ||
+    if (!p || !broker_scope(*p) || !online() || p->request_id || p->response_body || p->admission_busy ||
         g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
         return 0;
     return due_at(*p);
@@ -524,7 +495,7 @@ void application_emoji_preferences_release() noexcept {
         return;
     broker = nullptr;
     dispose(p->groups, p->group_bytes);
-    dispose(p->response_body, kRestClientMaximumResponseBytes);
+    broker_drop_response(*p);
     dispose(p, sizeof(Broker));
 }
 } // namespace maicord::app_detail

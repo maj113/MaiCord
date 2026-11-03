@@ -7,6 +7,7 @@
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/app/chat/messages/edit_runtime.hpp"
 #include "maicord/app/chat/messages/send_tracker.hpp"
+#include "../../../support/send_tracker_probe.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
@@ -430,11 +431,13 @@ void test_message_timeline() noexcept {
                                            false) &&
                message_timeline_set_scroll(&pressure_timeline, 100, false),
            "message_timeline_text_pressure_fixture");
+    const u32 pressure_compactions_before = pressure_store.compactions;
     const MessageTimelineApplyResult pressure_update = message_timeline_apply(
         &pressure_timeline,
         timeline_message_event(GatewayClientDispatchKind::message_update, 20, 7, 0, update_fields, 6),
         byte_literal("123456"), Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds});
-    expect(pressure_update.ok() && pressure_update.evicted == 1 && pressure_update.compacted &&
+    expect(pressure_update.ok() && pressure_update.evicted == 1 &&
+               pressure_store.compactions - pressure_compactions_before == 1 &&
                pressure_update.invalidation.structural && pressure_store.count == 2 &&
                pressure_list.count == 2 &&
                message_store_find(pressure_store, 10).error == MessageStoreError::not_found &&
@@ -442,7 +445,7 @@ void test_message_timeline() noexcept {
                utf8_equal(
                    message_store_content(pressure_store, message_store_find(pressure_store, 20).handle),
                    utf8_literal("123456")) &&
-               pressure_timeline.evicted == 1 && pressure_timeline.compactions == 1 &&
+               pressure_timeline.evicted == 1 &&
                pressure_store.rejected == 0,
            "message_timeline_update_pressure_preserves_target");
 
@@ -568,7 +571,7 @@ void test_message_send_tracker() noexcept {
         &tracker, &timeline, http_first.nonce, 200, MessageSendHttpDisposition::success, 110);
     const MessageSendObserveResult premature_retry =
         message_send_tracker_retry(&tracker, &timeline, http_first.nonce, 111);
-    expect(http_ack.ok() && !http_ack.completed && !http_ack.changed && tracker.active_count == 1 &&
+    expect(http_ack.ok() && !http_ack.completed && !http_ack.changed && send_tracker_active(tracker) == 1 &&
                premature_retry.error == MessageSendTrackerError::not_found &&
                message_store_find(store, http_first.nonce).ok(),
            "message_send_tracker_http_before_gateway_waits_for_echo");
@@ -594,7 +597,7 @@ void test_message_send_tracker() noexcept {
     completion = MessageSendCompletion{};
     expect(gateway_first.ok() && gateway_ack.ok() && !gateway_ack.completed &&
                !message_store_find(store, gateway_first.nonce).ok() && http_after_gateway.ok() &&
-               http_after_gateway.completed && tracker.active_count == 0 &&
+               http_after_gateway.completed && !send_tracker_active(tracker) &&
                message_send_tracker_take_completion(&tracker, &completion) &&
                completion.kind == MessageSendCompletionKind::accepted &&
                completion.authoritative_id == 901 && completion.api_elapsed_ms == 15 &&
@@ -619,7 +622,7 @@ void test_message_send_tracker() noexcept {
                retried_record->delivery == MessageDeliveryState::pending &&
                message_send_tracker_tick(&tracker, &timeline, 320 + kMessageSendTrackerTimeoutMs,
                                          &expiry_changed) &&
-               expiry_changed && tracker.active_count == 1 &&
+               expiry_changed && send_tracker_active(tracker) == 1 &&
                message_send_tracker_take_completion(&tracker, &completion) &&
                completion.kind == MessageSendCompletionKind::expired && completion.retries == 1,
            "message_send_tracker_retry_and_expiry");
@@ -639,7 +642,7 @@ void test_message_send_tracker() noexcept {
         failed_after_expiry.ok() ? message_send_tracker_discard(&tracker, &timeline, retry_send.nonce)
                                  : MessageSendObserveResult{};
     expect(expiry_left_failed_row && retry_after_expiry.ok() && failed_after_expiry.ok() &&
-               discarded.ok() && discarded.invalidation.structural && tracker.active_count == 0 &&
+               discarded.ok() && discarded.invalidation.structural && !send_tracker_active(tracker) &&
                message_store_find(store, retry_send.nonce).error == MessageStoreError::not_found,
            "message_send_tracker_expiry_retry_and_discard");
 
@@ -669,7 +672,7 @@ void test_message_send_tracker() noexcept {
         &tracker, &timeline, 7, 11, utf8_literal("mismatch"), 1'725'012'296'793ull, 100'200);
     const MessageSendObserveResult mismatch =
         message_send_tracker_observe_gateway(&tracker, &timeline, mismatch_send.nonce, 8, 11, 904, 100'205);
-    expect(unmatched.ok() && !unmatched.changed && tracker.unmatched_gateway == 1 &&
+    expect(unmatched.ok() && !unmatched.changed && !unmatched.completed &&
                mismatch.error == MessageSendTrackerError::channel_mismatch &&
                message_store_find(store, mismatch_send.nonce).ok(),
            "message_send_tracker_unmatched_and_channel_collision_guards");
@@ -677,7 +680,7 @@ void test_message_send_tracker() noexcept {
                MessageSendTrackerError::author_mismatch && message_store_find(store, mismatch_send.nonce).ok() &&
                message_timeline_reset(&timeline) &&
                message_send_tracker_observe_gateway(&tracker, &timeline, mismatch_send.nonce, 7, 12, 904, 100'207).error ==
-                   MessageSendTrackerError::author_mismatch && tracker.active_count == 1 && !store.count,
+                   MessageSendTrackerError::author_mismatch && send_tracker_active(tracker) == 1 && !store.count,
            "message_send_tracker_author_identity_survives_local_eviction");
     const auto first_identity = message_send_tracker_observe_gateway(&tracker, &timeline, mismatch_send.nonce, 7, 11, 904, 100'210);
     const auto replay_identity = message_send_tracker_observe_gateway(&tracker, &timeline, mismatch_send.nonce, 7, 11, 904, 100'220);
@@ -698,7 +701,7 @@ void test_message_send_tracker() noexcept {
                    MessageSendTrackerError::author_mismatch &&
                message_send_tracker_confirm(&tracker, &timeline, other_author.nonce, 7, 12, 906,
                    MessageSendConfirmationSource::response).completed &&
-               message_send_tracker_take_completion(&tracker, &completion) && !tracker.active_count,
+               message_send_tracker_take_completion(&tracker, &completion) && !send_tracker_active(tracker),
            "message_send_tracker_retains_author_per_attempt");
 }
 
@@ -1030,7 +1033,7 @@ void test_message_event_pump() noexcept {
     const auto unrelated_applied = message_event_pump_consume(&drain_pump, unrelated_echo, byte_literal("them"));
     expect(unrelated_applied.ok() && unrelated_applied.kind == MessageEventPumpConsumeKind::applied &&
         !drain_pump.resync_required && message_store_find(drain_store, collision_send.nonce).ok() &&
-        message_store_find(drain_store, 500).ok() && drain_sends.active_count == 1 &&
+        message_store_find(drain_store, 500).ok() && send_tracker_active(drain_sends) == 1 &&
         !message_send_tracker_take_completion(&drain_sends, &echo_completion),
         "message_event_pump_renders_unrelated_author_without_confirming_colliding_nonce");
     unrelated_echo.message.author_id = 11; unrelated_echo.message.id = 501; unrelated_echo.timestamp_ms = 220;
@@ -1478,11 +1481,12 @@ void test_message_history_sync() noexcept {
         {800, 7, 16, 800, 0, utf8_literal("h"), 0, create_fields},
         {700, 7, 17, 700, 0, utf8_literal("g"), 0, create_fields},
     };
+    const u32 compactions_before_replace = store.compactions;
     const MessageHistoryApplyResult replaced_edge = message_timeline_apply_history_page(
         &timeline, ConstSlice<GatewayMessageEvent>{retained, 2}, MessageHistoryDirection::newer,
         MessageContentAvailability::available);
     expect(replaced_edge.ok() && replaced_edge.inserted == 2 && replaced_edge.evicted == 2 &&
-               replaced_edge.compactions == 0 && store.count == 6 && list.count == 6 &&
+               store.compactions == compactions_before_replace && store.count == 6 && list.count == 6 &&
                list.structural_updates == 4 && timeline.evicted == 2 && timeline.history_pages == 3 &&
                message_store_find(store, 100).error == MessageStoreError::not_found &&
                message_store_find(store, 200).error == MessageStoreError::not_found &&
@@ -1608,7 +1612,7 @@ void test_message_history_sync() noexcept {
     expect(message_history_catchup_begin(&catchup, &pump, 7, 2) && catchup.cursor_after == 20 &&
                message_history_catchup_take_query(&catchup, &query) &&
                query.position == MessageHistoryPosition::after && query.cursor == 20 &&
-               query.limit == 2 && catchup.requests == 1,
+               query.limit == 2,
            "message_history_catchup_query_shape");
 
     const GatewayMessageEvent catchup_messages[2]{
@@ -1620,14 +1624,14 @@ void test_message_history_sync() noexcept {
         &catchup, &pump, catchup_page, ConstSlice<GatewayMessageEvent>{catchup_messages, 2},
         MessageContentAvailability::restricted);
     expect(caught_up.ok() && catchup.state == MessageHistoryCatchupState::request_required &&
-               catchup.cursor_after == 40 && catchup.pages == 1 && catchup.received == 2 &&
-               catchup.inserted == 2 && pump.catchup_required && catchup_timeline.newer_refetch_required &&
+               catchup.cursor_after == 40 && caught_up.inserted == 2 &&
+               pump.catchup_required && catchup_timeline.newer_refetch_required &&
                message_history_catchup_take_query(&catchup, &query) && query.cursor == 40,
            "message_history_catchup_full_page_continues");
     const MessageHistoryApplyResult completed = message_history_catchup_apply_page(
         &catchup, &pump, MessageHistoryPage{}, ConstSlice<GatewayMessageEvent>{nullptr, 0},
         MessageContentAvailability::restricted);
-    expect(completed.ok() && catchup.state == MessageHistoryCatchupState::complete && catchup.pages == 2 &&
+    expect(completed.ok() && catchup.state == MessageHistoryCatchupState::complete &&
                !pump.catchup_required && !catchup_timeline.newer_refetch_required &&
                catchup_store.count == 4 && catchup_list.count == 4,
            "message_history_catchup_empty_tail_completes_and_clears");
@@ -1638,7 +1642,7 @@ void test_message_history_sync() noexcept {
     expect(message_history_catchup_begin(&failed, &pump, 7, 2) &&
                message_history_catchup_take_query(&failed, &query) &&
                message_history_catchup_fail(&failed, MessageHistoryCatchupFailure::decode) &&
-               failed.state == MessageHistoryCatchupState::failed && failed.failures == 1 &&
+               failed.state == MessageHistoryCatchupState::failed &&
                pump.catchup_required && catchup_timeline.newer_refetch_required,
            "message_history_catchup_terminal_failure_keeps_sticky_gap");
 
@@ -1839,11 +1843,11 @@ void test_message_history_sync() noexcept {
     expect(
         message_history_older_demand(&older_pager, &catchup_timeline, 7, 2) &&
             older_pager.state == MessageHistoryOlderState::request_required &&
-            older_pager.cursor_before == 20 && older_pager.demands == 1 &&
+            older_pager.cursor_before == 20 &&
             message_history_older_demand(&older_pager, &catchup_timeline, 7, 2) &&
-            older_pager.demands == 1 && message_history_older_take_query(&older_pager, &query) &&
+            message_history_older_take_query(&older_pager, &query) &&
             query.position == MessageHistoryPosition::before && query.cursor == 20 &&
-            query.limit == 2 && older_pager.requests == 1,
+            query.limit == 2 && !message_history_older_take_query(&older_pager, &query),
         "message_history_older_demand_dedup_and_query");
     const GatewayMessageEvent first_older_page[2]{
         {15, 7, 3, 15, 0, utf8_literal("older-b"), 0, create_fields},
@@ -1854,8 +1858,7 @@ void test_message_history_sync() noexcept {
         ConstSlice<GatewayMessageEvent>{first_older_page, 2}, MessageContentAvailability::available);
     expect(first_older.ok(), "message_history_older_full_page_applies");
     expect(first_older.inserted == 2 && first_older.evicted == 2, "message_history_older_full_page_counts");
-    expect(older_pager.state == MessageHistoryOlderState::idle && older_pager.cursor_before == 10 &&
-               older_pager.pages == 1,
+    expect(older_pager.state == MessageHistoryOlderState::idle && older_pager.cursor_before == 10,
            "message_history_older_full_page_stops");
     expect(catchup_timeline.scroll_units == 200 && catchup_timeline.newer_refetch_required &&
                message_store_find(catchup_store, 20).ok() &&
@@ -1864,7 +1867,7 @@ void test_message_history_sync() noexcept {
 
     expect(message_timeline_set_scroll(&catchup_timeline, 0, false) &&
                message_history_older_demand(&older_pager, &catchup_timeline, 7, 2) &&
-               older_pager.cursor_before == 10 && older_pager.demands == 2 &&
+               older_pager.cursor_before == 10 &&
                message_history_older_take_query(&older_pager, &query),
            "message_history_older_second_user_demand");
     const GatewayMessageEvent final_older_page[1]{
@@ -1875,9 +1878,7 @@ void test_message_history_sync() noexcept {
         ConstSlice<GatewayMessageEvent>{final_older_page, 1}, MessageContentAvailability::available);
     expect(final_older.ok() && final_older.inserted == 1 && final_older.evicted == 1 &&
                older_pager.state == MessageHistoryOlderState::exhausted &&
-               message_history_older_demand(&older_pager, &catchup_timeline, 7, 2) &&
-               older_pager.demands == 2 && older_pager.pages == 2 && older_pager.received == 3 &&
-               older_pager.inserted == 3 && older_pager.evicted == 3,
+               message_history_older_demand(&older_pager, &catchup_timeline, 7, 2),
            "message_history_older_short_page_marks_exhausted");
 
     MessageHistoryOlder older_rest{};
@@ -1919,8 +1920,8 @@ void test_message_history_sync() noexcept {
                    &empty_older, &catchup_timeline, MessageHistoryPage{},
                    ConstSlice<GatewayMessageEvent>{nullptr, 0}, MessageContentAvailability::available)
                    .ok() &&
-               empty_older.state == MessageHistoryOlderState::exhausted && empty_older.pages == 1 &&
-               empty_older.received == 0 && catchup_store.count == count_before_empty,
+               empty_older.state == MessageHistoryOlderState::exhausted &&
+               catchup_store.count == count_before_empty,
            "message_history_older_empty_page_marks_exhausted");
 
     MessageHistoryOlder invalid_older{};

@@ -20,12 +20,9 @@ float keyframe(const float (&values)[6], float t) noexcept {
         }
     return values[5];
 }
-float clamp01(float value) noexcept {
-    return value < 0 ? 0 : value > 1 ? 1 : value;
-}
 // How far a switch has turned on: its position moves between 40% and 60% of the morph; reduced motion slides.
 float on_fraction(float t, bool reduced_motion, bool checked) noexcept {
-    const float slide = reduced_motion ? t : clamp01((t - .4f) / .2f);
+    const float slide = reduced_motion ? t : clamp_unit((t - .4f) / .2f);
     return checked ? slide : 1 - slide;
 }
 struct Thumb {
@@ -55,7 +52,7 @@ Thumb thumb_geometry(const UiSettingsLayoutTokens& tokens, const UiRect& track, 
 bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& track, bool checked,
                      float motion, bool reduced_motion, UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const float t = clamp01(motion), on = on_fraction(t, reduced_motion, checked);
+    const float t = clamp_unit(motion), on = on_fraction(t, reduced_motion, checked);
     const Color on_fill = state.pressed ? c.brand_active : state.hovered ? c.brand_hover : c.brand;
     Color fill = ui_settings_color_mix(c.switch_track, on_fill, on);
     Color border = ui_settings_color_mix(state.hovered ? c.switch_border_hover : c.switch_border,

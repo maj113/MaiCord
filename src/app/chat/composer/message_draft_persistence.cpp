@@ -354,10 +354,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
     temporary.clock = stored_clock;
     temporary.revision = stored_revision;
-    temporary.saved = 0;
-    temporary.deleted = 0;
     temporary.compactions = 0;
-    temporary.rejected = 0;
     copy_bytes(reinterpret_cast<u8*>(store->records), reinterpret_cast<const u8*>(temporary.records),
                store->capacity * sizeof(MessageDraftRecord));
     copy_bytes(store->text, temporary.text, store->text_capacity);

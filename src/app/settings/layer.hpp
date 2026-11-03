@@ -21,10 +21,15 @@ struct SettingsLayerActivation {
     // Popup anchor for the activated control or button.
     UiRect anchor;
 };
+// An editable text control on the current page: its model, binding and whether Enter breaks lines. A null
+// model means the control is not an editor.
+struct SettingsLayerEditor {
+    MessageComposer* model;
+    BoundedEdit* binding;
+    bool multiline;
+};
 struct SettingsLayerHooks {
-    // Model and binding of an editable text control on the current page.
-    bool (*editor)(SettingsLayer*, u64 control_id, MessageComposer** model, BoundedEdit** binding,
-                   bool* multiline) noexcept;
+    SettingsLayerEditor (*editor)(SettingsLayer*, u64 control_id) noexcept;
     // The focused editor's text changed.
     bool (*edited)(SettingsLayer*, u64 control_id) noexcept;
     void (*activate)(SettingsLayer*, const SettingsLayerActivation&) noexcept;
@@ -74,7 +79,8 @@ void settings_layer_activate_target(SettingsLayer*, UiSettingsTarget) noexcept;
 bool settings_layer_open_choice(SettingsLayer*, u64 owner_id, const ConstSlice<PopupItem>&, const UiRect& anchor,
                                 float width) noexcept;
 void settings_layer_close_choice(SettingsLayer*) noexcept;
-bool settings_layer_choice_current(const SettingsLayer&) noexcept;
+// Clears a choice popup that another surface replaced behind the layer's back; true when it did.
+bool settings_layer_choice_lapsed(SettingsLayer&) noexcept;
 // Starts the layer entrance: the layer fades in from 110% over the receding shell.
 void settings_layer_begin_entrance(SettingsLayer*) noexcept;
 // Shakes the unsaved-changes bar (300 ms, 5 DIP) and tints it briefly.

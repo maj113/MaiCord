@@ -588,7 +588,6 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
                 }
             }
         }
-        ++result->decoded_mcus;
         if (++unit_x == unit_columns) {
             unit_x = 0;
             ++unit_y;

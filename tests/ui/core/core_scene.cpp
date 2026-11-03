@@ -1293,7 +1293,7 @@ void test_text_measure_cache() noexcept {
         *value = UiTextMeasureValue{
             UiSize{minimum(request.constraint.width, static_cast<float>(request.text.bytes) * 8.0f),
                    height},
-            minimum(14.0f, height), lines};
+            lines};
         return true;
     };
 
@@ -1345,10 +1345,10 @@ void test_text_measure_cache() noexcept {
     UiTextMeasureRequest failing = narrow;
     failing.key.source_revision = 99;
     failing.text = utf8_literal("!backend failure");
-    UiTextMeasureValue sentinel{UiSize{77.0f, 88.0f}, 9.0f, 10};
+    UiTextMeasureValue sentinel{UiSize{77.0f, 88.0f}, 10};
     const UiTextMeasureResult failed = ui_text_measure_cache_measure(&cache, failing, &sentinel);
     expect(!failed.ok() && failed.error == UiTextMeasureError::backend && sentinel.size.width == 77.0f &&
-               sentinel.size.height == 88.0f && sentinel.baseline == 9.0f && sentinel.line_count == 10,
+               sentinel.size.height == 88.0f && sentinel.line_count == 10,
            "text_measure_cache_backend_failure_does_not_publish");
     const u32 calls_before_reinitialize = fixture.calls;
     expect(ui_text_measure_cache_initialize(&cache, Slice<UiTextMeasureRecord>{records, 8}, backend,
@@ -1467,7 +1467,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult root = ui_widget_manager_add(
         &manager, ui_widget_invalid_handle(),
         UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Root"), root_style, UiSize{}, 0.0f, 1}});
+                     UiLayoutNodeSpec{utf8_literal("Root"), root_style, UiSize{}, 1}});
 
     UiLayoutStyle header_style = ui_layout_style();
     header_style.width = ui_layout_fill();
@@ -1475,7 +1475,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult header = ui_widget_manager_add(
         &manager, root.handle,
         UiWidgetDesc{2, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Header"), header_style, UiSize{}, 0.0f, 2}});
+                     UiLayoutNodeSpec{utf8_literal("Header"), header_style, UiSize{}, 2}});
 
     UiLayoutStyle body_style = ui_layout_style();
     body_style.width = ui_layout_fill();
@@ -1485,7 +1485,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult body = ui_widget_manager_add(
         &manager, root.handle,
         UiWidgetDesc{3, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Body"), body_style, UiSize{}, 0.0f, 3}});
+                     UiLayoutNodeSpec{utf8_literal("Body"), body_style, UiSize{}, 3}});
 
     UiLayoutStyle button_style = ui_layout_style();
     button_style.width = ui_layout_fixed(80.0f);
@@ -1496,7 +1496,7 @@ void test_layout_engine_and_widget_manager() noexcept {
         &manager, body.handle,
         UiWidgetDesc{4, UiWidgetKind::button,
                      static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                     UiLayoutNodeSpec{utf8_literal("Button"), button_style, UiSize{}, 0.0f, 4}});
+                     UiLayoutNodeSpec{utf8_literal("Button"), button_style, UiSize{}, 4}});
     expect(root.ok() && header.ok() && body.ok() && button.ok() &&
                ui_widget_manager_layout_rectangle(&manager, {0, 0, 200.0f, 100.0f}).ok(),
            "layout_engine_widget_tree_layout");
@@ -1570,10 +1570,10 @@ void test_layout_engine_and_widget_manager() noexcept {
         bool oscillate;
         bool fail;
     } measure_fixture{};
-    const auto measure_callback = +[](void* opaque, const UiLayoutMeasureRequest& request, UiSize* size,
-                                      float* baseline) noexcept -> bool {
+    const auto measure_callback = +[](void* opaque, const UiLayoutMeasureRequest& request,
+                                      UiSize* size) noexcept -> bool {
         MeasureFixture* fixture = static_cast<MeasureFixture*>(opaque);
-        if (!fixture || !size || !baseline || fixture->fail) {
+        if (!fixture || !size || fixture->fail) {
             return false;
         }
         ++fixture->calls;
@@ -1584,7 +1584,6 @@ void test_layout_engine_and_widget_manager() noexcept {
             size->width = request.constraint.width;
             size->height = request.constraint.width < 100.0f ? 40.0f : 20.0f;
         }
-        *baseline = 15.0f;
         return true;
     };
     expect(ui_widget_manager_set_measure_callback(&manager, measure_callback, &measure_fixture),
@@ -1593,7 +1592,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult measure_root = ui_widget_manager_add(
         &manager, ui_widget_invalid_handle(),
         UiWidgetDesc{10, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("MeasureRoot"), root_style, UiSize{}, 0.0f, 10}});
+                     UiLayoutNodeSpec{utf8_literal("MeasureRoot"), root_style, UiSize{}, 10}});
     UiLayoutStyle text_style = ui_layout_style();
     text_style.width = ui_layout_fill();
     text_style.height = ui_layout_content();
@@ -1602,7 +1601,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult measured_text = ui_widget_manager_add(
         &manager, measure_root.handle,
         UiWidgetDesc{11, UiWidgetKind::text, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("WrappedText"), text_style, UiSize{}, 0.0f, 11}});
+                     UiLayoutNodeSpec{utf8_literal("WrappedText"), text_style, UiSize{}, 11}});
     expect(measure_root.ok() && measured_text.ok() &&
                ui_widget_manager_layout_rectangle(&manager, {0, 0, 80.0f, 100.0f}).ok(),
            "layout_engine_constrained_text_layout");
@@ -1627,13 +1626,13 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult unstable_root = ui_widget_manager_add(
         &manager, ui_widget_invalid_handle(),
         UiWidgetDesc{20, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("UnstableRoot"), root_style, UiSize{}, 0.0f, 20}});
+                     UiLayoutNodeSpec{utf8_literal("UnstableRoot"), root_style, UiSize{}, 20}});
     text_style.width = ui_layout_content();
     text_style.horizontal_alignment = UiLayoutAlignment::start;
     const UiWidgetResult unstable_text = ui_widget_manager_add(
         &manager, unstable_root.handle,
         UiWidgetDesc{21, UiWidgetKind::text, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("UnstableText"), text_style, UiSize{}, 0.0f, 21}});
+                     UiLayoutNodeSpec{utf8_literal("UnstableText"), text_style, UiSize{}, 21}});
     const UiLayoutResult unstable_result = ui_widget_manager_layout_rectangle(&manager, {0, 0, 100.0f, 100.0f});
     expect(unstable_root.ok() && unstable_text.ok() &&
                unstable_result.error == UiLayoutError::unstable_layout &&
@@ -1650,7 +1649,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult wrap_root = ui_widget_manager_add(
         &manager, ui_widget_invalid_handle(),
         UiWidgetDesc{30, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("WrapRoot"), wrap_root_style, UiSize{}, 0.0f, 30}});
+                     UiLayoutNodeSpec{utf8_literal("WrapRoot"), wrap_root_style, UiSize{}, 30}});
     UiLayoutStyle wrap_style = ui_layout_style();
     wrap_style.flow = UiLayoutFlow::horizontal_wrap;
     wrap_style.width = ui_layout_fill();
@@ -1660,7 +1659,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiWidgetResult wrap = ui_widget_manager_add(
         &manager, wrap_root.handle,
         UiWidgetDesc{31, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Wrap"), wrap_style, UiSize{}, 0.0f, 31}});
+                     UiLayoutNodeSpec{utf8_literal("Wrap"), wrap_style, UiSize{}, 31}});
     UiLayoutStyle wrap_item_style = ui_layout_style();
     wrap_item_style.width = ui_layout_fixed(80.0f);
     wrap_item_style.height = ui_layout_fixed(24.0f);
@@ -1671,7 +1670,7 @@ void test_layout_engine_and_widget_manager() noexcept {
             UiWidgetDesc{
                 32 + index, UiWidgetKind::button,
                 static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                UiLayoutNodeSpec{utf8_literal("WrapItem"), wrap_item_style, UiSize{}, 0.0f, 32 + index}});
+                UiLayoutNodeSpec{utf8_literal("WrapItem"), wrap_item_style, UiSize{}, 32 + index}});
     }
     const bool wrap_added = wrap_root.ok() && wrap.ok() && wrap_items[0].ok() && wrap_items[1].ok() &&
                             wrap_items[2].ok() && wrap_items[3].ok();
@@ -1715,14 +1714,14 @@ void test_widget_storage_growth() noexcept {
     const UiWidgetResult root = ui_widget_manager_add(
         &manager, ui_widget_invalid_handle(),
         UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Root"), style, UiSize{}, 0.0f, 1}});
+                     UiLayoutNodeSpec{utf8_literal("Root"), style, UiSize{}, 1}});
     bool children_added = root.ok();
     for (u32 index = 0; index < 200 && children_added; ++index) {
         children_added =
             ui_widget_manager_add_prevalidated(
                 &manager, root.handle,
                 UiWidgetDesc{index + 2u, UiWidgetKind::container, ui_widget_enabled,
-                             UiLayoutNodeSpec{utf8_literal("Child"), style, UiSize{}, 0.0f, index + 2u}})
+                             UiLayoutNodeSpec{utf8_literal("Child"), style, UiSize{}, index + 2u}})
                 .ok();
     }
     expect(children_added && manager.count == 201 && storage.capacity > initial_capacity &&
@@ -2632,19 +2631,19 @@ void test_ui_scroll_host() noexcept {
     style.flow = UiLayoutFlow::vertical;
     style.width = ui_layout_fill(); style.height = ui_layout_fill();
     const auto root = ui_widget_manager_add(&manager, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("root"), style, {}, 0, 1}});
+        {1, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("root"), style, {}, 1}});
     style.width = ui_layout_fixed(200); style.height = ui_layout_fixed(200);
     const auto outer = ui_widget_manager_add(&manager, root.handle,
-        {2, UiWidgetKind::scroll_view, ui_widget_enabled, {utf8_literal("outer"), style, {}, 0, 2}});
+        {2, UiWidgetKind::scroll_view, ui_widget_enabled, {utf8_literal("outer"), style, {}, 2}});
     style.height = ui_layout_fixed(100);
     const auto inner = ui_widget_manager_add(&manager, outer.handle,
-        {3, UiWidgetKind::scroll_view, ui_widget_enabled, {utf8_literal("inner"), style, {}, 0, 3}});
+        {3, UiWidgetKind::scroll_view, ui_widget_enabled, {utf8_literal("inner"), style, {}, 3}});
     style.height = ui_layout_fixed(500);
     style.flags &= ~(ui_layout_node_scroll_vertical | ui_layout_node_clip_children);
     const auto content = ui_widget_manager_add(&manager, inner.handle,
-        {4, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("content"), style, {}, 0, 4}});
+        {4, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("content"), style, {}, 4}});
     const auto sibling = ui_widget_manager_add(&manager, outer.handle,
-        {5, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("sibling"), style, {}, 0, 5}});
+        {5, UiWidgetKind::container, ui_widget_enabled, {utf8_literal("sibling"), style, {}, 5}});
     tree_ok = tree_ok && root.ok() && outer.ok() && inner.ok() && content.ok() && sibling.ok() &&
         ui_widget_manager_layout_rectangle(&manager, UiRect{0, 0, 400, 300}).ok();
     const auto auto_wheel = ui_scroll_host_wheel_widgets(&host, &manager, {20, 20}, -120, 3, false, 30'000'000);
@@ -3159,14 +3158,12 @@ void test_glyph_atlas_allocator() noexcept {
         index_ok = inserted.ok() && glyph_atlas_find_indexed(&indexed, &index, key * 0x10001ull).ok() &&
                    fast.ok() == slow.ok() && (!fast.ok() || fast.handle.slot == slow.handle.slot);
     }
-    const GlyphAtlasAllocation cached_indexed = glyph_atlas_allocate_indexed(&indexed, &index, 1'064 * 0x10001ull, 4, 4);
+    const GlyphAtlasAllocation cached_indexed = glyph_atlas_find_indexed(&indexed, &index, 1'064 * 0x10001ull);
     index_ok = index_ok && index.rebuilds != 0 && indexed.evicted_entries != 0 && cached_indexed.ok() &&
-               cached_indexed.cached &&
-               glyph_atlas_allocate_indexed(&indexed, &index, 1'064 * 0x10001ull, 5, 4).error ==
-                   GlyphAtlasError::invalid_input;
+               cached_indexed.cached && cached_indexed.width == 4 && cached_indexed.height == 4;
     glyph_atlas_reset(&indexed);
     index_ok = index_ok && !glyph_atlas_find_indexed(&indexed, &index, 1'064 * 0x10001ull).ok() &&
-               glyph_atlas_allocate_indexed(&indexed, &index, 7, 4, 4).ok() &&
+               glyph_atlas_allocate_unique_indexed(&indexed, &index, 7, 4, 4).ok() &&
                glyph_atlas_find_indexed(&indexed, &index, 7).ok();
     expect(index_ok, "glyph_atlas_key_index_matches_linear_lookup_through_eviction_and_reset");
 

@@ -6,7 +6,6 @@
 #include "../shell/state.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/platform/uia/provider.hpp"
-#include "maicord/render/text/forum_post_surface.hpp"
 #include "maicord/ui/accessibility/scenes.hpp"
 #include "../account/account_ui_runtime.hpp"
 

@@ -66,10 +66,6 @@ const Section* section_of(const Section* sections, u32 count, u32 rva) noexcept 
     return nullptr;
 }
 
-bool power_of_two(u32 value) noexcept {
-    return value && !(value & (value - 1));
-}
-
 // Descriptor-side string and pointer checks, relative to the mapped image.
 struct Image {
     const u8* base;
@@ -491,7 +487,7 @@ PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* outpu
 
     const u32 section_alignment = byte_load_le32(optional + 32), file_alignment = byte_load_le32(optional + 36);
     const u32 image_bytes = byte_load_le32(optional + 56), headers_bytes = byte_load_le32(optional + 60);
-    if (!power_of_two(section_alignment) || section_alignment < 0x1000 || !power_of_two(file_alignment) ||
+    if (!is_power_of_two(section_alignment) || section_alignment < 0x1000 || !is_power_of_two(file_alignment) ||
         file_alignment < 0x200 || file_alignment > 0x10000 || image_bytes < section_alignment ||
         image_bytes > kPluginImageMaximumBytes || image_bytes % section_alignment || headers_bytes > file_bytes ||
         headers_bytes > image_bytes)
@@ -605,7 +601,7 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     for (u32 i = 0; i < d->network_count; ++i)
         if (!image.text(d->network[i], 1, MC_HOST_MAX)) return problem(PluginDescriptorProblem::network, i + 1);
 
-    if (d->state_bytes > MC_STATE_MAX || (d->state_bytes ? !power_of_two(d->state_align) ||
+    if (d->state_bytes > MC_STATE_MAX || (d->state_bytes ? !is_power_of_two(d->state_align) ||
             d->state_align > MC_STATE_ALIGN_MAX : d->state_align != 0))
         return problem(PluginDescriptorProblem::state);
 

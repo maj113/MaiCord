@@ -196,8 +196,8 @@ bool application_guild_folders_synchronize(u64 now_ms) noexcept {
     return ok;
 }
 
-u64 application_guild_folders_next_wake(u64 now_ms) noexcept {
-    return motion_allowed() ? guild_rail_scene_next_wake(g_app.guild_rail_scene, now_ms) : 0;
+u64 application_guild_folders_next_wake() noexcept {
+    return motion_allowed() ? guild_rail_scene_next_wake(g_app.guild_rail_scene) : 0;
 }
 
 bool application_guild_folders_toggle(u64 folder_row_id) noexcept {

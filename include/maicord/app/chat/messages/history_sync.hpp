@@ -36,7 +36,6 @@ struct MessageHistoryApplyResult {
     MessageTimelineInvalidation invalidation;
     u32 inserted;
     u32 evicted;
-    u32 compactions;
     MessageHistoryApplyError error;
     bool destructive_failure;
     // Messages the store could not admit (one unexpected field or value) are
@@ -97,12 +96,6 @@ struct MessageHistoryCatchup {
     u64 cursor_after;
     u64 retry_at_ms;
     u32 request_limit;
-    u32 requests;
-    u32 pages;
-    u32 received;
-    u32 inserted;
-    u32 evicted;
-    u32 failures;
     // Timeline deferral counter when the current request basis was taken. A
     // live create deferred while the final page was in flight is not in that
     // page, so reaching the tail then asks once more instead of completing.
@@ -142,13 +135,6 @@ struct MessageHistoryOlder {
     u64 cursor_before;
     u64 retry_at_ms;
     u32 request_limit;
-    u32 requests;
-    u32 pages;
-    u32 received;
-    u32 inserted;
-    u32 evicted;
-    u32 failures;
-    u32 demands;
     MessageHistoryOlderState state;
     MessageHistoryCatchupFailure last_failure;
     u8 transient_retries;
@@ -222,8 +208,6 @@ struct AttachmentRefresh {
     u64 attachment_id;
     u64 retry_at_ms;
     u32 source_message_revision;
-    u32 requests;
-    u32 failures;
     AttachmentRefreshState state;
 };
 

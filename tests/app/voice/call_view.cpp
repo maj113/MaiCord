@@ -154,11 +154,11 @@ void scene_cases(Check check) noexcept {
     check(ui_call_scene_update(&scene, content, viewport, 3000, false) && scene.morph.active &&
               ui_rect_equal(scene.tiles[0].display, scene.tiles[0].from) &&
               !ui_rect_equal(scene.tiles[0].display, scene.tiles[0].target) &&
-              ui_rect_equal(scene.tiles[0].from, grid_rect) && ui_call_scene_next_wake(scene, 3000, false),
+              ui_rect_equal(scene.tiles[0].from, grid_rect) && ui_call_scene_next_wake(scene, false),
           "call scene: a focus change morphs from the grid rectangle");
     check(ui_call_scene_update(&scene, content, viewport, 3000 + kUiCallMorphMs + 50, false) &&
               ui_rect_equal(scene.tiles[0].display, scene.tiles[0].target) && !scene.morph.active &&
-              !ui_call_scene_next_wake(scene, 3500, false),
+              !ui_call_scene_next_wake(scene, false),
           "call scene: the morph settles on the target layout");
     content.focus_user = 0;
     check(ui_call_scene_update(&scene, content, viewport, 4000, true) &&

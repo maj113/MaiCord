@@ -128,7 +128,7 @@ u64 reaction_wake;
 MessageHandle observed_reaction_handle;
 u32 observed_reaction_revision;
 bool observed_reaction_applied;
-u32 diagnostic_positions[8], diagnostic_events;
+u32 diagnostic_position, diagnostic_events;
 GatewayClientFailureStage diagnostic_stage;
 GatewayClientPopError diagnostic_pop_error;
 bool diagnostic_order_ok, diagnostic_refill, diagnostic_null_source, diagnostic_overlarge;
@@ -148,8 +148,7 @@ void reset_counts() noexcept {
     order_ok = navigation_ok = history_ok = true;
     rejected = false;
     diagnostic_source_reads = diagnostic_pops = diagnostic_logs = normal_pops = notification_callbacks = 0;
-    for (u32& position : diagnostic_positions)
-        position = 0;
+    diagnostic_position = 0;
     diagnostic_events = 0;
     diagnostic_stage = GatewayClientFailureStage::none;
     diagnostic_pop_error = GatewayClientPopError::none;
@@ -174,14 +173,17 @@ RestClientSubmitResult WINAPI navigation_cancel(void*, const MessagePinsRequest*
         chat_state_store_find_channel(g_app.account_ui->chat_state, 70) != nullptr;
     return {};
 }
-void* WINAPI diagnostic_source(void*, u32 index) noexcept {
+void* WINAPI diagnostic_source(void*) noexcept {
     ++diagnostic_source_reads;
-    return diagnostic_null_source ? nullptr : reinterpret_cast<void*>(static_cast<usize>(index) + 1);
+    return diagnostic_null_source ? nullptr : reinterpret_cast<void*>(1);
 }
-GatewayClientPopResult WINAPI diagnostic_pop(void* source, GatewayClientEvent* event,
+void* WINAPI no_gateway_source(void*) noexcept {
+    return nullptr;
+}
+GatewayClientPopResult WINAPI diagnostic_pop(void*, GatewayClientEvent* event,
                                              Slice<u8> payload) noexcept {
     ++diagnostic_pops;
-    auto& position = diagnostic_positions[reinterpret_cast<usize>(source) - 1];
+    auto& position = diagnostic_position;
     if (!diagnostic_refill && position >= diagnostic_events)
         return {0, GatewayClientPopError::empty};
     if (payload.count)
@@ -395,7 +397,7 @@ u64 application_toast_next_wake() noexcept {
 u64 application_guild_banner_next_wake() noexcept {
     return 0;
 }
-u64 application_surface_motion_next_wake(u64) noexcept {
+u64 application_surface_motion_next_wake() noexcept {
     return surface_wake;
 }
 u64 loading_spinner_wake;

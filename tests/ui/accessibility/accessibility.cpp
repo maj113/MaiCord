@@ -62,10 +62,10 @@ bool build_scene(Scene* scene) noexcept {
             scene->icon = build.widget(scene->rows[0], {20, utf8_literal("ChannelIcon")}, UiWidgetKind::image,
                                        ui_widget_none, fixed(16, 16)).handle;
         scene->labels[index] = build.text(scene->rows[index], {30 + index, utf8_literal("ChannelLabel")},
-                                          fixed(100, 16), {100, 16}, 12).handle;
+                                          fixed(100, 16), {100, 16}).handle;
     }
     scene->settings = build.button(scene->root, {40, utf8_literal("UserSettings")}, fixed(100, 20)).handle;
-    scene->label = build.text(scene->root, {41, utf8_literal("LoginLabel")}, fixed(100, 16), {100, 16}, 12).handle;
+    scene->label = build.text(scene->root, {41, utf8_literal("LoginLabel")}, fixed(100, 16), {100, 16}).handle;
     scene->field = build.text_field(scene->root, {42, utf8_literal("LoginField")}, fixed(200, 24)).handle;
     UiLayoutStyle hidden = fixed(50, 20);
     hidden.flags = ui_layout_node_none;

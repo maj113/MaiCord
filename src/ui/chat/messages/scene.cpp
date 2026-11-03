@@ -792,7 +792,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         const UiWidgetResult root = ui_widget_manager_add(
             &scene->widgets, ui_widget_invalid_handle(),
             UiWidgetDesc{kMessageRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("MessageTimeline"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
+                         UiLayoutNodeSpec{utf8_literal("MessageTimeline"), ui_layout_scroll_root_style(), UiSize{},
                                           kMessageRootWidgetId}});
         if (!root.ok()) {
             clear_materialization(scene);

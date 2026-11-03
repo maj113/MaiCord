@@ -492,6 +492,14 @@ inline bool application_account_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
 }
 
+// Reduced motion: the user's preference, or Windows' client-area animation setting as the surface-motion owner
+// cached it (the system setting, refreshed on WM_SETTINGCHANGE). Read this instead of querying the system per frame.
+__declspec(noinline) inline bool application_reduced_motion() noexcept {
+    const auto& motion = g_app.surface_motion;
+    return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion ||
+           (motion.system_preference_cached && !motion.client_area_animation);
+}
+
 const Theme& application_theme() noexcept;
 bool application_refresh_theme_consumers(bool typography_changed, bool geometry_changed) noexcept;
 bool application_synchronize_theme_consumers() noexcept;

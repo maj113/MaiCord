@@ -26,7 +26,7 @@ FriendsAvatarMediaCallbacks callbacks(Probe* probe) noexcept {
     return {probe,
         +[](void* opaque, MediaAssetKey key) noexcept {return media_atlas_find(static_cast<Probe*>(opaque)->atlas, key).ok();},
         +[](void* opaque, MediaAssetKey key) noexcept {auto& p = *static_cast<Probe*>(opaque);return animation_timeline_observe_visible(p.timeline, key, p.now);},
-        +[](void* opaque, const FriendsAvatarMedia&, bool force, bool* stop) noexcept {
+        +[](void* opaque, const AvatarMedia&, bool force, bool* stop) noexcept {
             auto& p = *static_cast<Probe*>(opaque);++p.requests;if (force) ++p.force_requests;
             *stop = p.stop_after && p.requests >= p.stop_after;return !p.fail;
         }};
@@ -51,14 +51,14 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
     }
     auto* malformed = const_cast<UserRecord*>(user_store_find(users, 4));
     malformed->avatar_hash_bytes = 3;malformed->avatar_hash[0] = 'b';malformed->avatar_hash[1] = 'a';malformed->avatar_hash[2] = 'd';
-    FriendsAvatarMedia first{}, second{};
+    AvatarMedia first{}, second{};
     const u32 source_calls = logical.calls;
     check(friends_avatar_media_resolve(scene, users, 0, &first) && friends_avatar_media_resolve(scene, users, 1, &second) &&
         ui_rect_width(first.rectangle) == 32 && ui_rect_height(first.rectangle) == 32 &&
         first.key.id == 1 && (second.key.flags & media_asset_flag_animated) &&
         first.hash.data == user_store_find(users, 1)->avatar_hash && logical.calls == source_calls,
         "friends media: 32-DIP static/animated candidates borrow current hashes and retained rows without source re-resolution");
-    FriendsAvatarMedia skipped{};
+    AvatarMedia skipped{};
     check(!friends_avatar_media_resolve(scene, users, 2, &skipped) && !friends_avatar_media_resolve(scene, users, 3, &skipped),
         "friends media: default and malformed avatars keep the native placeholder and never request a CDN asset");
 

@@ -111,7 +111,7 @@ struct Module {
     u32 work_head, work_count;
     MediaSlot media[kMediaSlots];
     u8* media_pixels;
-    u32 media_head, media_count, media_taken_slot;
+    u32 media_head, media_count;
     bool media_has_taken;
     // READY worker scratch.
     char* ready_json;
@@ -640,7 +640,6 @@ DWORD WINAPI churn_thread(void* context) noexcept {
 AccountModuleStatus status_of(Module& m) noexcept {
     AccountModuleStatus status{};
     status.profile_id = 0x5045'5246'0000'0001ull;
-    status.gateway_sources = 1;
     status.gateway_ready = 1;
     status.running = true;
     status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
@@ -718,8 +717,8 @@ u32 WINAPI module_notification_handles(void* instance, HANDLE* output, u32 capac
     return count;
 }
 
-void* WINAPI module_gateway_source(void* instance, u32 index) noexcept {
-    return index == 0 ? instance : nullptr;
+void* WINAPI module_gateway_source(void* instance) noexcept {
+    return instance;
 }
 
 GatewayClientPopResult WINAPI module_gateway_pop(void* source, GatewayClientEvent* event,

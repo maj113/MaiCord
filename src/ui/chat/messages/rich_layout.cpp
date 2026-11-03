@@ -1,8 +1,7 @@
 #include "maicord/ui/chat/messages/rich_layout.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
-
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/chat/messages/component_layout.hpp"
@@ -108,44 +107,29 @@ bool message_rich_set_display(const MessageRichDisplay& display) noexcept {
 u32 message_thread_card_detail(const MessageRichThread& thread, Slice<char> output) noexcept {
     if (!output.data)
         return 0;
-    u32 used = 0;
-    bool overflow = false;
-    const auto append = [&](const char* text, u32 bytes) noexcept {
-        if (bytes > output.count - used) {
-            overflow = true;
-            return;
-        }
-        copy_bytes(output.data + used, text, bytes);
-        used += bytes;
-    };
+    TextWriter w{output};
     const auto separator = [&]() noexcept {
-        if (used)
-            append(" \xC2\xB7 ", 4);
+        if (w.used)
+            w.add(" \xC2\xB7 ", 4);
     };
-    const auto count = [&](u32 value, const char* one, u32 one_bytes, const char* many, u32 many_bytes) noexcept {
-        const bool singular = value == 1;
-        char digits[10];
-        const u32 n = decimal_write(digits, value);
+    const auto count = [&](u32 value, Utf8View one, Utf8View many) noexcept {
         separator();
-        append(digits, n);
-        append(" ", 1);
-        if (singular)
-            append(one, one_bytes);
-        else
-            append(many, many_bytes);
+        w.number(value);
+        w.add(" ");
+        w.add(value == 1 ? one : many);
     };
     if (thread.message_count)
-        count(thread.message_count, "message", 7, "messages", 8);
+        count(thread.message_count, utf8_literal("message"), utf8_literal("messages"));
     if (thread.member_count)
-        count(thread.member_count, "member", 6, "members", 7);
+        count(thread.member_count, utf8_literal("member"), utf8_literal("members"));
     if (thread.locked) {
         separator();
-        append("Locked", 6);
+        w.add("Locked");
     } else if (thread.archived) {
         separator();
-        append("Archived", 8);
+        w.add("Archived");
     }
-    return overflow ? 0 : used;
+    return w.finish();
 }
 
 bool message_rich_layout_valid(const MessageRichLayout& layout) noexcept {

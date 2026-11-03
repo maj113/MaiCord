@@ -33,7 +33,7 @@ bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMot
 bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
                                bool selected, bool hovered, bool unread,
                                u64 now_ms, bool animate) noexcept;
-u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill, u64 now_ms) noexcept;
+u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill) noexcept;
 // Rail tiles (server icons, text tiles, Home, Add a Server, folders) are
 // rounded squares at every state; `radius` is the theme's tile radius for a
 // full-size tile and scales with a tile that a folder transition shrinks.
@@ -154,7 +154,7 @@ bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool 
                                      bool animate) noexcept;
 // Advances folder transitions; true when the host must re-run the update.
 bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noexcept;
-u64 guild_rail_scene_next_wake(const GuildRailScene& scene, u64 now_ms) noexcept;
+u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept;
 // Collapsed folder preview: 2x2 member icons with 3 DIP padding and 2 DIP gap
 // (16-DIP icons in a 40-DIP tile).
 inline UiRect guild_rail_folder_preview_rectangle(const UiRect& tile, u32 index) noexcept {

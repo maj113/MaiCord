@@ -166,10 +166,9 @@ Utf8View element_name(LoginElement element) noexcept {
 // UiWidgetBuilder stops at its first error, so these report nothing: a failed add leaves
 // its element handle invalid and build_login_widgets checks widgets.ok() once.
 void add_widget(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
-                UiWidgetKind kind, u16 widget_flags, const UiLayoutStyle& style, UiSize intrinsic = UiSize{},
-                float baseline = 0.0f) noexcept {
+                UiWidgetKind kind, u16 widget_flags, const UiLayoutStyle& style) noexcept {
     const UiWidgetResult result = widgets.widget(parent, {login_element_id(element), element_name(element)}, kind,
-                                                 widget_flags, style, intrinsic, baseline);
+                                                 widget_flags, style);
     if (result.ok())
         scene->elements[static_cast<u32>(element)] = result.handle;
 }
@@ -188,7 +187,7 @@ void add_text(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element,
               float height, float margin_top, UiLayoutAlignment alignment) noexcept {
     const UiWidgetResult result =
         widgets.text(parent, {login_element_id(element), element_name(element)},
-                     text_style(height, margin_top, alignment), {width, height}, height * 0.8f);
+                     text_style(height, margin_top, alignment), {width, height});
     if (result.ok())
         scene->elements[static_cast<u32>(element)] = result.handle;
 }
@@ -222,7 +221,6 @@ void add_auxiliary_link(LoginScene* scene, UiWidgetBuilder& widgets, UiWidgetHan
         &scene->widgets, scene->elements[static_cast<u32>(LoginElement::forgot_password)]);
     if (node) {
         node->spec.intrinsic_size = UiSize{144.0f, 22.0f};
-        node->spec.intrinsic_baseline = 17.0f;
     }
 }
 
@@ -399,8 +397,7 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     status_style.margin.top = 8.0f;
     status_style.horizontal_alignment = UiLayoutAlignment::stretch;
     status_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
-    add_widget(scene, widgets, LoginElement::status, form, UiWidgetKind::container, ui_widget_none, status_style,
-               UiSize{}, 0.0f);
+    add_widget(scene, widgets, LoginElement::status, form, UiWidgetKind::container, ui_widget_none, status_style);
     const UiWidgetHandle status = scene->elements[static_cast<u32>(LoginElement::status)];
     add_text(scene, widgets, LoginElement::status_message, status, 0.0f,
              scene->reset_mode && scene->mfa_capabilities ? 48.0f : alternate ? 64.0f : 18.0f, 0.0f,

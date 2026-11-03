@@ -55,14 +55,12 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
         paging.channel_id = 7;
         paging.cursor_before = 100;
         paging.request_limit = 2;
-        paging.requests = 1;
         paging.transient_retries = sample.attempts;
         MessageHistoryCatchup recovery{};
         recovery.state = MessageHistoryCatchupState::awaiting_page;
         recovery.channel_id = 7;
         recovery.cursor_after = 300;
         recovery.request_limit = 2;
-        recovery.requests = 1;
         recovery.transient_retries = sample.attempts;
         const auto paged =
             message_history_older_accept_rest(&paging, &timeline, nullptr, nullptr, nullptr, unavailable,
@@ -75,8 +73,7 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
                   caught.disposition == MessageHistoryRestDisposition::retry_scheduled &&
                   paging.retry_at_ms == sample.expected && recovery.retry_at_ms == sample.expected &&
                   paging.transient_retries == attempts && recovery.transient_retries == attempts &&
-                  paging.failures == 1 && recovery.failures == 1 && paging.requests == 1 &&
-                  recovery.requests == 1 && paging.cursor_before == 100 && recovery.cursor_after == 300 &&
+                  paging.cursor_before == 100 && recovery.cursor_after == 300 &&
                   timeline.store->count == resident && timeline.scroll_units == scroll,
               "history eligible retries honor server floor without shortening local backoff or moving "
               "cursors");
@@ -87,7 +84,7 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
             &recovery, &pump, unavailable, {}, {}, MessageContentAvailability::unknown, sample.now_ms);
         check(duplicate_page.error == MessageHistoryRestError::invalid_input &&
                   duplicate_catchup.error == MessageHistoryRestError::invalid_input &&
-                  paging.failures == 1 && recovery.failures == 1 && paging.retry_at_ms == sample.expected &&
+                  paging.retry_at_ms == sample.expected &&
                   recovery.retry_at_ms == sample.expected,
               "history duplicate completion cannot change a waiting retry");
         MessageHistoryQuery older_query{}, newer_query{};
@@ -98,8 +95,7 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
                   message_history_older_take_query(&paging, &older_query) &&
                   message_history_catchup_take_query(&recovery, &newer_query) &&
                   older_query.position == MessageHistoryPosition::before && older_query.cursor == 100 &&
-                  newer_query.position == MessageHistoryPosition::after && newer_query.cursor == 300 &&
-                  paging.requests == 2 && recovery.requests == 2,
+                  newer_query.position == MessageHistoryPosition::after && newer_query.cursor == 300,
               "history retry becomes due exactly at the combined deadline in both directions");
     }
     struct Terminal {
@@ -138,7 +134,7 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
             !paged.accepted() && !caught.accepted() && paging.state == MessageHistoryOlderState::failed &&
                 recovery.state == MessageHistoryCatchupState::failed && !paging.retry_at_ms &&
                 !recovery.retry_at_ms && !paging.transient_retries && !recovery.transient_retries &&
-                paging.failures == 1 && recovery.failures == 1 && timeline.store->count == resident &&
+                timeline.store->count == resident &&
                 timeline.scroll_units == scroll,
             "history server deadlines never enable retries for challenges cancellation or terminal status");
     }
@@ -452,7 +448,7 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
             older.state == MessageHistoryOlderState::waiting_retry && older.retry_at_ms == now + delay &&
             older.cursor_before == 300 && store.count == 1 && timeline.scroll_units == 25 &&
             !message_history_older_tick(&older, now + delay - 1) &&
-            message_history_older_demand(&older, &timeline, 7, 2) && older.demands == 1 &&
+            message_history_older_demand(&older, &timeline, 7, 2) &&
             message_history_older_tick(&older, now + delay) &&
             message_history_older_take_query(&older, &query) && query.cursor == 300,
             "history_retry_backoff_keeps_cursor_anchor_and_deduplicates_scroll_demand");

@@ -12,19 +12,16 @@ constexpr UINT kTrayId = 1;
 // The count badge's side at the largest extent; smaller extents give smaller sides.
 constexpr u32 kBadgeSideMaximum = static_cast<u32>(kTrayIconMaximumExtent * .62f + .5f);
 
-float clamp01(float v) noexcept {
-    return clamp_value(v, 0.f, 1.f);
-}
 float channel(u32 color, u32 shift) noexcept {
     return static_cast<float>((color >> shift) & 255u) / 255.f;
 }
 u32 pack(float a, float r, float g, float b) noexcept {
-    const auto byte = [](float v) noexcept { return static_cast<u32>(clamp01(v) * 255.f + .5f); };
+    const auto byte = [](float v) noexcept { return static_cast<u32>(clamp_unit(v) * 255.f + .5f); };
     return (byte(a) << 24) | (byte(r) << 16) | (byte(g) << 8) | byte(b);
 }
 // Straight-alpha source-over.
 u32 over(u32 destination, u32 source, float coverage) noexcept {
-    const float sa = channel(source, 24) * clamp01(coverage), da = channel(destination, 24);
+    const float sa = channel(source, 24) * clamp_unit(coverage), da = channel(destination, 24);
     const float a = sa + da * (1 - sa);
     if (a <= 0)
         return 0;
@@ -40,7 +37,7 @@ u32 lerp_color(u32 a, u32 b, float t) noexcept {
 float segment_distance(float px, float py, float ax, float ay, float bx, float by) noexcept {
     const float dx = bx - ax, dy = by - ay;
     const float length = dx * dx + dy * dy;
-    const float t = length > 0 ? clamp01(((px - ax) * dx + (py - ay) * dy) / length) : 0;
+    const float t = length > 0 ? clamp_unit(((px - ax) * dx + (py - ay) * dy) / length) : 0;
     const float ex = px - (ax + dx * t), ey = py - (ay + dy * t);
     return taskbar_attention_root(ex * ex + ey * ey);
 }
@@ -58,7 +55,7 @@ void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) 
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float px = static_cast<float>(x) + .5f, py = static_cast<float>(y) + .5f;
-            const float tile = clamp01(.5f - rounded_distance(px, py, c, c, e * .3f));
+            const float tile = clamp_unit(.5f - rounded_distance(px, py, c, c, e * .3f));
             if (tile <= 0) {
                 pixels[y * extent + x] = 0;
                 continue;
@@ -77,7 +74,7 @@ void cut(Slice<u32> pixels, u32 extent, float cx, float cy, float radius) noexce
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float dx = static_cast<float>(x) + .5f - cx, dy = static_cast<float>(y) + .5f - cy;
-            const float keep = clamp01(taskbar_attention_root(dx * dx + dy * dy) - radius + .5f);
+            const float keep = clamp_unit(taskbar_attention_root(dx * dx + dy * dy) - radius + .5f);
             u32& p = pixels[y * extent + x];
             p = (static_cast<u32>(channel(p, 24) * keep * 255.f + .5f) << 24) | (p & 0x00FFFFFFu);
         }
@@ -86,7 +83,7 @@ void disc(Slice<u32> pixels, u32 extent, float cx, float cy, float radius, u32 c
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float dx = static_cast<float>(x) + .5f - cx, dy = static_cast<float>(y) + .5f - cy;
-            const float coverage = clamp01(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
+            const float coverage = clamp_unit(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
             if (coverage > 0)
                 pixels[y * extent + x] = over(pixels[y * extent + x], color | 0xFF000000u, coverage);
         }
@@ -95,7 +92,7 @@ void stroke(Slice<u32> pixels, u32 extent, float ax, float ay, float bx, float b
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float d = segment_distance(static_cast<float>(x) + .5f, static_cast<float>(y) + .5f, ax, ay, bx, by);
-            const float coverage = clamp01(half - d + .5f);
+            const float coverage = clamp_unit(half - d + .5f);
             if (coverage > 0)
                 pixels[y * extent + x] = over(pixels[y * extent + x], color | 0xFF000000u, coverage);
         }

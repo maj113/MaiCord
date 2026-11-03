@@ -11,7 +11,6 @@ struct MessageDraftSession {
     u64 persist_at_ms;
     u32 persisted_revision;
     u32 persist_failures;
-    u32 persist_saves;
     bool cleanup_required;
     // A throttled save is committed by a background writer; the session
     // applies its result on a later persist/wait call. Both fields use
@@ -20,7 +19,7 @@ struct MessageDraftSession {
     wchar_t path[kAccountProfileMaximumPathCharacters];
     u32 inflight_revision;
 };
-static_assert(sizeof(MessageDraftSession) == 2088);
+static_assert(sizeof(MessageDraftSession) == 2080);
 
 bool message_draft_session_configure(MessageDraftSession& session, MessageDraftStore& drafts,
                                      const wchar_t* path, u64 profile_id, u64 now_ms) noexcept;

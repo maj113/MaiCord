@@ -271,10 +271,10 @@ bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerVie
     return changed;
 }
 
-u64 ui_unread_banner_next_wake(const UiUnreadBannerScene& scene, u64 now_ms, bool animate) noexcept {
-    const u64 a = ui_motion_transition_next_wake(scene.banner_motion, scene.banner_motion.scope, now_ms, !animate, true);
-    const u64 b = ui_motion_transition_next_wake(scene.pill_motion, scene.pill_motion.scope, now_ms, !animate, true);
-    const u64 c = ui_motion_transition_next_wake(scene.notice_motion, scene.notice_motion.scope, now_ms, !animate, true);
+u64 ui_unread_banner_next_wake(const UiUnreadBannerScene& scene, bool animate) noexcept {
+    const u64 a = ui_motion_transition_next_wake(scene.banner_motion, scene.banner_motion.scope, !animate, true);
+    const u64 b = ui_motion_transition_next_wake(scene.pill_motion, scene.pill_motion.scope, !animate, true);
+    const u64 c = ui_motion_transition_next_wake(scene.notice_motion, scene.notice_motion.scope, !animate, true);
     const u64 ab = !a ? b : !b ? a : minimum(a, b);
     return !ab ? c : !c ? ab : minimum(ab, c);
 }

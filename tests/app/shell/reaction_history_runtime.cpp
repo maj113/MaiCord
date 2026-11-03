@@ -564,7 +564,6 @@ void startup_history(AccountUiRuntime& ui) noexcept {
     check(pump_message_history() && history_admissions == admissions && !receipt_ready &&
               message_store_find(view.store, 1002).ok() && message_store_find(view.store, 1001).ok() &&
               g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
-              g_app.message_catchup.requests == 1 &&
               g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
           "startup history: matching restoration applies the page as its catch-up without a second request");
 

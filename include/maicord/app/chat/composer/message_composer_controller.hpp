@@ -118,8 +118,6 @@ struct MessageComposerController {
     u64 reply_message_id;
     u32 reply_revision;
     bool mention_reply_author;
-    u32 channel_switches;
-    u32 draft_commits;
     u32 queued;
     u32 compactions;
     u32 rejected;

@@ -9,6 +9,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sdk/maicord_plugin.h"
@@ -101,9 +102,6 @@ struct Service {
 };
 Service* g;
 
-template <typename T> T* allocate() noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-}
 u64 now_unix() noexcept { return g->clock_unix ? g->clock_unix() : clock_unix_milliseconds() / 1000; }
 ConstSlice<wchar_t> base() noexcept { return {g->base, g->base_characters}; }
 bool configured() noexcept { return g->key_count != 0 && g->repository_bytes != 0; }
@@ -164,7 +162,7 @@ bool check() noexcept {
 // ---- the runtime -------------------------------------------------------------------------------------
 Runtime* runtime() noexcept {
     if (g->runtime && g->runtime->open) return g->runtime;
-    if (!g->runtime && !(g->runtime = allocate<Runtime>())) return nullptr;
+    if (!g->runtime && !(g->runtime = commit_pages<Runtime>())) return nullptr;
     wchar_t plugins[600], data[600], ledger[600];
     const u32 plugins_characters = catalog_path(base(), L"plugins", plugins);
     const u32 data_characters = catalog_path(base(), L"plugin-data", data);
@@ -1169,7 +1167,7 @@ bool application_catalog_initialize(const CatalogServiceOptions& options) noexce
     if (!options.base.data || !options.base.count || options.base.count >= 480 || options.keys.count > 2 ||
         options.repository.bytes > kUpdateRepositoryMaximumBytes)
         return false;
-    auto* s = allocate<Service>();
+    auto* s = commit_pages<Service>();
     if (!s) return false;
     s->host = options.host;
     copy_bytes(s->base, options.base.data, options.base.count * 2);

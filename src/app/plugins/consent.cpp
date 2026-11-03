@@ -1,5 +1,6 @@
 #include "maicord/app/plugins/consent.hpp"
 #include "binding_internal.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
@@ -21,10 +22,6 @@ constexpr Utf8View kPermissionsKey = utf8_literal("permissions"), kHostsKey = ut
 bool open_table(PluginKeyValue* table) noexcept {
     return plugin_runtime_detail::kv_open(table, 4, 16, MC_NETWORK_HOSTS_MAX * (MC_HOST_MAX + 1), 4096);
 }
-mc_str key_of(const Utf8View& text) noexcept {
-    return {text.data, text.bytes, 0};
-}
-
 } // namespace
 
 PluginConsentRequest plugin_consent_request(const PluginImage& image, Utf8View (&hosts)[MC_NETWORK_HOSTS_MAX]) noexcept {
@@ -55,8 +52,8 @@ bool plugin_approval_save(const PluginBinding& binding) noexcept {
         copy_bytes(names + used, d.network[i].data, d.network[i].bytes);
         used += d.network[i].bytes;
     }
-    const bool ok = kv_set(&table, key_of(kPermissionsKey), permissions, 8, 0) == MC_OK &&
-                    kv_set(&table, key_of(kHostsKey), names, used, 0) == MC_OK && kv_save(&table, path);
+    const bool ok = kv_set(&table, plugin_str(kPermissionsKey), permissions, 8, 0) == MC_OK &&
+                    kv_set(&table, plugin_str(kHostsKey), names, used, 0) == MC_OK && kv_save(&table, path);
     kv_close(&table);
     return ok;
 }
@@ -69,9 +66,9 @@ PluginApproval plugin_approval_load(const PluginRuntime& runtime, u64 owner_id, 
     if (!approval_path(runtime, owner_id, path) || !open_table(&table)) return approval;
     if (kv_load(&table, path)) {
         u32 bytes = 0;
-        const u8* permissions = kv_find(table, key_of(kPermissionsKey), &bytes);
+        const u8* permissions = kv_find(table, plugin_str(kPermissionsKey), &bytes);
         if (permissions && bytes == 8) approval.permissions = byte_load_le64(permissions) & MC_PERM_KNOWN;
-        const u8* names = kv_find(table, key_of(kHostsKey), &bytes);
+        const u8* names = kv_find(table, plugin_str(kHostsKey), &bytes);
         // Hosts are matched by name, so a plugin that reorders or drops hosts keeps only what it still declares.
         for (u32 first = 0; names && first <= bytes;) {
             u32 end = first;

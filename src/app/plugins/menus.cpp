@@ -43,9 +43,6 @@ PopupOwnerKind channel_owner(u64 channel_id) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
     return channel && channel->type == 1 ? PopupOwnerKind::private_channel : PopupOwnerKind::channel;
 }
-void copy_text(char* output, u32 capacity, const Utf8View& text, u16* bytes) noexcept {
-    *bytes = static_cast<u16>(text.data ? utf8_copy_truncated(output, capacity, text) : 0);
-}
 
 // Copies the target's identity and the revision fences dispatch rechecks.
 bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id) noexcept {
@@ -314,13 +311,13 @@ u32 application_plugins_menu_items(Surface surface, u64 id, Slice<PopupItem> out
         menu.attachment_index = extra->target == PluginMenuKind::image ? extra->attachment_index : 0;
         menu.emoji_id = extra->target == PluginMenuKind::emoji ? extra->emoji_id : 0;
         if (extra->target == PluginMenuKind::emoji && extra->animated) menu.flags |= kPluginMenuTargetAnimated;
-        if (extra->target != PluginMenuKind::emoji) copy_text(menu.url, kApplicationPluginMenuUrlBytes, extra->url, &menu.url_bytes);
-        copy_text(menu.text, kApplicationPluginMenuTextBytes, extra->text, &menu.text_bytes);
+        if (extra->target != PluginMenuKind::emoji) utf8_assign(menu.url, menu.url_bytes, extra->url);
+        utf8_assign(menu.text, menu.text_bytes, extra->text);
         if (extra->target == PluginMenuKind::image) {
             menu.attachment_id = extra->attachment_id;
             menu.width = extra->width;
             menu.height = extra->height;
-            copy_text(menu.content_type, sizeof(menu.content_type), extra->content_type, &menu.content_type_bytes);
+            utf8_assign(menu.content_type, menu.content_type_bytes, extra->content_type);
         }
         project(menu, extra->target, capacity);
     }

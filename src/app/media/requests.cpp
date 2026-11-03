@@ -758,7 +758,7 @@ bool ApplicationMediaPump::request_pinned_messages_avatars(bool* stop) noexcept 
         return true;
     const auto& scene = *application.renderer.pinned_messages_scene;
     for (u32 slot = 0; slot < scene.count && slot < kUiPinnedMessagesVisibleRows; ++slot) {
-        PinnedMessagesAvatarMedia media{};
+        AvatarMedia media;
         if (!pinned_messages_avatar_media_resolve(scene, slot, &media))
             continue;
         const ScanStep step = request_scene_avatar(*this, media.key, media.hash, stop);
@@ -776,7 +776,7 @@ bool ApplicationMediaPump::request_forum_avatars(bool* stop) noexcept {
         return true;
     const auto& scene = *application.renderer.thread_browser_scene;
     for (u32 slot = 0; slot < scene.count && slot < kUiThreadBrowserPageCapacity; ++slot) {
-        ForumChannelAvatarMedia media{};
+        AvatarMedia media;
         if (!forum_channel_avatar_media_resolve(scene, slot, &media))
             continue;
         const ScanStep step = request_scene_avatar(*this, media.key, media.hash, stop);
@@ -854,7 +854,7 @@ bool ApplicationMediaPump::request_friends_avatars(bool* stop) noexcept {
             auto& pump = *static_cast<ApplicationMediaPump*>(opaque);
             return animation_timeline_observe_visible(&pump.application.animations.timeline, key, pump.now_us);
         },
-        +[](void* opaque, const FriendsAvatarMedia& media, bool force, bool* stopped) noexcept {
+        +[](void* opaque, const AvatarMedia& media, bool force, bool* stopped) noexcept {
             auto& pump = *static_cast<ApplicationMediaPump*>(opaque);
             if (message_media_controller_upload_budget_reached(&pump.application.message_media, pump.uploads)) {
                 *stopped = true;

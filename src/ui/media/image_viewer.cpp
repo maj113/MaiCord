@@ -196,7 +196,7 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(
         &v->widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("ImageViewer"), style, {}, 0, 1}});
+        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("ImageViewer"), style, {}, 1}});
     if (!root.ok())
         return false;
     const Utf8View labels[]{utf8_literal("Zoom out"),      utf8_literal("Zoom in"),    utf8_literal("Fit image"),
@@ -213,7 +213,7 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
         button_style.vertical_alignment = chevron ? UiLayoutAlignment::center : UiLayoutAlignment::start;
         const auto button = ui_widget_manager_add(
             &v->widgets, root.handle,
-            {10 + i, UiWidgetKind::button, ui_widget_none, {labels[i], button_style, {}, 0, 10 + i}});
+            {10 + i, UiWidgetKind::button, ui_widget_none, {labels[i], button_style, {}, 10 + i}});
         if (!button.ok())
             return false;
         v->buttons[i] = button.handle;

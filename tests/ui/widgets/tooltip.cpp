@@ -7,7 +7,6 @@ namespace maicord {
 namespace {
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     value->size = {minimum(request.constraint.width, request.text.bytes * 7.f), 18};
-    value->baseline = 14;
     value->line_count = 1;
     return true;
 }

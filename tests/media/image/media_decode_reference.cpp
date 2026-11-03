@@ -632,7 +632,6 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
                 }
             }
         }
-        ++result.decoded_mcus;
     }
     if (!entropy_align(&reader) || reader.offset != reader.bytes.count ||
         result.decoded_blocks != image.coefficient_blocks) {
@@ -648,7 +647,6 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
 bool same_decode(const JpegDecodeResult& fast, const JpegDecodeResult& reference, const JpegCoefficientWorkspace& a,
                  const JpegCoefficientWorkspace& b, u32 blocks) noexcept {
     return fast.error == reference.error && fast.decoded_blocks == reference.decoded_blocks &&
-           fast.decoded_mcus == reference.decoded_mcus &&
            fast.decoded_scans == reference.decoded_scans &&
            bytes_equal(a.blocks, b.blocks, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
 }

@@ -50,12 +50,40 @@ inline void settings_hook_ignore_choice(SettingsLayer*, u32) noexcept {}
 inline bool settings_hook_edited_none(SettingsLayer*, u64) noexcept {
     return false;
 }
-inline bool settings_hook_editor_none(SettingsLayer*, u64, MessageComposer**, BoundedEdit**, bool*) noexcept {
-    return false;
+inline SettingsLayerEditor settings_hook_editor_none(SettingsLayer*, u64) noexcept {
+    return {};
 }
 inline bool settings_hook_not_editable(SettingsLayer*) noexcept {
     return false;
 }
+
+// The text-editor plumbing of a modal whose owner (the pointer variable `*Slot`) has `layer`, `lifetime`
+// and `models[]`, `bindings[]` and `editors[]` indexed by editor; `Editable` is the owner's own test of
+// whether editors take input (it must itself refuse a null owner).
+template <auto* Slot, bool (*Editable)() noexcept>
+struct SettingsEditors {
+    // Ready callback of a bound editor: the modal takes input, the binding is current and `model` has the focus.
+    static bool ready(void* model, u64 identity) noexcept {
+        auto& o = **Slot;
+        MessageComposer* focused = nullptr;
+        return Editable() && o.lifetime == identity &&
+               settings_layer_editor(&o.layer, nullptr, &focused, nullptr) && focused == model;
+    }
+    // Shows the first `bytes` bytes of editor `index`'s borrowed storage with the caret at the end and rebinds it.
+    static void load(u32 index, u32 bytes, u32 limit, bool multiline) noexcept {
+        auto& o = **Slot;
+        auto& model = o.models[index];
+        message_composer_refresh_borrowed(&model, bytes);
+        message_composer_set_selection(&model, bytes, bytes);
+        bounded_edit_bind(&o.bindings[index], &model, limit, multiline, o.lifetime, ready, &model);
+    }
+    // The scene view of editor `index` for `control`.
+    static const UiSettingsEditor* view(u32 index, u64 control, const Utf8View& placeholder, bool enabled) noexcept {
+        auto& o = **Slot;
+        o.editors[index] = settings_layer_editor_view(&o.layer, control, o.models[index], placeholder, enabled);
+        return &o.editors[index];
+    }
+};
 
 // Closes the surfaces a settings modal replaces; call before the owner's state changes.
 void settings_modal_yield() noexcept;

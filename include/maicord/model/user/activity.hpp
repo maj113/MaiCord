@@ -135,8 +135,6 @@ struct UserActivityStore {
 };
 // Copies a user's activities into *output; false (output unspecified) when none.
 bool user_activity_find(const UserActivityStore&, u64 user_id, UserActivitySet* output) noexcept;
-// A user's activity count without decoding them (zero when none).
-u32 user_activity_count(const UserActivityStore&, u64 user_id) noexcept;
 // The first activity's type without decoding the record; false when none.
 bool user_activity_first_type(const UserActivityStore&, u64 user_id, UserActivityType* output) noexcept;
 // One presence's activities from guild `scope` (0: a friend or DM presence).

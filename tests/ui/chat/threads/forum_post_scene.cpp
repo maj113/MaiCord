@@ -12,7 +12,7 @@ bool forum_measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValu
     const float width = value.codepoints * 8.f;
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
     const u32 rows = request.no_wrap ? 1u : maximum(1u, (value.codepoints + columns - 1) / columns);
-    *result = {{request.no_wrap ? width : minimum(width, request.constraint.width), rows * 20.f}, 16, rows};
+    *result = {{request.no_wrap ? width : minimum(width, request.constraint.width), rows * 20.f}, rows};
     return true;
 }
 } // namespace

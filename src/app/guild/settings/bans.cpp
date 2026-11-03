@@ -65,7 +65,7 @@ void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View&
         p.avatar_media[index] = avatar.bytes || discriminator
                                     ? application_listed_user_avatar_media(user_id, avatar, discriminator)
                                     : application_user_avatar_media(user_id);
-    p.row_accent[p.row_count] = person_color(user_id);
+    p.row_accent[p.row_count] = guild_person_color(user_id);
     ++p.row_count;
 }
 

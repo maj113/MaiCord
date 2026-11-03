@@ -84,7 +84,7 @@ u32 test_member_visible_avatar_requests() noexcept {
         const bool on_screen = avatar && row.kind == MemberListRowKind::member &&
                                ui_rect_has_area(ui_rect_intersection(avatar->rectangle, scene.viewport));
         visible_rows += on_screen;
-        MemberAvatarMedia media{};
+        AvatarMedia media{};
         const bool admitted = member_plain_avatar_resolve(scene, i, &media);
         if (admitted) {
             ++resolved;
@@ -116,7 +116,7 @@ u32 test_member_visible_avatar_requests() noexcept {
     for (u32 i = 0; i < scene.count; ++i) {
         if (scene.rows[i].user_id != first_visible)
             continue;
-        MemberAvatarMedia plain{};
+        AvatarMedia plain{};
         ProfileMedia own{};
         guild_resolved = !member_plain_avatar_resolve(scene, i, &plain) &&
                          member_media_resolve(scene, i, MemberMedia::avatar, &own) &&
@@ -380,7 +380,7 @@ u32 test_member_media_cache_scroll() noexcept {
     const auto frame = [&]() noexcept {
         for (u32 i = 0; i < scene.count; ++i) {
             MemberMediaPlacement placed{};
-            MemberAvatarMedia plain{};
+            AvatarMedia plain{};
             scene.media_cache = nullptr;
             const bool plain_expected = member_plain_avatar_resolve(scene, i, &plain);
             const UiBadgeWidget badge_expected = member_list_badge(scene, i);

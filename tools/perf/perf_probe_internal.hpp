@@ -362,7 +362,6 @@ struct Probe {
     u64 lab_guild;
     bool initialized;
     bool failed;
-    bool shell_seen;
     const char* failure;
     PerfAccountControlFunction control;
     PerfAccountCountersFunction counters;

@@ -72,7 +72,6 @@ struct UiLayoutNodeSpec {
     // The declared content extent; a text node measured through the engine's
     // callback holds its latest measurement here instead.
     UiSize intrinsic_size;
-    float intrinsic_baseline;
     u32 key;
 };
 
@@ -87,8 +86,7 @@ struct UiLayoutMeasureRequest {
     UiSize constraint;
 };
 
-using UiLayoutMeasureCallback = bool (*)(void* context, const UiLayoutMeasureRequest& request, UiSize* size,
-                                         float* baseline) noexcept;
+using UiLayoutMeasureCallback = bool (*)(void* context, const UiLayoutMeasureRequest& request, UiSize* size) noexcept;
 
 struct UiLayoutNode {
     UiLayoutNodeSpec spec;
@@ -106,7 +104,7 @@ struct UiLayoutNode {
     u8 depth;
     bool visible;
 };
-static_assert(sizeof(UiLayoutNode) == 200 && kMaximumUiLayoutDepth <= 0xFF);
+static_assert(sizeof(UiLayoutNode) == 192 && kMaximumUiLayoutDepth <= 0xFF);
 
 enum class UiLayoutError : u8 {
     none,

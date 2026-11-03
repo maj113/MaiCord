@@ -570,7 +570,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     if (d3d11_renderer_search_visible(application.renderer)) {
         const auto& search = *application.renderer.search_scene;
         for (u32 slot = 0; slot < kSearchAvatarMediaSlots; ++slot) {
-            SearchAvatarMedia media{};
+            AvatarMedia media;
             if (!search_avatar_media_resolve(search, slot, &media))
                 continue;
             bool force = false;
@@ -612,7 +612,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     if (d3d11_renderer_inbox_visible(application.renderer)) {
         const auto& inbox = *application.renderer.inbox_scene;
         for (u32 slot = 0; slot < inbox.count && slot < kUiInboxVisibleRows; ++slot) {
-            InboxAvatarMedia media{};
+            AvatarMedia media;
             if (!inbox_avatar_media_resolve(inbox, slot, &media))
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
@@ -624,7 +624,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     if (d3d11_renderer_poll_voters_visible(application.renderer)) {
         const auto& voters = *application.renderer.poll_voters_scene;
         for (u32 index = voters.first; index < voters.first + voters.visible; ++index) {
-            PollVotersAvatarMedia media{};
+            AvatarMedia media;
             if (!poll_voters_avatar_media_resolve(voters, index, &media))
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
@@ -983,7 +983,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             // request_visible_hashed_identity's own early returns.
             if (visibility_only || (!force && media_atlas_find(atlas, placed.key).ok()))
                 continue;
-            MemberAvatarMedia media{};
+            AvatarMedia media;
             if (!member_plain_avatar_resolve(members, visible, &media))
                 continue;
             if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, &stop, force)))

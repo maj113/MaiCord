@@ -11,7 +11,6 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/render/text/edit_layout.hpp"
 #include "../account/account_ui_runtime.hpp"
 

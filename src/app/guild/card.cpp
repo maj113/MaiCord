@@ -127,11 +127,6 @@ void resolve_media() noexcept {
         }
     }
 }
-bool reduced_motion() noexcept {
-    BOOL animations = TRUE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-    return !animations || g_app.preferences.reduced_motion;
-}
 bool project() noexcept {
     auto& c = *g_card;
     if (c.phase == Phase::closed || !available())
@@ -160,7 +155,8 @@ bool project() noexcept {
         content.action = action();
     }
     if (!ui_guild_card_show(&c.scene, c.guild_id, content, c.anchor, application_viewport_dips(),
-                            clock_monotonic_milliseconds(), reduced_motion(), &g_app.account_ui->text_measure_cache)) {
+                            clock_monotonic_milliseconds(), application_reduced_motion(),
+                            &g_app.account_ui->text_measure_cache)) {
         c.phase = Phase::closed;
         g_app.renderer.guild_card_scene = nullptr;
         return false;
@@ -445,7 +441,8 @@ void application_guild_card_synchronize(u64 now_ms) noexcept {
     }
     if (c.phase == Phase::ready && c.scene.action != action())
         project();
-    if (ui_guild_card_tick(&c.scene, now_ms, reduced_motion()) || ui_guild_card_next_wake(c.scene, now_ms, reduced_motion()))
+    if (ui_guild_card_tick(&c.scene, now_ms, application_reduced_motion()) ||
+        ui_guild_card_next_wake(c.scene, application_reduced_motion()))
         application_request_frame();
 }
 

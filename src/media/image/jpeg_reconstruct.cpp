@@ -307,7 +307,6 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                         ++result.decoded_blocks;
                     }
             }
-            ++result.decoded_mcus;
             if (++mcu_x == image.mcu_columns) {
                 mcu_x = 0;
                 ++mcu_y;

@@ -149,10 +149,6 @@ bool media_in_load_region(const UiLayoutNode* node, UiRect viewport, bool prefet
     return !visible && ui_rect_has_area(ui_rect_intersection(node->rectangle, viewport));
 }
 
-bool power_of_two(u32 value) noexcept {
-    return value != 0 && (value & (value - 1u)) == 0;
-}
-
 bool first_asset_observation(MessageMediaController* controller, MediaAssetKey key) noexcept {
     if (controller->asset_marks_saturated) {
         return true;
@@ -370,7 +366,7 @@ bool visit_inline_emojis(const MessageMediaControllerCallbacks& callbacks, Utf8V
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept {
     if (!controller || controller->owned_rows.arena.base || controller->owned_asset_marks.arena.base ||
-        row_capacity == 0 || !power_of_two(asset_mark_capacity) || asset_mark_capacity < 4) {
+        row_capacity == 0 || !is_power_of_two(asset_mark_capacity) || asset_mark_capacity < 4) {
         return false;
     }
     reset_value<MessageMediaController>(controller);

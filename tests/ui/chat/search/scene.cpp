@@ -768,7 +768,7 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_rect_width(ui_search_scene_message_scene(search)->viewport) > 200,
           "search rich: narrow source republication preserves usable geometry and retires prior pointer "
           "receipts");
-    SearchAvatarMedia avatar{};
+    AvatarMedia avatar{};
     const auto* narrow_native = ui_search_scene_message_scene(search);
     check(narrow_native && search_avatar_media_resolve(search, 0, &avatar) &&
               ui_rect_height(avatar.rectangle) == 40,
@@ -898,7 +898,7 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "search_scene_lazy_bounded_height_index_and_visible_projection_125_contexts");
     if (!scene.active)
         return;
-    SearchAvatarMedia avatar{};
+    AvatarMedia avatar{};
     check(search_avatar_media_resolve(scene, 0, &avatar) && avatar.key.id == 900 &&
               avatar.key.variant == user_avatar_variant(scene.visible[0].avatar_hash) &&
               ui_rect_equal(avatar.rectangle,
@@ -1074,7 +1074,7 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(chooser_text && chooser_clean, "search_scene_chooser_occludes_result_glyphs");
     bool avatars_clean = true;
     for (u32 i = 0; i < scene.count; ++i) {
-        SearchAvatarMedia media{};
+        AvatarMedia media{};
         if (search_avatar_media_resolve(scene, i, &media))
             avatars_clean &= !ui_rect_has_area(ui_rect_intersection(media.clip, scene.chooser));
     }

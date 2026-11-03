@@ -17,7 +17,7 @@ inline bool fake_text_measure(void*, const UiTextMeasureRequest& request, UiText
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
     const u32 lines = request.no_wrap ? 1u : maximum(1u, (text.codepoints + columns - 1) / columns);
     const float width = request.no_wrap && !kClipNoWrap ? natural : minimum(natural, request.constraint.width);
-    *value = {{width, static_cast<float>(lines) * 20}, 16, lines};
+    *value = {{width, static_cast<float>(lines) * 20}, lines};
     return true;
 }
 

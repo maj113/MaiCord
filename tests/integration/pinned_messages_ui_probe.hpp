@@ -76,7 +76,7 @@ inline bool pinned_messages_ui_probe(D3D11Renderer& renderer,
     };
     if (!show(L"pinned-messages-ready.bmp"))
         return false;
-    PinnedMessagesAvatarMedia avatar{};
+    AvatarMedia avatar{};
     if (!scene.count || scene.count > kUiPinnedMessagesVisibleRows ||
         !pinned_messages_avatar_media_resolve(scene, 0, &avatar) ||
         !pinned_messages_avatar_media_current(scene, avatar.key))

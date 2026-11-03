@@ -3,6 +3,7 @@
 #include "../shell/state.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
@@ -25,28 +26,15 @@ constexpr auto kLearnMore = utf8_literal("Click to learn more");
 char label[kUiTooltipMaximumTextBytes];
 TextStyleSpan bold;
 
-struct Writer {
-    Slice<char> output;
-    u32 at;
-    bool ok;
-    void add(const Utf8View& text) noexcept {
-        if (!ok || at > output.count || text.bytes > output.count - at) {
-            ok = false;
-            return;
-        }
-        copy_bytes(output.data + at, text.data, text.bytes);
-        at += text.bytes;
-    }
-};
 // ":name:", or the bare name.
 u32 compose(Utf8View name, bool colons, Slice<char> output) noexcept {
-    Writer w{output, 0, name.bytes != 0};
+    TextWriter w{output, 0, name.bytes != 0};
     if (colons)
-        w.add(utf8_literal(":"));
+        w.add(":");
     w.add(name);
     if (colons)
-        w.add(utf8_literal(":"));
-    return w.ok ? w.at : 0;
+        w.add(":");
+    return w.ok ? w.used : 0;
 }
 // The name in a <:name:id> or <a:name:id> tag.
 Utf8View tag_name(Utf8View tag) noexcept {

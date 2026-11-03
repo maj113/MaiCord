@@ -201,7 +201,7 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
         message_history_older_demand(&paging, &f.timeline, 7, 50) &&
         message_history_older_take_query(&paging, &query) &&
         message_history_older_demand(&paging, &f.timeline, 7, 50);
-    check(!outside && early && query.cursor == 999 && paging.requests == 1 && paging.demands == 1,
+    check(!outside && early && query.cursor == 999 && !message_history_older_take_query(&paging, &query),
           "message_history_prefetch_500px_boundary_and_single_flight");
 
     // A full reset can reproduce IDs, revisions and store counters. It must

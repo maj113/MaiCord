@@ -72,7 +72,7 @@ bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, const 
     const UiWidgetResult result = ui_widget_manager_add(
         &scene->widgets, parent,
         UiWidgetDesc{id, semantic_kind(semantic), admitted_flags,
-                     UiLayoutNodeSpec{semantic_name(semantic), style, UiSize{}, 0.0f, id}});
+                     UiLayoutNodeSpec{semantic_name(semantic), style, UiSize{}, id}});
     if (!result.ok()) {
         return false;
     }

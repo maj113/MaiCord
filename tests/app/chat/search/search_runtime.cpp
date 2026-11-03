@@ -71,7 +71,7 @@ bool measure_poll(void*, const UiTextMeasureRequest& request, UiTextMeasureValue
         return false;
     const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 6));
     const u32 lines = request.no_wrap ? 1u : maximum(1u, (text.codepoints + columns - 1) / columns);
-    *out = {{minimum(request.constraint.width, text.codepoints * 6.f), lines * 16.f}, 12, lines};
+    *out = {{minimum(request.constraint.width, text.codepoints * 6.f), lines * 16.f}, lines};
     return true;
 }
 

@@ -23,7 +23,7 @@ struct PopupFixture {
     }
 };
 
-bool reject_measure(void*, const UiLayoutMeasureRequest&, UiSize*, float*) noexcept {
+bool reject_measure(void*, const UiLayoutMeasureRequest&, UiSize*) noexcept {
     return false;
 }
 // The official client's attachment groups per kind, merged into the message menu.

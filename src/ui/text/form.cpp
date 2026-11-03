@@ -136,8 +136,7 @@ bool measure_text(TextFormScene* scene, TextFormElement element, UiSize constrai
                value)
         .ok();
 }
-bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* size,
-                   float* baseline) noexcept {
+bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* size) noexcept {
     auto* scene = static_cast<TextFormScene*>(opaque);
     if (!scene->measure || request.key == 0 || request.key > kTextFormElements)
         return false;
@@ -145,7 +144,6 @@ bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* 
     const auto text = label(scene->content, element);
     if (!text.bytes) {
         reset_value(size);
-        *baseline = 0;
         return true;
     }
     UiTextMeasureValue value{};
@@ -156,7 +154,6 @@ bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* 
     // before layout. Very narrow viewports clip/ellipsize the label instead.
     if (action(element))
         size->width = minimum(size->width, request.constraint.width);
-    *baseline = value.baseline;
     return true;
 }
 bool build(TextFormScene* scene) noexcept {

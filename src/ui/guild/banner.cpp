@@ -1,6 +1,6 @@
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/jpeg.hpp"
@@ -15,27 +15,6 @@ namespace {
 constexpr u16 kProxySizes[]{16,  20,  22,  24,  28,  32,  40,  44,   48,   56,   60,   64,   80,   96,   100, 128,
                             160, 240, 256, 300, 320, 480, 512, 600, 640, 1024, 1280, 1536, 2048, 3072, 4096};
 
-struct Writer {
-    char* data;
-    u32 capacity, used;
-    bool ok;
-    void text(Utf8View value) noexcept {
-        if (!ok || value.bytes > capacity - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(data + used, value.data, value.bytes);
-        used += value.bytes;
-    }
-    void number(u64 value) noexcept {
-        const u32 n = decimal_digits(value);
-        if (!ok || n > capacity - used) {
-            ok = false;
-            return;
-        }
-        used += decimal_write(data + used, value);
-    }
-};
 // CDN asset hashes: 32 hexadecimal digits, a_ for animated assets.
 bool hash_valid(const Utf8View& hash) noexcept {
     const u32 begin = ui_guild_banner_animated_hash(hash) ? 2u : 0u;
@@ -56,7 +35,7 @@ u32 device_pixels(u32 dips, u32 dpi) noexcept {
 u32 request_size(u32 dips, u32 dpi) noexcept {
     return ui_media_proxy_size(minimum(device_pixels(dips, dpi), kUiGuildImageMaximumPixels));
 }
-bool finish(Writer& w, MediaAttachmentFormat format, bool animated, UiGuildImageMedia* output) noexcept {
+bool finish(TextWriter& w, MediaAttachmentFormat format, bool animated, UiGuildImageMedia* output) noexcept {
     if (!w.ok)
         return false;
     output->url_bytes = w.used;
@@ -87,15 +66,15 @@ bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool ani
         return false;
     reset_value(output);
     const bool animated = animate && ui_guild_banner_animated_hash(hash);
-    Writer w{output->url, kUiGuildImageUrlBytes, 0, true};
-    w.text(utf8_literal("https://cdn.discordapp.com/banners/"));
+    TextWriter w{{output->url, kUiGuildImageUrlBytes}};
+    w.add("https://cdn.discordapp.com/banners/");
     w.number(guild_id);
-    w.text(utf8_literal("/"));
-    w.text(hash);
-    w.text(animated && gif ? utf8_literal(".gif?size=") : utf8_literal(".webp?size="));
+    w.add("/");
+    w.add(hash);
+    w.add(animated && gif ? utf8_literal(".gif?size=") : utf8_literal(".webp?size="));
     w.number(request_size(360, dpi));
     if (animated && !gif)
-        w.text(utf8_literal("&animated=true"));
+        w.add("&animated=true");
     return finish(w, animated && gif ? MediaAttachmentFormat::gif : MediaAttachmentFormat::webp, animated, output);
 }
 
@@ -104,13 +83,13 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
     if (!output || !guild_id || !size_dips || !hash_valid(hash))
         return false;
     reset_value(output);
-    Writer w{output->url, kUiGuildImageUrlBytes, 0, true};
-    w.text(discovery ? utf8_literal("https://cdn.discordapp.com/discovery-splashes/")
-                     : utf8_literal("https://cdn.discordapp.com/splashes/"));
+    TextWriter w{{output->url, kUiGuildImageUrlBytes}};
+    w.add(discovery ? utf8_literal("https://cdn.discordapp.com/discovery-splashes/")
+                    : utf8_literal("https://cdn.discordapp.com/splashes/"));
     w.number(guild_id);
-    w.text(utf8_literal("/"));
-    w.text(hash);
-    w.text(utf8_literal(".jpg?size="));
+    w.add("/");
+    w.add(hash);
+    w.add(".jpg?size=");
     w.number(request_size(size_dips, dpi));
     return finish(w, MediaAttachmentFormat::jpeg, false, output);
 }

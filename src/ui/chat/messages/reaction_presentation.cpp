@@ -2,6 +2,7 @@
 
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
@@ -168,33 +169,11 @@ MessageReactionPresentationResult message_reaction_presentation_build(
                                              MessageReactionPresentationError::none};
 }
 
-namespace {
-struct LabelWriter {
-    Slice<char> output;
-    u32 bytes;
-    bool ok;
-    __declspec(noinline) void append(const char* source, u32 count) noexcept {
-        if (!ok || !output.data || count > output.count - bytes) {
-            ok = false;
-            return;
-        }
-        copy_bytes(output.data + bytes, source, count);
-        bytes += count;
-    }
-    void add(const Utf8View& text) noexcept {
-        append(text.data, text.bytes);
-    }
-    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
-        append(text, Count - 1);
-    }
-};
-} // namespace
-
 MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8View emoji,
                                                            ConstSlice<Utf8View> names, u32 count,
                                                            Slice<char> output,
                                                            Slice<TextStyleSpan> bold) noexcept {
-    LabelWriter out{output, 0, emoji.data && emoji.bytes};
+    TextWriter out{output, 0, emoji.data && emoji.bytes};
     char shortcode[64];
     const u32 shortcode_bytes = emoji_id ? 0 : emoji_shortcode_key(emoji, {shortcode, sizeof(shortcode)});
     if (emoji_id || shortcode_bytes) {
@@ -206,7 +185,7 @@ MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8Vie
     }
     if (!out.ok)
         return {};
-    const u32 heading = out.bytes;
+    const u32 heading = out.used;
     const u32 shown = names.count, others = count > shown ? count - shown : 0;
     if (!shown || shown > bold.count)
         return {heading, 0};
@@ -215,16 +194,15 @@ MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8Vie
         if (i)
             out.add(i + 1 == shown && !others ? (shown == 2 ? utf8_literal(" and ") : utf8_literal(", and "))
                                               : utf8_literal(", "));
-        bold[i] = {out.bytes, names[i].bytes, text_style_bold};
+        bold[i] = {out.used, names[i].bytes, text_style_bold};
         out.add(names[i]);
     }
     if (others) {
         out.add(shown == 1 ? utf8_literal(" and ") : utf8_literal(", and "));
-        char digits[10];
-        out.add({digits, decimal_write(digits, others)});
+        out.number(others);
         out.add(others == 1 ? utf8_literal(" other") : utf8_literal(" others"));
     }
-    return out.ok ? MessageReactionTooltipLabel{out.bytes, shown} : MessageReactionTooltipLabel{heading, 0};
+    return out.ok ? MessageReactionTooltipLabel{out.used, shown} : MessageReactionTooltipLabel{heading, 0};
 }
 
 } // namespace maicord

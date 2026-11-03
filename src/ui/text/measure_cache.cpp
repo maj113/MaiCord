@@ -15,8 +15,7 @@ bool key_equal(const UiTextMeasureKey& left, const UiTextMeasureKey& right) noex
 }
 
 bool value_valid(const UiTextMeasureValue& value) noexcept {
-    return ui_size_valid_or_empty(value.size) && ui_extent_valid(value.baseline) &&
-           value.baseline <= value.size.height;
+    return ui_size_valid_or_empty(value.size);
 }
 
 u64 mix(u64 hash, u64 value) noexcept {

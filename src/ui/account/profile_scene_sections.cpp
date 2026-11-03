@@ -142,7 +142,7 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const 
                                          : UiWidgetKind::button,
          static_cast<u16>(ui_widget_enabled |
                           (action == ProfileAction::none ? 0 : ui_widget_hit_test | ui_widget_focusable)),
-         {utf8_literal("ProfilePart"), style, {}, 0, id}});
+         {utf8_literal("ProfilePart"), style, {}, id}});
     if (!widget.ok())
         return sink(s, true);
     auto& part = s->parts[s->part_count++];

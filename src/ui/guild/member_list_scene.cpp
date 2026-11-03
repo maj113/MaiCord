@@ -619,7 +619,7 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
         entry.rectangles[layer] = member_media_offset(media.rectangle, x, y);
     }
     constexpr u32 avatar = static_cast<u32>(MemberMedia::avatar);
-    MemberAvatarMedia plain{};
+    AvatarMedia plain;
     if (!(entry.layer_mask & (1u << avatar)) && member_plain_avatar_resolve(s, index, &plain, false)) {
         entry.plain_avatar = true;
         entry.layer_mask = static_cast<u8>(entry.layer_mask | (1u << avatar));
@@ -673,7 +673,7 @@ bool member_plain_avatar_place(const MemberListScene& s, u32 index, MemberMediaP
     if (!out)
         return false;
     if (!s.media_cache) {
-        MemberAvatarMedia media{};
+        AvatarMedia media;
         if (!member_plain_avatar_resolve(s, index, &media))
             return false;
         *out = {media.key, media.rectangle, media.clip, true};

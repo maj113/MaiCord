@@ -87,10 +87,6 @@ void set_failed(PackageError error) noexcept {
         application_store_open(PackageLinkKind::effect);
 }
 
-template <typename T> T* allocate_pages() noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-}
-
 bool text_is(const char* a, const char* b) noexcept {
     const u32 n = c_string_length(a);
     return n == c_string_length(b) && bytes_equal(a, b, n);
@@ -278,7 +274,7 @@ bool start_session() noexcept {
         return false;
     if (s.phase != PackagePhase::idle)
         end_session();
-    s.candidate = allocate_pages<Candidate>();
+    s.candidate = commit_pages<Candidate>();
     if (!s.candidate) {
         set_failed(PackageError::storage);
         return false;
@@ -288,7 +284,7 @@ bool start_session() noexcept {
 
 DWORD WINAPI fetch_main(void*) noexcept {
     auto& s = g.session;
-    auto* https = allocate_pages<UpdateHttpsTransport>();
+    auto* https = commit_pages<UpdateHttpsTransport>();
     if (https && update_https_initialize(https)) {
         s.https = https;
         UpdateLocation location{};

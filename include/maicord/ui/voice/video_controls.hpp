@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/ui/text/presentation.hpp"
-#include "maicord/ui/layout/surface_geometry.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/layout/surface_geometry.hpp"
 
 namespace maicord {
 enum class UiVideoControl : u8 { none, play_pause, seek, time, mute, volume, status, expand, previous_track, next_track, track };

@@ -300,8 +300,7 @@ bool benchmark_text_measure_backend(void* opaque, const UiTextMeasureRequest& re
     }
     ++state->calls;
     const u32 lines = 1u + request.text.bytes % 4u;
-    *value = UiTextMeasureValue{UiSize{request.constraint.width, 18.0f * static_cast<float>(lines)}, 14.0f,
-                                lines};
+    *value = UiTextMeasureValue{UiSize{request.constraint.width, 18.0f * static_cast<float>(lines)}, lines};
     return true;
 }
 
@@ -314,14 +313,12 @@ bool benchmark_text_finalize(void* opaque, const Theme&) noexcept {
     return true;
 }
 
-bool benchmark_text_measure(void*, const UiLayoutMeasureRequest& request, UiSize* size,
-                            float* baseline) noexcept {
-    if (!size || !baseline || request.constraint.width <= 0.0f) {
+bool benchmark_text_measure(void*, const UiLayoutMeasureRequest& request, UiSize* size) noexcept {
+    if (!size || request.constraint.width <= 0.0f) {
         return false;
     }
     size->width = request.constraint.width;
     size->height = request.constraint.width < 100.0f ? 40.0f : 20.0f;
-    *baseline = 15.0f;
     return true;
 }
 
@@ -467,7 +464,7 @@ int run() noexcept {
     const UiWidgetResult measure_root = ui_widget_manager_add(
         &measure_manager, ui_widget_invalid_handle(),
         UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("MeasureRoot"), measure_root_style, UiSize{}, 0.0f, 1}});
+                     UiLayoutNodeSpec{utf8_literal("MeasureRoot"), measure_root_style, UiSize{}, 1}});
     UiLayoutStyle measured_text_style = ui_layout_style();
     measured_text_style.width = ui_layout_fill();
     measured_text_style.height = ui_layout_content();
@@ -477,7 +474,7 @@ int run() noexcept {
         ui_widget_manager_add(&measure_manager, measure_root.handle,
                               UiWidgetDesc{2, UiWidgetKind::text, ui_widget_enabled,
                                            UiLayoutNodeSpec{utf8_literal("MeasuredText"),
-                                                            measured_text_style, UiSize{}, 0.0f, 2}});
+                                                            measured_text_style, UiSize{}, 2}});
     if (!measure_root.ok() || !measured_text.ok() ||
         !ui_widget_manager_layout_rectangle(&measure_manager, {0, 0, 80.0f, 100.0f}).ok()) {
         return 26;
@@ -506,7 +503,7 @@ int run() noexcept {
     const UiWidgetResult wrap_root = ui_widget_manager_add(
         &wrap_manager, ui_widget_invalid_handle(),
         UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("WrapRoot"), wrap_root_style, UiSize{}, 0.0f, 1}});
+                     UiLayoutNodeSpec{utf8_literal("WrapRoot"), wrap_root_style, UiSize{}, 1}});
     UiLayoutStyle wrap_style = ui_layout_style();
     wrap_style.flow = UiLayoutFlow::horizontal_wrap;
     wrap_style.width = ui_layout_fill();
@@ -516,7 +513,7 @@ int run() noexcept {
     const UiWidgetResult wrap = ui_widget_manager_add(
         &wrap_manager, wrap_root.handle,
         UiWidgetDesc{2, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Wrap"), wrap_style, UiSize{}, 0.0f, 2}});
+                     UiLayoutNodeSpec{utf8_literal("Wrap"), wrap_style, UiSize{}, 2}});
     UiLayoutStyle wrap_item_style = ui_layout_style();
     wrap_item_style.width = ui_layout_fixed(80.0f);
     wrap_item_style.height = ui_layout_fixed(24.0f);
@@ -529,7 +526,7 @@ int run() noexcept {
                 UiWidgetDesc{
                     3 + index, UiWidgetKind::button,
                     static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                    UiLayoutNodeSpec{utf8_literal("WrapItem"), wrap_item_style, UiSize{}, 0.0f, 3 + index}})
+                    UiLayoutNodeSpec{utf8_literal("WrapItem"), wrap_item_style, UiSize{}, 3 + index}})
                 .ok();
     }
     if (!wrap_ready || !ui_widget_manager_layout_rectangle(&wrap_manager, {0, 0, 720.0f, 512.0f}).ok()) {
@@ -1494,7 +1491,7 @@ int run() noexcept {
             &rich_widget_manager, ui_widget_invalid_handle(),
             UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
                          UiLayoutNodeSpec{utf8_literal("RichMaterializationRoot"), rich_widget_root_style,
-                                          UiSize{}, 0.0f, 1}});
+                                          UiSize{}, 1}});
         if (!root.ok() ||
             !message_rich_widgets_build(&rich_widget_manager, root.handle, 2, materialized_rich,
                                         &materialized_row) ||

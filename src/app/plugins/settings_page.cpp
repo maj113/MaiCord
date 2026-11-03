@@ -1,5 +1,6 @@
 #include "maicord/app/plugins/settings_page.hpp"
 #include "maicord/app/plugins/consent.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/app/update/fetch.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -30,9 +31,6 @@ const mc_setting_def* settings_of(const PluginBinding& binding) noexcept {
 const u8* block_of(const PluginBinding& binding) noexcept {
     return static_cast<const u8*>(binding.ctx.settings);
 }
-Utf8View view_of(const mc_str& text) noexcept {
-    return {text.data, text.bytes};
-}
 bool edit_type(u32 type) noexcept {
     return type != MC_SET_HEADER && type != MC_SET_TOGGLE && type != MC_SET_CHOICE && type != MC_SET_SLIDER;
 }
@@ -49,7 +47,7 @@ bool visible(const PluginBinding& binding, const mc_setting_def& setting) noexce
 // ---- Text of values -----------------------------------------------------------------
 
 u32 write_key(u32 key, Slice<char> out) noexcept {
-    UpdateTextWriter w{out, 0, true};
+    TextWriter w{out, 0, true};
     if (key & MC_KEY_CTRL) w.add("Ctrl+", 5);
     if (key & MC_KEY_SHIFT) w.add("Shift+", 6);
     if (key & MC_KEY_ALT) w.add("Alt+", 4);
@@ -118,7 +116,7 @@ void add_row(PluginSettingsPage* page, u64 id, const UiSettingsControl& control,
 u32 plugin_setting_format(const PluginBinding& binding, u32 index, Slice<char> output) noexcept {
     const mc_setting_def& setting = settings_of(binding)[index];
     const u8* at = block_of(binding) + setting.offset;
-    UpdateTextWriter w{output, 0, true};
+    TextWriter w{output, 0, true};
     switch (setting.type) {
     case MC_SET_INT:
     case MC_SET_SLIDER: {
@@ -130,7 +128,7 @@ u32 plugin_setting_format(const PluginBinding& binding, u32 index, Slice<char> o
     case MC_SET_SECRET: {
         mc_str text;
         copy_bytes(&text, at, sizeof(text));
-        w.add(view_of(text));
+        w.add(plugin_view(text));
         break;
     }
     case MC_SET_TEXT_LIST: {
@@ -138,7 +136,7 @@ u32 plugin_setting_format(const PluginBinding& binding, u32 index, Slice<char> o
         copy_bytes(&list, at, sizeof(list));
         for (u32 i = 0; i < list.count; ++i) {
             if (i) w.add("\n", 1);
-            w.add(view_of(list.items[i]));
+            w.add(plugin_view(list.items[i]));
         }
         break;
     }
@@ -244,8 +242,8 @@ void plugin_settings_project(const PluginBinding& binding, const PluginSettingsH
         const mc_setting_def& setting = descriptor.settings[i];
         if (!visible(binding, setting)) continue;
         UiSettingsControl control{};
-        control.label = view_of(setting.label);
-        control.description = view_of(setting.description);
+        control.label = plugin_view(setting.label);
+        control.description = plugin_view(setting.description);
         control.enabled = true;
         const u8* at = block_of(binding) + setting.offset;
         const bool danger = setting.flags & MC_SET_DANGER;
@@ -258,7 +256,7 @@ void plugin_settings_project(const PluginBinding& binding, const PluginSettingsH
         case MC_SET_CHOICE: {
             if (setting.item_count > kPluginSettingsChoiceViews - page->choice_used) continue;
             Utf8View* views = page->choice_views + page->choice_used;
-            for (u32 item = 0; item < setting.item_count; ++item) views[item] = view_of(setting.items[item]);
+            for (u32 item = 0; item < setting.item_count; ++item) views[item] = plugin_view(setting.items[item]);
             page->choice_used += setting.item_count;
             control.kind = UiSettingsControlKind::choice;
             control.choices = {views, setting.item_count};
@@ -307,7 +305,7 @@ void plugin_settings_project(const PluginBinding& binding, const PluginSettingsH
         add_row(page, kPluginSettingsNetworkHeader, header, false);
         for (u32 i = 0; i < descriptor.network_count; ++i) {
             UiSettingsControl toggle{};
-            toggle.label = view_of(descriptor.network[i]);
+            toggle.label = plugin_view(descriptor.network[i]);
             toggle.kind = UiSettingsControlKind::toggle;
             toggle.enabled = true;
             toggle.checked = (binding.approved_hosts >> i) & 1;

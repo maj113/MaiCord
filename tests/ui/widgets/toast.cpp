@@ -174,7 +174,7 @@ void test_order() noexcept {
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     const float width = request.text.bytes * 7.f;
     const u32 lines = width <= request.constraint.width ? 1 : 3;
-    *value = {{minimum(width, request.constraint.width), 20.f * lines}, 15, lines};
+    *value = {{minimum(width, request.constraint.width), 20.f * lines}, lines};
     return true;
 }
 

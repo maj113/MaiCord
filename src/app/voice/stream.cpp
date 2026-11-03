@@ -391,7 +391,7 @@ u64 application_stream_next_wake() noexcept {
     if (stream.card.active && stream.leave_ms)
         earliest(stream.leave_ms + kHoverCloseMs);
     if (stream.card.active)
-        earliest(ui_stream_card_next_wake(stream.card, now_ms(), g_app.preferences.reduced_motion));
+        earliest(ui_stream_card_next_wake(stream.card, g_app.preferences.reduced_motion));
     if (stream.ended_ms && stream.view.notice == StreamWatchNotice::ended)
         earliest(stream.ended_ms + kEndedLingerMs);
     if (valid(stream.pending))

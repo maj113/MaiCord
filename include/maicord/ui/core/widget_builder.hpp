@@ -22,13 +22,13 @@ class UiWidgetBuilder {
     explicit UiWidgetBuilder(UiWidgetManager& manager) noexcept;
 
     UiWidgetResult widget(UiWidgetHandle parent, const UiWidgetKey& key, UiWidgetKind kind, u16 flags,
-                          const UiLayoutStyle& style, UiSize intrinsic = {}, float baseline = 0) noexcept;
+                          const UiLayoutStyle& style, UiSize intrinsic = {}) noexcept;
     UiWidgetResult container(UiWidgetHandle parent, const UiWidgetKey& key,
                              const UiLayoutStyle& style) noexcept;
     // Enables retained text measurement through the manager's callback/key.
-    // Without a callback, the supplied intrinsic extent/baseline is used.
+    // Without a callback, the supplied intrinsic extent is used.
     UiWidgetResult text(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,
-                        UiSize intrinsic = {}, float baseline = 0) noexcept;
+                        UiSize intrinsic = {}) noexcept;
     UiWidgetResult button(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,
                           bool keyboard_focusable = true) noexcept;
     UiWidgetResult text_field(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,

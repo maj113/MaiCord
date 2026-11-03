@@ -196,9 +196,6 @@ MessageComposerControllerResult save_active_draft(MessageComposerController* con
     if (!saved.ok()) {
         return controller_error(controller, MessageComposerControllerError::draft);
     }
-    if (saved.changed) {
-        ++controller->draft_commits;
-    }
     return MessageComposerControllerResult{{}, 0, MessageComposerControllerError::none, saved.changed};
 }
 
@@ -269,7 +266,6 @@ MessageComposerControllerResult message_composer_controller_select_channel(
             controller->mention_reply_author = true;
         }
     }
-    ++controller->channel_switches;
     advance_reply_revision(controller);
     return MessageComposerControllerResult{{}, 0, MessageComposerControllerError::none, true};
 }
@@ -289,7 +285,6 @@ MessageComposerControllerResult message_composer_controller_set_reply(
     controller->reply_message_id = reply_message_id;
     controller->mention_reply_author = mention_reply_author;
     if (changed) advance_reply_revision(controller);
-    if (saved.changed) ++controller->draft_commits;
     return {{}, 0, MessageComposerControllerError::none, changed || saved.changed};
 }
 
@@ -321,7 +316,6 @@ MessageComposerControllerResult message_composer_controller_clear_reply(
         request.reply_unavailable = true;
         changed = true;
     }
-    if (cleared.changed) ++controller->draft_commits;
     return {{}, 0, MessageComposerControllerError::none, changed};
 }
 

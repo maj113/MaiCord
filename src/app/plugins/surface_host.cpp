@@ -55,6 +55,20 @@ u32 application_plugin_relationship_of(u64 user_id) noexcept {
     return record ? application_plugin_relationship(record->type) : kPluginRelationshipNone;
 }
 
+// What the plugin host files (this one, pipeline_host.cpp, ui_host.cpp) read of the account alike.
+bool plugin_account_ready() noexcept {
+    return g_app.account_ui && g_app.account.instance && !g_app.login.visible &&
+           g_app.account.status.required_action == AccountRequirement::none;
+}
+u64 plugin_guild_of_channel(const AccountUiRuntime& ui, u64 channel_id) noexcept {
+    const auto* channel = channel_id ? chat_state_store_find_channel(ui.chat_state, channel_id) : nullptr;
+    return channel ? channel->guild_id : 0;
+}
+bool plugin_user_is_bot(const AccountUiRuntime& ui, u64 user_id) noexcept {
+    const auto* appearance = user_id ? user_appearance_find(ui.user_store.appearance, user_id) : nullptr;
+    return appearance && (appearance->fields & appearance_bot) && appearance->bot;
+}
+
 namespace {
 
 // ---- inputs -------------------------------------------------------------------------------------
@@ -77,14 +91,6 @@ u32 platforms_of(u8 packed) noexcept {
         platforms |= kPluginPlatformWeb;
     return platforms;
 }
-u64 guild_of_channel(const AccountUiRuntime& ui, u64 channel_id) noexcept {
-    const auto* channel = channel_id ? chat_state_store_find_channel(ui.chat_state, channel_id) : nullptr;
-    return channel ? channel->guild_id : 0;
-}
-bool user_is_bot(const AccountUiRuntime& ui, u64 user_id) noexcept {
-    const auto* appearance = user_id ? user_appearance_find(ui.user_store.appearance, user_id) : nullptr;
-    return appearance && (appearance->fields & appearance_bot) && appearance->bot;
-}
 
 // The message as the host describes it. Content and the author's name only when some hook asked for them.
 PluginMessageInput message_input(const AccountUiRuntime& ui, const MessageStore& store, MessageHandle handle,
@@ -103,7 +109,7 @@ PluginMessageInput message_input(const AccountUiRuntime& ui, const MessageStore&
     if (rich && rich->message_revision != record.revision) rich = nullptr;
     u32 flags = 0;
     if (record.author_id && record.author_id == ui.chat_state.self_user_id) flags |= kPluginMessageOwn;
-    if (user_is_bot(ui, record.author_id)) flags |= kPluginMessageBot;
+    if (plugin_user_is_bot(ui, record.author_id)) flags |= kPluginMessageBot;
     if (record.edited_timestamp_ms) flags |= kPluginMessageEdited;
     if (record.presentation_flags & message_presentation_pinned) flags |= kPluginMessagePinned;
     if (rich && rich->reference.type != 1 && rich->reference.state != GatewayMessageReferenceState::none) {
@@ -134,7 +140,7 @@ bool user_input(const AccountUiRuntime& ui, u64 user_id, u64 guild_id, u32 where
     in.user_id = user_id;
     in.guild_id = guild_id;
     in.where = where;
-    in.flags = (user_is_bot(ui, user_id) ? kPluginUserBot : 0) |
+    in.flags = (plugin_user_is_bot(ui, user_id) ? kPluginUserBot : 0) |
                (user_id == ui.chat_state.self_user_id ? kPluginUserSelf : 0);
     in.relationship = application_plugin_relationship_of(user_id);
     const u8 packed = user_store_client_status(ui.user_store, user_id);
@@ -229,7 +235,7 @@ bool prepare_messages(const PluginSurfaceHost& host, const AccountUiRuntime& ui,
         }
         if (users) {
             PluginUserInput author;
-            const u64 guild = guild_of_channel(ui, record->channel_id);
+            const u64 guild = plugin_guild_of_channel(ui, record->channel_id);
             if (user_input(ui, record->author_id, guild, kPluginUserMessageAuthor, &author)) {
                 author.channel_id = record->channel_id;
                 author.message_id = record->id;
@@ -253,7 +259,7 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
     bool complete = true;
     if (host.wants & (1u << 1)) {
         const auto& scene = g_app.member_list_scene;
-        const u64 guild = guild_of_channel(ui, ui.active_channel_id);
+        const u64 guild = plugin_guild_of_channel(ui, ui.active_channel_id);
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
             const auto& row = scene.rows[i];
             PluginUserInput in;
@@ -577,7 +583,7 @@ void application_plugin_surfaces_context_changed() noexcept {
     const AccountUiRuntime& ui = *g_app.account_ui;
     g_host.context_channel = ui.active_channel_id;
     if (const PluginSurfaceHost* host = g_plugin_surfaces)
-        host->refresh_buttons(ui.active_channel_id, guild_of_channel(ui, ui.active_channel_id));
+        host->refresh_buttons(ui.active_channel_id, plugin_guild_of_channel(ui, ui.active_channel_id));
 }
 
 } // namespace maicord::app_detail

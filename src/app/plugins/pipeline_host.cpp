@@ -50,14 +50,6 @@ const AccountUiRuntime* ui_state() noexcept {
 u64 self_id() noexcept {
     return g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
 }
-bool account_ready() noexcept {
-    return g_app.account_ui && g_app.account.instance && !g_app.login.visible &&
-           g_app.account.status.required_action == AccountRequirement::none;
-}
-u64 guild_of_channel(const AccountUiRuntime& ui, u64 channel_id) noexcept {
-    const auto* channel = channel_id ? chat_state_store_find_channel(ui.chat_state, channel_id) : nullptr;
-    return channel ? channel->guild_id : 0;
-}
 // The server nickname when the member is resident, else the user's display name.
 Utf8View display_name(const AccountUiRuntime& ui, u64 guild, u64 user) noexcept {
     if (const auto* member = guild && user ? guild_member_store_find(ui.guild_member_store, guild, user) : nullptr) {
@@ -66,10 +58,6 @@ Utf8View display_name(const AccountUiRuntime& ui, u64 guild, u64 user) noexcept 
     }
     const auto* record = user ? user_store_find(ui.user_store, user) : nullptr;
     return record ? user_store_name(ui.user_store, *record) : Utf8View{};
-}
-bool user_is_bot(const AccountUiRuntime& ui, u64 user) noexcept {
-    const auto* appearance = user ? user_appearance_find(ui.user_store.appearance, user) : nullptr;
-    return appearance && (appearance->fields & appearance_bot) && appearance->bot;
 }
 u32 presence_value(GatewayClientMemberListStatus status) noexcept {
     switch (status) {
@@ -113,7 +101,7 @@ PluginMessage to_plugin(const MessageRecord& record, Utf8View content) noexcept 
     message.relationship = application_plugin_relationship_of(record.author_id);
     u32 flags = 0;
     if (record.author_id && record.author_id == self_id()) flags |= MC_MESSAGE_OWN;
-    if (user_is_bot(*ui, record.author_id)) flags |= MC_MESSAGE_BOT;
+    if (plugin_user_is_bot(*ui, record.author_id)) flags |= MC_MESSAGE_BOT;
     if (record.edited_timestamp_ms) flags |= MC_MESSAGE_EDITED;
     if (record.presentation_flags & message_presentation_pinned) flags |= MC_MESSAGE_PINNED;
     if (message_type_is_system(record.type)) flags |= MC_MESSAGE_SYSTEM;
@@ -165,7 +153,7 @@ void push(PluginEvent& event, const AccountUiRuntime* ui) noexcept { // fills th
          event.kind == MC_EVENT_RELATIONSHIP_REMOVE) &&
         own_removal(event))
         event.flags |= MC_EVENT_OWN;
-    if (!event.guild_id && ui) event.guild_id = guild_of_channel(*ui, event.channel_id);
+    if (!event.guild_id && ui) event.guild_id = plugin_guild_of_channel(*ui, event.channel_id);
     event.time_ms = clock_unix_milliseconds();
     plugin_events_push(event);
 }
@@ -182,7 +170,7 @@ void fill_from_cache(PluginEvent* event, const AccountUiRuntime* ui, bool with_t
         event->flags |= MC_EVENT_TEXT;
     }
     if (event->name.bytes || event->text.bytes) event->flags |= MC_EVENT_CACHED;
-    if (ui && user_is_bot(*ui, record->author_id)) event->flags |= MC_EVENT_BOT;
+    if (ui && plugin_user_is_bot(*ui, record->author_id)) event->flags |= MC_EVENT_BOT;
 }
 
 void deleted_message(u64 channel_id, u64 message_id, bool bulk, const AccountUiRuntime* ui) noexcept {
@@ -199,7 +187,7 @@ void deleted_message(u64 channel_id, u64 message_id, bool bulk, const AccountUiR
     event.kind = MC_EVENT_MESSAGE_DELETE;
     event.channel_id = channel_id;
     event.message_id = message_id;
-    event.guild_id = ui ? guild_of_channel(*ui, channel_id) : 0;
+    event.guild_id = ui ? plugin_guild_of_channel(*ui, channel_id) : 0;
     if (bulk) event.flags |= MC_EVENT_BULK;
     if (plugin_events_interest() & MC_EVENT_BIT(MC_EVENT_MESSAGE_DELETE)) fill_from_cache(&event, ui, true);
     push(event, ui);
@@ -229,7 +217,7 @@ void message_changed(const GatewayClientEvent& event, ConstSlice<u8> payload, co
     out.kind = create ? MC_EVENT_MESSAGE_CREATE : MC_EVENT_MESSAGE_UPDATE;
     out.channel_id = message.channel_id;
     out.message_id = message.id;
-    out.guild_id = ui ? guild_of_channel(*ui, message.channel_id) : 0;
+    out.guild_id = ui ? plugin_guild_of_channel(*ui, message.channel_id) : 0;
     if (message.fields & gateway_message_field_author_id) {
         out.user_id = message.author_id;
         out.name = message.author_name;
@@ -406,7 +394,7 @@ const MessageRecord* cached_message(u64 channel_id, u64 message_id) noexcept {
 }
 
 mc_status sink_send(u64, const PluginSend& send) noexcept {
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     auto& ui = *g_app.account_ui;
     if (!chat_state_store_find_channel(ui.chat_state, send.channel_id)) return MC_E_NOT_FOUND;
     if (!application_thread_actions_channel_sendable(send.channel_id)) return MC_E_DENIED;
@@ -428,7 +416,7 @@ mc_status sink_send(u64, const PluginSend& send) noexcept {
 }
 
 mc_status sink_edit(u64, u64 channel, u64 message, Utf8View text) noexcept {
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     const auto* record = cached_message(channel, message);
     // Edits go through the open channel's message view.
     if (!record || channel != g_app.account_ui->active_channel_id) return MC_E_NOT_FOUND;
@@ -472,7 +460,7 @@ void split_emoji(Utf8View emoji, Utf8View* name, u64* id) noexcept {
 }
 
 mc_status sink_react(u64, u64 channel, u64 message, Utf8View emoji, bool remove) noexcept {
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     if (channel != g_app.account_ui->active_channel_id || !cached_message(channel, message)) return MC_E_NOT_FOUND;
     Utf8View name{};
     u64 id = 0;
@@ -497,7 +485,7 @@ mc_status sink_react(u64, u64 channel, u64 message, Utf8View emoji, bool remove)
 }
 
 mc_status sink_delete(u64, u64 channel, u64 message) noexcept {
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     const auto* record = cached_message(channel, message);
     if (!record || channel != g_app.account_ui->active_channel_id) return MC_E_NOT_FOUND;
     if (record->author_id != g_app.account_ui->chat_state.self_user_id) return MC_E_DENIED;
@@ -510,7 +498,7 @@ bool begin_scoped_read(ReadScopeKind kind, u64 id) noexcept {
 }
 
 mc_status sink_mark_read(u64, u32 scope, u64 id) noexcept {
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     auto& chat = g_app.account_ui->chat_state;
     if (scope == MC_READ_CHANNEL) {
         if (!chat_state_store_find_channel(chat, id)) return MC_E_NOT_FOUND;
@@ -528,7 +516,7 @@ mc_status sink_mark_read(u64, u32 scope, u64 id) noexcept {
 
 mc_status sink_activity(u64 owner, const mc_activity* activity) noexcept {
     if (!activity) return application_activity_set_plugin(owner, nullptr) ? MC_OK : MC_E_NOT_FOUND;
-    if (!account_ready()) return MC_E_BUSY;
+    if (!plugin_account_ready()) return MC_E_BUSY;
     if (activity->type == MC_ACTIVITY_CUSTOM) {
         const u64 now = clock_unix_milliseconds();
         SelfCustomStatus status{};
@@ -570,7 +558,7 @@ mc_status sink_local_remove(u64, u64 channel, u64 message) noexcept {
 // ---- Composer ---------------------------------------------------------------------------------
 
 bool composer_ready() noexcept {
-    return account_ready() && g_app.message_composer.channel_id && !g_app.login.visible;
+    return plugin_account_ready() && g_app.message_composer.channel_id && !g_app.login.visible;
 }
 
 mc_status sink_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
@@ -621,10 +609,10 @@ void sink_keep_changed() noexcept {
 // ---- Reads ------------------------------------------------------------------------------------
 
 mc_status sink_open_channel(mc_open_channel* out) noexcept {
-    const AccountUiRuntime* ui = account_ready() ? ui_state() : nullptr;
+    const AccountUiRuntime* ui = plugin_account_ready() ? ui_state() : nullptr;
     if (!ui || !ui->active_channel_id) return MC_E_NOT_FOUND;
     out->channel_id = ui->active_channel_id;
-    out->guild_id = guild_of_channel(*ui, out->channel_id);
+    out->guild_id = plugin_guild_of_channel(*ui, out->channel_id);
     if (g_app.message_composer.channel_id == out->channel_id) {
         const MessageComposerReplySnapshot reply = application_reply_draft();
         out->reply_to = reply.channel_id == out->channel_id ? reply.message_id : 0;
@@ -635,7 +623,7 @@ mc_status sink_open_channel(mc_open_channel* out) noexcept {
 
 // The open channel's loaded window, newest first, from the row after `before`.
 mc_status sink_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
-    const AccountUiRuntime* ui = account_ready() ? ui_state() : nullptr;
+    const AccountUiRuntime* ui = plugin_account_ready() ? ui_state() : nullptr;
     if (!ui || channel_id != ui->active_channel_id) return MC_E_NOT_FOUND;
     const MessageStore& store = g_app.message_view.store;
     bool below = !before;

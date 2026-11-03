@@ -1287,7 +1287,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         renderer->media_quad_count < kRendererMediaQuadCapacity &&
                         renderer->media_batch_count < kRendererMediaBatchCapacity;
              ++i) {
-            ForumChannelAvatarMedia media{};
+            AvatarMedia media;
             if (!forum_channel_avatar_media_resolve(browser, i, &media))
                 continue;
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1305,7 +1305,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         const auto& scene = *renderer->friends_scene;
         const u32 count = friends_avatar_media_count(scene);
         for (u32 i = 0; i < count && renderer->media_quad_count < kRendererMediaQuadCapacity; ++i) {
-            FriendsAvatarMedia media{};
+            AvatarMedia media;
             if (!friends_avatar_media_resolve(scene, *renderer->user_store, i, &media))
                 continue;
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1460,7 +1460,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         renderer->media_quad_count < kRendererMediaQuadCapacity &&
                         renderer->media_batch_count < kRendererMediaBatchCapacity;
              ++i) {
-            PinnedMessagesAvatarMedia media{};
+            AvatarMedia media;
             if (!pinned_messages_avatar_media_resolve(pins, i, &media))
                 continue;
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1497,7 +1497,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         renderer->media_quad_count < kRendererMediaQuadCapacity &&
                         renderer->media_batch_count < kRendererMediaBatchCapacity;
              ++i) {
-            SearchAvatarMedia media{};
+            AvatarMedia media;
             if (!search_avatar_media_resolve(search, i, &media))
                 continue;
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1532,7 +1532,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         const u32 count = ui_friends_scene_visible_count(scene);
         bool first_media = true;
         for (u32 i = 0; i < count && renderer->media_quad_count < kRendererMediaQuadCapacity; ++i) {
-            FriendsAvatarMedia media{};
+            AvatarMedia media;
             if (!friends_avatar_media_resolve(scene, *renderer->user_store, i, &media))
                 continue;
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1850,7 +1850,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_gpu.texture_view) {
         const auto& inbox = *renderer->inbox_scene;
         for (u32 slot = 0; slot < inbox.count && slot < kUiInboxVisibleRows; ++slot) {
-            InboxAvatarMedia media{};
+            AvatarMedia media;
             if (!inbox_avatar_media_resolve(inbox, slot, &media))
                 continue;
             const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, media.key);
@@ -1918,7 +1918,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_gpu.texture_view) {
         const auto& voters = *renderer->poll_voters_scene;
         for (u32 index = voters.first; index < voters.first + voters.visible; ++index) {
-            PollVotersAvatarMedia media{};
+            AvatarMedia media;
             if (!poll_voters_avatar_media_resolve(voters, index, &media))
                 continue;
             const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, media.key);

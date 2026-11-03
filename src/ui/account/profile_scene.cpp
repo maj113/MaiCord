@@ -264,7 +264,7 @@ bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool for
                                             {1,
                                              UiWidgetKind::container,
                                              ui_widget_enabled,
-                                             {utf8_literal("UserProfile"), root_style, {}, 0, 1}});
+                                             {utf8_literal("UserProfile"), root_style, {}, 1}});
     if (!root.ok())
         return false;
     s->root = root.handle;

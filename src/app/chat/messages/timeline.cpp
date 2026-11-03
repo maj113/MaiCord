@@ -448,7 +448,6 @@ static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, con
     const u64 previous_scroll = timeline->scroll_units;
     UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
     u32 first_changed = old_count;
-    const u32 previous_compactions = timeline->store->compactions;
     while (insertion_requires_eviction(*timeline, input.content.bytes)) {
         if (!evict_resident_edge(timeline, &anchor, 0, &first_changed)) {
             ++timeline->rejected;
@@ -494,9 +493,6 @@ static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, con
     result.kind = GatewayMessageApplyKind::created;
     result.invalidation = structural_invalidation(first_changed, old_count, timeline->list->count,
                                                   timeline->scroll_units != previous_scroll);
-    const u32 compactions = timeline->store->compactions - previous_compactions;
-    result.compacted = compactions != 0;
-    timeline->compactions += compactions;
     ++timeline->applied;
     return result;
 }
@@ -697,7 +693,6 @@ static MessageTimelineApplyResult apply_decoded_message(
 
     UiScrollAnchor anchor = inserting || update_pressure ? message_timeline_capture_anchor(*timeline) : UiScrollAnchor{};
     u32 first_changed = old_count;
-    const u32 previous_compactions = timeline->store->compactions;
     while (inserting && insertion_requires_eviction(*timeline, message.content.bytes)) {
         if (!evict_resident_edge(timeline, &anchor, 0, &first_changed)) {
             ++timeline->rejected;
@@ -775,9 +770,6 @@ static MessageTimelineApplyResult apply_decoded_message(
     } else {
         result.invalidation = MessageTimelineInvalidation{result.mutation.order_index, 1, false, false};
     }
-    const u32 compactions = timeline->store->compactions - previous_compactions;
-    result.compacted = compactions != 0;
-    timeline->compactions += compactions;
     ++timeline->applied;
     return result;
 }

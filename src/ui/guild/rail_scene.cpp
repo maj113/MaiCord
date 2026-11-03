@@ -627,12 +627,12 @@ bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noex
     return changed;
 }
 
-u64 guild_rail_scene_next_wake(const GuildRailScene& scene, u64 now_ms) noexcept {
+u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
     u64 wake = 0;
     for (const auto& slot : scene.folder_motion) {
         if (!slot.folder_id)
             continue;
-        const u64 deadline = ui_motion_transition_next_wake(transition_of(slot), {slot.folder_id, 1}, now_ms, false, true);
+        const u64 deadline = ui_motion_transition_next_wake(transition_of(slot), {slot.folder_id, 1}, false, true);
         if (deadline && (!wake || deadline < wake))
             wake = deadline;
     }
@@ -660,12 +660,12 @@ bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
     return guild_rail_indicator_parameter_tick(&pill->visibility, scope, visibility, now_ms, animate) || changed;
 }
 
-u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill, u64 now_ms) noexcept {
+u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill) noexcept {
     u64 wake = 0;
     const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility};
     for (const auto* motion : motions) {
         const auto transition = guild_rail_indicator_transition(*motion);
-        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, now_ms, false, true);
+        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, false, true);
         if (deadline && (!wake || deadline < wake))
             wake = deadline;
     }

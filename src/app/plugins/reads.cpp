@@ -2,6 +2,7 @@
 // read_shared_group_dms): copies from MaiCord's cache through the application's reader (surfaces.hpp).
 // Nothing here fetches.
 #include "surfaces_internal.hpp"
+#include "maicord/app/plugins/text.hpp"
 
 namespace maicord::plugin_surfaces_detail {
 
@@ -26,10 +27,6 @@ static_assert(kPluginChannelNsfw == MC_CHANNEL_NSFW && kPluginChannelUnread == M
               kPluginGuildMuted == MC_GUILD_MUTED && kPluginHeaderChannel == MC_HEADER_CHANNEL &&
               kPluginHeaderMemberList == MC_HEADER_MEMBER_LIST);
 
-namespace {
-mc_str view(const Utf8View& text) noexcept { return {text.data, text.bytes, 0}; }
-} // namespace
-
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
     const PluginReader* reader = g_plugin_reader;
     if (!out || !user_id) return MC_E_INVALID;
@@ -44,8 +41,8 @@ mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
     out->relationship = in.relationship;
     out->presence = in.presence;
     out->platforms = in.platforms;
-    out->name = view(in.name);
-    out->username = view(in.username);
+    out->name = plugin_str(in.name);
+    out->username = plugin_str(in.username);
     return MC_OK;
 }
 
@@ -63,7 +60,7 @@ mc_status read_channel(u64 channel_id, mc_channel* out) noexcept {
     out->type = in.type;
     out->flags = in.flags;
     out->mention_count = in.mention_count;
-    out->name = view(in.name);
+    out->name = plugin_str(in.name);
     return MC_OK;
 }
 
@@ -81,7 +78,7 @@ mc_status read_guild(u64 guild_id, mc_guild* out) noexcept {
     out->mention_count = in.mention_count;
     out->member_count = in.member_count;
     out->online_count = in.online_count;
-    out->name = view(in.name);
+    out->name = plugin_str(in.name);
     out->boost_count = in.boost_count;
     out->boost_tier = in.boost_tier;
     out->verification_level = in.verification_level;

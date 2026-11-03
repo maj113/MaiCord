@@ -466,11 +466,7 @@ void test_member_role_refresh() noexcept {
               "role_refresh_hidden_interest_does_not_create_a_subscription_or_wake");
     }
     const auto previous_gateway_source = g_app.account.api.gateway_source;
-    const u32 previous_gateway_sources = g_app.account.status.gateway_sources;
-    const u32 previous_next_gateway_sources = next_status.gateway_sources;
     g_app.account.api.gateway_source = diagnostic_source;
-    g_app.account.status.gateway_sources = 1;
-    next_status.gateway_sources = 1;
     scoped_gateway_event = {};
     scoped_gateway_event.kind = GatewayClientEventKind::dispatch;
     scoped_gateway_event.dispatch_kind = GatewayClientDispatchKind::channel_delete;
@@ -522,8 +518,6 @@ void test_member_role_refresh() noexcept {
               browser_gateway_notifications == 1,
           "explicit overwrite authority retains scoped browser and forum invalidation");
     g_app.account.api.gateway_source = previous_gateway_source;
-    g_app.account.status.gateway_sources = previous_gateway_sources;
-    next_status.gateway_sources = previous_next_gateway_sources;
     event_pump.timeline = nullptr;
     event_pump.state = nullptr;
     event_pump.members = nullptr;
@@ -633,7 +627,6 @@ void test_message_navigation_lifecycle() noexcept {
     g_app.account.api.channel_overview = navigation_fetch;
     g_app.account.api.pinned_messages = navigation_cancel;
     g_app.account.api.gateway_source = diagnostic_source;
-    next_status.gateway_sources = 1;
     next_status.running = true;
     next_status.profile_id = 5;
     next_status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
@@ -887,7 +880,7 @@ void test_poll_gateway_receipts() noexcept {
     g_app.message_pump.bulk_id_scratch = {bulk, kGatewayBulkDeleteMaximumIds};
     g_app.message_pump.guild_id_scratch = {ready, 2};
     g_app.message_pump.payload_scratch = {ui.event_payload_scratch, kGatewayClientDispatchPayloadCapacity};
-    next_status.running = true; next_status.profile_id = 5; next_status.gateway_sources = 1;
+    next_status.running = true; next_status.profile_id = 5;
     next_status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
     g_app.account.status = next_status; g_app.plugin_account_scope_serial = 31;
     g_app.account.api.gateway_source = diagnostic_source;
@@ -966,7 +959,7 @@ void test_poll_gateway_receipts() noexcept {
     }
     poll_follow_ready = scoped_gateway_event_ready = poll_seed_selected_channel = false;
     message_poll_store_release(&ui.message_poll_store); message_event_pump_reset(&g_app.message_pump);
-    ui.chat_state = {}; g_app.message_view = {}; ui.poll_source_sequence_mask = 0;
+    ui.chat_state = {}; g_app.message_view = {}; ui.poll_sequence_known = false;
     g_app.account.api.gateway_source = old_source; next_status = old_status; g_app.account.status = old_actual;
     g_app.account.last_phase = old_phase;
     ui.active_channel_id = 0;
@@ -981,6 +974,7 @@ u32 run_account_pump_tests() noexcept {
     g_app.account.module = reinterpret_cast<HMODULE>(1);
     g_app.account.instance = reinterpret_cast<void*>(1);
     g_app.account.api.pump = pump;
+    g_app.account.api.gateway_source = no_gateway_source;
     g_app.login.status = RendererLoginStatus::idle;
     bool media_repaint = false;
     browser_blocks_read = true;
@@ -1053,7 +1047,6 @@ u32 run_account_pump_tests() noexcept {
     check(application_pump_account() && login_returns == 1 && rejected && !refreshes && !history_calls,
           "authentication_rejection_returns_to_login_without_normal_model_drain");
     reset_counts();
-    next_status.gateway_sources = 1;
     next_status.coordinator_error = static_cast<u8>(UserAccountCoordinatorError::gateway);
     g_app.account.api.gateway_source = diagnostic_source;
     g_app.account.api.gateway_pop = diagnostic_pop;
@@ -1068,18 +1061,12 @@ u32 run_account_pump_tests() noexcept {
           "fatal_gateway_receipt_and_closed_metadata_logged_before_teardown_without_dispatch_model_"
           "callbacks_and_payload_erased");
     reset_counts();
-    next_status.gateway_sources = 2;
     diagnostic_refill = true;
-    check(application_pump_account() && login_returns == 1 && diagnostic_source_reads == 2 &&
-              diagnostic_pops == 2 * kGatewayClientEventCapacity && diagnostic_logs == 4 && !normal_pops &&
+    check(application_pump_account() && login_returns == 1 && diagnostic_source_reads == 1 &&
+              diagnostic_pops == kGatewayClientEventCapacity && diagnostic_logs == 2 && !normal_pops &&
               !notification_callbacks && !refreshes && !history_calls,
-          "terminal_diagnostic_drain_has_fixed_per_source_budget_even_when_queue_replenishes");
+          "terminal_diagnostic_drain_has_fixed_budget_even_when_queue_replenishes");
     reset_counts();
-    next_status.gateway_sources = 9;
-    check(application_pump_account() && login_returns == 1 && !diagnostic_source_reads && !diagnostic_pops,
-          "terminal_diagnostic_source_count_over_bound_aborts_diagnostics_before_native_queries");
-    reset_counts();
-    next_status.gateway_sources = 1;
     diagnostic_null_source = true;
     check(application_pump_account() && login_returns == 1 && diagnostic_source_reads == 1 &&
               !diagnostic_pops,
@@ -1101,12 +1088,7 @@ u32 run_account_pump_tests() noexcept {
     g_app.message_pump.payload_scratch = {};
     check(application_pump_account() && login_returns == 1 && !diagnostic_pops && !diagnostic_logs,
           "terminal_diagnostic_missing_scratch_aborts_without_new_storage_or_model_work");
-    reset_counts();
-    next_status.gateway_sources = 0;
-    check(application_pump_account() && login_returns == 1 && !diagnostic_source_reads && !diagnostic_pops,
-          "terminal_diagnostic_zero_sources_needs_no_scratch_or_hooks");
     g_app.message_pump.payload_scratch = valid_scratch;
-    next_status.gateway_sources = 1;
     for (u32 scenario = 0; scenario < 2; ++scenario) {
         reset_counts();
         diagnostic_events = 3;
@@ -1119,7 +1101,6 @@ u32 run_account_pump_tests() noexcept {
               "terminal_diagnostic_capacity_or_corrupt_payload_stops_pop_loop_erases_scratch_and_tears_"
               "down_safely");
     }
-    next_status.gateway_sources = 0;
     g_app.message_pump.payload_scratch = {};
     reset_counts();
     g_app.account.instance = nullptr;

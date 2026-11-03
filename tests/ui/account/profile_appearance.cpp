@@ -743,7 +743,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                                 UiTextMeasureValue* value) noexcept {
             if (*static_cast<bool*>(context) && request.key.source_id == 0x42494F)
                 return false;
-            *value = {{minimum(request.constraint.width, request.text.bytes * 8.f), 22}, 0, 1};
+            *value = {{minimum(request.constraint.width, request.text.bytes * 8.f), 22}, 1};
             return true;
         };
         check(ui_text_measure_cache_initialize(&cache, {records, 16}, backend, &reject),
@@ -831,7 +831,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         style.height = ui_layout_fixed(16);
         const auto added = ui_widget_manager_add(&badge_manager, ui_widget_invalid_handle(),
                                                  {1, UiWidgetKind::text, ui_widget_enabled,
-                                                  {utf8_literal("Badge"), style, {}, 0, 1}});
+                                                  {utf8_literal("Badge"), style, {}, 1}});
         app_painted = added.ok() && ui_widget_manager_layout_rectangle(&badge_manager, {0, 0, 200, 40}).ok();
         verified.owner = added.handle;
         verified.rectangle = verified_layout.outer;

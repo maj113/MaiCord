@@ -65,7 +65,7 @@ struct AccountSyncHealth {
 AccountSyncHealth g_sync{};
 constexpr u32 kAccountSyncLoggedFailures = 64;
 
-void log_skipped_events(u32 source_index, const MessageEventPumpDrainResult& drained) noexcept {
+void log_skipped_events(const MessageEventPumpDrainResult& drained) noexcept {
     g_sync.skipped += drained.apply_failures;
     if (g_sync.logged >= kAccountSyncLoggedFailures)
         return;
@@ -73,8 +73,8 @@ void log_skipped_events(u32 source_index, const MessageEventPumpDrainResult& dra
     // Kinds, the failed check and sizes only: never payload contents.
     const auto& failure = drained.failure;
     TraceRecord trace("event_skipped");
-    const u64 identity[] = {source_index, static_cast<u64>(failure.kind), static_cast<u64>(failure.dispatch_kind)};
-    trace_fields(trace, "source\0event_kind\0dispatch_kind", identity);
+    const u64 identity[] = {static_cast<u64>(failure.kind), static_cast<u64>(failure.dispatch_kind)};
+    trace_fields(trace, "event_kind\0dispatch_kind", identity);
     trace.field("reason", message_event_pump_reject_reason_name(failure.reason));
     const u64 detail[] = {failure.detail,      failure.payload_bytes, failure.sequence,
                           drained.apply_failures, g_sync.skipped,     drained.state_incomplete};
@@ -175,7 +175,6 @@ struct BrowserGatewayDrain {
     u32 channels, permissions, guilds, count;
     u64 poll_sequence;
     u64 poll_ready_self;
-    u8 source_index;
     bool poll_has_sequence, poll_checked, poll_current, poll_batched;
     bool pending, force, all, forum_metadata, navigation_message_receipt;
 };
@@ -188,22 +187,20 @@ bool navigation_gateway_scope_current(const BrowserGatewayDrain& drain) noexcept
 }
 bool accept_poll_receipt() noexcept {
     auto* drain = navigation_gateway_drain;
-    if (!drain || !g_app.account_ui || !navigation_gateway_scope_current(*drain) ||
-        drain->source_index >= 8)
+    if (!drain || !g_app.account_ui || !navigation_gateway_scope_current(*drain))
         return false;
     if (drain->poll_checked)
         return drain->poll_current;
     drain->poll_checked = true;
     auto& ui = *g_app.account_ui;
-    const u8 bit = static_cast<u8>(1u << drain->source_index);
     if (drain->poll_has_sequence) {
         // Votes expanded from one MESSAGE_POLL_VOTE_ADD_MANY share its sequence.
-        const u64 last = ui.poll_source_sequences[drain->source_index];
-        if ((ui.poll_source_sequence_mask & bit) &&
-            (drain->poll_sequence < last || (drain->poll_sequence == last && !drain->poll_batched)))
+        if (ui.poll_sequence_known &&
+            (drain->poll_sequence < ui.poll_sequence ||
+             (drain->poll_sequence == ui.poll_sequence && !drain->poll_batched)))
             return false;
-        ui.poll_source_sequences[drain->source_index] = drain->poll_sequence;
-        ui.poll_source_sequence_mask |= bit;
+        ui.poll_sequence = drain->poll_sequence;
+        ui.poll_sequence_known = true;
     }
     drain->poll_current = true;
     if (++ui.poll_gateway_serial == 0)
@@ -316,7 +313,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
             if (!drain.navigation_self)
                 drain.poll_ready_self = event->state.id;
             application_message_navigation_gateway_reset();
-            g_app.account_ui->poll_source_sequence_mask &= static_cast<u8>(~(1u << drain.source_index));
+            g_app.account_ui->poll_sequence_known = false;
             if (++g_app.account_ui->poll_gateway_serial == 0)
                 ++g_app.account_ui->poll_gateway_serial;
             application_poll_gateway_reset();
@@ -488,12 +485,8 @@ void refresh_member_role_authority(void* context, u64 guild_id) noexcept {
 }
 
 void drain_terminal_gateway_diagnostics() noexcept {
-    constexpr u32 maximum_sources = 8;
     AccountHost& host = g_app.account;
-    const u32 sources = host.status.gateway_sources;
-    if (!sources)
-        return;
-    if (!host.instance || !host.api.gateway_source || !host.api.gateway_pop || sources > maximum_sources) {
+    if (!host.instance || !host.api.gateway_source || !host.api.gateway_pop) {
         log_write(LogLevel::error, "gateway", "terminal_diagnostic_source_invalid");
         return;
     }
@@ -503,27 +496,25 @@ void drain_terminal_gateway_diagnostics() noexcept {
         log_write(LogLevel::error, "gateway", "terminal_diagnostic_scratch_invalid");
         return;
     }
-    for (u32 source_index = 0; source_index < sources; ++source_index) {
-        void* source = host.api.gateway_source(host.instance, source_index);
-        if (!source)
-            continue;
-        for (u32 count = 0; count < kGatewayClientEventCapacity; ++count) {
-            GatewayClientEvent event{};
-            const auto popped = host.api.gateway_pop(source, &event, scratch);
-            if (popped.error == GatewayClientPopError::empty)
-                break;
-            if (!popped.ok() || popped.payload_bytes > scratch.count) {
-                secure_clear_bytes(scratch.data, scratch.count);
-                log_u64(LogLevel::error, "gateway", "terminal_diagnostic_pop_error",
-                        static_cast<u64>(popped.ok() ? GatewayClientPopError::corrupt : popped.error));
-                return;
-            }
-            if (event.kind == GatewayClientEventKind::failed ||
-                event.kind == GatewayClientEventKind::closed)
-                application_log_gateway_event(event);
-            if (popped.payload_bytes)
-                secure_clear_bytes(scratch.data, popped.payload_bytes);
+    void* source = host.api.gateway_source(host.instance);
+    if (!source)
+        return;
+    for (u32 count = 0; count < kGatewayClientEventCapacity; ++count) {
+        GatewayClientEvent event{};
+        const auto popped = host.api.gateway_pop(source, &event, scratch);
+        if (popped.error == GatewayClientPopError::empty)
+            break;
+        if (!popped.ok() || popped.payload_bytes > scratch.count) {
+            secure_clear_bytes(scratch.data, scratch.count);
+            log_u64(LogLevel::error, "gateway", "terminal_diagnostic_pop_error",
+                    static_cast<u64>(popped.ok() ? GatewayClientPopError::corrupt : popped.error));
+            return;
         }
+        if (event.kind == GatewayClientEventKind::failed ||
+            event.kind == GatewayClientEventKind::closed)
+            application_log_gateway_event(event);
+        if (popped.payload_bytes)
+            secure_clear_bytes(scratch.data, popped.payload_bytes);
     }
 }
 
@@ -572,15 +563,10 @@ bool drain_account_events() noexcept {
         g_sync = {host.instance};
     bool repaint = false;
     bool ready_applied = false;
-    for (u32 source_index = 0; source_index < host.status.gateway_sources; ++source_index) {
-        void* source = host.api.gateway_source(host.instance, source_index);
-        if (!source) {
-            continue;
-        }
+    if (void* const source = host.api.gateway_source(host.instance)) {
         const bool private_was_incomplete = g_app.message_pump.private_state_incomplete;
         const u32 hydration_skipped = g_app.message_pump.hydration_skipped;
         BrowserGatewayDrain browser_drain{};
-        browser_drain.source_index = static_cast<u8>(source_index);
         browser_drain.source = source;
         browser_drain.navigation_ui = g_app.account_ui;
         browser_drain.navigation_instance = host.instance;
@@ -601,7 +587,7 @@ bool drain_account_events() noexcept {
         repaint = repaint || drained.repaint;
         ready_applied = ready_applied || drained.ready_applied;
         if (drained.apply_failures)
-            log_skipped_events(source_index, drained);
+            log_skipped_events(drained);
         if (g_app.message_pump.hydration_skipped != hydration_skipped)
             log_u64(LogLevel::warning, "account", "message_author_cache_skipped",
                     g_app.message_pump.hydration_skipped - hydration_skipped);

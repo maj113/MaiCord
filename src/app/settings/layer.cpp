@@ -98,11 +98,13 @@ bool focused_editor(SettingsLayer* layer, MessageComposer** model, BoundedEdit**
     const auto* c = ui_settings_scene_control(*layer->scene, target);
     if (!c || !c->enabled || (c->kind != UiSettingsControlKind::edit && c->kind != UiSettingsControlKind::multiline))
         return false;
-    bool lines = false;
-    if (!layer->hooks->editor(layer, target.control_id, model, binding, &lines))
+    const auto editor = layer->hooks->editor(layer, target.control_id);
+    if (!editor.model)
         return false;
+    *model = editor.model;
+    *binding = editor.binding;
     if (multiline)
-        *multiline = lines;
+        *multiline = editor.multiline;
     if (control)
         *control = target.control_id;
     return true;
@@ -305,13 +307,15 @@ void settings_layer_close_choice(SettingsLayer* layer) noexcept {
     g_app.context_focus = &layer->scene->widgets;
 }
 
-bool settings_layer_choice_current(const SettingsLayer& layer) noexcept {
-    return layer.choice && g_app.popup_scene.active && layer.popup_opens == g_app.popup_scene.opens;
+bool settings_layer_choice_lapsed(SettingsLayer& layer) noexcept {
+    if (!layer.choice || (g_app.popup_scene.active && layer.popup_opens == g_app.popup_scene.opens))
+        return false;
+    layer.choice = false;
+    return true;
 }
 
 void settings_layer_begin_entrance(SettingsLayer* layer) noexcept {
-    const bool motion = g_app.window && !g_app.preferences.reduced_motion && !g_app.renderer.live_resize &&
-                        (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
+    const bool motion = g_app.window && !application_reduced_motion() && !g_app.renderer.live_resize;
     const u64 now_ms = clock_monotonic_milliseconds();
     layer->entrance_started = motion ? (now_ms ? now_ms : 1) : 0;
     renderer_set_settings_modal_progress(&g_app.renderer, motion ? 0.f : 1.f);

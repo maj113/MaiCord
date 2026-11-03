@@ -376,6 +376,18 @@ template <class Scene> UiSceneTarget<Scene> ui_scene_target(const Scene& s, UiWi
                ? s.targets[handle.slot]
                : UiSceneTarget<Scene>{};
 }
+// Whether a scene's row source is still the one it accepted: absent, or at the accepted revision and row count and
+// still live by its own probe (when it has one).
+template <class Source> __forceinline bool ui_source_current(const Source* source, u32 revision, u32 count) noexcept {
+    return !source || (source->revision == revision && source->count == count &&
+                       (!source->current || source->current(source->context)));
+}
+// A row scene (quick switcher, forward, downloads) still shows what it accepted: active, at its content's revision and
+// on a current row source.
+template <class Scene> __forceinline bool ui_row_scene_current(const Scene& s) noexcept {
+    return s.active && s.content && s.content->revision == s.content_revision &&
+           ui_source_current(s.source, s.source_revision, s.accepted_count);
+}
 // Ends a rebuild: lays the tree out in `viewport`, focuses every widget whose
 // target equals `focused` and bumps the paint revision.
 template <class Target, class Equal>

@@ -828,7 +828,7 @@ bool warm(u32 sample) noexcept {
                            r.media_instance_uploads,
                            r.painted_frames,
                            g_app.account_ui->text_measure_cache.backend_calls,
-                           controller.draft_commits,
+                           controller.drafts->revision,
                            controller.queued,
                            fixture->frame_requests};
         copy_bytes(out, values, sizeof(values));

@@ -160,8 +160,7 @@ bool application_channel_overview_synchronize() noexcept {
         changed = changed || phase != c.phase || online != c.available || permission != c.can_manage ||
                   p.projected_revision != c.revision;
     }
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer)) {
         p.menu = Menu::none;
         changed = true;
     }

@@ -43,4 +43,35 @@ struct TextBank {
     }
 };
 
+// Appends to a caller-owned buffer. The first write that does not fit clears ok, leaves the buffer as it was and
+// makes every later write a no-op, so a sequence of appends needs one check at the end.
+struct TextWriter {
+    Slice<char> output;
+    u32 used = 0;
+    bool ok = true;
+
+    __declspec(noinline) void add(const char* text, u32 bytes) noexcept {
+        if (!ok || bytes > output.count - used) {
+            ok = false;
+            return;
+        }
+        copy_bytes(output.data + used, text, bytes);
+        used += bytes;
+    }
+    void add(const Utf8View& text) noexcept {
+        add(text.data, text.bytes);
+    }
+    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
+        add(text, Count - 1);
+    }
+    void number(u64 value) noexcept {
+        char digits[20];
+        add(digits, decimal_write(digits, value));
+    }
+    // The bytes written, or 0 once a write did not fit.
+    u32 finish() const noexcept {
+        return ok ? used : 0;
+    }
+};
+
 } // namespace maicord

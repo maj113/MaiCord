@@ -26,11 +26,6 @@ struct BannerState {
 };
 BannerState g_banner;
 
-bool reduced_motion() noexcept {
-    const auto& motion = g_app.surface_motion;
-    return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion ||
-           (motion.system_preference_cached && !motion.client_area_animation);
-}
 const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
     return ui_scene_node(g_app.shell_scene, semantic);
 }
@@ -65,7 +60,7 @@ void application_guild_banner_project(u64 now_ms) noexcept {
         geometry = ui_guild_banner_geometry(sidebar->rectangle, header->rectangle, scroll, false);
     const bool header_hovered = shown && geometry.visible && inside(geometry.header);
     const bool eligible = shown && ui_guild_banner_animated_hash(hash) &&
-                          (guild->upload_features & guild_record_animated_banner) && !reduced_motion();
+                          (guild->upload_features & guild_record_animated_banner) && !application_reduced_motion();
     const bool animate =
         ui_guild_banner_animate(&b.animation, guild_id, eligible, shown && geometry.visible, inside(geometry.hover),
                                 message_rich_display().gifs == MessageMediaAnimation::always, now_ms);

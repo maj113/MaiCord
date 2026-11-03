@@ -6,19 +6,19 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     GuildRailIndicator pill{};
     const UiMotionScope pill_scope{77, 1};
     guild_rail_indicator_tick(&pill, pill_scope, false, false, true, 0, true);
-    check(pill.height.value == 0 && pill.visibility.value == 1 && !guild_rail_indicator_next_wake(pill, 0),
+    check(pill.height.value == 0 && pill.visibility.value == 1 && !guild_rail_indicator_next_wake(pill),
           "guild pill: initial unread dot is 8px and idle");
     guild_rail_indicator_tick(&pill, pill_scope, false, true, true, 100, true);
     guild_rail_indicator_tick(&pill, pill_scope, false, true, true, 200, true);
     check(pill.height.value > .255f && pill.height.value < .258f &&
-          guild_rail_indicator_next_wake(pill, 200) == 216,
+          guild_rail_indicator_next_wake(pill) == 216,
           "guild pill: 200ms CSS ease-out halfway is 68.46 percent, not cubic ease-out");
     const float interrupted = pill.height.value;
     guild_rail_indicator_tick(&pill, pill_scope, true, true, true, 200, true);
     check(pill.height.value == interrupted && pill.height.target == 1,
           "guild pill: selecting during hover preserves sampled height");
     guild_rail_indicator_tick(&pill, pill_scope, true, true, true, 400, true);
-    check(pill.height.value == 1 && !guild_rail_indicator_next_wake(pill, 400),
+    check(pill.height.value == 1 && !guild_rail_indicator_next_wake(pill),
           "guild pill: selected state wins over hover and settles at 40px");
     // Rail tiles are rounded squares in every state; a folder transition's
     // shrinking tile keeps the shape.
@@ -34,10 +34,10 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
           "guild pill: deselect shrinks height and fades/translates out in parallel");
     guild_rail_indicator_tick(&pill, pill_scope, false, true, false, 610, false);
     check(pill.height.value == .375f && pill.visibility.value == 1 &&
-          !guild_rail_indicator_next_wake(pill, 610),
+          !guild_rail_indicator_next_wake(pill),
           "guild pill: reduced motion immediately reaches hover geometry with no wake");
     guild_rail_indicator_tick(&pill, {78, 2}, false, false, false, 620, true);
-    check(pill.height.value == 0 && pill.visibility.value == 0 && !guild_rail_indicator_next_wake(pill, 620),
+    check(pill.height.value == 0 && pill.visibility.value == 0 && !guild_rail_indicator_next_wake(pill),
           "guild pill: rematerialized identity cannot borrow another server's animation");
     UiOpacityTransition transition{};
     check(!ui_opacity_transition_next_wake(transition, 0, false, true),
@@ -72,28 +72,24 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     const UiMotionScope scope{17, 3};
     UiMotionTransition motion{};
     check(!ui_motion_transition_tick(&motion, scope, 1, 0, kUiDefaultMotionStyle, false, true) &&
-              !ui_motion_transition_next_wake(motion, scope, 0, false, true),
+              !ui_motion_transition_next_wake(motion, scope, false, true),
           "motion: unbound storage cannot acquire a lifetime from a delayed tick");
     ui_motion_transition_reset(&motion, scope);
     const UiMotionStyle linear{100, UiMotionCurve::linear};
     check(!ui_motion_transition_tick(&motion, scope, 1, 100, linear, false, true) && motion.active &&
-              ui_motion_transition_next_wake(motion, scope, 100, false, true) == 116,
+              ui_motion_transition_next_wake(motion, scope, false, true) == 116,
           "motion: starting a trajectory schedules paint without changing its initial value");
-    check(ui_motion_transition_next_wake(motion, scope, 115, false, true) == 116 &&
-              ui_motion_transition_next_wake(motion, scope, 116, false, true) == 116 &&
-              ui_motion_transition_next_wake(motion, scope, 130, false, true) == 116,
-          "motion: scheduler queries preserve the absolute sampled deadline even after it is due");
     check(ui_motion_transition_tick(&motion, scope, 1, 125, linear, false, true) && motion.value == .25f,
           "motion: linear host style samples the exact borrowed-clock fraction");
     check(!ui_motion_transition_tick(&motion, scope, 1, 110, linear, false, true) && motion.value == .25f &&
-              ui_motion_transition_next_wake(motion, scope, 110, false, true) == 141,
+              ui_motion_transition_next_wake(motion, scope, false, true) == 141,
           "motion: a regressing host clock cannot rewind presentation or deadlines");
     const auto retained = motion;
     check(!ui_motion_transition_tick(&motion, {17, 2}, 0, 900, linear, false, true) &&
               !ui_motion_transition_tick(&motion, {18, 3}, 0, 900, linear, false, true) &&
               motion.value == retained.value && motion.target == retained.target &&
               motion.started_ms == retained.started_ms && motion.sampled_ms == retained.sampled_ms &&
-              !ui_motion_transition_next_wake(motion, {17, 2}, 125, false, true),
+              !ui_motion_transition_next_wake(motion, {17, 2}, false, true),
           "motion: stale generations and other owners cannot touch or schedule a successor");
     const UiMotionStyle ease_out{100, UiMotionCurve::ease_out};
     check(ui_motion_transition_tick(&motion, scope, 0, 150, ease_out, false, true) && motion.value == .5f &&
@@ -103,11 +99,10 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
               motion.value == .0625f,
           "motion: cubic ease-out reaches the exact midpoint without a transcendental curve");
     ui_motion_transition_tick(&motion, scope, 0, 245, ease_out, false, true);
-    check(ui_motion_transition_next_wake(motion, scope, 245, false, true) == 250 &&
-              ui_motion_transition_next_wake(motion, scope, 900, false, true) == 250 &&
+    check(ui_motion_transition_next_wake(motion, scope, false, true) == 250 &&
               ui_motion_transition_tick(&motion, scope, 0, 250, ease_out, false, true) &&
               motion.value == 0 && !motion.active &&
-              !ui_motion_transition_next_wake(motion, scope, 250, false, true),
+              !ui_motion_transition_next_wake(motion, scope, false, true),
           "motion: the final deadline lands on completion and settled state has no idle wake");
     UiMotionStyle themed{100, UiMotionCurve::ease_in_out};
     ui_motion_transition_tick(&motion, scope, 1, 300, themed, false, true);
@@ -132,10 +127,10 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     ui_motion_transition_tick(&motion, scope, 1, 350, {120, static_cast<UiMotionCurve>(255)}, false, true);
     check(motion.style.curve == kUiDefaultMotionStyle.curve &&
               ui_motion_transition_tick(&motion, scope, 0, 360, linear, true, true) && motion.value == 0 &&
-              !motion.active && !ui_motion_transition_next_wake(motion, scope, 360, true, true),
+              !motion.active && !ui_motion_transition_next_wake(motion, scope, true, true),
           "motion: enabling reduced motion retires an in-flight trajectory at its endpoint");
     ui_motion_transition_tick(&motion, scope, 1, 400, linear, false, true);
-    check(!ui_motion_transition_next_wake(motion, scope, 400, false, false) &&
+    check(!ui_motion_transition_next_wake(motion, scope, false, false) &&
               ui_motion_transition_tick(&motion, scope, 1, 410, linear, false, false) &&
               motion.value == 1 && !motion.active,
           "motion: hidden surfaces request no frame and settle when the host updates visibility");
@@ -144,7 +139,7 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
           "motion: zero-duration theme snaps without a wake");
     check(ui_motion_transition_tick(&motion, scope, 1, ~u64{0} - 50, linear, false, true) &&
               motion.value == 1 && !motion.active &&
-              !ui_motion_transition_next_wake(motion, scope, ~u64{0} - 50, false, true),
+              !ui_motion_transition_next_wake(motion, scope, false, true),
           "motion: an unrepresentable completion time snaps instead of wrapping a deadline");
     ui_motion_transition_reset(&motion, {17, 4}, .75f);
     check(!ui_motion_transition_tick(&motion, scope, 0, 500, linear, false, true) && motion.value == .75f &&
@@ -153,7 +148,7 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     ui_motion_transition_cancel(&motion);
     check(!motion.scope.owner && !motion.active &&
               !ui_motion_transition_tick(&motion, {17, 4}, 1, 600, linear, false, true) &&
-              !ui_motion_transition_next_wake(motion, {17, 4}, 600, false, true),
+              !ui_motion_transition_next_wake(motion, {17, 4}, false, true),
           "motion: cancellation drops scope and deadlines without retaining host pointers");
     ui_motion_transition_reset(&motion, {0, 1}, 1);
     check(!motion.scope.owner && motion.value == 0,

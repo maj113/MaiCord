@@ -807,6 +807,11 @@ u32 guild_role_color_rgba(u32 color) noexcept {
     return ((color ? color : 0x99aab5u) & 0xffffffu) << 8 | 0xffu;
 }
 
+u32 guild_person_color(u64 user_id) noexcept {
+    static constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
+    return colors[(user_id >> 22) % 6];
+}
+
 bool guild_settings_text_matches(const Utf8View& query, const Utf8View& text) noexcept {
     return ascii_contains_ignore_case(text, query);
 }

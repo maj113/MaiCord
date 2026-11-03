@@ -1,45 +1,31 @@
 #pragma once
 
 #include "maicord/ui/chat/pinned_messages_scene.hpp"
-#include "maicord/model/user/store.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
-#include "maicord/media/core/asset.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 
 namespace maicord {
-
-struct PinnedMessagesAvatarMedia {
-    MediaAssetKey key;
-    Utf8View hash;
-    UiRect rectangle, clip;
-};
-static_assert(sizeof(PinnedMessagesAvatarMedia) <= 80);
 
 // Borrow only the exact accepted page's visible author identity. The scene
 // validates its revision/authority and culls the avatar before admitting media.
 inline bool pinned_messages_avatar_media_resolve(const UiPinnedMessagesScene& scene, u32 slot,
-                                                 PinnedMessagesAvatarMedia* out) noexcept {
+                                                 AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
     if (!out || !ui_pinned_messages_scene_avatar(scene, slot, &rectangle, &clip))
         return false;
     const auto& row = scene.visible[slot];
-    const u32 variant = user_avatar_variant(row.avatar_hash);
-    if (!row.author_id || !variant)
+    MediaAssetKey key;
+    if (!row.author_id || !avatar_media_key(row.author_id, row.avatar_hash, &key))
         return false;
-    *out = {media_asset_user_avatar(row.author_id, variant,
-                                   asset_hash_animated(row.avatar_hash)),
-            row.avatar_hash, rectangle, clip};
+    *out = {key, row.avatar_hash, rectangle, clip};
     return true;
 }
 
 inline bool pinned_messages_avatar_media_current(const UiPinnedMessagesScene& scene,
                                                  MediaAssetKey key) noexcept {
-    for (u32 i = 0; i < scene.count && i < kUiPinnedMessagesVisibleRows; ++i) {
-        PinnedMessagesAvatarMedia media{};
-        if (pinned_messages_avatar_media_resolve(scene, i, &media) &&
-            media_asset_key_equal(media.key, key))
-            return true;
-    }
-    return false;
+    const u32 end = minimum<u32>(scene.count, kUiPinnedMessagesVisibleRows);
+    return avatar_media_current(0, end, key, [&](u32 slot, AvatarMedia* media) noexcept {
+        return pinned_messages_avatar_media_resolve(scene, slot, media);
+    });
 }
 
 } // namespace maicord

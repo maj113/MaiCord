@@ -2,19 +2,11 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
-namespace {
-
-bool valid_alignment(u32 value) noexcept {
-    return value != 0 && (value & (value - 1u)) == 0;
-}
-
-} // namespace
-
 bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
                                u32 initial_capacity, u32 element_bytes,
                                u32 alignment, bool zero_new) noexcept {
     if (!storage || storage->arena.base || reserved_capacity == 0 ||
-        initial_capacity > reserved_capacity || !valid_alignment(alignment) || element_bytes == 0 ||
+        initial_capacity > reserved_capacity || !is_power_of_two(alignment) || element_bytes == 0 ||
         (element_bytes & (alignment - 1u)) != 0) {
         return false;
     }

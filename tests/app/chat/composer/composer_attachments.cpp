@@ -3,6 +3,7 @@
 #include "maicord/ui/chat/messages/rich_layout.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "../../../support/send_tracker_probe.hpp"
 
 namespace maicord {
 void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexcept {
@@ -101,7 +102,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
     check(alias.error == MessageComposerControllerError::invalid_input && controller.request_count == 2,
         "request bank aliases are rejected before compaction invalidates views");
     const auto full = message_composer_controller_queue_send(&controller, true, 11, 1725012296791ull, 103, 0, {&attachment, 1});
-    check(full.error == MessageComposerControllerError::text_capacity && controller.request_count == 2 && controller.sends.active_count == 2,
+    check(full.error == MessageComposerControllerError::text_capacity && controller.request_count == 2 && send_tracker_active(controller.sends) == 2,
         "attachment bank exhaustion cannot create an unowned local send");
     check(message_composer_controller_mark_submitted(&controller, first.nonce).ok() &&
         message_composer_controller_observe_http(&controller, 400, MessageSendHttpDisposition::terminal_failure, 104).ok(),
@@ -151,7 +152,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
     invalid_local.filename = utf8_literal("broken.txt");
     const auto rejected_local = message_send_tracker_begin(&controller.sends, &timeline, 8, 11,
         {}, 1725012296799ull, 539, true, {&invalid_local, 1});
-    check(!rejected_local.ok() && !store.count && !list.count && !rich.count && !controller.sends.active_count,
+    check(!rejected_local.ok() && !store.count && !list.count && !rich.count && !send_tracker_active(controller.sends),
         "failed local rich insertion cannot leave an orphan send or timeline row");
     bool full_history = true;
     for (u32 i = 0; i < 8; ++i) full_history = message_timeline_insert_local(&timeline,
@@ -160,7 +161,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
     const auto invalid_full = message_send_tracker_begin(&controller.sends, &timeline, 8, 11,
         {}, 1725012296899ull, 540, true, {&invalid_local, 1});
     check(full_history && !invalid_full.ok() && store.count == 8 && list.count == 8 &&
-        message_store_find(store, 1000).ok() && !controller.sends.active_count,
+        message_store_find(store, 1000).ok() && !send_tracker_active(controller.sends),
         "invalid attachment metadata is rejected before resident history eviction");
     for (u32 i = 0; i < 8; ++i) message_timeline_remove_local(&timeline, 1000 + i);
     bool erased = true;

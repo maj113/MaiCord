@@ -84,7 +84,7 @@ extern u32 observed_reaction_revision;
 
 extern bool observed_reaction_applied;
 
-extern u32 diagnostic_positions[8], diagnostic_events;
+extern u32 diagnostic_position, diagnostic_events;
 
 extern GatewayClientFailureStage diagnostic_stage;
 
@@ -107,9 +107,10 @@ RestClientSubmitResult WINAPI navigation_fetch(void*, ChannelOverviewOperation o
 RestClientSubmitResult WINAPI navigation_cancel(void*, const MessagePinsRequest* request,
                                                 u64 id) noexcept;
 
-void* WINAPI diagnostic_source(void*, u32 index) noexcept;
+void* WINAPI diagnostic_source(void*) noexcept;
+void* WINAPI no_gateway_source(void*) noexcept;
 
-GatewayClientPopResult WINAPI diagnostic_pop(void* source, GatewayClientEvent* event,
+GatewayClientPopResult WINAPI diagnostic_pop(void*, GatewayClientEvent* event,
                                              Slice<u8> payload) noexcept;
 
 } // namespace account_pump_detail

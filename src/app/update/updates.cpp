@@ -605,7 +605,7 @@ bool application_updates_changelog_toggle(ApplicationUpdatesChangelogRows* rows,
 
 u32 application_updates_release_notes_url(const ApplicationUpdatesView& v, Utf8View repository, Slice<char> output) noexcept {
     if (!repository.bytes) return 0;
-    UpdateTextWriter url{output, 0, true};
+    TextWriter url{output, 0, true};
     url.add(utf8_literal("https://github.com/")); url.add(repository);
     // A stable release has its own page; master builds share the releases page.
     const u64 offer = offered_version(v), version = offer ? offer : v.own_version;

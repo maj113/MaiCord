@@ -403,7 +403,7 @@ void project_members(Bank& bank) noexcept {
         if (index < kControlCapacity)
             p.avatar_media[index] =
                 application_listed_user_avatar_media(m.user_id, {m.avatar, m.avatar_bytes}, m.discriminator);
-        p.row_accent[row] = top && top->color ? guild_role_color_rgba(top->color) : person_color(m.user_id);
+        p.row_accent[row] = top && top->color ? guild_role_color_rgba(top->color) : guild_person_color(m.user_id);
         ++p.row_count;
     }
     // Footer: the page size and count, then the pages.

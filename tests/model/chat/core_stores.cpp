@@ -911,14 +911,16 @@ void test_message_draft_store() noexcept {
         "message_draft_store_exact_reply_scope_and_reply_only_survive_compaction");
     const MessageDraftStoreResult cleared_text = message_draft_store_clear_reply(&store, 7, 702);
     const MessageDraftStoreResult cleared_only = message_draft_store_clear_reply(&store, 8, 801);
-    expect(cleared_text.ok() && cleared_text.changed && !cleared_text.erased && cleared_only.ok() &&
-        cleared_only.changed && cleared_only.erased && store.count == 2 &&
+    expect(cleared_text.ok() && cleared_text.changed && cleared_only.ok() &&
+        cleared_only.changed && message_draft_store_find(store, 8).error == MessageDraftStoreError::not_found &&
+        store.count == 2 &&
         message_draft_store_snapshot(store, 7, &snapshot) && snapshot.reply_message_id == 0 &&
         snapshot.mention_reply_author && snapshot.anchor == 2 && snapshot.caret == 16 &&
         utf8_equal(snapshot.text, utf8_literal("0123456789abcdef")),
         "message_draft_store_clear_reply_preserves_text_selection_and_erases_reply_only");
     expect(message_draft_store_save(&store, MessageDraftInput{9, Utf8View{}, 0, 0, 901}).ok() &&
-        message_draft_store_save(&store, MessageDraftInput{9, Utf8View{}, 0, 0}).erased &&
+        message_draft_store_save(&store, MessageDraftInput{9, Utf8View{}, 0, 0}).changed &&
+        message_draft_store_find(store, 9).error == MessageDraftStoreError::not_found &&
         message_draft_store_save(&store, MessageDraftInput{7, utf8_literal("ordinary"), 0, 8, 0, false}).ok() &&
         message_draft_store_snapshot(store, 7, &snapshot) && snapshot.mention_reply_author &&
         message_draft_store_clear_reply(&store, 7, 0).error == MessageDraftStoreError::invalid_input &&

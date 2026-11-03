@@ -6,7 +6,6 @@
 #include "../shell/state.hpp"
 #include "../net/rest_rate_retry.hpp"
 #include "account_access.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
@@ -119,17 +118,10 @@ struct Form : SettingsDialog {
 Form* form;
 u64 lifetime_serial;
 
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return form && form->lifetime == identity && form->scene.active &&
-           settings_layer_editor(&form->layer, nullptr, &focused, nullptr) && focused == model;
-}
+using Editors = SettingsEditors<&form, application_custom_status_active>;
+
 void load_editor(u32 index, u32 bytes) noexcept {
-    auto& model = form->models[index];
-    message_composer_refresh_borrowed(&model, bytes);
-    message_composer_set_selection(&model, bytes, bytes);
-    bounded_edit_bind(&form->bindings[index], &model, index ? kSelfCustomStatusTextCodepoints : 16, false,
-                      form->lifetime, binding_ready, &model);
+    Editors::load(index, bytes, index ? kSelfCustomStatusTextCodepoints : 16, false);
 }
 u32 editor_of(u64 control) noexcept {
     return control == control_emoji ? 0 : control == control_text ? 1 : 2;
@@ -138,13 +130,10 @@ bool project() noexcept {
     if (!application_custom_status_active())
         return true;
     auto& f = *form;
-    f.editors[0] = settings_layer_editor_view(&f.layer, control_emoji, f.models[0], utf8_literal("😀 or <:name:id>"), true);
-    f.editors[1] = settings_layer_editor_view(&f.layer, control_text, f.models[1],
-                                              utf8_literal("What's on your mind?"), true);
     f.controls[0] = {control_emoji, utf8_literal("Emoji"), {}, UiSettingsControlKind::edit, true, false, {}, 0, {},
-                     &f.editors[0]};
+                     Editors::view(0, control_emoji, utf8_literal("😀 or <:name:id>"), true)};
     f.controls[1] = {control_text, utf8_literal("Status"), {}, UiSettingsControlKind::edit, true, false, {}, 0, {},
-                     &f.editors[1]};
+                     Editors::view(1, control_text, utf8_literal("What's on your mind?"), true)};
     f.controls[2] = {control_clear, utf8_literal("Clear after"), {}, UiSettingsControlKind::choice, true, false,
                      {kClearLabels, kClearCount}, f.clear_index, {}, nullptr};
     const bool connected = application_custom_status_available();
@@ -237,15 +226,9 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     form->invalid = false;
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
-                 bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const u32 index = form ? editor_of(control) : 2;
-    if (index > 1)
-        return false;
-    *model = &form->models[index];
-    *binding = &form->bindings[index];
-    *multiline = false;
-    return true;
+    return index > 1 ? SettingsLayerEditor{} : SettingsLayerEditor{&form->models[index], &form->bindings[index], false};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook,
                                     edited,
@@ -466,10 +449,8 @@ bool application_custom_status_synchronize() noexcept {
         application_custom_status_close(false);
         return true;
     }
-    if (f.layer.choice && !settings_layer_choice_current(f.layer)) {
-        f.layer.choice = false;
+    if (settings_layer_choice_lapsed(f.layer))
         return repaint();
-    }
     return settings_modal_refresh(f);
 }
 

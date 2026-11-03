@@ -96,4 +96,11 @@ bool application_plugins_surface_hover(float x, float y) noexcept;
 // Message hover bar plugin button index (0..kUiPluginSlotHoverButtons) for message.
 bool application_plugins_hover_activate(u32 index, u64 message_id) noexcept;
 Utf8View application_plugins_hover_label(u32 index) noexcept;
+// What the plugin host files (surface_host.cpp, pipeline_host.cpp, ui_host.cpp) read of the account alike: an
+// account that is signed in with nothing required of the user, a channel's server (0 in a DM) and whether a user is
+// a bot.
+struct AccountUiRuntime;
+bool plugin_account_ready() noexcept;
+u64 plugin_guild_of_channel(const AccountUiRuntime& ui, u64 channel_id) noexcept;
+bool plugin_user_is_bot(const AccountUiRuntime& ui, u64 user_id) noexcept;
 }

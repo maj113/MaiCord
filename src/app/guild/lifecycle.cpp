@@ -204,18 +204,15 @@ bool editable() noexcept {
 
 using Bank = TextBank;
 
-bool binding_ready(void* model, u64 identity) noexcept {
-    MessageComposer* focused = nullptr;
-    return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
-}
+// Only the ready callback applies: this modal has the one editor.
+using Editors = SettingsEditors<&owner, editable>;
 void load_editor(const Utf8View& text, u32 limit) noexcept {
     application_composer_text_input_suspend();
     const u32 bytes = minimum<u32>(text.bytes, kNameBytes);
     copy_bytes(owner->name, text.data, bytes);
     message_composer_refresh_borrowed(&owner->model, bytes);
     message_composer_set_selection(&owner->model, bytes, bytes);
-    bounded_edit_bind(&owner->binding, &owner->model, limit, false, owner->lifetime, binding_ready, &owner->model);
+    bounded_edit_bind(&owner->binding, &owner->model, limit, false, owner->lifetime, Editors::ready, &owner->model);
 }
 Utf8View editor_text() noexcept {
     return message_composer_text(owner->model);
@@ -663,14 +660,10 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     owner->failed = false;
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
-                 bool* multiline) noexcept {
-    if (control != control_name || owner->mode == Mode::invite)
-        return false;
-    *model = &owner->model;
-    *binding = &owner->binding;
-    *multiline = false;
-    return true;
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
+    return control != control_name || owner->mode == Mode::invite
+               ? SettingsLayerEditor{}
+               : SettingsLayerEditor{&owner->model, &owner->binding, false};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
                                     [](SettingsLayer*) noexcept { application_guild_lifecycle_close(); },
@@ -1093,8 +1086,7 @@ bool application_guild_lifecycle_synchronize() noexcept {
         p.copied_until = 0;
         changed = true;
     }
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer)) {
         p.menu = Menu::none;
         changed = true;
     }
@@ -1280,9 +1272,7 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
 u64 application_guild_lifecycle_caret_wake() noexcept {
     if (!application_guild_lifecycle_active())
         return 0;
-    u64 wake = settings_layer_next_wake(owner->layer);
-    if (owner->copied_until && (!wake || owner->copied_until < wake))
-        wake = owner->copied_until;
+    u64 wake = earliest_deadline(settings_layer_next_wake(owner->layer), owner->copied_until);
     if (owner->picker.runtime) {
         const u64 poll = deadline_after(clock_monotonic_milliseconds(), 50);
         wake = wake ? minimum(wake, poll) : poll;

@@ -1,32 +1,23 @@
 #pragma once
 
 #include "maicord/ui/chat/threads/browser_scene.hpp"
-#include "maicord/model/user/store.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
-#include "maicord/media/core/asset.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 
 namespace maicord {
 
-struct ForumChannelAvatarMedia {
-    MediaAssetKey key;
-    Utf8View hash;
-    UiRect rectangle, clip;
-};
-
 // Borrow only a visible card's author identity from the current forum view.
 // The scene validates publication/revision and culls before media admission.
 inline bool forum_channel_avatar_media_resolve(const UiThreadBrowserScene& scene, u32 index,
-                                               ForumChannelAvatarMedia* out) noexcept {
+                                               AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
     if (!out || !ui_forum_channel_avatar(scene, index, &rectangle, &clip))
         return false;
     const auto& post = scene.view->forum->posts[index];
-    const u32 variant = user_avatar_variant(post.avatar_hash);
-    if (!post.author_id || !variant)
+    MediaAssetKey key;
+    if (!post.author_id || !avatar_media_key(post.author_id, post.avatar_hash, &key))
         return false;
-    *out = {media_asset_user_avatar(post.author_id, variant, asset_hash_animated(post.avatar_hash)),
-            post.avatar_hash, rectangle, clip};
+    *out = {key, post.avatar_hash, rectangle, clip};
     return true;
 }
 
@@ -76,12 +67,10 @@ inline bool forum_channel_thumbnail_current(const UiThreadBrowserScene& scene, u
 }
 
 inline bool forum_channel_avatar_media_current(const UiThreadBrowserScene& scene, MediaAssetKey key) noexcept {
-    for (u32 i = 0; i < scene.count && i < kUiThreadBrowserPageCapacity; ++i) {
-        ForumChannelAvatarMedia media{};
-        if (forum_channel_avatar_media_resolve(scene, i, &media) && media_asset_key_equal(media.key, key))
-            return true;
-    }
-    return false;
+    const u32 end = minimum<u32>(scene.count, kUiThreadBrowserPageCapacity);
+    return avatar_media_current(0, end, key, [&](u32 index, AvatarMedia* media) noexcept {
+        return forum_channel_avatar_media_resolve(scene, index, media);
+    });
 }
 
 } // namespace maicord

@@ -229,13 +229,13 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
         const auto before = surface_motion_probe_detail::snapshot(renderer);
         const u32 layout = composer.layout_passes, shell_layout = renderer.ui_scene->layout_passes,
             shape = measure.backend_calls, painted = renderer.painted_frames, skips = renderer.unchanged_present_skips,
-            commits = reply_draft_ui_adapter_controller()->draft_commits;
+            commits = reply_draft_ui_adapter_controller()->drafts->revision;
         for (u32 frame = 0; frame < 64; ++frame)
             if (!context.project() || !probe_present(&renderer, context.theme)) return false;
         const bool passed = surface_motion_probe_detail::same(before, surface_motion_probe_detail::snapshot(renderer)) &&
             composer.layout_passes == layout && renderer.ui_scene->layout_passes == shell_layout &&
             measure.backend_calls == shape && renderer.painted_frames == painted &&
-            renderer.unchanged_present_skips - skips == 64 && reply_draft_ui_adapter_controller()->draft_commits == commits;
+            renderer.unchanged_present_skips - skips == 64 && reply_draft_ui_adapter_controller()->drafts->revision == commits;
         log_u64(LogLevel::info, "reply_draft_warm", "sample", sample);
         log_u64(LogLevel::info, "reply_draft_warm", "unchanged_skips", renderer.unchanged_present_skips - skips);
         log_u64(LogLevel::info, "reply_draft_warm", "passed", passed);

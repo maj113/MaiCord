@@ -147,7 +147,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     MessageDraftSnapshot snapshot{};
     expect(configured && session.profile_id == profile_id && session.cleanup_required &&
         session.persisted_revision == 12 && drafts.revision == 12 && drafts.count == 1 &&
-        session.persist_at_ms == 1'500 && session.persist_saves == 0 &&
+        session.persist_at_ms == 1'500 &&
         !message_draft_store_snapshot(drafts, 99, &snapshot) &&
         message_draft_store_snapshot(drafts, 7, &snapshot) && snapshot.reply_message_id == 0 &&
         snapshot.mention_reply_author && snapshot.touched == 17 && snapshot.revision == 3,
@@ -156,15 +156,15 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     message_draft_session_persist(session, drafts, 1'499, false);
     const MessageDraftPersistenceResult before_deadline = message_drafts_load_file(path, profile_id, &verification);
     expect(before_deadline.ok() && before_deadline.discarded == 1 && session.cleanup_required &&
-        session.persist_at_ms == 1'500 && session.persist_saves == 0,
+        session.persist_at_ms == 1'500,
         "message_draft_session_cleanup_keeps_first_deadline_and_file_until_due");
     message_draft_session_persist(session, drafts, 1'500, false);
-    const bool migration_committed = session.persist_in_flight && session.persist_saves == 0 &&
+    const bool migration_committed = session.persist_in_flight &&
         message_draft_session_wait(session, drafts, 1'500, 5'000) && !session.persist_in_flight;
     const MessageDraftPersistenceResult rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(migration_committed && rewritten.ok() && rewritten.discarded == 0 && rewritten.records == 1 &&
         rewritten.bytes == 114 && !session.cleanup_required &&
-        session.persist_at_ms == 0 && session.persist_saves == 1 && session.persist_failures == 0 &&
+        session.persist_at_ms == 0 && session.persist_failures == 0 &&
         session.persisted_revision == 12 && drafts.revision == 12,
         "message_draft_session_due_cleanup_rewrites_and_marks_exact_revision_persisted");
 
@@ -177,7 +177,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     const bool same_corrupt = message_draft_session_configure(session, drafts, path, profile_id, 2'100);
     expect(dirty_saved && corrupt_written && same_corrupt && drafts.revision == dirty_revision &&
         dirty_revision != 12 && session.persisted_revision == 12 && session.persist_at_ms == 2'500 &&
-        session.persist_saves == 1 && !session.cleanup_required && drafts.count == 1 &&
+        !session.cleanup_required && drafts.count == 1 &&
         message_draft_store_snapshot(drafts, 7, &snapshot) && snapshot.reply_message_id == 707 &&
         !snapshot.mention_reply_author && snapshot.anchor == 2 && snapshot.caret == 11 &&
         utf8_equal(snapshot.text, utf8_literal("dirty reply")),
@@ -185,7 +185,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     const bool same_deleted = DeleteFileW(path) != FALSE;
     const bool same_missing = message_draft_session_configure(session, drafts, path, profile_id, 2'200);
     expect(same_deleted && same_missing && drafts.revision == dirty_revision &&
-        session.persisted_revision == 12 && session.persist_at_ms == 2'500 && session.persist_saves == 1 &&
+        session.persisted_revision == 12 && session.persist_at_ms == 2'500 &&
         message_draft_store_snapshot(drafts, 7, &snapshot) && snapshot.reply_message_id == 707 &&
         !snapshot.mention_reply_author && snapshot.anchor == 2 && snapshot.caret == 11 &&
         utf8_equal(snapshot.text, utf8_literal("dirty reply")),
@@ -200,7 +200,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     const bool dirty_committed = message_draft_session_wait(session, drafts, 2'500, 5'000);
     const MessageDraftPersistenceResult dirty_rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(dirty_committed && dirty_rewritten.ok() && dirty_rewritten.bytes == 115 &&
-        session.persisted_revision == dirty_revision && session.persist_at_ms == 0 && session.persist_saves == 2 &&
+        session.persisted_revision == dirty_revision && session.persist_at_ms == 0 &&
         message_draft_store_snapshot(verification, 7, &snapshot) && snapshot.reply_message_id == 707 &&
         !snapshot.mention_reply_author && snapshot.anchor == 2 && snapshot.caret == 11 &&
         utf8_equal(snapshot.text, utf8_literal("dirty reply")),
@@ -210,7 +210,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     const bool other_missing = message_draft_session_configure(session, drafts, path, profile_id + 1, 3'000);
     bool text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_deleted && other_missing && session.profile_id == profile_id + 1 &&
-        session.persisted_revision == 0 && session.persist_at_ms == 0 && session.persist_saves == 0 &&
+        session.persisted_revision == 0 && session.persist_at_ms == 0 &&
         !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
         drafts.text_used == 0 && drafts.text_wasted == 0 && text_erased &&
         !message_draft_store_snapshot(drafts, 7, &snapshot),
@@ -222,7 +222,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     const bool other_corrupt = message_draft_session_configure(session, drafts, path, profile_id + 2, 3'100);
     text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_ready && other_corrupt && session.profile_id == profile_id + 2 &&
-        session.persisted_revision == 0 && session.persist_at_ms == 0 && session.persist_saves == 0 &&
+        session.persisted_revision == 0 && session.persist_at_ms == 0 &&
         !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
         drafts.text_used == 0 && text_erased && records[0].reply_message_id == 0 &&
         !message_draft_store_snapshot(drafts, 7, &snapshot),
@@ -322,7 +322,7 @@ void test_message_reply_draft_persistence(const wchar_t* path, u64 profile_id) n
     const MessageDraftStoreResult cleared = message_draft_store_clear_reply(&restored, 9, 901);
     const MessageDraftPersistenceResult deleted = message_drafts_save_file(path, profile_id, restored);
     const MessageDraftPersistenceResult deletion_loaded = message_drafts_load_file(path, profile_id, &source);
-    expect(cleared.ok() && cleared.erased && deleted.ok() && deleted.records == 3 && deletion_loaded.ok() &&
+    expect(cleared.ok() && cleared.changed && deleted.ok() && deleted.records == 3 && deletion_loaded.ok() &&
         !message_draft_store_snapshot(source, 9, &reply_only) &&
         message_draft_store_snapshot(source, 7, &first) && first.reply_message_id == 701 &&
         !first.mention_reply_author,
@@ -711,7 +711,7 @@ void test_account_module_contract() noexcept {
         void* empty_instance = nullptr;
         expect(api.pump(nullptr, 1, 1).error == AccountModuleError::invalid_input &&
                    api.notification_handles(nullptr, nullptr, 0) == 0 &&
-                   api.gateway_source(nullptr, 0) == nullptr &&
+                   api.gateway_source(nullptr) == nullptr &&
                    api.gateway_pop(nullptr, &event, Slice<u8>{payload, 1}).error ==
                        GatewayClientPopError::invalid_input &&
                    !api.guild_subscribe(nullptr, nullptr) &&

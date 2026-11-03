@@ -114,7 +114,7 @@ void test_jpeg_baseline() noexcept {
     JpegImage image{};
     const JpegDecodeResult decoded =
         jpeg_decode_coefficients(ConstSlice<u8>{encoded, fixture.encoded_bytes}, &image, &g_jpeg_workspace);
-    expect(decoded.ok() && decoded.parse.segments == 5 && decoded.decoded_mcus == 1 &&
+    expect(decoded.ok() && decoded.parse.segments == 5 &&
                decoded.decoded_blocks == 3 && image.width == 8 &&
                image.height == 8 && image.component_count == 3 && image.coefficient_blocks == 3 &&
                image.has_jfif && image.color_transform == JpegColorTransform::ycbcr &&
@@ -508,7 +508,7 @@ void test_jpeg_baseline() noexcept {
            "jpeg_restart_fixture_build");
     const JpegDecodeResult restarted = jpeg_decode_coefficients(
         ConstSlice<u8>{encoded, restarted_fixture.encoded_bytes}, &image, &g_jpeg_workspace);
-    expect(restarted.ok() && restarted.parse.restart_markers == 1 && restarted.decoded_mcus == 2 &&
+    expect(restarted.ok() && restarted.parse.restart_markers == 1 &&
                restarted.decoded_blocks == 6 && image.restart_interval == 1 && image.width == 16 &&
                g_jpeg_workspace.coefficients.blocks[1].values[0] == 0 &&
                g_jpeg_workspace.coefficients.blocks[3].values[0] == -256 &&
@@ -544,7 +544,7 @@ void test_jpeg_baseline() noexcept {
     }
     expect(progressive.ok() && progressive_image.progressive && progressive.parse.scans == 10 &&
                progressive_image.scan_count == 10 && progressive.decoded_scans == 10 &&
-               progressive.decoded_mcus == 22 && progressive.decoded_blocks == 32 &&
+               progressive.decoded_blocks == 32 &&
                progressive_image.width == 16 &&
                progressive_image.height == 16 && progressive_image.coefficient_blocks == 6 &&
                progressive_has_ac,
@@ -559,8 +559,7 @@ void test_jpeg_baseline() noexcept {
                progressive_edge_image.width == 17 && progressive_edge_image.height == 9 &&
                progressive_edge_image.coefficient_blocks == 12 &&
                progressive_edge_image.components[0].block_columns == 4 &&
-               progressive_edge.decoded_scans == 10 && progressive_edge.decoded_mcus == 36 &&
-               progressive_edge.decoded_blocks == 56,
+               progressive_edge.decoded_scans == 10 && progressive_edge.decoded_blocks == 56,
            "jpeg_progressive_noninterleaved_edge_traversal");
 
     JpegImage progressive_restart_image{};
@@ -573,7 +572,7 @@ void test_jpeg_baseline() noexcept {
                progressive_restart_image.restart_interval == 1 &&
                progressive_restart_image.restart_markers == 34 &&
                progressive_restart.parse.restart_markers == 34 && progressive_restart.decoded_scans == 10 &&
-               progressive_restart.decoded_mcus == 44 && progressive_restart.decoded_blocks == 64,
+               progressive_restart.decoded_blocks == 64,
            "jpeg_progressive_restart_predictor_eob_and_sequence");
 
     u8 malformed_progressive[kJpegProgressive420ReferenceBytes]{};

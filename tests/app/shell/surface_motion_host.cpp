@@ -184,34 +184,33 @@ void run() noexcept {
     popup.active = true;
     g_app.renderer.popup_scene = &popup;
     application_surface_motion_synchronize(10);
-    check(g_app.renderer.layer_opacity.popup == 1 && !application_surface_motion_next_wake(10),
+    check(g_app.renderer.layer_opacity.popup == 1 && !application_surface_motion_next_wake(),
           "host motion: actual hidden HWND suppresses entrance and wake");
     show(window, SW_SHOWNOACTIVATE);
     ++popup.opens;
     application_surface_motion_synchronize(100);
-    check(g_app.renderer.layer_opacity.popup == 0 && application_surface_motion_next_wake(100) == 116 &&
-              application_surface_motion_next_wake(130) == 116,
+    check(g_app.renderer.layer_opacity.popup == 0 && application_surface_motion_next_wake() == 116,
           "host motion: actual visible HWND binds an absolute entrance deadline");
     application_surface_motion_synchronize(160);
     check(g_app.renderer.layer_opacity.popup == .875f && g_app.renderer.layer_opacity.gallery == 1 &&
               g_app.renderer.layer_opacity.settings_choice == 1,
           "host motion: production adapter samples shared easing in the exact draw factor");
     g_app.preferences.reduced_motion = true;
-    check(!application_surface_motion_next_wake(161), "host motion: reduced preference suppresses wake");
+    check(!application_surface_motion_next_wake(), "host motion: reduced preference suppresses wake");
     application_surface_motion_synchronize(161);
     check(g_app.renderer.layer_opacity.popup == 1, "host motion: reduced preference settles immediately");
     g_app.preferences.reduced_motion = false;
     ++popup.opens;
     application_surface_motion_synchronize(200);
     g_app.renderer.live_resize = true;
-    check(!application_surface_motion_next_wake(201), "host motion: live sizing suppresses wake");
+    check(!application_surface_motion_next_wake(), "host motion: live sizing suppresses wake");
     application_surface_motion_synchronize(201);
     check(g_app.renderer.layer_opacity.popup == 1, "host motion: live sizing settles draw state");
     g_app.renderer.live_resize = false;
     g_app.surface_motion.client_area_animation = false;
     ++popup.opens;
     application_surface_motion_synchronize(300);
-    check(g_app.renderer.layer_opacity.popup == 1 && !application_surface_motion_next_wake(300),
+    check(g_app.renderer.layer_opacity.popup == 1 && !application_surface_motion_next_wake(),
           "host motion: cached Windows motion preference prevents a trajectory");
     g_app.surface_motion.client_area_animation = true;
     UiSettingsScene settings{};
@@ -223,31 +222,31 @@ void run() noexcept {
     // icon carries the one transition factor; the page binds no fade of its own, even once the entrance settles.
     g_app.renderer.settings_modal_progress = .4f;
     application_surface_motion_synchronize(330);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(330),
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
           "host motion: opening Settings binds no page fade under the modal entrance");
     g_app.renderer.settings_modal_progress = 1;
     application_surface_motion_synchronize(340);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(340),
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
           "host motion: a settled modal keeps its opened page at full visibility");
     // Switching pages mid-entrance moves with the modal; the new page arrives with it.
     g_app.renderer.settings_modal_progress = .6f;
     ++settings.page_generation;
     application_surface_motion_synchronize(345);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(345),
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
           "host motion: a page switch during the modal entrance binds no second fade");
     g_app.renderer.settings_modal_progress = 1;
     ++settings.page_generation;
     application_surface_motion_synchronize(350);
     g_app.frame_pending = false;
     check(g_app.renderer.layer_opacity.settings_page == 0 &&
-              application_surface_motion_next_wake(350) == 366,
+              application_surface_motion_next_wake() == 366,
           "host motion: a page switch in the settled modal binds zero-opacity entrance and independent cadence");
     bool before_due = true;
     for (u32 query = 0; query < 4; ++query)
         before_due = before_due && !application_surface_motion_request_frame_if_due(365, true) &&
                      !g_app.frame_pending;
     check(before_due && !application_surface_motion_request_frame_if_due(366, false) &&
-              !g_app.frame_pending && application_surface_motion_next_wake(366) == 366,
+              !g_app.frame_pending && application_surface_motion_next_wake() == 366,
           "host motion: early or unavailable display slots cannot enqueue Settings opacity ticks");
     check(application_surface_motion_request_frame_if_due(366, true) && g_app.frame_pending,
           "host motion: due Settings entrance requests a pending frame without hover or account input");
@@ -256,7 +255,7 @@ void run() noexcept {
     application_surface_motion_synchronize(366);
     check(g_app.renderer.layer_opacity.settings_page > 0 &&
               g_app.renderer.layer_opacity.settings_page < 1 &&
-              application_surface_motion_next_wake(366) == 382,
+              application_surface_motion_next_wake() == 382,
           "host motion: no-input frame advances Settings visibility and consumes the old deadline");
     bool acknowledged = true;
     for (u32 query = 0; query < 4; ++query)
@@ -269,7 +268,7 @@ void run() noexcept {
           "host motion: no-input completion remains admitted through normal frame request");
     g_app.frame_pending = false;
     application_surface_motion_synchronize(470);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(470) &&
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake() &&
               !application_surface_motion_request_frame_if_due(500, true) && !g_app.frame_pending,
           "host motion: completed Settings entrance retains full visibility with no idle frames");
     popup.active = true;
@@ -277,7 +276,7 @@ void run() noexcept {
     ++popup.opens;
     application_surface_motion_synchronize(400);
     check(g_app.renderer.layer_opacity.settings_choice == 0 && g_app.renderer.layer_opacity.popup == 1 &&
-              application_surface_motion_next_wake(430) == 416,
+              application_surface_motion_next_wake() == 416,
           "host motion: settings choice owns its factor and exact deadline");
     g_app.renderer.settings_scene = nullptr;
     popup.active = false;
@@ -294,25 +293,25 @@ void run() noexcept {
     gallery.active = true;
     g_app.renderer.media_picker_scene = &gallery;
     application_surface_motion_synchronize(500);
-    check(g_app.renderer.layer_opacity.gallery == 0 && application_surface_motion_next_wake(550) == 516,
+    check(g_app.renderer.layer_opacity.gallery == 0 && application_surface_motion_next_wake() == 516,
           "host motion: shared current gallery predicate admits native entrance");
     popup.kind = PopupKind::context_menu;
     popup.active = true;
     ++popup.opens;
     application_surface_motion_synchronize(510);
     check(g_app.renderer.layer_opacity.gallery == 1 && g_app.renderer.layer_opacity.popup == 0 &&
-              application_surface_motion_next_wake(530) == 526,
+              application_surface_motion_next_wake() == 526,
           "host motion: covering popup settles the gallery while owning its own wake");
     popup.active = false;
     application_surface_motion_synchronize(511);
-    check(!application_surface_motion_next_wake(511) && g_app.renderer.layer_opacity.gallery == 1,
+    check(!application_surface_motion_next_wake() && g_app.renderer.layer_opacity.gallery == 1,
           "host motion: uncovering has no residual deadline or replay");
     application_surface_motion_retire(RendererLayerSurface::gallery);
     application_surface_motion_synchronize(600);
     check(g_app.renderer.layer_opacity.gallery == 0,
           "host motion: explicit close/reopen binds fresh scope");
     show(window, SW_SHOWMINNOACTIVE);
-    check(IsIconic(window) && !application_surface_motion_next_wake(601),
+    check(IsIconic(window) && !application_surface_motion_next_wake(),
           "host motion: actual minimized HWND has no visual deadline");
     application_surface_motion_synchronize(601);
     check(g_app.renderer.layer_opacity.gallery == 1, "host motion: minimized trajectory settles");
@@ -332,14 +331,14 @@ void run() noexcept {
     application_surface_motion_retire(RendererLayerSurface::profile);
     profile.presentation = ProfilePresentation::modal;
     application_surface_motion_synchronize(700);
-    check(g_app.renderer.layer_opacity.profile == 0 && application_surface_motion_next_wake(700) == 716,
+    check(g_app.renderer.layer_opacity.profile == 0 && application_surface_motion_next_wake() == 716,
           "host motion: user profile popout owns a fresh fade and native frame wake");
     ++profile.revision;
     application_surface_motion_synchronize(760);
     check(g_app.renderer.layer_opacity.profile == .875f,
           "host motion: async profile publication does not restart its entrance");
     application_surface_motion_synchronize(820);
-    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(820),
+    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(),
           "host motion: profile fade settles and retires frame scheduling");
     application_surface_motion_retire(RendererLayerSurface::profile);
     ++profile.opens;
@@ -348,7 +347,7 @@ void run() noexcept {
           "host motion: profile close/reopen replays even with the same cached user");
     g_app.preferences.reduced_motion = true;
     application_surface_motion_synchronize(901);
-    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(901),
+    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(),
           "host motion: reduced-motion profile settles without a pending timer");
     g_app.preferences.reduced_motion = false;
     profile.active = false;
@@ -371,7 +370,7 @@ void run() noexcept {
           "host motion: popout scale and opacity share one eased trajectory");
     application_surface_motion_synchronize(1120);
     check(g_app.renderer.popup_layer_scale == 1 && g_app.renderer.layer_opacity.popup == 1 &&
-              !application_surface_motion_next_wake(1120),
+              !application_surface_motion_next_wake(),
           "host motion: the popout settles at identity scale after 120 ms");
     g_app.shell_scene.guild_menu_expanded = false;
     ++popup.opens;
@@ -404,10 +403,10 @@ bool application_settings_active() noexcept {
 bool application_theme_editor_active() noexcept {
     return false;
 }
-u64 application_unread_banner_next_wake(u64) noexcept {
+u64 application_unread_banner_next_wake() noexcept {
     return 0;
 }
-u64 application_guild_folders_next_wake(u64) noexcept {
+u64 application_guild_folders_next_wake() noexcept {
     return 0;
 }
 bool application_effects_selected() noexcept {

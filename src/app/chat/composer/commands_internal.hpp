@@ -11,7 +11,6 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/user/activity.hpp"
 #include "maicord/model/user/profile.hpp"
-#include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/time.hpp"
 
 namespace maicord::app_detail {

@@ -26,7 +26,6 @@ struct UiTextMeasureRequest {
 
 struct UiTextMeasureValue {
     UiSize size;
-    float baseline;
     u32 line_count;
 };
 
@@ -74,7 +73,7 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
                                                   UiTextMeasureValue* value) noexcept;
 
 static_assert(sizeof(UiTextMeasureKey) == 24);
-static_assert(sizeof(UiTextMeasureValue) == 16);
+static_assert(sizeof(UiTextMeasureValue) == 12);
 static_assert(sizeof(UiTextMeasureRecord) == 64);
 static_assert(sizeof(UiTextMeasureCache) == 48);
 

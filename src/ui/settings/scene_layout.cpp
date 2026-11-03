@@ -1190,7 +1190,7 @@ UiWidgetHandle add(UiSettingsScene* scene, UiWidgetHandle parent, UiWidgetKind k
         {id,
          kind,
          static_cast<u16>(target.kind != UiSettingsTargetKind::none && enabled ? interactive : ui_widget_none),
-         {name, style, {}, 0, id}});
+         {name, style, {}, id}});
     if (!result.ok()) {
         scene->build_failed = true;
         return ui_widget_invalid_handle();

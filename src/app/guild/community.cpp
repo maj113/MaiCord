@@ -21,17 +21,14 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     reset_value(&owner->status);
     return true;
 }
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
-                 bool* multiline) noexcept {
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const int slot = editor_slot(control);
     if (slot < 0)
-        return false;
-    *model = &owner->models[slot];
-    *binding = &owner->bindings[slot];
-    *multiline = control == control_description ||
-                 (control >= control_text_base && control < control_text_base + kGuildVerificationFieldMaximum &&
-                  owner->form.fields[control - control_text_base].type == GuildVerificationFieldType::paragraph);
-    return true;
+        return {};
+    return {&owner->models[slot], &owner->bindings[slot],
+            control == control_description ||
+                (control >= control_text_base && control < control_text_base + kGuildVerificationFieldMaximum &&
+                 owner->form.fields[control - control_text_base].type == GuildVerificationFieldType::paragraph)};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
                                     [](SettingsLayer*) noexcept { application_guild_community_close(); },
@@ -790,8 +787,7 @@ bool application_guild_community_synchronize() noexcept {
         p.copied_until = 0;
         changed = true;
     }
-    if (p.layer.choice && !settings_layer_choice_current(p.layer)) {
-        p.layer.choice = false;
+    if (settings_layer_choice_lapsed(p.layer)) {
         p.menu = Menu::none;
         changed = true;
     }
@@ -1094,10 +1090,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
 u64 application_guild_community_caret_wake() noexcept {
     if (!application_guild_community_active())
         return 0;
-    u64 wake = settings_layer_next_wake(owner->layer);
-    if (owner->copied_until && (!wake || owner->copied_until < wake))
-        wake = owner->copied_until;
-    return wake;
+    return earliest_deadline(settings_layer_next_wake(owner->layer), owner->copied_until);
 }
 
 } // namespace maicord::app_detail

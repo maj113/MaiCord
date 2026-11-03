@@ -11,6 +11,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/media/media_catalog.hpp"
@@ -74,11 +75,6 @@ bool available() noexcept {
 bool open_now() noexcept {
     return g_card && g_card->open && g_card->scene.active;
 }
-bool reduced_motion() noexcept {
-    BOOL animations = TRUE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-    return !animations || g_app.preferences.reduced_motion;
-}
 void free_bank(Bank** bank) noexcept {
     if (*bank)
         VirtualFree(*bank, 0, MEM_RELEASE);
@@ -103,20 +99,6 @@ bool ensure() noexcept {
     }
     return true;
 }
-
-struct Text {
-    char* data;
-    u32 capacity, used;
-    bool ok;
-    void add(const Utf8View& text) noexcept {
-        if (!ok || text.bytes > capacity - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(data + used, text.data, text.bytes);
-        used += text.bytes;
-    }
-};
 
 // Sticker definitions: a joined server's list, the pack list, the last
 // retired pack, or an earlier GET /stickers/{id}.
@@ -252,7 +234,7 @@ bool emoji_content(UiExpressionCardContent* content) noexcept {
             content->glyph = {c.glyph, c.glyph_bytes};
         // The English title keeps its joke for one emoji.
         if (bytes_equal(c.name, ":pizza:", 7) && c.name_bytes == 7) {
-            Text title{c.title, sizeof(c.title), 0, true};
+            TextWriter title{{c.title, sizeof(c.title)}};
             title.add({c.name, c.name_bytes});
             title.add(utf8_literal(" (without pineapple)"));
             if (title.ok)
@@ -307,7 +289,7 @@ bool sticker_content(UiExpressionCardContent* content) noexcept {
         const Bank* bank = view == StickerView::premium_pack ? c.packs : c.retired;
         const auto* pack = bank_pack(bank, sticker.pack_id);
         content->layout = UiExpressionCardLayout::pack;
-        Text text{c.description, sizeof(c.description), 0, true};
+        TextWriter text{{c.description, sizeof(c.description)}};
         text.add(utf8_literal("This is a "));
         content->emphasis_offset = text.used;
         text.add(pack->pack_name);
@@ -356,7 +338,7 @@ bool project() noexcept {
     const u64 identity = hash64_bytes(hash64_bytes(kHash64Seed, &e.message_id, sizeof(e.message_id)), &e.source,
                                       sizeof(e.source));
     if (!built || !ui_expression_card_show(&c.scene, identity, content, e.anchor, application_viewport_dips(),
-                                           clock_monotonic_milliseconds(), reduced_motion(),
+                                           clock_monotonic_milliseconds(), application_reduced_motion(),
                                            &g_app.account_ui->text_measure_cache)) {
         application_expression_card_close();
         return false;
@@ -577,8 +559,8 @@ void application_expression_card_synchronize(u64 now_ms) noexcept {
         application_expression_card_close();
         return;
     }
-    const bool reduced = reduced_motion();
-    if (ui_expression_card_tick(&c.scene, now_ms, reduced) || ui_expression_card_next_wake(c.scene, now_ms, reduced))
+    const bool reduced = application_reduced_motion();
+    if (ui_expression_card_tick(&c.scene, now_ms, reduced) || ui_expression_card_next_wake(c.scene, reduced))
         application_request_frame();
 }
 

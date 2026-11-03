@@ -88,8 +88,7 @@ int run() noexcept {
             list.count != kResidentMessages || !timeline.follow_bottom) {
             return 4;
         }
-        checksum += result.mutation.order_index + timeline.scroll_units +
-                    static_cast<u32>(result.compacted);
+        checksum += result.mutation.order_index + timeline.scroll_units;
     }
     const u64 retained_us = clock_microseconds(clock, begin, clock_now());
 

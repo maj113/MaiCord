@@ -84,7 +84,7 @@ void project_audit(Bank& bank) noexcept {
                                   kUiSettingsNoDefault});
         if (row < kControlCapacity)
             p.avatar_media[row] = audit_avatar(entry.user_id);
-        p.row_accent[i] = person_color(entry.user_id);
+        p.row_accent[i] = guild_person_color(entry.user_id);
     }
     // Older actions load when this row scrolls into view.
     if (p.audit_count && !p.audit_complete)

@@ -115,6 +115,7 @@ bool manage_channel(u64 id) noexcept;
 bool manage_overrides(u64 id) noexcept;
 bool available() noexcept;
 bool editable() noexcept;
+using Editors = SettingsEditors<&owner, editable>;
 bool import_models() noexcept;
 Utf8View status() noexcept;
 bool project() noexcept;
@@ -125,7 +126,7 @@ void queue(Op op) noexcept;
 bool form_valid(TextFormOwnerKey key) noexcept;
 void activate_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept;
 void choose_hook(SettingsLayer*, u32 action) noexcept;
-bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept;
+SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept;
 bool edited_hook(SettingsLayer*, u64 control) noexcept;
 void close_hook(SettingsLayer*) noexcept;
 

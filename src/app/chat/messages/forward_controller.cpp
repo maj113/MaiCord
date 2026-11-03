@@ -9,9 +9,6 @@ void changed(MessageForwardController* c) noexcept { ++c->revision; if (!c->revi
 bool fail(MessageForwardController* c, MessageForwardError error) noexcept {
     if (c) { c->error = error; changed(c); } return false;
 }
-u16 copy_text(char* out, u32 capacity, const Utf8View& text) noexcept {
-    return static_cast<u16>(utf8_copy_truncated(out, capacity, text));
-}
 bool valid_source_channel(QuickSwitcherSources sources, const MessageForwardSource& source) noexcept {
     if (!sources.state) return false;
     const auto* channel = chat_state_store_find_channel(*sources.state, source.reference.channel_id);
@@ -99,9 +96,9 @@ bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope,
     source.store = store; source.handle = handle; source.author_id = record->author_id; source.channel_generation = channel->generation;
     source.age_restricted = source_age_restricted(sources, source);
     if (!valid_source_channel(sources, source)) return fail(c, MessageForwardError::invalid_source);
-    source.author_bytes = copy_text(source.author, sizeof(source.author), author);
-    source.preview_bytes = copy_text(source.preview, sizeof(source.preview), message_store_content(*store, handle));
-    source.media_summary_bytes = copy_text(source.media_summary, sizeof(source.media_summary), media_summary);
+    utf8_assign(source.author, source.author_bytes, author);
+    utf8_assign(source.preview, source.preview_bytes, message_store_content(*store, handle));
+    utf8_assign(source.media_summary, source.media_summary_bytes, media_summary);
     const u32 revision = c->revision;
     reset_value(c); c->source = source; c->scope = scope; c->initialized = c->caption_valid = true; c->revision = revision;
     changed(c);

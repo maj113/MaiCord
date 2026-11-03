@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/app/gateway/client.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/heap_sort.hpp"
 

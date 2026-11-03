@@ -10,9 +10,7 @@ namespace {
 constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .border = UI_TOKEN(interactive), .focus = UI_TOKEN(interactive),
                         .radius = 6, .flags = ui_look_hot_only | ui_look_dialog};
 bool current(const UiDownloadScene& s) noexcept {
-    return s.active && s.content && s.content->revision == s.content_revision &&
-        (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
-        (!s.source->current || s.source->current(s.source->context))));
+    return ui_row_scene_current(s);
 }
 bool terminal(UiDownloadPhase phase) noexcept {
     return phase == UiDownloadPhase::saved || phase == UiDownloadPhase::failed || phase == UiDownloadPhase::cancelled;

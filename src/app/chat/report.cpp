@@ -8,7 +8,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "../account/account_access.hpp"
 
 namespace maicord::app_detail {

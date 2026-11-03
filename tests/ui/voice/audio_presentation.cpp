@@ -22,7 +22,7 @@ struct Owner {
                                   {1,
                                    UiWidgetKind::button,
                                    ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable,
-                                   {utf8_literal("Audio attachment"), ui_layout_style(), {}, 0, 1}});
+                                   {utf8_literal("Audio attachment"), ui_layout_style(), {}, 1}});
         root = result.handle;
         return result.ok();
     }

@@ -16,9 +16,6 @@ constexpr u32 kRed = 0xF23F43;
 constexpr CLSID kTaskbarListClass = {0x56FDF344, 0xFD6D, 0x11D0, {0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90}};
 constexpr IID kTaskbarList3 = {0xEA1AFB91, 0x9E28, 0x4B86, {0x90, 0xE9, 0x9E, 0x9F, 0x8A, 0x5E, 0xEF, 0xAF}};
 
-float clamp01(float value) noexcept {
-    return clamp_value(value, 0.f, 1.f);
-}
 u32 pixel(u32 rgb, float alpha) noexcept {
     return (static_cast<u32>(alpha * 255.f + .5f) << 24) | rgb;
 }
@@ -27,7 +24,7 @@ void disc(Slice<u32> pixels, u32 extent, float radius) noexcept {
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float dx = static_cast<float>(x) + .5f - center, dy = static_cast<float>(y) + .5f - center;
-            const float coverage = clamp01(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
+            const float coverage = clamp_unit(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
             pixels[y * extent + x] = coverage > 0 ? pixel(kRed, coverage) : 0;
         }
 }
