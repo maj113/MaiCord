@@ -107,7 +107,7 @@ MediaAttachmentFormat attachment_format_for_key(const MediaAssetKey& key, const 
                                                 const MessageRichAttachment& item) noexcept {
     return media_attachment_format_audio_supported(media_asset_attachment_format(key))
                ? message_rich_attachment_audio_format(store, item)
-               : message_media_supported_attachment_format(store, item);
+               : message_rich_attachment_format(store, item);
 }
 
 // Takes the frame the worker published for `key` and uploads it. A frame of another key, or with

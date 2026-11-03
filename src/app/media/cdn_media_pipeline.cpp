@@ -789,15 +789,8 @@ void decode_gif_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 fr
 // The cached entry carries the ETag a 304 answers.
 __declspec(noinline) bool etag_correlated(const EncodedMediaCacheLookup& cached,
                                           ConstSlice<u8> conditional_etag) noexcept {
-    if (!cached.found() || cached.etag.count == 0 || cached.etag.count != conditional_etag.count) {
-        return false;
-    }
-    for (u32 index = 0; index < cached.etag.count; ++index) {
-        if (cached.etag[index] != conditional_etag[index]) {
-            return false;
-        }
-    }
-    return true;
+    return cached.found() && cached.etag.count != 0 && cached.etag.count == conditional_etag.count &&
+           bytes_equal(cached.etag.data, conditional_etag.data, cached.etag.count);
 }
 
 __declspec(noinline) bool accepted_body_valid(const CdnResponseResult& response,

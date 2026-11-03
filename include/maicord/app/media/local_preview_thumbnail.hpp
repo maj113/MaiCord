@@ -26,7 +26,8 @@ struct LocalThumbnailSink {
     u32 scale, width, height;
     u32 row;
 };
-// output holds width * height * 4 bytes; sums holds width * 5 entries.
+// output holds width * height * 4 bytes; sums holds width * 5 entries. output, sums and every
+// pushed source row must be disjoint.
 bool local_thumbnail_begin(LocalThumbnailSink* sink, u32 source_width, u32 source_height, u32 extent,
                            Slice<u8> output, Slice<u32> sums) noexcept;
 // One straight RGBA8 source row; the final source row flushes the last block.

@@ -232,9 +232,8 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
             }
         } else if (policy.status_code == 304 && !body.count && conditional_etag.count) {
             auto lease = encoded_media_cache_acquire(media->pipeline.cache, media->active_key, 0);
-            bool matches = lease.acquired && lease.lookup.etag.count == conditional_etag.count;
-            for (u32 i = 0; matches && i < conditional_etag.count; ++i)
-                matches = lease.lookup.etag[i] == conditional_etag[i];
+            const bool matches = lease.acquired && lease.lookup.etag.count == conditional_etag.count &&
+                                 bytes_equal(lease.lookup.etag.data, conditional_etag.data, conditional_etag.count);
             if (matches)
                 published =
                     publish_vector(media, media->active_key, lease.lookup.bytes, response.request_id);

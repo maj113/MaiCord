@@ -101,7 +101,6 @@ namespace downloads_detail {
 
 bool account_current(const ApplicationDownloads& q) noexcept;
 bool foreground_form() noexcept;
-bool url_current(const Utf8View& url, u64 origin, u64 attachment) noexcept;
 bool source_current(const DownloadSource& s) noexcept;
 bool source_media_allowed(const DownloadSource& source, bool activation = false) noexcept;
 void changed(ApplicationDownloads& q) noexcept;

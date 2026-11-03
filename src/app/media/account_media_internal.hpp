@@ -116,6 +116,28 @@ struct CacheProbe {
     ConstSlice<u8> etag;
 };
 
+// Settles the cache lookup `cached` of one codec: a decoded hit runs publish() and is ready; a failed
+// decode is remembered with the codec's error fields (describe(&failure)); a miss or stale entry leaves
+// its validator in probe->etag and answers false.
+template <typename Result, typename Publish, typename Describe>
+bool settle_probe(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled,
+                  const Result& cached, Publish publish, Describe describe) noexcept {
+    using State = decltype(Result::state);
+    if (cached.decoded()) {
+        publish();
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != State::cache_miss && cached.state != State::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        describe(&failure);
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
 bool probe_static_jpeg(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept;
 bool probe_static_webp(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept;
 bool probe_apng(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept;

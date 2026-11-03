@@ -161,8 +161,6 @@ bool message_media_controller_upload_budget_reached(MessageMediaController* cont
                                                     u32 uploads) noexcept;
 bool message_media_controller_should_log_capacity(MessageMediaController* controller, u64 now_ms,
                                                   u32 interval_ms = 5'000) noexcept;
-MediaAttachmentFormat message_media_supported_attachment_format(
-    const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept;
 
 MessageMediaControllerResult message_media_controller_collect(MessageMediaController* controller,
                                                               const MessageStore& messages,

@@ -128,7 +128,7 @@ bool application_downloads_pump() noexcept {
         }
         if (result != ReceivedAttachmentOpenResult::ready || !source_current(j.source) ||
             !source_media_allowed(j.source) ||
-            (!j.source.embed && !url_current(ready, j.source.origin_channel, j.source.attachment))) {
+            (!j.source.embed && !received_attachment_url_current(ready, j.source.origin_channel, j.source.attachment))) {
             fail_job(*q, j,
                      result == ReceivedAttachmentOpenResult::stale ? HttpsFileDownloadError::invalid_input
                                                                    : HttpsFileDownloadError::http);

@@ -28,4 +28,7 @@ ReceivedAttachmentOpenResult received_attachment_open_begin(
 ReceivedAttachmentOpenResult received_attachment_open_resume(
     ReceivedAttachmentOpen*, const ReceivedAttachmentOpenIdentity&, Utf8View source,
     MediaUrlResolver*, u64 now_ms, u64 now_seconds, Utf8View* ready_url) noexcept;
+// True when `url` is a signed CDN attachment URL whose path names exactly this origin channel and
+// attachment: never another file, channel or host.
+bool received_attachment_url_current(const Utf8View& url, u64 origin_channel, u64 attachment_id) noexcept;
 } // namespace maicord

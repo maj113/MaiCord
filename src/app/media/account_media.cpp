@@ -1,4 +1,5 @@
 #include "account_media_internal.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/media/core/animation_timeline.hpp"
@@ -65,21 +66,16 @@ AccountMediaRequestResult result(AccountMediaRequestState state,
 
 bool png_animation_body(const ConstSlice<u8>& body) noexcept {
     static constexpr u8 signature[] = {137, 80, 78, 71, 13, 10, 26, 10};
-    if (!body.data || body.count < sizeof(signature))
+    if (!body.data || body.count < sizeof(signature) || !bytes_equal(body.data, signature, sizeof(signature)))
         return false;
-    for (u32 index = 0; index < sizeof(signature); ++index)
-        if (body[index] != signature[index])
-            return false;
-    for (u32 cursor = sizeof(signature); cursor <= body.count && body.count - cursor >= 12;) {
-        const u32 length = (static_cast<u32>(body[cursor]) << 24) |
-                           (static_cast<u32>(body[cursor + 1]) << 16) |
-                           (static_cast<u32>(body[cursor + 2]) << 8) | body[cursor + 3];
+    for (u32 cursor = sizeof(signature); body.count - cursor >= 12;) {
+        const u32 length = byte_load_be32(body.data + cursor);
         if (length > body.count - cursor - 12)
             return false;
         const u8* type = body.data + cursor + 4;
-        if (type[0] == 'a' && type[1] == 'c' && type[2] == 'T' && type[3] == 'L')
+        if (bytes_equal(type, "acTL", 4))
             return length == 8;
-        if (type[0] == 'I' && type[1] == 'D' && type[2] == 'A' && type[3] == 'T')
+        if (bytes_equal(type, "IDAT", 4))
             return false;
         cursor += length + 12;
     }
@@ -737,20 +733,13 @@ bool probe_static_jpeg(AccountMedia* media, CacheProbe* probe, AccountMediaReque
         }
         cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, probe->key, probe->unix_seconds);
     }
-    if (cached.decoded()) {
-        publish_jpeg_frame(media, probe->key, cached, 0, probe->source_message_id,
-                           probe->source_message_revision);
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
-    }
-    if (cached.state != CdnStaticJpegState::cache_miss && cached.state != CdnStaticJpegState::fetch_required) {
-        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        failure.jpeg_error = cached.decode.error;
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
-    }
-    probe->etag = cached.etag;
-    return false;
+    return settle_probe(
+        media, probe, settled, cached,
+        [&]() noexcept {
+            publish_jpeg_frame(media, probe->key, cached, 0, probe->source_message_id,
+                               probe->source_message_revision);
+        },
+        [&](AccountMediaRequestResult* failure) noexcept { failure->jpeg_error = cached.decode.error; });
 }
 
 bool probe_static_webp(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
@@ -763,76 +752,44 @@ bool probe_static_webp(AccountMedia* media, CacheProbe* probe, AccountMediaReque
         }
         cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, probe->key, probe->unix_seconds);
     }
-    if (cached.decoded()) {
-        publish_webp_frame(media, probe->key, cached, 0, probe->source_message_id,
-                           probe->source_message_revision);
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
-    }
-    if (cached.state != CdnStaticWebpState::cache_miss && cached.state != CdnStaticWebpState::fetch_required) {
-        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        failure.webp_error = cached.decode.error;
-        failure.lossy_webp_error = cached.lossy_decode.error;
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
-    }
-    probe->etag = cached.etag;
-    return false;
+    return settle_probe(
+        media, probe, settled, cached,
+        [&]() noexcept {
+            publish_webp_frame(media, probe->key, cached, 0, probe->source_message_id,
+                               probe->source_message_revision);
+        },
+        [&](AccountMediaRequestResult* failure) noexcept {
+            failure->webp_error = cached.decode.error;
+            failure->lossy_webp_error = cached.lossy_decode.error;
+        });
 }
 
 bool probe_apng(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
     CdnApngResult cached;
     cdn_media_pipeline_lookup_apng(&cached, &media->pipeline, probe->key, probe->unix_seconds);
-    if (cached.decoded()) {
-        publish_apng_frame(media, probe->key, cached, 0);
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
-    }
-    if (cached.state != CdnApngState::cache_miss && cached.state != CdnApngState::fetch_required) {
-        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        failure.apng_error = cached.decode.error;
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
-    }
-    probe->etag = cached.etag;
-    return false;
+    return settle_probe(
+        media, probe, settled, cached, [&]() noexcept { publish_apng_frame(media, probe->key, cached, 0); },
+        [&](AccountMediaRequestResult* failure) noexcept { failure->apng_error = cached.decode.error; });
 }
 
 bool probe_gif(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
     CdnGifResult cached;
     cdn_media_pipeline_lookup_gif(&cached, &media->pipeline, probe->key, probe->unix_seconds);
-    if (cached.decoded()) {
-        publish_gif_frame(media, probe->key, cached, 0);
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
-    }
-    if (cached.state != CdnGifState::cache_miss && cached.state != CdnGifState::fetch_required) {
-        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        failure.gif_error = cached.decode.error;
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
-    }
-    probe->etag = cached.etag;
-    return false;
+    return settle_probe(
+        media, probe, settled, cached, [&]() noexcept { publish_gif_frame(media, probe->key, cached, 0); },
+        [&](AccountMediaRequestResult* failure) noexcept { failure->gif_error = cached.decode.error; });
 }
 
 bool probe_static_png(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
     CdnStaticPngResult cached;
     cdn_media_pipeline_lookup_static_png(&cached, &media->pipeline, probe->key, probe->unix_seconds);
-    if (cached.decoded()) {
-        publish_png_frame(media, probe->key, cached, 0, probe->source_message_id,
-                          probe->source_message_revision);
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
-    }
-    if (cached.state != CdnStaticPngState::cache_miss && cached.state != CdnStaticPngState::fetch_required) {
-        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        failure.png_error = cached.decode.error;
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
-    }
-    probe->etag = cached.etag;
-    return false;
+    return settle_probe(
+        media, probe, settled, cached,
+        [&]() noexcept {
+            publish_png_frame(media, probe->key, cached, 0, probe->source_message_id,
+                              probe->source_message_revision);
+        },
+        [&](AccountMediaRequestResult* failure) noexcept { failure->png_error = cached.decode.error; });
 }
 
 // The staged or in-flight request, if any, settles a new request for `key`.
@@ -998,19 +955,15 @@ void account_media_release_audio_source(AccountMedia* media) noexcept {
 AccountMediaVideoFailure account_media_video_body_failure(const ConstSlice<u8>& body) noexcept {
     if (!body.data)
         return AccountMediaVideoFailure::none;
-    if (body.count >= 6 && body[0] == 'G' && body[1] == 'I' && body[2] == 'F' && body[3] == '8' &&
-        (body[4] == '7' || body[4] == '9') && body[5] == 'a')
+    if (body.count >= 6 && bytes_equal(body.data, "GIF8", 4) && (body[4] == '7' || body[4] == '9') && body[5] == 'a')
         return AccountMediaVideoFailure::unexpected_gif;
-    if (body.count >= 8 && body[0] == 0x89 && body[1] == 'P' && body[2] == 'N' && body[3] == 'G' &&
-        body[4] == 0x0d && body[5] == 0x0a && body[6] == 0x1a && body[7] == 0x0a)
+    if (body.count >= 8 && bytes_equal(body.data, "\x89PNG\r\n\x1a\n", 8))
         return AccountMediaVideoFailure::unexpected_png;
-    if (body.count >= 12 && body[0] == 'R' && body[1] == 'I' && body[2] == 'F' && body[3] == 'F' &&
-        body[8] == 'W' && body[9] == 'E' && body[10] == 'B' && body[11] == 'P')
+    if (body.count >= 12 && bytes_equal(body.data, "RIFF", 4) && bytes_equal(body.data + 8, "WEBP", 4))
         return AccountMediaVideoFailure::unexpected_webp;
     if (body.count >= 3 && body[0] == 0xff && body[1] == 0xd8 && body[2] == 0xff)
         return AccountMediaVideoFailure::unexpected_jpeg;
-    if (body.count >= 12 && body[4] == 'f' && body[5] == 't' && body[6] == 'y' && body[7] == 'p' &&
-        body[8] == 'a' && body[9] == 'v' && body[10] == 'i' && (body[11] == 'f' || body[11] == 's'))
+    if (body.count >= 12 && bytes_equal(body.data + 4, "ftypavi", 7) && (body[11] == 'f' || body[11] == 's'))
         return AccountMediaVideoFailure::unexpected_avif;
     return AccountMediaVideoFailure::none;
 }

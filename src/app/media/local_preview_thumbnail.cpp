@@ -4,16 +4,12 @@
 
 namespace maicord {
 namespace {
-bool ranges_overlap(const void* left, u64 left_bytes, const void* right, u64 right_bytes) noexcept {
-    const usize a = reinterpret_cast<usize>(left), b = reinterpret_cast<usize>(right);
-    return a <= b ? b - a < left_bytes : a - b < right_bytes;
-}
 void emit_row(LocalThumbnailSink* sink) noexcept {
     const u32 out_y = (sink->row - 1) / sink->scale;
     u8* target = sink->output + static_cast<usize>(out_y) * sink->width * 4u;
     for (u32 x = 0; x < sink->width; ++x) {
         u32* sum = sink->sums + x * 5u;
-        const u32 samples = sum[4] ? sum[4] : 1u;
+        const u32 samples = sum[4];
         const u32 alpha = sum[3];
         target[x * 4u + 3] = static_cast<u8>((alpha + samples / 2) / samples);
         for (u32 c = 0; c < 3; ++c)
@@ -48,56 +44,27 @@ bool local_thumbnail_push_row(LocalThumbnailSink* sink, const u8* rgba) noexcept
     if (!sink || !sink->output || !rgba || sink->row >= sink->source_height)
         return false;
     if (sink->scale == 1) {
-        const u64 row_bytes = static_cast<u64>(sink->width) * 4u;
-        const u64 output_bytes = row_bytes * sink->height;
-        const u64 sum_bytes = static_cast<u64>(sink->width) * 5u * sizeof(u32);
-        // The old filter consumes a complete row before it writes the output.
-        // Keep that path for every public buffer-alias case.
-        if (!ranges_overlap(rgba, row_bytes, sink->output, output_bytes) &&
-            !ranges_overlap(rgba, row_bytes, sink->sums, sum_bytes) &&
-            !ranges_overlap(sink->output, output_bytes, sink->sums, sum_bytes)) {
-            u8* target = sink->output + static_cast<usize>(sink->row) * row_bytes;
-            for (u32 x = 0; x < sink->width; ++x) {
-                const u8* pixel = rgba + x * 4u;
-                const u8 alpha = pixel[3];
-                target[x * 4u] = alpha ? pixel[0] : 0;
-                target[x * 4u + 1] = alpha ? pixel[1] : 0;
-                target[x * 4u + 2] = alpha ? pixel[2] : 0;
-                target[x * 4u + 3] = alpha;
-            }
-            // begin() and each complete row leave the sums clear at scale 1.
-            ++sink->row;
-            return true;
-        }
-    }
-    const u64 source_bytes = static_cast<u64>(sink->source_width) * 4u;
-    const u64 output_bytes = static_cast<u64>(sink->width) * sink->height * 4u;
-    const u64 sum_bytes = static_cast<u64>(sink->width) * 5u * sizeof(u32);
-    if (sink->scale > 1 && !ranges_overlap(rgba, source_bytes, sink->output, output_bytes) &&
-        !ranges_overlap(rgba, source_bytes, sink->sums, sum_bytes) &&
-        !ranges_overlap(sink->output, output_bytes, sink->sums, sum_bytes)) {
-        // Each horizontal group uses one destination. Keep the same pixel
-        // order and sum updates, including the final partial group.
-        u32 column = 0;
-        for (u32 x = 0; x < sink->source_width; ++column) {
-            const u32 remaining = sink->source_width - x;
-            const u32 count = remaining < sink->scale ? remaining : sink->scale;
-            u32* sum = sink->sums + column * 5u;
-            for (u32 i = 0; i < count; ++i, ++x) {
-                const u8* pixel = rgba + x * 4u;
-                const u32 alpha = pixel[3];
-                sum[0] += pixel[0] * alpha;
-                sum[1] += pixel[1] * alpha;
-                sum[2] += pixel[2] * alpha;
-                sum[3] += alpha;
-                ++sum[4];
-            }
-        }
-    } else {
-        // Preserve the original accesses when public buffers overlap.
-        for (u32 x = 0; x < sink->source_width; ++x) {
+        u8* target = sink->output + static_cast<usize>(sink->row) * sink->width * 4u;
+        for (u32 x = 0; x < sink->width; ++x) {
             const u8* pixel = rgba + x * 4u;
-            u32* sum = sink->sums + (x / sink->scale) * 5u;
+            const u8 alpha = pixel[3];
+            target[x * 4u] = alpha ? pixel[0] : 0;
+            target[x * 4u + 1] = alpha ? pixel[1] : 0;
+            target[x * 4u + 2] = alpha ? pixel[2] : 0;
+            target[x * 4u + 3] = alpha;
+        }
+        // begin() and each complete row leave the sums clear at scale 1.
+        ++sink->row;
+        return true;
+    }
+    // Each horizontal group uses one destination, including the final partial group.
+    u32 column = 0;
+    for (u32 x = 0; x < sink->source_width; ++column) {
+        const u32 remaining = sink->source_width - x;
+        const u32 count = remaining < sink->scale ? remaining : sink->scale;
+        u32* sum = sink->sums + column * 5u;
+        for (u32 i = 0; i < count; ++i, ++x) {
+            const u8* pixel = rgba + x * 4u;
             const u32 alpha = pixel[3];
             sum[0] += pixel[0] * alpha;
             sum[1] += pixel[1] * alpha;

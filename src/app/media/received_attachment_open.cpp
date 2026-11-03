@@ -15,21 +15,9 @@ bool same(const ReceivedAttachmentOpenIdentity& a, const ReceivedAttachmentOpenI
 bool url_valid(const ReceivedAttachmentOpenIdentity& id, const Utf8View& url) noexcept {
     // Match the native URL opener's bounded UTF-16 conversion and accept only
     // a CDN HTTPS attachment path, never a file or executable path.
-    if (!identity_valid(id) || !url.data || !url.bytes || url.bytes > 2047)
-        return false;
-    u8 target[kCdnMaximumTargetBytes]{}, prefix[80]{};
-    const auto parsed = parse_signed_attachment_url(url, id.attachment_id, {target, sizeof(target)});
-    if (!parsed.ok())
-        return false;
-    ProtocolWriter writer{{prefix, sizeof(prefix)}, 0};
-    const bool prefix_written = parsed.ephemeral
-        ? protocol_writer_append_literal(&writer, "/ephemeral-attachments/")
-        : protocol_writer_append_literal(&writer, "/attachments/");
-    return prefix_written &&
-           protocol_writer_append_u64(&writer, id.source_channel_id ? id.source_channel_id : id.channel_id) &&
-           protocol_writer_append_literal(&writer, "/") &&
-           protocol_writer_append_u64(&writer, id.attachment_id) && protocol_writer_append_literal(&writer, "/") &&
-           parsed.target_bytes > writer.used && bytes_equal(target, prefix, writer.used);
+    return identity_valid(id) && url.data && url.bytes && url.bytes <= 2047 &&
+           received_attachment_url_current(url, id.source_channel_id ? id.source_channel_id : id.channel_id,
+                                           id.attachment_id);
 }
 ReceivedAttachmentOpenResult resolve(ReceivedAttachmentOpen& intent, Utf8View source,
                                      MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds,
@@ -52,6 +40,17 @@ ReceivedAttachmentOpenResult resolve(ReceivedAttachmentOpen& intent, Utf8View so
     return ReceivedAttachmentOpenResult::failed;
 }
 } // namespace
+bool received_attachment_url_current(const Utf8View& url, u64 origin_channel, u64 attachment_id) noexcept {
+    u8 target[kCdnMaximumTargetBytes], prefix[80];
+    const auto parsed = parse_signed_attachment_url(url, attachment_id, {target, sizeof(target)});
+    if (!parsed.ok())
+        return false;
+    ProtocolWriter writer{{prefix, sizeof(prefix)}, 0};
+    return protocol_writer_append_c_string(&writer, parsed.ephemeral ? "/ephemeral-attachments/" : "/attachments/") &&
+           protocol_writer_append_u64(&writer, origin_channel) && protocol_writer_append_literal(&writer, "/") &&
+           protocol_writer_append_u64(&writer, attachment_id) && protocol_writer_append_literal(&writer, "/") &&
+           parsed.target_bytes > writer.used && bytes_equal(target, prefix, writer.used);
+}
 ReceivedAttachmentOpenResult received_attachment_open_begin(
     ReceivedAttachmentOpen* intent, const ReceivedAttachmentOpenIdentity& id, Utf8View source,
     MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds, Utf8View* output, bool force_refresh) noexcept {

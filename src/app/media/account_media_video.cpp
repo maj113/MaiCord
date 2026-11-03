@@ -105,12 +105,8 @@ bool selection_valid(const AccountVideoSelection& s) noexcept {
            s.identity.session_epoch && !s.identity.reserved && s.collection_track <= 8192;
 }
 bool buffered_equal(const AccountVideoBuffered& a, const AccountVideoBuffered& b) noexcept {
-    if (a.count != b.count)
-        return false;
-    for (u32 i = 0; i < a.count; ++i)
-        if (a.begin[i] != b.begin[i] || a.end[i] != b.end[i])
-            return false;
-    return true;
+    return a.count == b.count && bytes_equal(a.begin, b.begin, a.count * sizeof(a.begin[0])) &&
+           bytes_equal(a.end, b.end, a.count * sizeof(a.end[0]));
 }
 void publish_buffered(AccountMediaVideoRuntime& v, const AccountVideoBuffered& buffered) noexcept {
     AcquireSRWLockExclusive(&v.lock);

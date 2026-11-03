@@ -67,26 +67,6 @@ bool channel_current(u64 id) noexcept {
            chat_state_store_channel_visible(state, *channel);
 }
 
-} // namespace
-namespace downloads_detail {
-
-bool url_current(const Utf8View& url, u64 origin, u64 attachment) noexcept {
-    u8 target[kCdnMaximumTargetBytes], prefix[80];
-    const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
-    if (!parsed.ok())
-        return false;
-    ProtocolWriter writer{{prefix, sizeof(prefix)}, 0};
-    return protocol_writer_append_c_string(&writer, parsed.ephemeral ? "/ephemeral-attachments/"
-                                                                     : "/attachments/") &&
-           protocol_writer_append_u64(&writer, origin) && protocol_writer_append_literal(&writer, "/") &&
-           protocol_writer_append_u64(&writer, attachment) &&
-           protocol_writer_append_literal(&writer, "/") && parsed.target_bytes > writer.used &&
-           bytes_equal(target, prefix, writer.used);
-}
-
-} // namespace downloads_detail
-namespace {
-
 // The message's rich record, or its forwarded snapshot's.
 const MessageRichRecord* rich_of(const MessageRichStore& store, u64 message_id, bool snapshot) noexcept {
     return snapshot ? message_rich_store_snapshot(store, message_id)
@@ -137,7 +117,7 @@ bool capture_payload(const MessageRecord& message, MessageHandle handle, const M
             continue;
         const auto url = message_rich_store_string(store, a.url);
         if (!url.data || !url.bytes || url.bytes >= sizeof(out->url) ||
-            !url_current(url, origin, attachment_id))
+            !received_attachment_url_current(url, origin, attachment_id))
             return false;
         DownloadSource source{};
         const auto name = attachment_download_safe_filename(message_rich_store_string(store, a.filename),

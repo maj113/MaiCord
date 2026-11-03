@@ -148,18 +148,12 @@ bool same_work(const AccountMediaWorkItem& left, const AccountMediaWorkItem& rig
     if (left.kind == AccountMediaWorkKind::catalog_preview)
         return left.catalog_scope == right.catalog_scope &&
                left.catalog_generation == right.catalog_generation;
-    if (left.kind == AccountMediaWorkKind::local_draft_preview) {
-        if (left.catalog_scope != right.catalog_scope ||
-            left.catalog_generation != right.catalog_generation ||
-            left.local_content.context != right.local_content.context ||
-            left.local_content.ops != right.local_content.ops ||
-            !local_draft_preview_snapshot_equal(left.local_snapshot, right.local_snapshot) ||
-            left.text_bytes != right.text_bytes)
-            return false;
-        for (u32 i = 0; i < left.text_bytes; ++i)
-            if (left.text[i] != right.text[i])
-                return false;
-    }
+    if (left.kind == AccountMediaWorkKind::local_draft_preview)
+        return left.catalog_scope == right.catalog_scope && left.catalog_generation == right.catalog_generation &&
+               left.local_content.context == right.local_content.context &&
+               left.local_content.ops == right.local_content.ops &&
+               local_draft_preview_snapshot_equal(left.local_snapshot, right.local_snapshot) &&
+               left.text_bytes == right.text_bytes && bytes_equal(left.text, right.text, left.text_bytes);
     return true;
 }
 

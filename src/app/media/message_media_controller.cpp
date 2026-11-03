@@ -15,27 +15,26 @@ namespace {
 // A decoded embed still sets the aspect of its frame. Declared dimensions that
 // disagree with the picture by more than one percent keep their larger side
 // and take the picture's aspect, so the frame fits the image instead of
-// letterboxing it. Always succeeds: a still that cannot be matched is ignored.
-bool fit_embed_still(MessageRichStore* store, const MessageRichRecord& rich, const AccountMediaFrame& frame,
+// letterboxing it. A still that cannot be matched is ignored.
+void fit_embed_still(MessageRichStore* store, const MessageRichRecord& rich, const AccountMediaFrame& frame,
                      MessageRichEmbedMediaSlot slot, u32 width, u32 height, bool* changed) noexcept {
     const u32 index = media_asset_embed_index(frame.key);
     const bool snapshot = media_asset_embed_snapshot(frame.key);
     const MessageRichRecord* owned = snapshot ? message_rich_store_snapshot(*store, frame.source_message_id) : &rich;
     if (!owned || owned->message_revision != frame.source_message_revision || index >= owned->embed_count)
-        return true;
+        return;
     const auto& embed = owned->embeds[index];
     const MessageRichEmbedMedia& media = slot == MessageRichEmbedMediaSlot::image ? embed.image : embed.thumbnail;
     if (!media.width || !media.height)
-        return true;
+        return;
     const u64 declared = u64{media.width} * height, actual = u64{width} * media.height;
     if ((declared > actual ? declared - actual : actual - declared) * 100u <= actual)
-        return true;
+        return;
     const u32 side = maximum(media.width, media.height);
     const u32 fitted_width = width >= height ? side : maximum<u32>(1u, static_cast<u32>((u64{side} * width + height / 2) / height));
     const u32 fitted_height = width >= height ? maximum<u32>(1u, static_cast<u32>((u64{side} * height + width / 2) / width)) : side;
     message_rich_store_set_embed_dimensions(store, frame.source_message_id, frame.source_message_revision, index, slot,
                                             fitted_width, fitted_height, changed, snapshot);
-    return true;
 }
 } // namespace
 
@@ -78,8 +77,10 @@ bool message_media_apply_frame_dimensions(MessageRichStore* store, const Account
         default:
             return still;
         }
-        if (still)
-            return fit_embed_still(store, *rich, frame, slot, width, height, changed);
+        if (still) {
+            fit_embed_still(store, *rich, frame, slot, width, height, changed);
+            return true;
+        }
         return message_rich_store_set_embed_dimensions(
             store, frame.source_message_id, frame.source_message_revision,
             media_asset_embed_index(frame.key), slot, width, height, changed,
@@ -366,11 +367,6 @@ bool visit_inline_emojis(const MessageMediaControllerCallbacks& callbacks, Utf8V
 
 } // namespace
 
-MediaAttachmentFormat message_media_supported_attachment_format(
-    const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept {
-    return message_rich_attachment_format(store, attachment);
-}
-
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept {
     if (!controller || controller->owned_rows.arena.base || controller->owned_asset_marks.arena.base ||
@@ -619,7 +615,7 @@ MessageMediaControllerResult message_media_controller_visit_primary(
         }
         for (u32 attachment_index = 0; attachment_index < row.rich->attachment_count; ++attachment_index) {
             const MessageRichAttachment& attachment = row.rich->attachments[attachment_index];
-            if (message_media_supported_attachment_format(rich_store, attachment) ==
+            if (message_rich_attachment_format(rich_store, attachment) ==
                 MediaAttachmentFormat::unknown) {
                 continue;
             }
@@ -729,9 +725,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             return stopped_at(visible);
         for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
         if (content_scope && !rich_store) continue;
-        const auto* content_rich = content_scope && rich_store
-            ? message_rich_store_snapshot(*rich_store, row.message->id) : row.rich;
-        if (content_scope && content_rich && rich_store &&
+        const auto* content_rich = content_scope ? message_rich_store_snapshot(*rich_store, row.message->id) : row.rich;
+        if (content_scope && content_rich &&
             !visit_inline_emojis(callbacks, message_rich_store_string(*rich_store, content_rich->snapshot.content),
                                  animations, media_atlas, controller, now_us, &candidates, &stopped, emoji_plays,
                                  row.message->id, content_rich->message_revision, 1))

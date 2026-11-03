@@ -410,7 +410,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
                                message_rich_attachment_spoiler(store, attachment),
                                message_rich_attachment_explicit(attachment)))
         return true;
-    const MediaAttachmentFormat format = message_media_supported_attachment_format(store, attachment);
+    const MediaAttachmentFormat format = message_rich_attachment_format(store, attachment);
     if (format == MediaAttachmentFormat::unknown) {
         return true;
     }

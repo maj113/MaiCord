@@ -88,20 +88,15 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
             }
             cdn_media_pipeline_lookup_animated_webp(&cached, &media->pipeline, key, unix_now_seconds);
         }
-        if (cached.decoded()) {
-            publish_animated_webp_frame(media, key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnAnimatedWebpState::cache_miss &&
-            cached.state != CdnAnimatedWebpState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.webp_error = cached.decode.frame_decode.error;
-            copy_value(&failure.animated_webp_error, cached.decode.error);
-            failure.lossy_webp_error = cached.decode.lossy_decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
-        probe.etag = cached.etag;
+        if (settle_probe(
+                media, &probe, &settled, cached,
+                [&]() noexcept { publish_animated_webp_frame(media, key, cached, 0); },
+                [&](AccountMediaRequestResult* failure) noexcept {
+                    failure->webp_error = cached.decode.frame_decode.error;
+                    failure->animated_webp_error = cached.decode.error;
+                    failure->lossy_webp_error = cached.decode.lossy_decode.error;
+                }))
+            return settled;
     } else if (webp_asset(key)) {
         if (probe_static_webp(media, &probe, &settled))
             return settled;
@@ -521,17 +516,13 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
             cdn_media_pipeline_lookup_animated_webp(&cached, &media->pipeline, request.key,
                                                     unix_now_seconds);
         }
-        if (cached.decoded()) {
-            publish_animated_webp_frame(media, request.key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnAnimatedWebpState::cache_miss &&
-            cached.state != CdnAnimatedWebpState::fetch_required) {
-            auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.animated_webp_error = cached.decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        probe.etag = cached.etag;
+        if (settle_probe(
+                media, &probe, &settled, cached,
+                [&]() noexcept { publish_animated_webp_frame(media, request.key, cached, 0); },
+                [&](AccountMediaRequestResult* failure) noexcept {
+                    failure->animated_webp_error = cached.decode.error;
+                }))
+            return settled;
     } else if (apng_asset(request.key) ||
                catalog_png_cached_animation(media, request.key, unix_now_seconds)) {
         if (!ensure_apng_workspace(media))
