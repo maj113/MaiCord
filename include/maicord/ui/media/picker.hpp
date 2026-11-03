@@ -351,7 +351,6 @@ struct UiMediaPickerScene {
     UiMediaPickerVariant variant;
     u16 layout_flags;
     bool active, favorite_hovered;
-    UiScrollbarVisualState body_scrollbar_state{}, rail_scrollbar_state{};
     // Inline results: the GIF strip's paging arrows (shown only while the
     // strip can scroll that way), the heading's bold query span, and the
     // shared loading spinner's phase while the first results load.
@@ -384,8 +383,6 @@ UiMediaPickerTarget ui_media_picker_scene_pointer_up(UiMediaPickerScene*, float 
 void ui_media_picker_scene_cancel_capture(UiMediaPickerScene*) noexcept;
 bool ui_media_picker_scene_scroll(UiMediaPickerScene*, float delta, bool rail = false) noexcept;
 UiScrollbarGeometry ui_media_picker_scene_scrollbar(const UiMediaPickerScene&, bool rail = false) noexcept;
-bool ui_media_picker_scene_set_scrollbar_state(UiMediaPickerScene*, bool rail,
-                                               UiScrollbarVisualState) noexcept;
 bool ui_media_picker_scene_scroll_section(UiMediaPickerScene*, u64 section_id) noexcept;
 bool ui_media_picker_scene_select(UiMediaPickerScene*, u32 source_index) noexcept;
 bool ui_media_picker_scene_move_selection(UiMediaPickerScene*, i32 horizontal, i32 vertical) noexcept;

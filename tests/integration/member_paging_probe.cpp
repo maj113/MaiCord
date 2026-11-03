@@ -21,13 +21,14 @@ bool thumb_painted(const D3D11Renderer& renderer, const UiScrollbarGeometry& geo
     const auto& stream = renderer.paint_stream;
     if (!geometry.visible || !stream.quads || stream.count > stream.quad_capacity ||
         stream.count > kMaxPaintQuads) return false;
+    // The bar at rest: the 4 DIP pill at the thumb's right edge.
+    const Color& fill = kDefaultTheme.tokens.fill.muted;
     for (u32 i = 0; i < stream.count; ++i) {
         const auto& quad = stream.quads[i];
-        if (ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, geometry.thumb) &&
-            quad.radius == 4.f && quad.fill.red == kDefaultTheme.interactive.red &&
-            quad.fill.green == kDefaultTheme.interactive.green &&
-            quad.fill.blue == kDefaultTheme.interactive.blue &&
-            quad.fill.alpha == kDefaultTheme.interactive.alpha) return true;
+        if (ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom},
+                          {geometry.thumb.right - 4, geometry.thumb.top, geometry.thumb.right, geometry.thumb.bottom}) &&
+            quad.radius == 2.f && quad.fill.red == fill.red && quad.fill.green == fill.green &&
+            quad.fill.blue == fill.blue && quad.fill.alpha == fill.alpha) return true;
     }
     return false;
 }

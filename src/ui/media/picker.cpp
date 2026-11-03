@@ -119,7 +119,6 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
     scene->layout_flags = flags;
     if (replacement) {
         scene->scroll_dips = scene->rail_scroll_dips = 0;
-        scene->body_scrollbar_state = scene->rail_scrollbar_state = UiScrollbarVisualState::normal;
         scene->selected_index = ~u32{0};
     }
     scene->active = true;
@@ -142,7 +141,6 @@ void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
     scene->page_duration_ms = 0;
     ui_widget_manager_reset(&scene->widgets);
     scene->active = false;
-    scene->body_scrollbar_state = scene->rail_scrollbar_state = UiScrollbarVisualState::normal;
     scene->favorite_hovered = false;
     scene->cell_count = scene->header_count = scene->rail_count = 0;
     scene->source = nullptr;
@@ -594,18 +592,5 @@ UiScrollbarGeometry ui_media_picker_scene_scrollbar(const UiMediaPickerScene& sc
         return {};
     return rail ? ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, scene.rail_extent)
                 : ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.content_height);
-}
-bool ui_media_picker_scene_set_scrollbar_state(UiMediaPickerScene* scene, bool rail,
-                                               UiScrollbarVisualState state) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || state > UiScrollbarVisualState::pressed)
-        return false;
-    if (!ui_media_picker_scene_scrollbar(*scene, rail).visible)
-        state = UiScrollbarVisualState::normal;
-    auto& current_state = rail ? scene->rail_scrollbar_state : scene->body_scrollbar_state;
-    if (current_state == state)
-        return false;
-    current_state = state;
-    ++scene->revision;
-    return true;
 }
 } // namespace maicord

@@ -231,6 +231,8 @@ u64 shell_segment_key(const RendererPresentationStamp& stamp, const MessageCompo
         key = hash64_mix(key, composer.chips[i].flags);
     }
     key = hash64_counted_bytes(key, &paint.scrollbar_viewport, sizeof(paint.scrollbar_viewport));
+    key = hash64_counted_bytes(key, &paint.scrollbar_hot.track, sizeof(paint.scrollbar_hot.track));
+    key = hash64_mix(key, static_cast<u64>(paint.scrollbar_hot.state));
     return key | 1;
 }
 
@@ -250,6 +252,7 @@ void shell_segment_capture(D3D11Renderer* renderer, u64 key, const ShellPresenta
     segment.message_view = regions.message_view;
     segment.member_sidebar = regions.member_sidebar;
     segment.member_sidebar_visible = regions.member_sidebar_visible;
+    segment.scrollbar_tracks = renderer->paint_stream.scrollbar_tracks;
     segment.key = key;
     segment.valid = true;
     saturating_increment(segment.builds);
@@ -285,6 +288,7 @@ bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, flo
     paint.count = frame.paint_count;
     paint.clip_count = frame.clip_count;
     paint.batch_count = frame.batch_count;
+    paint.scrollbar_tracks = segment.scrollbar_tracks;
     CopyMemory(renderer->media_draw.quad_data, stable_storage_data<MediaQuad>(frame.media_quads),
                static_cast<usize>(frame.media_count) * sizeof(MediaQuad));
     CopyMemory(renderer->media_draw.handle_data, stable_storage_data<MediaAtlasHandle>(frame.media_handles),

@@ -353,7 +353,6 @@ void release_capture() noexcept {
     const bool captured = inbox->captured || inbox->thumb_dragging;
     inbox->captured = false;
     inbox->thumb_dragging = false;
-    ui_inbox_scene_set_scrollbar_state(&inbox->scene, UiScrollbarVisualState::normal);
     if (captured)
         application_release_capture();
 }
@@ -715,7 +714,7 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         } else if (message == WM_MOUSEMOVE) {
             bool changed = false;
             ui_inbox_scene_set_hover(&inbox->scene, -1.f, -1.f, &changed);
-            if (ui_inbox_scene_set_scrollbar_state(&inbox->scene, UiScrollbarVisualState::normal) || changed)
+            if (changed)
                 application_request_frame();
         }
         return false;
@@ -731,10 +730,6 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         update_scrollbar_hover(x, y);
         bool changed = false;
         ui_inbox_scene_set_hover(&inbox->scene, x, y, &changed);
-        changed = ui_inbox_scene_set_scrollbar_state(&inbox->scene, ui_scrollbar_track_hit(scrollbar, x, y)
-                                                                        ? UiScrollbarVisualState::hovered
-                                                                        : UiScrollbarVisualState::normal) ||
-                  changed;
         if (changed)
             application_request_frame();
         return true;
@@ -745,7 +740,6 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         inbox->thumb_grab = ui_scrollbar_thumb_hit(scrollbar, x, y) ? y - scrollbar.thumb.top
                                                                     : ui_rect_height(scrollbar.thumb) * .5f;
         inbox->thumb_dragging = true;
-        ui_inbox_scene_set_scrollbar_state(&inbox->scene, UiScrollbarVisualState::pressed);
         SetCapture(g_app.window);
         application_inbox_scroll_to(ui_scrollbar_scroll_from_pointer(scrollbar, y, inbox->thumb_grab));
         application_request_frame();

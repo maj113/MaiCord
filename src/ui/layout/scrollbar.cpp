@@ -1,46 +1,56 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/core/paint.hpp"
-#include "maicord/ui/theme/background_surface.hpp"
 
 namespace maicord {
 
-bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
-                        UiScrollbarVisualState state) noexcept {
-    if (paint && paint->filter_scrollbars &&
-        (geometry.track.right != paint->scrollbar_viewport.right ||
-         geometry.track.top != paint->scrollbar_viewport.top ||
-         geometry.track.bottom != paint->scrollbar_viewport.bottom))
-        return true;
-    const Color color = state == UiScrollbarVisualState::pressed   ? theme.text_secondary
-                        : state == UiScrollbarVisualState::hovered ? theme.interactive_hover
-                                                                   : theme.interactive;
-    return !geometry.visible ||
-           ui_background_paint_surface(
-               paint, geometry.thumb, theme, color, color, theme.scale.radius_sm,
-               ui_background_active(theme) ? (state == UiScrollbarVisualState::pressed   ? 1.25f
-                                              : state == UiScrollbarVisualState::hovered ? .90f
-                                                                                         : .60f)
-                                           : 0.f,
-               state == UiScrollbarVisualState::normal ? .90f : 1.f, UiBackgroundSurfaceMode::gradient,
-               UiBackgroundTier::highest, UiBackgroundBorderTone::palette);
-}
-
-bool ui_scrollbar_paint_overlay(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
-                                UiScrollbarVisualState state) noexcept {
+bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme) noexcept {
     if (!geometry.visible)
         return true;
-    if (paint && paint->filter_scrollbars &&
+    if (!paint)
+        return false;
+    // Every visible bar is recorded, filtered or not: the pointer tracker lights a bar the moment the
+    // pointer reaches its track, in the same move that selects its viewport.
+    auto& painted = paint->scrollbar_tracks;
+    if (painted.count < kUiScrollbarTrackCapacity)
+        painted.tracks[painted.count++] = geometry.track;
+    if (paint->filter_scrollbars &&
         (geometry.track.right != paint->scrollbar_viewport.right || geometry.track.top != paint->scrollbar_viewport.top ||
          geometry.track.bottom != paint->scrollbar_viewport.bottom))
         return true;
-    const bool hot = state != UiScrollbarVisualState::normal;
-    const float width = hot ? 8.f : 4.f, right = geometry.thumb.right;
+    const auto state = ui_rect_equal(paint->scrollbar_hot.track, geometry.track) ? paint->scrollbar_hot.state
+                                                                                 : UiScrollbarVisualState::normal;
+    const float width = state != UiScrollbarVisualState::normal ? 8.f : 4.f, right = geometry.thumb.right;
     const auto& tokens = theme.tokens;
     const Color color = state == UiScrollbarVisualState::pressed   ? tokens.text.muted
                         : state == UiScrollbarVisualState::hovered ? tokens.state.pressed
                                                                    : tokens.fill.muted;
     return paint_stream_push_rounded(paint, right - width, geometry.thumb.top, right, geometry.thumb.bottom, color,
                                      width * .5f);
+}
+
+UiScrollbarHot ui_scrollbar_pointer_update(UiScrollbarPointer* pointer, const UiScrollbarTracks& painted,
+                                           UiScrollbarPointerEvent event, float x, float y,
+                                           bool captured) noexcept {
+    // The topmost painted track under the pointer.
+    const auto under = [&]() noexcept -> const UiRect* {
+        for (u32 i = minimum(painted.count, kUiScrollbarTrackCapacity); i-- > 0;)
+            if (ui_rect_contains(painted.tracks[i], x, y))
+                return &painted.tracks[i];
+        return nullptr;
+    };
+    if (event == UiScrollbarPointerEvent::release || !captured)
+        pointer->holding = false;
+    if (event == UiScrollbarPointerEvent::press && captured)
+        if (const UiRect* track = under()) {
+            pointer->held = *track;
+            pointer->holding = true;
+        }
+    if (pointer->holding)
+        return {pointer->held, UiScrollbarVisualState::pressed};
+    if (event == UiScrollbarPointerEvent::leave)
+        return {};
+    const UiRect* track = under();
+    return track ? UiScrollbarHot{*track, UiScrollbarVisualState::hovered} : UiScrollbarHot{};
 }
 
 UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_dips,

@@ -7,7 +7,6 @@
 #include "maicord/app/guild/member_list_channel_binding.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/ui/account/profile_media.hpp"
-#include "maicord/render/d3d11/gpu_timing.hpp"
 #include "maicord/render/text/glyph_quad_bounds.hpp"
 #include "maicord/render/text/glyph_raster.hpp"
 #include "maicord/render/media/atlas.hpp"
@@ -140,14 +139,7 @@ void test_paint_stream() noexcept {
            "paint_stream_release");
 }
 
-void test_gpu_timing_math() noexcept {
-    expect(gpu_timestamp_microseconds(1'500'000, 1'000'000'000) == 1'500 &&
-               gpu_timestamp_microseconds(1, 3) == 333'333,
-           "gpu_timestamp_integer_conversion");
-    expect(gpu_timestamp_microseconds(0, 0) == 0 &&
-               gpu_timestamp_microseconds(1, ~0ull / kGpuTimestampScale + 1) == 0,
-           "gpu_timestamp_frequency_bound");
-    expect(gpu_timestamp_microseconds(~0ull, 1) == ~0ull, "gpu_timestamp_saturating_conversion");
+void test_clock_microseconds() noexcept {
     expect(clock_microseconds(Clock{10'000'000}, 0, 25'920'000'000'000ll) == 2'592'000'000'000ull &&
                clock_microseconds(Clock{10}, 4, 19) == 1'500'000,
            "clock_microseconds_long_runtime_no_product_overflow");
@@ -339,6 +331,62 @@ void test_ui_scene() noexcept {
         expect(same_geometry && changed_corners != 0,
                "shell_small_radius_theme_changes_corners_without_changing_geometry");
         paint_stream_release(&square_paint);
+    }
+    {
+        // The channel list's bar through the shared pointer tracker: hovering the track widens it, a captured
+        // press holds it wide and pressed while the drag leaves the track, and release or leaving shrinks it.
+        ShellNavigationScene tall = chrome_navigation_scene;
+        tall.content_height = ui_rect_height(tall.viewport) * 4;
+        const auto bar = ui_scrollbar_geometry(tall.viewport, tall.scroll_dips, tall.content_height);
+        PaintStream paint{};
+        const auto& tokens = kDefaultTheme.tokens;
+        const auto pill = [&](float width, const Color& fill) noexcept {
+            if (!shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene, &tall, kDefaultTheme, 1280,
+                                                 800, &paint, &shell_regions))
+                return false;
+            u32 found = 0;
+            for (u32 i = 0; i < paint.count; ++i) {
+                const auto& q = paint.quads[i];
+                found += q.left == bar.thumb.right - width && q.right == bar.thumb.right && q.top == bar.thumb.top &&
+                         q.bottom == bar.thumb.bottom && q.radius == width * .5f &&
+                         bytes_equal(&q.fill, &fill, sizeof(Color));
+            }
+            return found == 1;
+        };
+        UiScrollbarPointer pointer{};
+        const float x = (bar.track.left + bar.track.right) * .5f, y = (bar.thumb.top + bar.thumb.bottom) * .5f;
+        const auto update = [&](UiScrollbarPointerEvent event, float px, float py, bool captured) noexcept {
+            paint.scrollbar_hot = ui_scrollbar_pointer_update(&pointer, paint.scrollbar_tracks, event, px, py, captured);
+            return paint.scrollbar_hot;
+        };
+        bool tracked = paint_stream_initialize(&paint) && bar.visible && pill(4, tokens.fill.muted);
+        bool recorded = false;
+        for (u32 i = 0; tracked && i < paint.scrollbar_tracks.count; ++i)
+            recorded = recorded || ui_rect_equal(paint.scrollbar_tracks.tracks[i], bar.track);
+        tracked = tracked && recorded &&
+                  update(UiScrollbarPointerEvent::move, bar.track.left - 20, y, false).state ==
+                      UiScrollbarVisualState::normal &&
+                  pill(4, tokens.fill.muted);
+        const auto hovered = update(UiScrollbarPointerEvent::move, x, y, false);
+        tracked = tracked && hovered.state == UiScrollbarVisualState::hovered && ui_rect_equal(hovered.track, bar.track) &&
+                  pill(8, tokens.state.pressed);
+        // A press the owner did not capture (a page click) stays hovered.
+        tracked = tracked && update(UiScrollbarPointerEvent::press, x, y, false).state == UiScrollbarVisualState::hovered;
+        tracked = tracked && update(UiScrollbarPointerEvent::press, x, y, true).state == UiScrollbarVisualState::pressed &&
+                  pill(8, tokens.text.muted) &&
+                  update(UiScrollbarPointerEvent::move, bar.track.left - 200, bar.track.bottom + 50, true).state ==
+                      UiScrollbarVisualState::pressed &&
+                  pill(8, tokens.text.muted);
+        tracked = tracked && update(UiScrollbarPointerEvent::release, bar.track.left - 200, y, false).state ==
+                                 UiScrollbarVisualState::normal &&
+                  pill(4, tokens.fill.muted);
+        // Capture lost mid-drag over the track falls back to hover; leaving the window clears it.
+        tracked = tracked && update(UiScrollbarPointerEvent::press, x, y, true).state == UiScrollbarVisualState::pressed &&
+                  update(UiScrollbarPointerEvent::move, x, y, false).state == UiScrollbarVisualState::hovered &&
+                  update(UiScrollbarPointerEvent::leave, x, y, false).state == UiScrollbarVisualState::normal &&
+                  pill(4, tokens.fill.muted);
+        expect(tracked, "shell_channel_scrollbar_widens_on_hover_and_holds_pressed_through_shared_tracker");
+        paint_stream_release(&paint);
     }
 
     char shell_composer_text[64]{};
@@ -2459,7 +2507,7 @@ void test_popup_scene() noexcept {
     const bool expected_scrollbar = long_presented && long_paint.count && long_panel;
     const PaintQuad* long_thumb = expected_scrollbar ? &long_paint.quads[long_paint.count - 1] : nullptr;
     expect(expected_scrollbar && long_thumb && long_thumb->right <= long_scene.rectangle.right &&
-               long_thumb->left >= long_scene.rectangle.right - 12 && long_thumb->radius == 4 &&
+               long_thumb->left >= long_scene.rectangle.right - 12 && long_thumb->radius == 2 &&
                long_thumb->top >= long_scene.rectangle.top &&
                long_thumb->bottom <= long_scene.rectangle.bottom,
            "popup_long_context_menu_paints_bounded_scrollbar_thumb");
@@ -2873,13 +2921,15 @@ void test_ui_variable_list() noexcept {
     const bool scrollbar_painted = paint_stream_reset(&scrollbar_paint, 200, 100) &&
         ui_scrollbar_paint(&scrollbar_paint, middle_scrollbar, kDefaultTheme);
     expect(scrollbar_painted && scrollbar_paint.count == 1 &&
-        scrollbar_paint.quads[0].left == middle_scrollbar.thumb.left &&
+        scrollbar_paint.quads[0].left == middle_scrollbar.thumb.right - 4.0f &&
         scrollbar_paint.quads[0].top == middle_scrollbar.thumb.top &&
         scrollbar_paint.quads[0].right == middle_scrollbar.thumb.right &&
         scrollbar_paint.quads[0].bottom == middle_scrollbar.thumb.bottom &&
-        scrollbar_paint.quads[0].radius == 4.0f,
+        scrollbar_paint.quads[0].radius == 2.0f && scrollbar_paint.scrollbar_tracks.count == 1 &&
+        ui_rect_equal(scrollbar_paint.scrollbar_tracks.tracks[0], middle_scrollbar.track),
         "ui_scrollbar_paints_only_thumb_preserving_pane_background");
-    expect(ui_scrollbar_paint(&scrollbar_paint, unnecessary_scrollbar, kDefaultTheme) && scrollbar_paint.count == 1,
+    expect(ui_scrollbar_paint(&scrollbar_paint, unnecessary_scrollbar, kDefaultTheme) && scrollbar_paint.count == 1 &&
+        scrollbar_paint.scrollbar_tracks.count == 1,
         "ui_scrollbar_hidden_emits_no_background_or_thumb");
     paint_stream_release(&scrollbar_paint);
 

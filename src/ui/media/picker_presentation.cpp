@@ -280,7 +280,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
     }
     if (scene.rail_count)
         p.unclip();
-    p.scrollbar(ui_media_picker_scene_scrollbar(scene), scene.body_scrollbar_state)
+    p.scrollbar(ui_media_picker_scene_scrollbar(scene))
         .use<paint_stream_push_focus>(scene.widgets, theme.tokens.border.focus);
     return p.end();
 }

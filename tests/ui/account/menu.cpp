@@ -160,7 +160,7 @@ void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {
                                  popup_presentation_build(popup, kDefaultTheme, &compact_paint);
     const auto* compact_thumb =
         compact_painted && compact_paint.count ? &compact_paint.quads[compact_paint.count - 1] : nullptr;
-    check(compact_thumb && compact_thumb->radius == 4 &&
+    check(compact_thumb && compact_thumb->radius == 2 &&
               compact_thumb->left >= popup.rectangle.right - 12 &&
               compact_thumb->right <= popup.rectangle.right && compact_thumb->top >= popup.rectangle.top &&
               compact_thumb->bottom <= popup.rectangle.bottom &&

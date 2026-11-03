@@ -687,14 +687,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
     }
     if (p && s.widgets.focused.generation)
         p.use<paint_stream_push_focus>(s.widgets, theme.tokens.border.focus);
-    const auto handle = s.elements[at(UiThemeEditorElement::scrollbar)];
-    const bool hovered = ui_widget_handle_equal(s.widgets.hovered, handle);
-    const bool pressed = ui_widget_handle_equal(s.widgets.captured, handle);
-    return p.scrollbar(ui_theme_editor_scrollbar(s),
-                       pressed   ? UiScrollbarVisualState::pressed
-                       : hovered ? UiScrollbarVisualState::hovered
-                                 : UiScrollbarVisualState::normal)
-        .end();
+    return p.scrollbar(ui_theme_editor_scrollbar(s)).end();
 }
 namespace {
 // The caption an element draws: fixed ones from a table, the rest from the draft.

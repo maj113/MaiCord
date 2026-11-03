@@ -3,6 +3,7 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
+#include "maicord/ui/layout/scrollbar.hpp"
 
 namespace maicord {
 
@@ -55,6 +56,10 @@ struct PaintBatch {
 struct PaintStream {
     UiRect scrollbar_viewport;
     bool filter_scrollbars;
+    // The bar the pointer lights (input), and the tracks of the visible bars painted since the last reset
+    // (output, for the pointer tracker).
+    UiScrollbarHot scrollbar_hot;
+    UiScrollbarTracks scrollbar_tracks;
     StableStorage quad_storage;
     PaintQuad* quads;
 

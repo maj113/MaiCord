@@ -150,10 +150,6 @@ void test_inbox_scrolling(Check check) noexcept {
               ui_scrollbar_scroll_from_pointer(moved, moved.thumb.top + 3, 3) > 119.f &&
               ui_scrollbar_scroll_from_pointer(moved, moved.thumb.top + 3, 3) < 121.f,
           "inbox scrolling: the thumb reports the position and maps back for dragging");
-    const u32 revision = scene.revision;
-    check(ui_inbox_scene_set_scrollbar_state(&scene, UiScrollbarVisualState::pressed) && scene.revision != revision &&
-              !ui_inbox_scene_set_scrollbar_state(&scene, UiScrollbarVisualState::pressed),
-          "inbox scrolling: thumb hover/press state repaints only on change");
     // Load more stays reachable at the end of the list.
     ui_inbox_scene_scroll(&scene, 1e6f);
     const auto more = ui_inbox_scene_hit_test(scene, (scene.footer.left + scene.footer.right) * .5f,

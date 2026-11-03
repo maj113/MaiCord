@@ -249,6 +249,15 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     } notification_selection{!logout_blocked &&
                              (message == WM_LBUTTONUP || message == WM_KEYUP || message == WM_ACTIVATE ||
                               message == WM_SETFOCUS || message == WM_KILLFOCUS)};
+    // Every scrollbar's hover and drag look follows the pointer once the message's owner handled it.
+    struct ScrollbarPointer {
+        UINT message;
+        WPARAM wparam;
+        LPARAM lparam;
+        ~ScrollbarPointer() {
+            track_scrollbar_pointer(message, wparam, lparam);
+        }
+    } scrollbar_pointer{logout_blocked ? 0u : message, wparam, lparam};
     if (!logout_blocked) {
         // Observe native input before modal handlers consume it. The read-state
         // controller independently decides whether the message pane is eligible.

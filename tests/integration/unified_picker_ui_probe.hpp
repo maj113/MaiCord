@@ -313,6 +313,7 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             renderer_bind_text_form(&r, form);
             renderer_bind_focus_owner(&r, focus);
             r.scrollbar_viewport = scrollbar;
+            r.scrollbar_hot = {};
             r.layer_opacity = opacity;
             r.retained_presentation.valid = false;
             ui_media_picker_scene_release(&scene);
@@ -458,14 +459,31 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
     const float wanted =
         maximum(24.f, (ui_rect_height(scene.body) - 8) * ui_rect_height(scene.body) / scene.content_height);
     const float difference = ui_rect_height(bar.thumb) - wanted;
+    // The one scrollbar look: a 4 DIP pill at the thumb's right edge at rest, 8 DIP hovered and pressed.
+    const auto& tokens = kDefaultTheme.tokens;
+    const auto pill = [&](float width, const Color& fill) noexcept {
+        for (u32 i = 0; i < renderer.paint_stream.count; ++i) {
+            const auto& q = renderer.paint_stream.quads[i];
+            if (q.left == bar.thumb.right - width && q.right == bar.thumb.right && q.top == bar.thumb.top &&
+                q.bottom == bar.thumb.bottom && q.fill.red == fill.red && q.fill.green == fill.green &&
+                q.fill.blue == fill.blue && q.fill.alpha == fill.alpha)
+                return true;
+        }
+        return false;
+    };
     if (!bar.visible || !railbar.visible || difference < -.01f || difference > .01f ||
         bar.thumb.top != scene.body.top + 4 || bar.thumb.bottom > scene.body.bottom - 4 ||
-        !ink(rb, 0, bar.thumb, scale, kDefaultTheme.interactive, 8) ||
-        !ui_media_picker_scene_set_scrollbar_state(&scene, false, UiScrollbarVisualState::hovered) ||
-        !render(1) || !ink(rb, 1, bar.thumb, scale, kDefaultTheme.interactive_hover, 8) ||
-        !ui_media_picker_scene_set_scrollbar_state(&scene, false, UiScrollbarVisualState::pressed) ||
-        !render(2) || !ink(rb, 2, bar.thumb, scale, kDefaultTheme.text_secondary, 8))
+        !pill(4, tokens.fill.muted))
         return fail();
+    renderer.scrollbar_hot = {bar.track, UiScrollbarVisualState::hovered};
+    if (!render(1) || !pill(8, tokens.state.pressed) ||
+        (capture && !capture(L"unified-picker-scrollbar-hovered.bmp", kDefaultTheme)))
+        return fail();
+    renderer.scrollbar_hot = {bar.track, UiScrollbarVisualState::pressed};
+    if (!render(2) || !pill(8, tokens.text.muted) || !ink(rb, 2, bar.thumb, scale, tokens.text.muted, 8) ||
+        (capture && !capture(L"unified-picker-scrollbar-pressed.bmp", kDefaultTheme)))
+        return fail();
+    renderer.scrollbar_hot = {};
     stage = 6;
     const auto before_burst = surface_motion_probe_detail::snapshot(renderer);
     const u32 text_batches_before_burst = renderer.media_picker_text_end_batch;

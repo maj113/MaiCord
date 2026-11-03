@@ -14,31 +14,40 @@ void test_widget_scroll(void (*check)(bool, const char*) noexcept) noexcept {
         const auto scrollbar = ui_scrollbar_geometry({0, 0, 200, 200}, 50, 1000);
         Theme gradient = kDefaultTheme;
         gradient.background = background_theme_defaults();
-        bool themed = ready;
-        for (u32 state = 0; state < 3; ++state)
-            themed = themed && ui_scrollbar_paint(&paint, scrollbar, gradient,
-                                                  static_cast<UiScrollbarVisualState>(state));
-        check(
-            themed && paint.count == 3 && paint.quads[0].border_width == -7 &&
-                paint.quads[0].reserved_y < paint.quads[1].reserved_y &&
-                paint.quads[1].reserved_x > paint.quads[2].reserved_x &&
-                paint.quads[0].left == scrollbar.thumb.left &&
-                paint.quads[0].bottom == scrollbar.thumb.bottom,
-            "scrollbar: global palette thumb keeps exact hit geometry with distinct hover and press edges");
-        bool flat = ready && paint_stream_reset(&paint, 200, 200);
-        const Color colors[]{kDefaultTheme.interactive, kDefaultTheme.interactive_hover,
-                             kDefaultTheme.text_secondary};
-        for (u32 state = 0; state < 3; ++state) {
-            const u32 first = paint.count;
-            flat = flat &&
-                   ui_scrollbar_paint(&paint, scrollbar, kDefaultTheme,
-                                      static_cast<UiScrollbarVisualState>(state)) &&
-                   paint_stream_push_rounded(&paint, scrollbar.thumb.left, scrollbar.thumb.top,
-                                             scrollbar.thumb.right, scrollbar.thumb.bottom, colors[state],
-                                             4) &&
-                   bytes_equal(&paint.quads[first], &paint.quads[first + 1], sizeof(PaintQuad));
-        }
-        check(flat, "scrollbar: all flat thumb states preserve exact original paint descriptors");
+        // One look in every theme: a flat token pill at the thumb's right edge, 4 DIP at rest and 8 DIP while
+        // hovered or pressed; the bar takes the stream's hot state only for its own track.
+        const Theme* themes[]{&kDefaultTheme, &gradient};
+        bool look = ready;
+        for (const Theme* theme : themes)
+            for (u32 state = 0; look && state < 3; ++state) {
+                const auto& tokens = theme->tokens;
+                const Color colors[]{tokens.fill.muted, tokens.state.pressed, tokens.text.muted};
+                const float width = state ? 8.f : 4.f;
+                paint.scrollbar_hot = {scrollbar.track, static_cast<UiScrollbarVisualState>(state)};
+                const u32 first = paint.count;
+                look = ui_scrollbar_paint(&paint, scrollbar, *theme) &&
+                       paint_stream_push_rounded(&paint, scrollbar.thumb.right - width, scrollbar.thumb.top,
+                                                 scrollbar.thumb.right, scrollbar.thumb.bottom, colors[state],
+                                                 width * .5f) &&
+                       paint.count == first + 2 &&
+                       bytes_equal(&paint.quads[first], &paint.quads[first + 1], sizeof(PaintQuad));
+            }
+        check(look, "scrollbar: one flat look in every theme widens from 4 to 8 DIP when hovered or pressed");
+        paint.scrollbar_hot = {{0, 0, 10, 10}, UiScrollbarVisualState::pressed};
+        const u32 other = paint.count;
+        check(ready && ui_scrollbar_paint(&paint, scrollbar, kDefaultTheme) && paint.count == other + 1 &&
+                  paint.quads[other].left == scrollbar.thumb.right - 4,
+              "scrollbar: another track's hot state leaves the bar at rest");
+        paint.scrollbar_hot = {};
+        bool filtered = ready && paint_stream_reset(&paint, 200, 200);
+        paint.filter_scrollbars = true;
+        paint.scrollbar_viewport = {0, 0, 100, 200};
+        filtered = filtered && ui_scrollbar_paint(&paint, scrollbar, kDefaultTheme) && paint.count == 0 &&
+                   paint.scrollbar_tracks.count == 1 && ui_rect_equal(paint.scrollbar_tracks.tracks[0], scrollbar.track);
+        paint.scrollbar_viewport = {0, 0, 200, 200};
+        filtered = filtered && ui_scrollbar_paint(&paint, scrollbar, kDefaultTheme) && paint.count == 1 &&
+                   paint.scrollbar_tracks.count == 2;
+        check(filtered, "scrollbar: the shell filter paints only the pointer's pane yet records every track");
         paint_stream_release(&paint);
     }
     {

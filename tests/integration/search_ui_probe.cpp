@@ -156,7 +156,9 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
         bool painted_thumb = false;
         for (u32 i = 0; i < renderer.paint_stream.count; ++i) {
             const auto& q = renderer.paint_stream.quads[i];
-            painted_thumb |= ui_rect_equal({q.left, q.top, q.right, q.bottom}, scrollbar.thumb);
+            painted_thumb |= ui_rect_equal({q.left, q.top, q.right, q.bottom},
+                                           {scrollbar.thumb.right - 4, scrollbar.thumb.top, scrollbar.thumb.right,
+                                            scrollbar.thumb.bottom});
         }
         valid = valid && scrollbar.visible && painted_thumb;
         if (!valid && !failure_stage)

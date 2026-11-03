@@ -795,14 +795,7 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
     }
     if (ranges)
         ranges->page_end_quad = paint->count;
-    const auto scrollbar_look = [&scene](bool sidebar) noexcept {
-        const u8 look = scene.scrollbar_state[sidebar ? 0 : 1];
-        return look == 2 ? UiScrollbarVisualState::pressed
-               : look == 1 ? UiScrollbarVisualState::hovered
-                           : UiScrollbarVisualState::normal;
-    };
-    p.use<ui_scrollbar_paint_overlay>(ui_settings_scene_scrollbar(scene, true), theme, scrollbar_look(true))
-        .use<ui_scrollbar_paint_overlay>(ui_settings_scene_scrollbar(scene, false), theme, scrollbar_look(false));
+    p.scrollbar(ui_settings_scene_scrollbar(scene, true)).scrollbar(ui_settings_scene_scrollbar(scene, false));
     if (ranges)
         ranges->modal_end_quad = paint->count;
     return p.end();

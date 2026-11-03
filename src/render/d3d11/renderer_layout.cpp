@@ -910,6 +910,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
     animation_frame_cache_gpu_begin_visibility(&renderer->animation_gpu);
     renderer->paint_stream.filter_scrollbars = true;
+    renderer->paint_stream.scrollbar_hot = renderer->scrollbar_hot;
     if (!renderer->login_visible && renderer_settings_page_visible(*renderer))
         return build_settings_page(renderer, theme);
     renderer->paint_stream.scrollbar_viewport = renderer->scrollbar_viewport;

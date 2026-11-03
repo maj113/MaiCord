@@ -54,6 +54,7 @@ bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept
     stream->sealed_batches = 0;
     stream->clip_depth = 1;
     stream->rejected = 0;
+    stream->scrollbar_tracks.count = 0;
     const bool valid =
         paint_coordinate_valid(right) && paint_coordinate_valid(bottom) && right > 0.0f && bottom > 0.0f;
     stream->clips[0] = PaintClip{0.0f, 0.0f, valid ? right : 0.0f, valid ? bottom : 0.0f};

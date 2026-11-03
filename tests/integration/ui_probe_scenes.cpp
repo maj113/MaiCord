@@ -2536,6 +2536,8 @@ bool probe_friends_requests_scene() noexcept {
                            last_fully_visible(),
                        "requests_compact_end_last_row_failed"))
         return false;
+    // Held by a drag, the bar is the opaque 8 DIP pressed pill (at rest it is translucent).
+    g_probe.renderer.scrollbar_hot = {ui_friends_scene_scrollbar(requests).track, UiScrollbarVisualState::pressed};
     if (!compact_check(renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme),
                        "requests_compact_text_failed"))
         return false;
@@ -2552,13 +2554,13 @@ bool probe_friends_requests_scene() noexcept {
         return false;
     const auto compact_scrollbar = ui_friends_scene_scrollbar(requests);
     const ProbePixelSample thumb_pixel{
-        {(compact_scrollbar.thumb.left + compact_scrollbar.thumb.right) * .5f,
-         (compact_scrollbar.thumb.top + compact_scrollbar.thumb.bottom) * .5f},
-        kDefaultTheme.interactive,
+        {compact_scrollbar.thumb.right - 4, (compact_scrollbar.thumb.top + compact_scrollbar.thumb.bottom) * .5f},
+        kDefaultTheme.tokens.text.muted,
         3};
     if (!compact_check(compact_scrollbar.visible && probe_exact_pixels({&thumb_pixel, 1}),
                        "requests_compact_scrollbar_gpu_pixels_failed"))
         return false;
+    g_probe.renderer.scrollbar_hot = {};
     if (!compact_check(probe_capture_frame(L"friends-requests-compact.bmp"),
                        "requests_compact_capture_failed"))
         return false;

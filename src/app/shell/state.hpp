@@ -414,6 +414,8 @@ struct Application {
     PaneResizeKind pane_resize;
     ScrollbarDragKind scrollbar_drag;
     float scrollbar_thumb_grab_offset;
+    // Hover and drag look of every painted scrollbar (track_scrollbar_pointer).
+    UiScrollbarPointer scrollbar_pointer;
     AccountUiRuntime* account_ui;
     ApplicationAttachments* attachments;
     ApplicationTextForm* text_form;

@@ -4,7 +4,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
-#include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -720,10 +719,6 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
     scene.rail_extent = ready ? rail_content_extent(m, scene.source->sections) : 0;
     scene.rail_scroll_dips =
         minimum(scene.rail_scroll_dips, maximum(0.f, scene.rail_extent - ui_rect_height(scene.rail)));
-    if (!ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.content_height).visible)
-        scene.body_scrollbar_state = UiScrollbarVisualState::normal;
-    if (!ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, scene.rail_extent).visible)
-        scene.rail_scrollbar_state = UiScrollbarVisualState::normal;
     if (ready) {
         float top = scene.body.top + content_top(scene) - scene.scroll_dips;
         if (scene.masonry) {

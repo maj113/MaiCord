@@ -74,7 +74,6 @@ struct UiInboxScene {
     bool active{};
     // Host-sampled UiSpinnerClock phase; part of the popout's paint stamp.
     u8 spinner_phase{};
-    UiScrollbarVisualState scrollbar_state{};
 };
 // Viewport is the content area below the header; the panel hangs from its
 // top right edge.
@@ -90,8 +89,6 @@ bool ui_inbox_scene_scroll(UiInboxScene*, float offset) noexcept;
 // The body's overlay scrollbar (always painted while the list overflows, so a
 // long mention history shows its position). Invisible when not current.
 UiScrollbarGeometry ui_inbox_scene_scrollbar(const UiInboxScene&) noexcept;
-// Hover/pressed thumb presentation; returns true when the paint changed.
-bool ui_inbox_scene_set_scrollbar_state(UiInboxScene*, UiScrollbarVisualState) noexcept;
 bool ui_inbox_scene_focus(UiInboxScene*, UiInboxTarget) noexcept;
 bool ui_inbox_scene_move_focus(UiInboxScene*, UiInboxFocusMove) noexcept;
 // True while the popout paints its loading spinner (first page still loading).

@@ -256,13 +256,6 @@ UiScrollbarGeometry ui_inbox_scene_scrollbar(const UiInboxScene& s) noexcept {
     return current(s) ? ui_scrollbar_geometry(s.body, s.scroll_dips, s.offsets[s.measured_count])
                       : UiScrollbarGeometry{};
 }
-bool ui_inbox_scene_set_scrollbar_state(UiInboxScene* s, UiScrollbarVisualState state) noexcept {
-    if (!s || s->scrollbar_state == state)
-        return false;
-    s->scrollbar_state = state;
-    ++s->revision;
-    return true;
-}
 bool ui_inbox_scene_focus(UiInboxScene* s, UiInboxTarget target) noexcept {
     if (!s || !current(*s) || target.action == UiInboxAction::none)
         return false;
@@ -396,7 +389,7 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
     p.unclip();
     if (s.more.generation)
         p.control<kMore>(s.widgets, s.more).rule_above(s.footer);
-    return p.scrollbar(ui_inbox_scene_scrollbar(s), s.scrollbar_state).end();
+    return p.scrollbar(ui_inbox_scene_scrollbar(s)).end();
 }
 
 bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTextOutput* out) noexcept {

@@ -234,8 +234,8 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
         bool thumb_found = false;
         for (u32 quad = 0; quad < overflow_paint.count; ++quad) {
             const auto& painted = overflow_paint.quads[quad];
-            thumb_found = thumb_found ||
-                          ui_rect_equal({painted.left, painted.top, painted.right, painted.bottom}, thumb);
+            thumb_found = thumb_found || ui_rect_equal({painted.left, painted.top, painted.right, painted.bottom},
+                                                       {thumb.right - 4, thumb.top, thumb.right, thumb.bottom});
         }
         overflow_painted = overflow_painted && thumb_found;
     }

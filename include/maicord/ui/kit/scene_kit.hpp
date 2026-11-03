@@ -172,9 +172,8 @@ class UiPaint {
         ok_ = ok_ && ui_spinner_paint(out_, r, color, phase);
         return *this;
     }
-    __forceinline UiPaint& scrollbar(const UiScrollbarGeometry& geometry,
-                                     UiScrollbarVisualState state = UiScrollbarVisualState::normal) noexcept {
-        ok_ = ok_ && ui_scrollbar_paint(out_, geometry, *theme_, state);
+    __forceinline UiPaint& scrollbar(const UiScrollbarGeometry& geometry) noexcept {
+        ok_ = ok_ && ui_scrollbar_paint(out_, geometry, *theme_);
         return *this;
     }
     // A popover panel: isolated shadow, the panel clip, then the plate (with the surface_high border unless

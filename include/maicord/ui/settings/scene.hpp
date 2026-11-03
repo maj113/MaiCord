@@ -431,8 +431,6 @@ struct UiSettingsScene {
     u32 rows_first{}, rows_end{};
     // Retained markdown blocks of the page's markdown rows (allocated on first use); freed when the scene releases.
     mutable UiMarkdownBank* markdown{};
-    // Scrollbar look of the sidebar and the page: 0 at rest, 1 hovered, 2 dragged (host-driven, paint only).
-    u8 scrollbar_state[2]{};
 };
 // True while the page shows a loading notice, whose spinner needs the clock.
 bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
@@ -442,8 +440,6 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 bool ui_settings_scene_bind_theme_styles(UiSettingsScene*, const UiResolvedThemeStyles*) noexcept;
 // Binds the host's text measuring hooks (kept across release); layout then measures instead of estimating.
 bool ui_settings_scene_bind_measure(UiSettingsScene*, const UiKitMeasure*) noexcept;
-// Sets the look of the sidebar's (or the page's) scrollbar: 0 at rest, 1 hovered, 2 dragged. Paint only.
-bool ui_settings_scene_set_scrollbar_state(UiSettingsScene*, bool sidebar, u8 state) noexcept;
 // A host page's column: the rectangle the host draws in (in page coordinates, under the title band's
 // place) and its clip (the panel's body, reaching ui_settings_focus_reach past the column's start and top so
 // focus rings at those edges stay whole). False when the page is not a host page or the scene is inactive.

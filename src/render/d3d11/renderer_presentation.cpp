@@ -220,7 +220,9 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(renderer.interaction_text_settings_revision)
             .push(renderer.interaction_text_active_mask)
             .push(renderer.interaction_text_popup_revision)
-            .pointer(popup);
+            .pointer(popup)
+            .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
+            .push(static_cast<u64>(renderer.scrollbar_hot.state));
         if (popup)
             s.push(popup->revision).widgets(popup->widgets).bytes(&popup->rectangle, sizeof(UiRect));
         if (renderer.content_text)
@@ -439,7 +441,9 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .caret(renderer.profile_scene->edit.caret_visible)
             .push(renderer.profile_scene->active)
             .widgets(renderer.profile_scene->widgets);
-    s.bytes(&renderer.scrollbar_viewport, sizeof(renderer.scrollbar_viewport));
+    s.bytes(&renderer.scrollbar_viewport, sizeof(renderer.scrollbar_viewport))
+        .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
+        .push(static_cast<u64>(renderer.scrollbar_hot.state));
     // The loading spinner's phase repaints without rebuilding the viewer's text.
     s.pointer(renderer.image_viewer);
     if (renderer.image_viewer)

@@ -94,15 +94,19 @@ void test_picker_scrollbars(void (*check)(bool, const char*) noexcept) noexcept 
     bool colors = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 400, 200);
     const UiScrollbarVisualState states[]{UiScrollbarVisualState::normal, UiScrollbarVisualState::hovered,
                                           UiScrollbarVisualState::pressed};
-    const Color expected[]{kDefaultTheme.interactive, kDefaultTheme.interactive_hover,
-                           kDefaultTheme.text_secondary};
+    const auto& tokens = kDefaultTheme.tokens;
+    const Color expected[]{tokens.fill.muted, tokens.state.pressed, tokens.text.muted};
+    const float widths[]{4, 8, 8};
     for (u32 i = 0; colors && i < 3; ++i) {
         const u32 before = paint.count;
-        colors = ui_scrollbar_paint(&paint, top, kDefaultTheme, states[i]) && paint.count == before + 1 &&
+        paint.scrollbar_hot = {top.track, states[i]};
+        colors = ui_scrollbar_paint(&paint, top, kDefaultTheme) && paint.count == before + 1 &&
                  bytes_equal(&paint.quads[before].fill, &expected[i], sizeof(Color)) &&
+                 paint.quads[before].right == top.thumb.right &&
+                 paint.quads[before].left == top.thumb.right - widths[i] &&
                  paint.quads[before].top == top.thumb.top && paint.quads[before].bottom == top.thumb.bottom;
     }
-    check(colors, "media picker scrollbar: reusable idle hover pressed colors preserve geometry");
+    check(colors, "media picker scrollbar: idle hover pressed looks keep the thumb's track and extent");
     paint_stream_release(&paint);
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 120, 100, UiMediaPickerItemKind::gif, false};
@@ -110,18 +114,13 @@ void test_picker_scrollbars(void (*check)(bool, const char*) noexcept) noexcept 
     auto content = picker_content(UiMediaPickerKind::gif, 3, 7);
     const UiRect pane{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) &&
-              ui_media_picker_scene_scrollbar(scene).visible &&
-              ui_media_picker_scene_set_scrollbar_state(&scene, false, UiScrollbarVisualState::pressed),
-          "media picker scrollbar: scene owns current overflow geometry and typed press feedback");
-    const u32 generation = scene.generation, calls = fixture.calls;
-    check(ui_media_picker_scene_set_scrollbar_state(&scene, false, UiScrollbarVisualState::hovered) &&
-              scene.generation == generation && fixture.calls == calls,
-          "media picker scrollbar: visual feedback does not reproject widgets or catalog");
+              ui_media_picker_scene_scrollbar(scene).visible,
+          "media picker scrollbar: scene owns current overflow geometry");
     content.phase = UiMediaPickerPhase::failed;
     ++content.revision;
     check(ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) &&
               scene.content_height == 0 && !ui_media_picker_scene_scrollbar(scene).visible &&
-              scene.cell_count == 0 && scene.body_scrollbar_state == UiScrollbarVisualState::normal &&
+              scene.cell_count == 0 &&
               !ui_media_picker_scene_scroll(&scene, 100),
           "media picker scrollbar: unavailable catalog with retained source has no fake extent or "
           "draggable thumb");
@@ -336,10 +335,9 @@ void test_picker_rail_and_scroll_reuse(void (*check)(bool, const char*) noexcept
                          paint_stream_reset(&rail_paint, pane.right, pane.bottom) &&
                          ui_media_picker_scene_paint(scene, kDefaultTheme, &rail_paint, nullptr, 96);
     const auto rail_bar = ui_media_picker_scene_scrollbar(scene, true);
-    for (u32 i = 0; no_rail_thumb && i < rail_paint.count; ++i) {
-        const auto& q = rail_paint.quads[i];
-        no_rail_thumb = !ui_rect_equal({q.left, q.top, q.right, q.bottom}, rail_bar.thumb);
-    }
+    // Every painted bar records its track: the rail's is never among them.
+    for (u32 i = 0; no_rail_thumb && i < rail_paint.scrollbar_tracks.count; ++i)
+        no_rail_thumb = !ui_rect_equal(rail_paint.scrollbar_tracks.tracks[i], rail_bar.track);
     check(square_rail && rail_bar.visible && no_rail_thumb &&
               ui_media_picker_scene_scroll(&scene, 16, true),
           "media picker rail: square centered artwork keeps its complete width, scrolls without a painted "

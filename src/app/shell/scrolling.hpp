@@ -27,5 +27,8 @@ bool tick_smooth_scrolls(u64 now_us) noexcept;
 bool animate_guild_rail_scroll_from(float before) noexcept;
 bool animate_popup_scroll_from(float before) noexcept;
 void update_scrollbar_hover(float x, float y) noexcept;
+// The hover and drag look of every painted scrollbar: observes each pointer message after its owner
+// handled it and republishes the renderer's hot bar (requesting a frame) when it changes.
+void track_scrollbar_pointer(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 
 } // namespace maicord::app_detail

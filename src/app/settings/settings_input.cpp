@@ -370,19 +370,6 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
             return true;
         }
-        // The thin scrollbars widen under the pointer and while dragged.
-        {
-            bool changed = false;
-            for (u32 i = 0; i < 2; ++i) {
-                const bool sidebar = i == 0;
-                const u8 look = settings->scrollbar_dragging && settings->scrollbar_sidebar == sidebar ? 2
-                                : ui_scrollbar_track_hit(ui_settings_scene_scrollbar(settings->scene, sidebar), x, y) ? 1
-                                                                                                                      : 0;
-                changed = ui_settings_scene_set_scrollbar_state(&settings->scene, sidebar, look) || changed;
-            }
-            if (changed)
-                application_request_frame();
-        }
         if (settings->scrollbar_dragging) {
             if (message == WM_MOUSEMOVE) {
                 const auto geometry = ui_settings_scene_scrollbar(settings->scene, settings->scrollbar_sidebar);

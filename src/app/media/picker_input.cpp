@@ -260,7 +260,6 @@ namespace picker_detail {
 void revoke_capture(ApplicationMediaPicker& p) noexcept {
     const bool was_resizing = p.resizing;
     p.captured = p.dragging = p.scrollbar_dragging = p.scrollbar_follow_pending = p.resizing = false;
-    ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
     application_release_capture();
     if (was_resizing) {
@@ -591,10 +590,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         return false;
     if (message == WM_MOUSELEAVE) {
         p->hover_at = 0;
-        const bool scrollbar_changed =
-            !p->scrollbar_dragging &&
-            ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::normal);
-        if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()) || scrollbar_changed)
+        if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()))
             repaint(true);
         return false;
     }
@@ -688,7 +684,6 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         p->scrollbar_scope = p->scope;
         p->scrollbar_revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
         p->scrollbar_dragging = p->captured = true;
-        ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::pressed);
         scrollbar_follow(*p, geometry, y);
         application_capture_pointer();
         repaint(true);
@@ -748,12 +743,6 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         return true;
     }
     if (message == WM_MOUSEMOVE) {
-        const bool scrollbar_changed = ui_media_picker_scene_set_scrollbar_state(
-            &p->scene, false,
-            ui_scrollbar_thumb_hit(geometry, x, y) ? UiScrollbarVisualState::hovered
-                                                   : UiScrollbarVisualState::normal);
-        if (scrollbar_changed)
-            application_request_frame();
         if (inside) {
             if (ui_media_picker_scene_hover(&p->scene, x, y, clock_monotonic_milliseconds())) {
                 p->hover_at = hit.action == UiMediaPickerAction::item ||

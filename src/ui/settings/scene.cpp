@@ -384,13 +384,6 @@ bool ui_settings_scene_bind_measure(UiSettingsScene* scene, const UiKitMeasure* 
     scene->layout_signature = 0;
     return true;
 }
-bool ui_settings_scene_set_scrollbar_state(UiSettingsScene* scene, bool sidebar, u8 state) noexcept {
-    if (!scene || state > 2 || scene->scrollbar_state[sidebar ? 0 : 1] == state)
-        return false;
-    scene->scrollbar_state[sidebar ? 0 : 1] = state;
-    ++scene->motion_revision;
-    return true;
-}
 bool ui_settings_scene_host_rect(const UiSettingsScene& scene, UiRect* page, UiRect* clip) noexcept {
     if (!current(scene) || !scene.content.host)
         return false;

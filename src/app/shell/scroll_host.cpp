@@ -288,6 +288,45 @@ void update_scrollbar_hover(float x, float y) noexcept {
     }
 }
 
+void track_scrollbar_pointer(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    UiScrollbarPointerEvent event{};
+    switch (message) {
+    case WM_MOUSEMOVE:
+        event = UiScrollbarPointerEvent::move;
+        break;
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
+        event = UiScrollbarPointerEvent::press;
+        break;
+    case WM_LBUTTONUP:
+    case WM_CAPTURECHANGED:
+    case WM_CANCELMODE:
+        event = UiScrollbarPointerEvent::release;
+        break;
+    case WM_MOUSELEAVE:
+        event = UiScrollbarPointerEvent::leave;
+        break;
+    default:
+        return;
+    }
+    if (!g_app.renderer_ready)
+        return;
+    // Content pixels: the message's point, or (a lost drag has none) the cursor, so the bar falls back to
+    // hovering where the pointer is.
+    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    if ((message == WM_CAPTURECHANGED || message == WM_CANCELMODE) && !application_cursor_content(&point))
+        point = {-1, -1};
+    const float scale = 96.f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
+    const float x = static_cast<float>(point.x) * scale, y = static_cast<float>(point.y) * scale;
+    const bool captured = application_pointer_captured() && (message != WM_MOUSEMOVE || (wparam & MK_LBUTTON));
+    const auto hot = ui_scrollbar_pointer_update(&g_app.scrollbar_pointer, g_app.renderer.paint_stream.scrollbar_tracks,
+                                                 event, x, y, captured);
+    if (!ui_scrollbar_hot_equal(hot, g_app.renderer.scrollbar_hot)) {
+        g_app.renderer.scrollbar_hot = hot;
+        application_request_frame();
+    }
+}
+
 namespace {
 // Whether the message timeline's wheel animation continues after this step.
 bool messages_animating() noexcept {

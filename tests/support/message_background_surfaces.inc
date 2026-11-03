@@ -77,7 +77,7 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
         ready ? ui_scrollbar_geometry(scene.viewport, ui_extent_dips(scene.timeline->scroll_units),
                                       ui_extent_dips(scene.timeline->list->total_units))
               : UiScrollbarGeometry{};
-    u32 materials = 0, scrollbar_materials = 0;
+    u32 materials = 0;
     bool component_fill = false;
     for (u32 i = 0; geometry && i < flat.count; ++i) {
         const auto& a = flat.quads[i];
@@ -88,34 +88,24 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
         geometry = a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
                    a.radius == b.radius;
         if (b.border_width == -7) {
-            // The only unrecorded material is the final normal thumb. Its
-            // palette edge is deliberately wider than the flat zero border;
-            // never grant that exception to message cards or media artwork.
-            const bool thumb = scrollbar.visible && i + 1 == flat.count &&
-                               ui_rect_equal({a.left, a.top, a.right, a.bottom}, scrollbar.thumb);
-            if (thumb) {
-                ++scrollbar_materials;
-                geometry = geometry && a.radius == 4 && a.border_width == 0 && a.reserved_x == 0 &&
-                           a.reserved_y == 0 && b.reserved_x == -.60f &&
-                           b.reserved_y ==
-                               (1 - ui_background_tier_opacity(theme, UiBackgroundTier::highest)) * .90f &&
-                           bytes_equal(&a.fill, &kDefaultTheme.interactive, sizeof(Color)) &&
-                           bytes_equal(&a.border, &kDefaultTheme.interactive, sizeof(Color)) &&
-                           bytes_equal(&a.fill, &b.fill, sizeof(Color)) &&
-                           bytes_equal(&a.border, &b.border, sizeof(Color));
-            } else {
-                ++materials;
-                geometry = geometry && b.fill.alpha == 1 && b.reserved_y > 0 &&
-                           (b.reserved_x == a.border_width || b.reserved_x == -a.border_width);
-            }
+            ++materials;
+            geometry = geometry && b.fill.alpha == 1 && b.reserved_y > 0 &&
+                       (b.reserved_x == a.border_width || b.reserved_x == -a.border_width);
         } else {
-            // Media placeholders, native icons, authored accents and status
-            // decorations must stay exact; only row hover is a glass layer.
+            // Media placeholders, native icons, authored accents, status
+            // decorations and the scrollbar must stay exact; only row hover is a
+            // glass layer.
             const bool glass = a.radius == 0 && a.fill.alpha == .55f;
             geometry = geometry && (glass || bytes_equal(&a, &b, sizeof(PaintQuad)));
         }
     }
-    geometry = geometry && scrollbar_materials == (scrollbar.visible ? 1u : 0u);
+    // The scrollbar is the one flat pill in every theme, never a background material.
+    if (geometry && scrollbar.visible) {
+        const auto& thumb = gradient.quads[gradient.count - 1];
+        geometry = thumb.left == scrollbar.thumb.right - 4 && thumb.right == scrollbar.thumb.right &&
+                   thumb.top == scrollbar.thumb.top && thumb.bottom == scrollbar.thumb.bottom && thumb.radius == 2 &&
+                   thumb.border_width == 0 && bytes_equal(&thumb.fill, &theme.tokens.fill.muted, sizeof(Color));
+    }
     check(geometry, "message gradient per-quad geometry material metadata and nonmaterial colors match");
     bool media_keys = ready && flat_media.count == gradient_media.count;
     for (u32 i = 0; media_keys && i < flat_media.count; ++i) {
