@@ -657,8 +657,8 @@ bool choose_card(MessageScene* scene, UiPoint point, bool keyboard) noexcept {
         if (keyboard &&
             (g_app.context_focus != &scene->widgets || !ui_widget_handle_equal(scene->widgets.focused, root)))
             continue;
-        UiPollAnswer answers[kUiPollMaximumAnswers]{};
-        UiPollProjection projection{};
+        UiPollAnswer answers[kUiPollMaximumAnswers];
+        UiPollProjection projection;
         if (!message_scene_poll_projection(*scene, row, application_theme(),
                                            {answers, kUiPollMaximumAnswers}, &projection))
             continue;
@@ -778,7 +778,7 @@ bool application_poll_active() noexcept {
 }
 bool application_poll_action(const ApplicationPollSource& source, const UiPollAction& action) noexcept {
     const auto* p = poll(source);
-    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollAnswer answers[kUiPollMaximumAnswers];
     UiPollState state{};
     if (!p || source.result_revision != p->result_revision ||
         !project_state(source, *p, {answers, kUiPollMaximumAnswers}, &state) ||
@@ -1400,8 +1400,8 @@ bool application_poll_cursor(UiPoint point, UiCursor* cursor) noexcept {
                                : nullptr;
         if (!node || !ui_rect_contains(ui_rect_intersection(node->rectangle, node->clip_rectangle), point.x, point.y))
             continue;
-        UiPollAnswer answers[kUiPollMaximumAnswers]{};
-        UiPollProjection projection{};
+        UiPollAnswer answers[kUiPollMaximumAnswers];
+        UiPollProjection projection;
         *cursor = message_scene_poll_projection(scene, row, application_theme(), {answers, kUiPollMaximumAnswers},
                                                 &projection)
                       ? ui_poll_controls_cursor(projection, point)

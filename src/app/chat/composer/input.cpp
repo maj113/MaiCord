@@ -30,7 +30,7 @@ namespace {
 
 // Same contract as the message accessory: buttons run the plugin's slot action.
 bool activate_plugin_slot(u32 index) noexcept {
-    UiPluginSlotNode nodes[kMessageComposerPluginSlots]{};
+    UiPluginSlotNode nodes[kMessageComposerPluginSlots];
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {nodes, kMessageComposerPluginSlots});
     if (index < count && nodes[index].action_id)
         application_plugin_surfaces_activate(nodes[index].owner_id, {kUiPluginSlotComposerToolbar, 0, 0, 0, 0},

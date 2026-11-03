@@ -59,7 +59,7 @@ bool apply_response(u32 body_bytes) noexcept {
     GatewayMessageEvent message{};
     bool decoded_response = false;
     if (body_bytes != 0) {
-        MessageHistoryDecodeScratch scratch{};
+        MessageHistoryDecodeScratch scratch;
         const Utf8View body{
             reinterpret_cast<const char*>(g_app.account_ui->response_shape_scratch.response), body_bytes};
         if (!application_message_decode_scratch(*g_app.account_ui, &scratch, body)) {

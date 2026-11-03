@@ -6,7 +6,7 @@ namespace maicord {
 RestClientSubmitResult account_message_poll_submit(RestClient* rest,
     const PollRequest* request,u64 request_id) noexcept {
     if (!rest || !request || !request_id) return {RestClientSubmitError::invalid_input};
-    u8 target[kPollMaximumTargetBytes]{},body[kPollMaximumRequestBodyBytes]{};
+    u8 target[kPollMaximumTargetBytes],body[kPollMaximumRequestBodyBytes];
     const auto written=write_poll_request(*request,{target,sizeof(target)},{body,sizeof(body)});
     if (!written.ok()) return {written.error==PollWriteError::output_capacity
         ?RestClientSubmitError::target_capacity:RestClientSubmitError::invalid_input};

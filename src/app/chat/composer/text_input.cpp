@@ -1,5 +1,6 @@
 #include "../../media/downloads.hpp"
 #include "../../shell/content_point.hpp"
+#include "text_geometry.hpp"
 #include "text_input_state.hpp"
 #include "../../account/profile.hpp"
 #include "composer.hpp"
@@ -202,16 +203,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     const auto bounds = edit_bounds();
     if (!ui_rect_has_area(bounds) || !g_app.renderer.dpi)
         return false;
-    POINT origin{};
-    if (!application_content_to_screen(&origin) ||
-        !GetWindowRect(g_app.window, output->window_screen.native()))
-        return false;
-    const float scale = static_cast<float>(g_app.renderer.dpi) / 96.0f;
-    output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
-                           origin.y + static_cast<LONG>(bounds.top * scale),
-                           origin.x + static_cast<LONG>(bounds.right * scale),
-                           origin.y + static_cast<LONG>(bounds.bottom * scale)};
-    return true;
+    return text_store_screen_geometry(bounds, output);
 }
 void changed(void* context) noexcept {
     auto* input = static_cast<ApplicationComposerTextInput*>(context);
@@ -297,14 +289,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
                                                &count) ||
             !count)
             return false;
-        rectangle = {metrics[0].left, metrics[0].top, metrics[0].left + metrics[0].width,
-                     metrics[0].top + metrics[0].height};
-        for (u32 i = 1; i < count; ++i) {
-            rectangle.left = minimum(rectangle.left, metrics[i].left);
-            rectangle.top = minimum(rectangle.top, metrics[i].top);
-            rectangle.right = maximum(rectangle.right, metrics[i].left + metrics[i].width);
-            rectangle.bottom = maximum(rectangle.bottom, metrics[i].top + metrics[i].height);
-        }
+        rectangle = text_metrics_bounds(metrics, count);
     }
     const auto visible = ui_rect_intersection(rectangle, bounds);
     if (!ui_rect_has_area(visible))

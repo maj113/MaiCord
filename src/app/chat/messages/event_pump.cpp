@@ -585,7 +585,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         bool message_validated = false;
         MessageReadBadge read_badge = MessageReadBadge::none;
         if (event.dispatch_kind == GatewayClientDispatchKind::message_create && pump->state) {
-            GatewayMessageEvent message{};
+            GatewayMessageEvent message;
             if (!gateway_client_event_as_message(event, payload, &message)) {
                 reject_resync(pump, &result, MessageEventPumpRejectReason::message_decode);
                 return result;

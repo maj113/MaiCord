@@ -11,8 +11,6 @@
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "../account/account_access.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord::app_detail {
 namespace {
 constexpr u64 kPageOwner = 0x4D41495245505254ull; // "MAIREPRT"

@@ -41,7 +41,7 @@ LinkTrustStore* current_store() noexcept {
 }
 
 void launch(const Utf8View& url) noexcept {
-    wchar_t wide[2048]{};
+    wchar_t wide[2048];
     const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data, static_cast<int>(url.bytes),
                                           wide, static_cast<int>(sizeof(wide) / sizeof(wide[0]) - 1));
     if (units <= 0)
@@ -111,18 +111,18 @@ bool application_link_open(Utf8View url, bool trusted_text) noexcept {
     const bool website = decision == LinkOpenDecision::warn_website;
     // The warning shows the URL without credentials; very long URLs end in
     // an ellipsis there (the accepted link is always the whole URL).
-    char shown[2048]{};
+    char shown[2048];
     const u32 full_bytes = link_display_url(url, {shown, sizeof(shown)});
     constexpr u32 kShownMaximum = 1536;
     const u32 shown_bytes = utf8_truncated_length({shown, full_bytes}, kShownMaximum);
-    char context_text[1700]{};
+    char context_text[1700];
     TextBank context{context_text, sizeof(context_text), 0};
     context.add(website ? utf8_literal("This link is taking you to the following website\n\n")
                         : utf8_literal("This link is trying to open an application on your device\n\n"));
     context.add({shown, shown_bytes});
     if (shown_bytes < full_bytes)
         context.add("\xE2\x80\xA6");
-    char option_text[64 + kLinkTrustHostBytes]{};
+    char option_text[64 + kLinkTrustHostBytes];
     TextBank option{option_text, sizeof(option_text), 0};
     option.add("Trust ");
     option.add(website ? link_target_host(target) : link_target_protocol(target));

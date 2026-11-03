@@ -232,7 +232,7 @@ bool copy_message_text_selection() noexcept {
         return false;
     }
     Utf8View copied{command->text.data + first, last - first};
-    char projected[kMaximumMessageTextUtf8Bytes]{};
+    char projected[kMaximumMessageTextUtf8Bytes];
     const MessageStore* store = g_app.message_view.timeline.store;
     const Utf8View source = store ? message_text_presentation_command_source(
                                         *store, g_app.message_view.timeline.rich_store, *command)
@@ -496,7 +496,7 @@ bool copy_message_link(u64 message_id) noexcept {
     const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
     const ChannelRecord* channel =
         record ? chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id) : nullptr;
-    char link[kMessageContextMaximumLinkBytes]{};
+    char link[kMessageContextMaximumLinkBytes];
     const u32 bytes = record ? message_context_format_link(channel ? channel->guild_id : 0, record->channel_id,
                                                            record->id,
                                                            Slice<char>{link, kMessageContextMaximumLinkBytes})
@@ -507,7 +507,7 @@ bool copy_message_link(u64 message_id) noexcept {
 // Shift copies the "channel-message" form, as the official client does.
 bool copy_message_id(u64 message_id, bool with_channel) noexcept {
     const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
-    char id[41]{};
+    char id[41];
     u32 bytes = 0;
     if (record && with_channel) {
         bytes = message_context_format_snowflake(record->channel_id, Slice<char>{id, 20});
@@ -853,7 +853,7 @@ bool open_folder_context_popup(u64 row_id, UiRect anchor) noexcept {
     const u64 folder_id = row ? application_guild_folders_folder_id(*row) : 0;
     if (!folder_id)
         return dismiss_popup();
-    PopupItem items[1]{};
+    PopupItem items[1];
     popup_item_set(&items[0], utf8_literal("Folder settings"), popup_action_folder_settings, popup_item_enabled);
     items[0].presentation = ui_menu_row_presentation(UiIcon::settings);
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, folder_id, {items, 1}, anchor,

@@ -690,7 +690,7 @@ float list_item_height(const PopupItem& item) noexcept {
 // while it is outside every chip, or the file picker on an ATTACHMENT chip.
 bool render_command(const UiLayoutNode& surface) noexcept {
     auto& c = *commands;
-    PopupItem items[32]{};
+    PopupItem items[32];
     u32 count = 0;
     const auto input = message_composer_text(g_app.message_composer);
     CommandArgumentSpan spans[25];
@@ -915,7 +915,7 @@ namespace commands_detail {
 // and every ranked row, scrolled as a whole).
 bool render_picker(const UiLayoutNode& surface) noexcept {
     auto& c = *commands;
-    PopupItem items[32]{};
+    PopupItem items[32];
     u32 count = 0;
     float fraction = 0, rail_fraction = 0;
     const Utf8View status = c.error.bytes ? c.error : utf8_literal("No matching commands");

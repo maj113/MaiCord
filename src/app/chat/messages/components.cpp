@@ -286,7 +286,7 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
 
 // Lists the open select's choices, checked ones marked for a multiple select, with a Done row.
 bool open_select_menu(UiRect anchor, float width) noexcept {
-    PopupItem items[kSelectMaximumChoices + 1]{};
+    PopupItem items[kSelectMaximumChoices + 1];
     u32 count = 0;
     const bool multiple = owner->select_maximum > 1;
     for (u32 i = 0; i < owner->choice_count; ++i) {

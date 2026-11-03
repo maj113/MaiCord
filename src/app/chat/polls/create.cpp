@@ -10,6 +10,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
@@ -130,23 +131,12 @@ u32 editor_of(u64 control) noexcept {
 
 // Projection --------------------------------------------------------------
 
-struct Bank {
-    char* data;
-    u32 capacity, used;
-    Utf8View add(const Utf8View& text) noexcept {
-        const u32 take = minimum(text.bytes, capacity - used);
-        copy_bytes(data + used, text.data, take);
-        used += take;
-        return {data + used - take, take};
-    }
-    Utf8View numbered(Utf8View prefix, u32 number) noexcept {
-        const u32 start = used;
-        add(prefix);
-        if (number >= 10 && used < capacity) data[used++] = static_cast<char>('0' + number / 10);
-        if (used < capacity) data[used++] = static_cast<char>('0' + number % 10);
-        return {data + start, used - start};
-    }
-};
+Utf8View numbered(TextBank& bank, Utf8View prefix, u32 number) noexcept {
+    const u32 start = bank.used;
+    bank.add(prefix);
+    bank.number(number);
+    return bank.since(start);
+}
 void push(const UiSettingsControl& control) noexcept {
     if (owner->control_count < kControlCapacity)
         owner->controls[owner->control_count++] = control;
@@ -169,14 +159,14 @@ bool project() noexcept {
     auto& d = p.draft;
     const bool edit = editable();
     p.bank_index ^= 1;
-    Bank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
+    TextBank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
     p.control_count = 0;
     push({control_question, utf8_literal("Question"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
           editor_view(0, control_question, utf8_literal("What do you want to ask?"))});
     push({control_answers, utf8_literal("Answers"), {}, UiSettingsControlKind::category, true, false, {}, 0, {},
           nullptr});
     for (u32 i = 0; i < d.answer_count; ++i) {
-        push({control_answer + i, bank.numbered(utf8_literal("Answer "), i + 1), {}, UiSettingsControlKind::edit,
+        push({control_answer + i, numbered(bank, utf8_literal("Answer "), i + 1), {}, UiSettingsControlKind::edit,
               edit, false, {}, 0, {}, editor_view(1 + i, control_answer + i, utf8_literal("Type an answer"))});
         push({control_emoji + i, utf8_literal("Emoji"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
               editor_view(1 + kAnswers + i, control_emoji + i, utf8_literal("Optional emoji"))});

@@ -39,7 +39,7 @@ bool apply_spelling(u32 action) noexcept {
 }
 // Its own frame: the clipboard buffer (16 KiB) must not weigh on every composer edit command.
 __declspec(noinline) MessageComposerResult paste_text(MessageComposer* composer, const ComposerEditClipboard* clipboard) noexcept {
-    char text[kMessageComposerMaximumBytes]{};
+    char text[kMessageComposerMaximumBytes];
     MessageComposerResult result = MessageComposerResult::unchanged;
     const auto copied = clipboard ? clipboard->read ? clipboard->read(clipboard->context, {text, sizeof(text)}) :
         ClipboardTextResult{0, ClipboardTextError::unavailable} : clipboard_read_utf8(g_app.window, {text, sizeof(text)});

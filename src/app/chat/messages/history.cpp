@@ -1122,8 +1122,8 @@ static bool pump_message_history_main(bool admit) noexcept {
                             trace_fields(shortfall, "decoded\0inserted\0resident\0skipped\0evicted", fields);
                             log_write(LogLevel::warning, "rest", shortfall.text);
                         }
-                        MessagePollPageInput inputs[kMessageHistoryRequestLimit]{};
-                        MessagePollResultTicket tickets[kMessageHistoryRequestLimit]{};
+                        MessagePollPageInput inputs[kMessageHistoryRequestLimit];
+                        MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
                         u32 poll_count = 0;
                         auto& ui = *g_app.account_ui;
                         for (u32 i = 0; i < accepted.decode.page.count; ++i) {

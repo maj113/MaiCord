@@ -173,7 +173,7 @@ bool application_channel_prefetch_response(const RestClientResponse& response, U
         response.status_code != 200 || !body.data || !body.bytes || body.bytes != response.body_bytes ||
         message_snapshot_cache_find(snapshots(), channel_id) || !application_channel_readable(g_app, channel_id))
         return true;
-    MessageHistoryDecodeScratch scratch{};
+    MessageHistoryDecodeScratch scratch;
     if (!application_message_decode_scratch(*ui, &scratch, body))
         return true;
     const MessageHistoryDecodeResult decoded = decode_message_history_page(
@@ -184,8 +184,8 @@ bool application_channel_prefetch_response(const RestClientResponse& response, U
     const ConstSlice<GatewayMessageEvent> messages{scratch.messages.data, decoded.page.count};
     if (!message_history_observe_page(&ui->user_store, &ui->guild_member_store, &ui->chat_state, messages))
         return true;
-    MessagePollPageInput inputs[kMessageHistoryRequestLimit]{};
-    MessagePollResultTicket tickets[kMessageHistoryRequestLimit]{};
+    MessagePollPageInput inputs[kMessageHistoryRequestLimit];
+    MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
     u32 polls = 0;
     for (u32 index = 0; index < messages.count && polls < kMessageHistoryRequestLimit; ++index) {
         const GatewayMessageEvent& message = messages[index];

@@ -582,7 +582,7 @@ u32 message_mention_warning_body(const MessageMentionWarning& warning, MessageMe
                                  Slice<char> output) noexcept {
     if (!warning.required || !output.data)
         return 0;
-    char digits[16]{};
+    char digits[16];
     const u32 digit_count = decimal_write_grouped(digits, warning.count);
     u32 used = append_text(output, 0, utf8_literal("By using "));
     used = append_text(output, used, warning.here ? utf8_literal("@here") : utf8_literal("@everyone"));

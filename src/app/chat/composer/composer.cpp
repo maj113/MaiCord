@@ -124,7 +124,7 @@ bool synchronize_autocomplete() noexcept {
         close_composer_popup();
         return true;
     }
-    PopupItem items[kComposerAutocompleteCapacity]{};
+    PopupItem items[kComposerAutocompleteCapacity];
     for (u32 index = 0; index < autocomplete.count; ++index) {
         items[index] = PopupItem{autocomplete.suggestions[index].label,
                                  popup_action_autocomplete_first + index, popup_item_enabled, 0};

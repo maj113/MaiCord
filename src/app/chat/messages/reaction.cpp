@@ -509,7 +509,7 @@ ApplicationMessageReactionEnqueueResult application_queue_message_reaction(u64 m
             }
         }
     }
-    char copied[kMessageReactionMaximumEmojiNameBytes]{};
+    char copied[kMessageReactionMaximumEmojiNameBytes];
     if (label.bytes > sizeof(copied))
         return ApplicationMessageReactionEnqueueResult::invalid;
     copy_bytes(copied, label.data, label.bytes);

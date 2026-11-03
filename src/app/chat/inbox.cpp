@@ -1,6 +1,5 @@
 #include "../shell/overlay_input.hpp"
 #include "inbox.hpp"
-#include "../shell/content_point.hpp"
 #include "../shell/cursor.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../account/account_presentation.hpp"
@@ -591,7 +590,7 @@ bool application_inbox_response(const RestClientResponse& response, Utf8View bod
     }
     bool ok = response.transport_ok() && response.status_code == 200 && g_app.account_ui;
     if (ok) {
-        MessageHistoryDecodeScratch scratch{};
+        MessageHistoryDecodeScratch scratch;
         ok = application_message_decode_scratch(*g_app.account_ui, &scratch, body);
         const auto decoded = ok ? decode_message_mentions_page(body, scratch.page_structurals,
                                                                scratch.maximum_depth, scratch.content,

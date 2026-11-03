@@ -325,7 +325,7 @@ bool application_pick_attachments() noexcept {
 bool application_manage_attachments() noexcept {
     auto* state = g_app.attachments; if (!current(state)) return true;
     state->detail_id = 0;
-    PopupItem items[kAttachmentUploadMaximumCount + 4]{}; u32 used = 0;
+    PopupItem items[kAttachmentUploadMaximumCount + 4]; u32 used = 0;
     if (state->notice_bytes) popup_item_set(&items[used++], {state->notice, state->notice_bytes}, popup_action_attachment_title);
     state->menu_count = message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id,
         {state->menu_ids, kAttachmentUploadMaximumCount});
@@ -346,7 +346,7 @@ bool application_attachment_add_menu() noexcept {
     if (!g_app.account_ui) return false;
     const u64 channel = g_app.account_ui->active_channel_id;
     if (!application_poll_create_available(channel)) return application_pick_attachments();
-    PopupItem items[2]{};
+    PopupItem items[2];
     popup_item_set(&items[0], utf8_literal("Upload a file"), popup_action_attachment_upload,
         static_cast<u16>(can_attach() ? popup_item_enabled : 0));
     items[0].presentation = ui_menu_row_presentation(UiIcon::upload);

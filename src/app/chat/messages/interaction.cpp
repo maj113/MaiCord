@@ -189,8 +189,6 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         const auto* record = application_message_record(owner_id);
         applied =
             record && queue_private_conversation(PrivateConversationOperation::open, record->author_id);
-    } else if (action == popup_action_message_user && g_app.popup_owner_kind == PopupOwnerKind::member) {
-        applied = queue_private_conversation(PrivateConversationOperation::open, owner_id);
     } else if (action == popup_action_mark_channel_read &&
                (g_app.popup_owner_kind == PopupOwnerKind::channel ||
                 g_app.popup_owner_kind == PopupOwnerKind::private_channel)) {
@@ -244,7 +242,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     } else if (action == popup_action_copy_guild_id && g_app.popup_owner_kind == PopupOwnerKind::guild &&
                g_app.preferences.developer_mode) {
         PopupItem current{};
-        char id[20]{};
+        char id[20];
         const u32 bytes = guild_context_policy_build(g_app.account_ui->chat_state, owner_id,
                                                      popup_action_copy_guild_id, {&current, 1})
                               ? message_context_format_snowflake(owner_id, {id, 20})
@@ -273,7 +271,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         applied = copy_message_id(owner_id, shift_pressed);
     } else if (action == popup_action_copy_member_id && g_app.popup_owner_kind == PopupOwnerKind::member &&
                g_app.preferences.developer_mode) {
-        char id[20]{};
+        char id[20];
         const u32 bytes = message_context_format_snowflake(owner_id, Slice<char>{id, 20});
         applied = application_copy_text({id, bytes}, kToastIdCopied, kToastIdCopyFailed);
     }

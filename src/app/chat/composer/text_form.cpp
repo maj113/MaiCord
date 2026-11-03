@@ -4,6 +4,7 @@
 #include "text_form_state.hpp"
 #include "../../shell/cursor.hpp"
 #include "text_input.hpp"
+#include "text_geometry.hpp"
 #include "../../shell/state.hpp"
 #include "../../account/account_presentation.hpp"
 #include "composer.hpp"
@@ -228,17 +229,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     const auto* field = text_form_node(form->scene, TextFormElement::edit);
     if (!field)
         return false;
-    const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
-    const auto bounds = field->content_rectangle;
-    POINT origin{};
-    if (!application_content_to_screen(&origin) ||
-        !GetWindowRect(g_app.window, output->window_screen.native()))
-        return false;
-    output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
-                           origin.y + static_cast<LONG>(bounds.top * scale),
-                           origin.x + static_cast<LONG>(bounds.right * scale),
-                           origin.y + static_cast<LONG>(bounds.bottom * scale)};
-    return true;
+    return text_store_screen_geometry(field->content_rectangle, output);
 }
 bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* inside) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
@@ -396,7 +387,7 @@ bool apply(ApplicationTextForm* form, SecureEditResult result) noexcept {
 }
 // Its own frame: the clipboard buffer must not weigh on every input event.
 __declspec(noinline) bool paste_clipboard(ApplicationTextForm* form) noexcept {
-    char pasted[kApplicationTextFormBytes]{};
+    char pasted[kApplicationTextFormBytes];
     const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
     const auto result = read.ok() ? secure_edit_insert_utf8(&form->edit, {pasted, read.bytes})
                         : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity

@@ -6,7 +6,7 @@ RestClientSubmitResult account_thread_action_submit(
     RestClient* rest, const ThreadActionRequest* request, u64 request_id) noexcept {
     if (!rest || !request || !request_id || !thread_action_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
-    u8 target[kThreadActionMaximumTargetBytes]{}, body[kThreadActionMaximumBodyBytes]{};
+    u8 target[kThreadActionMaximumTargetBytes], body[kThreadActionMaximumBodyBytes];
     const auto path = thread_action_write_target(*request, {target, sizeof(target)});
     const auto written = thread_action_write_body(*request, {body, sizeof(body)});
     if (!path.ok() || !written.ok()) return {RestClientSubmitError::invalid_input};

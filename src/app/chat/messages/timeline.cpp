@@ -100,12 +100,12 @@ bool newer_than_resident(const MessageStore& store, u64 id) noexcept {
 
 bool evict_resident_edge(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 protected_id,
                          u32* first_changed) noexcept {
-    if (!timeline || !timeline->store || !timeline->list || timeline->list->count == 0) {
+    if (timeline->list->count == 0) {
         return false;
     }
     const u32 last = timeline->list->count - 1;
     u32 removal_index = 0;
-    if (!timeline->follow_bottom && anchor && anchor->valid) {
+    if (!timeline->follow_bottom && anchor->valid) {
         const u32 distance_to_first = anchor->index;
         const u32 distance_to_last = last - minimum(anchor->index, last);
         removal_index = distance_to_last > distance_to_first ? last : 0;
@@ -127,15 +127,13 @@ bool evict_resident_edge(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 
         }
     }
     const u64 id = record->id;
-    const bool removed_anchor = anchor && anchor_in_range(*anchor, removal_index, 1);
+    const bool removed_anchor = anchor_in_range(*anchor, removal_index, 1);
     if (!message_store_delete(timeline->store, id) ||
         (timeline->rich_store && !message_rich_store_delete(timeline->rich_store, id)) ||
         !ui_variable_list_remove(timeline->list, removal_index, 1, anchor)) {
         return false;
     }
-    if (anchor) {
-        install_removed_anchor_fallback(timeline->list, anchor, removed_anchor, removal_index);
-    }
+    install_removed_anchor_fallback(timeline->list, anchor, removed_anchor, removal_index);
     *first_changed = minimum(*first_changed, removal_index);
     ++timeline->evicted;
     return true;
@@ -814,9 +812,9 @@ MessageTimelineApplyResult message_timeline_apply(
 
     if (event.dispatch_kind == GatewayClientDispatchKind::message_create ||
         event.dispatch_kind == GatewayClientDispatchKind::message_update) {
-        GatewayMessageEvent message{};
+        GatewayMessageEvent message;
         const GatewayMessageRichScratch rich_scratch = g_event_scratch.view(false);
-        GatewayMessageNamedUser system_target{};
+        GatewayMessageNamedUser system_target;
         const bool decoded = (timeline->rich_store
                                   ? gateway_client_event_as_message(event, payload, rich_scratch, &message)
                                   : gateway_client_event_as_message(event, payload, &message)) &&

@@ -84,8 +84,8 @@ consume_with_message_source(MessageEventPump* pump, const GatewayClientEvent& ev
     // The observer and canonical mutation borrow one decoded body, which lives
     // in the pump's static scratch until the consumer returns.
     const GatewayMessageRichScratch scratch = g_message_scratch.view(true);
-    GatewayMessageEvent message{};
-    GatewayMessageNamedUser system_target{};
+    GatewayMessageEvent message;
+    GatewayMessageNamedUser system_target;
     bool valid = gateway_client_event_as_message(event, payload, scratch, &message) &&
                  gateway_client_event_message_system_target(event, payload, &message, &system_target);
     if (valid) {

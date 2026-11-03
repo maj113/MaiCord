@@ -11,6 +11,7 @@
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../composer/text_input.hpp"
+#include "../composer/text_geometry.hpp"
 #include "../../account/account_presentation.hpp"
 #include "../composer/composer.hpp"
 #include "../composer/input.hpp"
@@ -265,17 +266,7 @@ bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
         return false;
     const auto* node = forum_post_node(field->owner->scene,
                                        field->index ? ForumPostElement::body : ForumPostElement::title);
-    const auto bounds = node->content_rectangle;
-    const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
-    POINT origin{};
-    if (!application_content_to_screen(&origin) ||
-        !GetWindowRect(g_app.window, output->window_screen.native()))
-        return false;
-    output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
-                           origin.y + static_cast<LONG>(bounds.top * scale),
-                           origin.x + static_cast<LONG>(bounds.right * scale),
-                           origin.y + static_cast<LONG>(bounds.bottom * scale)};
-    return true;
+    return text_store_screen_geometry(node->content_rectangle, output);
 }
 bool point_geometry(void* context, POINT point, bool round, u32* position, bool* inside) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
@@ -295,14 +286,7 @@ bool range_geometry(void* context, u32 first, u32 last, RECT* rectangle, bool* c
                                            {metrics, kTextEditSelectionCapacity}, &count) ||
         !count)
         return false;
-    UiRect bounds{metrics[0].left, metrics[0].top, metrics[0].left + metrics[0].width,
-                  metrics[0].top + metrics[0].height};
-    for (u32 i = 1; i < count; ++i) {
-        bounds.left = minimum(bounds.left, metrics[i].left);
-        bounds.top = minimum(bounds.top, metrics[i].top);
-        bounds.right = maximum(bounds.right, metrics[i].left + metrics[i].width);
-        bounds.bottom = maximum(bounds.bottom, metrics[i].top + metrics[i].height);
-    }
+    UiRect bounds = text_metrics_bounds(metrics, count);
     const auto* node = forum_post_node(field->owner->scene,
                                        field->index ? ForumPostElement::body : ForumPostElement::title);
     const auto clip = node->content_rectangle;
@@ -808,7 +792,7 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return true;
     }
     if (ctrl && code == 'V') {
-        char pasted[kApplicationForumBodyBytes]{};
+        char pasted[kApplicationForumBodyBytes];
         const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
         const auto result = read.ok() ? secure_edit_insert_utf8(&edit, {pasted, read.bytes})
                             : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity

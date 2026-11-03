@@ -414,7 +414,7 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
     else if (response.status_code >= 200 && response.status_code < 300) {
         if (submitted.payload.operation != MessagePinsOperation::fetch) completion.kind = PinnedMessageCompletionKind::success;
         else if (current(*value) && g_app.account_ui) {
-            MessageHistoryDecodeScratch scratch{};
+            MessageHistoryDecodeScratch scratch;
             if (application_message_decode_scratch(*g_app.account_ui, &scratch, body)) {
                 decoded = decode_message_pins_page(body, submitted.payload.query, scratch.page_structurals,
                     scratch.maximum_depth, scratch.content,

@@ -5,7 +5,7 @@ RestClientSubmitResult account_thread_creation_submit(
     RestClient* rest, const ThreadCreationRequest* request, u64 request_id) noexcept {
     if (!rest || !request || !request_id || !thread_creation_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
-    u8 target[kThreadCreationMaximumTargetBytes]{}, body[kThreadCreationMaximumBodyBytes]{};
+    u8 target[kThreadCreationMaximumTargetBytes], body[kThreadCreationMaximumBodyBytes];
     const auto path = thread_creation_write_target(*request, {target, sizeof(target)});
     if (!path.ok()) return {RestClientSubmitError::target_capacity};
     const auto written = thread_creation_write_body(*request, {body, sizeof(body)});
