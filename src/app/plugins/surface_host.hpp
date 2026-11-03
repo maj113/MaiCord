@@ -1,8 +1,9 @@
 #pragma once
 
 #include "maicord/app/plugins/surfaces.hpp"
-#include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+
+namespace maicord { enum class RelationshipType : u8; } // maicord/model/user/relationship_store.hpp
 
 // The application's side of plugin decorations and buttons (decorations.cpp and buttons.cpp are the runtime's):
 // what the scenes show goes to the installed plugin host in a bounded prepare pass, and clicks on plugin
@@ -28,5 +29,9 @@ bool application_plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarge
 bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept;
 // The open channel changed: buttons whose visibility depends on it are asked again.
 void application_plugin_surfaces_context_changed() noexcept;
+// The plugin ABI's relationship value (kPluginRelationship*, equal to MC_RELATIONSHIP_*) of a stored type, and
+// of what the signed-in account has with a user.
+u32 application_plugin_relationship(RelationshipType type) noexcept;
+u32 application_plugin_relationship_of(u64 user_id) noexcept;
 
 } // namespace maicord::app_detail

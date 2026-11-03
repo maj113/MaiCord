@@ -5,6 +5,7 @@
 #include "maicord/core/time.hpp"
 #include "plugins/binding_internal.hpp"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -13,6 +14,7 @@
 // and event call counts, kept messages and their caps, timers, and the permission, gesture and rate gates.
 namespace maicord::plugin_pipeline_tests {
 using namespace plugin_runtime_detail;
+using namespace plugin_fixture;
 
 u32 failures;
 void check(bool value, const char* label) noexcept {
@@ -47,76 +49,8 @@ struct FullState {
     u32 label_before, label_during, store_bytes, count;
 };
 
-u32 length(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
-u32 length(const wchar_t* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
 ConstSlice<wchar_t> leaf(const wchar_t* name) noexcept {
     return {name, length(name)};
-}
-bool same(Utf8View text, const char* expected) noexcept {
-    const u32 count = length(expected);
-    return text.bytes == count && bytes_equal(text.data, expected, count);
-}
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-
-struct Root {
-    wchar_t base[MAX_PATH], plugins[MAX_PATH], data[MAX_PATH];
-};
-bool make_root(Root* root) noexcept {
-    wchar_t temp[MAX_PATH], path[MAX_PATH];
-    const DWORD count = GetTempPathW(MAX_PATH, temp);
-    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp, L"mcp", 0, path) || !DeleteFileW(path) ||
-        !CreateDirectoryW(path, nullptr))
-        return false;
-    u32 at = 0;
-    for (; path[at]; ++at) root->base[at] = path[at];
-    root->base[at] = 0;
-    join(root->plugins, root->base, L"plugins");
-    join(root->data, root->base, L"data");
-    return CreateDirectoryW(root->plugins, nullptr) && CreateDirectoryW(root->data, nullptr);
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2])))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-bool install(const Root& root, const wchar_t* built, const wchar_t* name) noexcept {
-    wchar_t directory[MAX_PATH], source[MAX_PATH], destination[MAX_PATH];
-    const DWORD count = GetModuleFileNameW(nullptr, directory, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && directory[at - 1] != L'\\') --at;
-    if (!at) return false;
-    directory[at - 1] = 0;
-    join(source, directory, built);
-    join(destination, root.plugins, name);
-    return CopyFileW(source, destination, FALSE) != 0;
 }
 
 PluginEnableResult enable(PluginRuntime* runtime, const Root& root, const wchar_t* built, const wchar_t* name,
@@ -671,8 +605,6 @@ void test_keep_store() noexcept {
               listed[0].content.bytes == 21,
           "deleting it afterwards makes the tombstone show the latest text");
     check(!keep_info(4, 3000, &info) && !keep_text(4, 3000, 0, &version), "a message is looked up in its own channel");
-    keep_forget(3000);
-    check(!keep_is_deleted(3000) && keep_stats().messages == 0, "forgetting removes a message");
     keep_clear();
 
     // The text pool: big messages push the oldest out and survive compaction intact.
@@ -738,7 +670,7 @@ void test_samples(PluginRuntime* runtime, const Root& root) noexcept {
 
 void run() noexcept {
     Root root;
-    if (!make_root(&root)) {
+    if (!make_root(&root, L"mcp")) {
         check(false, "temporary directory");
         return;
     }

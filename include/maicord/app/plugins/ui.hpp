@@ -113,8 +113,6 @@ struct PluginBannerView {
 };
 // The banner to show: the earliest enabled plugin's. False when there is none.
 bool plugin_banner_current(PluginBannerView*) noexcept;
-// Changes when a banner appears or goes.
-u32 plugin_banner_revision() noexcept;
 // The user pressed the action (true) or dismissed the banner: tells the plugin and removes it.
 bool plugin_banner_resolve(bool action) noexcept;
 

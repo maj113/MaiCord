@@ -146,10 +146,7 @@ bool run_verdicts(PluginHook hook, PluginCallKind kind, PluginCallClass call_cla
         call.result = 0;
         const PluginCallResult ran = plugin_binding_call(subscriber.binding, kind, call_class, context_flags, invoke, &call);
         ++*counter;
-        if (ran.overran) {
-            ++g_stats.strikes;
-            continue;
-        }
+        if (ran.overran) continue;
         if (call.result == wanted) {
             answered = true;
             if (stop_at_first) break;
@@ -199,7 +196,7 @@ void deliver_to(const PluginSubscriber& subscriber) noexcept {
     if (!side) return;
     mc_event batch[MC_EVENT_BATCH_MAX];
     for (u32 calls = 0; calls < kPluginEventCallsPerPass && !subscriber.binding->struck_out; ++calls) {
-        u32 count = 0, delivered = 0;
+        u32 count = 0;
         if (g_head - side->cursor > kPluginEventSlots) {
             // The plugin was too slow: it learns how many events it missed.
             const u64 lost = g_head - kPluginEventSlots - side->cursor;
@@ -215,15 +212,11 @@ void deliver_to(const PluginSubscriber& subscriber) noexcept {
             ++side->cursor;
             if (!(subscriber.filter & MC_EVENT_BIT(slot.event.kind))) continue;
             batch[count++] = slot.event;
-            ++delivered;
         }
         if (!count) return;
         EventCall call{subscriber.function.events, batch, count};
-        const PluginCallResult ran = plugin_binding_call(subscriber.binding, PluginCallKind::event,
-                                                         PluginCallClass::event, 0, run_events, &call);
+        plugin_binding_call(subscriber.binding, PluginCallKind::event, PluginCallClass::event, 0, run_events, &call);
         ++g_stats.event_calls;
-        g_stats.events_delivered += delivered;
-        if (ran.overran) ++g_stats.strikes;
     }
 }
 
@@ -341,11 +334,9 @@ u32 plugin_timers_poll(u64 now_ms) noexcept {
             if (timer.repeat) timer.due_ms = now_ms + timer.interval_ms;
             else timer.active = false;
             TimerCall call{subscriber.function.timer, id};
-            const PluginCallResult ran = plugin_binding_call(subscriber.binding, PluginCallKind::timer,
-                                                             PluginCallClass::event, 0, run_timer, &call);
+            plugin_binding_call(subscriber.binding, PluginCallKind::timer, PluginCallClass::event, 0, run_timer, &call);
             ++calls;
             ++g_stats.timer_calls;
-            if (ran.overran) ++g_stats.strikes;
         }
         total += calls;
     }

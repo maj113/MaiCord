@@ -85,9 +85,8 @@ struct PluginInfo {
     char author[MC_NAME_MAX];
     char version[MC_VERSION_MAX];
     char summary[MC_SUMMARY_MAX];
-    char homepage[MC_SUMMARY_MAX];
     u8 name_bytes, author_bytes, version_bytes;
-    u16 summary_bytes, homepage_bytes;
+    u16 summary_bytes;
 };
 
 struct PluginExecutableRange {
@@ -126,5 +125,8 @@ PluginLoadResult plugin_descriptor_check(const u8* image, const PluginImage& pe,
 // The permissions a validated descriptor's hooks, buttons and network hosts imply
 // (plugin.hpp computes the same at compile time); *permissions above includes them.
 u64 plugin_implied_permissions(const mc_descriptor& descriptor) noexcept;
+// A keybind setting value: 0 (unbound), or a virtual-key code with modifier bits that cannot be typing (Ctrl or
+// Alt held, or a function key).
+bool plugin_keybind_valid(u32 key) noexcept;
 
 } // namespace maicord

@@ -6,6 +6,7 @@
 #include "plugins/surfaces_internal.hpp"
 #include "../../fixtures/plugin_surfaces_fixture.h"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -18,6 +19,7 @@ void test_plugin_surface_scenes(void (*check)(bool, const char*) noexcept) noexc
 
 namespace maicord::plugin_surfaces_tests {
 using namespace plugin_surfaces_detail;
+using namespace plugin_fixture;
 
 u32 failures;
 void check(bool value, const char* label) noexcept {
@@ -29,73 +31,6 @@ void check(bool value, const char* label) noexcept {
 
 constexpr u64 kSecondOwner = SURFACES_OWNER + 1;
 
-u32 length(const wchar_t* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
-u32 length(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
-bool same(Utf8View text, const char* expected) noexcept {
-    const u32 count = length(expected);
-    return text.bytes == count && bytes_equal(text.data, expected, count);
-}
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-struct Root {
-    wchar_t base[MAX_PATH], plugins[MAX_PATH], data[MAX_PATH];
-};
-bool make_root(Root* root) noexcept {
-    wchar_t temp[MAX_PATH], path[MAX_PATH];
-    const DWORD count = GetTempPathW(MAX_PATH, temp);
-    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp, L"mcs", 0, path) || !DeleteFileW(path) ||
-        !CreateDirectoryW(path, nullptr))
-        return false;
-    u32 at = 0;
-    for (; path[at]; ++at) root->base[at] = path[at];
-    root->base[at] = 0;
-    join(root->plugins, root->base, L"plugins");
-    join(root->data, root->base, L"data");
-    return CreateDirectoryW(root->plugins, nullptr) && CreateDirectoryW(root->data, nullptr);
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if ((found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2]))))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-bool install(const Root& root, const wchar_t* built, const wchar_t* name) noexcept {
-    wchar_t module[MAX_PATH], source[MAX_PATH], destination[MAX_PATH];
-    const DWORD count = GetModuleFileNameW(nullptr, module, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && module[at - 1] != L'\\') --at;
-    if (!at) return false;
-    module[at - 1] = 0;
-    join(source, module, built);
-    join(destination, root.plugins, name);
-    return CopyFileW(source, destination, FALSE) != 0;
-}
 PluginEnableResult enable(PluginRuntime* runtime, const wchar_t* name) noexcept {
     return plugin_runtime_enable(runtime, {name, length(name)}, MC_PERM_KNOWN);
 }
@@ -127,7 +62,6 @@ u32 slots(u32 surface, u64 channel, u64 message_id, u64 user, u64 guild, UiPlugi
 void test_no_plugins() noexcept {
     check(!g_plugin_surfaces && !g_ui_plugin_render_query && !g_ui_plugin_slot_query,
           "nothing is installed before a decorating plugin is enabled");
-    check(!plugin_surfaces_wants(0) && !plugin_surfaces_wants(4), "no kind is wanted");
     check(!ui_plugin_render(5, 1) && !ui_plugin_slot_surface_active(kUiPluginSlotChannelRow),
           "the UI reads nothing without a query");
 }
@@ -803,7 +737,7 @@ void test_samples(PluginRuntime* runtime) noexcept {
 
 void run() noexcept {
     Root root;
-    if (!make_root(&root)) {
+    if (!make_root(&root, L"mcs")) {
         check(false, "temporary directory");
         return;
     }

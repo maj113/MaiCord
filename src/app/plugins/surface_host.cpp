@@ -3,7 +3,6 @@
 // The plugin code itself runs in the runtime (decorations.cpp, buttons.cpp); nothing here runs it on a paint path.
 #include "surface_host.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
@@ -38,13 +37,10 @@ struct HostState {
 };
 constinit HostState g_host{};
 
-// ---- inputs -------------------------------------------------------------------------------------
+} // namespace
 
-u32 relationship_of(u64 user_id) noexcept {
-    const auto* store = application_friends_relationships();
-    const auto* record = store && user_id ? relationship_store_find(*store, user_id) : nullptr;
-    if (!record) return kPluginRelationshipNone;
-    switch (record->type) {
+u32 application_plugin_relationship(RelationshipType type) noexcept {
+    switch (type) {
     case RelationshipType::friend_: return kPluginRelationshipFriend;
     case RelationshipType::blocked: return kPluginRelationshipBlocked;
     case RelationshipType::incoming: return kPluginRelationshipIncoming;
@@ -52,6 +48,17 @@ u32 relationship_of(u64 user_id) noexcept {
     default: return kPluginRelationshipNone;
     }
 }
+
+u32 application_plugin_relationship_of(u64 user_id) noexcept {
+    const auto* store = application_friends_relationships();
+    const auto* record = store && user_id ? relationship_store_find(*store, user_id) : nullptr;
+    return record ? application_plugin_relationship(record->type) : kPluginRelationshipNone;
+}
+
+namespace {
+
+// ---- inputs -------------------------------------------------------------------------------------
+
 u32 presence_of(u8 packed) noexcept {
     switch (client_status_overall(packed)) {
     case ClientPlatformStatus::online: return kPluginPresenceOnline;
@@ -108,7 +115,7 @@ PluginMessageInput message_input(const AccountUiRuntime& ui, const MessageStore&
     if (channel && channel_is_private(channel->type)) flags |= kPluginMessagePrivate;
     if (channel && chat_state_store_channel_age_restricted(ui.chat_state, *channel)) flags |= kPluginMessageNsfw;
     in.flags = flags;
-    in.relationship = relationship_of(record.author_id);
+    in.relationship = application_plugin_relationship_of(record.author_id);
     in.attachment_count = rich ? rich->attachment_count : 0;
     in.embed_count = rich ? rich->embed_count : 0;
     if ((needs & kPluginNeedContent) && record.content_availability == MessageContentAvailability::available)
@@ -129,7 +136,7 @@ bool user_input(const AccountUiRuntime& ui, u64 user_id, u64 guild_id, u32 where
     in.where = where;
     in.flags = (user_is_bot(ui, user_id) ? kPluginUserBot : 0) |
                (user_id == ui.chat_state.self_user_id ? kPluginUserSelf : 0);
-    in.relationship = relationship_of(user_id);
+    in.relationship = application_plugin_relationship_of(user_id);
     const u8 packed = user_store_client_status(ui.user_store, user_id);
     in.presence = packed ? presence_of(packed) : kPluginPresenceUnknown;
     in.platforms = platforms_of(packed);

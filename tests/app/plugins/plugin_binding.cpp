@@ -4,8 +4,8 @@
 #include "maicord/core/time.hpp"
 #include "plugins/binding_internal.hpp"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
-#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_process_launch.hpp"
 
@@ -13,6 +13,7 @@
 // (tests/fixtures/plugin_runtime_fixture.c), the clear-urls sample and the C fixture.
 namespace maicord::plugin_binding_tests {
 using namespace plugin_runtime_detail;
+using namespace plugin_fixture;
 
 u32 failures;
 void check(bool value, const char* label) noexcept {
@@ -64,11 +65,6 @@ void collect_toast(void* context, u64 owner, Utf8View text, u32 tone) noexcept {
     copy_bytes(toasts->text, text.data, toasts->bytes);
 }
 
-u32 length(const wchar_t* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
 ConstSlice<wchar_t> leaf(const wchar_t* name) noexcept {
     return {name, length(name)};
 }
@@ -79,74 +75,6 @@ bool same(Utf8View text, const char* expected) noexcept {
 }
 bool same(mc_str text, const char* expected) noexcept {
     return same(Utf8View{text.data, text.bytes}, expected);
-}
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-bool exists(const wchar_t* path) noexcept {
-    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
-}
-
-struct Root {
-    wchar_t base[MAX_PATH], plugins[MAX_PATH], data[MAX_PATH], marker[MAX_PATH];
-};
-bool make_paths(Root* root, const wchar_t* base) noexcept {
-    u32 at = 0;
-    for (; base[at] && at < MAX_PATH - 1; ++at) root->base[at] = base[at];
-    root->base[at] = 0;
-    join(root->plugins, root->base, L"plugins");
-    join(root->data, root->base, L"data");
-    join(root->marker, root->base, L"marker.bin");
-    return true;
-}
-bool make_root(Root* root) noexcept {
-    wchar_t temp[MAX_PATH], path[MAX_PATH];
-    const DWORD count = GetTempPathW(MAX_PATH, temp);
-    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp, L"mcb", 0, path) || !DeleteFileW(path) ||
-        !CreateDirectoryW(path, nullptr))
-        return false;
-    make_paths(root, path);
-    return CreateDirectoryW(root->plugins, nullptr) && CreateDirectoryW(root->data, nullptr);
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if ((found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2]))))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-
-bool test_directory(wchar_t (&output)[MAX_PATH]) noexcept {
-    const DWORD count = GetModuleFileNameW(nullptr, output, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && output[at - 1] != L'\\') --at;
-    if (!at) return false;
-    output[at - 1] = 0;
-    return true;
-}
-// Copies a built fixture next to the pinned plugins directory's other DLLs under a short name.
-bool install(const Root& root, const wchar_t* built, const wchar_t* name) noexcept {
-    wchar_t directory[MAX_PATH], source[MAX_PATH], destination[MAX_PATH];
-    if (!test_directory(directory)) return false;
-    join(source, directory, built);
-    join(destination, root.plugins, name);
-    return CopyFileW(source, destination, FALSE) != 0;
 }
 // Overwrites bytes of an installed copy.
 bool patch(const Root& root, const wchar_t* name, u64 offset, const void* bytes, u32 count) noexcept {
@@ -515,10 +443,12 @@ void test_ledger_classes(const Root& root) noexcept {
     if (out != INVALID_HANDLE_VALUE) CloseHandle(out);
     plugin_call_finish(&watched, ticket);
     check(flagged && watched.view[21] == 0, "the watchdog marks a long call, and the mark clears when it ends");
+    PluginCallLedger reader{};
     PluginCallMarker hung{};
-    check(copied && plugin_call_ledger_peek(copy, &hung) && hung.present && hung.hung && hung.owner_id == 0x77 &&
+    check(copied && plugin_call_ledger_open(&reader, copy, &hung) && hung.present && hung.hung && hung.owner_id == 0x77 &&
               hung.kind == PluginCallKind::pre_send,
           "a process killed during a long call is reported as hung with its owner");
+    plugin_call_ledger_close(&reader);
     plugin_call_ledger_close(&watched);
 }
 
@@ -620,15 +550,17 @@ void test_crash(const Root& root) noexcept {
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     check(exited, "the crash child ends");
+    PluginCallLedger reader{};
     PluginCallMarker leftover{};
-    check(plugin_call_ledger_peek(root.marker, &leftover) && leftover.present && leftover.owner_id == kCrashOwner &&
+    check(plugin_call_ledger_open(&reader, root.marker, &leftover) && leftover.present && leftover.owner_id == kCrashOwner &&
               leftover.kind == PluginCallKind::pre_send && !leftover.hung,
           "the call marker attributes the crash to the plugin and hook that faulted");
+    plugin_call_ledger_close(&reader);
 }
 
 void run() noexcept {
     Root root;
-    if (!make_root(&root)) {
+    if (!make_root(&root, L"mcb")) {
         check(false, "temporary directory");
         return;
     }

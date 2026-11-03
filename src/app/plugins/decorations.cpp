@@ -370,7 +370,7 @@ bool store(Plugin& plugin, u32 kind, u64 key, u64 scope, u32 revision, u8 state,
 }
 
 // The entry holding the plugin's current verdict for the entity: a push wins, else a pulled one answering revision
-// (revision == kStale: any, for the queries that don't know it).
+// (any_revision: any pulled verdict, for the queries that don't know the revision).
 const Entry* current_entry(Plugin& plugin, u32 kind, u64 key, u64 scope, u64 push_scope, u32 revision,
                            bool any_revision) noexcept {
     if (!plugin.memory) return nullptr;
@@ -548,7 +548,6 @@ u32 member_name_nodes(u64 user_id, Slice<UiPluginSlotNode> output) noexcept {
 
 u32 slot_query(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                Slice<UiPluginSlotNode> output) noexcept {
-    (void)guild_id;
     if (!output.data || !output.count) return 0;
     u32 count = 0;
     switch (surface) {
@@ -974,9 +973,9 @@ void plugin_surfaces_remove(PluginBinding* binding) noexcept {
     republish();
 }
 
-mc_status plugin_surfaces_detail::plugin_surfaces_push(PluginBinding* binding, u32 hook_kind, u64 id, u64 scope,
+// scope (the owning channel or guild) is unused: the verdict is found by id alone.
+mc_status plugin_surfaces_detail::plugin_surfaces_push(PluginBinding* binding, u32 hook_kind, u64 id, u64,
                                                        const mc_decoration* d) noexcept {
-    (void)scope; // the owning channel or guild: the verdict is found by id alone
     if (hook_kind < MC_HOOK_DECORATE_MESSAGE || hook_kind > MC_HOOK_DECORATE_HEADER) return MC_E_INVALID;
     const u32 kind = hook_kind - MC_HOOK_DECORATE_MESSAGE;
     if (kind == kKindHeader ? id > MC_HEADER_MEMBER_LIST : !id) return MC_E_INVALID;

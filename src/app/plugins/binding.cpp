@@ -21,12 +21,6 @@ constexpr u32 kListValueBytes = MC_SETTING_LIST_BYTES_MAX + MC_SETTING_ITEM_MAX;
 constexpr u32 kSecretBytes = MC_SETTING_TEXT_MAX + 1024;
 
 static_assert(kPluginKeyControl == MC_KEY_CTRL && kPluginKeyShift == MC_KEY_SHIFT && kPluginKeyAlt == MC_KEY_ALT);
-// Unbound, or a key that cannot be typing: with Ctrl or Alt, or a function key.
-bool plugin_keybind_valid(u32 key) noexcept {
-    const u32 vk = key & 0xFFu;
-    return !key || (vk && !(key & ~(0xFFu | MC_KEY_CTRL | MC_KEY_SHIFT | MC_KEY_ALT)) &&
-                    ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || (vk >= 0x70 && vk <= 0x87)));
-}
 
 constexpr u32 align_up(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
@@ -541,9 +535,8 @@ bool plugin_binding_complete(PluginBinding* binding, const PluginCompletion& com
     default: return false;
     }
     // A user gesture begins a window of its own; an http result continues the window of its request.
-    u32 flags = 0;
-    if (completion.gesture) flags = MC_CTX_GESTURE;
-    else if (completion.inherited_gesture_until_ms > clock_monotonic_milliseconds()) flags = MC_CTX_GESTURE;
+    const u32 flags = completion.gesture || completion.inherited_gesture_until_ms > clock_monotonic_milliseconds()
+                          ? MC_CTX_GESTURE : 0u;
     binding->inherit_gesture_until_ms = completion.gesture ? 0 : completion.inherited_gesture_until_ms;
     CompletionArgument argument{function, &output};
     const PluginCallResult ran = plugin_binding_call(binding, PluginCallKind::event, PluginCallClass::event, flags,
@@ -673,9 +666,8 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     }
     binding->owner_id = binding->image.owner_id;
     binding->permissions = binding->image.permissions;
-    // Only the hosts the descriptor declares can be approved.
-    const u32 declared = binding->image.descriptor->network_count;
-    binding->approved_hosts = approved_hosts & (declared >= 32 ? ~0u : (1u << declared) - 1);
+    // Only the hosts the descriptor declares can be approved (the loader limited them to MC_NETWORK_HOSTS_MAX).
+    binding->approved_hosts = approved_hosts & ((1u << binding->image.descriptor->network_count) - 1);
     if (++runtime->generation_serial == 0) ++runtime->generation_serial;
     binding->generation = runtime->generation_serial;
     for (u32 i = 0; i < runtime->binding_count; ++i) {
@@ -701,8 +693,8 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
         if (d.state_layout == carry.layout && d.state_bytes == carry.bytes && d.state_align == carry.alignment) {
             if (carry.bytes) copy_bytes(binding->data, carry.state, carry.bytes);
             carried = PluginStateCarry::kept;
+            start_flags = MC_CTX_RELOADED;
         }
-        if (carried == PluginStateCarry::kept) start_flags = MC_CTX_RELOADED;
     }
     runtime->bindings[runtime->binding_count++] = binding;
     PluginEnableError failure = PluginEnableError::none;
@@ -711,8 +703,9 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     } else {
         binding->started = true;
         binding->hooks_published = plugin_dispatch_add(binding);
-        if (!binding->hooks_published) failure = PluginEnableError::allocation;
-        if (binding->hooks_published) {
+        if (!binding->hooks_published) {
+            failure = PluginEnableError::allocation;
+        } else {
             plugin_ui_add(binding);
             if (!plugin_surfaces_add(binding)) failure = PluginEnableError::allocation;
             plugin_pipeline_add(binding);

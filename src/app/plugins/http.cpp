@@ -74,7 +74,7 @@ bool plugin_network_hosts_valid(const mc_str* hosts, u32 count, bool has_complet
 namespace {
 
 constexpr u32 kSlots = 8;
-constexpr u32 kPatterns = 8;
+constexpr u32 kPatterns = MC_NETWORK_HOSTS_MAX; // the loader allows no more declared hosts
 constexpr u32 kHostBytes = kUpdateHostNameCapacity;
 constexpr u32 kHeaderTextBytes = 4096;
 constexpr u64 kWindowMilliseconds = 60'000;
@@ -151,18 +151,17 @@ PluginHttp* http_of(PluginRuntime* runtime, bool create) noexcept {
 
 // ---- Validation (UI thread) -------------------------------------------------------
 
-// https://host/path?query -> the request location. No userinfo, port or fragment: the host must be a DNS
+// An absolute https URL -> the request location. No userinfo, port or fragment: the host must be a DNS
 // name and the target made of path and query characters.
-bool parse_url(Utf8View url, UpdateLocation* out) noexcept {
+bool https_location(Utf8View url, UpdateLocation* out) noexcept {
     constexpr Utf8View scheme = utf8_literal("https://");
-    if (url.bytes <= scheme.bytes || url.bytes > MC_HTTP_URL_MAX ||
-        !ascii_equal_ignore_case({url.data, scheme.bytes}, scheme))
-        return false;
+    if (url.bytes <= scheme.bytes || !ascii_equal_ignore_case({url.data, scheme.bytes}, scheme)) return false;
     u32 end = scheme.bytes;
     while (end < url.bytes && url.data[end] != '/' && url.data[end] != '?') ++end;
-    char target[MC_HTTP_URL_MAX + 1];
+    char target[kUpdateTargetCapacity];
     u32 count = 0;
     if (end == url.bytes || url.data[end] == '?') target[count++] = '/';
+    if (url.bytes - end > sizeof(target) - count) return false;
     copy_bytes(target + count, url.data + end, url.bytes - end);
     count += url.bytes - end;
     return update_provider_location({url.data + scheme.bytes, end - scheme.bytes}, {target, count}, out);
@@ -248,18 +247,8 @@ bool redirect_target(const Slot& slot, const UpdateLocation& current, ConstSlice
         if (location.count > 1 && text[1] == '/') return false;
         return update_provider_location({current.origin, current.origin_bytes}, {text, location.count}, next);
     }
-    constexpr Utf8View scheme = utf8_literal("https://");
-    if (location.count <= scheme.bytes || !ascii_equal_ignore_case({text, scheme.bytes}, scheme)) return false;
-    u32 end = scheme.bytes;
-    while (end < location.count && text[end] != '/' && text[end] != '?') ++end;
-    char target[kUpdateTargetCapacity];
-    u32 count = 0;
-    if (end == location.count || text[end] == '?') target[count++] = '/';
-    if (location.count - end > sizeof(target) - count) return false;
-    copy_bytes(target + count, text + end, location.count - end);
-    count += location.count - end;
     UpdateLocation candidate{};
-    if (!update_provider_location({text + scheme.bytes, end - scheme.bytes}, {target, count}, &candidate)) return false;
+    if (!https_location({text, location.count}, &candidate)) return false;
     if (!slot_allows(slot, {candidate.origin, candidate.origin_bytes})) return false;
     *next = candidate;
     return true;
@@ -431,13 +420,14 @@ mc_status plugin_http_submit(PluginBinding* binding, const mc_http_request& requ
         return MC_E_INVALID;
     if (request.body_bytes > MC_HTTP_BODY_MAX) return MC_E_CAPACITY;
     UpdateLocation location{};
-    if (!parse_url({request.url.data, request.url.bytes}, &location)) return MC_E_INVALID;
+    if (request.url.bytes > MC_HTTP_URL_MAX || !https_location({request.url.data, request.url.bytes}, &location))
+        return MC_E_INVALID;
     const Utf8View host{location.origin, location.origin_bytes};
 
     // The hosts the user approved, and whether this request's host is one of them.
     const mc_descriptor& descriptor = *binding->image.descriptor;
     bool allowed = false;
-    for (u32 i = 0; i < descriptor.network_count && i < kPatterns; ++i) {
+    for (u32 i = 0; i < descriptor.network_count; ++i) {
         if (!(binding->approved_hosts & (1u << i))) continue;
         allowed = allowed || plugin_network_pattern_matches({descriptor.network[i].data, descriptor.network[i].bytes}, host);
     }
@@ -480,7 +470,7 @@ mc_status plugin_http_submit(PluginBinding* binding, const mc_http_request& requ
         copy_bytes(slot->body, request.body, request.body_bytes);
         copy_value(&slot->location, location);
         slot->gesture_until_ms = (binding->ctx.flags & MC_CTX_GESTURE) ? binding->gesture_until_ms : 0;
-        for (u32 i = 0; i < descriptor.network_count && i < kPatterns; ++i) {
+        for (u32 i = 0; i < descriptor.network_count; ++i) {
             if (!(binding->approved_hosts & (1u << i))) continue;
             const mc_str& pattern = descriptor.network[i];
             copy_bytes(slot->patterns[slot->pattern_count], pattern.data, pattern.bytes);

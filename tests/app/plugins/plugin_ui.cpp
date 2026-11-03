@@ -5,6 +5,7 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -13,6 +14,7 @@
 // index the composer decodes and what running a command does with typed options, banners and modals
 // through a recording host, and the navigation actions with their gesture and argument checks.
 namespace maicord::plugin_ui_tests {
+using namespace plugin_fixture;
 
 u32 failures;
 void check(bool value, const char* label) noexcept {
@@ -46,78 +48,11 @@ struct FixtureState {
     i32 toast_status, toast_flags_status;
 };
 
-u32 length(const wchar_t* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
-u32 length(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
 Utf8View view(const char* text) noexcept {
     return {text, length(text)};
 }
-bool same(Utf8View text, const char* expected) noexcept {
-    return text.bytes == length(expected) && bytes_equal(text.data, expected, text.bytes);
-}
 bool same_label(const PluginMenuRow& row, const char* expected) noexcept {
-    return same({row.label, row.label_bytes}, expected);
-}
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-
-struct Root {
-    wchar_t base[MAX_PATH], plugins[MAX_PATH], data[MAX_PATH];
-};
-bool make_root(Root* root) noexcept {
-    wchar_t temp[MAX_PATH], path[MAX_PATH];
-    const DWORD count = GetTempPathW(MAX_PATH, temp);
-    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp, L"mcu", 0, path) || !DeleteFileW(path) ||
-        !CreateDirectoryW(path, nullptr))
-        return false;
-    u32 at = 0;
-    for (; path[at]; ++at) root->base[at] = path[at];
-    root->base[at] = 0;
-    join(root->plugins, root->base, L"plugins");
-    join(root->data, root->base, L"data");
-    return CreateDirectoryW(root->plugins, nullptr) && CreateDirectoryW(root->data, nullptr);
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2])))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-bool install(const Root& root, const wchar_t* built, const wchar_t* name) noexcept {
-    wchar_t module[MAX_PATH], source[MAX_PATH], destination[MAX_PATH];
-    const DWORD count = GetModuleFileNameW(nullptr, module, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && module[at - 1] != L'\\') --at;
-    if (!at) return false;
-    module[at - 1] = 0;
-    join(source, module, built);
-    join(destination, root.plugins, name);
-    return CopyFileW(source, destination, FALSE) != 0;
+    return same(Utf8View{row.label, row.label_bytes}, expected);
 }
 
 // ---- The recording host ---------------------------------------------------------------------------
@@ -456,11 +391,11 @@ void test_banners(PluginBinding* binding) noexcept {
     FixtureState& state = *state_of(binding);
     PluginBannerView shown{};
     check(!plugin_banner_current(&shown), "there is no banner at first");
-    const u32 revision = plugin_banner_revision(), changes = host_state.banner_changes;
+    const u32 changes = host_state.banner_changes;
     run_json("banner", "[]");
     check(state.banner_status == MC_OK && plugin_banner_current(&shown) && shown.owner_id == kOwner && shown.tag == 77 &&
               shown.warning && same(shown.title, "Plugin banner") && same(shown.text, "Something needs a look") &&
-              same(shown.action, "Look") && plugin_banner_revision() != revision && host_state.banner_changes == changes + 1,
+              same(shown.action, "Look") && host_state.banner_changes == changes + 1,
           "a banner shows its title, text and action and tells the application");
     const u32 serial = shown.serial;
     run_json("banner", "[]");
@@ -682,15 +617,16 @@ void test_silent_toggle(PluginRuntime* runtime, const Root& root) noexcept {
 
 void run() noexcept {
     Root root;
-    if (!make_root(&root)) {
+    if (!make_root(&root, L"mcu")) {
         check(false, "temporary directory");
         return;
     }
     static PluginRuntime runtime;
     host_state.accept_modal = true;
     const u32 before = plugin_ui_revision();
+    PluginBannerView no_banner{};
     check(!plugin_menu_present(PluginMenuKind::message) && plugin_command_count() == 0 &&
-              plugin_command_index_json({g_json, sizeof(g_json)}) == 0 && !plugin_banner_revision(),
+              plugin_command_index_json({g_json, sizeof(g_json)}) == 0 && !plugin_banner_current(&no_banner),
           "with no plugin there are no items, commands or banners");
     PluginMenuRow rows[8];
     check(collect(target(PluginMenuKind::message), rows) == 0, "with no plugin a menu collects nothing");

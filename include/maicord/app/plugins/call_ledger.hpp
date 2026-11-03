@@ -26,8 +26,7 @@ inline constexpr u32 kPluginCallHangMilliseconds = 10'000;
 
 struct PluginCallLedgerEntry {
     u64 owner_id;
-    u64 worst_us;
-    u32 calls, overruns;
+    u32 overruns;
     bool disable_requested;
 };
 
@@ -79,16 +78,11 @@ struct PluginCallLedger {
 // Opens or creates the marker. A record left in a call by a previous process is
 // reported through leftover and then cleared. Without a path only timing works.
 bool plugin_call_ledger_open(PluginCallLedger*, const wchar_t* path, PluginCallMarker* leftover) noexcept;
-// Startup check without creating anything: reports and removes a marker that a
-// previous process left inside a call.
-bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) noexcept;
 // A clean close stops the watchdog and removes the marker file; only a process
 // that dies keeps one.
 void plugin_call_ledger_close(PluginCallLedger*) noexcept;
 // A null ledger makes begin/end no-ops so hosts without accounting still work.
 PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind, PluginCallClass) noexcept;
-// True when this call pushed the owner over the overrun limit.
-bool plugin_call_end(PluginCallLedger*, const PluginCallTicket&) noexcept;
 PluginCallOutcome plugin_call_finish(PluginCallLedger*, const PluginCallTicket&) noexcept;
 // Starts the thread that reads the marker every poll_ms. A call inside a plugin
 // for limit_ms is logged with its owner and recorded in the marker, so the next
@@ -97,8 +91,6 @@ PluginCallOutcome plugin_call_finish(PluginCallLedger*, const PluginCallTicket&)
 bool plugin_call_watchdog_start(PluginCallLedger*, u32 limit_ms = kPluginCallHangMilliseconds,
                                 u32 poll_ms = 1000) noexcept;
 bool plugin_call_ledger_disable_requested(const PluginCallLedger*, u64 owner_id) noexcept;
-// Returns one owner whose disable is pending and clears its request, or zero.
-u64 plugin_call_ledger_take_disable(PluginCallLedger*) noexcept;
 // Fresh accounting for an owner that was enabled again.
 void plugin_call_ledger_forget(PluginCallLedger*, u64 owner_id) noexcept;
 

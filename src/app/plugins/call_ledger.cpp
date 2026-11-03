@@ -57,21 +57,6 @@ void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
 }
 } // namespace
 
-bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) noexcept {
-    if (leftover) reset_value(leftover);
-    if (!path) return false;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return true;
-    u8 bytes[24];
-    DWORD read = 0;
-    const bool ok = ReadFile(file, bytes, sizeof(bytes), &read, nullptr) && read == sizeof(bytes);
-    CloseHandle(file);
-    if (ok) read_marker(bytes, leftover);
-    DeleteFileW(path);
-    return true;
-}
-
 bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, PluginCallMarker* leftover) noexcept {
     if (leftover) reset_value(leftover);
     if (!ledger || ledger->view) return false;
@@ -104,9 +89,8 @@ bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, Plug
     return true;
 }
 
-namespace {
-PluginCallTicket begin_call(PluginCallLedger* ledger, u64 owner, PluginCallKind kind,
-                            PluginCallClass call_class) noexcept {
+PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCallKind kind,
+                                   PluginCallClass call_class) noexcept {
     if (!ledger) return {owner, 0, kind, call_class, false};
     if (!ledger->frequency) initialize_timing(ledger);
     PluginCallTicket ticket{owner, 0, kind, call_class, ledger->depth == 0};
@@ -129,7 +113,6 @@ PluginCallTicket begin_call(PluginCallLedger* ledger, u64 owner, PluginCallKind 
     }
     return ticket;
 }
-} // namespace
 
 void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
     if (!ledger) return;
@@ -149,11 +132,6 @@ void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
     ledger->path[0] = 0;
 }
 
-PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCallKind kind,
-                                   PluginCallClass call_class) noexcept {
-    return begin_call(ledger, owner, kind, call_class);
-}
-
 PluginCallOutcome plugin_call_finish(PluginCallLedger* ledger, const PluginCallTicket& ticket_view) noexcept {
     const PluginCallTicket ticket = ticket_view; // the ledger is written below
     if (!ledger) return {};
@@ -169,8 +147,6 @@ PluginCallOutcome plugin_call_finish(PluginCallLedger* ledger, const PluginCallT
     PluginCallOutcome outcome{static_cast<u64>(ticks) * 1'000'000ull / static_cast<u64>(ledger->frequency), false, false};
     auto* record = entry(ledger, ticket.owner_id, true);
     if (!record) return outcome;
-    saturating_increment(record->calls);
-    record->worst_us = maximum(record->worst_us, outcome.elapsed_us);
     if (outcome.elapsed_us <= class_budget(*ledger, ticket.call_class)) return outcome;
     outcome.overran = true;
     saturating_increment(record->overruns);
@@ -180,26 +156,11 @@ PluginCallOutcome plugin_call_finish(PluginCallLedger* ledger, const PluginCallT
     return outcome;
 }
 
-bool plugin_call_end(PluginCallLedger* ledger, const PluginCallTicket& ticket) noexcept {
-    return plugin_call_finish(ledger, ticket).disable;
-}
-
 bool plugin_call_ledger_disable_requested(const PluginCallLedger* ledger, u64 owner) noexcept {
     if (!ledger || !owner) return false;
     for (const auto& candidate : ledger->entries)
         if (candidate.owner_id == owner) return candidate.disable_requested;
     return false;
-}
-
-u64 plugin_call_ledger_take_disable(PluginCallLedger* ledger) noexcept {
-    if (!ledger) return 0;
-    for (auto& candidate : ledger->entries)
-        if (candidate.owner_id && candidate.disable_requested) {
-            const u64 owner = candidate.owner_id;
-            reset_value(&candidate);
-            return owner;
-        }
-    return 0;
 }
 
 void plugin_call_ledger_forget(PluginCallLedger* ledger, u64 owner) noexcept {

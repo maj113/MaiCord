@@ -1,37 +1,11 @@
 #include "maicord/app/plugins/consent.hpp"
 #include "binding_internal.hpp"
-#include "maicord/app/update/fetch.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
-
-// The label of each permission, in bit order (MC_PERM_* are 1 << index).
-constexpr char kPermissionLabels[] =
-    "Change the messages you send or edit before they go out\0Read your messages and who you talk to\0"
-    "Keep deleted and edited messages visible while MaiCord is open\0See typing, presence, voice, server and friend activity\0"
-    "Connect to the servers listed below\0Read and change what you are typing\0"
-    "Send, edit and delete your messages, add reactions and mark channels read\0Set your activity and custom status\0"
-    "Copy text to your clipboard\0Act for you on its own, without you asking\0Save deleted and edited messages on this computer\0";
-constexpr u32 kPermissionCount = name_list_count(kPermissionLabels);
-static_assert((u64{1} << kPermissionCount) - 1 == MC_PERM_KNOWN && MC_PERM_MESSAGE_SEND == 1 && MC_PERM_NETWORK == u64{1} << 4 &&
-                  MC_PERM_PERSISTENT_LOG == u64{1} << 10,
-              "every permission has a label");
-
-constexpr Utf8View kBullet = utf8_literal("\n\xE2\x80\xA2 ");
-
-void bullets(UpdateTextWriter& w, u64 permissions, bool risky) noexcept {
-    u32 bit = 0;
-    for (NameList list{kPermissionLabels}; list; list.next(), ++bit) {
-        const u64 mask = u64{1} << bit;
-        if (!(permissions & mask) || !!(kPluginHighRiskPermissions & mask) != risky) continue;
-        w.add(kBullet);
-        w.add(list.name());
-    }
-}
 
 bool approval_path(const PluginRuntime& runtime, u64 owner, wchar_t (&path)[640]) noexcept {
     u32 length = runtime.data_directory_characters;
@@ -53,53 +27,6 @@ mc_str key_of(const Utf8View& text) noexcept {
 
 } // namespace
 
-Utf8View plugin_permission_label(u32 bit) noexcept {
-    return bit < kPermissionCount ? name_list_at(kPermissionLabels, bit) : Utf8View{};
-}
-
-u32 plugin_consent_text(const PluginConsentRequest& request, Slice<char> output) noexcept {
-    UpdateTextWriter w{output, 0, true};
-    if (request.author.bytes) {
-        w.add(utf8_literal("Published by "));
-        w.add(request.author);
-        w.add(utf8_literal(".\n"));
-    }
-    const u64 added = request.permissions & ~request.approved_permissions;
-    u32 new_hosts = 0, shown_hosts = 0;
-    for (u32 i = 0; i < request.hosts.count && i < 32; ++i) new_hosts += !(request.approved_hosts & (1u << i));
-    const bool repeat = request.approved_permissions || request.approved_hosts;
-    if (repeat && (added || new_hosts)) {
-        w.add(utf8_literal("This version asks for more than you approved before:"));
-        bullets(w, added & ~kPluginHighRiskPermissions, false);
-        bullets(w, added, true);
-        for (u32 i = 0; i < request.hosts.count && i < 32; ++i) {
-            if (request.approved_hosts & (1u << i)) continue;
-            w.add(kBullet);
-            w.add(utf8_literal("Connect to "));
-            w.add(request.hosts[i]);
-        }
-        w.add(utf8_literal("\n\n"));
-    }
-    w.add(utf8_literal("This plugin will be able to:"));
-    const u64 ordinary = request.permissions & ~kPluginHighRiskPermissions & ~MC_PERM_NETWORK;
-    bullets(w, ordinary, false);
-    if (request.permissions & MC_PERM_NETWORK) {
-        w.add(kBullet);
-        w.add(plugin_permission_label(4));
-    }
-    if (!(request.permissions & ~kPluginHighRiskPermissions)) w.add(utf8_literal("\nNothing beyond running its own code."));
-    if (request.permissions & kPluginHighRiskPermissions) {
-        w.add(utf8_literal("\n\nHigh risk, and not allowed in the official catalog:"));
-        bullets(w, request.permissions, true);
-    }
-    for (u32 i = 0; i < request.hosts.count; ++i) {
-        w.add(shown_hosts++ ? kBullet : utf8_literal("\n\nIt can reach only these servers, over HTTPS:\n\xE2\x80\xA2 "));
-        w.add(request.hosts[i]);
-    }
-    w.add(utf8_literal("\n\nPlugins run with full access to your computer. Only enable plugins you trust."));
-    return w.ok ? w.used : 0;
-}
-
 PluginConsentRequest plugin_consent_request(const PluginImage& image, Utf8View (&hosts)[MC_NETWORK_HOSTS_MAX]) noexcept {
     const mc_descriptor& d = *image.descriptor;
     for (u32 i = 0; i < d.network_count; ++i) hosts[i] = {d.network[i].data, d.network[i].bytes};
@@ -112,18 +39,18 @@ PluginConsentRequest plugin_consent_request(const PluginImage& image, Utf8View (
             0};
 }
 
-bool plugin_approval_store(const PluginRuntime& runtime, u64 owner_id, const mc_descriptor& d,
-                           const PluginApproval& approval) noexcept {
+bool plugin_approval_save(const PluginBinding& binding) noexcept {
     using namespace plugin_runtime_detail;
+    const mc_descriptor& d = *binding.image.descriptor;
     wchar_t path[640];
     PluginKeyValue table;
-    if (!approval_path(runtime, owner_id, path) || !open_table(&table)) return false;
+    if (!approval_path(*binding.runtime, binding.owner_id, path) || !open_table(&table)) return false;
     u8 permissions[8];
-    byte_store_le64(permissions, approval.permissions);
+    byte_store_le64(permissions, binding.permissions);
     char names[MC_NETWORK_HOSTS_MAX * (MC_HOST_MAX + 1)];
     u32 used = 0;
     for (u32 i = 0; i < d.network_count; ++i) {
-        if (!(approval.hosts & (1u << i))) continue;
+        if (!(binding.approved_hosts & (1u << i))) continue;
         if (used) names[used++] = '\n';
         copy_bytes(names + used, d.network[i].data, d.network[i].bytes);
         used += d.network[i].bytes;
@@ -132,11 +59,6 @@ bool plugin_approval_store(const PluginRuntime& runtime, u64 owner_id, const mc_
                     kv_set(&table, key_of(kHostsKey), names, used, 0) == MC_OK && kv_save(&table, path);
     kv_close(&table);
     return ok;
-}
-
-bool plugin_approval_save(const PluginBinding& binding) noexcept {
-    return plugin_approval_store(*binding.runtime, binding.owner_id, *binding.image.descriptor,
-                                 {binding.permissions, binding.approved_hosts});
 }
 
 PluginApproval plugin_approval_load(const PluginRuntime& runtime, u64 owner_id, const mc_descriptor& d) noexcept {

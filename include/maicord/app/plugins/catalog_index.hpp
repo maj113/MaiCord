@@ -52,15 +52,6 @@ inline constexpr u32 kCatalogKindCount = 3;
 enum class CatalogThemeBase : u8 { dark, light, amoled };
 enum class CatalogCost : u8 { light, medium, heavy };
 enum class CatalogBlend : u8 { normal, screen, add };
-// Bits of CatalogItem::uses.
-enum CatalogUse : u32 {
-    kCatalogUseNoise = 1u << 0,
-    kCatalogUseGlyphs = 1u << 1,
-    kCatalogUseBlueNoise = 1u << 2,
-    kCatalogUsePointer = 1u << 3,
-    kCatalogUseTexture0 = 1u << 4,
-    kCatalogUseTexture1 = 1u << 5,
-};
 enum class CatalogKnobType : u8 { float_value, int_value, toggle, color, choice };
 enum class CatalogRevocationSeverity : u8 { none, malicious, broken, withdrawn };
 
@@ -110,8 +101,6 @@ struct CatalogBlob {
 struct CatalogImage {
     CatalogBlob blob;
     u32 width, height;
-    CatalogString alt; // previews only
-    u32 fps, seconds;  // loops only
 };
 struct CatalogAuthor {
     CatalogString name, github;
@@ -135,7 +124,6 @@ struct CatalogKnob {
     bool percent; // a float knob shown as a percentage (0.75 reads "75 %")
     // float and int: thousandths; toggle: value 0 or 1; color: value 0xRRGGBB; choice: value is the index.
     i64 minimum, maximum, value;
-    u32 first_choice, choice_count; // into CatalogIndex::choices
 };
 struct CatalogItem {
     CatalogKind kind;
@@ -147,7 +135,6 @@ struct CatalogItem {
     u32 author_count;
     CatalogString categories[kCatalogIndexMaximumCategories];
     u32 category_count;
-    CatalogString derived_url, derived_author, derived_license; // derived_url.bytes 0 when absent
     CatalogBlob details;
     CatalogImage previews[kCatalogIndexMaximumPreviews];
     u32 preview_count;
@@ -159,12 +146,10 @@ struct CatalogItem {
     // Effects.
     bool has_loop;
     CatalogImage loop;
-    u32 uses; // CatalogUse bits
     u32 first_knob, knob_count;
 };
 struct CatalogRevocation {
     u8 sha256[32];
-    u64 since;
     CatalogRevocationSeverity severity; // malicious for the blocklist
     CatalogString reason;
 };
@@ -178,7 +163,6 @@ struct CatalogIndex {
     CatalogVersion versions[kCatalogIndexMaximumListedVersions];
     CatalogKnob knobs[kCatalogIndexMaximumKnobs];
     CatalogString hosts[kCatalogIndexMaximumHostTexts];
-    CatalogString choices[kCatalogIndexMaximumChoiceTexts];
     CatalogRevocation revoked[kCatalogIndexMaximumRevoked];
     CatalogRevocation blocked[kCatalogIndexMaximumBlocked];
     char text[kCatalogIndexMaximumBytes];
@@ -196,10 +180,8 @@ CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signat
                                         KdfSha256Workspace& workspace, u64 now_unix, bool accept_expired,
                                         Slice<u32> structural_scratch, CatalogIndex* output) noexcept;
 
-// The display-text rule above for one decoded string: valid UTF-8 of at most
-// maximum bytes (nonempty when required).
-bool catalog_display_text_valid(Utf8View text, u32 maximum, bool required) noexcept;
-
+// A catalog slug: 1..kCatalogSlugMaximumBytes of lower-case letters, digits and '-', not starting with '-'.
+bool catalog_slug_valid(Utf8View text) noexcept;
 // "MAJOR.MINOR.PATCH" (each 0..999, no leading zeros) as major*1e6+minor*1e3+patch; false otherwise.
 bool catalog_version_code(Utf8View text, u64* code) noexcept;
 // "files/<sha256>.dll|json|mcfx" (a path below the catalog base); returns the bytes written.

@@ -2,7 +2,7 @@
 
 #include "maicord/app/plugins/binding.hpp"
 
-// The Developer console (plugin design 13): a small in-memory ring of what a plugin author wants to see while a
+// The Developer console: a small in-memory ring of what a plugin author wants to see while a
 // build runs inside MaiCord. Lines come from the plugins' own ctx.log calls, from the host's budget strikes and
 // from reloads of the dev folder's builds. Nothing here is written to disk or to the application log, and the
 // host's own lines are fixed texts: no message content, names of users or channels, tokens or URLs. A plugin's

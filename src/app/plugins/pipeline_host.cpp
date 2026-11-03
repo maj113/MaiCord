@@ -13,7 +13,6 @@
 #include "../account/account_ui_runtime.hpp"
 #include "../account/activity.hpp"
 #include "../account/custom_status.hpp"
-#include "../account/friends.hpp"
 #include "../chat/channel_authority.hpp"
 #include "../chat/read_state.hpp"
 #include "../chat/scoped_read.hpp"
@@ -36,7 +35,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/user/relationship_store.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
 #include "maicord/protocol/gateway/typing_events.hpp"
 #include "maicord/protocol/user/self_status_settings.hpp"
@@ -72,18 +70,6 @@ Utf8View display_name(const AccountUiRuntime& ui, u64 guild, u64 user) noexcept 
 bool user_is_bot(const AccountUiRuntime& ui, u64 user) noexcept {
     const auto* appearance = user ? user_appearance_find(ui.user_store.appearance, user) : nullptr;
     return appearance && (appearance->fields & appearance_bot) && appearance->bot;
-}
-u32 relationship_value(u64 user) noexcept {
-    const auto* store = application_friends_relationships();
-    const auto* record = store && user ? relationship_store_find(*store, user) : nullptr;
-    if (!record) return MC_RELATIONSHIP_NONE;
-    switch (record->type) {
-    case RelationshipType::friend_: return MC_RELATIONSHIP_FRIEND;
-    case RelationshipType::blocked: return MC_RELATIONSHIP_BLOCKED;
-    case RelationshipType::incoming: return MC_RELATIONSHIP_INCOMING;
-    case RelationshipType::outgoing: return MC_RELATIONSHIP_OUTGOING;
-    default: return MC_RELATIONSHIP_NONE;
-    }
 }
 u32 presence_value(GatewayClientMemberListStatus status) noexcept {
     switch (status) {
@@ -124,7 +110,7 @@ PluginMessage to_plugin(const MessageRecord& record, Utf8View content) noexcept 
     const auto* channel = chat_state_store_find_channel(ui->chat_state, record.channel_id);
     message.guild_id = channel ? channel->guild_id : 0;
     message.author_name = display_name(*ui, message.guild_id, record.author_id);
-    message.relationship = relationship_value(record.author_id);
+    message.relationship = application_plugin_relationship_of(record.author_id);
     u32 flags = 0;
     if (record.author_id && record.author_id == self_id()) flags |= MC_MESSAGE_OWN;
     if (user_is_bot(*ui, record.author_id)) flags |= MC_MESSAGE_BOT;
@@ -357,18 +343,12 @@ void relationship_changed(const GatewayClientEvent& event, ConstSlice<u8> payloa
     if (event.dispatch_kind == GatewayClientDispatchKind::relationship_remove) {
         out.kind = MC_EVENT_RELATIONSHIP_REMOVE;
         // What ended: the relationship the store still holds.
-        out.value = relationship_value(out.user_id);
+        out.value = application_plugin_relationship_of(out.user_id);
     } else {
         // An update that keeps the type is not a change.
-        const u32 before = relationship_value(out.user_id);
-        switch (mutation.record.type) {
-        case RelationshipType::friend_: out.value = MC_RELATIONSHIP_FRIEND; break;
-        case RelationshipType::blocked: out.value = MC_RELATIONSHIP_BLOCKED; break;
-        case RelationshipType::incoming: out.value = MC_RELATIONSHIP_INCOMING; break;
-        case RelationshipType::outgoing: out.value = MC_RELATIONSHIP_OUTGOING; break;
-        default: return;
-        }
-        if (before == out.value) return;
+        const u32 before = application_plugin_relationship_of(out.user_id);
+        out.value = application_plugin_relationship(mutation.record.type);
+        if (out.value == MC_RELATIONSHIP_NONE || before == out.value) return;
         out.kind = MC_EVENT_RELATIONSHIP_ADD;
     }
     if (ui && mutation.user.id) {
@@ -403,7 +383,6 @@ bool restore_tombstones() noexcept {
         input.edited_timestamp_ms = kept[i].edited_ms;
         input.content = kept[i].content;
         input.delivery = MessageDeliveryState::retained;
-        input.type = 0;
         changed = message_timeline_insert_retained(&timeline, input).mutation.inserted || changed;
     }
     return changed;

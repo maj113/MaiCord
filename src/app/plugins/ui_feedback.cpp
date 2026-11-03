@@ -24,7 +24,6 @@ struct Modal {
 };
 Modal g_modal;
 u32 g_banner_serial;
-u32 g_banner_revision;
 
 Utf8View view(const mc_str& text) noexcept {
     return {text.data, text.bytes};
@@ -102,7 +101,6 @@ mc_status banner_set(PluginBinding& binding, const mc_banner& banner) noexcept {
     copy_bytes(shown.action, banner.action.data, banner.action.bytes);
     if (++g_banner_serial == 0) ++g_banner_serial;
     shown.serial = g_banner_serial;
-    ++g_banner_revision;
     if (g_host && g_host->banner_changed) g_host->banner_changed();
     return MC_OK;
 }
@@ -112,7 +110,6 @@ mc_status banner_clear(PluginBinding& binding, u64 tag) noexcept {
     if (!slot) return MC_E_INACTIVE;
     if (!slot->banner.present || slot->banner.tag != tag) return MC_E_NOT_FOUND;
     slot->banner = {};
-    ++g_banner_revision;
     if (g_host && g_host->banner_changed) g_host->banner_changed();
     return MC_OK;
 }
@@ -204,7 +201,6 @@ mc_status open_target(PluginBinding& binding, u32 what, u64 id, u64 sub) noexcep
 void feedback_remove(Slot* slot) noexcept {
     if (slot->banner.present) {
         slot->banner = {};
-        ++g_banner_revision;
         if (g_host && g_host->banner_changed) g_host->banner_changed();
     }
     if (g_modal.active && g_modal.request.owner_id == slot->binding->owner_id) {
@@ -228,16 +224,11 @@ bool plugin_banner_current(PluginBannerView* output) noexcept {
     return false;
 }
 
-u32 plugin_banner_revision() noexcept {
-    return g_banner_revision;
-}
-
 bool plugin_banner_resolve(bool action) noexcept {
     PluginBannerView shown{};
     if (!plugin_banner_current(&shown)) return false;
     Slot* slot = find_slot(shown.owner_id);
     slot->banner = {};
-    ++g_banner_revision;
     PluginCompletion completion{};
     completion.kind = PluginCompletionKind::banner;
     completion.tag = shown.tag;

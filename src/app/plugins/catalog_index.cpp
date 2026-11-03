@@ -162,7 +162,9 @@ bool decode(Parse& p, JsonValue value, Text* text) noexcept {
     text->view = {out.text + out.text_bytes, decoded.bytes};
     return true;
 }
+// target null: the text was only checked, not kept.
 bool keep(Parse& p, const Text& text, CatalogString* target) noexcept {
+    if (!target) return true;
     *target = text.ref;
     p.out->text_bytes += text.ref.bytes;
     return true;
@@ -255,7 +257,6 @@ bool grammar(Parse& p, JsonValue value, bool (*valid)(Utf8View), E code, Catalog
     if (!decode(p, value, &t)) return false;
     return valid(t.view) ? keep(p, t, target) : fail(p, code);
 }
-bool slug_member(Utf8View t) noexcept { return slug_valid(t, kCatalogSlugMaximumBytes); }
 bool category_member(Utf8View t) noexcept { return slug_valid(t, kCategoryMaximumBytes); }
 // The position of a string among names, or code (choice) when it is not one.
 bool lookup(Parse& p, JsonValue value, const char* names, u32* index) noexcept {
@@ -310,6 +311,7 @@ bool image_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<ImageContext*>(context);
     Parse& p = *c.p;
     CatalogImage& im = *c.image;
+    u32 range_only = 0; // fps and seconds are validated but nothing reads them
     switch (member(p, name, kImageNames, c.allowed, &c.seen)) {
     case im_sha256: return digest(p, value, im.blob.sha256, 32);
     case im_bytes:
@@ -317,9 +319,9 @@ bool image_member(void* context, JsonString name, JsonValue value) noexcept {
                       E::file, &im.blob.bytes);
     case im_width: return u32_in(p, value, 1, kImageMaximumExtent, E::limit, &im.width);
     case im_height: return u32_in(p, value, 1, kImageMaximumExtent, E::limit, &im.height);
-    case im_alt: return display(p, value, kAltMaximumBytes, true, &im.alt);
-    case im_fps: return u32_in(p, value, 1, 60, E::limit, &im.fps);
-    case im_seconds: return u32_in(p, value, 1, 10, E::limit, &im.seconds);
+    case im_alt: return display(p, value, kAltMaximumBytes, true, nullptr);
+    case im_fps: return u32_in(p, value, 1, 60, E::limit, &range_only);
+    case im_seconds: return u32_in(p, value, 1, 10, E::limit, &range_only);
     default: return false;
     }
 }
@@ -360,15 +362,15 @@ bool author_entry(void* context, u32 index, JsonValue value) noexcept {
 }
 struct DerivedContext {
     Parse* p;
-    CatalogItem* item;
     u32 seen;
 };
+// derived_from is validated; no reader needs it kept.
 bool derived_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<DerivedContext*>(context);
     switch (member(*c.p, name, "url\0author\0license\0", 7, &c.seen)) {
-    case 0: return grammar(*c.p, value, url_valid, E::url, &c.item->derived_url);
-    case 1: return display(*c.p, value, kAuthorMaximumBytes, true, &c.item->derived_author);
-    case 2: return grammar(*c.p, value, license_valid, E::identifier, &c.item->derived_license);
+    case 0: return grammar(*c.p, value, url_valid, E::url, nullptr);
+    case 1: return display(*c.p, value, kAuthorMaximumBytes, true, nullptr);
+    case 2: return grammar(*c.p, value, license_valid, E::identifier, nullptr);
     default: return false;
     }
 }
@@ -478,7 +480,8 @@ constexpr u32 kKnobPercent = 1u << kn_percent;           // also allowed on a fl
 struct KnobContext {
     Parse* p;
     CatalogKnob* knob;
-    u32 seen;
+    u32 seen, choice_count;
+    CatalogString choices[kCatalogIndexMaximumChoices]; // kept to refuse repeats within the knob
 };
 bool choice_entry(void* context, u32 index, JsonValue value) noexcept {
     auto& c = *static_cast<KnobContext*>(context);
@@ -490,9 +493,10 @@ bool choice_entry(void* context, u32 index, JsonValue value) noexcept {
     if (!decode(p, value, &t)) return false;
     if (!display_text(t.view, kChoiceMaximumBytes, true)) return fail(p, E::text);
     for (u32 i = 0; i < index; ++i)
-        if (utf8_equal(catalog_text(out, out.choices[c.knob->first_choice + i]), t.view)) return fail(p, E::duplicate);
-    keep(p, t, &out.choices[out.choice_count++]);
-    c.knob->choice_count = index + 1;
+        if (utf8_equal(catalog_text(out, c.choices[i]), t.view)) return fail(p, E::duplicate);
+    keep(p, t, &c.choices[index]);
+    ++out.choice_count;
+    c.choice_count = index + 1;
     return true;
 }
 bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
@@ -530,7 +534,6 @@ bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
             return true;
         }
     case kn_choices:
-        k.first_choice = p.out->choice_count;
         return array(p, value, choice_entry, &c, 2);
     default: return false;
     }
@@ -574,7 +577,6 @@ bool peek(Parse& p, JsonValue value, Utf8View name, const char* names, u32* inde
 struct KnobsContext {
     Parse* p;
     CatalogItem* item;
-    u32 scalars, colors, choices;
 };
 bool knob_entry(void* context, u32 index, JsonValue value) noexcept {
     auto& c = *static_cast<KnobsContext*>(context);
@@ -591,13 +593,13 @@ bool knob_entry(void* context, u32 index, JsonValue value) noexcept {
     if (!object(p, value, knob_member, &kc) || !required(p, kc.seen, kKnobFields[type])) return false;
     const bool number = k.type == CatalogKnobType::float_value || k.type == CatalogKnobType::int_value;
     if (number && (k.minimum >= k.maximum || k.value < k.minimum || k.value > k.maximum)) return fail(p, E::limit);
-    if (k.type == CatalogKnobType::choice && static_cast<u64>(k.value) >= k.choice_count) return fail(p, E::limit);
+    if (k.type == CatalogKnobType::choice && static_cast<u64>(k.value) >= kc.choice_count) return fail(p, E::limit);
     ++out.knob_count;
     c.item->knob_count = index + 1;
     return true;
 }
 bool knobs(Parse& p, JsonValue value, CatalogItem& item) noexcept {
-    KnobsContext c{&p, &item, 0, 0, 0};
+    KnobsContext c{&p, &item};
     item.first_knob = p.out->knob_count;
     if (!array(p, value, knob_entry, &c, 0)) return false;
     const CatalogKnob* list = p.out->knobs + item.first_knob;
@@ -612,14 +614,18 @@ bool knobs(Parse& p, JsonValue value, CatalogItem& item) noexcept {
     return (scalars <= kCatalogIndexMaximumScalarKnobs && colors <= kCatalogIndexMaximumColorKnobs &&
             choices <= kCatalogIndexMaximumChoiceKnobs) || fail(p, E::limit);
 }
+struct UseContext {
+    Parse* p;
+    u32 seen;
+};
 bool use_entry(void* context, u32 index, JsonValue value) noexcept {
-    Parse& p = *static_cast<Parse*>(static_cast<void**>(context)[0]);
-    auto& item = *static_cast<CatalogItem*>(static_cast<void**>(context)[1]);
+    auto& c = *static_cast<UseContext*>(context);
+    Parse& p = *c.p;
     if (index >= 6) return fail(p, E::limit);
     u32 use = 0;
     if (!lookup(p, value, kUses, &use)) return false;
-    if (item.uses & (1u << use)) return fail(p, E::duplicate);
-    item.uses |= 1u << use;
+    if (c.seen & (1u << use)) return fail(p, E::duplicate);
+    c.seen |= 1u << use;
     return true;
 }
 struct SwatchContext {
@@ -672,7 +678,7 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
     u32 index = 0;
     switch (member(p, name, kItemNames, kItemFields[kind], &c.seen)) {
     case it_kind: return true; // read before the visit
-    case it_slug: return grammar(p, value, slug_member, E::identifier, &item.slug);
+    case it_slug: return grammar(p, value, catalog_slug_valid, E::identifier, &item.slug);
     case it_name: return display(p, value, kNameMaximumBytes, true, &item.name);
     case it_summary: return display(p, value, kSummaryMaximumBytes, true, &item.summary);
     case it_authors: return array(p, value, author_entry, pair, 1);
@@ -681,7 +687,7 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
     case it_homepage: return grammar(p, value, url_valid, E::url, &item.homepage);
     case it_categories: return array(p, value, category_entry, pair, 0);
     case it_derived: {
-        DerivedContext d{&p, &item, 0};
+        DerivedContext d{&p, 0};
         return object(p, value, derived_member, &d) && required(p, d.seen, 7);
     }
     case it_details: return blob(p, value, kCatalogIndexDetailsMaximumBytes, &item.details);
@@ -698,7 +704,7 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
         if (!lookup(p, value, kBases, &index)) return false;
         item.base = static_cast<CatalogThemeBase>(index);
         return true;
-    case it_effect: return grammar(p, value, slug_member, E::identifier, &item.effect);
+    case it_effect: return grammar(p, value, catalog_slug_valid, E::identifier, &item.effect);
     case it_swatches: {
         SwatchContext s{&p, item.swatches, 0};
         return object(p, value, swatch_member, &s) && required(p, s.seen, 0xF) && (item.has_swatches = true);
@@ -711,7 +717,10 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
         if (!lookup(p, value, kBlends, &index)) return false;
         item.blend = static_cast<CatalogBlend>(index);
         return true;
-    case it_uses: return array(p, value, use_entry, pair, 0);
+    case it_uses: {
+        UseContext uses{&p, 0};
+        return array(p, value, use_entry, &uses, 0);
+    }
     case it_knobs: return knobs(p, value, item);
     case it_loop: return image(p, value, kLoopFields, &item.loop) && (item.has_loop = true);
     default: return false;
@@ -751,10 +760,11 @@ bool revoked_member(void* context, JsonString name, JsonValue value) noexcept {
     Parse& p = *c.p;
     CatalogRevocation& e = *c.entry;
     u32 severity = 0;
+    u64 since = 0; // validated; nothing reads it
     switch (member(p, name, "sha256\0reason\0since\0severity\0", c.blocklist ? 7u : 0xFu, &c.seen)) {
     case 0: return digest(p, value, e.sha256, 32);
     case 1: return display(p, value, kReasonMaximumBytes, false, &e.reason);
-    case 2: return time(p, value, &e.since);
+    case 2: return time(p, value, &since);
     case 3:
         if (!lookup(p, value, kSeverities, &severity)) return false;
         e.severity = static_cast<CatalogRevocationSeverity>(severity + 1);
@@ -859,9 +869,7 @@ CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signat
     return {E::none};
 }
 
-bool catalog_display_text_valid(Utf8View text, u32 maximum, bool required) noexcept {
-    return display_text(text, maximum, required);
-}
+bool catalog_slug_valid(Utf8View text) noexcept { return slug_valid(text, kCatalogSlugMaximumBytes); }
 
 bool catalog_version_code(Utf8View text, u64* code) noexcept {
     u64 parts[3]{};

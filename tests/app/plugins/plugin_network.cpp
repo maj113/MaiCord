@@ -9,6 +9,7 @@
 #include "plugins/binding_internal.hpp"
 #include "fake_transport.hpp"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -17,6 +18,7 @@
 // transport in place of the network.
 namespace maicord::plugin_network_tests {
 using namespace plugin_runtime_detail;
+using namespace plugin_fixture;
 
 u32 failures;
 void check(bool value, const char* label) noexcept {
@@ -47,72 +49,8 @@ struct NetSettings {
 };
 enum : u32 { kSecret, kColour, kKey, kChannel, kUsers, kLabel };
 
-u32 length(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
-u32 length(const wchar_t* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    return count;
-}
 bool same(mc_str text, const char* expected) noexcept {
     return text.bytes == length(expected) && bytes_equal(text.data, expected, text.bytes);
-}
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-
-struct Root {
-    wchar_t base[MAX_PATH], plugins[MAX_PATH], data[MAX_PATH];
-};
-bool make_root(Root* root) noexcept {
-    wchar_t temp[MAX_PATH], path[MAX_PATH];
-    const DWORD count = GetTempPathW(MAX_PATH, temp);
-    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp, L"mcn", 0, path) || !DeleteFileW(path) ||
-        !CreateDirectoryW(path, nullptr))
-        return false;
-    u32 at = 0;
-    for (; path[at]; ++at) root->base[at] = path[at];
-    root->base[at] = 0;
-    join(root->plugins, root->base, L"plugins");
-    join(root->data, root->base, L"data");
-    return CreateDirectoryW(root->plugins, nullptr) && CreateDirectoryW(root->data, nullptr);
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2])))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-bool install(const Root& root, const wchar_t* built, const wchar_t* name) noexcept {
-    wchar_t directory[MAX_PATH], source[MAX_PATH], destination[MAX_PATH];
-    const DWORD count = GetModuleFileNameW(nullptr, directory, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && directory[at - 1] != L'\\') --at;
-    if (!at) return false;
-    directory[at - 1] = 0;
-    join(source, directory, built);
-    join(destination, root.plugins, name);
-    return CopyFileW(source, destination, FALSE) != 0;
 }
 // The file's bytes, or zero.
 u32 read_file(const wchar_t* path, u8* output, u32 capacity) noexcept {
@@ -589,37 +527,7 @@ void test_disable_discards(PluginRuntime* runtime) noexcept {
     check(plugin_runtime_disable(runtime, binding), "the plugin is disabled again");
 }
 
-
-bool has(const char* text, u32 bytes, const char* needle) noexcept {
-    return contains(reinterpret_cast<const u8*>(text), bytes, needle);
-}
-
 void test_consent(PluginRuntime* runtime, PluginBinding* binding) noexcept {
-    // The text names what is asked for, the hosts and the risky parts apart.
-    const Utf8View hosts[]{utf8_literal("api.example.com"), utf8_literal("*.cdn.example.net")};
-    PluginConsentRequest request{utf8_literal("Translate"), utf8_literal("1.0.0"), utf8_literal("Someone"),
-                                 MC_PERM_MESSAGE_SEND | MC_PERM_NETWORK, {hosts, 2}, 0, 0};
-    char text[kPluginConsentTextBytes];
-    u32 bytes = plugin_consent_text(request, {text, sizeof(text)});
-    check(bytes && has(text, bytes, "Published by Someone") && has(text, bytes, "Change the messages you send") &&
-              has(text, bytes, "api.example.com") && has(text, bytes, "*.cdn.example.net") && has(text, bytes, "HTTPS") &&
-              !has(text, bytes, "High risk") && !has(text, bytes, "asks for more"),
-          "the consent text lists permissions and hosts");
-    request.permissions |= MC_PERM_AUTOMATED_ACTIONS | MC_PERM_PERSISTENT_LOG;
-    bytes = plugin_consent_text(request, {text, sizeof(text)});
-    check(has(text, bytes, "High risk") && has(text, bytes, "Act for you on its own") && has(text, bytes, "Save deleted and edited"),
-          "automated actions and persistent logs are set apart");
-    request.approved_permissions = MC_PERM_MESSAGE_SEND | MC_PERM_NETWORK;
-    request.approved_hosts = 1;
-    bytes = plugin_consent_text(request, {text, sizeof(text)});
-    check(has(text, bytes, "asks for more than you approved before") && has(text, bytes, "Connect to *.cdn.example.net"),
-          "a repeat asks again for what is new");
-    PluginConsentRequest nothing{utf8_literal("Quiet"), utf8_literal("1"), {}, 0, {}, 0, 0};
-    bytes = plugin_consent_text(nothing, {text, sizeof(text)});
-    check(has(text, bytes, "Nothing beyond running its own code") && !has(text, bytes, "Published by") &&
-              !plugin_consent_text(request, {text, 16}),
-          "a plugin that asks for nothing says so, and a short buffer fails");
-
     // The remembered approval comes back by host name.
     check(plugin_approval_save(*binding), "an approval is remembered");
     const PluginApproval loaded = plugin_approval_load(*runtime, binding->owner_id, *binding->image.descriptor);
@@ -923,7 +831,7 @@ void test_settings(PluginRuntime* runtime, const Root& root) noexcept {
 
 void run() noexcept {
     Root root;
-    if (!make_root(&root)) {
+    if (!make_root(&root, L"mcn")) {
         check(false, "temporary directory");
         return;
     }

@@ -2,7 +2,6 @@
 // read_shared_group_dms): copies from MaiCord's cache through the application's reader (surfaces.hpp).
 // Nothing here fetches.
 #include "surfaces_internal.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord::plugin_surfaces_detail {
 

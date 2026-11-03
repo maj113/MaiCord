@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
+#include "plugin_fixture.hpp"
 
 namespace maicord::catalog_fixture {
 
@@ -41,33 +42,9 @@ inline u32 wide_copy(wchar_t* out, u32 at, const wchar_t* text) noexcept {
     out[at] = 0;
     return at;
 }
-inline bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
-inline void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    wide_copy(pattern, wide_copy(pattern, 0, directory), L"\\*");
-    WIN32_FIND_DATAW found;
-    const HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2]))) continue;
-            wchar_t child[MAX_PATH];
-            wide_copy(child, wide_copy(child, wide_copy(child, 0, directory), L"\\"), found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-inline bool test_directory(wchar_t (&output)[MAX_PATH]) noexcept {
-    const DWORD count = GetModuleFileNameW(nullptr, output, MAX_PATH);
-    if (!count || count >= MAX_PATH) return false;
-    u32 at = count;
-    while (at && output[at - 1] != L'\\') --at;
-    if (!at) return false;
-    output[at - 1] = 0;
-    return true;
-}
+using plugin_fixture::exists;
+using plugin_fixture::remove_tree;
+using plugin_fixture::test_directory;
 
 inline void hex(const u8* bytes, u32 count, char* out) noexcept {
     static constexpr char digits[] = "0123456789abcdef";

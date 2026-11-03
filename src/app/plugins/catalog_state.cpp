@@ -17,17 +17,11 @@ bool zero(const void* data, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i) if (p[i]) return false;
     return true;
 }
-bool lower_alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); }
-bool slug_valid(Utf8View t) noexcept {
-    if (!t.bytes || t.bytes > kCatalogSlugMaximumBytes || !lower_alnum(t.data[0])) return false;
-    for (u32 i = 1; i < t.bytes; ++i) if (!lower_alnum(t.data[i]) && t.data[i] != '-') return false;
-    return true;
-}
 bool entry_valid(const CatalogStateEntry& e) noexcept {
     u64 code = 0;
     const bool plugin = e.kind == CatalogKind::plugin;
     if (static_cast<u32>(e.kind) >= kCatalogKindCount || (e.flags & ~kCatalogEntryKnownFlags) ||
-        !slug_valid(catalog_entry_slug(e)) || !zero(e.slug + e.slug_bytes, sizeof(e.slug) - e.slug_bytes) ||
+        !catalog_slug_valid(catalog_entry_slug(e)) || !zero(e.slug + e.slug_bytes, sizeof(e.slug) - e.slug_bytes) ||
         e.version_bytes > kCatalogVersionTextMaximumBytes || e.previous_version_bytes > kCatalogVersionTextMaximumBytes ||
         !zero(e.version + e.version_bytes, sizeof(e.version) - e.version_bytes) ||
         !zero(e.previous_version + e.previous_version_bytes, sizeof(e.previous_version) - e.previous_version_bytes) ||
@@ -181,7 +175,7 @@ CatalogStateEntry* catalog_state_find_owner(CatalogState& state, u64 owner_id) n
 }
 
 CatalogStateEntry* catalog_state_add(CatalogState& state, CatalogKind kind, const Utf8View& slug) noexcept {
-    if (state.count == kCatalogStateMaximumEntries || !slug_valid(slug) || catalog_state_find(state, kind, slug)) return nullptr;
+    if (state.count == kCatalogStateMaximumEntries || !catalog_slug_valid(slug) || catalog_state_find(state, kind, slug)) return nullptr;
     CatalogStateEntry& e = state.entries[state.count++];
     clear_bytes(&e, sizeof(e));
     e.kind = kind;

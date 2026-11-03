@@ -1,11 +1,10 @@
-// Developer Mode (plugin design 9.2 and 13): the watched dev folders, hot reload and the Developer console,
+// Developer Mode: the watched dev folders, hot reload and the Developer console,
 // against the catalog service with no server. Fixture builds of one plugin stand for a developer's rebuilds
 // (same layout, changed layout, one more permission, a broken file); the plugin the maicord-plugin tool wrote
 // from a clean folder (new, build, dev: cmake runs them) is loaded the way a user's would be, and the effect the
 // tool built (effect new, preview) is read by the client's own .mcfx parser.
 #include "plugins/catalog_service.hpp"
 #include "plugins/dev_console.hpp"
-#include "plugins/dev_watch.hpp"
 #include "catalog_fixture.hpp"
 #include "maicord/app/packages/mcfx.hpp"
 #include "maicord/app/plugins/consent.hpp"

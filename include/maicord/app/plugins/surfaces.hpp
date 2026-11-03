@@ -70,8 +70,8 @@ struct PluginHeaderInput {
     Utf8View name;
 };
 
-// One prepare pass: all decorate and visibility calls share the aggregate budget (design 10: 4 ms), and the
-// rest wait for the next pass. Zero-initialize, then set nothing: begin fills the budget.
+// One prepare pass: all decorate and visibility calls share the aggregate budget (4 ms), and the
+// rest wait for the next pass. Zero-initialize, then set nothing: the first call fills the budget.
 inline constexpr u64 kPluginDecoratePassBudgetUs = 4'000;
 struct PluginDecoratePass {
     u64 budget_us, spent_us;
@@ -150,9 +150,5 @@ inline u64 g_plugin_surface_revision = 0;
 // What the message verdicts contribute to g_ui_plugin_render_revision (mixed with the application's own
 // reveal state): changes with every message decoration change.
 inline u64 g_plugin_message_revision = 0;
-
-inline bool plugin_surfaces_wants(u32 kind) noexcept {
-    return g_plugin_surfaces && (g_plugin_surfaces->wants & (1u << kind));
-}
 
 } // namespace maicord

@@ -270,10 +270,6 @@ bool keep_add_edit(u64 channel_id, u64 message_id, Utf8View text) noexcept {
     return true;
 }
 
-void keep_forget(u64 message_id) noexcept {
-    if (Record* record = find(message_id)) release(record);
-}
-
 void keep_clear() noexcept {
     if (!g_store) return;
     VirtualFree(g_store->pool, 0, MEM_RELEASE);

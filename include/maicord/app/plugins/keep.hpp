@@ -46,7 +46,6 @@ bool keep_text(u64 channel_id, u64 message_id, u32 version, Utf8View* text) noex
 u32 keep_tombstones(u64 channel_id, KeepMessage* output, u32 capacity) noexcept;
 // Appends an older earlier text after the ones already kept (seeding from a plugin's own log, newest first).
 bool keep_add_edit(u64 channel_id, u64 message_id, Utf8View text) noexcept;
-void keep_forget(u64 message_id) noexcept;
 void keep_clear() noexcept;
 KeepStats keep_stats() noexcept;
 

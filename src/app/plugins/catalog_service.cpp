@@ -35,7 +35,7 @@ struct Operation {
     u32 version;     // into index->versions
     u64 job;         // the worker job in flight
     u8 sha256[32];   // the file being installed
-    bool update, enable_after;
+    bool update;
     // A Developer Mode reload (a build the dev folder watch found); dev_file indexes Service::dev_files.
     bool reload;
     u8 dev_file;
@@ -286,10 +286,10 @@ void apply_revocations() noexcept {
     bool changed = false;
     for (u32 i = 0; i < g->state.count; ++i) {
         CatalogStateEntry& e = g->state.entries[i];
-        const CatalogRevocation* entry = nullptr;
-        const auto severity = catalog_index_revocation(*g->index, e.sha256, &entry);
-        if (e.previous_version_bytes && catalog_index_revocation(*g->index, e.previous_sha256) != CatalogRevocationSeverity::none &&
-            catalog_index_revocation(*g->index, e.previous_sha256) != CatalogRevocationSeverity::withdrawn) {
+        const auto severity = catalog_index_revocation(*g->index, e.sha256);
+        const auto previous = e.previous_version_bytes ? catalog_index_revocation(*g->index, e.previous_sha256)
+                                                        : CatalogRevocationSeverity::none;
+        if (previous != CatalogRevocationSeverity::none && previous != CatalogRevocationSeverity::withdrawn) {
             clear_bytes(e.previous_sha256, 32);
             clear_bytes(e.previous_version, sizeof(e.previous_version));
             e.previous_version_bytes = 0;
@@ -352,7 +352,7 @@ void begin(CatalogAction action, CatalogKind kind, const Utf8View& slug) noexcep
     g->dev_detail_bytes = 0;
     bump();
 }
-// ---- Developer Mode: the dev folder (plugin design 9.2) --------------------------------------------------------
+// ---- Developer Mode: the dev folder -----------------------------------------------------------------------------
 bool developer() noexcept { return g->host.developer_mode && g->host.developer_mode(); }
 
 void dev_line(DevLineKind kind, const Utf8View& text) noexcept {
@@ -411,8 +411,7 @@ void unload_consent_image() noexcept {
     reset_value(&g->consent);
 }
 // Starts a download of a listed version.
-bool download(CatalogAction action, CatalogKind kind, const Utf8View& slug, u32 item,
-              u32 version) noexcept {
+bool download(CatalogAction action, CatalogKind kind, const Utf8View& slug, u32 version) noexcept {
     if (busy()) return false;
     begin(action, kind, slug);
     g->op.version = version;
@@ -424,7 +423,6 @@ bool download(CatalogAction action, CatalogKind kind, const Utf8View& slug, u32 
     job.slug_bytes = g->op.slug_bytes;
     copy_bytes(job.slug, g->op.slug, g->op.slug_bytes);
     job.blob = v.file;
-    (void)item;
     g->op.job = submit(job);
     if (!g->op.job) return finish(CatalogError::busy);
     g->view.operation.phase = CatalogPhase::downloading;
@@ -623,7 +621,7 @@ void auto_update() noexcept {
         const auto st = application_catalog_item_state(e.kind, catalog_entry_slug(e));
         if (st.update == kCatalogNone || st.needs_review || g->index->versions[st.update].code == e.skipped_code) continue;
         if (g->attempted_count < kCatalogStateMaximumEntries) g->attempted[g->attempted_count++] = key;
-        download(CatalogAction::update, e.kind, catalog_entry_slug(e), st.item, st.update);
+        download(CatalogAction::update, e.kind, catalog_entry_slug(e), st.update);
         return;
     }
     g->auto_due = false;
@@ -941,14 +939,14 @@ bool application_catalog_install(CatalogKind kind, const Utf8View& slug) noexcep
         return finish(CatalogError::incompatible);
     }
     const CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
-    return download(e && catalog_item(*e) ? CatalogAction::update : CatalogAction::install, kind, slug, item, version);
+    return download(e && catalog_item(*e) ? CatalogAction::update : CatalogAction::install, kind, slug, version);
 }
 
 bool application_catalog_update(CatalogKind kind, const Utf8View& slug) noexcept {
     if (!g || busy() || !g->view.installable) return false;
     const auto st = application_catalog_item_state(kind, slug);
     if (!st.installed || st.update == kCatalogNone) return false;
-    return download(CatalogAction::update, kind, slug, st.item, st.update);
+    return download(CatalogAction::update, kind, slug, st.update);
 }
 
 u32 application_catalog_update_all() noexcept {
@@ -963,7 +961,7 @@ u32 application_catalog_update_all() noexcept {
     for (u32 i = 0; i < g->state.count && !busy(); ++i) {
         const CatalogStateEntry& e = g->state.entries[i];
         const auto st = application_catalog_item_state(e.kind, catalog_entry_slug(e));
-        if (st.update != kCatalogNone && !st.needs_review) download(CatalogAction::update, e.kind, catalog_entry_slug(e), st.item, st.update);
+        if (st.update != kCatalogNone && !st.needs_review) download(CatalogAction::update, e.kind, catalog_entry_slug(e), st.update);
     }
     return count;
 }

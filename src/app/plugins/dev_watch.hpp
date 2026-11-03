@@ -3,7 +3,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
 
-// Developer Mode's folder watcher (plugin design 9.2): one change notification on a dev folder, joined to the
+// Developer Mode's folder watcher: one change notification on a dev folder, joined to the
 // UI wait set, and a settle delay so a linker that writes a DLL in several steps is read once, after the last
 // write. UI thread only; zero-initialized, caller-owned.
 namespace maicord::app_detail {

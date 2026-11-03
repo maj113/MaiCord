@@ -4,11 +4,10 @@
 #include "maicord/app/update/fetch.hpp"
 #include "maicord/core/win32_types.hpp"
 
-// The official catalog in the client (plugin-design.md §12.2–§12.4, §9.1): one worker fetches and verifies
-// the signed index and the files it lists, the UI thread owns the immutable snapshot, catalog-state.bin and
-// the ABI-6 plugin runtime, and installs, updates, rolls back, removes and revokes plugins, themes and
-// effects. Everything here is UI thread only unless it says otherwise. local://prog/catalog-api.md is the
-// contract with the store pages and the package installer.
+// The official catalog in the client: one worker fetches and verifies the signed index and the files it
+// lists, the UI thread owns the immutable snapshot, catalog-state.bin and the ABI-6 plugin runtime, and
+// installs, updates, rolls back, removes and revokes plugins, themes and effects. Everything here is UI
+// thread only unless it says otherwise.
 namespace maicord {
 struct PluginRuntime;
 struct PluginConsentRequest; // maicord/app/plugins/consent.hpp

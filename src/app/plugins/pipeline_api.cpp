@@ -58,10 +58,7 @@ template <typename Member> const PluginPipelineSink* sink_for(Member member) noe
 }
 
 mc_status limited(PluginBinding* binding, PluginBucket bucket) noexcept {
-    if (plugin_take(binding, bucket)) {
-        ++plugin_stats().actions;
-        return MC_OK;
-    }
+    if (plugin_take(binding, bucket)) return MC_OK;
     ++plugin_stats().action_denials;
     return MC_E_RATE_LIMITED;
 }

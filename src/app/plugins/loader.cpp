@@ -178,11 +178,7 @@ bool setting_ok(const mc_setting_def& s, u32 index, const mc_setting_def* all, u
         return !s.default_text.bytes && !s.default_text.data && !(s.flags & MC_SET_MULTILINE);
     case MC_SET_COLOUR:
         return s.default_int >= 0 && s.default_int <= 0xFFFFFF;
-    case MC_SET_KEYBIND: {
-        const u32 key = static_cast<u32>(s.default_int);
-        return !key || ((key & 0xFFu) && !(key & ~(0xFFu | MC_KEY_CTRL | MC_KEY_SHIFT | MC_KEY_ALT)) &&
-                        ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || ((key & 0xFFu) >= 0x70 && (key & 0xFFu) <= 0x87)));
-    }
+    case MC_SET_KEYBIND: return plugin_keybind_valid(static_cast<u32>(s.default_int));
     case MC_SET_CHANNEL:
     case MC_SET_USER_LIST:
         return !s.default_int;
@@ -459,6 +455,13 @@ bool file_digest_equals(HANDLE file, u64 bytes, const u8* expected) noexcept {
 
 } // namespace
 
+// Unbound, or a key that cannot be typing: with Ctrl or Alt, or a function key.
+bool plugin_keybind_valid(u32 key) noexcept {
+    const u32 vk = key & 0xFFu;
+    return !key || (vk && !(key & ~(0xFFu | MC_KEY_CTRL | MC_KEY_SHIFT | MC_KEY_ALT)) &&
+                    ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || (vk >= 0x70 && vk <= 0x87)));
+}
+
 PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept {
     if (!file || !output) return failure(PluginLoadError::invalid_argument);
     if (file_bytes < 64) return failure(PluginLoadError::not_pe);
@@ -655,7 +658,6 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     info->author_bytes = static_cast<u8>(keep(info->author, sizeof(info->author), d->author));
     info->version_bytes = static_cast<u8>(keep(info->version, sizeof(info->version), d->version));
     info->summary_bytes = static_cast<u16>(keep(info->summary, sizeof(info->summary), d->summary));
-    info->homepage_bytes = static_cast<u16>(keep(info->homepage, sizeof(info->homepage), d->homepage));
     *permissions = d->permissions | plugin_implied_permissions(*d);
     return success();
 }

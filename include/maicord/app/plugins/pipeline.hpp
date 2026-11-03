@@ -3,7 +3,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/sdk/maicord_plugin.h"
 
-// The message pipeline for plugins (design section 8, T1): the hooks around messages (click,
+// The message pipeline for plugins: the hooks around messages (click,
 // deleted, edited, typing), the batched event feed, timers, and the actions plugins may take
 // (sends, edits, reactions, local messages, composer control). The runtime half (pipeline.cpp,
 // pipeline_api.cpp) is independent of the application: it runs hooks and enforces permissions,
@@ -101,15 +101,12 @@ struct PluginPipelineSink {
 // The sink is global (one application); null removes it. Tests install their own.
 void plugin_pipeline_set_sink(const PluginPipelineSink*) noexcept;
 
-// Counters since process start; for tests and the dev console.
+// Counters since process start; for tests.
 struct PluginPipelineStats {
     u32 deleted_calls, edited_calls, click_calls, typing_calls;
     u32 event_calls;       // EVENTS hook calls (batches)
-    u32 events_delivered;  // events handed to plugins, overflow notices excluded
     u32 events_lost;       // events a slow plugin missed
     u32 timer_calls;
-    u32 strikes;           // calls past their budget
-    u32 actions;           // actions that reached the sink
     u32 action_denials;    // actions refused for permission, gesture or rate limit
 };
 const PluginPipelineStats& plugin_pipeline_stats() noexcept;
