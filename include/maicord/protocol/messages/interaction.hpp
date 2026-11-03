@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord {

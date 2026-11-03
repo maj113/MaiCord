@@ -39,7 +39,7 @@ RelationshipStoreResult relationship_store_upsert(RelationshipStore* store, cons
         store->records[index] = owned;
     } else {
         if (store->count == store->records.count) return result(RelationshipStoreError::capacity);
-        for (u32 i = store->count; i > index; --i) store->records[i] = store->records[i - 1];
+        sorted_insert_gap(store->records.data, store->count, index);
         store->records[index] = owned;
         ++store->count;
     }
@@ -50,7 +50,7 @@ RelationshipStoreResult relationship_store_remove(RelationshipStore* store, u64 
     if (!store || !valid(*store) || !id) return result(RelationshipStoreError::invalid_input);
     const u32 index = lower(*store, id);
     if (index == store->count || store->records[index].user_id != id) return result(RelationshipStoreError::none);
-    for (u32 i = index + 1; i < store->count; ++i) store->records[i - 1] = store->records[i];
+    sorted_erase_gap(store->records.data, store->count, index);
     reset_value(&store->records[--store->count]);
     saturating_increment(store->revision);
     return result(RelationshipStoreError::none, true);
@@ -72,7 +72,7 @@ RelationshipStoreResult relationship_store_replace(RelationshipStore* store, Con
     }
     if (unchanged) return result(RelationshipStoreError::none);
     const u32 previous = store->count;
-    for (u32 i = 0; i < sorted.count; ++i) store->records[i] = sorted[i];
+    copy_bytes(store->records.data, sorted.data, sorted.count * static_cast<u32>(sizeof(*sorted.data)));
     for (u32 i = sorted.count; i < previous; ++i) reset_value(&store->records[i]);
     store->count = sorted.count;
     saturating_increment(store->revision);

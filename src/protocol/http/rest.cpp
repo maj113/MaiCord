@@ -183,11 +183,9 @@ bool visit_rate_header(void* opaque, HttpField field) noexcept {
             return false;
         if (!field.value.data || field.value.count == 0 || field.value.count > kRateLimitBucketMaximumBytes)
             return rate_head_failure(context, RestHeadError::bucket_capacity, field.source_offset);
-        for (u32 index = 0; index < field.value.count; ++index) {
-            if (field.value[index] < 0x21 || field.value[index] > 0x7E)
-                return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
-            context->rate.bucket[index] = field.value[index];
-        }
+        if (!valid_token(field.value))
+            return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
+        copy_bytes(context->rate.bucket, field.value.data, field.value.count);
         context->rate.bucket_bytes = static_cast<u8>(field.value.count);
     } else if (is("x-ratelimit-global")) {
         return rate_value(context, rate_limit_field_global, field.source_offset,
@@ -865,9 +863,8 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
     binding.in_flight = true;
     binding.last_used_ms = now_ms;
     return RestRateAcquireResult{
-        RestRateLease{binding_index, binding.generation, bucket ? binding.bucket_index : invalid_rate_index,
-                      bucket ? binding.bucket_generation : static_cast<u16>(0), true},
-        0, RestRateAcquireKind::acquired, RestRateError::none};
+        RestRateLease{binding_index, binding.generation, binding.bucket_index, binding.bucket_generation, true}, 0,
+        RestRateAcquireKind::acquired, RestRateError::none};
 }
 
 RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLease* lease,
@@ -904,10 +901,8 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLeas
         if (bucket_index == invalid_rate_index)
             return observation_error(RestRateError::capacity);
         bucket = &scheduler->buckets[bucket_index];
-        if (binding.bucket_index != bucket_index || binding.bucket_generation != bucket->generation) {
-            binding.bucket_index = bucket_index;
-            binding.bucket_generation = bucket->generation;
-        }
+        binding.bucket_index = bucket_index;
+        binding.bucket_generation = bucket->generation;
 
         if ((rate.fields & rate_limit_field_limit) != 0) {
             bucket->limit = rate.limit;

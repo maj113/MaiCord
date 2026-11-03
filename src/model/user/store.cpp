@@ -97,9 +97,7 @@ bool remove_slot(UserStore* store, u32 slot) noexcept {
     const u16 generation = next_generation(store->records[slot].generation);
     reset_value<UserRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
-    for (u32 index = order + 1; index < store->count; ++index) {
-        store->order[index - 1] = store->order[index];
-    }
+    sorted_erase_gap(store->order, store->count, order);
     --store->count;
     store->order[store->count] = ~0u;
     return true;

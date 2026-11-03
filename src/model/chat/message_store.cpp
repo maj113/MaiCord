@@ -320,9 +320,7 @@ bool message_store_delete(MessageStore* store, u64 id) noexcept {
     MessageRecord& record = store->records[store->order[order_index]];
     store->text_wasted += record.content_bytes;
     record.occupied = false;
-    for (u32 index = order_index + 1; index < store->count; ++index) {
-        store->order[index - 1] = store->order[index];
-    }
+    sorted_erase_gap(store->order, store->count, order_index);
     --store->count;
     store->order[store->count] = ~0u;
     ++store->deleted;

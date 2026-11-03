@@ -176,7 +176,7 @@ AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name
     while (used && (safe[used - 1] == '.' || safe[used - 1] == ' ')) --used;
     if (!used) { copy_bytes(safe, "attachment", 10); used = 10; }
     if (reserved({safe, used})) {
-        for (u32 i = used; i; --i) safe[i] = safe[i - 1];
+        copy_bytes(safe + 1, safe, used);
         safe[0] = '_'; ++used;
     }
     if (units({safe, used}) > 240 || used > kAttachmentDownloadMaximumSuggestedFilenameBytes) {
@@ -189,7 +189,7 @@ AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name
         const u32 suffix_bytes = used - suffix;
         const u32 prefix = prefix_bytes({safe, suffix}, keep_units,
             kAttachmentDownloadMaximumSuggestedFilenameBytes - suffix_bytes);
-        for (u32 i = 0; i < used - suffix; ++i) safe[prefix + i] = safe[suffix + i];
+        copy_bytes(safe + prefix, safe + suffix, used - suffix);
         used = prefix + used - suffix;
         while (used && (safe[used - 1] == '.' || safe[used - 1] == ' ')) --used;
     }

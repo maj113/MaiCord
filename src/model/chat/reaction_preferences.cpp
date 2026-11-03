@@ -1,5 +1,6 @@
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 
 namespace maicord {
 u16 frecency_age_weight(u64 now_ms, u64 timestamp_ms) noexcept {
@@ -188,8 +189,7 @@ bool apply_favorite(ReactionPreferenceStore* store, ReactionEmojiRef emoji, bool
     if (favorite == present)
         return true;
     if (!favorite) {
-        for (u32 next = index + 1; next < store->favorite_count; ++next)
-            store->favorites[next - 1] = store->favorites[next];
+        sorted_erase_gap(store->favorites, store->favorite_count, index);
         store->favorites[--store->favorite_count] = kNoEmoji;
         return true;
     }
@@ -203,8 +203,7 @@ void push_pending(ReactionPreferenceStore* store, ReactionPreferenceKind kind, R
                   u64 timestamp_ms) noexcept {
     if (store->pending_use_count == kReactionPreferencePendingUseCapacity) {
         // The oldest unsent use survives locally; only its replay is lost.
-        for (u32 index = 1; index < store->pending_use_count; ++index)
-            store->pending_uses[index - 1] = store->pending_uses[index];
+        sorted_erase_gap(store->pending_uses, store->pending_use_count, 0);
         --store->pending_use_count;
     }
     store->pending_uses[store->pending_use_count++] = {emoji, timestamp_ms, kind};

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/byte_queue.hpp"
 #include "maicord/protocol/http/cookie_jar.hpp"
 #include "maicord/protocol/http/http1.hpp"
 

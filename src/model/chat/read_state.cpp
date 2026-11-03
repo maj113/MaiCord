@@ -15,7 +15,7 @@ u32 lower_bound(const ReadStateStore& reads, u64 channel_id) noexcept {
     return sorted_lower_bound(reads.count, [&](u32 at) noexcept { return reads.pending[at].channel_id < channel_id; });
 }
 void erase(ReadStateStore* reads, u32 position) noexcept {
-    for (u32 i = position + 1; i < reads->count; ++i) reads->pending[i - 1] = reads->pending[i];
+    sorted_erase_gap(reads->pending.data, reads->count, position);
     --reads->count;
     saturating_increment(reads->revision);
 }

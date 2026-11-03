@@ -70,6 +70,23 @@ u32 empty_channel_slot(const ChatStateStore& store) noexcept {
     return store.channel_capacity;
 }
 
+// Opens `order_index` in a sorted order table for a new record in `slot`.
+__declspec(noinline) void open_order(u16* order, u32& count, u16& free_hint, u32 order_index, u32 slot) noexcept {
+    sorted_insert_gap(order, count, order_index);
+    order[order_index] = static_cast<u16>(slot);
+    ++count;
+    if (slot == free_hint)
+        free_hint = static_cast<u16>(slot + 1);
+}
+
+// Closes the gap at `order_index` of a sorted order table once its record is freed.
+__declspec(noinline) void close_order(u16* order, u32& count, u16& free_hint, u32 order_index) noexcept {
+    free_hint = minimum<u16>(free_hint, order[order_index]);
+    sorted_erase_gap(order, count, order_index);
+    --count;
+    order[count] = 0xFFFF;
+}
+
 u32 active_name_base(const ChatStateStore& store) noexcept {
     return static_cast<u32>(store.active_name_bank) * store.name_bank_bytes;
 }
@@ -504,18 +521,12 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         return state_error(store, ChatStateStoreError::name_capacity);
     }
     if (!found) {
-        for (u32 index = store->guild_count; index > order_index; --index) {
-            store->guild_order[index] = store->guild_order[index - 1];
-        }
-        store->guild_order[order_index] = static_cast<u16>(slot);
-        ++store->guild_count;
+        open_order(store->guild_order, store->guild_count, store->guild_free_hint, order_index, slot);
         const u16 generation = next_generation(record.generation);
         reset_value<GuildRecord>(&record);
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
-        if (slot == store->guild_free_hint)
-            store->guild_free_hint = static_cast<u16>(slot + 1);
     } else if (replace_name) {
         store->name_wasted += record.name_bytes;
     }
@@ -810,18 +821,12 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         return state_error(store, ChatStateStoreError::name_capacity);
     }
     if (!found) {
-        for (u32 index = store->channel_count; index > order_index; --index) {
-            store->channel_order[index] = store->channel_order[index - 1];
-        }
-        store->channel_order[order_index] = static_cast<u16>(slot);
-        ++store->channel_count;
+        open_order(store->channel_order, store->channel_count, store->channel_free_hint, order_index, slot);
         const u16 generation = next_generation(record.generation);
         reset_value<ChannelRecord>(&record);
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
-        if (slot == store->channel_free_hint)
-            store->channel_free_hint = static_cast<u16>(slot + 1);
         if (input.last_message_known) {
             record.last_message_id = input.last_message_id;
             record.last_read_message_id = input.id;
@@ -933,12 +938,7 @@ bool chat_state_store_remove_channel(ChatStateStore* store, u64 channel_id) noex
     const u16 generation = next_generation(record.generation);
     reset_value<ChannelRecord>(&record);
     record.generation = generation;
-    store->channel_free_hint = minimum<u16>(store->channel_free_hint, store->channel_order[order_index]);
-    for (u32 index = order_index + 1; index < store->channel_count; ++index) {
-        store->channel_order[index - 1] = store->channel_order[index];
-    }
-    --store->channel_count;
-    store->channel_order[store->channel_count] = 0xFFFF;
+    close_order(store->channel_order, store->channel_count, store->channel_free_hint, order_index);
     ++store->channel_mutations;
     chat_state_store_select_default(store);
     return true;
@@ -970,12 +970,7 @@ bool chat_state_store_remove_guild(ChatStateStore* store, u64 guild_id, bool una
     const u16 generation = next_generation(record.generation);
     reset_value<GuildRecord>(&record);
     record.generation = generation;
-    store->guild_free_hint = minimum<u16>(store->guild_free_hint, store->guild_order[order_index]);
-    for (u32 index = order_index + 1; index < store->guild_count; ++index) {
-        store->guild_order[index - 1] = store->guild_order[index];
-    }
-    --store->guild_count;
-    store->guild_order[store->guild_count] = 0xFFFF;
+    close_order(store->guild_order, store->guild_count, store->guild_free_hint, order_index);
     ++store->guild_mutations;
     chat_state_store_select_default(store);
     return true;
@@ -1127,9 +1122,7 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
         }
         // Keep the existing compact backing sorted: lookups need no extra index or cache.
         // Allocate the name before moving records so rejection leaves the order intact.
-        for (u32 move = store->role_count; move > index; --move) {
-            store->roles[move] = store->roles[move - 1];
-        }
+        sorted_insert_gap(store->roles, store->role_count, index);
         ++store->role_count;
         RoleRecord& role = store->roles[index];
         reset_value<RoleRecord>(&role);

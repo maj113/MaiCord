@@ -82,13 +82,8 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
     if ((remainder == 2 && (final_digit & 0x0Fu) != 0) || (remainder == 3 && (final_digit & 0x03u) != 0)) {
         return failure(Base64Error::non_canonical, digits == 0 ? 0 : digits - 1);
     }
-    const u64 required64 = static_cast<u64>(digits / 4u) * 3u + (remainder == 2   ? 1u
-                                                                 : remainder == 3 ? 2u
-                                                                                  : 0u);
-    if (required64 > 0xFFFFFFFFull) {
-        return failure(Base64Error::invalid_length);
-    }
-    const u32 required = static_cast<u32>(required64);
+    // digits <= 2^32 - 1 and remainder is 0, 2 or 3 here, so the size always fits u32.
+    const u32 required = (digits / 4u) * 3u + (remainder != 0 ? remainder - 1u : 0u);
     if (required > output.count) {
         return failure(Base64Error::output_too_small, 0, required);
     }

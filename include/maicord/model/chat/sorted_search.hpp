@@ -29,4 +29,20 @@ template <typename T> inline void sorted_insert_gap(T* elements, u32 count, u32 
     if (count > at)
         copy_bytes(elements + at + 1, elements + at, (count - at) * static_cast<u32>(sizeof(T)));
 }
+
+// Closes the gap at `at` of an array of `count` elements by moving (at, count) one place down: one move
+// instead of an element loop.
+template <typename T> inline void sorted_erase_gap(T* elements, u32 count, u32 at) noexcept {
+    copy_bytes(elements + at, elements + at + 1, (count - at - 1) * static_cast<u32>(sizeof(T)));
+}
+
+// Moves the element at `from` to `to`, shifting the ones between by one place: one move instead of an element loop.
+template <typename T> inline void sorted_move_gap(T* elements, u32 from, u32 to) noexcept {
+    const T moving = elements[from];
+    if (from < to)
+        copy_bytes(elements + from, elements + from + 1, (to - from) * static_cast<u32>(sizeof(T)));
+    else if (to < from)
+        copy_bytes(elements + to + 1, elements + to, (from - to) * static_cast<u32>(sizeof(T)));
+    elements[to] = moving;
+}
 } // namespace maicord

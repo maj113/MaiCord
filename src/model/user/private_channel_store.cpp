@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
-#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {
@@ -114,7 +113,7 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
     u64 ids[kPrivateRecipientMaximum];
     char icon[34];
     if (input.recipients_known) {
-        for (u32 i = 0; i < input.recipients.count; ++i) ids[i] = input.recipients[i];
+        copy_bytes(ids, input.recipients.data, input.recipients.count * static_cast<u32>(sizeof(u64)));
         input.recipients.data = ids;
     }
     if (input.icon_known) {
@@ -124,7 +123,7 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
     const u32 index = lower_bound(*store, input.id);
     bool changed = false;
     if (index == store->count || store->records[index].id != input.id) {
-        for (u32 i = store->count; i > index; --i) store->records[i] = store->records[i - 1];
+        sorted_insert_gap(store->records.data, store->count, index);
         reset_value(&store->records[index]);
         store->records[index].id = input.id;
         ++store->count;
@@ -139,7 +138,9 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
             erase_recipients(store, index);
             record.recipient_offset = store->recipient_count;
             record.recipient_count = static_cast<u16>(input.recipients.count);
-            for (u32 i = 0; i < input.recipients.count; ++i) store->recipients[store->recipient_count++] = input.recipients[i];
+            copy_bytes(store->recipients.data + store->recipient_count, input.recipients.data,
+                       input.recipients.count * static_cast<u32>(sizeof(u64)));
+            store->recipient_count += input.recipients.count;
             changed = true;
         }
     }
@@ -199,7 +200,7 @@ bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept {
     const u32 index = static_cast<u32>(found - store->records.data);
     if (store->nickname_count && !private_channel_store_replace_nicknames(store, id, {})) return false;
     erase_recipients(store, index);
-    for (u32 i = index + 1; i < store->count; ++i) store->records[i - 1] = store->records[i];
+    sorted_erase_gap(store->records.data, store->count, index);
     --store->count;
     saturating_increment(store->revision);
     return true;
@@ -281,12 +282,10 @@ bool private_channel_store_replace_nicknames(PrivateChannelStore* store, u64 cha
     }
     if (equal) return true;
     const u32 old_count = end - first;
-    if (names.count > old_count) {
-        for (u32 i = store->nickname_count; i > end; --i) store->nicknames[i - 1 + names.count - old_count] = store->nicknames[i - 1];
-    } else {
-        for (u32 i = end; i < store->nickname_count; ++i) store->nicknames[i - old_count + names.count] = store->nicknames[i];
-    }
-    for (u32 i = 0; i < names.count; ++i) store->nicknames[first + i] = staged[i];
+    // The tail after this channel's names moves to where the replacement names end.
+    copy_bytes(store->nicknames.data + first + names.count, store->nicknames.data + end,
+               (store->nickname_count - end) * static_cast<u32>(sizeof(PrivateNicknameRecord)));
+    copy_bytes(store->nicknames.data + first, staged, names.count * static_cast<u32>(sizeof(PrivateNicknameRecord)));
     store->nickname_count = store->nickname_count - old_count + names.count;
     saturating_increment(store->records[static_cast<u32>(channel - store->records.data)].revision);
     saturating_increment(store->revision);

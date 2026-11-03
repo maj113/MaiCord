@@ -541,7 +541,7 @@ EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height
         if (has_prefix({candidate.url + 6, decoded.bytes}, "//")) {
             copy_bytes(candidate.url, "https:", 6); candidate.url_bytes = decoded.bytes + 6;
         } else {
-            for (u32 i = 0; i < decoded.bytes; ++i) candidate.url[i] = candidate.url[i + 6];
+            copy_bytes(candidate.url, candidate.url + 6, decoded.bytes);
             candidate.url_bytes = decoded.bytes;
         }
         const Utf8View url{candidate.url, candidate.url_bytes};

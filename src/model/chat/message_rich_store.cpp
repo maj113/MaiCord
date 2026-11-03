@@ -827,9 +827,7 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
     store->text_wasted += static_cast<u32>(bytes);
     const u16 generation = store->records[slot].generation;
     reset_slot(store, &store->records[slot], generation == 0xFFFFu ? u16{1} : static_cast<u16>(generation + 1u));
-    for (u32 index = order_index + 1; index < store->count; ++index) {
-        store->order[index - 1] = store->order[index];
-    }
+    sorted_erase_gap(store->order, store->count, order_index);
     --store->count;
     ++store->deleted;
     return true;
