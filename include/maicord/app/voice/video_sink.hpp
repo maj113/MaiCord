@@ -17,9 +17,6 @@ inline constexpr u32 kVoiceVideoUnwantedUsers = 32;
 // Production binds voice_connection_dave_decrypt_frame; tests substitute.
 using VoiceVideoDecrypt = DaveMediaResult (*)(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
                                               Slice<u8> scratch, Slice<u8> output) noexcept;
-struct VoiceVideoStats {
-    u64 packets, delivered, dave_rejected, keyframe_requests;
-};
 // Per media attachment, logged and cleared by stop (video_receive_summary).
 struct VoiceVideoSummary {
     u64 packets, bytes, frames, first_us, last_us, transport_feedback;
@@ -47,7 +44,7 @@ struct VoiceVideoSink {
     u64 deadline_ms;
     u32 ended_count, unwanted_count, feedback_bytes;
     u32 offer; // Bound Select Protocol video offer (voice_video_codec_bit set).
-    VoiceVideoStats stats;
+    u64 keyframe_requests; // Decoder-requested keyframes applied, for the attachment summary.
     VoiceVideoSummary summary;
     u8 feedback[kVoiceVideoFeedbackBytes]; // Built RTCP waiting for the transport.
     bool rtp_ready;

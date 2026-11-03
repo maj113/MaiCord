@@ -3,7 +3,6 @@
 #include "maicord/app/voice/mls/tree.hpp"
 
 namespace maicord {
-inline constexpr u32 kMlsKeyPackageMaximum = 394;
 inline constexpr u32 kMlsMaxKeyPackageBytes = 2048;
 inline constexpr u32 kMlsMaxExternalSenderBytes = 1100;
 inline constexpr u32 kMlsGroupContextMaximum = 2048;

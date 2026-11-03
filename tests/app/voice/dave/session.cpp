@@ -104,7 +104,7 @@ void sealer(Check check, KdfSha256Workspace& kdf) noexcept {
     copy_bytes(wire, body, 32);
     const auto first = dave_frame_seal(frames, kdf, {wire, 32}, {wire, sizeof(wire)});
     test_unhex(epoch_vectors[0].wire, expected);
-    const auto small = dave_frame_seal(frames, kdf, {body, 32}, {output, 32 + kDaveSealOverhead - 6});
+    const auto small = dave_frame_seal(frames, kdf, {body, 32}, {output, 32 + kDaveFrameTagBytes + 2});
     const auto second = dave_frame_seal(frames, kdf, {body, 32}, {output, sizeof(output)});
     test_unhex(epoch_vectors[1].wire, expected);
     check(first.ok() && first.nonce == 1 && small.error == DaveSealError::output_capacity && second.ok() &&
@@ -176,7 +176,7 @@ u32 proposal(KdfSha256Workspace& kdf, const P256Key& gateway, u64 group_id, u64 
 struct Member {
     DaveSession session;
     u64 user_id;
-    u8 key_package[kMlsKeyPackageMaximum];
+    u8 key_package[dave_key_package_capacity];
     u32 key_package_bytes;
 };
 struct Fixture {

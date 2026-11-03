@@ -97,12 +97,10 @@ u32 elements(ConstSlice<u8> payload, Element* list, u32 capacity) noexcept {
 }
 } // namespace
 
-RtpDepacketize rtp_av1_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload, bool gap_before) noexcept {
+RtpDepacketize rtp_av1_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload) noexcept {
     if (!assembly)
         return RtpDepacketize::damaged;
     auto& a = *assembly;
-    if (gap_before)
-        drop_fragment(a);
     if (!payload.data || !payload.count) {
         drop_fragment(a);
         return reject(a, RtpDepacketize::damaged);

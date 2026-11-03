@@ -4,7 +4,7 @@ Builds tiny synthetic H.264 / H.265 / AV1 elementary streams, packetizes them
 independently of MaiCord (RFC 6184 packetization-mode 1, RFC 7798 without
 DONL, the AOM AV1 RTP payload as WebRTC writes it), and writes packet sets with loss/reorder/duplicate/RTX permutations,
 the byte-exact Annex B (4-byte start code) access units, or AV1 temporal
-units in Discord's depacketized form, the receiver must emit, and RTCP NACK/PLI/FIR/RR/SR serializations.
+units in Discord's depacketized form, the receiver must emit, and RTCP NACK/PLI/RR/SR serializations.
 
     python tools/rtp_video_oracle.py tests/data/rtp_video_vectors.hpp
 """
@@ -294,7 +294,6 @@ def rtcp_vectors():
     rr += struct.pack('>IIIIII', SSRC, (25 << 24) | 7, 0x0001FFFF, 123, 0x89ABCDEF, 0x00028000)
     rr += struct.pack('>IIIIII', RTX_SSRC + 9, (0 << 24) | (0xFFFFFF & -3), 42, 0, 0, 0)
     pli = struct.pack('>BBHII', 0x81, 206, 2, LOCAL_SSRC, SSRC)
-    fir = struct.pack('>BBHIIII', 0x84, 206, 4, LOCAL_SSRC, 0, SSRC, 9 << 24)
     sequences = [65534, 65535, 0, 3, 17, 18, 40, 41, 57, 58]
     items, i = [], 0
     while i < len(sequences):
@@ -308,7 +307,7 @@ def rtcp_vectors():
     nack += b''.join(struct.pack('>HH', p, b) for p, b in items)
     sr = struct.pack('>BBHI', 0x80, 200, 6, SSRC) + struct.pack('>IIIII', 0xE1234567, 0x89ABCDEF, 90000, 10, 9000)
     compound = sr + struct.pack('>BBHI', 0x81, 202, 1, SSRC)  # SR + empty-ish SDES header
-    return rr, pli, fir, sequences, nack, items, compound
+    return rr, pli, sequences, nack, items, compound
 
 
 def cstr(data):
@@ -361,10 +360,9 @@ def main():
     av1_rng = random.Random(0xA71)
     av1 = Stream('av1', av1_stream(av1_rng), 30000, 0x7FFFF000)
     emit_stream(lines, 'av1', av1, av1_rng)
-    rr, pli, fir, sequences, nack, items, compound = rtcp_vectors()
+    rr, pli, sequences, nack, items, compound = rtcp_vectors()
     lines.append(f'constexpr const char* rtcp_rr = {cstr(rr)};')
     lines.append(f'constexpr const char* rtcp_pli = {cstr(pli)};')
-    lines.append(f'constexpr const char* rtcp_fir = {cstr(fir)};')
     lines.append(f'constexpr u16 rtcp_nack_sequences[]{{{", ".join(map(str, sequences))}}};')
     lines.append(f'constexpr u32 rtcp_nack_items = {len(items)};')
     lines.append(f'constexpr const char* rtcp_nack = {cstr(nack)};')

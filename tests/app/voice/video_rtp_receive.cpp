@@ -38,8 +38,8 @@ void test_h264(Check check) noexcept {
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 single[]{0x65, 0x88, 0x01};
     const u8 stap[]{0x78, 0x00, 0x02, 0x67, 0xaa, 0x00, 0x02, 0x68, 0xbb};
-    check(rtp_h264_push(&a, view(single), false) == RtpDepacketize::appended &&
-              rtp_h264_push(&a, view(stap), false) == RtpDepacketize::appended &&
+    check(rtp_h264_push(&a, view(single)) == RtpDepacketize::appended &&
+              rtp_h264_push(&a, view(stap)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "0000000165880100000001" "67aa" "0000000168bb") &&
               rtp_h264_keyframe(a) && !a.damaged,
           "H.264 single NAL and STAP-A emit 4-byte start codes byte-exactly");
@@ -48,48 +48,41 @@ void test_h264(Check check) noexcept {
                             {0x78, 0x00, 0x01, 0x67, 0x00, 0x00}, {0x78, 0x00, 0x02, 0x7c, 0x85, 0x00}};
     bool rejected = true;
     for (const auto& bad : bad_staps)
-        rejected = rejected && rtp_h264_push(&a, view(bad), false) == RtpDepacketize::damaged;
+        rejected = rejected && rtp_h264_push(&a, view(bad)) == RtpDepacketize::damaged;
     const u8 trailing[]{0x78, 0x00, 0x01, 0x67, 0x00};
     const u8 unsupported[][2]{{0x79, 1}, {0x7a, 1}, {0x7b, 1}, {0x7d, 1}, {0x60, 1}, {0x7e, 1}, {0xe5, 1}};
-    rejected = rejected && rtp_h264_push(&a, view(trailing), false) == RtpDepacketize::damaged;
+    rejected = rejected && rtp_h264_push(&a, view(trailing)) == RtpDepacketize::damaged;
     for (const auto& bad : unsupported)
-        rejected = rejected && rtp_h264_push(&a, view(bad), false) == RtpDepacketize::damaged;
+        rejected = rejected && rtp_h264_push(&a, view(bad)) == RtpDepacketize::damaged;
     check(rejected && a.bytes == before && a.damaged,
           "H.264 rejects malformed STAP-A, STAP-B/MTAP/FU-B, reserved types and forbidden bit without output");
 
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 fu_start[]{0x7c, 0x85, 0xd1}, fu_middle[]{0x7c, 0x05, 0xd2}, fu_end[]{0x7c, 0x45, 0xd3};
-    check(rtp_h264_push(&a, view(fu_start), false) == RtpDepacketize::appended && a.fu_active &&
-              rtp_h264_push(&a, view(fu_middle), false) == RtpDepacketize::appended &&
-              rtp_h264_push(&a, view(fu_end), false) == RtpDepacketize::appended && !a.fu_active &&
+    check(rtp_h264_push(&a, view(fu_start)) == RtpDepacketize::appended && a.fu_active &&
+              rtp_h264_push(&a, view(fu_middle)) == RtpDepacketize::appended &&
+              rtp_h264_push(&a, view(fu_end)) == RtpDepacketize::appended && !a.fu_active &&
               equal_hex({out, a.bytes}, "0000000165d1d2d3") && rtp_h264_keyframe(a) && !a.damaged,
           "H.264 FU-A reassembles the NAL header from indicator NRI and FU type");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 both[]{0x7c, 0xc5, 0xd1}, wrong_type[]{0x7c, 0x01, 0xd2}, aggregate_type[]{0x7c, 0x98, 0x00};
-    check(rtp_h264_push(&a, view(both), false) == RtpDepacketize::damaged &&
-              rtp_h264_push(&a, view(fu_middle), false) == RtpDepacketize::damaged &&
-              rtp_h264_push(&a, view(aggregate_type), false) == RtpDepacketize::damaged && !a.bytes,
+    check(rtp_h264_push(&a, view(both)) == RtpDepacketize::damaged &&
+              rtp_h264_push(&a, view(fu_middle)) == RtpDepacketize::damaged &&
+              rtp_h264_push(&a, view(aggregate_type)) == RtpDepacketize::damaged && !a.bytes,
           "H.264 FU-A rejects start+end, orphan continuations and aggregate FU types");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_h264_push(&a, view(single), false);
-    const u32 kept = a.bytes;
-    check(rtp_h264_push(&a, view(fu_start), false) == RtpDepacketize::appended &&
-              rtp_h264_push(&a, view(fu_end), true) == RtpDepacketize::damaged && a.bytes == kept &&
-              !a.fu_active && a.damaged,
-          "H.264 sequence gap drops the partial FU-A and marks the unit damaged");
-    rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_h264_push(&a, view(fu_start), false);
-    check(rtp_h264_push(&a, view(wrong_type), false) == RtpDepacketize::damaged && !a.bytes && a.damaged,
+    rtp_h264_push(&a, view(fu_start));
+    check(rtp_h264_push(&a, view(wrong_type)) == RtpDepacketize::damaged && !a.bytes && a.damaged,
           "H.264 FU-A type change drops the fragment");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_h264_push(&a, view(fu_start), false);
+    rtp_h264_push(&a, view(fu_start));
     const u8 restart[]{0x7c, 0x81, 0xe1};
-    check(rtp_h264_push(&a, view(restart), false) == RtpDepacketize::appended && a.damaged &&
+    check(rtp_h264_push(&a, view(restart)) == RtpDepacketize::appended && a.damaged &&
               equal_hex({out, a.bytes}, "0000000161e1") && rtp_video_assembly_finish(&a) == 0 && a.damaged,
           "H.264 new FU start replaces an unterminated fragment; finish removes an open fragment");
     rtp_video_assembly_begin(&a, {out, 6});
-    check(rtp_h264_push(&a, view(single), false) == RtpDepacketize::overflow && !a.bytes &&
-              rtp_h264_push(&a, view(stap), false) == RtpDepacketize::overflow && !a.bytes,
+    check(rtp_h264_push(&a, view(single)) == RtpDepacketize::overflow && !a.bytes &&
+              rtp_h264_push(&a, view(stap)) == RtpDepacketize::overflow && !a.bytes,
           "H.264 output overflow keeps nothing from the payload");
     const u8 slice_start[]{0x41, 0x9a}, slice_next[]{0x41, 0x40}, fu_slice[]{0x5c, 0x81, 0x80},
         fu_tail[]{0x5c, 0x01, 0x80}, sps[]{0x67, 0x00}, stap_sps[]{0x78, 0x00, 0x02, 0x67, 0x42};
@@ -106,55 +99,51 @@ void test_h265(Check check) noexcept {
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 single[]{0x26, 0x01, 0xaf};
     const u8 ap[]{0x60, 0x01, 0x00, 0x03, 0x40, 0x01, 0xaa, 0x00, 0x03, 0x42, 0x01, 0xbb};
-    check(rtp_h265_push(&a, view(single), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(ap), false) == RtpDepacketize::appended &&
+    check(rtp_h265_push(&a, view(single)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(ap)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "000000012601af" "00000001" "4001aa" "00000001" "4201bb") &&
               rtp_h265_keyframe(a),
           "H.265 single NAL and aggregation packet emit 4-byte start codes");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 s[]{0x62, 0x01, 0x93, 0xd1}, m[]{0x62, 0x01, 0x13, 0xd2}, e[]{0x62, 0x01, 0x53, 0xd3};
-    check(rtp_h265_push(&a, view(s), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(m), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(e), false) == RtpDepacketize::appended &&
+    check(rtp_h265_push(&a, view(s)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(m)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(e)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "000000012601d1d2d3") && rtp_h265_keyframe(a) && !a.damaged,
           "H.265 FU reconstructs the two-byte NAL header");
-    rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_h265_push(&a, view(s), false);
-    check(rtp_h265_push(&a, view(e), true) == RtpDepacketize::damaged && !a.bytes && a.damaged,
-          "H.265 sequence gap drops the partial FU");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 paci[]{0x64, 0x01, 0x00}, tid_zero[]{0x26, 0x00, 0x00}, forbidden[]{0xa6, 0x01, 0x00},
         ap_nested[]{0x60, 0x01, 0x00, 0x03, 0x62, 0x01, 0x00}, ap_short[]{0x60, 0x01, 0x00, 0x01, 0x40},
         fu_both[]{0x62, 0x01, 0xd3, 0x00}, fu_ap_type[]{0x62, 0x01, 0xb0, 0x00}, tiny[]{0x26};
-    check(rtp_h265_push(&a, view(paci), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(tid_zero), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(forbidden), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(ap_nested), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(ap_short), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(fu_both), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(fu_ap_type), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(tiny), false) == RtpDepacketize::damaged &&
-              rtp_h265_push(&a, view(m), false) == RtpDepacketize::damaged && !a.bytes,
+    check(rtp_h265_push(&a, view(paci)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(tid_zero)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(forbidden)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(ap_nested)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(ap_short)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(fu_both)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(fu_ap_type)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(tiny)) == RtpDepacketize::damaged &&
+              rtp_h265_push(&a, view(m)) == RtpDepacketize::damaged && !a.bytes,
           "H.265 rejects PACI, TID 0, forbidden bit, nested/short aggregates and invalid FUs");
     rtp_video_assembly_begin(&a, {out, 8});
-    check(rtp_h265_push(&a, view(ap), false) == RtpDepacketize::overflow && !a.bytes,
+    check(rtp_h265_push(&a, view(ap)) == RtpDepacketize::overflow && !a.bytes,
           "H.265 overflow keeps nothing");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 ap_one[]{0x60, 0x01, 0x00, 0x03, 0x44, 0x01, 0xc1}, layered[]{0x26, 0x09, 0xaf};
-    check(rtp_h265_push(&a, view(ap_one), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(layered), false) == RtpDepacketize::appended &&
+    check(rtp_h265_push(&a, view(ap_one)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(layered)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "000000014401c1" "000000012609af") && !a.damaged,
           "H.265 accepts a one-unit AP and passes other layers' NAL units to the decoder, which skips them");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 restart[]{0x62, 0x01, 0x93, 0xe1};
-    check(rtp_h265_push(&a, view(s), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(restart), false) == RtpDepacketize::appended &&
-              rtp_h265_push(&a, view(e), false) == RtpDepacketize::appended &&
+    check(rtp_h265_push(&a, view(s)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(restart)) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(e)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "000000012601e1d3") && a.damaged,
           "H.265 FU restart drops the unfinished fragment and marks the unit damaged");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    check(rtp_h265_push(&a, view(e), false) == RtpDepacketize::damaged && !a.bytes &&
-              rtp_h265_push(&a, view(s), false) == RtpDepacketize::appended && !rtp_video_assembly_finish(&a) &&
+    check(rtp_h265_push(&a, view(e)) == RtpDepacketize::damaged && !a.bytes &&
+              rtp_h265_push(&a, view(s)) == RtpDepacketize::appended && !rtp_video_assembly_finish(&a) &&
               a.damaged,
           "H.265 FU end without a start, and a start without an end, leave nothing");
     const u8 trail_start[]{0x02, 0x01, 0x80}, trail_next[]{0x02, 0x01, 0x40}, vps[]{0x40, 0x01},
@@ -171,71 +160,66 @@ void test_av1(Check check) noexcept {
     // W=2: the first element has a length, the last runs to the end.
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 pair[]{0x20, 0x03, 0x08, 0xa1, 0xa2, 0x30, 0xb1, 0xb2, 0xb3};
-    check(rtp_av1_push(&a, view(pair), false) == RtpDepacketize::appended &&
+    check(rtp_av1_push(&a, view(pair)) == RtpDepacketize::appended &&
               rtp_video_assembly_finish(&a) == 8 && equal_hex({out, a.bytes}, "0a02a1a2" "30b1b2b3") &&
               rtp_av1_keyframe(a) && !a.damaged,
           "AV1 W=2 sizes every OBU but the last and treats a sequence header as a key unit");
     // W=0: every element has a length; an element's own obu_size is kept.
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 sized[]{0x00, 0x04, 0x1a, 0x02, 0xc1, 0xc2, 0x02, 0x20, 0xd1};
-    check(rtp_av1_push(&a, view(sized), false) == RtpDepacketize::appended &&
+    check(rtp_av1_push(&a, view(sized)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "1a02c1c2" "20d1") && !rtp_av1_keyframe(a),
           "AV1 W=0 lengths every element and keeps a matching obu_size");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 wrong_size[]{0x00, 0x04, 0x1a, 0x05, 0xc1, 0xc2, 0x02, 0x20, 0xd1};
-    check(rtp_av1_push(&a, view(wrong_size), false) == RtpDepacketize::damaged && a.damaged,
+    check(rtp_av1_push(&a, view(wrong_size)) == RtpDepacketize::damaged && a.damaged,
           "AV1 rejects an obu_size that disagrees with its element");
     // A fragment continued by the next packet, followed by another OBU.
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 first[]{0x50, 0x30, 0xaa, 0xbb}, second[]{0xa0, 0x02, 0xcc, 0xdd, 0x18, 0xee};
-    check(rtp_av1_push(&a, view(first), false) == RtpDepacketize::appended && a.fu_active &&
-              rtp_av1_push(&a, view(second), false) == RtpDepacketize::appended && !a.fu_active &&
+    check(rtp_av1_push(&a, view(first)) == RtpDepacketize::appended && a.fu_active &&
+              rtp_av1_push(&a, view(second)) == RtpDepacketize::appended && !a.fu_active &&
               equal_hex({out, a.bytes}, "3204aabbccdd" "18ee") && !a.damaged,
           "AV1 joins Z/Y fragments and sizes the joined OBU once the next begins");
     // An OBU announced by a header-only packet and carried by the next one.
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 announce[]{0x50}, carried[]{0x90, 0x30, 0x77};
-    check(rtp_av1_push(&a, view(announce), false) == RtpDepacketize::appended &&
-              rtp_av1_push(&a, view(carried), false) == RtpDepacketize::appended &&
+    check(rtp_av1_push(&a, view(announce)) == RtpDepacketize::appended &&
+              rtp_av1_push(&a, view(carried)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "3077") && (a.nal_types >> kAv1ObuFrame & 1),
           "AV1 accepts an empty announcing element");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 empty[]{0x10}, no_elements[]{0x20}, orphan[]{0x90, 0x30};
-    check(rtp_av1_push(&a, view(empty), false) == RtpDepacketize::damaged &&
-              rtp_av1_push(&a, view(no_elements), false) == RtpDepacketize::damaged &&
-              rtp_av1_push(&a, view(orphan), false) == RtpDepacketize::damaged && !a.bytes,
+    check(rtp_av1_push(&a, view(empty)) == RtpDepacketize::damaged &&
+              rtp_av1_push(&a, view(no_elements)) == RtpDepacketize::damaged &&
+              rtp_av1_push(&a, view(orphan)) == RtpDepacketize::damaged && !a.bytes,
           "AV1 rejects an announced OBU that never arrives, W without elements and an orphan continuation");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_av1_push(&a, view(first), false);
+    rtp_av1_push(&a, view(first));
     const u8 restart[]{0x10, 0x30, 0x01};
-    check(rtp_av1_push(&a, view(restart), false) == RtpDepacketize::damaged && !a.bytes && a.damaged,
+    check(rtp_av1_push(&a, view(restart)) == RtpDepacketize::damaged && !a.bytes && a.damaged,
           "AV1 Z clear while a fragment is open drops the fragment");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_av1_push(&a, view(pair), false);
+    rtp_av1_push(&a, view(pair));
     const u32 kept = a.bytes;
-    check(rtp_av1_push(&a, view(first), false) == RtpDepacketize::appended &&
-              rtp_av1_push(&a, view(second), true) == RtpDepacketize::damaged && a.damaged && !a.fu_active,
-          "AV1 sequence gap drops the open fragment");
-    rtp_video_assembly_begin(&a, {out, sizeof(out)});
-    rtp_av1_push(&a, view(pair), false);
-    rtp_av1_push(&a, view(first), false);
+    rtp_av1_push(&a, view(first));
     check(rtp_video_assembly_finish(&a) == kept + 1 && a.damaged,
           "AV1 finish removes a fragment the last packet left open");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 long_size[]{0x00, 0x09, 0x30}, bad_leb[]{0x00, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01},
         forbidden[]{0x10, 0xb0, 0x01};
-    check(rtp_av1_push(&a, view(long_size), false) == RtpDepacketize::damaged &&
-              rtp_av1_push(&a, view(bad_leb), false) == RtpDepacketize::damaged &&
-              rtp_av1_push(&a, view(forbidden), false) == RtpDepacketize::damaged && !a.bytes,
+    check(rtp_av1_push(&a, view(long_size)) == RtpDepacketize::damaged &&
+              rtp_av1_push(&a, view(bad_leb)) == RtpDepacketize::damaged &&
+              rtp_av1_push(&a, view(forbidden)) == RtpDepacketize::damaged && !a.bytes,
           "AV1 rejects overlong element lengths, unterminated LEB128 and the forbidden bit");
     // Extension headers stay in front of the inserted size; N marks a key unit.
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 extended[]{0x28, 0x03, 0x34, 0x20, 0xe1, 0x30, 0xe2};
-    check(rtp_av1_push(&a, view(extended), false) == RtpDepacketize::appended &&
+    check(rtp_av1_push(&a, view(extended)) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "362001e1" "30e2") && rtp_av1_keyframe(a),
           "AV1 sizes an extended OBU after its extension byte and honours N");
     rtp_video_assembly_begin(&a, {out, 6});
-    check(rtp_av1_push(&a, view(pair), false) == RtpDepacketize::overflow && !a.bytes,
+    check(rtp_av1_push(&a, view(pair)) == RtpDepacketize::overflow && !a.bytes,
           "AV1 output overflow keeps nothing from the payload");
     const u8 frame_start[]{0x10, 0x30, 0x00}, tile_group[]{0x00, 0x02, 0x20, 0x00}, delimiter[]{0x10, 0x10},
         continued[]{0x90, 0x30}, keyed[]{0x08, 0x01, 0x20};
@@ -254,8 +238,6 @@ void test_rtcp(Check check) noexcept {
     check(equal_hex({out, bytes}, rtcp_rr), "RTCP receiver report matches the oracle");
     bytes = rtcp_write_pli({out, sizeof(out)}, 0, kOracleLocalSsrc, kOracleSsrc);
     check(equal_hex({out, bytes}, rtcp_pli), "RTCP PLI matches the oracle");
-    bytes = rtcp_write_fir({out, sizeof(out)}, 0, kOracleLocalSsrc, kOracleSsrc, 9);
-    check(equal_hex({out, bytes}, rtcp_fir), "RTCP FIR matches the oracle");
     RtcpNackItem items[8];
     u32 consumed = 0;
     const u32 count = rtcp_nack_pack({rtcp_nack_sequences, sizeof(rtcp_nack_sequences) / 2}, {items, 8}, &consumed);
@@ -266,7 +248,7 @@ void test_rtcp(Check check) noexcept {
               consumed == 6,
           "RTCP NACK packing reports how many sequences fit");
     check(!rtcp_write_pli({out, 11}, 0, 1, 2) && !rtcp_write_receiver_report({out, 31}, 0, 1, {blocks, 1}) &&
-              !rtcp_write_nack({out, sizeof(out)}, 0, 1, 2, {items, 0}) && !rtcp_write_fir({out, 40}, 24, 1, 2, 0),
+              !rtcp_write_nack({out, sizeof(out)}, 0, 1, 2, {items, 0}),
           "RTCP writers refuse short output and empty NACKs");
     u8 compound[64];
     const u32 compound_bytes = test_unhex(rtcp_sr_compound, compound);
@@ -568,18 +550,6 @@ void test_receiver_feedback(Check check) noexcept {
     send(r, 106, 18000, view(idr), now += 1000);
     check(c.count == 6 && c.keyframes == 2 && !stream->keyframe_needed && !stream->references_lost,
           "a keyframe ends the keyframe request and restores references");
-    r.config.use_fir = true;
-    video_rtp_request_keyframe(&r, kOracleSsrc);
-    now += 400'000;
-    bytes = video_rtp_feedback(&r, now, {rtcp, sizeof(rtcp)});
-    const u32 fir1 = find_rtcp({rtcp, bytes}, kRtcpPayloadFeedback, kRtcpFormatFir);
-    const u8 first_sequence = fir1 ? rtcp[fir1 + 15] : 0xff;
-    now += 400'000;
-    bytes = video_rtp_feedback(&r, now, {rtcp, sizeof(rtcp)});
-    const u32 fir2 = find_rtcp({rtcp, bytes}, kRtcpPayloadFeedback, kRtcpFormatFir);
-    check(fir1 && fir2 && first_sequence == 0 && rtcp[fir2 + 15] == 1 &&
-              byte_load_be32(rtcp + fir2 + 11) == kOracleSsrc,
-          "FIR mode requests keyframes with an incrementing command sequence");
     u8 compound[64];
     video_rtp_receive_rtcp(&r, {compound, test_unhex(rtcp_sr_compound, compound)}, now);
     now += 1'000'000;

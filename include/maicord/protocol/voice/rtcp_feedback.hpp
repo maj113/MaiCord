@@ -3,7 +3,7 @@
 #include "maicord/protocol/voice/media_packet.hpp"
 
 namespace maicord {
-// RFC 3550 / RFC 4585 / RFC 5104 RTCP packets for the video receive path. The
+// RFC 3550 / RFC 4585 RTCP packets for the video receive path. The
 // writers produce PLAINTEXT RTCP; transport encryption (rtpsize: the first
 // eight octets stay clear) is applied by voice_packet_seal like any RTCP.
 inline constexpr u8 kRtcpSenderReport = 200;
@@ -12,11 +12,9 @@ inline constexpr u8 kRtcpTransportFeedback = 205; // RTPFB
 inline constexpr u8 kRtcpPayloadFeedback = 206;   // PSFB
 inline constexpr u8 kRtcpFormatGenericNack = 1;   // RTPFB FMT
 inline constexpr u8 kRtcpFormatPli = 1;           // PSFB FMT
-inline constexpr u8 kRtcpFormatFir = 4;           // PSFB FMT
 inline constexpr u32 kRtcpMaxReportBlocks = 31;
 inline constexpr u32 kRtcpReportBlockBytes = 24;
 inline constexpr u32 kRtcpPliBytes = 12;
-inline constexpr u32 kRtcpFirBytes = 20;
 
 struct RtcpReportBlock {
     u32 ssrc;
@@ -36,7 +34,6 @@ struct RtcpSenderInfo {
 u32 rtcp_write_receiver_report(Slice<u8> output, u32 offset, u32 sender_ssrc,
                                ConstSlice<RtcpReportBlock> blocks) noexcept;
 u32 rtcp_write_pli(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc) noexcept;
-u32 rtcp_write_fir(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc, u8 sequence) noexcept;
 // One generic NACK packet; 1..253 FCI entries.
 u32 rtcp_write_nack(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc,
                     ConstSlice<RtcpNackItem> items) noexcept;

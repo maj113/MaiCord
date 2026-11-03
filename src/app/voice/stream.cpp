@@ -15,10 +15,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
-#include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
-#include "maicord/ui/controls/settings_tokens.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/media/core/asset.hpp"
@@ -318,29 +316,14 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept {
         stream.menu_dragging = false;
         return false;
     }
-    const UiRect track = popup_feedback_slider(g_app.popup_scene);
-    if (!press && stream.menu_dragging && !application_key_down(VK_LBUTTON)) {
-        stream.menu_dragging = false;
-        ReleaseCapture();
-        return true;
-    }
-    if (press ? !ui_rect_contains({track.left - 6, track.top - 6, track.right + 6, track.bottom + 6}, x, y)
-              : !stream.menu_dragging)
-        return false;
-    if (press) {
-        stream.menu_dragging = true;
-        SetCapture(g_app.window);
-    }
-    const auto g = ui_slider_geometry(ui_settings_layout_tokens(application_theme().styles), track, kVolumeSteps, 0, false);
-    const u32 percent = ui_slider_index_at(g, kVolumeSteps, x);
-    if (popup_scene_set_feedback_slider(&g_app.popup_scene, static_cast<u16>(percent))) {
+    u32 percent = 0;
+    const auto result = volume_menu_pointer(&stream.menu_dragging, x, y, press, kVolumeSteps, &percent);
+    if (result == VolumeMenuPointer::moved) {
         application_stream_set_volume(percent);
         format_label(percent);
-        popup_scene_set_feedback(&g_app.popup_scene, {stream.menu_label, stream.menu_label_bytes});
-        refresh_popup_text();
-        application_repaint();
+        volume_menu_label(stream.menu_label, stream.menu_label_bytes);
     }
-    return true;
+    return result != VolumeMenuPointer::ignored;
 }
 
 void application_stream_pump() noexcept {

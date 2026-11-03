@@ -482,7 +482,6 @@ constexpr RtpVideoScenario av1_scenarios[]{
 };
 constexpr const char* rtcp_rr = "82c9000d00c0ffee1234abcd190000070001ffff0000007b89abcdef000280001234abd700fffffd0000002a000000000000000000000000";
 constexpr const char* rtcp_pli = "81ce000200c0ffee1234abcd";
-constexpr const char* rtcp_fir = "84ce000400c0ffee000000001234abcd09000000";
 constexpr u16 rtcp_nack_sequences[]{65534, 65535, 0, 3, 17, 18, 40, 41, 57, 58};
 constexpr u32 rtcp_nack_items = 4;
 constexpr const char* rtcp_nack = "81cd000600c0ffee1234abcdfffe0013001100010028000100390001";

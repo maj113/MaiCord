@@ -10,13 +10,14 @@
 #include "../chat/messages/interaction.hpp"
 #include "../shell/state.hpp"
 #include "settings.hpp"
+#include "../shell/overlay_input.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/app/voice/connection.hpp"
 #include "maicord/core/log.hpp"
 #include "../shell/log_fields.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
-#include "maicord/ui/controls/settings_tokens.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
@@ -450,36 +451,47 @@ bool application_voice_menu_activate(u32 action) noexcept {
     return dismiss_popup();
 }
 
+VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool press, u16 steps, u32* value) noexcept {
+    const UiRect track = popup_feedback_slider(g_app.popup_scene);
+    if (!press && *dragging && !application_key_down(VK_LBUTTON)) {
+        *dragging = false;
+        ReleaseCapture();
+        return VolumeMenuPointer::handled;
+    }
+    if (press ? !ui_rect_contains({track.left - 6, track.top - 6, track.right + 6, track.bottom + 6}, x, y)
+              : !*dragging)
+        return VolumeMenuPointer::ignored;
+    if (press) {
+        *dragging = true;
+        SetCapture(g_app.window);
+    }
+    const auto geometry =
+        ui_slider_geometry(ui_settings_layout_tokens(application_theme().styles), track, steps, 0, false);
+    *value = ui_slider_index_at(geometry, steps, x);
+    return popup_scene_set_feedback_slider(&g_app.popup_scene, static_cast<u16>(*value)) ? VolumeMenuPointer::moved
+                                                                                         : VolumeMenuPointer::handled;
+}
+
+void volume_menu_label(const char* text, u32 bytes) noexcept {
+    popup_scene_set_feedback(&g_app.popup_scene, {text, bytes});
+    refresh_popup_text();
+    application_repaint();
+}
+
 bool application_voice_menu_pointer(float x, float y, bool press) noexcept {
     if (!menu_open()) {
         voice.menu_dragging = false;
         return false;
     }
-    const UiRect track = popup_feedback_slider(g_app.popup_scene);
-    if (!press && voice.menu_dragging && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
-        voice.menu_dragging = false;
-        ReleaseCapture();
-        return true;
-    }
-    if (press ? !ui_rect_contains({track.left - 6, track.top - 6, track.right + 6, track.bottom + 6}, x, y)
-              : !voice.menu_dragging)
-        return false;
-    if (press) {
-        voice.menu_dragging = true;
-        SetCapture(g_app.window);
-    }
-    const auto g = ui_slider_geometry(ui_settings_layout_tokens(application_theme().styles), track, kVolumeSteps, 0, false);
-    const u32 gain = ui_slider_index_at(g, kVolumeSteps, x);
-    if (popup_scene_set_feedback_slider(&g_app.popup_scene, static_cast<u16>(gain))) {
+    u32 gain = 0;
+    const auto result = volume_menu_pointer(&voice.menu_dragging, x, y, press, kVolumeSteps, &gain);
+    if (result == VolumeMenuPointer::moved) {
         const auto audio = voice_preferences_user(voice.preferences, voice.menu_user);
         set_user(voice.menu_user, gain, audio.muted);
         format_label(gain);
-        popup_scene_set_feedback(&g_app.popup_scene,
-                                 {voice.menu_label, voice.menu_label_bytes});
-        refresh_popup_text();
-        application_repaint();
+        volume_menu_label(voice.menu_label, voice.menu_label_bytes);
     }
-    return true;
+    return result != VolumeMenuPointer::ignored;
 }
 
 VoicePreferences& application_voice_preferences() noexcept {

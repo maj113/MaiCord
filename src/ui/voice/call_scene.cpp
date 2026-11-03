@@ -24,9 +24,6 @@ constexpr u64 kMorphOwner = 0xca11'5ce4'e000'0001ull;
 using call_stage::centered;
 using call_stage::copy_text;
 
-inline float clampf(float value, float low, float high) noexcept {
-    return value < low ? low : value > high ? high : value;
-}
 inline u32 codepoints(Utf8View text) noexcept {
     u32 count = 0;
     for (u32 i = 0; i < text.bytes; ++i)
@@ -228,7 +225,7 @@ inline bool status_glyph(const UiCallParticipant& p, UiIcon* icon) noexcept {
 }
 UiRect avatar_rect(const UiCallTile& tile) noexcept {
     const auto r = tile.display;
-    const float extent = clampf(minimum(ui_rect_width(r), ui_rect_height(r)) * .4f, 24, tile.focused ? 128.f : 96.f);
+    const float extent = clamp_value(minimum(ui_rect_width(r), ui_rect_height(r)) * .4f, 24.f, tile.focused ? 128.f : 96.f);
     return centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, extent, extent);
 }
 inline UiRect visible_part(const UiCallTile& tile) noexcept {
@@ -330,7 +327,7 @@ void place_tiles(UiCallScene& s, const UiRect& area) noexcept {
         UiRect rects[kUiCallMaximumTiles];
         UiCallGridLayout layout{};
         const auto measured = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, s.gap);
-        s.scroll = clampf(s.scroll, 0, maximum(0.f, measured.content_height - ui_rect_height(area)));
+        s.scroll = clamp_value(s.scroll, 0.f, maximum(0.f, measured.content_height - ui_rect_height(area)));
         if (!ui_call_grid_place(area, count, s.gap, s.scroll, {rects, count}, &layout))
             return;
         s.content_height = layout.content_height;
@@ -352,7 +349,7 @@ void place_tiles(UiCallScene& s, const UiRect& area) noexcept {
                                static_cast<u16>(focused), true, false};
     s.strip_content_width = focus.strip_content_width;
     const float overflow = maximum(0.f, focus.strip_content_width - ui_rect_width(focus.strip));
-    s.strip_scroll = clampf(s.strip_scroll, 0, overflow);
+    s.strip_scroll = clamp_value(s.strip_scroll, 0.f, overflow);
     float x = overflow > 0 ? focus.strip.left - s.strip_scroll
                            : (focus.strip.left + focus.strip.right - focus.strip_content_width) * .5f;
     for (u32 i = 0; i < count; ++i) {
@@ -364,7 +361,7 @@ void place_tiles(UiCallScene& s, const UiRect& area) noexcept {
     }
 }
 void apply_morph(UiCallScene& s) noexcept {
-    const float t = s.morph.active || s.morph.value < 1 ? clampf(s.morph.value, 0, 1) : 1;
+    const float t = s.morph.active || s.morph.value < 1 ? clamp_value(s.morph.value, 0.f, 1.f) : 1;
     for (u32 i = 0; i < s.tile_count; ++i)
         s.tiles[i].display = t >= 1 ? s.tiles[i].target : ui_rect_lerp(s.tiles[i].from, s.tiles[i].target, t);
 }
@@ -429,7 +426,7 @@ bool ui_call_grid_place(UiRect area, u32 count, float gap, float scroll, Slice<U
         return false;
     const float height = ui_rect_height(area);
     const bool scrolls = layout.content_height > height + .5f;
-    const float top = scrolls ? area.top - clampf(scroll, 0, layout.content_height - height)
+    const float top = scrolls ? area.top - clamp_value(scroll, 0.f, layout.content_height - height)
                               : area.top + (height - layout.content_height) * .5f;
     for (u32 i = 0; i < count; ++i) {
         const u32 row = i / layout.columns, column = i % layout.columns;
@@ -450,7 +447,7 @@ UiCallFocusLayout ui_call_focus_measure(UiRect area, u32 others, float gap) noex
     UiCallFocusLayout layout{area, {}, 0, 0, 0};
     if (!others || !ui_rect_has_area(area))
         return layout;
-    const float strip_height = clampf(ui_rect_height(area) * .18f, 64, 120);
+    const float strip_height = clamp_value(ui_rect_height(area) * .18f, 64.f, 120.f);
     if (ui_rect_height(area) < strip_height * 2 + gap)
         return layout;
     layout.strip = {area.left, area.bottom - strip_height, area.right, area.bottom};
@@ -677,13 +674,13 @@ bool ui_call_scene_scroll(UiCallScene* s, float x, float y, float delta) noexcep
         const float overflow = maximum(0.f, s->strip_content_width - ui_rect_width(s->strip));
         if (!overflow || !ui_rect_contains(s->strip, x, y))
             return false;
-        const float next = clampf(s->strip_scroll + delta, 0, overflow);
+        const float next = clamp_value(s->strip_scroll + delta, 0.f, overflow);
         if (next == s->strip_scroll)
             return false;
         s->strip_scroll = next;
     } else {
         const float overflow = maximum(0.f, s->content_height - ui_rect_height(tile_area(*s)));
-        const float next = clampf(s->scroll + delta, 0, overflow);
+        const float next = clamp_value(s->scroll + delta, 0.f, overflow);
         if (!overflow || next == s->scroll)
             return false;
         s->scroll = next;

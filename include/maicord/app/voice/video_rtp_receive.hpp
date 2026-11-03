@@ -5,7 +5,7 @@
 namespace maicord {
 // Per-SSRC RTP video receive: sequence unwrap, reorder window, RTX (RFC 4588)
 // unwrap, access-unit assembly by timestamp/marker, loss recovery with generic
-// NACK (RFC 4585) and keyframe requests (PLI, or FIR per RFC 5104), and RTCP
+// NACK (RFC 4585) and keyframe requests (PLI), and RTCP
 // receiver reports. Input is transport-opened (rtpsize) plaintext RTP whose
 // source was already mapped by the voice connection; output frames are the
 // depacketized bytes DAVE then decrypts: Annex B with 4-byte start codes for
@@ -72,7 +72,6 @@ struct VideoRtpConfig {
     u32 report_interval_us; // Receiver report period.
     u32 idle_stream_us;     // Idle streams may be evicted for new SSRCs.
     u8 max_nacks;           // NACKs per missing packet.
-    bool use_fir;           // FIR instead of PLI.
 };
 VideoRtpConfig video_rtp_default_config() noexcept;
 struct VideoRtpStreamStats {
@@ -99,7 +98,6 @@ struct VideoRtpStream {
     u32 last_sender_report, prev_timestamp, last_timestamp, last_transit, jitter_timestamp;
     u32 consecutive_late, capacity; // capacity: allocated slots, a power of two up to kVideoRtpPacketSlots.
     i32 jitter_q4;
-    u8 fir_sequence;
     bool started, prev_known, prev_marker, has_last_timestamp, has_transit;
     bool keyframe_needed, keyframe_seen, references_lost;
     VideoRtpStreamStats stats;
@@ -133,7 +131,7 @@ void video_rtp_receive_rtcp(VideoRtpReceiver* receiver, ConstSlice<u8> plaintext
 void video_rtp_tick(VideoRtpReceiver* receiver, u64 now_us) noexcept;
 // Earliest time tick/feedback has work (0: none).
 u64 video_rtp_deadline(const VideoRtpReceiver& receiver) noexcept;
-// Builds one plaintext compound RTCP packet (RR first, then NACK and PLI/FIR)
+// Builds one plaintext compound RTCP packet (RR first, then NACK and PLI)
 // when a report, NACK or keyframe request is due; returns its size or 0.
 // Building commits the NACK/keyframe/report schedule: if the transport is
 // busy, retain and resend these bytes rather than building again.

@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -27,21 +27,6 @@ bool style_valid(const UiAudioControlsStyle& style) noexcept {
         if (!label.bytes || label.bytes > 128 || !utf8_validate(label).valid)
             return false;
     return true;
-}
-void append_number(char* text, u32& cursor, u64 value, bool padded = false) noexcept {
-    if (padded && decimal_digits(value) < 2)
-        text[cursor++] = '0';
-    cursor += decimal_write(text + cursor, value);
-}
-void append_time(char* text, u32& cursor, u64 milliseconds) noexcept {
-    const u64 seconds = milliseconds / 1000, hours = seconds / 3600;
-    if (hours) {
-        append_number(text, cursor, hours);
-        text[cursor++] = ':';
-    }
-    append_number(text, cursor, (seconds / 60) % 60, hours != 0);
-    text[cursor++] = ':';
-    append_number(text, cursor, seconds % 60, true);
 }
 bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 value,
             UiAudioAction* out) noexcept {
@@ -145,7 +130,7 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
     projection.track = theme.interactive;
     projection.waveform = theme.text_secondary;
     projection.played = theme.tokens.emphasis.outline;
-    append_time(projection.time_text, projection.time_bytes, state.elapsed_ms);
+    ui_video_append_clock(projection.time_text, projection.time_bytes, state.elapsed_ms, false);
     if (projection.geometry.compact)
         projection.time_text[projection.time_bytes++] = '\n';
     else {
@@ -154,7 +139,7 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
         projection.time_text[projection.time_bytes++] = ' ';
     }
     if (state.has_duration)
-        append_time(projection.time_text, projection.time_bytes, state.duration_ms);
+        ui_video_append_clock(projection.time_text, projection.time_bytes, state.duration_ms, false);
     else {
         static constexpr char unknown[] = "--:--";
         for (u32 i = 0; i < 5; ++i)

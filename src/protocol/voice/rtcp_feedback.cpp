@@ -58,18 +58,6 @@ u32 rtcp_write_pli(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc
     return offset + kRtcpPliBytes;
 }
 
-u32 rtcp_write_fir(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc, u8 sequence) noexcept {
-    u8* packet = header(output, offset, kRtcpFirBytes, kRtcpFormatFir, kRtcpPayloadFeedback);
-    if (!packet)
-        return 0;
-    // RFC 5104 4.3.1: the common "media source" SSRC is zero; the FCI names it.
-    byte_store_be32(packet + 4, sender_ssrc);
-    byte_store_be32(packet + 8, 0);
-    byte_store_be32(packet + 12, media_ssrc);
-    byte_store_be32(packet + 16, u32{sequence} << 24);
-    return offset + kRtcpFirBytes;
-}
-
 u32 rtcp_write_nack(Slice<u8> output, u32 offset, u32 sender_ssrc, u32 media_ssrc,
                     ConstSlice<RtcpNackItem> items) noexcept {
     if (!items.count || !items.data || items.count > 253)

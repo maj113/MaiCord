@@ -192,7 +192,6 @@ void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& c
     // key/generation fault ends the transport.
     if (!packet.ok() && (packet.error == VoicePacketError::not_initialized ||
                          packet.error == VoicePacketError::stale_generation)) {
-        media->packet_error = packet.error;
         fail(media, VoiceUdpMediaError::crypto, static_cast<u32>(packet.crypto.native_status));
         return;
     }

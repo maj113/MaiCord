@@ -367,10 +367,11 @@ bool query_matches(const SoundboardSound& sound) noexcept {
     const auto& p = board.picker;
     return ascii_contains_ignore_case({sound.name, sound.name_bytes}, {p.query, p.query_bytes});
 }
-void set_footer(const Utf8View& text, bool error) noexcept {
+// An error footer holds until its notice expires (default_footer leaves it alone).
+void set_footer(const Utf8View& text) noexcept {
     auto& p = board.picker;
     p.footer_bytes = utf8_copy_truncated(p.footer, sizeof(p.footer), text);
-    p.error_until_ms = error ? now_ms() + kNoticeMs : 0;
+    p.error_until_ms = now_ms() + kNoticeMs;
 }
 void default_footer(bool truncated) noexcept {
     auto& p = board.picker;
@@ -481,7 +482,7 @@ bool send(const SoundboardSound& sound) noexcept {
     const auto c = send_context(sound);
     const auto block = soundboard_send_check(c);
     if (block != SoundboardBlock::none) {
-        set_footer(block_text(block), true);
+        set_footer(block_text(block));
         refresh_picker();
         return true;
     }
@@ -493,7 +494,7 @@ bool send(const SoundboardSound& sound) noexcept {
     request.emoji_id = sound.emoji_id;
     request.emoji_name = {sound.emoji_name, sound.emoji_name_bytes};
     if (!enqueue(request)) {
-        set_footer(block_text(SoundboardBlock::cooldown), true);
+        set_footer(block_text(SoundboardBlock::cooldown));
         refresh_picker();
         return true;
     }
@@ -883,8 +884,7 @@ bool application_soundboard_response(const RestClientResponse& response, Utf8Vie
                                                         : kRateLimitMs);
             set_footer(limited ? block_text(SoundboardBlock::cooldown)
                                : response.status_code == 403 ? block_text(SoundboardBlock::permission)
-                                                             : utf8_literal("Couldn't play that sound."),
-                       true);
+                                                             : utf8_literal("Couldn't play that sound."));
             refresh_picker();
         }
         break;

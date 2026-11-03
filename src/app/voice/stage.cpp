@@ -455,16 +455,16 @@ bool application_stage_response(const RestClientResponse& response, Utf8View) no
         return true;
     }
     // Starting a stage puts its moderator on stage quietly, as the official client does.
-    if (operation == StageOperation::start)
-        if (const auto* channel = channel_of(channel_id); channel && self_role(*channel) != StageRole::speaker &&
-                                                          self_role(*channel) != StageRole::none) {
-            StageRequest request{};
-            request.operation = StageOperation::become_speaker;
-            request.guild_id = channel->guild_id;
-            request.channel_id = channel->id;
-            request.silent = true;
-            enqueue(request);
-        }
+    const auto* channel = operation == StageOperation::start ? channel_of(channel_id) : nullptr;
+    const auto role = channel ? self_role(*channel) : StageRole::none;
+    if (role != StageRole::speaker && role != StageRole::none) {
+        StageRequest request{};
+        request.operation = StageOperation::become_speaker;
+        request.guild_id = channel->guild_id;
+        request.channel_id = channel->id;
+        request.silent = true;
+        enqueue(request);
+    }
     application_request_frame();
     return true;
 }

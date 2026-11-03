@@ -302,8 +302,8 @@ void test_duration() noexcept {
 void test_requests() noexcept {
     // 1. POST /channels/{id}/attachments for an upload URL.
     u8 target[128], body[8192];
-    const auto request = attachment_upload_write(123456789, 0, kVoiceMessageFilename, 48123, {target, sizeof(target)},
-                                                 {body, sizeof(body)});
+    const auto request = attachment_upload_write(123456789, 0, utf8_literal("voice-message.ogg"), 48123,
+                                                 {target, sizeof(target)}, {body, sizeof(body)});
     check(request.ok && text_equal({target, request.target_bytes}, "/api/v9/channels/123456789/attachments") &&
               text_equal({body, request.body_bytes},
                          "{\"files\":[{\"filename\":\"voice-message.ogg\",\"file_size\":48123,\"id\":\"0\","
@@ -326,7 +326,7 @@ void test_requests() noexcept {
     waveform_samples[0] = 255;
     char waveform[kVoiceMessageWaveformBase64Bytes];
     const u32 waveform_bytes = voice_message_waveform_base64(waveform_samples, {waveform, sizeof(waveform)});
-    UploadedAttachment voice{kVoiceMessageFilename, utf8_literal("abc/voice-message.ogg"), {}, 0, false,
+    UploadedAttachment voice{utf8_literal("voice-message.ogg"), utf8_literal("abc/voice-message.ogg"), {}, 0, false,
                              {waveform, waveform_bytes}, 4480};
     static u8 message[kMessageCreateMaximumBodyBytes];
     const auto written = write_message_create_body({}, 1300000000000000001ull, 0, 0, {&voice, 1}, {},
@@ -361,7 +361,7 @@ void test_requests() noexcept {
                    .ok() &&
               !write_message_create_body({}, 1, 0, 0, {&voice, 1}, {}, {message, 4096}, true, 0).ok(),
           "message: voice rules");
-    UploadedAttachment plain{kVoiceMessageFilename, utf8_literal("abc/voice-message.ogg"), {}, 0, false};
+    UploadedAttachment plain{utf8_literal("voice-message.ogg"), utf8_literal("abc/voice-message.ogg"), {}, 0, false};
     UploadedAttachment no_duration = voice;
     no_duration.duration_ms = 0;
     UploadedAttachment bad_waveform = voice;

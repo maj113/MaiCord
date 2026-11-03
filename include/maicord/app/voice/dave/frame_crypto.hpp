@@ -49,9 +49,6 @@ struct DaveFrameSealer {
 // first seal. A sealer is initialized once and released before reuse.
 void dave_frame_sealer_initialize(DaveFrameSealer* sealer, const u8* seed) noexcept;
 void dave_frame_sealer_release(DaveFrameSealer* sealer) noexcept;
-// Maximum DAVE suffix for a wholly encrypted frame: tag, five-byte ULEB128
-// nonce, supplemental size and the 0xFAFA marker.
-inline constexpr u32 kDaveSealOverhead = kDaveFrameTagBytes + 5 + 1 + 2;
 enum class DaveSealError : u8 {
     none,
     invalid_input,

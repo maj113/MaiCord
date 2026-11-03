@@ -111,6 +111,14 @@ const GatewayVoiceVideoUser* video_user(u64 user_id) noexcept {
             return &view.snapshot.users[i];
     return nullptr;
 }
+// The decoded picture size of a tile whose stream still carries `ssrc`.
+void attach_picture(UiCallParticipant& p, u32 ssrc) noexcept {
+    if (const auto* picture = call_video_presenter_find(view.video, p.user_id);
+        picture && picture->ready && picture->ssrc == ssrc) {
+        p.video_width = picture->display_width;
+        p.video_height = picture->display_height;
+    }
+}
 void add_participant(u32* count, u64 user_id, u32 flags, bool self) noexcept {
     if (*count >= kUiCallMaximumTiles || !user_id)
         return;
@@ -135,11 +143,7 @@ void add_participant(u32* count, u64 user_id, u32 flags, bool self) noexcept {
     p.effect = application_soundboard_effect(user_id);
     if (const auto* video = video_user(user_id)) {
         p.video_ssrc = video->ssrc;
-        if (const auto* stream = call_video_presenter_find(view.video, user_id);
-            stream && stream->ready && stream->ssrc == video->ssrc) {
-            p.video_width = stream->display_width;
-            p.video_height = stream->display_height;
-        }
+        attach_picture(p, video->ssrc);
     }
     view.participants[(*count)++] = p;
 }
@@ -194,11 +198,7 @@ u32 project_streams(u64 channel_id) noexcept {
         p.viewers = watched.viewers;
         if (p.stream == UiCallStream::live || p.stream == UiCallStream::reconnecting) {
             p.video_ssrc = watched.video_ssrc;
-            if (const auto* picture = call_video_presenter_find(view.video, p.user_id);
-                picture && picture->ready && picture->ssrc == watched.video_ssrc) {
-                p.video_width = picture->display_width;
-                p.video_height = picture->display_height;
-            }
+            attach_picture(p, watched.video_ssrc);
         }
         if (p.stream != UiCallStream::ended && !(p.video_width && p.video_height))
             p.preview = application_stream_preview(watched.key);
@@ -828,20 +828,13 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         application_repaint();
         return true;
     }
-    case WM_MOUSEWHEEL: {
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
-            return false;
-        const float delta = -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80;
-        if (ui_call_scene_scroll(&scene, point.x, point.y, delta))
-            application_repaint();
-        return true;
-    }
+    case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL: {
         UiPoint point{};
         if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
             return false;
-        if (ui_call_scene_scroll(&scene, point.x, point.y, static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80))
+        const float pixels = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80;
+        if (ui_call_scene_scroll(&scene, point.x, point.y, message == WM_MOUSEWHEEL ? -pixels : pixels))
             application_repaint();
         return true;
     }

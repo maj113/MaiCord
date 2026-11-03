@@ -55,7 +55,6 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     if (!opened.ok() || !opened.bytes || opened.bytes > kVideoRtpFrameBytes) {
         // Without this frame the decoder lacks a reference: ask for a fresh
         // keyframe (throttled by the RTP core), e.g. once DAVE keys arrive.
-        ++sink.stats.dave_rejected;
         video_rtp_request_keyframe(&sink.rtp, frame.ssrc);
         return;
     }
@@ -67,7 +66,6 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     if (sink.frames.push_frame &&
         sink.frames.push_frame(sink.frames.context, frame.ssrc, voice_codec(frame.codec), {sink.buffer, opened.bytes},
                                frame.rtp_timestamp, frame.keyframe, !frame.references_lost)) {
-        ++sink.stats.delivered;
         ++sink.summary.frames;
     }
 }
@@ -90,7 +88,7 @@ void log_summary(VoiceVideoSink& sink) noexcept {
                                      {"losses", losses},
                                      {"damaged", damaged},
                                      {"rtx", rtx},
-                                     {"keyframe_requests", sink.stats.keyframe_requests},
+                                     {"keyframe_requests", sink.keyframe_requests},
                                      {"transport_feedback", summary.transport_feedback}};
         voice_log_fields(VoiceLogLevel::info, "video_receive_summary", {fields, sizeof(fields) / sizeof(fields[0])});
     }
@@ -145,7 +143,6 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
         packet.member.user_id != packet.source.user_id || !packet.source.primary_ssrc ||
         !ensure_rtp(*sink, sink->rtp.local_ssrc))
         return false;
-    ++sink->stats.packets;
     auto& summary = sink->summary;
     if (!summary.packets++)
         summary.first_us = now_us;
@@ -183,7 +180,7 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
     for (auto& pending : sink->pending_keyframes)
         if (const u32 ssrc = static_cast<u32>(InterlockedExchange(&pending, 0));
             ssrc && video_rtp_request_keyframe(&sink->rtp, ssrc))
-            ++sink->stats.keyframe_requests;
+            ++sink->keyframe_requests;
     // A stream ends when its SSRC no longer maps to that user's video (leave,
     // op 12 replacement, new Ready) or the RTP core evicted it.
     for (auto& stream : sink->rtp.streams)

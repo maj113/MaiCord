@@ -71,6 +71,12 @@ void settle_info() noexcept {
         bump();
     }
 }
+// The invite row ended (dismissed or timed out).
+void hide_invite() noexcept {
+    vc.extras.invite_channel_id = 0;
+    vc.extras.invite_hovered = vc.extras.invite_close_hovered = false;
+    bump();
+}
 
 bool apply_entry(void* opaque, const VoiceChannelInfoEntry& entry) noexcept {
     auto* store = static_cast<VoiceChannelInfoStore*>(opaque);
@@ -229,10 +235,10 @@ void form_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == vc.form.serial)
         reset_value(&vc.form);
 }
-bool open_status_form(u64 channel_id) noexcept {
+void open_status_form(u64 channel_id) noexcept {
     const auto* channel = voice_channel(channel_id);
     if (!channel || g_app.text_form)
-        return false;
+        return;
     reset_value(&vc.form);
     vc.form.serial = ++vc.form_serial;
     vc.form.channel_id = channel->id;
@@ -253,10 +259,8 @@ bool open_status_form(u64 channel_id) noexcept {
     request.maximum_codepoints = kStageVoiceStatusMaximumCodepoints;
     request.maximum_bytes = kStageVoiceStatusMaximumBytes;
     request.single_line = true;
-    if (application_text_form_open(request))
-        return true;
-    reset_value(&vc.form);
-    return false;
+    if (!application_text_form_open(request))
+        reset_value(&vc.form);
 }
 } // namespace
 
@@ -314,13 +318,11 @@ bool application_voice_channels_click(float x, float y) noexcept {
     const auto target = hit(x, y);
     switch (target.target) {
     case Target::status:
-        return open_status_form(target.channel_id) || true;
+        open_status_form(target.channel_id);
+        return true;
     case Target::invite_close:
-        if (ui_voice_invite_dismiss(&vc.invite)) {
-            vc.extras.invite_channel_id = 0;
-            vc.extras.invite_hovered = vc.extras.invite_close_hovered = false;
-            bump();
-        }
+        if (ui_voice_invite_dismiss(&vc.invite))
+            hide_invite();
         return true;
     case Target::invite:
         if (const auto* channel = voice_channel(target.channel_id))
@@ -406,11 +408,8 @@ void application_voice_timer_tick(u64 now_ms) noexcept {
     }
     // Reduced motion keeps the row until it is dismissed, as in the official client.
     const bool running = invite && !vc.extras.invite_hovered && !g_app.preferences.reduced_motion;
-    if (ui_voice_invite_tick(&vc.invite, now_ms, running)) {
-        vc.extras.invite_channel_id = 0;
-        vc.extras.invite_hovered = vc.extras.invite_close_hovered = false;
-        bump();
-    }
+    if (ui_voice_invite_tick(&vc.invite, now_ms, running))
+        hide_invite();
 }
 
 void application_voice_channels_release() noexcept {

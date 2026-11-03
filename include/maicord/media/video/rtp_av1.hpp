@@ -12,9 +12,9 @@ inline constexpr u64 kRtpAv1NewSequence = u64{1} << 32;
 // and a minimal LEB128 obu_size; the last OBU keeps its received header and
 // runs to the end of the frame (it carries the DAVE trailer). Elements are
 // otherwise copied verbatim. Z must match the previous packet's Y; a
-// mismatch, a gap or a malformed element damages the unit. nal_types gets
+// mismatch or a malformed element damages the unit. nal_types gets
 // bit n for every OBU of type n, plus kRtpAv1NewSequence.
-RtpDepacketize rtp_av1_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload, bool gap_before) noexcept;
+RtpDepacketize rtp_av1_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload) noexcept;
 // A payload that does not continue an OBU and begins with a sequence header,
 // temporal delimiter or frame (header), or has N set.
 bool rtp_av1_starts_temporal_unit(ConstSlice<u8> payload) noexcept;

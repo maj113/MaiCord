@@ -40,6 +40,12 @@ bool application_voice_menu_action(u32 action) noexcept;
 bool application_voice_menu_activate(u32 action) noexcept;
 // Pointer on the open voice user menu's slider; true when consumed.
 bool application_voice_menu_pointer(float x, float y, bool press) noexcept;
+// Volume slider drag shared with the stream menu: a press on the slider starts
+// a drag, motion follows and release ends it; `moved` reports a new step in
+// *value. volume_menu_label shows the caller's rebuilt label.
+enum class VolumeMenuPointer : u8 { ignored, handled, moved };
+VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool press, u16 steps, u32* value) noexcept;
+void volume_menu_label(const char* text, u32 bytes) noexcept;
 
 // Voice & video settings.
 VoicePreferences& application_voice_preferences() noexcept;

@@ -141,14 +141,14 @@ void routing(Check check) noexcept {
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     check(send_keyframe(receive, connection, 100, 9000, 1'000'000) == VoiceReceiveResult::video &&
-              receive.video.rtp_ready && receive.video.stats.packets == 3 && !decoder.frames,
+              receive.video.rtp_ready && receive.video.summary.packets == 3 && !decoder.frames,
           "Video sink: mapped camera RTP of the negotiated payload type routes to the RTP core");
     voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
     check(decoder.frames == 1 && decoder.ssrc == kVideo && decoder.timestamp == 9000 && decoder.keyframe &&
               decoder.intact && decoder.codec == VoiceVideoCodec::h264 && decoder.bytes == sizeof(kAnnexB) &&
               bytes_equal(decoder.frame, kAnnexB, sizeof(kAnnexB)) &&
               dave.calls == 1 && dave.user_id == kUser && dave.ssrc == kVideo && receive.video.buffer &&
-              receive.video.stats.delivered == 1,
+              receive.video.summary.frames == 1,
           "Video sink: an assembled access unit is DAVE-opened for its sender and pushed as Annex B");
     // Audio from the same participant never enters the video pipeline.
     u8 plain[64];
@@ -156,7 +156,7 @@ void routing(Check check) noexcept {
     u32 bytes = rtp(plain, kVoiceOpusPayloadType, kAudio, 1, 960, false, {opus, 4});
     check(voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused,
                                nullptr, 1'030'000) != VoiceReceiveResult::video &&
-              receive.video.stats.packets == 3,
+              receive.video.summary.packets == 3,
           "Video sink: audio SSRCs stay on the Opus path");
     // RTX (RFC 4588) of the camera stream maps to its primary SSRC.
     const u8 retransmitted[]{0, 103, 0x41, 0x9a, 0x02};
@@ -179,13 +179,13 @@ void routing(Check check) noexcept {
     stream = video_rtp_find_stream(receive.video.rtp, kVideo);
     const bool before = stream && !stream->keyframe_needed;
     voice_video_sink_drive(&receive.video, &connection, false, 1050, 1'050'000);
-    check(before && wakes >= 1 && stream->keyframe_needed && receive.video.stats.keyframe_requests == 1 &&
+    check(before && wakes >= 1 && stream->keyframe_needed && receive.video.keyframe_requests == 1 &&
               !receive.video.pending_keyframes[0] && voice_video_sink_deadline(receive.video),
           "Video sink: decoder keyframe requests wake the worker and schedule a PLI on the next drive");
     // A DAVE rejection drops the frame and asks for a new keyframe.
     dave.reject = true;
     send_keyframe(receive, connection, 104, 18000, 1'100'000);
-    check(receive.video.stats.dave_rejected == 1 && decoder.frames == 2,
+    check(decoder.frames == 2,
           "Video sink: a frame DAVE rejects never reaches the decoder");
     dave.reject = false;
     // The rejected keyframe was a reference: later frames reach the decoder

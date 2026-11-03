@@ -164,9 +164,9 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
             break;
         }
         const ConstSlice<u8> payload{payload_at(stream, sequence), slot.bytes};
-        const auto pushed = codec == VideoRtpCodec::h264   ? rtp_h264_push(&assembly, payload, false)
-                            : codec == VideoRtpCodec::h265 ? rtp_h265_push(&assembly, payload, false)
-                                                           : rtp_av1_push(&assembly, payload, false);
+        const auto pushed = codec == VideoRtpCodec::h264   ? rtp_h264_push(&assembly, payload)
+                            : codec == VideoRtpCodec::h265 ? rtp_h265_push(&assembly, payload)
+                                                           : rtp_av1_push(&assembly, payload);
         intact = pushed == RtpDepacketize::appended && !assembly.damaged;
     }
     const u32 bytes = rtp_video_assembly_finish(&assembly);
@@ -702,14 +702,9 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
                 stream.next_nack_us = now_us + config.nack_retry_us;
         }
         if (keyframe_due(config, stream, now_us)) {
-            const u32 next = config.use_fir
-                                 ? rtcp_write_fir(output, offset, receiver->local_ssrc, stream.ssrc,
-                                                  stream.fir_sequence)
-                                 : rtcp_write_pli(output, offset, receiver->local_ssrc, stream.ssrc);
+            const u32 next = rtcp_write_pli(output, offset, receiver->local_ssrc, stream.ssrc);
             if (next) {
                 offset = next;
-                if (config.use_fir)
-                    ++stream.fir_sequence;
                 stream.keyframe_request_us = now_us;
             }
         }

@@ -1,7 +1,7 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/voice/panel.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
 #include "maicord/model/voice/channel_info_store.hpp"
 
 namespace maicord {
@@ -51,28 +51,12 @@ UiRect ui_voice_disconnect_rectangle(UiRect footer) noexcept {
     return ui_voice_panel_disconnect(ui_voice_panel_rectangle(footer));
 }
 
-namespace {
-u32 two_digits(char* output, u64 value) noexcept {
-    output[0] = static_cast<char>('0' + value / 10);
-    output[1] = static_cast<char>('0' + value % 10);
-    return 2;
-}
-} // namespace
-
 u32 ui_voice_elapsed_format(u64 elapsed_ms, char* output, u32 capacity) noexcept {
-    const u64 seconds = elapsed_ms / 1'000, hours = seconds / 3'600, minutes = seconds / 60 % 60;
     if (!output || capacity < kUiVoiceElapsedBytes)
         return 0;
     u32 used = 0;
-    if (hours) {
-        used = decimal_write(output, hours);
-        output[used++] = ':';
-        used += two_digits(output + used, minutes);
-    } else {
-        used = decimal_write(output, minutes);
-    }
-    output[used++] = ':';
-    return used + two_digits(output + used, seconds % 60);
+    ui_video_append_clock(output, used, elapsed_ms, false);
+    return used;
 }
 
 bool ui_voice_timer_tick(UiVoiceTimerClock* clock, u64 now_ms, u64 unix_ms, bool visible, bool focused) noexcept {

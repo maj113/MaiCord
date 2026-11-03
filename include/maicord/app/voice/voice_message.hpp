@@ -9,7 +9,6 @@ namespace maicord {
 // 48 kHz mono Opus in Ogg, uploaded as "voice-message.ogg" (audio/ogg), then
 // a message with IS_VOICE_MESSAGE, no content and one attachment carrying
 // duration_secs and a base64 waveform of u8 amplitudes.
-inline constexpr Utf8View kVoiceMessageFilename = utf8_literal("voice-message.ogg");
 inline constexpr wchar_t kVoiceMessageFilenameWide[] = L"voice-message.ogg";
 inline constexpr u32 kVoiceMessageSampleRate = 48000;
 inline constexpr u32 kVoiceMessageFrameSamples = 960; // 20 ms.
