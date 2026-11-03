@@ -255,6 +255,72 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         check(ui_store_scene_hover(&g_scene, rect.left + 40, cy) && clear_fill(&over) && bytes_equal(&away, &over, sizeof(Color)),
               "store scene: the clear button's tint ends when the pointer leaves it for the field");
     }
+    {
+        // A busy button: the spinner sits where an icon goes, the label starts after it with the icon's gap, and
+        // the button is wide enough for both (a card's Installing... and the detail page's stretched Updating...).
+        // Busy buttons are disabled (no action to look them up by): they are found by their label.
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder page(&g_scene);
+        page.button(utf8_literal("Installing..."), UiStoreButton::secondary, 0).flags |= ui_store_busy | ui_store_disabled;
+        page.button(utf8_literal("Updating..."), UiStoreButton::primary, 0).flags |= ui_store_busy | ui_store_disabled | ui_store_stretch;
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        g_scene.active = true;
+        PaintStream paint{};
+        UiTextCommand commands[16]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        const bool drawn = laid && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
+                           ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0) &&
+                           ui_text_command_stream_initialize(&stream, {commands, 16}) &&
+                           ui_store_scene_text_output(g_scene, kDefaultTheme, &output, false);
+        const auto separated = [&](const Utf8View& label) noexcept {
+            const UiStoreNode* node = nullptr;
+            for (u32 i = 0; drawn && i < g_scene.count; ++i)
+                if (g_scene.nodes[i].kind == UiStoreKind::button && utf8_equal(g_scene.nodes[i].text, label))
+                    node = &g_scene.nodes[i];
+            if (!node)
+                return false;
+            // On screen: the page is laid out from the column's top and is not scrolled.
+            const float top = node->y + g_scene.column.top;
+            const UiRect button{node->x, top, node->x + node->w, top + node->h};
+            // The spinner's strokes (line quads) inside the button.
+            UiRect spinner{1e9f, 1e9f, -1e9f, -1e9f};
+            for (u32 i = 0; i < paint.count; ++i) {
+                const PaintQuad& q = paint.quads[i];
+                if (q.border_width != -1 || q.top < button.top || q.bottom > button.bottom)
+                    continue;
+                spinner = {minimum(spinner.left, q.left), minimum(spinner.top, q.top), maximum(spinner.right, q.right),
+                           maximum(spinner.bottom, q.bottom)};
+            }
+            const UiTextCommand* text = nullptr;
+            for (u32 i = 0; i < stream.count; ++i)
+                if (utf8_equal(stream.storage[i].text, label))
+                    text = &stream.storage[i];
+            return text && ui_rect_has_area(spinner) && spinner.left >= button.left && text->rectangle.right <= button.right &&
+                   !ui_rect_intersects(spinner, text->rectangle) && text->rectangle.left - spinner.right >= 6;
+        };
+        check(separated(utf8_literal("Installing...")),
+              "store scene: a busy button's label starts after its spinner and a gap, inside the button");
+        check(separated(utf8_literal("Updating...")),
+              "store scene: a stretched busy button centres the spinner and the label without overlap");
+        paint_stream_release(&paint);
+        // The busy spinners are the host's shared spinner clock's to drive; the pulse tick never spins for them.
+        check(ui_store_scene_spinner_visible(g_scene) && !ui_store_scene_tick(&g_scene, 1000, false),
+              "store scene: a busy button is a visible spinner and needs no pulse frames");
+        g_scene.active = false;
+        check(!ui_store_scene_spinner_visible(g_scene), "store scene: an inactive page has no visible spinner");
+        g_scene.active = true;
+        build(792, 7, false);
+        check(!ui_store_scene_spinner_visible(g_scene), "store scene: a page without busy items has no visible spinner");
+        // A skeleton pulses; a second tick in the same millisecond still asks for the next frame.
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder skeleton(&g_scene);
+        skeleton.leaf(UiStoreKind::bar).rw = 200;
+        ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        check(ui_store_scene_tick(&g_scene, 2000, false) && ui_store_scene_tick(&g_scene, 2000, false) &&
+                  !ui_store_scene_tick(&g_scene, 2001, true),
+              "store scene: a skeleton keeps asking for frames, also on a repeated tick, and not under reduced motion");
+    }
     ui_store_scene_release(&g_scene);
 }
 

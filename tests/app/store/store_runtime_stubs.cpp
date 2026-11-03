@@ -43,6 +43,11 @@ const CatalogView& application_catalog_view() noexcept {
 void store_stub_catalog_index(const CatalogIndex* index) noexcept {
     g_catalog.index = index;
 }
+// The operation the catalog runs (an item is busy while its phase is active); the store sees it as a new revision.
+void store_stub_catalog_operation(const CatalogOperation& operation) noexcept {
+    g_catalog.operation = operation;
+    ++g_catalog.revision;
+}
 CatalogItemState application_catalog_item_state(CatalogKind, const Utf8View&) noexcept {
     return {nullptr, kCatalogNone, kCatalogNone};
 }

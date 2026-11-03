@@ -9,6 +9,10 @@
 // settings scene; their column is drawn by UiStoreScene (src/ui/store) from a page built out of the catalog and
 // package models (store_page.cpp). This module owns the page state, the search editor, the pop-up menus, the
 // install dialogs' bookkeeping and the commands the pages issue. UI thread only.
+namespace maicord {
+struct UiStoreScene;
+} // namespace maicord
+
 namespace maicord::app_detail {
 
 // A SettingsPanel page id that is a store page.
@@ -19,6 +23,9 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept;
 // the renderer. True while it animates.
 bool application_store_synchronize(UiSettingsScene* scene) noexcept;
 bool application_store_active() noexcept;
+// The shown store page while it paints a spinner (a busy button, the install dialog's check), else null. The frame
+// clock samples the shared spinner phase into it and arms the next spinner step from it.
+UiStoreScene* application_store_spinner_scene() noexcept;
 // Pointer, wheel and character input of the settings modal; true when the store took the message.
 bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept;

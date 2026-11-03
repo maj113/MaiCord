@@ -224,6 +224,7 @@ struct UiStoreScene {
     bool focus_visible, active, dialog_open, dialog_bar, reduced_motion;
     bool hover_clear; // the pointer is over the clear button of the hovered search field
     u64 clock_ms;
+    // Host-sampled UiSpinnerClock phase (busy buttons, the dialog's spinner); part of the paint stamp.
     u8 spinner_phase;
     const UiStoreSearch* search;
     const UiStoreMeasure* measure;
@@ -259,8 +260,11 @@ bool ui_store_scene_press_is_slider(const UiStoreScene&) noexcept;
 u32 ui_store_scene_value(const UiStoreScene&, u32 action) noexcept;
 // True when the pointer is over a dialog (so the page must not react).
 bool ui_store_scene_modal_hit(const UiStoreScene&, float x, float y) noexcept;
+// The skeleton pulse: advances the paint clock; true while a pulsing skeleton is on screen (a frame is due).
 bool ui_store_scene_tick(UiStoreScene*, u64 now_ms, bool reduced_motion) noexcept;
 bool ui_store_scene_animating(const UiStoreScene&) noexcept;
+// True while a spinner (a busy button, the dialog's check) is on screen: the host's shared spinner clock drives it.
+bool ui_store_scene_spinner_visible(const UiStoreScene&) noexcept;
 
 // Painting: layer 0 = page plates, 1 = foreground (pills over previews), 2 = dialog plates and its foreground.
 bool ui_store_scene_paint(const UiStoreScene&, const Theme&, PaintStream*, u32 layer) noexcept;

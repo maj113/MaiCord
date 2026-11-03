@@ -34,10 +34,14 @@ u16 find_action(const UiStoreScene& s, u32 action) noexcept;
 // The clip a node paints inside (page: the panel body; dialog: its panel).
 UiRect clip_of(const UiStoreScene& s, u16 index) noexcept;
 
+// A button's leading glyph: its icon, or the spinner of a busy button (drawn where the icon goes).
+inline bool leaf_leading_glyph(const UiStoreNode& n) noexcept {
+    return n.icon != kNoIcon || (n.flags & ui_store_busy);
+}
 // A button's content: leading glyph, label, trailing glyph (what a stretched button centres).
 inline float leaf_text_content(const UiStoreNode& n) noexcept {
     float width = text_width(static_cast<u8>(UiStoreType::label_bold), n.text);
-    if (n.icon != kNoIcon)
+    if (leaf_leading_glyph(n))
         width += 24;
     if (n.icon2 != kNoIcon)
         width += 22;

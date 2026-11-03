@@ -377,29 +377,37 @@ bool ui_store_scene_tick(UiStoreScene* s, u64 now_ms, bool reduced_motion) noexc
     if (!s)
         return false;
     s->reduced_motion = reduced_motion;
-    if (s->clock_ms == now_ms)
-        return false;
-    s->clock_ms = now_ms;
-    // The skeleton pulse and busy spinners: a frame is needed only while one is on screen.
+    // A frame is needed only while a skeleton is on screen. A second tick in the same millisecond (the host
+    // synchronizes more than once per frame) still reports it, so the frame chain never drops.
     if (!ui_store_scene_animating(*s))
         return false;
-    s->spinner_phase = static_cast<u8>(now_ms / 40);
-    ++s->motion;
+    if (s->clock_ms != now_ms) {
+        s->clock_ms = now_ms;
+        ++s->motion;
+    }
     return true;
 }
 
-bool ui_store_scene_animating(const UiStoreScene& s) noexcept {
+namespace {
+bool any_visible(const UiStoreScene& s, bool (*match)(const UiStoreNode&) noexcept) noexcept {
     if (!s.active)
         return false;
     for (u32 i = 0; i < s.count; ++i) {
-        const auto& n = s.nodes[i];
-        if ((n.kind == UiStoreKind::bar && !s.reduced_motion) || n.kind == UiStoreKind::spinner ||
-            ((n.flags & ui_store_busy) && n.kind == UiStoreKind::button)) {
-            UiRect r;
-            if (visible(s, static_cast<u16>(i), &r))
-                return true;
-        }
+        UiRect r;
+        if (match(s.nodes[i]) && visible(s, static_cast<u16>(i), &r))
+            return true;
     }
     return false;
+}
+} // namespace
+
+bool ui_store_scene_animating(const UiStoreScene& s) noexcept {
+    return !s.reduced_motion && any_visible(s, [](const UiStoreNode& n) noexcept { return n.kind == UiStoreKind::bar; });
+}
+
+bool ui_store_scene_spinner_visible(const UiStoreScene& s) noexcept {
+    return any_visible(s, [](const UiStoreNode& n) noexcept {
+        return n.kind == UiStoreKind::spinner || (n.kind == UiStoreKind::button && (n.flags & ui_store_busy));
+    });
 }
 } // namespace maicord

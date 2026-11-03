@@ -14,6 +14,8 @@
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/store/store_scene.hpp"
+#include "maicord/ui/widgets/spinner.hpp"
+#include "plugins/catalog_service.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -21,7 +23,8 @@
 
 namespace maicord {
 namespace app_detail {
-void store_stub_catalog_index(const CatalogIndex*) noexcept; // store_runtime_stubs.cpp
+void store_stub_catalog_index(const CatalogIndex*) noexcept;                // store_runtime_stubs.cpp
+void store_stub_catalog_operation(const CatalogOperation& operation) noexcept; // store_runtime_stubs.cpp
 } // namespace app_detail
 
 namespace store_routing_runtime {
@@ -255,6 +258,53 @@ bool theme_contrast_is_computed() noexcept {
            same(store_contrast_text(fails), utf8_literal("Below WCAG AA for text"));
 }
 
+// A busy item on a shown store page drives the shared spinner clock the way the frame clock samples it: the next
+// spinner step is armed (none under reduced motion); with nothing busy, or with the page hidden, nothing wakes.
+bool busy_spinner_wakes(UiPageKey plugins, UiPageKey other) noexcept {
+    constexpr char kSlug[] = "busy-demo";
+    constexpr u32 bytes = sizeof(kSlug) - 1;
+    copy_bytes(index.text, kSlug, bytes);
+    index.text_bytes = bytes;
+    index.item_count = 1;
+    reset_value(&index.items[0]);
+    index.items[0].kind = CatalogKind::plugin;
+    index.items[0].slug = index.items[0].name = {0, bytes};
+    CatalogOperation op{};
+    op.action = CatalogAction::install;
+    op.phase = CatalogPhase::downloading;
+    op.kind = CatalogKind::plugin;
+    op.slug_bytes = static_cast<u8>(bytes);
+    copy_bytes(op.slug, kSlug, bytes);
+    store_stub_catalog_index(&index);
+    store_stub_catalog_operation(op);
+    constexpr u64 now = 10'000'005;
+    const auto wake = [](bool reduced_motion) noexcept {
+        UiSpinnerClock clock{};
+        ui_spinner_clock_tick(&clock, now, application_store_spinner_scene() != nullptr, reduced_motion);
+        return clock.wake_ms;
+    };
+    // The item's detail: its stretched "Installing..." button spans the column. (A card's footer button is laid out
+    // after text this fixture cannot measure, which pushes it past the panel's edge.)
+    const bool opened = open_store(plugins) && click_store(store_action(StoreAct::card, 0)) && store() && store()->page_root != kUiStoreNone;
+    bool detail = false;
+    for (u32 i = 0; opened && i < store()->count; ++i)
+        detail = detail || (store()->nodes[i].kind == UiStoreKind::button &&
+                            (store()->nodes[i].flags & (ui_store_busy | ui_store_stretch)) == (ui_store_busy | ui_store_stretch));
+    const bool busy = detail && application_store_spinner_scene() && application_store_spinner_scene() == store();
+    const u64 near = busy ? wake(false) : 0;
+    const bool spins = busy && near > now && near <= now + kUiSpinnerStepMs && wake(true) == 0;
+    const bool hidden = application_settings_open_page(other) && application_settings_synchronize() &&
+                        !application_store_spinner_scene() && wake(false) == 0;
+    op.phase = CatalogPhase::done;
+    store_stub_catalog_operation(op);
+    const bool idle = open_store(plugins) && !application_store_spinner_scene() && wake(false) == 0;
+    store_stub_catalog_index(nullptr);
+    reset_value(&op);
+    store_stub_catalog_operation(op);
+    application_settings_close(false);
+    return spins && hidden && idle;
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -324,6 +374,8 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
                   !application_settings_active(),
               "store routing: after the dialog the sidebar and the close button work");
     }
+    check(busy_spinner_wakes(stores[0], kAppearancePage),
+          "store routing: a busy item on the shown store page arms the next spinner step; none or a hidden page does not");
     // The wheel scrolls the category list over its rows and over its scrollbar, which sits in the sidebar's padding.
     auto& observed = settings_runtime_test::observed;
     const UiRect viewport = observed.viewport;

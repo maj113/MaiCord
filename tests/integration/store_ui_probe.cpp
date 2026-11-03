@@ -554,6 +554,12 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     next(L"store-01-browse-plugins.bmp", kPlugins, nullptr, sunset);
     // 11 the same page in the flat dark theme
     next(L"store-11-browse-plugins-dark.bmp", kPlugins, nullptr, kDefaultTheme);
+    // 14 an install under way: the card's spinner sits before its "Installing..." label
+    plugins();
+    f.model.items[3].installed = f.model.items[3].enabled = false;
+    f.model.items[3].busy = 1;
+    f.state[0].tab = StoreTab::browse;
+    next(L"store-14-installing-card.bmp", kPlugins, nullptr, sunset);
     // 02 Themes > Browse
     themes();
     f.state[1].tab = StoreTab::browse;
@@ -603,6 +609,10 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         copy_bytes(st.slug, "translate", 10);
     }
     next(L"store-03-plugin-detail.bmp", kPlugins, nullptr, sunset);
+    // 15 the same detail while it installs: the stretched button centres the spinner and the label
+    if (const u32 translate = store_find_item(f.model, CatalogKind::plugin, utf8_literal("translate")); translate < f.model.count)
+        f.model.items[translate].busy = 1;
+    next(L"store-15-installing-detail.bmp", kPlugins, nullptr, sunset);
     f.state[0].detail = false;
     // 04 effect knobs: Aurora is the window background, so its live tile has the effect to show
     effects();

@@ -554,7 +554,7 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
             const float content = leaf_text_content(n);
             const float pad = n.variant == static_cast<u8>(UiStoreButton::link) ? 0 : n.type ? 16 : 12;
             const float x = (n.flags & ui_store_stretch) ? r.left + (ui_rect_width(r) - content) * .5f : r.left + pad;
-            const float left = x + (n.icon != kNoIcon ? 24 : 0);
+            const float left = x + (leaf_leading_glyph(n) ? 24 : 0);
             put(n.text, {left, r.top, left + text_width(static_cast<u8>(UiStoreType::label_bold), n.text) + 2, r.bottom}, ink,
                 static_cast<u8>(UiStoreType::label_bold));
             break;

@@ -791,6 +791,12 @@ bool application_store_active() noexcept {
     return g && g->shown && g->scene.active;
 }
 
+UiStoreScene* application_store_spinner_scene() noexcept {
+    return application_store_active() && g_app.renderer.settings_store == &g->scene && ui_store_scene_spinner_visible(g->scene)
+               ? &g->scene
+               : nullptr;
+}
+
 void application_store_visible(bool visible, CatalogKind kind) noexcept {
     if (!visible) {
         if (g && g->shown) {
