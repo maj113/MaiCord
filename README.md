@@ -3,7 +3,7 @@
 <img src=".github/assets/banner.svg" alt="MaiCord — a native Discord client for Windows" width="100%">
 
 **A lightweight, native Discord client for Windows, written in C++ with Direct3D 11.**<br>
-No Electron, no browser engine, nothing to install. One ~7 MB executable.
+No Electron, no browser engine, nothing to install. One ~6.5 MB executable.
 
 [![CI](https://github.com/maj113/MaiCord/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/maj113/MaiCord/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
@@ -34,14 +34,11 @@ rasterizes its own text, and draws its own interface on the GPU.
 
 | | MaiCord |
 | --- | --- |
-| Download | ~5.5 MB zip, portable |
-| On disk | one ~7 MB EXE plus its profile fonts, ~9.5 MB together |
+| Download | 5.3 MB zip, portable |
+| On disk | one ~6.5 MB EXE plus its profile fonts and license notices, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows |
-| First frame | ~60 ms after launch¹ |
+| Startup | time to first frame is tracked by the in-tree perf harness ([`tools/perf`](tools/perf/README.md)) |
 | Idle | near-zero CPU: nothing redraws while nothing changes |
-
-¹ Measured on the developer's machine with the in-tree perf harness
-([`tools/perf`](tools/perf/README.md)); your numbers will differ.
 
 ## Features
 
@@ -49,7 +46,8 @@ rasterizes its own text, and draws its own interface on the GPU.
 - Discord markdown, including syntax-highlighted code blocks and
   [ANSI colored text](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
 - Rich embeds with image galleries, link previews, stickers and custom emoji
-- Replies, forwards, pins, reactions, threads, forum posts and polls (create and vote)
+- Replies (with timestamps on the preview), forwards, pins, reactions, threads, forum posts and polls (create and vote)
+- Role colors on mentions, in voice participant lists and on typing names
 - Slash commands, including Discord's built-in ones, and app buttons, select
   menus, modals and Components V2 layouts
 - Record and send voice messages
@@ -69,6 +67,9 @@ rasterizes its own text, and draws its own interface on the GPU.
 - Server settings: roles and permissions, members, bans, audit log, emoji,
   stickers, soundboard and invites
 - Scheduled events, community onboarding, per-server profiles and privacy
+- Server folders: opening one closes the others
+- Hidden channels are listed with a lock and a summary of who can see them;
+  nothing is fetched from them
 
 **Accounts**
 - Password sign-in with two-factor authentication (security keys and Windows
@@ -85,10 +86,18 @@ rasterizes its own text, and draws its own interface on the GPU.
 
 **Make it yours**
 - Themes control colors, typography, spacing, components and animated
-  backgrounds
+  backgrounds; browse and install them, and animated background effects, from
+  Settings > Themes and Settings > Effects, from a `maicord://` link or from a
+  file. Settings > Themes lists every installed theme, and Appearance shows
+  them next to the built-in ones ("Your themes")
 - Native plugins with a stable C ABI and a header-only C++ SDK: hooks and
   events, message decorations, buttons and menus, slash commands, settings and
-  shortcuts, installed from a signed catalog
+  shortcuts. Settings > Plugins installs them from a signed catalog of reviewed
+  plugins (27 at v0.6.0), and they install, update, roll back and toggle
+  without a restart
+- Developer tooling: [`tools/maicord-plugin`](tools/maicord-plugin) creates,
+  builds, checks and packs plugins and effects, and Developer Mode hot-reloads
+  them as you rebuild
 
 ## Install
 
@@ -129,9 +138,21 @@ MaiCord checks each download's size and SHA-256 against the index and the DLL's 
 hosts against its listing, asks you to approve them, and loads it without running any of its code until you
 agree. Updates that need nothing new apply on their own; the previous version is kept for one-click rollback, and
 a plugin the catalog revokes is turned off at once. Plugins are native code, so only install ones you trust.
-Loading your own DLL needs Developer Mode. The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp)
-(see [`include/maicord/sdk/README.md`](include/maicord/sdk/README.md)); the samples are in
-[`samples/plugins`](samples/plugins).
+Loading your own DLL needs Developer Mode.
+
+**Catalog.** At v0.6.0 it lists 27 plugins, 7 themes and 7 effects, browsable in Settings and on
+[maicord.com/plugins](https://maicord.com/plugins/), [/themes](https://maicord.com/themes/) and
+[/effects](https://maicord.com/effects/). Entries come from the
+[MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository.
+
+**Writing your own.** The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp) over the C ABI in
+[`maicord_plugin.h`](include/maicord/sdk/maicord_plugin.h); see
+[`include/maicord/sdk/README.md`](include/maicord/sdk/README.md). Samples:
+[`samples/plugins`](samples/plugins) and [`samples/effects`](samples/effects). [`tools/maicord-plugin`](tools/maicord-plugin)
+creates, builds, checks and packs plugins and effects (Python 3.9+, no Visual Studio needed), and with Developer Mode
+on, MaiCord reloads them each time you rebuild. Guides:
+[maicord.com/plugins/develop](https://maicord.com/plugins/develop/) and
+[maicord.com/effects/develop](https://maicord.com/effects/develop/).
 
 ## Building from source
 
@@ -166,17 +187,19 @@ afterwards.
 
 ```
 include/maicord/   public headers; each module's folders mirror its src/ folders
-                   (sdk/ holds the plugin API)
+                   (sdk/ holds the plugin API, sys/ the Win32 declarations)
 src/app/           the client: shell (window, input, startup), chat (messages,
                    composer, threads, polls, search), voice (calls, streams,
                    DAVE/MLS), account (login), guild, media, settings,
-                   notifications, gateway, net, plugins, update, accessibility
+                   notifications, gateway, net, plugins, store (catalog
+                   pages), packages (theme/effect/link install), effects,
+                   update, accessibility
 src/core/          freestanding runtime: memory, strings, JSON, containers
 src/model/         chat state: chat, guild, user, voice, notifications
 src/protocol/      Discord wire formats: gateway, http, auth, encoding,
                    messages, guild, user, media, voice
 src/ui/            framework (core, layout, kit, widgets, controls, theme,
-                   text) and scenes by feature (chat, voice, account, ...)
+                   text) and scenes by feature (chat, voice, account, store, ...)
 src/render/        Direct3D 11 renderer: d3d11, text, media atlases, effects,
                    shaders
 src/text/          text engine: unicode, opentype, fonts, shaping, scripts,
@@ -185,13 +208,15 @@ src/media/         decoders: image, video, audio, containers, compression
 src/platform/      Win32: desktop, net (TLS), crypto, audio, decode (GPU), uia
 tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
                    support/, fixtures/, generated/ data and integration/ probes
-benchmarks/        opt-in freestanding benchmarks
-samples/plugins/   example plugins built against the SDK
+benchmarks/        opt-in benchmarks
+samples/           example plugins (plugins/) and background effects (effects/)
 cmake/             build modules included by CMakeLists.txt
 config/            application manifest and resource scripts
-tools/             build, PE audit, perf harness and release scripts
+tools/             build, PE audit, perf harness, release scripts and the
+                   maicord-plugin tool
 third_party/       Opus, Lucide icons
-assets/            fonts, sounds, themes and license notices
+assets/            fonts, icons, flags, sounds, the example theme and license
+                   notices
 ```
 
 </details>
@@ -218,7 +243,7 @@ plugins and themes that only use the public SDK and theme format can use any
 license.
 
 Bundled third-party components keep their own licenses, and release builds
-include their notices:
+include their notices in the `licenses` and `fonts` folders:
 
 | Component | License | Notice |
 | --- | --- | --- |
