@@ -393,7 +393,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         p.icon(UiIcon::search, {r.left + 12, cy - 8, r.left + 28, cy + 8}, c.text_subtle);
         if (has_text) {
             const UiRect clear = search_clear_rect(r);
-            p.rounded(clear, state.hovered && ui_rect_contains(clear, 0, 0) ? c.mod_strong : c.mod_normal, 12);
+            p.rounded(clear, state.hovered && k.s.hover_clear ? c.mod_strong : c.mod_normal, 12);
             p.icon(UiIcon::close, centred(clear, 14), c.text_strong);
         } else if (n.text2.bytes) {
             const UiRect hint = search_hint_rect(n, r);

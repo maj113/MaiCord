@@ -229,6 +229,24 @@ void test_store_actions(void (*check)(bool, const char*) noexcept) noexcept {
     c = store_page_escape(g_model, &st, &handled);
     check(!handled, "store: Esc at the top level is the settings' to handle");
     check(store_permission_risk(u64{1} << 4, false) == 2, "store: network is high access");
+    // A number knob with a single position (an integer knob whose minimum equals its maximum) maps every slider
+    // step to that value; the step count never reaches 1, which the act path divides by.
+    const auto knob_set_to = [&](u8 type, float low, float high, u32 step) noexcept {
+        StoreKnob& knob = g_model.knobs[0];
+        reset_value(&knob);
+        knob.type = type;
+        knob.minimum = low;
+        knob.maximum = high;
+        g_model.knob_count = 1;
+        const StoreCommand set = store_page_act(g_model, &st, store_action(StoreAct::knob, 0), step, anchor);
+        float natural = 0;
+        copy_bytes(&natural, &set.value, 4);
+        return set.kind == StoreCommandKind::knob_set ? natural : -1000.f;
+    };
+    check(knob_set_to(1, 3, 3, 0) == 3 && knob_set_to(1, 3, 3, 50) == 3,
+          "store: an integer knob with one value always sets that value");
+    check(knob_set_to(1, 0, 10, 5) == 5 && knob_set_to(1, -2, 2, 4) == 2 && knob_set_to(0, 0, 1, 50) == .5f,
+          "store: a slider step maps across the knob's range");
 
     store_tree(check);
     store_focus_rings(check);

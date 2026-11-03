@@ -11,6 +11,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -81,7 +82,6 @@ void apply_state(Writer& w, const CatalogView& view, StoreItem* out, const Catal
         }
     }
     out->enabled = st.enabled;
-    out->running = st.running;
     out->auto_update = st.auto_update;
     out->sideloaded = st.sideloaded;
     out->unreviewed = st.unreviewed;
@@ -132,6 +132,12 @@ Utf8View store_cost_text(StoreModel* m, const EffectCost& cost, bool here) noexc
     return w.add(head, here ? utf8_literal(" here \xC2\xB7 ") : utf8_literal(" \xC2\xB7 "), Utf8View{digits, n}, utf8_literal(" ms"));
 }
 
+// The WCAG 2 level a theme's text keeps over its background.
+Utf8View store_contrast_text(const u32 (&swatches)[4]) noexcept {
+    const float ratio = ui_theme_contrast_ratio(color_from_rgb24(swatches[2]), color_from_rgb24(swatches[0]));
+    return ratio >= 7.f ? utf8_literal("WCAG AAA for text") : ratio >= 4.5f ? utf8_literal("WCAG AA for text") : utf8_literal("Below WCAG AA for text");
+}
+
 void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     m->count = 0;
     m->text_used = 0;
@@ -171,6 +177,14 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     m->error_text = view.error != CatalogError::none ? application_catalog_error_text(view.error) : Utf8View{};
     m->auto_update_all = view.state && !(view.state->flags & kCatalogStateAutoUpdateOff);
     m->protocol_state = !application_packages_protocol_asked() ? 1 : 0;
+    // The global rows of the Effects page's "Performance defaults" card.
+    const EffectUserSettings user = application_effects_user_settings();
+    StoreUniversal& global = m->global_universal;
+    global = {};
+    global.resolution = user.resolution;
+    global.frame_rate = user.frame_rate;
+    global.unfocused = static_cast<u8>(user.unfocused);
+    global.budget = static_cast<u8>(user.budget);
     // Catalog listings.
     for (u32 i = 0; index && i < index->item_count; ++i) {
         const CatalogItem& item = index->items[i];
@@ -213,6 +227,8 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         out->has_swatches = item.has_swatches;
         for (u32 s = 0; s < 4; ++s)
             out->swatches[s] = item.swatches[s];
+        if (item.has_swatches)
+            out->contrast = store_contrast_text(out->swatches);
         out->effect_slug = catalog_text(*index, item.effect);
         apply_state(w, view, out, index);
     }
@@ -268,7 +284,6 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             out->enabled = true;
         }
         out->library = i;
-        out->has_knobs = info->knob_count != 0;
         out->active = info->selected;
         if (!out->bytes)
             out->bytes = info->bytes;

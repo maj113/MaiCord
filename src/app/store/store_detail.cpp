@@ -329,17 +329,15 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
 
 // ---- Knobs --------------------------------------------------------------------------------------------------
 
+u32 knob_steps(const StoreKnob& k) noexcept {
+    constexpr u32 kSliderSteps = 101;
+    // An integer knob steps by one across a span of 2..101 values; anything else, a span of one value included, takes the slider.
+    const float range = k.maximum - k.minimum;
+    return k.type == 1 && range >= 1 && range < static_cast<float>(kSliderSteps) ? static_cast<u32>(range) + 1 : kSliderSteps;
+}
+
 namespace {
 
-constexpr u32 kSliderSteps = 101;
-
-u32 knob_steps(const StoreKnob& k) noexcept {
-    if (k.type == 1) {
-        const u32 span = static_cast<u32>(k.maximum - k.minimum) + 1;
-        return span >= 2 && span <= kSliderSteps ? span : kSliderSteps;
-    }
-    return kSliderSteps;
-}
 u32 knob_index(const StoreKnob& k, float value, u32 steps) noexcept {
     const float range = k.maximum - k.minimum;
     if (!(range > 0))

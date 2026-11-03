@@ -216,6 +216,45 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         paint_stream_release(&paint);
         g_scene.media_key = nullptr;
     }
+    {
+        // A search field with text tints its clear button while the pointer is over the button, not elsewhere in the field.
+        constexpr u32 kSearch = 0x40000;
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder page(&g_scene);
+        auto& field = page.leaf(UiStoreKind::search);
+        field.action = kSearch;
+        field.value = 1;
+        field.text = utf8_literal("Search");
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        g_scene.active = true;
+        UiRect rect{};
+        const bool found = ui_store_scene_rect(g_scene, kSearch, &rect);
+        const float cy = (rect.top + rect.bottom) * .5f;
+        // The fill of the 24-DIP clear disc.
+        const auto clear_fill = [&](Color* fill) noexcept {
+            PaintStream paint{};
+            bool seen = false;
+            if (paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
+                ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0))
+                for (u32 i = 0; i < paint.count && !seen; ++i) {
+                    const PaintQuad& q = paint.quads[i];
+                    if (q.radius == 12 && q.right - q.left > 23.99f && q.right - q.left < 24.01f &&
+                        q.bottom - q.top > 23.99f && q.bottom - q.top < 24.01f) {
+                        *fill = q.fill;
+                        seen = true;
+                    }
+                }
+            paint_stream_release(&paint);
+            return seen;
+        };
+        Color away{}, over{};
+        const bool left = laid && found && ui_store_scene_hover(&g_scene, rect.left + 40, cy) && clear_fill(&away);
+        const bool moved = ui_store_scene_hover(&g_scene, rect.right - 20, cy) && clear_fill(&over);
+        check(left && moved && !bytes_equal(&away, &over, sizeof(Color)),
+              "store scene: the search clear button tints only under the pointer");
+        check(ui_store_scene_hover(&g_scene, rect.left + 40, cy) && clear_fill(&over) && bytes_equal(&away, &over, sizeof(Color)),
+              "store scene: the clear button's tint ends when the pointer leaves it for the field");
+    }
     ui_store_scene_release(&g_scene);
 }
 

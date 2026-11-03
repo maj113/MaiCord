@@ -21,5 +21,8 @@ void store_model_fill_detail(StoreModel*, CatalogKind, const Utf8View& slug, con
 // "Light here · 0.4 ms" (here) or "Light · 0.4 ms": a measured cost, written into the model's text.
 struct EffectCost;
 Utf8View store_cost_text(StoreModel*, const EffectCost&, bool here) noexcept;
+// "WCAG AAA for text", "WCAG AA for text" or "Below WCAG AA for text": what a theme's text (swatch 2) keeps over its
+// background (swatch 0); swatches are background, surface, text, accent.
+Utf8View store_contrast_text(const u32 (&swatches)[4]) noexcept;
 
 } // namespace maicord::app_detail

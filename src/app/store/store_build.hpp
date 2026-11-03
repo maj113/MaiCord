@@ -54,6 +54,8 @@ void build_updates(Ctx&) noexcept;
 void build_developer(Ctx&) noexcept;
 void build_detail(Ctx&, const StoreItem&, u32 index) noexcept;
 void build_knobs(Ctx&, const StoreItem&, u32 index) noexcept;
+// The slider's step count for a number knob (2..101); never below 2, so a step index divides by steps - 1.
+u32 knob_steps(const StoreKnob&) noexcept;
 void build_perf_defaults(Ctx&) noexcept;
 void build_dialog(Ctx&) noexcept;
 void build_trial_bar(Ctx&) noexcept;

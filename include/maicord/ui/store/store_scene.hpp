@@ -222,6 +222,7 @@ struct UiStoreScene {
     u32 motion;     // hover, press, focus and animation: paint only
     u32 hover_action, focus_action, press_action;
     bool focus_visible, active, dialog_open, dialog_bar, reduced_motion;
+    bool hover_clear; // the pointer is over the clear button of the hovered search field
     u64 clock_ms;
     u8 spinner_phase;
     const UiStoreSearch* search;

@@ -39,6 +39,10 @@ Utf8View application_catalog_error_text(CatalogError) noexcept {
 const CatalogView& application_catalog_view() noexcept {
     return g_catalog;
 }
+// The index the next store_model_fill lists (null: none); the test owns it.
+void store_stub_catalog_index(const CatalogIndex* index) noexcept {
+    g_catalog.index = index;
+}
 CatalogItemState application_catalog_item_state(CatalogKind, const Utf8View&) noexcept {
     return {nullptr, kCatalogNone, kCatalogNone};
 }

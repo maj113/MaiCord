@@ -166,9 +166,12 @@ bool ui_store_scene_hover(UiStoreScene* s, float x, float y) noexcept {
         return false;
     const u16 hit = hit_node(*s, x, y);
     const u32 action = hit == kUiStoreNone ? 0 : s->nodes[hit].action;
-    if (action == s->hover_action)
+    const bool clear = hit != kUiStoreNone && s->nodes[hit].kind == UiStoreKind::search && s->nodes[hit].value != 0 &&
+                       ui_rect_contains(search_clear_rect(screen_rect(*s, hit)), x, y);
+    if (action == s->hover_action && clear == s->hover_clear)
         return false;
     s->hover_action = action;
+    s->hover_clear = clear;
     ++s->motion;
     return true;
 }

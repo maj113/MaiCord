@@ -299,7 +299,7 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         else if (k.type == 4)
             natural = static_cast<float>((arg >> 8) & 0x7f);
         else {
-            const u32 steps = k.type == 1 && static_cast<u32>(k.maximum - k.minimum) + 1 <= 101 ? static_cast<u32>(k.maximum - k.minimum) + 1 : 101;
+            const u32 steps = knob_steps(k);
             natural = k.minimum + (k.maximum - k.minimum) * static_cast<float>(value) / static_cast<float>(steps - 1);
             if (k.type == 1)
                 natural = static_cast<float>(static_cast<i32>(natural + (natural < 0 ? -.5f : .5f)));

@@ -8,15 +8,22 @@
 #include "store/store_model.hpp"
 #include "../settings/settings_runtime_internal.hpp"
 #include "../settings/settings_runtime_keys.hpp"
+#include "effects/effects.hpp"
+#include "store/store_source.hpp"
 #include "shell/window_state.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
+namespace app_detail {
+void store_stub_catalog_index(const CatalogIndex*) noexcept; // store_runtime_stubs.cpp
+} // namespace app_detail
+
 namespace store_routing_runtime {
 using namespace app_detail;
 
@@ -31,6 +38,7 @@ struct Fixture {
     bool account_owned, preferences_owned;
     u32 unrouted_pointer;
 } fixture{};
+StoreModel model{};
 constexpr wchar_t window_class_name[] = L"MaiCordStoreRoutingRuntimeFixture";
 
 // The client's order for the settings modal: Settings (and through it the store) first, anything left falls through.
@@ -216,6 +224,37 @@ bool open_store(UiPageKey page) noexcept {
            application_store_active() && store() && store()->page_root != kUiStoreNone;
 }
 
+// The Effects page's "Performance defaults" card reads the global rows from the model: they are the user's.
+bool global_universal_follows_settings() noexcept {
+    constexpr EffectUserSettings changed{4, 2, EffectBudget::high, EffectUnfocused::pause};
+    const EffectUserSettings saved = application_effects_user_settings();
+    const bool set = application_effects_set_user_settings(changed);
+    store_model_fill(&model, {});
+    const StoreUniversal& u = model.global_universal;
+    const bool matches = set && u.resolution == 4 && u.frame_rate == 2 && u.budget == static_cast<u8>(EffectBudget::high) &&
+                         u.unfocused == static_cast<u8>(EffectUnfocused::pause);
+    application_effects_set_user_settings(saved);
+    return matches;
+}
+
+// A listed theme's Contrast fact is the WCAG level its swatches' text keeps over their background.
+CatalogIndex index{};
+bool theme_contrast_is_computed() noexcept {
+    constexpr u32 passes_aaa[4]{0x000000, 0x111111, 0xffffff, 0}, passes_aa[4]{0xffffff, 0xf0f0f0, 0x767676, 0x5865f2},
+        fails[4]{0xffffff, 0xf0f0f0, 0xaaaaaa, 0x5865f2};
+    const auto same = [](Utf8View a, Utf8View b) noexcept { return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes); };
+    index.item_count = 1;
+    index.items[0].kind = CatalogKind::theme;
+    index.items[0].has_swatches = true;
+    copy_bytes(index.items[0].swatches, passes_aa, sizeof(passes_aa));
+    store_stub_catalog_index(&index);
+    store_model_fill(&model, {});
+    store_stub_catalog_index(nullptr);
+    return model.count >= 1 && model.items[0].kind == CatalogKind::theme && same(model.items[0].contrast, utf8_literal("WCAG AA for text")) &&
+           same(store_contrast_text(passes_aaa), utf8_literal("WCAG AAA for text")) &&
+           same(store_contrast_text(fails), utf8_literal("Below WCAG AA for text"));
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -226,6 +265,8 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
         cleanup();
         return;
     }
+    check(global_universal_follows_settings(), "store routing: the Performance defaults rows read the user's effect settings");
+    check(theme_contrast_is_computed(), "store routing: a listed theme's Contrast fact is the WCAG level of its text over its background");
     const bool immediate = g_app.scroll_host.immediate;
     g_app.scroll_host.immediate = true;
     constexpr UiPageKey stores[]{{1, static_cast<u64>(SettingsPanel::plugins) + 1},
