@@ -150,7 +150,7 @@ bool ui_theme_gradient_emphasis(const Theme&, UiThemeEmphasis*) noexcept;
 // value. Authored overrides and flat themes keep their values. Idempotent;
 // runs on the published copy so documents never bake it.
 bool ui_theme_resolve_emphasis(Theme*) noexcept;
-// Selected-tint alpha boost at the highest elevation (ui_elevation_selected).
+// Selected-tint alpha boost at the highest elevation (ui_emphasis_selected).
 inline constexpr float kUiThemeEmphasisElevationBoost = 1.5f;
 // Fonts are restricted to the existing licensed catalog. One base em serves UI
 // and message body text; semantic flags select these ratios, not another font bank.

@@ -345,11 +345,11 @@ class DevTests(Case):
 
         thread = threading.Thread(target=touch)
         thread.start()
-        core.watch(project, lambda: steps.append(1), interval=0.05, rounds=12)
+        core.watch(lambda: core.sources(project), lambda: steps.append(1), interval=0.05, rounds=12)
         thread.join()
         self.assertEqual(steps, [1], "one change, one step")
         steps.clear()
-        core.watch(project, lambda: steps.append(1), interval=0.02, rounds=3)
+        core.watch(lambda: core.sources(project), lambda: steps.append(1), interval=0.02, rounds=3)
         self.assertEqual(steps, [], "no change, no step")
 
     def test_dev_watch_survives_a_compile_error(self):
@@ -377,7 +377,7 @@ class CheckTests(Case):
         super().setUp()
         self.directory, self.dll = self.built("hello")
         self.good = self.dll.read_bytes()
-        self.image = core._Image(self.good, core.Inspection())
+        self.image = core._Image(self.good)
 
     def mutated(self, offset, data):
         bad = bytearray(self.good)

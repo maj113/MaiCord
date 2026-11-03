@@ -88,20 +88,13 @@ struct State {
 State g;
 
 // ---- Files -----------------------------------------------------------------------------------------------
-bool state_path(wchar_t (&path)[512], u32* length, bool create) noexcept {
-    const DataPathResult built = data_path(path, 504, kStateFile, create);
-    *length = built.length;
-    return built.ok();
-}
-
 void load_state() noexcept {
     if (g.state_loaded)
         return;
     g.state_loaded = true;
     g.file.user = kEffectUserDefaults;
     wchar_t path[512];
-    u32 length = 0;
-    if (!state_path(path, &length, false))
+    if (!data_path(path, 504, kStateFile, false).ok())
         return;
     StateFile read{};
     const auto result = file_persistence_read_file(path, {reinterpret_cast<u8*>(&read), sizeof(read)}, sizeof(read));
@@ -116,12 +109,12 @@ void load_state() noexcept {
 
 bool save_state() noexcept {
     wchar_t path[512];
-    u32 length = 0;
-    if (!state_path(path, &length, true))
+    const DataPathResult built = data_path(path, 504, kStateFile, true);
+    if (!built.ok())
         return false;
     copy_bytes(g.file.magic, kMagic, 4);
     g.file.version = 1;
-    const auto written = file_persistence_write_atomic(path, length, {reinterpret_cast<const u8*>(&g.file), sizeof(g.file)});
+    const auto written = file_persistence_write_atomic(path, built.length, {reinterpret_cast<const u8*>(&g.file), sizeof(g.file)});
     if (!written.ok())
         log_u64(LogLevel::warning, "effects", "state_save_error", written.native_error);
     return written.ok();
@@ -144,16 +137,20 @@ bool folder_path(wchar_t (&folder)[512], bool developer) noexcept {
 }
 
 // effects\<slug>.knobs: "MCKB", a count, then {hash of the knob id, number, rgb} per saved knob.
-bool knobs_path(wchar_t (&path)[512], u32* length, const char* slug, bool create) noexcept {
+DataPathResult knobs_path(wchar_t (&path)[512], const char* slug, bool create) noexcept {
     wchar_t relative[96] = L"effects\\";
     u32 at = 8;
     for (u32 i = 0; slug[i] && at < 80; ++i)
         relative[at++] = static_cast<wchar_t>(slug[i]);
     for (const wchar_t c : L".knobs")
         relative[at++] = c;
-    const DataPathResult built = data_path(path, 504, relative, create);
-    *length = built.length;
-    return built.ok();
+    return data_path(path, 504, relative, create);
+}
+
+void delete_knob_file(const char* slug) noexcept {
+    wchar_t path[512];
+    if (knobs_path(path, slug, false).ok())
+        DeleteFileW(path);
 }
 
 u32 id_hash(const char* id) noexcept { return hash32_bytes(reinterpret_cast<const u8*>(id), c_string_length(id)); }
@@ -164,9 +161,8 @@ struct KnobRecord {
 
 void load_knob_file(Loaded& l) noexcept {
     wchar_t path[512];
-    u32 length = 0;
     u8 bytes[12 + sizeof(KnobRecord) * kMcfxKnobMaximum];
-    if (!knobs_path(path, &length, l.package.slug, false))
+    if (!knobs_path(path, l.package.slug, false).ok())
         return;
     const u32 got = read_file(path, {bytes, sizeof(bytes)});
     u32 count = 0;
@@ -192,9 +188,9 @@ void load_knob_file(Loaded& l) noexcept {
 
 bool save_knob_file(const Loaded& l) noexcept {
     wchar_t path[512];
-    u32 length = 0;
-    u8 bytes[12 + sizeof(KnobRecord) * kMcfxKnobMaximum]{};
-    if (!knobs_path(path, &length, l.package.slug, true))
+    u8 bytes[12 + sizeof(KnobRecord) * kMcfxKnobMaximum];
+    const DataPathResult built = knobs_path(path, l.package.slug, true);
+    if (!built.ok())
         return false;
     copy_bytes(bytes, "MCKB", 4);
     const u32 version = 1, count = l.package.knob_count;
@@ -205,7 +201,7 @@ bool save_knob_file(const Loaded& l) noexcept {
         copy_bytes(&record.number_bits, &l.values[i].number, 4);
         copy_bytes(bytes + 12 + i * sizeof(record), &record, sizeof(record));
     }
-    return file_persistence_write_atomic(path, length, {bytes, 12 + count * static_cast<u32>(sizeof(KnobRecord))}).ok();
+    return file_persistence_write_atomic(path, built.length, {bytes, 12 + count * static_cast<u32>(sizeof(KnobRecord))}).ok();
 }
 
 // ---- Loaded packages ---------------------------------------------------------------------------------------
@@ -226,6 +222,17 @@ u64 theme_hash(const ClientThemeEffect* effect) noexcept {
     return effect ? hash64_bytes(kHash64Seed, effect, sizeof(*effect)) | 1 : 0;
 }
 
+bool text_is(const char* a, const char* b) noexcept {
+    const u32 n = c_string_length(a);
+    return n == c_string_length(b) && bytes_equal(a, b, n);
+}
+
+// The theme's effect when it is the one named `slug`.
+const ClientThemeEffect* theme_for(const char* slug) noexcept {
+    const ClientThemeEffect* theme = theme_effect();
+    return theme && text_is(theme->slug, slug) ? theme : nullptr;
+}
+
 // Defaults, then the theme's values, then what the user saved.
 void init_values(Loaded& l, const ClientThemeEffect* theme) noexcept {
     mcfx_knob_defaults(l.package, l.values);
@@ -233,9 +240,7 @@ void init_values(Loaded& l, const ClientThemeEffect* theme) noexcept {
         for (u32 i = 0; i < theme->knob_count; ++i)
             for (u32 k = 0; k < l.package.knob_count; ++k) {
                 const auto& knob = l.package.knobs[k];
-                if (c_string_length(knob.id) != c_string_length(theme->knobs[i].id) ||
-                    !bytes_equal(knob.id, theme->knobs[i].id, c_string_length(knob.id)) ||
-                    (theme->knobs[i].color != (knob.type == McfxKnobType::color)))
+                if (!text_is(knob.id, theme->knobs[i].id) || theme->knobs[i].color != (knob.type == McfxKnobType::color))
                     continue;
                 McfxKnobValue value{theme->knobs[i].number, theme->knobs[i].rgb};
                 if (mcfx_knob_value_valid(knob, value))
@@ -264,6 +269,12 @@ bool load(Loaded& l, const Entry& entry, const ClientThemeEffect* theme) noexcep
     return true;
 }
 
+void close_opened() noexcept {
+    if (g.opened_valid && !g.opened_is_resident)
+        release(g.opened);
+    g.opened_valid = g.opened_is_resident = false;
+}
+
 // ---- Text ------------------------------------------------------------------------------------------------
 bool name_before(const Entry& a, const Entry& b) noexcept {
     const u32 an = c_string_length(a.info.name), bn = c_string_length(b.info.name), shared = an < bn ? an : bn;
@@ -277,13 +288,8 @@ bool name_before(const Entry& a, const Entry& b) noexcept {
     return an != bn ? an < bn : a.info.identity < b.info.identity;
 }
 
-bool text_is(const char* a, const char* b) noexcept {
-    const u32 n = c_string_length(a);
-    return n == c_string_length(b) && bytes_equal(a, b, n);
-}
-
-// "<slug>-<16 hex>.mcfx": the 16 digits, or false.
-bool installed_name(const wchar_t* name, const char* slug, char (&sha16)[17]) noexcept {
+// "<slug>-<16 hex>.mcfx".
+bool installed_name(const wchar_t* name, const char* slug) noexcept {
     const u32 length = wide_length(name, 200), slug_bytes = c_string_length(slug);
     if (length != slug_bytes + 1 + 16 + 5)
         return false;
@@ -297,9 +303,7 @@ bool installed_name(const wchar_t* name, const char* slug, char (&sha16)[17]) no
         const wchar_t c = name[slug_bytes + 1 + i];
         if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f')))
             return false;
-        sha16[i] = static_cast<char>(c);
     }
-    sha16[16] = 0;
     return true;
 }
 
@@ -312,7 +316,7 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
     pattern[0] = 0;
     if (!wide_append(pattern, 512, &pattern_length, folder) || !wide_append(pattern, 512, &pattern_length, L"\\*.mcfx"))
         return;
-    WIN32_FIND_DATAW found{};
+    WIN32_FIND_DATAW found;
     const HANDLE search = FindFirstFileW(pattern, &found);
     if (search == INVALID_HANDLE_VALUE)
         return;
@@ -321,7 +325,6 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
             continue;
         Entry entry{};
         u32 path_length = 0;
-        entry.path[0] = 0;
         if (!wide_append(entry.path, kPathUnits, &path_length, folder) ||
             !wide_append(entry.path, kPathUnits, &path_length, L"\\") ||
             !wide_append(entry.path, kPathUnits, &path_length, found.cFileName))
@@ -333,7 +336,7 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         }
         const McfxPackage& package = workspace->package;
         auto& info = entry.info;
-        if (!developer && !installed_name(found.cFileName, package.slug, info.sha16)) {
+        if (!developer && !installed_name(found.cFileName, package.slug)) {
             log_write(LogLevel::warning, "effects", "package_name_mismatch");
             continue;
         }
@@ -344,10 +347,8 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         copy_bytes(info.license, package.license, sizeof(info.license));
         copy_bytes(info.authors, package.authors, sizeof(info.authors));
         info.bytes = bytes;
-        info.uses = package.uses;
         info.knob_count = package.knob_count;
         info.developer = developer;
-        info.has_source = package.source.count != 0;
         entry.blend = package.blend;
         entry.requested_resolution = package.requested_resolution;
         entry.requested_frame_rate = package.requested_frame_rate;
@@ -455,15 +456,24 @@ void notify(u64 identity, Utf8View reason) noexcept {
     application_toast_show(UiToastKind::failure, {text, bytes});
 }
 
+void clear_effect() noexcept {
+    renderer_clear_effect(&g_app.renderer);
+    g.selected = false;
+}
+
+// The effect leaves the window and the pages that show it follow.
+void drop_effect() noexcept {
+    clear_effect();
+    application_settings_refresh_pages();
+    application_request_frame();
+}
+
 void forget_selection(u64 identity) noexcept {
     if (g.file.selected == identity) {
         g.file.selected = 0;
         save_state();
     }
-    renderer_clear_effect(&g_app.renderer);
-    g.selected = false;
-    application_settings_refresh_pages();
-    application_request_frame();
+    drop_effect();
 }
 
 // The renderer turned the effect off while drawing it, or a previous run died inside one of its frames.
@@ -477,8 +487,7 @@ void apply_verdict() noexcept {
     if (g.trial.active && identity == g.trial.identity) {
         // A candidate that cannot be drawn is not remembered: the install card reports it.
         g.trial.state = EffectTrialState::refused;
-        renderer_clear_effect(&g_app.renderer);
-        g.selected = false;
+        clear_effect();
         application_request_frame();
         return;
     }
@@ -642,7 +651,7 @@ void application_effects_synchronize() noexcept {
                 save_state();
             }
         if (g.opened_valid && !g.opened_is_resident)
-            application_effects_close();
+            close_opened();
         application_settings_refresh_pages();
     }
     if (g.trial.active) {
@@ -664,8 +673,7 @@ void application_effects_synchronize() noexcept {
         if (!select_package(g.trial.identity, *g.trial.package, values, g.trial.package->blend, settings, true)) {
             if (g.trial.state == EffectTrialState::drawing)
                 g.trial.state = EffectTrialState::rejected;
-            renderer_clear_effect(&g_app.renderer);
-            g.selected = false;
+            clear_effect();
         }
         return;
     }
@@ -711,13 +719,13 @@ void application_effects_synchronize() noexcept {
     select_package(entry->info.identity, g.resident.package, g.resident.values, entry->blend, settings, false);
 }
 
-bool application_effects_project(UiSettingsControl* control) noexcept {
-    if (!control || control->choices.count != kBackgroundEffectCount)
-        return false;
+void application_effects_project(UiSettingsControl* control) noexcept {
+    if (control->choices.count != kBackgroundEffectCount)
+        return;
     load_state();
     load_library();
     if (!g.count)
-        return false;
+        return;
     for (u32 i = 0; i < kBackgroundEffectCount; ++i)
         g.choices[i] = control->choices[i];
     for (u32 i = 0; i < g.count; ++i) {
@@ -726,7 +734,6 @@ bool application_effects_project(UiSettingsControl* control) noexcept {
             control->selected_choice = kBackgroundEffectCount + i;
     }
     control->choices = {g.choices, kBackgroundEffectCount + g.count};
-    return true;
 }
 
 bool application_effects_select(u32 index) noexcept {
@@ -752,16 +759,12 @@ bool application_effects_select_none() noexcept {
         return true;
     g.file.selected = 0;
     const bool saved = save_state();
-    renderer_clear_effect(&g_app.renderer);
-    g.selected = false;
-    application_settings_refresh_pages();
-    application_request_frame();
+    drop_effect();
     return saved;
 }
 
 bool application_effects_activate(u32 choice, bool* result) noexcept {
-    if (result)
-        *result = false;
+    *result = false;
     load_state();
     if (choice < kBackgroundEffectCount) {
         // A built-in: its own preference is written by the caller.
@@ -776,9 +779,7 @@ bool application_effects_activate(u32 choice, bool* result) noexcept {
     load_library();
     if (choice - kBackgroundEffectCount >= g.count)
         return true;
-    const bool saved = application_effects_select(choice - kBackgroundEffectCount);
-    if (result)
-        *result = saved;
+    *result = application_effects_select(choice - kBackgroundEffectCount);
     return true;
 }
 
@@ -883,15 +884,14 @@ void application_effects_library_changed() noexcept {
 const McfxPackage* application_effects_open(u32 index) noexcept {
     load_state();
     load_library();
-    application_effects_close();
+    close_opened();
     if (index >= g.count)
         return nullptr;
     const Entry& entry = g.entries[index];
-    const ClientThemeEffect* theme = theme_effect();
     if (g.resident.file && g.resident.identity == entry.info.identity) {
         g.opened_is_resident = true;
     } else {
-        if (!load(g.opened, entry, theme && text_is(theme->slug, entry.info.slug) ? theme : nullptr))
+        if (!load(g.opened, entry, theme_for(entry.info.slug)))
             return nullptr;
         g.opened_is_resident = false;
     }
@@ -899,15 +899,9 @@ const McfxPackage* application_effects_open(u32 index) noexcept {
     return g.opened_is_resident ? &g.resident.package : &g.opened.package;
 }
 
-void application_effects_close() noexcept {
-    if (g.opened_valid && !g.opened_is_resident)
-        release(g.opened);
-    g.opened_valid = g.opened_is_resident = false;
-}
-
 bool application_effects_knob_get(u32 knob, McfxKnobValue* value) noexcept {
     Loaded& l = g.opened_is_resident ? g.resident : g.opened;
-    if (!g.opened_valid || !value || knob >= l.package.knob_count)
+    if (!g.opened_valid || knob >= l.package.knob_count)
         return false;
     *value = l.values[knob];
     return true;
@@ -926,35 +920,28 @@ bool application_effects_knobs_reset() noexcept {
     Loaded& l = g.opened_is_resident ? g.resident : g.opened;
     if (!g.opened_valid)
         return false;
-    wchar_t path[512];
-    u32 length = 0;
-    if (knobs_path(path, &length, l.package.slug, false))
-        DeleteFileW(path);
-    const ClientThemeEffect* theme = theme_effect();
-    init_values(l, theme && text_is(theme->slug, l.package.slug) ? theme : nullptr);
+    delete_knob_file(l.package.slug);
+    init_values(l, theme_for(l.package.slug));
     application_request_frame();
     return true;
 }
 
 EffectCost application_effects_cost(u64 identity) noexcept {
-    EffectCost cost{};
     if (!identity)
-        return cost;
+        return {};
     const auto level = [](float ms) noexcept {
         return ms <= kEffectBudgetMs[0] ? EffectCostClass::light : ms <= kEffectBudgetMs[1] ? EffectCostClass::medium
                                                                                             : EffectCostClass::heavy;
     };
     if ((g.trial.active && g.trial.identity == identity && g.trial.state == EffectTrialState::refused) ||
-        refusal_index(identity, g_app.renderer.adapter_key) >= 0) {
-        cost = {true, true, kEffectRefuseMs, EffectCostClass::heavy};
-        return cost;
-    }
+        refusal_index(identity, g_app.renderer.adapter_key) >= 0)
+        return {true, true, kEffectRefuseMs, EffectCostClass::heavy};
     const auto& owner = g_app.renderer.effect;
     if (owner.selected && owner.identity == identity && owner.probed) {
         const float ms = effect_probe_estimate(owner.probe, effect_step_pixels(owner.window_width, owner.window_height, owner.step));
-        cost = {true, false, ms, level(ms)};
+        return {true, false, ms, level(ms)};
     }
-    return cost;
+    return {};
 }
 
 void application_effects_deactivate(const char* slug, u32 slug_bytes) noexcept {
@@ -969,14 +956,11 @@ void application_effects_deactivate(const char* slug, u32 slug_bytes) noexcept {
         g.file.selected = 0;
         save_state();
     }
-    if (const ClientThemeEffect* theme = theme_effect(); theme && text_is(theme->slug, text)) {
+    if (theme_for(text)) {
         copy_bytes(g.off[g.off_next], text, sizeof(text));
         g.off_next = (g.off_next + 1) % 4;
     }
-    renderer_clear_effect(&g_app.renderer);
-    g.selected = false;
-    application_settings_refresh_pages();
-    application_request_frame();
+    drop_effect();
 }
 
 bool application_effects_remove(const char* slug, u32 slug_bytes) noexcept {
@@ -993,13 +977,10 @@ bool application_effects_remove(const char* slug, u32 slug_bytes) noexcept {
     copy_bytes(path, entry->path, sizeof(path));
     if (g.resident.identity == entry->info.identity)
         release(g.resident);
-    application_effects_close();
+    close_opened();
     application_effects_deactivate(slug, slug_bytes);
     const bool removed = DeleteFileW(path) != 0;
-    wchar_t knobs[512];
-    u32 length = 0;
-    if (knobs_path(knobs, &length, text, false))
-        DeleteFileW(knobs);
+    delete_knob_file(text);
     g.library_loaded = false;
     load_library();
     application_settings_refresh_pages();
@@ -1020,8 +1001,7 @@ void application_effects_trial_end() noexcept {
     if (!g.trial.active)
         return;
     reset_value(&g.trial);
-    renderer_clear_effect(&g_app.renderer);
-    g.selected = false;
+    clear_effect();
     application_request_frame();
 }
 

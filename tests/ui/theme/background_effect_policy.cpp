@@ -193,12 +193,12 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     check(invalid_rejected, "flat effects: malformed zero-stop palette, direction, intensity and effect "
                             "parameters fail closed");
 
-    bool gates = !background_animation_allowed(effect, false, false, false, false, true, false) &&
-                 !background_animation_allowed(effect, true, true, false, false, true, false) &&
-                 !background_animation_allowed(effect, true, false, true, false, true, false) &&
-                 !background_animation_allowed(effect, true, false, false, true, true, false) &&
-                 !background_animation_allowed(effect, true, false, false, false, false, false) &&
-                 !background_animation_allowed(effect, true, false, false, false, true, true);
+    bool gates = !background_animation_allowed(effect, false, false, false, false, false, true, false) &&
+                 !background_animation_allowed(effect, false, true, true, false, false, true, false) &&
+                 !background_animation_allowed(effect, false, true, false, true, false, true, false) &&
+                 !background_animation_allowed(effect, false, true, false, false, true, true, false) &&
+                 !background_animation_allowed(effect, false, true, false, false, false, false, false) &&
+                 !background_animation_allowed(effect, false, true, false, false, false, true, true);
     for (u32 setting = 0; setting < 3; ++setting) {
         auto paused = effect;
         if (setting == 0)
@@ -208,7 +208,7 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
         else
             paused.density = 0;
         gates = gates && background_render_valid(paused) &&
-                !background_animation_allowed(paused, true, false, false, false, true, false);
+                !background_animation_allowed(paused, false, true, false, false, false, true, false);
     }
     check(gates, "flat effects: hidden, covered, accessibility and zero parameter gates admit no animation");
 

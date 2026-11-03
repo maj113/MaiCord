@@ -64,9 +64,30 @@ float number(const JsonValue& v, float fallback = 0) noexcept {
         return fallback;
     return static_cast<float>(negative ? -value : value);
 }
+// Stack-allocated sinks: no reference counting, and segment flags are ignored.
+struct SinkBase : ID2D1SimplifiedGeometrySink {
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
+        if (!value)
+            return E_POINTER;
+        *value = nullptr;
+        if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
+            *value = this;
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override {
+        return 1;
+    }
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
+    }
+};
 // Signed area (exact for cubics), an upper bound of the length (L1 norm of the control polygon) and of
 // the winding of a simplified outline; open figures are closed as a fill does.
-struct AreaSink final : ID2D1SimplifiedGeometrySink {
+struct AreaSink final : SinkBase {
     static constexpr i32 kBins = 256;
     double area = 0, length = 0;
     float top, scale;
@@ -105,25 +126,7 @@ struct AreaSink final : ID2D1SimplifiedGeometrySink {
         record(current.y, current.y, to.y, to.y, 1);
         current = to;
     }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
-        if (!value)
-            return E_POINTER;
-        *value = nullptr;
-        if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
-            *value = this;
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override {
-        return 1;
-    }
     void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE) noexcept override {
-    }
-    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
     }
     void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F p, D2D1_FIGURE_BEGIN) noexcept override {
         start = current = p;
@@ -1199,7 +1202,7 @@ struct Document {
 static_assert(offsetof(Document, leaf_records) == 104);
 static_assert(offsetof(Document, leaf_pool) == 2152);
 static_assert(sizeof(Document) == 747640);
-class OutlineSink final : public ID2D1SimplifiedGeometrySink {
+class OutlineSink final : public SinkBase {
     GlyphOutline* out;
     void push(GlyphPathCommand command) noexcept {
         if (out->count == out->capacity) {
@@ -1233,27 +1236,9 @@ class OutlineSink final : public ID2D1SimplifiedGeometrySink {
         out->count = out->rejected = 0;
         out->has_bounds = false;
     }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
-        if (!value)
-            return E_POINTER;
-        *value = nullptr;
-        if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
-            *value = this;
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override {
-        return 1;
-    }
     void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE mode) noexcept override {
         out->fill_rule =
             mode == D2D1_FILL_MODE_ALTERNATE ? GlyphFillRule::alternate : GlyphFillRule::winding;
-    }
-    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
     }
     void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F p, D2D1_FIGURE_BEGIN) noexcept override {
         push({p.x, p.y, 0, 0, 0, 0, GlyphPathCommandKind::begin_filled, {}});

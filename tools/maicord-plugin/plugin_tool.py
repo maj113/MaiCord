@@ -34,6 +34,7 @@ PERMISSIONS = ("message_send", "read_messages", "message_history", "read_activit
 HOOK_LAST = 17
 CATEGORIES = ("chat", "appearance", "notifications", "privacy", "utility", "voice", "accessibility", "moderation",
               "developer", "fun")
+VERSION = re.compile(r"(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){2}")  # MAJOR.MINOR.PATCH, each 0 to 999
 
 # The flags of cmake's maicord_plugin() and of the catalog's CI (MaiCord-plugins scripts/build_catalog.py), so a
 # local build is the catalog's build: same source, same compiler, same bytes (/Brepro).
@@ -50,6 +51,10 @@ class ToolError(Exception):
 
 def say(text: str = "") -> None:
     print(text, flush=True)
+
+
+def write_text(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 # ---- names -----------------------------------------------------------------------------------------
@@ -203,13 +208,17 @@ class Project:
         return self.build_directory / f"{self.slug}.dll"
 
 
+def folder_slug(directory: Path) -> str:
+    return re.sub(r"[^a-z0-9-]+", "-", directory.name.lower()).strip("-")[:SLUG_MAX].strip("-")
+
+
 def open_project(directory: str | None, source: str | None = None) -> Project:
     root = Path(directory or ".").resolve()
     file = Path(source) if source else Path("plugin.cpp")
     file = file if file.is_absolute() else root / file
     if not file.is_file():
         raise ToolError(f"{file} was not found (run this in a plugin folder, or use --dir; 'maicord-plugin new <name>' makes one)")
-    slug = re.sub(r"[^a-z0-9-]+", "-", root.name.lower()).strip("-")[:SLUG_MAX].strip("-")
+    slug = folder_slug(root)
     if not slug_valid(slug):
         raise ToolError(f"the folder name {root.name!r} makes no catalog slug; rename the folder (lower-case letters, digits, '-')")
     return Project(root, file, slug)
@@ -271,8 +280,8 @@ class Inspection:
 
 
 class _Image:
-    def __init__(self, data: bytes, report: Inspection):
-        self.data, self.report = data, report
+    def __init__(self, data: bytes):
+        self.data = data
         if len(data) < 64 or data[:2] != b"MZ":
             raise ToolError("not a PE file")
         self.nt = struct.unpack_from("<I", data, 0x3C)[0]
@@ -355,7 +364,7 @@ def inspect_dll(path: Path) -> Inspection:
     report = Inspection()
     try:
         data = Path(path).read_bytes()
-        _check_pe(_Image(data, report), report)
+        _check_pe(_Image(data), report)
     except ToolError as error:
         report.errors.append(str(error))
     except OSError as error:
@@ -603,13 +612,13 @@ def command_new(arguments) -> int:
     command = re.sub(r"[^a-z0-9_]", "_", slug)
     if not re.match(r"[a-z_]", command):
         command = "_" + command
-    summary = arguments.summary or f"Says hello and signs your messages."
+    summary = arguments.summary or "Says hello and signs your messages."
     owner = new_owner()
     values = dict(name=name, slug=slug, command=command, summary=summary, owner=owner_text(owner))
-    (directory / "plugin.cpp").write_text(PLUGIN_TEMPLATE.format(**values), encoding="utf-8", newline="\n")
-    (directory / "README.md").write_text(README_TEMPLATE.format(**values), encoding="utf-8", newline="\n")
-    (directory / ".gitignore").write_text(IGNORE_TEMPLATE, encoding="utf-8", newline="\n")
-    (directory / ".clangd").write_text(clangd_text(include), encoding="utf-8", newline="\n")
+    write_text(directory / "plugin.cpp", PLUGIN_TEMPLATE.format(**values))
+    write_text(directory / "README.md", README_TEMPLATE.format(**values))
+    write_text(directory / ".gitignore", IGNORE_TEMPLATE)
+    write_text(directory / ".clangd", clangd_text(include))
     say(f"Created {directory} (owner id {owner_text(owner)}).")
     say(f"Next: cd {directory.name}; maicord-plugin build; maicord-plugin dev")
     return 0
@@ -621,7 +630,7 @@ def command_build(arguments) -> int:
     toolchain = find_toolchain(arguments.llvm_bin, not arguments.no_fetch)
     include = sdk_include(arguments.sdk)
     if not (project.directory / ".clangd").exists():
-        (project.directory / ".clangd").write_text(clangd_text(include), encoding="utf-8", newline="\n")
+        write_text(project.directory / ".clangd", clangd_text(include))
     started = time.monotonic()
     dll = build_project(project, toolchain, include, arguments.verbose)
     report = inspect_dll(dll)
@@ -635,10 +644,7 @@ def command_build(arguments) -> int:
 
 
 def command_check(arguments) -> int:
-    if arguments.dll:
-        path = Path(arguments.dll)
-    else:
-        path = open_project(arguments.dir, arguments.source).dll
+    path = Path(arguments.dll) if arguments.dll else open_project(arguments.dir, arguments.source).dll
     report = inspect_dll(path)
     for line in describe(report, path):
         say(line)
@@ -647,33 +653,39 @@ def command_check(arguments) -> int:
     return 0 if report.ok else 1
 
 
-def deploy(dll: Path, folder: Path) -> str:
-    """Copies dll into folder (atomically, so the watcher never sees half a file). 'unchanged' when it is there."""
+def deploy(dll: Path, folder: Path) -> None:
+    """Copies dll into folder (atomically, so the watcher never sees half a file) unless it is there, and says which."""
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / dll.name
-    if target.is_file() and target.read_bytes() == dll.read_bytes():
-        return "unchanged"
-    partial = folder / (dll.name + ".part")
-    shutil.copyfile(dll, partial)
-    os.replace(partial, target)
-    return "copied"
+    copied = not (target.is_file() and target.read_bytes() == dll.read_bytes())
+    if copied:
+        partial = folder / (dll.name + ".part")
+        shutil.copyfile(dll, partial)
+        os.replace(partial, target)
+    say(f"{dll.name}: {'copied' if copied else 'unchanged'} in {folder}" + (" (MaiCord reloads it)" if copied else ""))
 
 
-def watch(project: Project, step, interval: float = 0.4, rounds: int | None = None) -> None:
-    """Calls step() whenever a source changes (polling mtimes); rounds limits the polls, for tests."""
+def watch(files, step, interval: float = 0.4, rounds: int | None = None) -> None:
+    """Calls step() whenever the newest of files() changes (polling mtimes) until Ctrl+C; a ToolError is printed and
+    the watch goes on, as the next save may fix it. rounds limits the polls, for tests."""
     def stamp():
-        return max((p.stat().st_mtime_ns for p in sources(project)), default=0)
+        return max((p.stat().st_mtime_ns for p in files() if p.is_file()), default=0)
 
     seen = stamp()
     polled = 0
-    while rounds is None or polled < rounds:
-        time.sleep(interval)
-        polled += 1
-        now = stamp()
-        if now != seen:
-            time.sleep(interval)  # let the editor finish writing
-            seen = stamp()
-            step()
+    try:
+        while rounds is None or polled < rounds:
+            time.sleep(interval)
+            polled += 1
+            if stamp() != seen:
+                time.sleep(interval)  # let the editor finish writing
+                seen = stamp()
+                try:
+                    step()
+                except ToolError as error:
+                    say(str(error))
+    except KeyboardInterrupt:
+        pass
 
 
 def command_dev(arguments) -> int:
@@ -691,24 +703,13 @@ def command_dev(arguments) -> int:
             if not report.ok:
                 dll.unlink(missing_ok=True)
                 raise ToolError("the DLL fails the plugin checks:\n" + "\n".join(describe(report, dll)))
-        result = deploy(project.dll, folder)
-        say(f"{project.dll.name}: {result} in {folder}" + (" (MaiCord reloads it)" if result == "copied" else ""))
+        deploy(project.dll, folder)
 
     build_and_deploy(False)
     if not arguments.watch:
         return 0
     say("Watching for changes; Ctrl+C stops.")
-
-    def again() -> None:
-        try:
-            build_and_deploy(True)
-        except ToolError as error:
-            say(str(error))  # keep watching: the next save may fix it
-
-    try:
-        watch(project, again, rounds=arguments.rounds)
-    except KeyboardInterrupt:
-        pass
+    watch(lambda: sources(project), lambda: build_and_deploy(True), rounds=arguments.rounds)
     return 0
 
 
@@ -734,7 +735,7 @@ def command_pack(arguments) -> int:
     categories = arguments.category or ["utility"]
     if len(categories) > 3 or any(c not in CATEGORIES for c in categories):
         raise ToolError(f"--category takes up to 3 of: {', '.join(CATEGORIES)}")
-    if not re.fullmatch(r"(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})", info["version"]):
+    if not VERSION.fullmatch(info["version"]):
         raise ToolError(f"the version {info['version']!r} must be MAJOR.MINOR.PATCH (each 0 to 999)")
     if len(info["name"].encode("utf-8")) > 95 or not info["summary"] or len(info["summary"].encode("utf-8")) > 255:
         raise ToolError("the catalog needs a name up to 95 bytes and a summary of 1 to 255 bytes in MC_PLUGIN")
@@ -753,11 +754,11 @@ def command_pack(arguments) -> int:
     if info["homepage"]:
         catalog["homepage"] = info["homepage"]
     catalog["owner_id"] = f"0x{info['owner_id']:016X}"
-    (folder / "catalog.json").write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    write_text(folder / "catalog.json", json.dumps(catalog, indent=2, ensure_ascii=False) + "\n")
     details = project.directory / "DETAILS.md"
     text = details.read_text(encoding="utf-8") if details.is_file() else (
         f"{info['summary']}\n\n### Settings\n\n- Describe each setting here.\n")
-    (folder / "details.md").write_text(text, encoding="utf-8", newline="\n")
+    write_text(folder / "details.md", text)
     say(f"Wrote {folder}: plugin.cpp, catalog.json, details.md.")
     say(f"Copy it to plugins/{project.slug}/ in a clone of maj113/MaiCord-plugins and open a pull request;")
     say("CI builds the DLL from plugin.cpp, so keep it the only source file, and bump .version for every change.")

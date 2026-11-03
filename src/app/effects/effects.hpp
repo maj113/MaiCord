@@ -23,8 +23,8 @@ inline constexpr u32 kEffectLibraryCapacity = 64;
 // when nothing changed) and acts on the renderer's verdict.
 void application_effects_synchronize() noexcept;
 // The background effect picker: appends the library by name after the built-in effects and selects the saved one.
-// False leaves the control as is.
-bool application_effects_project(UiSettingsControl*) noexcept;
+// A control that is not the built-in list, or a library without entries, is left as is.
+void application_effects_project(UiSettingsControl*) noexcept;
 // A package choice is saved here (true, *result = saved); a built-in choice clears the package choice and
 // returns false for the caller to write.
 bool application_effects_activate(u32 choice, bool* result) noexcept;
@@ -51,12 +51,10 @@ struct EffectInfo {
     u64 identity; // a hash of the whole file; the saved choice and the refusals are keyed by it
     char slug[kMcfxSlugBytes + 1], name[kMcfxNameBytes + 1], version[kMcfxVersionBytes + 1],
         license[kMcfxLicenseBytes + 1], authors[kMcfxAuthorsBytes + 1];
-    char sha16[17]; // from the file name; "" for a developer package
-    u32 bytes, uses;
+    u32 bytes;
     u8 knob_count;
     bool selected;  // the saved choice (a theme's effect is not "selected")
     bool developer; // from the development folder
-    bool has_source;
 };
 u32 application_effects_count() noexcept;
 u64 application_effects_identity(u32 index) noexcept;
@@ -69,10 +67,9 @@ bool application_effects_select(u32 index) noexcept;
 bool application_effects_select_none() noexcept;
 i32 application_effects_selected_index() noexcept;
 
-// The package of one library entry, for its knob page: one at a time, valid until the next open or close, a
-// rescan or the removal of the file.
+// The package of one library entry, for its knob page: one at a time, valid until the next open, a rescan or
+// the removal of the file.
 const McfxPackage* application_effects_open(u32 index) noexcept;
-void application_effects_close() noexcept;
 // The open effect's knob values (natural units; a colour reads rgb). Set validates against the schema and applies
 // live; commit true also saves (call it on release, not on every drag step).
 bool application_effects_knob_get(u32 knob, McfxKnobValue* value) noexcept;
@@ -107,6 +104,5 @@ u64 application_effects_trial_identity() noexcept;
 // Small persisted answers that live in the effects state file (the maicord:// question was answered).
 bool application_effects_state_flag(u32 bit) noexcept;
 bool application_effects_set_state_flag(u32 bit, bool on) noexcept;
-
 
 } // namespace maicord::app_detail

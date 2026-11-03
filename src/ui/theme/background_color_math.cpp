@@ -137,7 +137,7 @@ Color background_color_mix(const Color& original, BackgroundOklab anchor, float 
 
 bool background_color_anchors(const BackgroundTheme& draft, bool light,
                               BackgroundColorAnchors* output) noexcept {
-    if (!output || !background_theme_valid(draft))
+    if (!background_theme_valid(draft))
         return false;
     Color darkest = color_from_rgb24(draft.colors[0]), lightest = darkest;
     double minimum_luminance = background_color_luminance(darkest), maximum_luminance = minimum_luminance;
@@ -192,7 +192,7 @@ u32 background_color_lrgb_midpoint(u32 first, u32 second) noexcept {
 }
 
 bool background_theme_add_color(const BackgroundTheme& draft, BackgroundTheme* output) noexcept {
-    if (!output || !background_theme_valid(draft) || draft.color_count == 5)
+    if (!background_theme_valid(draft) || draft.color_count == 5)
         return false;
     auto next = draft;
     next.colors[next.color_count] = background_color_rotate_hue(next.colors[next.color_count - 1], 15);
@@ -221,7 +221,7 @@ u32 background_color_random_index(u32& state, u32 count) noexcept {
 
 bool background_theme_randomized(const BackgroundTheme& draft, u32 seed,
                                  BackgroundTheme* output) noexcept {
-    if (!output || !background_theme_valid(draft))
+    if (!background_theme_valid(draft))
         return false;
     static constexpr u32 seeds[]{0x94e0cf, 0x9af0b1, 0x9a90ff, 0x9a53ff, 0xfda6e4, 0xffe6c0, 0xefb4aa,
                           0x56b69f, 0x29c566, 0x5348ca, 0x6d24d4, 0xca48c8, 0xf0ae29, 0xdf4232};

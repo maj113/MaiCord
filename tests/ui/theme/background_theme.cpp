@@ -318,11 +318,8 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 before_invalid = materials.count;
     check(!ui_background_paint_surface(&materials, material_rect, gradient, surface_fill, surface_border, 8,
                                        2, 1.1f) &&
-              !ui_background_paint_surface(&materials, material_rect, gradient, surface_fill,
-                                           surface_border, 8, 2, .9f,
-                                           static_cast<UiBackgroundSurfaceMode>(2)) &&
               materials.count == before_invalid,
-          "background surface: invalid palette share or mode rejects before mutating geometry");
+          "background surface: an invalid palette share rejects before mutating geometry");
     Theme flat_effect = kDefaultTheme;
     flat_effect.background = {};
     flat_effect.background.effect = BackgroundEffect::stars;
@@ -350,7 +347,7 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
                        "ordinary controls, gradient inactivity and retained foreground signature");
     flat_effect.background.speed = 0;
     check(background_effects_active(flat_effect.background) &&
-              !background_animation_allowed(flat_effect.background, true, false, false, false, true, false),
+              !background_animation_allowed(flat_effect.background, false, true, false, false, false, true, false),
           "background flat effects: zero speed freezes visible artwork without an animation deadline");
     auto malformed_flat = flat_effect.background;
     malformed_flat.colors[4] = 1;
@@ -520,11 +517,11 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     both.density = both_profile.density;
     check(background_theme_valid(both) && background_effect_profile_index(both.effect) == 2 &&
               background_effect_settings_valid(both_profile) &&
-              background_animation_allowed(both, true, false, false, false, true, false),
+              background_animation_allowed(both, false, true, false, false, false, true, false),
           "background effect: catalog is None, Stars, Comets and Stars and comets with compact profiles");
     auto animated = background_theme_defaults();
     animated.effect = BackgroundEffect::stars;
-    check(background_animation_allowed(animated, true, false, false, false, true, false),
+    check(background_animation_allowed(animated, false, true, false, false, false, true, false),
           "background animation: visible enabled stars admit bounded animation");
     bool blocked = true;
     for (u32 reason = 0; reason < 12; ++reason) {
@@ -541,14 +538,14 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
             value.strength = 0;
         if (reason == 11)
             value.density = 0;
-        blocked = blocked && !background_animation_allowed(value, reason != 2, reason == 3, reason == 4,
+        blocked = blocked && !background_animation_allowed(value, false, reason != 2, reason == 3, reason == 4,
                                                            reason == 5, reason != 6, reason == 7);
     }
     check(blocked,
           "background animation: no effect zero speed hidden minimized resize reduced "
           "system-disabled covered invalid descriptors and zero-strength/density have no animation");
     animated.intensity = 0;
-    check(background_animation_allowed(animated, true, false, false, false, true, false),
+    check(background_animation_allowed(animated, false, true, false, false, false, true, false),
           "background animation: valid zero-intensity weak gradient still permits enabled effects");
     auto sample = background_animation_sample(0, 2.f, false, 10000, true);
     bool stable = sample.running && sample.next_frame_ms == 10042 && sample.phase_seconds == 2.f;

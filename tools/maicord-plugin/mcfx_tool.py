@@ -27,11 +27,10 @@ import re
 import shutil
 import struct
 import subprocess
-import time
 from pathlib import Path
 
 import plugin_tool as core
-from plugin_tool import ToolError, say
+from plugin_tool import ToolError, say, write_text
 
 INTERFACE = 1
 MANIFEST_MAX = 16 * 1024
@@ -47,7 +46,6 @@ BLENDS = ("normal", "screen", "add")
 RESOLUTIONS = (25, 35, 50, 75, 100)
 FRAME_RATES = (10, 15, 24, 30, 60)
 SECTION = {"MANIFEST": 1, "DXBC": 2, "TEXTURE0": 3, "TEXTURE1": 4, "SOURCE": 5, "PREVIEW": 6}
-SAMPLE_OPS = ("sample", "sample_l", "sample_b", "sample_d", "sample_c", "sample_c_lz", "ld", "gather4", "lod")
 
 
 # ---- the HLSL header -------------------------------------------------------------------------------------
@@ -364,7 +362,7 @@ def lint(assembly: str) -> dict:
         if opcode == "ret":
             continue
         instructions += 1
-        if opcode.split("_")[0] in ("sample", "ld", "gather4", "lod") or opcode in SAMPLE_OPS:
+        if opcode.split("_")[0] in ("sample", "ld", "gather4", "lod"):
             samples += 1
     if instructions > INSTRUCTIONS_MAX:
         raise ToolError(f"{instructions} instructions, over the catalog's {INSTRUCTIONS_MAX}")
@@ -391,10 +389,8 @@ def manifest(slug: str, header: dict, sidecar: dict, version: str) -> dict:
         result["derived_from"] = {"url": url, "author": author, "license": license_id}
     result["blend"] = header["blend"]
     result["uses"] = [u for u in USES if u in header["uses"]]
-    if "resolution" in sidecar:
-        result["resolution"] = int(sidecar["resolution"])
-    if "fps" in sidecar:
-        result["fps"] = int(sidecar["fps"])
+    result["resolution"] = int(sidecar.get("resolution", 50))
+    result["fps"] = int(sidecar.get("fps", 24))
     result["knobs"] = header["knobs"]
     return result
 
@@ -430,7 +426,7 @@ def sidecar_text(header: dict, sidecar: dict) -> str:
 class Effect:
     def __init__(self, directory: str | None, source: str | None = None):
         self.directory = Path(directory or ".").resolve()
-        slug = re.sub(r"[^a-z0-9-]+", "-", self.directory.name.lower()).strip("-")[:40].strip("-")
+        slug = core.folder_slug(self.directory)
         self.hlsl = Path(source) if source else self.directory / f"{slug}.hlsl"
         if not self.hlsl.is_file():
             candidates = sorted(self.directory.glob("*.hlsl"))
@@ -452,7 +448,7 @@ def build_effect(effect: Effect, include: Path, compiler: str = "auto") -> dict:
     if len(name.encode("utf-8")) > NAME_MAX:
         raise ToolError(f"the effect name is at most {NAME_MAX} bytes")
     version = header["effect"].get("version", "0.1.0")
-    if not re.fullmatch(r"(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})", version):
+    if not core.VERSION.fullmatch(version):
         raise ToolError(f"version {version!r} must be MAJOR.MINOR.PATCH")
     existing = parse_sidecar(effect.sidecar.read_text(encoding="utf-8")) if effect.sidecar.is_file() else {}
     if int(existing.get("resolution", 50)) not in RESOLUTIONS or int(existing.get("fps", 24)) not in FRAME_RATES:
@@ -464,9 +460,8 @@ def build_effect(effect: Effect, include: Path, compiler: str = "auto") -> dict:
     code, assembly, used = compile_effect(effect.hlsl, include, work, compiler)
     check_bytecode(code)
     counts = lint(assembly)
-    sidecar = sidecar_text(header, existing)
-    effect.sidecar.write_text(sidecar, encoding="utf-8", newline="\n")
-    document = manifest(effect.slug, header, parse_sidecar(sidecar), version)
+    write_text(effect.sidecar, sidecar_text(header, existing))
+    document = manifest(effect.slug, header, existing, version)
     text = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     source_bytes = source.encode("utf-8")
     if len(text) > MANIFEST_MAX or len(source_bytes) > SOURCE_MAX:
@@ -531,12 +526,12 @@ def command_effect_new(arguments) -> int:
     directory.mkdir(parents=True, exist_ok=True)
     author = (arguments.author or "Your Name").replace('"', "")
     values = dict(name=name, slug=slug, author=author)
-    (directory / f"{slug}.hlsl").write_text(HLSL_TEMPLATE.format(**values), encoding="utf-8", newline="\n")
-    (directory / "README.md").write_text(EFFECT_README.format(**values), encoding="utf-8", newline="\n")
-    (directory / ".gitignore").write_text("build/\n", encoding="utf-8", newline="\n")
+    write_text(directory / f"{slug}.hlsl", HLSL_TEMPLATE.format(**values))
+    write_text(directory / "README.md", EFFECT_README.format(**values))
+    write_text(directory / ".gitignore", "build/\n")
     effect = Effect(str(directory))
     header = parse_header(effect.hlsl.read_text(encoding="utf-8"))
-    effect.sidecar.write_text(sidecar_text(header, {}), encoding="utf-8", newline="\n")
+    write_text(effect.sidecar, sidecar_text(header, {}))
     say(f"Created {directory}.")
     say(f"Next: cd {directory.name}; maicord-plugin effect build; maicord-plugin effect preview")
     return 0
@@ -559,33 +554,15 @@ def command_effect_preview(arguments) -> int:
 
     def step() -> None:
         build_effect(effect, include, arguments.compiler)
-        result = core.deploy(effect.output, folder)
-        say(f"{effect.output.name}: {result} in {folder}" + (" (MaiCord reloads it)" if result == "copied" else ""))
+        core.deploy(effect.output, folder)
 
     step()
     if not arguments.watch:
         say("In MaiCord (Developer Mode): Settings > Appearance > Background effect, or Settings > Effects > Developer.")
         return 0
     say("Watching for changes; Ctrl+C stops.")
-
-    def stamp():
-        files = [effect.hlsl, *effect.directory.glob("*.hlsli"), *effect.directory.glob("*.png")]
-        return max((p.stat().st_mtime_ns for p in files if p.is_file()), default=0)
-
-    seen, polled = stamp(), 0
-    try:
-        while arguments.rounds is None or polled < arguments.rounds:
-            time.sleep(0.3)
-            polled += 1
-            if stamp() != seen:
-                time.sleep(0.3)
-                seen = stamp()
-                try:
-                    step()
-                except ToolError as error:
-                    say(str(error))  # compile errors print with file and line; the next save may fix them
-    except KeyboardInterrupt:
-        pass
+    core.watch(lambda: [effect.hlsl, *effect.directory.glob("*.hlsli"), *effect.directory.glob("*.png")], step,
+               interval=0.3, rounds=arguments.rounds)
     return 0
 
 

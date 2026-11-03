@@ -263,6 +263,11 @@ bool color_valid(const Color& c) noexcept {
 bool color_equal(const Color& a, const Color& b) noexcept {
     return a.red == b.red && a.green == b.green && a.blue == b.blue && a.alpha == b.alpha;
 }
+Color composite(Color top, Color bottom) noexcept {
+    const float a = top.alpha;
+    return {top.red * a + bottom.red * (1 - a), top.green * a + bottom.green * (1 - a),
+            top.blue * a + bottom.blue * (1 - a), 1};
+}
 u32 advance(u32 value) noexcept {
     return value == ~0u ? 1u : value + 1u;
 }
@@ -295,18 +300,16 @@ bool ui_theme_color_set(Theme* theme, UiThemeColor id, const Color& color) noexc
 // Palette validity/equality cover every paint tier: core colours, semantic
 // tokens, scales and motion.
 bool ui_theme_palette_valid(const Theme& theme) noexcept {
-    for (const auto& descriptor : colors) {
-        const auto* color = ui_theme_color_get(theme, descriptor.id);
-        if (!color || !color_valid(*color))
+    for (const auto& descriptor : colors)
+        if (!color_valid(*ui_theme_color_get(theme, descriptor.id)))
             return false;
-    }
     for (const auto& descriptor : tokens)
         if (!color_valid(*ui_theme_token_get(theme, descriptor.id)))
             return false;
     for (const auto& descriptor : scales) {
         float value{};
-        if (!ui_theme_scale_get(theme.scale, descriptor.id, &value) ||
-            !between(value, descriptor.minimum(), descriptor.maximum()))
+        ui_theme_scale_get(theme.scale, descriptor.id, &value);
+        if (!between(value, descriptor.minimum(), descriptor.maximum()))
             return false;
     }
     auto motion = theme.motion;
@@ -450,10 +453,7 @@ UiMotionStyle* ui_theme_motion_slot(UiThemeMotion* motion, UiThemeMotionToken id
     }
 }
 float ui_theme_contrast_ratio(const Color& foreground, const Color& background) noexcept {
-    const float a = foreground.alpha;
-    const Color composed{foreground.red * a + background.red * (1 - a),
-                         foreground.green * a + background.green * (1 - a),
-                         foreground.blue * a + background.blue * (1 - a), 1};
+    const Color composed = composite(foreground, background);
     const double x = background_color_luminance(composed), y = background_color_luminance(background);
     return static_cast<float>((maximum(x, y) + .05) / (minimum(x, y) + .05));
 }
@@ -484,11 +484,6 @@ u32 ui_theme_contrast_warnings(const Theme& theme, UiThemeContrastWarning* outpu
     return count;
 }
 namespace {
-Color composite(Color top, Color bottom) noexcept {
-    const float a = top.alpha;
-    return {top.red * a + bottom.red * (1 - a), top.green * a + bottom.green * (1 - a),
-            top.blue * a + bottom.blue * (1 - a), 1};
-}
 bool readable_over(const Color& foreground, const Color& first, const Color& second, float minimum_ratio) noexcept {
     return ui_theme_contrast_ratio(foreground, first) >= minimum_ratio &&
            ui_theme_contrast_ratio(foreground, second) >= minimum_ratio;
@@ -630,8 +625,8 @@ bool ui_theme_typography_equal(const UiThemeTypography& a, const UiThemeTypograp
 bool ui_theme_metrics_valid(const UiThemeMetrics& value) noexcept {
     for (const auto& descriptor : metrics) {
         float current{};
-        if (!ui_theme_metric_get(value, descriptor.id, &current) ||
-            !between(current, descriptor.minimum(), descriptor.maximum()))
+        ui_theme_metric_get(value, descriptor.id, &current);
+        if (!between(current, descriptor.minimum(), descriptor.maximum()))
             return false;
     }
     return value.audio_minimum_width <= value.audio_maximum_width &&
@@ -643,8 +638,9 @@ bool ui_theme_metrics_valid(const UiThemeMetrics& value) noexcept {
 bool ui_theme_metrics_equal(const UiThemeMetrics& a, const UiThemeMetrics& b) noexcept {
     for (const auto& descriptor : metrics) {
         float left{}, right{};
-        if (!ui_theme_metric_get(a, descriptor.id, &left) ||
-            !ui_theme_metric_get(b, descriptor.id, &right) || left != right)
+        ui_theme_metric_get(a, descriptor.id, &left);
+        ui_theme_metric_get(b, descriptor.id, &right);
+        if (left != right)
             return false;
     }
     return true;

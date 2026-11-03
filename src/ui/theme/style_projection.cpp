@@ -89,9 +89,6 @@ UiPollStyle ui_theme_poll_style(const Theme& theme) noexcept {
 UiPollVotersStyle ui_theme_poll_voters_style(const Theme& theme) noexcept {
     return ui_theme_poll_voters_style(theme.styles);
 }
-UiSettingsStyle ui_theme_settings_style(const Theme& theme) noexcept {
-    return ui_theme_settings_style(theme.styles);
-}
 ForumPostStyle ui_theme_forum_style(const Theme& theme) noexcept {
     return ui_theme_forum_style(theme.styles);
 }

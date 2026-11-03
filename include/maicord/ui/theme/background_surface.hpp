@@ -24,7 +24,7 @@ inline bool ui_background_canvas_quad(const PaintQuad& quad) noexcept {
 __declspec(noinline) inline bool ui_background_paint_canvas(
     PaintStream* stream, const UiRect& rectangle, const Theme& theme, const Color& fill,
     UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
-    if (!stream || static_cast<u8>(tier) > static_cast<u8>(UiBackgroundTier::highest))
+    if (!stream)
         return false;
     const u32 first = stream->count;
     if (!paint_stream_push(stream, rectangle, fill))
@@ -61,10 +61,7 @@ __declspec(noinline) inline bool ui_background_paint_surface(
     UiBackgroundSurfaceMode mode = UiBackgroundSurfaceMode::tinted,
     UiBackgroundTier tier = UiBackgroundTier::highest,
     UiBackgroundBorderTone border_tone = UiBackgroundBorderTone::semantic) noexcept {
-    if (!stream || !(palette_share >= 0 && palette_share <= 1) ||
-        static_cast<u8>(mode) > static_cast<u8>(UiBackgroundSurfaceMode::gradient) ||
-        static_cast<u8>(tier) > static_cast<u8>(UiBackgroundTier::highest) ||
-        static_cast<u8>(border_tone) > static_cast<u8>(UiBackgroundBorderTone::palette))
+    if (!stream || !(palette_share >= 0 && palette_share <= 1))
         return false;
     const u32 first = stream->count;
     if (!paint_stream_push_rounded_border(stream, rectangle, fill, border, radius, border_width))

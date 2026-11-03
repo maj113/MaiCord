@@ -58,8 +58,6 @@ FxVertexOutput fx_vertex(uint vertex_id : SV_VertexID, uint instance_id : SV_Ins
     // Triangle strip: (0,0) (1,0) (0,1) (1,1).
     const float2 corner = float2(vertex_id & 1u, vertex_id >> 1);
     FxVertexOutput output;
-    output.local = 0.0f;
-    output.shape = 0.0f;
     float2 position;
     {
         const float speed = vertex_parameters[0].x;

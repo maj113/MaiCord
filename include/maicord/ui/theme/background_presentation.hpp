@@ -4,7 +4,7 @@
 
 namespace maicord {
 inline bool ui_background_direction(u16 degrees, float* x, float* y) noexcept {
-    if (!x || !y || degrees > 360)
+    if (degrees > 360)
         return false;
     float angle = degrees * (3.14159265358979323846f / 180.f);
     if (angle > 3.14159265358979323846f)

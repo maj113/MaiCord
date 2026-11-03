@@ -8,12 +8,6 @@ struct BackgroundAnimationSample {
     float phase_seconds;
     bool running;
 };
-constexpr bool background_animation_allowed(const BackgroundTheme& background, bool visible, bool minimized,
-                                            bool live_resize, bool reduced_motion, bool system_motion,
-                                            bool covered) noexcept {
-    return background_effects_active(background) && background.speed && visible && !minimized &&
-           !live_resize && !reduced_motion && system_motion && !covered;
-}
 // A selected package effect runs its own clock under the same pausing rules, whatever the theme's built-in
 // effect is.
 constexpr bool background_animation_allowed(const BackgroundTheme& background, bool package_effect, bool visible,

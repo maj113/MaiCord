@@ -62,7 +62,7 @@ inline float ui_elevation_readable_reveal(const Theme& theme, float reveal) noex
 // canvas share plus the elevation's lift, capped for text contrast. Monotonic
 // non-decreasing in elevation for both appearances and every intensity.
 inline float ui_elevation_gradient_share(const Theme& theme, UiElevation elevation) noexcept {
-    if (!ui_background_active(theme) || elevation >= UiElevation::count)
+    if (!ui_background_active(theme))
         return 0;
     const float canvas = 1 - ui_background_tier_opacity(theme, UiBackgroundTier::chat);
     return ui_elevation_readable_reveal(theme,
@@ -101,7 +101,7 @@ __declspec(noinline) inline bool ui_surface_paint_material(PaintStream* stream, 
                                                            const Theme& theme, UiElevation elevation,
                                                            float radius, Color fill, Color border,
                                                            float border_width) noexcept {
-    if (!stream || elevation >= UiElevation::count)
+    if (!stream)
         return false;
     const auto style = ui_surface_style(theme, elevation);
     const u32 first = stream->count;
