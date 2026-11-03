@@ -1,5 +1,4 @@
 #include "maicord/app/plugins/settings_page.hpp"
-#include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/text.hpp"
 #include "maicord/app/update/fetch.hpp"
 #include "maicord/core/ascii.hpp"
@@ -327,8 +326,7 @@ PluginSettingsOutcome plugin_settings_activate(PluginBinding* binding, PluginSet
     if (!shown) return PluginSettingsOutcome::none;
     if (id >= kPluginSettingsHostBase) {
         const u32 host = static_cast<u32>(id - kPluginSettingsHostBase);
-        if (!plugin_binding_set_host(binding, host, activation.checked)) return PluginSettingsOutcome::refused;
-        return plugin_approval_save(*binding) ? PluginSettingsOutcome::changed : PluginSettingsOutcome::refused;
+        return plugin_binding_set_host(binding, host, activation.checked) ? PluginSettingsOutcome::changed : PluginSettingsOutcome::refused;
     }
     const u32 index = static_cast<u32>(id - 1);
     const mc_setting_def& setting = settings_of(*binding)[index];

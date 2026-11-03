@@ -527,13 +527,7 @@ void test_disable_discards(PluginRuntime* runtime) noexcept {
     check(plugin_runtime_disable(runtime, binding), "the plugin is disabled again");
 }
 
-void test_consent(PluginRuntime* runtime, PluginBinding* binding) noexcept {
-    // The remembered approval comes back by host name.
-    check(plugin_approval_save(*binding), "an approval is remembered");
-    const PluginApproval loaded = plugin_approval_load(*runtime, binding->owner_id, *binding->image.descriptor);
-    check(loaded.permissions == binding->permissions && loaded.hosts == binding->approved_hosts, "and read back");
-    const PluginApproval other = plugin_approval_load(*runtime, kOwner + 9, *binding->image.descriptor);
-    check(other.permissions == 0 && other.hosts == 0, "another plugin has none");
+void test_consent(PluginBinding* binding) noexcept {
     PluginImage image{};
     image.descriptor = binding->image.descriptor;
     image.info = binding->image.info;
@@ -562,7 +556,7 @@ const UiSettingsControl* row(const PluginSettingsPage& page, u64 id) noexcept {
     return nullptr;
 }
 
-void test_page(PluginRuntime* runtime, PluginBinding* binding) noexcept {
+void test_page(PluginBinding* binding) noexcept {
     static PluginSettingsPage page;
     static Editors editors;
     clear_bytes(&page, sizeof(page));
@@ -585,22 +579,18 @@ void test_page(PluginRuntime* runtime, PluginBinding* binding) noexcept {
               same({host0->label.data, host0->label.bytes, 0}, "api.example.com"),
           "each declared host is a switch showing its approval");
 
-    // Switching hosts changes what the plugin may reach, and is remembered.
+    // Switching hosts changes what the plugin may reach.
     UiSettingsActivation activation{};
     activation.target = {UiSettingsTargetKind::control, {kOwner, 1}, kPluginSettingsHostBase + 2};
     activation.kind = UiSettingsControlKind::toggle;
     activation.checked = true;
-    check(plugin_settings_activate(binding, &page, activation) == PluginSettingsOutcome::changed && binding->approved_hosts == 7 &&
-              plugin_approval_load(*runtime, kOwner, *binding->image.descriptor).hosts == 7,
-          "a host switch approves it and is remembered");
+    check(plugin_settings_activate(binding, &page, activation) == PluginSettingsOutcome::changed && binding->approved_hosts == 7,
+          "a host switch approves it");
     activation.target.control_id = kPluginSettingsHostBase;
     activation.checked = false;
-    check(plugin_settings_activate(binding, &page, activation) == PluginSettingsOutcome::changed && binding->approved_hosts == 6 &&
-              plugin_approval_load(*runtime, kOwner, *binding->image.descriptor).hosts == 6,
-          "and revokes");
+    check(plugin_settings_activate(binding, &page, activation) == PluginSettingsOutcome::changed && binding->approved_hosts == 6, "and revokes");
     plugin_binding_set_host(binding, 0, true);
     plugin_binding_set_host(binding, 2, false);
-    plugin_approval_save(*binding);
     activation.target.control_id = 55;
     check(plugin_settings_activate(binding, &page, activation) == PluginSettingsOutcome::none, "an unknown row does nothing");
 
@@ -853,8 +843,8 @@ void run() noexcept {
             test_queue_limits(&runtime, binding);
             test_gestures(&runtime, binding);
             test_revocation(&runtime, binding);
-            test_consent(&runtime, binding);
-            test_page(&runtime, binding);
+            test_consent(binding);
+            test_page(binding);
             check(plugin_runtime_disable(&runtime, binding), "the first plugin is disabled");
         }
         test_rate_limit(&runtime);

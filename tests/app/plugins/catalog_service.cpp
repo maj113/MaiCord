@@ -2,7 +2,8 @@
 // server: a signed format-2 index naming the clear-urls sample plugin (and a patched 1.1.0 build of it), a
 // theme and an effect. Covers install with consent, the plugin then stripping links through the pre-send
 // hook, digest failures, automatic update, rollback, startup enabling from catalog-state.bin, replayed and
-// unsigned indexes, revocation, removal, a declined consent and the Developer Mode gate on sideloads.
+// unsigned indexes, revocation, removal, a declined consent, the Developer Mode gate on sideloads and a sideloaded
+// plugin's host switches surviving a restart (the translate sample).
 #include "plugins/catalog_service.hpp"
 #include "plugins/catalog_worker.hpp"
 #include "maicord/core/data_path.hpp"
@@ -268,6 +269,65 @@ bool initialize(const wchar_t* base) noexcept {
     return application_catalog_initialize(options);
 }
 
+PluginBinding* only_binding() noexcept {
+    PluginRuntime* r = application_catalog_runtime();
+    return r && r->binding_count == 1 ? r->bindings[0] : nullptr;
+}
+// The approved hosts catalog-state.bin holds for one plugin, read straight from the file.
+bool saved_hosts(const wchar_t* base, u64 owner, u32* hosts) noexcept {
+    wchar_t path[MAX_PATH];
+    wide_copy(path, wide_copy(path, 0, base), L"\\catalog-state.bin");
+    auto* state = static_cast<CatalogState*>(VirtualAlloc(nullptr, sizeof(CatalogState), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!state) return false;
+    const CatalogStateEntry* entry = catalog_state_load(path, state).ok() ? catalog_state_find_owner(*state, owner) : nullptr;
+    if (entry) *hosts = entry->host_bits;
+    release(state);
+    return entry != nullptr;
+}
+
+// Hosts the user switched on a plugin's settings page are what the plugin runs with after a restart, kept in
+// catalog-state.bin: written by the next poll, and by release for a switch no poll saw.
+void run_hosts(const wchar_t* base) noexcept {
+    wchar_t directory[MAX_PATH], translate[MAX_PATH];
+    if (!test_directory(directory)) {
+        check(false, "hosts: the test directory");
+        return;
+    }
+    wide_copy(translate, wide_copy(translate, 0, directory), L"\\translate.dll");
+    g_developer = true;
+    check(application_catalog_sideload({translate, static_cast<u32>(wide_length(translate, MAX_PATH))}) && settle(consent_or_finished) &&
+              phase() == CatalogPhase::consent && application_catalog_consent()->request->hosts.count == 3,
+          "hosts: a plugin with three hosts asks for consent");
+    check(application_catalog_consent_answer(true, true) && only_binding() && only_binding()->approved_hosts == 7,
+          "hosts: accepting approves every host");
+    PluginBinding* binding = only_binding();
+    if (!binding) return;
+    const u64 owner = binding->owner_id;
+    u32 saved = 0;
+    check(saved_hosts(base, owner, &saved) && saved == 7, "hosts: the install is saved with all three");
+
+    // A switch the poll saw is on disk while the plugin still runs.
+    check(plugin_binding_set_host(binding, 1, false), "hosts: the second host is switched off");
+    application_catalog_poll();
+    check(saved_hosts(base, owner, &saved) && saved == 5, "hosts: the poll saves a switch");
+    application_catalog_release();
+    check(initialize(base), "hosts: the service starts again");
+    application_catalog_restore();
+    check(only_binding() && only_binding()->owner_id == owner && only_binding()->approved_hosts == 5,
+          "hosts: after a restart the plugin has the hosts the user left on");
+
+    // A switch made just before exit, with no poll in between, is saved by release.
+    binding = only_binding();
+    if (!binding) return;
+    check(plugin_binding_set_host(binding, 1, true) && plugin_binding_set_host(binding, 2, false), "hosts: two more switches");
+    application_catalog_release();
+    check(saved_hosts(base, owner, &saved) && saved == 3, "hosts: release saves a switch no poll saw");
+    check(initialize(base), "hosts: the service starts a third time");
+    application_catalog_restore();
+    check(only_binding() && only_binding()->approved_hosts == 3, "hosts: and the plugin runs with them");
+    g_developer = false;
+}
+
 void run_flow(const wchar_t* base) noexcept {
     check(initialize(base), "the service starts");
     application_catalog_restore();
@@ -407,6 +467,7 @@ void run_flow(const wchar_t* base) noexcept {
               !application_catalog_record_unreviewed(CatalogKind::effect, utf8_literal("rain"), sha, utf8_literal("1.0.0")) &&
               application_catalog_forget(CatalogKind::theme, utf8_literal("dusk-1a2b3c4d")),
           "unreviewed items are recorded apart from catalog items");
+    run_hosts(base);
     application_catalog_release();
 }
 
