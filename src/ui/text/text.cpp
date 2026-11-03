@@ -279,8 +279,7 @@ bool native_scalar_shapes(const TextSystem& system,u32 cp) noexcept {
 // probe after 'a' says nothing about them (U+FE0F after an emoji is fine).
 bool native_probe_alone(u32 cp) noexcept {
     if(cp-0x1f3fbu<5)return false;
-    const auto* p=unicode_properties(cp);if(!p)return false;
-    const auto c=p->general_category();
+    const auto c=unicode_properties(cp)->general_category(); // cp is a decoded scalar
     return c!=UnicodeGeneralCategory::mn&&c!=UnicodeGeneralCategory::mc&&c!=UnicodeGeneralCategory::me&&
            c!=UnicodeGeneralCategory::cf&&c!=UnicodeGeneralCategory::cs;
 }
@@ -302,10 +301,10 @@ bool native_substitute_clusters(char* out,u32 begin,u32 end) noexcept {
         const auto cp=utf8_decode_one(out+at,end-at);if(!cp.valid||!cp.width)return changed;
         const bool boundary=unicode_grapheme_boundary(state,cp.codepoint);
         if(boundary)shown=false;
-        if(native_fallback_scalar(cp.codepoint)&&cp.width>1){
+        if(cp.width>1){ // beyond ASCII, so always a fallback scalar
             const char* source=shown?native_invisible(cp.width):native_missing_glyph(cp.width);shown=true;
             for(u32 i=0;i<cp.width;++i)out[at+i]=source[i];changed=true;
-        }else if(cp.width==1&&native_fallback_scalar(cp.codepoint)){out[at]=' ';changed=true;}
+        }else if(native_fallback_scalar(cp.codepoint)){out[at]=' ';changed=true;}
         at+=cp.width;
     }
     return changed;

@@ -40,18 +40,6 @@ u32 next_boundary(const SecureEdit& edit, u32 position) noexcept {
     return decoded.valid ? position + decoded.width : edit.storage.bytes;
 }
 
-void move_tail(u8* data, u32 destination, u32 source, u32 bytes) noexcept {
-    if (destination < source) {
-        for (u32 index = 0; index < bytes; ++index) {
-            data[destination + index] = data[source + index];
-        }
-    } else if (destination > source) {
-        for (u32 index = bytes; index != 0; --index) {
-            data[destination + index - 1] = data[source + index - 1];
-        }
-    }
-}
-
 bool codepoints_fit(const SecureEdit& edit, u32 begin, u32 end, u32 inserted) noexcept {
     if (edit.maximum_codepoints == 0) return true;
     const auto* text = reinterpret_cast<const char*>(edit.storage.data);
@@ -81,10 +69,8 @@ SecureEditResult replace_selection(SecureEdit* edit, const char* inserted, u32 i
     secure_edit_history_begin(edit, begin, removed, inserted_bytes,
         original_anchor == ~0u ? edit->anchor : original_anchor, edit->caret, input, time_ms);
     const u32 tail_bytes = old_bytes - end;
-    move_tail(edit->storage.data, begin + inserted_bytes, end, tail_bytes);
-    for (u32 index = 0; index < inserted_bytes; ++index) {
-        edit->storage.data[begin + index] = static_cast<u8>(inserted[index]);
-    }
+    copy_bytes(edit->storage.data + begin + inserted_bytes, edit->storage.data + end, tail_bytes);
+    copy_bytes(edit->storage.data + begin, inserted, inserted_bytes);
     const u32 new_bytes = retained + inserted_bytes;
     if (new_bytes < old_bytes) {
         secure_clear_bytes(edit->storage.data + new_bytes, old_bytes - new_bytes);
@@ -559,7 +545,7 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
     }
     secure_edit_history_begin(edit, begin_byte, removed_bytes, inserted_bytes, edit->anchor, edit->caret);
     const u32 tail_bytes = old_bytes - end_byte;
-    move_tail(edit->storage.data, begin_byte + inserted_bytes, end_byte, tail_bytes);
+    copy_bytes(edit->storage.data + begin_byte + inserted_bytes, edit->storage.data + end_byte, tail_bytes);
     input_offset = 0;
     u32 destination = begin_byte;
     while (input_offset < input.count) {

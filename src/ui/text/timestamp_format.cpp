@@ -153,28 +153,26 @@ TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_s
     u32 used = 0;
     bool written = false;
     // The label changes at the next local midnight; refresh hourly so a
-    // retained "Today at" header rolls over to "Yesterday at" in time.
-    u64 refresh = 0;
+    // retained "Today at" header rolls over to "Yesterday at" in time. Past
+    // dates never change.
+    u64 refresh = 3'600;
     // The neighbouring days convert only when the day differs from today.
     const auto day_is = [&](u64 seconds) noexcept {
         return unix_to_local(seconds, &neighbour) && same_day(local, neighbour);
     };
     if (same_day(local, now)) {
         written = append_ascii(output, &used, "Today at ", 9) && append_time(output, &used, local, false);
-        refresh = 3'600;
     } else if (day_is(now_unix_seconds >= 86'400 ? now_unix_seconds - 86'400 : 0)) {
         written = append_ascii(output, &used, "Yesterday at ", 13) && append_time(output, &used, local, false);
-        refresh = 3'600;
     } else if (day_is(now_unix_seconds + 86'400)) {
         // Only tomorrow shows a time; later days show the date alone.
         written = append_ascii(output, &used, "Tomorrow at ", 12) && append_time(output, &used, local, false);
-        refresh = 3'600;
     } else if (unix_seconds > now_unix_seconds) {
         written = append_date(output, &used, local, DATE_SHORTDATE);
-        refresh = 3'600;
     } else {
         written = append_date(output, &used, local, DATE_SHORTDATE) && append_ascii(output, &used, " ", 1) &&
                   append_time(output, &used, local, false);
+        refresh = 0;
     }
     return TimestampFormatResult{written && refresh && now_unix_seconds <= ~0ull - refresh
                                      ? now_unix_seconds + refresh
@@ -199,10 +197,8 @@ TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
     bool written = false;
     switch (style) {
     case 't':
-        written = append_time(output, &used, local, false);
-        break;
     case 'T':
-        written = append_time(output, &used, local, true);
+        written = append_time(output, &used, local, style == 'T');
         break;
     case 'd':
         written = append_date(output, &used, local, DATE_SHORTDATE);
@@ -210,20 +206,12 @@ TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
     case 'D':
         written = append_date(output, &used, local, DATE_LONGDATE);
         break;
-    case 'F':
-        written = append_date(output, &used, local, DATE_LONGDATE) && append_ascii(output, &used, " ", 1) &&
-                  append_time(output, &used, local, false);
-        break;
     case 'S':
-        written = append_date(output, &used, local, DATE_SHORTDATE) &&
-                  append_ascii(output, &used, " ", 1) && append_time(output, &used, local, true);
-        break;
     case 's':
         written = append_date(output, &used, local, DATE_SHORTDATE) &&
-                  append_ascii(output, &used, " ", 1) && append_time(output, &used, local, false);
+                  append_ascii(output, &used, " ", 1) && append_time(output, &used, local, style == 'S');
         break;
-    case 'f':
-    default:
+    default: // 'F' and 'f'
         written = append_date(output, &used, local, DATE_LONGDATE) && append_ascii(output, &used, " ", 1) &&
                   append_time(output, &used, local, false);
         break;

@@ -5,7 +5,6 @@
 #include "context_lookups.hpp"
 #include "lookup_selection.hpp"
 namespace maicord {namespace {
-template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 // Program preparation runs once per plan: compiled for size; the executors below stay at speed.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus require_children(const SfntGposExecutableLookup& lookup,u16 count,ConstSlice<u64> selected,u32& work) noexcept {
@@ -39,7 +38,7 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
     if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
     if(inherited&&(inherited->glyph_limit!=limit||inherited->gdef.table.data!=gdef.table.data||inherited->gdef.table.count!=gdef.table.count||
         inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data&&!inherited->entries)))return SfntStatus::invalid_input;
-    if(!limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit) || !valid(storage.lookups) || !valid(storage.basic) || !valid(storage.attachments) || !valid(storage.contexts) || !valid(storage.coverages) || !valid(storage.classes)||!valid(storage.entries))return SfntStatus::invalid_input;
+    if(!limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit) || !filled(storage.lookups) || !filled(storage.basic) || !filled(storage.attachments) || !filled(storage.contexts) || !filled(storage.coverages) || !filled(storage.classes)||!filled(storage.entries))return SfntStatus::invalid_input;
     auto s=selection_valid(layout,selected);if(s!=SfntStatus::ok)return s;
     const bool compact=storage.entries.data||storage.entries.count;
     if(layout.lookup_count>(compact?storage.entries.count:storage.lookups.count))return SfntStatus::output_too_small;
@@ -171,7 +170,7 @@ struct Executor {
 SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);const u32 n=sfnt_glyph_count(glyphs);
     const auto* root=lookup<program.lookups.count?sfnt_gpos_lookup(program,lookup):nullptr;
-    if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || nominal.count<n || flags.count<n || positions.count<n || (n && (!nominal.data || !flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(null_policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.cursive_bits) || !valid(scratch.ligature_prefix) || !valid(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
+    if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || nominal.count<n || flags.count<n || positions.count<n || (n && (!nominal.data || !flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(null_policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.cursive_bits) || !filled(scratch.ligature_prefix) || !filled(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
     u64 work=limits.operations;
     for(u32 i=0;i<targets.count;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}if(targets.data[i]>=n || (i && targets.data[i]<=targets.data[i-1]))return SfntStatus::invalid_input;}
     SfntGlyphSummary run{};

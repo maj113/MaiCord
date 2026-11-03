@@ -26,9 +26,9 @@ struct Text {
     }
 };
 
+// Every scalar here is at most U+10FFFF (decoded, U+FFFD, ASCII or zero), so a record exists.
 UnicodeGeneralCategory category(u32 cp) noexcept {
-    const auto* properties = unicode_properties(cp);
-    return properties ? properties->general_category() : UnicodeGeneralCategory::cn;
+    return unicode_properties(cp)->general_category();
 }
 // Scripts written without spaces between words are left to the IME/user.
 bool unspaced_script(u32 cp) noexcept {

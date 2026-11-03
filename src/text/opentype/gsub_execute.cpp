@@ -6,7 +6,6 @@
 #include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
-template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
     reset_value(req);if(lookup.type<=4)return SfntStatus::ok;
     if(lookup.type==5 || lookup.type==6)return sfnt_context_requirements(bytes,lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,req);
@@ -243,7 +242,7 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     SfntGsubLookupStorage storage,SfntGsubExecutableLookup* output,u32 subwork,u32 budget,bool ignore_empty,bool ignore_unreachable) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(layout.kind!=SfntLayoutKind::substitution||!limit||limit>65536||(gdef.table.data&&gdef.glyph_limit!=limit)||
-       !valid(storage.subtables)||!valid(storage.coverages)||!valid(storage.classes))return SfntStatus::invalid_input;
+       !filled(storage.subtables)||!filled(storage.coverages)||!filled(storage.classes))return SfntStatus::invalid_input;
     if(!budget)return SfntStatus::resource_limit;
     SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;
     if(lookup.subtable_count>budget-1)return SfntStatus::resource_limit;
@@ -252,7 +251,7 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     if(s==SfntStatus::ok)*output=result;return s;
 }
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
     // Preparation rejects an index or directory it cannot resolve.
     const SfntGsubExecutableLookup* root=nullptr;const auto prepared=sfnt_gsub_lookup_prepare(program,lookup,&root);if(prepared!=SfntStatus::ok)return prepared;
     const auto s=sfnt_glyph_buffer_seek(buffer,buffer->gap_begin,0);if(s!=SfntStatus::ok)return s;

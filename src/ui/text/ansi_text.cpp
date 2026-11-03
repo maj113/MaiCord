@@ -103,37 +103,34 @@ u32 code_value(const char* data, u32 begin, u32 end) noexcept {
 
 void apply_code(AnsiStack& stack, u32 code) noexcept {
     AnsiState next = stack.current;
+    AnsiTag tag = AnsiTag::other;
     switch (code) {
     case 0:
         stack.reset();
         return;
     case 1:
         next.bold = true;
-        stack.push(AnsiTag::other, next);
-        return;
+        break;
     case 3:
         next.italic = true;
-        stack.push(AnsiTag::italic, next);
-        return;
+        tag = AnsiTag::italic;
+        break;
     case 4:
         next.underline = true;
-        stack.push(AnsiTag::underline, next);
-        return;
+        tag = AnsiTag::underline;
+        break;
     case 8:
         next.hidden = true;
-        stack.push(AnsiTag::other, next);
-        return;
+        break;
     case 9:
         next.strikethrough = true;
-        stack.push(AnsiTag::other, next);
-        return;
+        break;
     case 22:
         // font-weight:normal;font-style:normal. text-decoration:none on a
         // descendant cannot remove an ancestor's underline or line-through.
         next.bold = false;
         next.italic = false;
-        stack.push(AnsiTag::other, next);
-        return;
+        break;
     case 23:
         stack.close(AnsiTag::italic);
         return;
@@ -142,31 +139,26 @@ void apply_code(AnsiStack& stack, u32 code) noexcept {
         return;
     case 39:
         next.foreground = kAnsiColorNone;
-        stack.push(AnsiTag::other, next);
-        return;
+        break;
+    case 5:
+    case 6: // <blink>: no visible style.
     case 49:
     case 53:
         // 49 lets an enclosing background show; overline (53) is not drawn.
-        stack.push(AnsiTag::other, next);
-        return;
-    default:
         break;
+    default:
+        if (code >= 30 && code <= 37)
+            next.foreground = static_cast<u16>(1u + code - 30u);
+        else if (code >= 40 && code <= 47)
+            next.background = static_cast<u16>(1u + code - 40u);
+        else if (code >= 90 && code <= 97)
+            next.foreground = static_cast<u16>(9u + code - 90u);
+        else if (code >= 100 && code <= 107)
+            next.background = static_cast<u16>(9u + code - 100u);
+        else
+            return;
     }
-    if (code == 5 || code == 6) {
-        stack.push(AnsiTag::other, next); // <blink>: no visible style.
-    } else if (code >= 30 && code <= 37) {
-        next.foreground = static_cast<u16>(1u + code - 30u);
-        stack.push(AnsiTag::other, next);
-    } else if (code >= 40 && code <= 47) {
-        next.background = static_cast<u16>(1u + code - 40u);
-        stack.push(AnsiTag::other, next);
-    } else if (code >= 90 && code <= 97) {
-        next.foreground = static_cast<u16>(9u + code - 90u);
-        stack.push(AnsiTag::other, next);
-    } else if (code >= 100 && code <= 107) {
-        next.background = static_cast<u16>(9u + code - 100u);
-        stack.push(AnsiTag::other, next);
-    }
+    stack.push(tag, next);
 }
 
 // Applies a colour span ("color:X"/"background-color:X"); an undefined colour

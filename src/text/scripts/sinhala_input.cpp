@@ -7,7 +7,7 @@ SinhalaCategory sinhala_category(u32 scalar) noexcept {
     if(scalar==0x200d)return C::joiner;if(scalar==0x200c)return C::nonjoiner;
     if(scalar==0x34f)return C::cgj;if(scalar>=0xfe00&&scalar<=0xfe0f)return C::selector;
     if(scalar==0xa0||scalar==0x25cc)return C::placeholder;
-    const auto* p=unicode_properties(scalar);if(!p)return C::other;
+    const auto* p=unicode_properties(scalar); // every caller validated the scalar
     if(scalar==0x2015||scalar==0x2022||(scalar>=0x25fb&&scalar<=0x25fe)||
         (p->script()==UnicodeScript::zyyy&&p->indic_syllabic_category()==UnicodeIndicSyllabicCategory::consonant_placeholder))return C::placeholder;
     if(scalar>=0xd80&&scalar<0xe00){

@@ -52,7 +52,7 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,Utf8View text,C
         if(written_runs>controls)return false;
         NativeParagraphLayout placed{};const bool intact=visible_end==content_end;
         if(intact){placed.run_count=controls-source_run;
-            for(u32 i=0;i<placed.run_count;++i)owner.paragraph_runs[written_runs+i]=owner.paragraph_runs[source_run+i];
+            copy_bytes(owner.paragraph_runs.data+written_runs,owner.paragraph_runs.data+source_run,placed.run_count*sizeof(NativeParagraphRun));
         }else{
             const NativeParagraphLineSink boundary{&rtl,nullptr,{},directional?split_rtl_fallback_space:nullptr};
             const auto run_space=Slice<NativeParagraphRun>{owner.paragraph_runs.data+written_runs,controls-written_runs};

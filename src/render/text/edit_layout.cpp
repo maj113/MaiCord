@@ -509,7 +509,7 @@ bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept {
         maximum(owner->anchor, owner->caret_offset), {metrics, owner->selection_capacity}, &count)) return false;
     owner->scroll_y = next; owner->origin_y += offset; owner->caret.top += offset;
     owner->manual_scroll = true;
-    for (u32 i = 0; i < count; ++i) owner->selections[i] = metrics[i];
+    copy_bytes(owner->selections, metrics, count * sizeof(TextEditMetric));
     owner->selection_count = count;
     return true;
 }

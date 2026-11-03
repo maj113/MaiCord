@@ -72,7 +72,7 @@ SfntStatus tt_outline_begin(TtOutlineContext* context,const SfntTrueType& font,u
     if((s.storage.data && s.storage.data==instance.storage.data)||(s.cvt.data && s.cvt.data==instance.cvt.data)||(s.twilight.data && s.twilight.data==instance.twilight.data))return SfntStatus::invalid_input;
     if(instance.graphics.instruction_control&1)return SfntStatus::ok;
     if(!charge(work,static_cast<u64>(instance.storage.count)+instance.cvt.count+instance.twilight.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<instance.storage.count;++i)s.storage[i]=instance.storage[i];for(u32 i=0;i<instance.cvt.count;++i)s.cvt[i]=instance.cvt[i];for(u32 i=0;i<instance.twilight.count;++i)s.twilight[i]=instance.twilight[i];return SfntStatus::ok;
+    copy_bytes(s.storage.data,instance.storage.data,instance.storage.count*sizeof(i32));copy_bytes(s.cvt.data,instance.cvt.data,instance.cvt.count*sizeof(i32));copy_bytes(s.twilight.data,instance.twilight.data,instance.twilight.count*sizeof(TtPoint));return SfntStatus::ok;
 }
 SfntStatus tt_outline_apply(TtOutlineContext* context,u16 glyph,ConstSlice<u8> program,Slice<SfntOutlinePoint> points,ConstSlice<u32> contours,u32 point_origin,float* origin,float vertical_offset,u32* work) noexcept {
     // Only the glyph decoder calls this, with a context that tt_outline_begin already validated.

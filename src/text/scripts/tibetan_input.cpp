@@ -14,7 +14,7 @@ TibetanCategory tibetan_category(u32 scalar) noexcept {
     if(scalar>=0xe0100&&scalar<=0xe01ef)return C::supplementary_selector;
     if(scalar==0xa0||scalar==0xd7||scalar==0x2d||(scalar>=0x2012&&scalar<=0x2015)||
        scalar==0x2022||scalar==0x25cc||(scalar>=0x25fb&&scalar<=0x25fe))return C::placeholder;
-    const auto* p=unicode_properties(scalar);if(!p)return C::other;
+    const auto* p=unicode_properties(scalar); // every caller validated the scalar
     const auto gc=p->general_category();if(gc==UnicodeGeneralCategory::cn)return C::reserved;
     if(gc==UnicodeGeneralCategory::so||gc==UnicodeGeneralCategory::sc)return C::symbol;
     return gc==UnicodeGeneralCategory::mn||gc==UnicodeGeneralCategory::mc?C::defective:C::other;

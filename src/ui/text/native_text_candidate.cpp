@@ -61,12 +61,8 @@ struct NativeFormatFont {ConstSlice<u16> family;u32 scope;NativeFontProperties p
 // owning this exact family/scope/property string.
 struct NativeFormat {NativeFormatFont font;float em,tab_stop;u64 identity;bool word_wrap;u32 family_handle;};
 volatile LONG64 format_identity_sequence=0;
-u64 next_format_identity() noexcept {
-    LONG64 previous=ReadAcquire64(&format_identity_sequence); // the CAS below validates it
-    for(;;){if(previous==0x7fffffffffffffffll)return 0;
-        const auto observed=InterlockedCompareExchange64(&format_identity_sequence,previous+1,previous);
-        if(observed==previous)return 0x8000000000000000ull|static_cast<u64>(previous+1);previous=observed;}
-}
+// A 63-bit sequence cannot wrap within a process lifetime; the high bit keeps it nonzero.
+u64 next_format_identity() noexcept {return 0x8000000000000000ull|static_cast<u64>(InterlockedIncrement64(&format_identity_sequence));}
 struct NativeFormatIndex {NativeFormatIndex* next;u32 offsets[64];};
 static_assert(sizeof(NativeFormat)==48);
 constexpr u32 emoji_font_flag=0x80000000u;
@@ -416,16 +412,15 @@ const NativeFormat* format_at(const NativeTextContext& owner,u32 handle) noexcep
 u32 append_format(NativeTextContext& owner,const NativeFormat& value,NativeFormatIndex*& page,
                   const u16* shared_name,u32 shared_handle) noexcept {
     if(!owner.format_count&&value.font.family.count<=64){
-        const auto identity=next_format_identity();if(!identity)return 0;
         copy_bytes(owner.first_family,value.font.family.data,value.font.family.count*2);
-        owner.first_format=value;owner.first_format.identity=identity;owner.first_format.font.family.data=owner.first_family;owner.first_format.family_handle=1;
+        owner.first_format=value;owner.first_format.identity=next_format_identity();owner.first_format.font.family.data=owner.first_family;owner.first_format.family_handle=1;
         return ++owner.format_count;
     }
     auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);const bool grow=!owner.formats||!(owner.format_count%64);
     auto* index=grow?arena_allocate_zero<NativeFormatIndex>(&arena):page;
     auto* saved=arena_allocate<NativeFormat>(&arena);auto* family=shared_name?nullptr:arena_allocate<u16>(&arena,value.font.family.count);
     if(!index||!saved||(!shared_name&&!family)){arena_rewind(&arena,mark);return 0;}*saved=value;
-    saved->identity=next_format_identity();if(!saved->identity){arena_rewind(&arena,mark);return 0;}
+    saved->identity=next_format_identity();
     if(family)copy_bytes(family,value.font.family.data,value.font.family.count*2);saved->font.family.data=shared_name?shared_name:family;saved->family_handle=shared_name?shared_handle:owner.format_count+1;
     if(grow){if(page)page->next=index;else owner.formats=index;}page=index;
     index->offsets[owner.format_count%64]=static_cast<u32>(reinterpret_cast<u8*>(saved)-arena.base);return ++owner.format_count;
