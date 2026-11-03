@@ -1,0 +1,8 @@
+name=Spark Ribbon
+uses=blue_noise
+blend=normal
+resolution=50
+fps=24
+knobs=600 600 0 0 549 722 1000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+targets=[{"format":"rgba32f","size":[32,32],"persistent":true},{"format":"rgba16f","scale":50}]
+passes=[{"ps":0,"target":0,"inputs":[0]},{"ps":2,"vs":1,"grid":[96,24],"target":1,"blend":"add","clear":true},{"ps":3,"inputs":[1]},{"ps":5,"vs":4,"quads":1024,"inputs":[0],"blend":"add"}]

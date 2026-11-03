@@ -1,4 +1,4 @@
-// maicord/sdk/background.hlsli -- MaiCord background effect interface 2 (ps_5_0).
+// maicord/sdk/background.hlsli -- MaiCord background effect interface 3 (ps_5_0, vs_5_0).
 //
 // An effect is one function:
 //
@@ -22,6 +22,11 @@
 // Interface 2 adds mc_ambient (the local clock and the light or dark appearance) after mc_knobs, where an
 // interface-1 effect never reads. The build tool writes "interface": 2 into the manifest of an effect that uses
 // clock or appearance, and 1 otherwise, so an effect without them still runs on every MaiCord.
+//
+// Interface 3 adds the pass graph: an effect that defines MC_GRAPH before including this file writes its own entry
+// points (one per pass, ps_5_0 or vs_5_0, declared with @target and @pass), reads the pass row mc_pass and the
+// targets mc_target0..3, and draws host geometry by vertex ID (mc_grid_point, mc_quad_corner). TEXTURE2 and
+// TEXTURE3 are interface 3 too. The tool packs such an effect as interface 3.
 
 struct McFrame {
     float  time;        // seconds x the user's Speed; stops while the effect is paused
@@ -44,10 +49,16 @@ struct McAmbient {
     float dark;         // @uses appearance: 1 dark, 0 light. Dark when MaiCord's theme is (Dark, AMOLED, a dark
                         // custom theme) or when Windows' app mode is; unlike mc.dark it follows Windows and glides.
 };
+// Interface 3: the pass being drawn.
+struct McPass {
+    float2 size;        // the pass's target in pixels (mc.resolution for the output)
+    float2 count;       // grid(W, H): W, H; quads(N): N, 1; a full-screen pass: 0, 0
+};
 cbuffer McBackground : register(b0) {
     McFrame   mc;
     float4    mc_knobs[8];
     McAmbient mc_ambient;
+    McPass    mc_pass;
 };
 
 Texture2D<float4> mc_noise_tex : register(t0); // 256x256 RGBA8 white noise (PCG), point/wrap
@@ -55,6 +66,14 @@ Texture2D<float>  mc_glyph_tex : register(t1); // 16x16 glyph grid, 512x512 R8 c
 Texture2D<float>  mc_blue_tex  : register(t2); // 64x64 blue noise R8, for dithering
 Texture2D<float4> mc_tex0      : register(t3); // package TEXTURE0, or 1x1 black
 Texture2D<float4> mc_tex1      : register(t4); // package TEXTURE1, or 1x1 black
+Texture2D<float4> mc_tex2      : register(t5); // interface 3: package TEXTURE2, or 1x1 black
+Texture2D<float4> mc_tex3      : register(t6); // interface 3: package TEXTURE3, or 1x1 black
+// Interface 3: the graph's targets in @target order, bound for a pass that names them in `in=`. A persistent
+// target read by the pass that writes it holds the last frame's state (zero after a clear).
+Texture2D<float4> mc_target0   : register(t7);
+Texture2D<float4> mc_target1   : register(t8);
+Texture2D<float4> mc_target2   : register(t9);
+Texture2D<float4> mc_target3   : register(t10);
 SamplerState mc_point_wrap   : register(s0);
 SamplerState mc_linear_wrap  : register(s1);
 SamplerState mc_linear_clamp : register(s2);
@@ -122,9 +141,19 @@ float mc_daylight(float sunrise, float sunset) {
     return smoothstep(sunrise - 0.5, sunrise + 0.5, hour) * (1.0 - smoothstep(sunset - 0.5, sunset + 0.5, hour));
 }
 
+// Interface 3 geometry, by vertex ID alone (the host binds no vertex data). grid(W, H) draws H - 1 instances of a
+// 2W-vertex triangle strip; this is the vertex's point of the W x H grid, 0..W-1 by 0..H-1.
+uint2 mc_grid_point(uint vertex_id, uint instance_id) { return uint2(vertex_id >> 1, instance_id + (vertex_id & 1u)); }
+// quads(N) draws N instances of a 4-vertex strip; this is the vertex's corner: (0,0) (1,0) (0,1) (1,1).
+float2 mc_quad_corner(uint vertex_id) { return float2(vertex_id & 1u, vertex_id >> 1); }
+// A point in the pass's target pixels (top-left origin) as an SV_Position.
+float4 mc_clip(float2 pixel) { return float4(pixel / mc_pass.size * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0); }
+
+#ifndef MC_GRAPH
 float4 background(float2 pixel); // the author's function
 
 float4 main(float4 position : SV_Position) : SV_Target {
     const float4 c = background(position.xy);
     return float4(c.rgb * c.a, c.a);
 }
+#endif

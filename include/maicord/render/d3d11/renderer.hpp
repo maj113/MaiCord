@@ -679,7 +679,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121544);
+static_assert(sizeof(D3D11Renderer) == 122000);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

@@ -24,8 +24,19 @@ inline constexpr u32 kD3D11EffectCanvases = 32;
 inline constexpr u32 kD3D11EffectStrips = 4;
 // The target texture is allocated in buckets of this many pixels per axis.
 inline constexpr u32 kD3D11EffectTargetBucket = 64;
-// effect_use inputs: noise, glyph grid, blue noise, TEXTURE0, TEXTURE1 (t0..t4).
-inline constexpr u32 kD3D11EffectInputs = 5;
+// effect_use inputs: noise, glyph grid, blue noise, TEXTURE0..3 (t0..t6); a graph's targets follow at t7..t10.
+inline constexpr u32 kD3D11EffectInputs = 7;
+
+// A graph target: one plane, or a persistent target's two (`current` holds the last state).
+struct D3D11EffectGraphTarget {
+    ID3D11RenderTargetView* views[2];
+    ID3D11ShaderResourceView* reads[2];
+    u32 width, height, current;
+};
+union D3D11EffectStage {
+    ID3D11VertexShader* vertex;
+    ID3D11PixelShader* pixel;
+};
 
 // One effect frame's timestamps; read with DONOTFLUSH a few frames later, never waited on.
 struct D3D11EffectTiming {
@@ -36,22 +47,28 @@ struct D3D11EffectTiming {
     bool begun, pending;
 };
 
-// The package effect pass: one offscreen render of the package's pixel shader at a share of the window
-// (the resolution step), drawn only when a frame is due under the frame-rate step, then sampled by every
-// background canvas. Device objects are created lazily and rebuilt after a device loss; the selection
-// (identity, knobs, settings, clock) survives it.
+// The package effect pass: one offscreen render of the package's pixel shader (or of its pass graph, all passes
+// timed as one frame) at a share of the window (the resolution step), drawn only when a frame is due under the
+// frame-rate step, then sampled by every background canvas. Device objects are created lazily and rebuilt after a
+// device loss; the selection (identity, knobs, settings, clock) survives it, a graph's persistent state does not.
 struct D3D11EffectOwner {
     // Device objects.
     ID3D11VertexShader *target_vertex, *composite_vertex;
     ID3D11PixelShader *composite_pixel, *shader;
     ID3D11Buffer *frame_buffer, *composite_buffer;
     ID3D11RasterizerState* rasterizer;
-    ID3D11BlendState* blends[3];
+    // The composite's blends (EffectBlend), then a graph pass's (EffectPassBlend alpha, add, premultiplied).
+    ID3D11BlendState* blends[6];
     ID3D11SamplerState* samplers[3];
     ID3D11ShaderResourceView* inputs[kD3D11EffectInputs];
     ID3D11Texture2D* target;
     ID3D11RenderTargetView* target_view;
     ID3D11ShaderResourceView* target_srv;
+    // The pass graph (interface 3): the package's, its shaders but shader 0 (`shader`; vertex or pixel by
+    // graph.vertex_shaders) and its targets, sized for the output. graph.pass_count 0: the single pass.
+    EffectGraph graph;
+    D3D11EffectStage graph_shaders[kEffectGraphShaders];
+    D3D11EffectGraphTarget graph_targets[kEffectGraphTargets];
     D3D11EffectTiming timing[kD3D11EffectTimingFrames];
     u32 timing_cursor;
     u32 target_width, target_height; // allocated

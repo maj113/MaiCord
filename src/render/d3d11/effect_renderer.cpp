@@ -40,9 +40,27 @@ void release_target(D3D11EffectOwner* owner) noexcept {
     owner->content_valid = false;
 }
 
+void release_graph_target(D3D11EffectGraphTarget& target) noexcept {
+    for (u32 plane = 0; plane < 2; ++plane) {
+        com_release(target.views[plane]);
+        com_release(target.reads[plane]);
+    }
+    target = {};
+}
+
+// A graph's targets (made again, cleared, on the next frame) and, with `shaders`, its shaders.
+void release_graph(D3D11EffectOwner* owner, bool shaders) noexcept {
+    for (auto& target : owner->graph_targets)
+        release_graph_target(target);
+    if (shaders)
+        for (auto& stage : owner->graph_shaders)
+            com_release(stage.vertex);
+}
+
 // Everything but the selection: the next select (or begin_frame, after a failure) builds it again.
 void release_objects(D3D11EffectOwner* owner) noexcept {
     release_target(owner);
+    release_graph(owner, true);
     for (auto& timing : owner->timing)
         release_timing(timing);
     for (auto*& view : owner->inputs)
@@ -68,20 +86,26 @@ void mark_idle(D3D11EffectOwner* owner) noexcept {
 }
 
 bool create_blend_states(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
-    for (u32 mode = 0; mode < 3; ++mode) {
-        // The target holds premultiplied colour, so every mode adds the source and weighs what is behind it:
-        // normal by what the source leaves open, screen by one minus the source colour, add by one.
+    // Source, destination, source alpha, destination alpha. The composite's modes first: the target holds
+    // premultiplied colour, so every mode adds the source at the user's opacity (the blend factor) and weighs what
+    // is behind it: normal by what the source leaves open, screen by one minus the source colour, add by one; only
+    // normal composes alpha. Then a graph pass's alpha, add and premultiplied.
+    static constexpr u8 kModes[6][4]{
+        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA},
+        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
+        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
+        {D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA},
+        {D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE},
+        {D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA}};
+    for (u32 mode = 0; mode < 6; ++mode) {
         D3D11_BLEND_DESC description{};
         auto& target = description.RenderTarget[0];
         target.BlendEnable = TRUE;
-        target.SrcBlend = D3D11_BLEND_BLEND_FACTOR;
-        target.DestBlend = mode == 0 ? D3D11_BLEND_INV_SRC_ALPHA
-                           : mode == 1 ? D3D11_BLEND_INV_SRC_COLOR
-                                       : D3D11_BLEND_ONE;
+        target.SrcBlend = static_cast<D3D11_BLEND>(kModes[mode][0]);
+        target.DestBlend = static_cast<D3D11_BLEND>(kModes[mode][1]);
         target.BlendOp = D3D11_BLEND_OP_ADD;
-        // Normal composes alpha like colour; the other modes leave the destination alpha alone.
-        target.SrcBlendAlpha = mode == 0 ? D3D11_BLEND_BLEND_FACTOR : D3D11_BLEND_ZERO;
-        target.DestBlendAlpha = mode == 0 ? D3D11_BLEND_INV_SRC_ALPHA : D3D11_BLEND_ONE;
+        target.SrcBlendAlpha = static_cast<D3D11_BLEND>(kModes[mode][2]);
+        target.DestBlendAlpha = static_cast<D3D11_BLEND>(kModes[mode][3]);
         target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
         target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
         if (FAILED(device->CreateBlendState(&description, &owner->blends[mode])))
@@ -118,7 +142,7 @@ bool create_buffer(ID3D11Device* device, u32 bytes, ID3D11Buffer** buffer) noexc
 // Shaders, states and constants: independent of the package.
 bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
     if (owner->target_vertex && owner->composite_vertex && owner->composite_pixel && owner->frame_buffer &&
-        owner->composite_buffer && owner->rasterizer && owner->blends[2] && owner->samplers[2])
+        owner->composite_buffer && owner->rasterizer && owner->blends[5] && owner->samplers[2])
         return true;
     bool layout_failed = false;
     HRESULT result = owner->target_vertex ? S_OK
@@ -141,10 +165,38 @@ bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept
         description.ScissorEnable = TRUE;
         ok = SUCCEEDED(device->CreateRasterizerState(&description, &owner->rasterizer));
     }
-    ok = ok && (owner->blends[2] || create_blend_states(owner, device)) &&
+    ok = ok && (owner->blends[5] || create_blend_states(owner, device)) &&
          (owner->samplers[2] || create_sampler_states(owner, device));
     if (!ok)
         log_u64(LogLevel::error, "render", "effect_pass_resource_error", static_cast<u32>(result));
+    return ok;
+}
+
+// A render target cleared to transparent black, with a shader view when `read` is given; the texture stays with
+// the views unless `keep` takes it. False leaves what was made in the outputs, for the caller to release.
+bool make_target(ID3D11Device* device, ID3D11DeviceContext* context, u32 width, u32 height, DXGI_FORMAT format,
+                 ID3D11RenderTargetView** view, ID3D11ShaderResourceView** read, ID3D11Texture2D** keep) noexcept {
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = width;
+    description.Height = height;
+    description.MipLevels = 1;
+    description.ArraySize = 1;
+    description.Format = format;
+    description.SampleDesc.Count = 1;
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET | (read ? D3D11_BIND_SHADER_RESOURCE : 0u);
+    ID3D11Texture2D* texture = nullptr;
+    const bool ok = SUCCEEDED(device->CreateTexture2D(&description, nullptr, &texture)) &&
+                    SUCCEEDED(device->CreateRenderTargetView(texture, nullptr, view)) &&
+                    (!read || SUCCEEDED(device->CreateShaderResourceView(texture, nullptr, read)));
+    if (ok) {
+        const float clear[4]{};
+        context->ClearRenderTargetView(*view, clear);
+    }
+    if (keep)
+        *keep = texture;
+    else
+        com_release(texture);
     return ok;
 }
 
@@ -156,27 +208,39 @@ bool ensure_target(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCo
     if (owner->target && owner->target_width == allocated_width && owner->target_height == allocated_height)
         return true;
     release_target(owner);
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = allocated_width;
-    description.Height = allocated_height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    const bool ok = SUCCEEDED(device->CreateTexture2D(&description, nullptr, &owner->target)) &&
-                    SUCCEEDED(device->CreateRenderTargetView(owner->target, nullptr, &owner->target_view)) &&
-                    SUCCEEDED(device->CreateShaderResourceView(owner->target, nullptr, &owner->target_srv));
-    if (!ok) {
+    // Unused texels beyond the viewport stay transparent.
+    if (!make_target(device, context, allocated_width, allocated_height, DXGI_FORMAT_R8G8B8A8_UNORM,
+                     &owner->target_view, &owner->target_srv, &owner->target)) {
         release_target(owner);
         return false;
     }
-    // Unused texels beyond the viewport stay transparent.
-    const float clear[4]{};
-    context->ClearRenderTargetView(owner->target_view, clear);
     owner->target_width = allocated_width;
     owner->target_height = allocated_height;
+    return true;
+}
+
+// The graph's targets for an output of `width` x `height`: a target whose size changes is made again, cleared.
+bool ensure_graph(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context, u32 width,
+                  u32 height) noexcept {
+    static constexpr DXGI_FORMAT kFormats[3]{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                             DXGI_FORMAT_R32G32B32A32_FLOAT};
+    for (u32 i = 0; i < owner->graph.target_count; ++i) {
+        const EffectGraphTarget& spec = owner->graph.targets[i];
+        D3D11EffectGraphTarget& target = owner->graph_targets[i];
+        const u32 target_width = effect_target_extent(spec, width, false);
+        const u32 target_height = effect_target_extent(spec, height, true);
+        if (target.views[0] && target.width == target_width && target.height == target_height)
+            continue;
+        release_graph_target(target);
+        for (u32 plane = 0; plane <= u32{spec.persistent}; ++plane)
+            if (!make_target(device, context, target_width, target_height, kFormats[static_cast<u32>(spec.format)],
+                             &target.views[plane], &target.reads[plane], nullptr)) {
+                release_graph_target(target);
+                return false;
+            }
+        target.width = target_width;
+        target.height = target_height;
+    }
     return true;
 }
 
@@ -204,9 +268,83 @@ void draw_strips(ID3D11DeviceContext* context, u32 width, u32 height) noexcept {
     }
 }
 
-void unbind_pass(ID3D11DeviceContext* context) noexcept {
-    ID3D11ShaderResourceView* views[kD3D11EffectInputs]{};
-    context->PSSetShaderResources(0, kD3D11EffectInputs, views);
+// One frame into `view` (the output, `width` x `height`): the package's pixel shader over it, or each pass of the
+// graph in order. A graph's vertex shaders see what its pixel shaders see.
+void draw_frame(D3D11EffectOwner* owner, ID3D11DeviceContext* context, ID3D11RenderTargetView* view, u32 width,
+                u32 height, EffectFrameConstants& constants) noexcept {
+    static constexpr EffectGraphPass kSingle{0, 0, kEffectGraphOutput, 0, EffectPassBlend::opaque,
+                                             EffectPassDraw::screen, false, {}};
+    const EffectGraph& graph = owner->graph;
+    const bool graphed = graph.pass_count != 0;
+    bind_pass(owner, context);
+    if (graphed) {
+        context->VSSetConstantBuffers(0, 1, &owner->frame_buffer);
+        context->VSSetSamplers(0, 3, owner->samplers);
+        context->VSSetShaderResources(0, kD3D11EffectInputs, owner->inputs);
+    }
+    for (u32 i = 0; i < (graphed ? graph.pass_count : 1u); ++i) {
+        const EffectGraphPass& pass = graphed ? graph.passes[i] : kSingle;
+        ID3D11RenderTargetView* target = view;
+        u32 target_width = width, target_height = height, swap = 0;
+        D3D11EffectGraphTarget* written = nullptr;
+        ID3D11ShaderResourceView* reads[kEffectGraphTargets]{};
+        for (u32 t = 0; t < graph.target_count; ++t)
+            if (pass.inputs >> t & 1)
+                reads[t] = owner->graph_targets[t].reads[owner->graph_targets[t].current];
+        if (pass.target != kEffectGraphOutput) {
+            // A persistent target draws its other plane: the pass reads the last state and writes the next.
+            written = &owner->graph_targets[pass.target];
+            swap = graph.targets[pass.target].persistent;
+            target = written->views[written->current ^ swap];
+            target_width = written->width;
+            target_height = written->height;
+        }
+        if (graphed) {
+            // The last pass's inputs leave before their texture can be this pass's target.
+            ID3D11ShaderResourceView* none[kEffectGraphTargets]{};
+            context->PSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, none);
+            context->VSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, none);
+        }
+        context->OMSetRenderTargets(1, &target, nullptr);
+        const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(target_width), static_cast<float>(target_height), 0, 1};
+        context->RSSetViewports(1, &viewport);
+        if (graphed) {
+            const float clear[4]{};
+            if (pass.clear)
+                context->ClearRenderTargetView(target, clear);
+            context->PSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, reads);
+            context->VSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, reads);
+            context->VSSetShader(pass.vertex ? owner->graph_shaders[pass.vertex].vertex : owner->target_vertex, nullptr, 0);
+            context->PSSetShader(pass.pixel ? owner->graph_shaders[pass.pixel].pixel : owner->shader, nullptr, 0);
+            context->OMSetBlendState(pass.blend == EffectPassBlend::opaque ? nullptr
+                                                                           : owner->blends[2 + static_cast<u32>(pass.blend)],
+                                     nullptr, 0xFFFFFFFFu);
+            constants.pass[0] = static_cast<float>(target_width);
+            constants.pass[1] = static_cast<float>(target_height);
+            constants.pass[2] = static_cast<float>(pass.count[0]);
+            constants.pass[3] = static_cast<float>(pass.count[1]);
+        }
+        context->UpdateSubresource(owner->frame_buffer, 0, nullptr, &constants, 0, 0);
+        if (pass.draw == EffectPassDraw::screen) {
+            draw_strips(context, target_width, target_height);
+        } else {
+            // grid(W, H): a strip of 2W vertices per row of cells; quads(N): N strips of four.
+            const D3D11_RECT scissor{0, 0, static_cast<LONG>(target_width), static_cast<LONG>(target_height)};
+            const bool grid = pass.draw == EffectPassDraw::grid;
+            context->RSSetScissorRects(1, &scissor);
+            context->DrawInstanced(grid ? 2u * pass.count[0] : 4u, grid ? pass.count[1] - 1u : pass.count[0], 0, 0);
+        }
+        if (written)
+            written->current ^= swap;
+    }
+}
+
+void unbind_pass(ID3D11DeviceContext* context, bool graph) noexcept {
+    constexpr u32 kSlots = kD3D11EffectInputs + kEffectGraphTargets;
+    ID3D11ShaderResourceView* views[kSlots]{};
+    context->PSSetShaderResources(0, graph ? kSlots : kD3D11EffectInputs, views);
+    if (graph)
+        context->VSSetShaderResources(0, kSlots, views);
     ID3D11RenderTargetView* none = nullptr;
     context->OMSetRenderTargets(1, &none, nullptr);
 }
@@ -263,26 +401,16 @@ void collect(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
 }
 
 // ---- Selection probe ----------------------------------------------------------------------------
-// One frame time (ms) of the package's shader on a `width` x `height` target, or a negative value when the
-// device cannot time it. Runs frames synchronously (selection is a cold path) and gives the GPU a bounded
+// One frame time (ms) of the package (its whole graph) on a `width` x `height` output, or a negative value when
+// the device cannot time it. Runs frames synchronously (selection is a cold path) and gives the GPU a bounded
 // time to answer.
 float probe_size(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context, u32 width,
                  u32 height) noexcept {
-    ID3D11Texture2D* texture = nullptr;
     ID3D11RenderTargetView* view = nullptr;
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = width;
-    description.Height = height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET;
     float result = -1;
     D3D11EffectTiming timing{};
-    if (SUCCEEDED(device->CreateTexture2D(&description, nullptr, &texture)) &&
-        SUCCEEDED(device->CreateRenderTargetView(texture, nullptr, &view)) && create_timing(timing, device)) {
+    if (make_target(device, context, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, &view, nullptr, nullptr) &&
+        ensure_graph(owner, device, context, width, height) && create_timing(timing, device)) {
         EffectFrameConstants constants{};
         constants.dip = 1;
         constants.resolution[0] = static_cast<float>(width);
@@ -292,24 +420,19 @@ float probe_size(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCont
         constants.dark = 1;
         effect_palette(kDefaultTheme, constants.palette);
         copy_bytes(constants.knobs, owner->knobs, sizeof(constants.knobs));
-        const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
-        context->OMSetRenderTargets(1, &view, nullptr);
-        context->RSSetViewports(1, &viewport);
-        bind_pass(owner, context);
         // The first frame pays for the driver's lazy state; the next three are timed.
         constexpr u32 kTimedFrames = 3;
         for (u32 frame = 0; frame <= kTimedFrames; ++frame) {
             constants.time = constants.frame = static_cast<float>(frame);
-            context->UpdateSubresource(owner->frame_buffer, 0, nullptr, &constants, 0, 0);
             if (frame == 1) {
                 context->Begin(timing.disjoint);
                 context->End(timing.begin);
             }
-            draw_strips(context, width, height);
+            draw_frame(owner, context, view, width, height, constants);
         }
         context->End(timing.end);
         context->End(timing.disjoint);
-        unbind_pass(context);
+        unbind_pass(context, owner->graph.pass_count != 0);
         context->Flush();
         D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
         u64 begin = 0, end = 0;
@@ -326,7 +449,6 @@ float probe_size(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCont
     }
     release_timing(timing);
     com_release(view);
-    com_release(texture);
     return result;
 }
 
@@ -392,19 +514,27 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
     }
     if (!same)
         d3d11_effect_clear(owner);
-    // The package's pixel shader, and its inputs.
+    // The package's shaders (a graph's: shader 0 and the rest, each of its stage) and its inputs. A graph is one
+    // mcfx_parse accepted.
     if (!create_pass_objects(owner, device))
         return result(E_FAIL, EffectSelect::rejected);
+    const EffectGraph* graph = spec.graph && spec.shaders ? spec.graph : nullptr;
     ID3D11PixelShader* shader = nullptr;
-    const HRESULT created = device->CreatePixelShader(spec.bytecode.data, spec.bytecode.count, nullptr, &shader);
-    if (FAILED(created)) {
-        d3d11_effect_clear(owner);
-        return result(created, EffectSelect::rejected);
-    }
+    D3D11EffectStage stages[kEffectGraphShaders]{};
     ID3D11ShaderResourceView* inputs[kD3D11EffectInputs]{};
-    const HRESULT made = effect_inputs_create(device, spec, glyph_view, inputs);
+    HRESULT made = device->CreatePixelShader(spec.bytecode.data, spec.bytecode.count, nullptr, &shader);
+    for (u32 i = 1; graph && SUCCEEDED(made) && i < minimum<u32>(graph->shader_count, kEffectGraphShaders); ++i) {
+        const ConstSlice<u8>& code = spec.shaders[i];
+        made = graph->vertex_shaders >> i & 1
+                   ? device->CreateVertexShader(code.data, code.count, nullptr, &stages[i].vertex)
+                   : device->CreatePixelShader(code.data, code.count, nullptr, &stages[i].pixel);
+    }
+    if (SUCCEEDED(made))
+        made = effect_inputs_create(device, spec, glyph_view, inputs);
     if (FAILED(made)) {
         com_release(shader);
+        for (auto& stage : stages)
+            com_release(stage.vertex);
         d3d11_effect_clear(owner);
         return result(made, EffectSelect::rejected);
     }
@@ -414,6 +544,8 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
     }
     com_release(owner->shader);
     owner->shader = shader;
+    copy_bytes(owner->graph_shaders, stages, sizeof(stages));
+    owner->graph = graph ? *graph : EffectGraph{};
     owner->selected = true;
     owner->identity = spec.identity;
     owner->adapter_key = adapter_key;
@@ -428,6 +560,8 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
         owner->verdict = EffectVerdict::none;
     }
     owner->probed = run_probe(owner, device, context);
+    // The probe's frames leave no state behind: the graph's targets are made again, cleared, for the first frame.
+    release_graph(owner, false);
     if (start_controller(owner)) {
         owner->verdict = EffectVerdict::refused;
         owner->verdict_identity = spec.identity;
@@ -441,11 +575,13 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
 bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
     if (!owner || !owner->selected)
         return false;
-    // The shader and the inputs belong to the package; the pass's own objects stay for the next one.
+    // The shaders and the inputs belong to the package; the pass's own objects stay for the next one.
     com_release(owner->shader);
     for (auto*& view : owner->inputs)
         com_release(view);
     release_target(owner);
+    release_graph(owner, true);
+    owner->graph = {};
     owner->selected = owner->probed = false;
     owner->active = false;
     owner->identity = owner->adapter_key = 0;
@@ -513,7 +649,8 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
                          !bytes_same(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
     // A window being dragged keeps the last picture, stretched.
     if ((repaint || phase != owner->last_phase) && !(live_resize && owner->content_valid)) {
-        if (!ensure_target(owner, device, context, used_width, used_height)) {
+        if (!ensure_target(owner, device, context, used_width, used_height) ||
+            !ensure_graph(owner, device, context, used_width, used_height)) {
             owner->dirty = true;
             return true;
         }
@@ -536,19 +673,14 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
             *owner->marker = owner->identity;
         auto& timing = owner->timing[owner->timing_cursor];
         const bool timed = !timing.pending && create_timing(timing, device);
-        const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(used_width), static_cast<float>(used_height), 0, 1};
         // Slot 0 may still hold the target from the last frame's canvases.
         ID3D11ShaderResourceView* none = nullptr;
         context->PSSetShaderResources(0, 1, &none);
-        context->OMSetRenderTargets(1, &owner->target_view, nullptr);
-        context->RSSetViewports(1, &viewport);
-        bind_pass(owner, context);
-        context->UpdateSubresource(owner->frame_buffer, 0, nullptr, &constants, 0, 0);
         if (timed) {
             context->Begin(timing.disjoint);
             context->End(timing.begin);
         }
-        draw_strips(context, used_width, used_height);
+        draw_frame(owner, context, owner->target_view, used_width, used_height, constants);
         if (timed) {
             context->End(timing.end);
             context->End(timing.disjoint);
@@ -557,7 +689,7 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
             timing.pending = true;
             owner->timing_cursor = (owner->timing_cursor + 1) % kD3D11EffectTimingFrames;
         }
-        unbind_pass(context);
+        unbind_pass(context, owner->graph.pass_count != 0);
         owner->content_valid = true;
         owner->rendered = true;
         ++owner->renders;

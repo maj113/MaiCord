@@ -414,12 +414,14 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     float palette[kBackgroundFxPaletteRoles][4]{};
     effect_palette(starry, palette);
     EffectFrameConstants frame{};
-    // Interface 1's fields keep their offsets; mc_ambient follows mc_knobs, where an interface-1 shader never reads.
-    check(sizeof(frame) == 320 && __builtin_offsetof(EffectFrameConstants, time) == 0 &&
+    // Interface 1's fields keep their offsets; mc_ambient follows mc_knobs and mc_pass follows mc_ambient, where
+    // older shaders never read.
+    check(sizeof(frame) == 336 && __builtin_offsetof(EffectFrameConstants, time) == 0 &&
               __builtin_offsetof(EffectFrameConstants, dip) == 12 && __builtin_offsetof(EffectFrameConstants, resolution) == 16 &&
               __builtin_offsetof(EffectFrameConstants, pointer) == 24 && __builtin_offsetof(EffectFrameConstants, palette) == 32 &&
               __builtin_offsetof(EffectFrameConstants, dark) == 160 && __builtin_offsetof(EffectFrameConstants, intensity) == 164 &&
               __builtin_offsetof(EffectFrameConstants, knobs) == 176 && __builtin_offsetof(EffectFrameConstants, ambient) == 304 &&
+              __builtin_offsetof(EffectFrameConstants, pass) == 320 &&
               sizeof(EffectCompositeConstants) == 64 && sizeof(EffectShaderSettings) == 16 &&
               palette[0][0] == starry.base_low.red && palette[4][2] == starry.accent.blue &&
               palette[7][1] == starry.tokens.accent.danger.green && palette[3][3] == 1,

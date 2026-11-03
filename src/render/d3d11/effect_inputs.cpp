@@ -63,11 +63,13 @@ HRESULT make_package_texture(ID3D11Device* device, const EffectTexturePixels& te
                              ID3D11ShaderResourceView** view) noexcept {
     // A declared texture the package did not ship reads as opaque black.
     constexpr u32 black = 0xFF000000u;
-    const bool shipped = texture.rgba && texture.width && texture.height && texture.width <= kEffectTextureMaximumExtent &&
+    const bool shipped = texture.pixels && texture.width && texture.height && texture.width <= kEffectTextureMaximumExtent &&
                          texture.height <= kEffectTextureMaximumExtent;
-    return shipped ? make_view(device, texture.width, texture.height, DXGI_FORMAT_R8G8B8A8_UNORM, texture.rgba,
-                               texture.width * 4u, view)
-                   : make_view(device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &black, 4, view);
+    if (!shipped)
+        return make_view(device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &black, 4, view);
+    return make_view(device, texture.width, texture.height,
+                     texture.rgba32f ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM, texture.pixels,
+                     texture.width * (texture.rgba32f ? 16u : 4u), view);
 }
 
 } // namespace
@@ -87,8 +89,9 @@ HRESULT effect_inputs_create(ID3D11Device* device, const BackgroundEffectSpec& s
     if (SUCCEEDED(result) && (spec.uses & effect_use_blue_noise))
         result = make_view(device, kBlueExtent, kBlueExtent, DXGI_FORMAT_R8_UNORM, kBlueNoise, kBlueExtent,
                            &views[2]);
+    // TEXTURE0..3 at t3..t6.
     for (u32 i = 0; SUCCEEDED(result) && i < kEffectTextureCount; ++i)
-        if (spec.uses & (effect_use_texture0 << i))
+        if (spec.uses & (i < 2 ? effect_use_texture0 << i : effect_use_texture2 << (i - 2)))
             result = make_package_texture(device, spec.textures[i], &views[3 + i]);
     if (FAILED(result))
         for (u32 i = 0; i < kD3D11EffectInputs; ++i) {

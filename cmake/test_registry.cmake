@@ -181,11 +181,24 @@ maicord_plugin(MaiCordPluginSurfacesSecondFixture tests/fixtures/plugin_surfaces
     $<TARGET_OBJECTS:maicord_runtime>)
 target_compile_definitions(MaiCordPluginSurfacesSecondFixture PRIVATE SURFACES_SECOND)
 target_link_libraries(MaiCordPluginSurfacesFixture PRIVATE kernel32)
-# Theme and effect packages: the .mcfx parser (truncation, caps, bad bytecode, manifest, mutation vectors), the
-# link grammar and the install files in a private folder.
+# Theme and effect packages: the .mcfx parser (truncation, caps, bad bytecode, manifest, pass graphs, mutation
+# vectors), the link grammar and the install files in a private folder. The spark-ribbon sample, packed by
+# tools/maicord-plugin as an author would, is parsed too.
+set(maicord_graph_package_folder "${MAICORD_GENERATED_DIRECTORY}/spark-ribbon-package")
+set(maicord_graph_package "${maicord_graph_package_folder}/build/spark-ribbon.mcfx")
+add_custom_command(OUTPUT "${maicord_graph_package}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${maicord_graph_package_folder}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/samples/effects/spark-ribbon/spark-ribbon.hlsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/effects/spark-ribbon/spark-ribbon.effect" "${maicord_graph_package_folder}"
+    COMMAND "${CMAKE_COMMAND}" -E env "MAICORD_FXC_EXECUTABLE=${MAICORD_FXC_EXECUTABLE}" "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/maicord-plugin/maicord_plugin.py" effect build --dir "${maicord_graph_package_folder}"
+        --compiler fxc
+    DEPENDS samples/effects/spark-ribbon/spark-ribbon.hlsl samples/effects/spark-ribbon/spark-ribbon.effect
+        include/maicord/sdk/background.hlsli tools/maicord-plugin/mcfx_tool.py VERBATIM)
 maicord_test(MaiCordPackagesTests ENTRY maicord_packages_tests_entry
-    SOURCES tests/app/packages/packages.cpp
+    SOURCES tests/app/packages/packages.cpp "${maicord_graph_package}"
     LIBS maicord_packages maicord_app_core maicord_platform maicord_core kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+    DEFINES "MAICORD_GRAPH_PACKAGE=L\"${maicord_graph_package}\""
     TIMEOUT 15 TEST maicord_packages)
 maicord_test(MaiCordPluginSurfaceTests ENTRY maicord_plugin_surfaces_tests_entry
     SOURCES tests/app/plugins/plugin_surfaces.cpp tests/ui/plugins/surface_scenes.cpp src/core/log.cpp
@@ -1544,19 +1557,39 @@ maicord_shader(maicord_vp8_reference_filter_header vp8_reference_filter.hpp cs_5
 maicord_shader(maicord_video_frame_reference_header video_frame_reference.hpp cs_5_0 cs_main
         g_video_frame_reference tests/fixtures/video_frame_reference.hlsl)
 # Background effect packages (include/maicord/sdk/background.hlsli) as byte arrays: the reference effect the probe
-# checks the pass against, and the samples that ship (samples/effects/<name>/<name>.hlsl).
+# checks the pass against, the pass graph it checks the graph pass against, and the samples that ship
+# (samples/effects/<name>/<name>.hlsl). An item is name|source, or name|source|entry|profile for one shader of a graph.
 set(maicord_effect_headers)
 foreach(maicord_effect IN ITEMS reference|tests/shaders/background_effect_reference.hlsl
         ascii_rain|samples/effects/ascii-rain/ascii-rain.hlsl aurora|samples/effects/aurora/aurora.hlsl
         starfield|samples/effects/starfield/starfield.hlsl plasma|samples/effects/plasma/plasma.hlsl
         bokeh|samples/effects/bokeh/bokeh.hlsl wave_lines|samples/effects/wave-lines/wave-lines.hlsl
-        film_grain|samples/effects/film-grain/film-grain.hlsl day_night|samples/effects/day-night/day-night.hlsl)
+        film_grain|samples/effects/film-grain/film-grain.hlsl day_night|samples/effects/day-night/day-night.hlsl
+        graph_count|tests/shaders/background_effect_graph.hlsl|count_ps|ps_5_0
+        graph_half|tests/shaders/background_effect_graph.hlsl|half_ps|ps_5_0
+        graph_fill|tests/shaders/background_effect_graph.hlsl|fill_ps|ps_5_0
+        graph_grid|tests/shaders/background_effect_graph.hlsl|grid_vs|vs_5_0
+        graph_solid|tests/shaders/background_effect_graph.hlsl|solid_ps|ps_5_0
+        graph_quad|tests/shaders/background_effect_graph.hlsl|quad_vs|vs_5_0
+        spark_ribbon_simulate|samples/effects/spark-ribbon/spark-ribbon.hlsl|simulate|ps_5_0
+        spark_ribbon_ribbon_vs|samples/effects/spark-ribbon/spark-ribbon.hlsl|ribbon_vs|vs_5_0
+        spark_ribbon_ribbon|samples/effects/spark-ribbon/spark-ribbon.hlsl|ribbon|ps_5_0
+        spark_ribbon_compose|samples/effects/spark-ribbon/spark-ribbon.hlsl|compose|ps_5_0
+        spark_ribbon_spark_vs|samples/effects/spark-ribbon/spark-ribbon.hlsl|spark_vs|vs_5_0
+        spark_ribbon_spark|samples/effects/spark-ribbon/spark-ribbon.hlsl|spark|ps_5_0)
     string(REPLACE "|" ";" maicord_effect "${maicord_effect}")
     list(GET maicord_effect 0 maicord_effect_name)
     list(GET maicord_effect 1 maicord_effect_source)
+    set(maicord_effect_entry main)
+    set(maicord_effect_profile ps_5_0)
+    list(LENGTH maicord_effect maicord_effect_fields)
+    if(maicord_effect_fields EQUAL 4)
+        list(GET maicord_effect 2 maicord_effect_entry)
+        list(GET maicord_effect 3 maicord_effect_profile)
+    endif()
     set(maicord_effect_header "${MAICORD_GENERATED_DIRECTORY}/maicord_effect_${maicord_effect_name}.hpp")
     add_custom_command(OUTPUT "${maicord_effect_header}"
-        COMMAND "${MAICORD_FXC_EXECUTABLE}" /nologo /T ps_5_0 /E main /O3 /Ges /WX
+        COMMAND "${MAICORD_FXC_EXECUTABLE}" /nologo /T ${maicord_effect_profile} /E ${maicord_effect_entry} /O3 /Ges /WX
             /Qstrip_debug /Qstrip_reflect /Qstrip_priv /I "${CMAKE_CURRENT_SOURCE_DIR}/include"
             /Fh "${maicord_effect_header}" /Vn g_maicord_effect_${maicord_effect_name}
             "${CMAKE_CURRENT_SOURCE_DIR}/${maicord_effect_source}"

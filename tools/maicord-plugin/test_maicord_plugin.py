@@ -638,7 +638,82 @@ class EffectTests(Case):
         manifest = json.loads(self.sections((directory / "build" / "soft-rain.mcfx").read_bytes())[1])
         self.assertEqual((manifest["interface"], manifest["uses"]), (2, ["blue_noise", "clock", "appearance"]))
         self.assertEqual(mcfx_tool.parse_sidecar((directory / "soft-rain.effect").read_text())["uses"], "blue_noise clock appearance")
-        self.assertEqual(mcfx_tool.interface_of(["blue_noise", "pointer"]), 1, "an effect without them stays interface 1")
+        self.assertEqual(mcfx_tool.interface_of({"uses": ["blue_noise", "pointer"]}), 1, "an effect without them stays interface 1")
+
+    def test_a_pass_graph_makes_an_interface_3_package(self):
+        """spark-ribbon: four passes, two targets, six shaders of two stages, in DXBC and SHADERS."""
+        directory = self.root / "spark-ribbon"
+        shutil.copytree(REPOSITORY / "samples" / "effects" / "spark-ribbon", directory, ignore=shutil.ignore_patterns("*.webp"))
+        code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("in 6 shaders", out)
+        sections = self.sections((directory / "build" / "spark-ribbon.mcfx").read_bytes())
+        self.assertEqual(sorted(sections), [1, 2, 5, 9])
+        manifest = json.loads(sections[1])
+        self.assertEqual(manifest["interface"], 3)
+        self.assertEqual(manifest["targets"], [{"format": "rgba32f", "size": [32, 32], "persistent": True},
+                                               {"format": "rgba16f", "scale": 50}])
+        self.assertEqual(manifest["passes"], [{"ps": 0, "target": 0, "inputs": [0]},
+                                              {"ps": 2, "vs": 1, "grid": [96, 24], "target": 1, "blend": "add", "clear": True},
+                                              {"ps": 3, "inputs": [1]},
+                                              {"ps": 5, "vs": 4, "quads": 1024, "inputs": [0], "blend": "add"}])
+        # SHADERS: shaders 1..5, whole containers back to back, of the stage each pass uses them as.
+        blob, stages = sections[9], []
+        while blob:
+            size = struct.unpack_from("<I", blob, 24)[0]
+            mcfx_tool.check_bytecode(blob[:size], "vs_5_0" if len(stages) in (0, 3) else "ps_5_0")
+            stages.append(size)
+            blob = blob[size:]
+        self.assertEqual(len(stages), 5)
+        mcfx_tool.check_bytecode(sections[2], "ps_5_0")
+        sidecar = mcfx_tool.parse_sidecar((directory / "spark-ribbon.effect").read_text())
+        self.assertEqual((json.loads(sidecar["targets"]), json.loads(sidecar["passes"])), (manifest["targets"], manifest["passes"]))
+
+    def test_graph_errors(self):
+        good = '// @effect name="X" license="MIT"\n// @blend normal\n// @target a rgba16f 50%\n'
+        self.assertIsNone(mcfx_tool.graph_of(mcfx_tool.parse_header('// @effect name="X" license="MIT"\n// @blend normal\n')))
+        for text, needle in (
+                ("// @pass p to=a\n", "draws the output"),
+                ("// @pass p to=a in=a\n// @pass q\n", "persistent"),
+                ("// @pass p vs=v\n", "grid=WxH or quads=N"),
+                ("// @pass p grid=4x4\n", "grid=WxH or quads=N"),
+                ("// @pass p vs=v grid=1x4\n", "2x2"),
+                ("// @pass p vs=v quads=16385\n", "quads is 1"),
+                ("// @pass p in=b\n", "no target 'b'"),
+                ("// @pass p in=out\n", "no target 'out'"),
+                ("// @pass p blend=multiply\n", "cannot read"),
+                ("// @pass p\n" * 7, "at most 6 passes"),
+                ("// @target b rgba32f 512x512 persistent\n// @target c rgba8 1x1\n// @pass p\n", "MiB"),
+                ("// @target b rgba32f 100% persistent\n// @pass p\n", "per output pixel"),
+                ("// @target b rgba8 513x2\n// @pass p\n", "fixed size"),
+                ("// @pass p vs=p quads=1\n", "both a vertex and a pixel")):
+            with self.assertRaises(core.ToolError, msg=text) as caught:
+                mcfx_tool.graph_of(mcfx_tool.parse_header(good + text))
+            self.assertIn(needle, str(caught.exception))
+        with self.assertRaises(core.ToolError):
+            mcfx_tool.parse_header(good)  # a target nothing draws
+        with self.assertRaises(core.ToolError):
+            mcfx_tool.parse_header(good + "// @target b rgba64 4x4\n// @pass p\n")
+
+    def test_textures_are_packed_and_float_data_is_interface_3(self):
+        directory = self.effect()
+        source = directory / "soft-rain.hlsl"
+        source.write_text(source.read_text(encoding="utf-8").replace("// @uses blue_noise", "// @uses blue_noise texture0 texture2")
+                          .replace("wave * knob_mix", "wave * knob_mix * mc_tex0.Load(int3(0, 0, 0)).r * mc_tex2.Load(int3(0, 0, 0)).g"),
+                          encoding="utf-8")
+        code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
+        self.assertEqual(code, 1, "a declared texture needs its file")
+        self.assertIn("texture0.png", err)
+        png = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sIIBBBBB", 13, b"IHDR", 2, 2, 8, 6, 0, 0, 0) + bytes(4))
+        (directory / "texture0.png").write_bytes(png)
+        (directory / "texture2.mcft").write_bytes(mcfx_tool.float_texture(2, 1, [(0.5, 2.0, -1.0, 1.0), (0, 0, 0, 1)]))
+        code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
+        self.assertEqual(code, 0, out + err)
+        sections = self.sections((directory / "build" / "soft-rain.mcfx").read_bytes())
+        self.assertEqual((sorted(sections), sections[3], sections[7][:8]), ([1, 2, 3, 5, 7], png, b"MCFT\x02\x00\x01\x00"))
+        self.assertEqual(json.loads(sections[1])["interface"], 3)
+        (directory / "texture2.mcft").write_bytes(b"MCFT" + bytes(8))
+        self.assertEqual(run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")[0], 1, "a bad float texture")
 
     def test_preview_simulates_the_clock_and_appearance(self):
         directory = self.effect()
@@ -781,6 +856,10 @@ class EffectTests(Case):
             with self.assertRaises(core.ToolError, msg=text[:30]) as caught:
                 mcfx_tool.lint(text)
             self.assertIn(needle, str(caught.exception))
+        graph = "vs_5_0\n dcl_resource_texture2d (float,float,float,float) t10\n ld r0.xyzw, v0, t10.xyzw\n ret\n"
+        self.assertEqual(mcfx_tool.lint(graph, 10), {"instructions": 1, "samples": 1}, "interface 3 binds t0-t10")
+        with self.assertRaises(core.ToolError):
+            mcfx_tool.lint(graph.replace("t10", "t11"), 10)
         self.assertIn("light", mcfx_tool.cost_hint({"instructions": 20, "samples": 1}))
         self.assertIn("heavy", mcfx_tool.cost_hint({"instructions": 3000, "samples": 1}))
 

@@ -93,7 +93,7 @@ void test_parse(Check check) noexcept {
               text_is(p.license, "MPL-2.0") && text_is(p.authors, "Maj, Lumen") && p.has_credit &&
               text_is(p.derived_from.author, "Someone") && p.blend == EffectBlend::screen &&
               p.uses == (effect_use_noise | effect_use_glyphs) && p.requested_resolution == 4 &&
-              p.requested_frame_rate == 4 && p.source.count == 38 && p.bytecode.count == sizeof(dxbc),
+              p.requested_frame_rate == 4 && p.source.count == 38 && p.shaders[0].count == sizeof(dxbc),
           "mcfx: a complete package parses into its manifest fields and borrowed sections");
     // Scalars, toggles and choices pack four to a row in order; a colour takes the next row's .rgb.
     check(p.knob_count == 6 && p.knobs[0].slot == 0 && p.knobs[1].slot == 1 && p.knobs[2].slot == 2 &&
@@ -130,8 +130,8 @@ void test_container(Check check) noexcept {
     put16(file + 4, 2);
     check(error_of(bytes) == McfxError::header, "mcfx: unknown format version");
     good_package();
-    put16(file + 6, 7);
-    check(error_of(bytes) == McfxError::header, "mcfx: more than six sections");
+    put16(file + 6, 10);
+    check(error_of(bytes) == McfxError::header, "mcfx: more than nine sections");
     good_package();
     put32(file + 8, bytes + 1);
     check(error_of(bytes) == McfxError::header, "mcfx: declared size differs from the file");
@@ -146,7 +146,7 @@ void test_container(Check check) noexcept {
     put32(file + 16 + 16, 1); // second entry repeats MANIFEST
     check(error_of(bytes) == McfxError::section, "mcfx: a repeated section type is refused");
     good_package();
-    put32(file + 16 + 32, 9);
+    put32(file + 16 + 32, 10);
     check(error_of(bytes) == McfxError::section, "mcfx: an unknown section type is refused");
     good_package();
     put32(file + 16 + 4, 0);
@@ -234,7 +234,7 @@ McfxError ambient_error(const char* interface, const char* uses) noexcept {
 }
 
 void test_manifest(Check check) noexcept {
-    check(refuses("\"interface\":1", "\"interface\":3") && refuses("\"interface\":1", "\"interface\":0") &&
+    check(refuses("\"interface\":1", "\"interface\":4") && refuses("\"interface\":1", "\"interface\":0") &&
               refuses("\"interface\":1,", "") &&
               refuses("\"slug\":\"rain-drops\"", "\"slug\":\"Rain\"") && refuses("\"slug\":\"rain-drops\"", "\"slug\":\"-x\"") &&
               refuses("\"version\":\"1.2.0\"", "\"version\":\"1 2\"") && refuses("\"license\":\"MPL-2.0\"", "\"license\":\"\""),
@@ -348,6 +348,172 @@ void test_textures(Check check) noexcept {
     check(mcfx_png_extent({png, png_bytes}, &w, &h) && w == 64 && h == 32 && !mcfx_png_extent({wide, wide_bytes}, &w, &h) &&
               !mcfx_png_extent({png, 20}, &w, &h),
           "mcfx: the PNG extent reader bounds its input");
+}
+
+// ---- Interface 3: the pass graph, TEXTURE2/3 and float data ------------------------------------------------------
+// spark-ribbon's graph: a persistent simulation, a grid into a half-size float target, a full-screen composite and
+// instanced quads. Shader 0 is DXBC; SHADERS holds 1..5 (vertex, pixel, pixel, vertex, pixel).
+constexpr char kGraphManifest[] =
+    "{\"interface\":3,\"slug\":\"ribbon\",\"name\":\"Ribbon\",\"version\":\"1.0.0\",\"authors\":[{\"name\":\"A\"}],"
+    "\"license\":\"MIT\",\"blend\":\"normal\",\"uses\":[],\"knobs\":[],"
+    "\"targets\":[{\"format\":\"rgba32f\",\"size\":[32,32],\"persistent\":true},{\"format\":\"rgba16f\",\"scale\":50}],"
+    "\"passes\":[{\"ps\":0,\"target\":0,\"inputs\":[0]},"
+    "{\"vs\":1,\"ps\":2,\"grid\":[96,24],\"target\":1,\"blend\":\"add\",\"clear\":true},"
+    "{\"ps\":3,\"inputs\":[1]},{\"vs\":4,\"ps\":5,\"quads\":1024,\"inputs\":[0],\"blend\":\"add\"}]}";
+constexpr u32 kVertex = 0x10050, kPixel = 0x50;
+constexpr u32 kGraphStages[]{kVertex, kPixel, kPixel, kVertex, kPixel, kPixel, kPixel, kPixel, kPixel, kPixel, kPixel, kPixel};
+u8 more[sizeof(dxbc) * 12];
+
+// A graph package: `manifest` over a ps_5_0 DXBC and `count` shaders in SHADERS (none: no section), of `stages`.
+u32 graph_package(const char* manifest = kGraphManifest, u32 count = 5, const u32* stages = kGraphStages) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        make_dxbc(stages[i]);
+        copy_bytes(more + i * sizeof(dxbc), dxbc, sizeof(dxbc));
+    }
+    make_dxbc(kPixel);
+    const Section sections[]{{1, reinterpret_cast<const u8*>(manifest), c_string_length(manifest)},
+                             {2, dxbc, sizeof(dxbc)},
+                             {9, more, count * static_cast<u32>(sizeof(dxbc))}};
+    return build(sections, count ? 3 : 2);
+}
+// The graph manifest with `from` replaced by `to`, as a package; its error.
+McfxError graph_error(const char* from, const char* to, u32 count = 5, const u32* stages = kGraphStages) noexcept {
+    const char* manifest = replace(kGraphManifest, from, to, edited);
+    return manifest ? error_of(graph_package(manifest, count, stages)) : McfxError::invalid_input;
+}
+bool graph_refuses(const char* from, const char* to) noexcept {
+    return graph_error(from, to) == McfxError::manifest;
+}
+
+void test_graph(Check check) noexcept {
+    const auto& p = workspace.package;
+    const auto& g = p.graph;
+    check(parses(graph_package()) && p.interface_version == 3 && g.pass_count == 4 && g.target_count == 2 &&
+              g.shader_count == 6 && g.vertex_shaders == (1u << 1 | 1u << 4) && p.shaders[5].count == sizeof(dxbc) &&
+              g.targets[0].width == 32 && g.targets[0].height == 32 && !g.targets[0].scale && g.targets[0].persistent &&
+              g.targets[0].format == EffectTargetFormat::rgba32f && g.targets[1].scale == 50 && !g.targets[1].width &&
+              g.targets[1].format == EffectTargetFormat::rgba16f && !g.targets[1].persistent &&
+              g.passes[0].target == 0 && g.passes[0].inputs == 1 && g.passes[0].draw == EffectPassDraw::screen &&
+              g.passes[1].vertex == 1 && g.passes[1].pixel == 2 && g.passes[1].draw == EffectPassDraw::grid &&
+              g.passes[1].count[0] == 96 && g.passes[1].count[1] == 24 && g.passes[1].blend == EffectPassBlend::add &&
+              g.passes[1].clear && g.passes[2].target == kEffectGraphOutput && g.passes[2].inputs == 2 &&
+              g.passes[2].blend == EffectPassBlend::opaque && g.passes[3].draw == EffectPassDraw::quads &&
+              g.passes[3].count[0] == 1024 && g.passes[3].count[1] == 1,
+          "mcfx graph: targets, passes, geometry, blends and shader stages parse into the graph");
+    check(parses(good_package()) && !p.graph.pass_count && p.graph.shader_count == 1 && p.interface_version == 1,
+          "mcfx graph: a package without one is the single pass");
+    // Interface: 3, and the graph's members need it.
+    check(graph_refuses("\"interface\":3", "\"interface\":2") && graph_refuses("\"interface\":3", "\"interface\":4"),
+          "mcfx graph: a graph needs interface 3");
+    // Caps: passes, targets, sizes, scales, geometry.
+    check(graph_refuses("\"inputs\":[0],\"blend\":\"add\"}]", "\"inputs\":[0],\"blend\":\"add\"},{\"ps\":3},{\"ps\":3},{\"ps\":3}]") &&
+              graph_refuses("\"scale\":50}]", "\"scale\":50},{\"format\":\"rgba8\",\"size\":[1,1]},"
+                                              "{\"format\":\"rgba8\",\"size\":[1,1]},{\"format\":\"rgba8\",\"size\":[1,1]}]") &&
+              graph_refuses("\"size\":[32,32]", "\"size\":[513,32]") && graph_refuses("\"size\":[32,32]", "\"size\":[32,0]") &&
+              graph_refuses("\"size\":[32,32]", "\"size\":[32]") && graph_refuses("\"scale\":50", "\"scale\":0") &&
+              graph_refuses("\"scale\":50", "\"scale\":101") && graph_refuses("\"scale\":50", "\"scale\":50,\"size\":[1,1]") &&
+              graph_refuses(",\"scale\":50", "") && graph_refuses("\"rgba16f\"", "\"r16f\"") &&
+              graph_refuses("\"grid\":[96,24]", "\"grid\":[1,24]") && graph_refuses("\"grid\":[96,24]", "\"grid\":[257,24]") &&
+              graph_refuses("\"quads\":1024", "\"quads\":0") && graph_refuses("\"quads\":1024", "\"quads\":16385") &&
+              graph_refuses("\"quads\":1024", "\"quads\":1024,\"grid\":[2,2]") && graph_refuses("\"quads\":1024,", ""),
+          "mcfx graph: at most 6 passes and 4 targets; sizes, scales, formats, grids and quad counts are capped");
+    // Memory: fixed targets up to 8 MiB with both planes, scaled ones up to 16 bytes per output pixel.
+    check(graph_error("\"size\":[32,32]", "\"size\":[512,512]") == McfxError::none &&
+              graph_refuses("\"size\":[32,32]", "\"size\":[512,512]},{\"format\":\"rgba8\",\"size\":[1,1]") &&
+              graph_error("\"rgba16f\",\"scale\":50", "\"rgba16f\",\"scale\":100,\"persistent\":true") == McfxError::none &&
+              graph_refuses("\"rgba16f\",\"scale\":50", "\"rgba32f\",\"scale\":100,\"persistent\":true"),
+          "mcfx graph: target memory is capped, fixed and per output pixel");
+    // Wiring: shader indices, stages, targets, inputs, the output, every shader used.
+    check(graph_refuses("{\"ps\":3,", "{\"ps\":6,") && graph_refuses("{\"ps\":3,", "{\"ps\":12,") &&
+              graph_refuses("{\"ps\":3,", "{") && graph_refuses("\"vs\":1,", "") && graph_refuses("\"vs\":1,", "\"vs\":0,") &&
+              graph_refuses("\"target\":1,", "\"target\":2,") && graph_refuses("{\"ps\":3,\"inputs\":[1]}", "{\"ps\":3,\"inputs\":[2]}") &&
+              graph_refuses("\"inputs\":[1]", "\"inputs\":[1,1]") &&
+              graph_refuses("\"target\":1,", "\"target\":1,\"inputs\":[1],") &&
+              graph_refuses("{\"ps\":3,\"inputs\":[1]}", "{\"ps\":3,\"inputs\":[1],\"target\":1}") &&
+              graph_refuses("\"blend\":\"add\",\"clear\"", "\"blend\":\"multiply\",\"clear\"") &&
+              graph_refuses("\"clear\":true", "\"clear\":true,\"depth\":1") && graph_refuses("\"persistent\":true", "\"planes\":2"),
+          "mcfx graph: indices, inputs, own-target reads (only persistent), the output and members are checked");
+    check(error_of(graph_package(kGraphManifest, 6)) == McfxError::manifest &&
+              error_of(graph_package(kGraphManifest, 4)) == McfxError::manifest &&
+              error_of(graph_package(kGraphManifest, 0)) == McfxError::manifest,
+          "mcfx graph: every shader is used and every pass's shader exists");
+    // Both output passes moved into target 1: nothing draws the output.
+    const char* into_target = replace(kGraphManifest, "{\"ps\":3,\"inputs\":[1]}", "{\"ps\":3,\"target\":1}", ambient_manifest);
+    const char* no_output = replace(into_target, "\"inputs\":[0],\"blend\":\"add\"}]", "\"inputs\":[0],\"target\":1}]", edited);
+    check(no_output && error_of(graph_package(no_output)) == McfxError::manifest, "mcfx graph: a graph must draw the output");
+    constexpr u32 swapped[]{kPixel, kPixel, kPixel, kVertex, kPixel};
+    check(error_of(graph_package(kGraphManifest, 5, swapped)) == McfxError::bytecode &&
+              error_of(graph_package(kGraphManifest, 12)) == McfxError::bytecode,
+          "mcfx graph: a shader of the wrong stage, or more than 12 shaders, is refused");
+    // SHADERS is a run of whole containers: one that claims more bytes than the section holds is refused.
+    graph_package();
+    copy_bytes(mutated, more, sizeof(more));
+    put32(mutated + 24, 1000);
+    const Section overlong[]{{1, reinterpret_cast<const u8*>(kGraphManifest), c_string_length(kGraphManifest)},
+                             {2, dxbc, sizeof(dxbc)},
+                             {9, mutated, 5 * static_cast<u32>(sizeof(dxbc))}};
+    check(error_of(build(overlong, 3)) == McfxError::bytecode, "mcfx graph: SHADERS must split into whole containers");
+    // A SHADERS section without passes, and interface 3 without a graph.
+    const char* plain = replace(kManifest, "\"interface\":1", "\"interface\":3", edited);
+    make_dxbc(kPixel);
+    copy_bytes(more, dxbc, sizeof(dxbc));
+    const Section stray[]{{1, reinterpret_cast<const u8*>(plain), c_string_length(plain)}, {2, dxbc, sizeof(dxbc)},
+                          {9, more, sizeof(dxbc)}};
+    check(error_of(build(stray, 3)) == McfxError::manifest && parses(good_package(plain)) && !p.graph.pass_count &&
+              p.interface_version == 3,
+          "mcfx graph: shaders without passes are refused; interface 3 alone changes nothing");
+    // The spark-ribbon sample as maicord-plugin packs it (see cmake/test_registry.cmake): the same graph.
+    static u8 sample[kMcfxMaximumBytes];
+    DWORD read = 0;
+    const HANDLE handle = CreateFileW(MAICORD_GRAPH_PACKAGE, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                      FILE_ATTRIBUTE_NORMAL, nullptr);
+    const bool loaded = handle != INVALID_HANDLE_VALUE && ReadFile(handle, sample, sizeof(sample), &read, nullptr);
+    if (handle != INVALID_HANDLE_VALUE)
+        CloseHandle(handle);
+    const McfxResult built = loaded ? mcfx_parse({sample, read}, &workspace) : McfxResult{McfxError::invalid_input, 0};
+    check(built.ok() && p.interface_version == 3 && text_is(p.slug, "spark-ribbon") && g.pass_count == 4 &&
+              g.target_count == 2 && g.shader_count == 6 && g.vertex_shaders == (1u << 1 | 1u << 4) &&
+              g.passes[1].draw == EffectPassDraw::grid && g.passes[1].count[0] == 96 && g.passes[3].count[0] == 1024 &&
+              g.targets[0].persistent && g.targets[1].scale == 50,
+          "mcfx graph: the graph sample built by maicord-plugin parses into its graph");
+}
+
+// TEXTURE2 and TEXTURE3, and float data textures: interface 3.
+void test_textures_three(Check check) noexcept {
+    static u8 png[64], data[8 + 4 * 2 * 16], bad[8 + 4 * 2 * 16 - 16];
+    const u32 png_bytes = make_png(png, 16, 16, 2);
+    copy_bytes(data, "MCFT", 4);
+    put16(data + 4, 4);
+    put16(data + 6, 2);
+    copy_bytes(bad, data, 8);
+    static char manifest[2048];
+    const char* three = replace(replace(kManifest, "\"interface\":1", "\"interface\":3", edited),
+                                "\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"texture0\",\"texture2\",\"texture3\"]", manifest);
+    make_dxbc(kPixel);
+    const Section sections[]{{1, reinterpret_cast<const u8*>(three), c_string_length(three)}, {2, dxbc, sizeof(dxbc)},
+                             {3, data, sizeof(data)}, {7, png, png_bytes}, {8, data, sizeof(data)}};
+    u32 width = 0, height = 0;
+    check(parses(build(sections, 5)) &&
+              workspace.package.uses == (effect_use_texture0 | effect_use_texture2 | effect_use_texture3) &&
+              workspace.package.texture[2].count == png_bytes && workspace.package.texture[3].count == sizeof(data) &&
+              mcfx_float_texture(workspace.package.texture[0], &width, &height) && width == 4 && height == 2 &&
+              !mcfx_float_texture(workspace.package.texture[2], &width, &height),
+          "mcfx: four textures, PNG or float data, under interface 3");
+    const Section short_data[]{{1, reinterpret_cast<const u8*>(three), c_string_length(three)}, {2, dxbc, sizeof(dxbc)},
+                               {3, bad, sizeof(bad)}, {7, png, png_bytes}, {8, data, sizeof(data)}};
+    check(error_of(build(short_data, 5)) == McfxError::texture, "mcfx: a float texture must hold exactly its texels");
+    put16(bad + 4, 0);
+    const Section empty_data[]{{1, reinterpret_cast<const u8*>(three), c_string_length(three)}, {2, dxbc, sizeof(dxbc)},
+                               {3, bad, sizeof(bad)}, {7, png, png_bytes}, {8, data, sizeof(data)}};
+    check(error_of(build(empty_data, 5)) == McfxError::texture, "mcfx: a float texture needs an extent");
+    const char* two = replace(three, "\"interface\":3", "\"interface\":2", edited);
+    const Section older[]{{1, reinterpret_cast<const u8*>(two), c_string_length(two)}, {2, dxbc, sizeof(dxbc)},
+                          {3, png, png_bytes}, {7, png, png_bytes}, {8, png, png_bytes}};
+    const char* one = replace(kManifest, "\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"texture0\"]", manifest);
+    const Section floats_one[]{{1, reinterpret_cast<const u8*>(one), c_string_length(one)}, {2, dxbc, sizeof(dxbc)},
+                               {3, data, sizeof(data)}};
+    check(error_of(build(older, 5)) == McfxError::manifest && error_of(build(floats_one, 3)) == McfxError::manifest,
+          "mcfx: TEXTURE2/3 and float data need interface 3");
 }
 
 PackageLink link;
@@ -500,6 +666,8 @@ void test_packages(Check check) noexcept {
     test_bytecode(check);
     test_manifest(check);
     test_textures(check);
+    test_graph(check);
+    test_textures_three(check);
     test_mutation(check);
     test_links(check);
     test_install(check);

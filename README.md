@@ -123,8 +123,9 @@ choose *Restart to update*, so the folder must stay writable.
 design token; an optional `background` member can name an installed effect and its knob values. See
 [`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json).
 
-**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode, up to two PNG textures, the source and
-a preview. They are data, not code: MaiCord checks the container and asks Direct3D to build the shader, and caps
+**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
+pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a
+preview. They are data, not code: MaiCord checks the container and asks Direct3D to build the shaders, and caps
 the GPU time an effect may use. Themes and effects come from the catalog, from a link (`https://…`), from a file
 or from a drop onto the install dialog. Anything that is not from the catalog is shown as *not reviewed* with a
 live preview before you install it, and never updates on its own.

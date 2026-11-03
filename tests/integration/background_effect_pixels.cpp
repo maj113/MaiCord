@@ -4,8 +4,20 @@
 #include "maicord_effect_bokeh.hpp"
 #include "maicord_effect_day_night.hpp"
 #include "maicord_effect_film_grain.hpp"
+#include "maicord_effect_graph_count.hpp"
+#include "maicord_effect_graph_fill.hpp"
+#include "maicord_effect_graph_grid.hpp"
+#include "maicord_effect_graph_half.hpp"
+#include "maicord_effect_graph_quad.hpp"
+#include "maicord_effect_graph_solid.hpp"
 #include "maicord_effect_plasma.hpp"
 #include "maicord_effect_reference.hpp"
+#include "maicord_effect_spark_ribbon_compose.hpp"
+#include "maicord_effect_spark_ribbon_ribbon.hpp"
+#include "maicord_effect_spark_ribbon_ribbon_vs.hpp"
+#include "maicord_effect_spark_ribbon_simulate.hpp"
+#include "maicord_effect_spark_ribbon_spark.hpp"
+#include "maicord_effect_spark_ribbon_spark_vs.hpp"
 #include "maicord_effect_starfield.hpp"
 #include "maicord_effect_wave_lines.hpp"
 #include "probe_capture.hpp"
@@ -28,7 +40,46 @@ struct Package {
     EffectBlend blend;
     u8 resolution, frame_rate; // step + 1, as the package requests them
     float knobs[12];
+    const EffectGraph* graph;      // a pass graph (interface 3), with its shaders
+    const ConstSlice<u8>* shaders;
 };
+
+#define MC_SHADER(array) ConstSlice<u8>{array, static_cast<u32>(sizeof(array))}
+// spark-ribbon's graph, as its @target and @pass lines declare it: shaders simulate, ribbon_vs, ribbon, compose,
+// spark_vs, spark.
+const ConstSlice<u8> kSparkShaders[]{MC_SHADER(g_maicord_effect_spark_ribbon_simulate),
+                                     MC_SHADER(g_maicord_effect_spark_ribbon_ribbon_vs),
+                                     MC_SHADER(g_maicord_effect_spark_ribbon_ribbon),
+                                     MC_SHADER(g_maicord_effect_spark_ribbon_compose),
+                                     MC_SHADER(g_maicord_effect_spark_ribbon_spark_vs),
+                                     MC_SHADER(g_maicord_effect_spark_ribbon_spark)};
+const EffectGraph kSparkGraph{
+    4, 2, 6, 1u << 1 | 1u << 4,
+    {{32, 32, 0, EffectTargetFormat::rgba32f, true}, {0, 0, 50, EffectTargetFormat::rgba16f, false}},
+    {{0, 0, 0, 1, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+     {1, 2, 1, 0, EffectPassBlend::add, EffectPassDraw::grid, true, {96, 24}},
+     {0, 3, kEffectGraphOutput, 2, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+     {4, 5, kEffectGraphOutput, 1, EffectPassBlend::add, EffectPassDraw::quads, false, {1024, 1}}}};
+// tests/shaders/background_effect_graph.hlsl: see its header for what it draws.
+const ConstSlice<u8> kGraphShaders[]{MC_SHADER(g_maicord_effect_graph_count), MC_SHADER(g_maicord_effect_graph_half),
+                                     MC_SHADER(g_maicord_effect_graph_fill),  MC_SHADER(g_maicord_effect_graph_grid),
+                                     MC_SHADER(g_maicord_effect_graph_solid), MC_SHADER(g_maicord_effect_graph_quad)};
+const EffectGraph kGraph{
+    5, 2, 6, 1u << 3 | 1u << 5,
+    {{4, 4, 0, EffectTargetFormat::rgba32f, true}, {0, 0, 50, EffectTargetFormat::rgba16f, false}},
+    {{0, 0, 0, 1, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+     {0, 1, 1, 0, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+     {0, 2, kEffectGraphOutput, 3, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+     {3, 4, kEffectGraphOutput, 0, EffectPassBlend::add, EffectPassDraw::grid, false, {3, 2}},
+     {5, 4, kEffectGraphOutput, 0, EffectPassBlend::alpha, EffectPassDraw::quads, false, {2, 1}}}};
+// The budget's graph: the reference effect's costly loop draws into a full-size target, and a cheap pass is all the
+// output gets; the GPU time the controller sees has to be the whole graph's.
+const ConstSlice<u8> kBurnShaders[]{MC_SHADER(g_maicord_effect_reference), MC_SHADER(g_maicord_effect_graph_half)};
+const EffectGraph kBurnGraph{2, 1, 2, 0,
+                             {{0, 0, 100, EffectTargetFormat::rgba8, false}},
+                             {{0, 0, 0, 0, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
+                              {0, 1, kEffectGraphOutput, 0, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}}}};
+#undef MC_SHADER
 
 #define MC_PACKAGE(array) array, static_cast<u32>(sizeof(array))
 // The shipped samples, as their .effect sidecars describe them.
@@ -46,8 +97,10 @@ const Package kSamples[]{
      {.1f, 1, 12}},
     {"day-night", MC_PACKAGE(g_maicord_effect_day_night), effect_use_blue_noise | effect_use_clock | effect_use_appearance,
      EffectBlend::normal, 3, 2, {2, 6.5f, 19, .6f, .5f}},
+    {"spark-ribbon", MC_PACKAGE(g_maicord_effect_spark_ribbon_simulate), effect_use_blue_noise, EffectBlend::normal, 3, 3,
+     {.6f, .6f, 0, 0, 140 / 255.f, 184 / 255.f, 1}, &kSparkGraph, kSparkShaders},
 };
-constexpr u32 kDayNight = sizeof(kSamples) / sizeof(kSamples[0]) - 1;
+constexpr u32 kDayNight = 7;
 #undef MC_PACKAGE
 
 u64 identity_of(const u8* code, u32 bytes) noexcept {
@@ -64,6 +117,8 @@ BackgroundEffectSpec spec_of(const Package& package) noexcept {
     spec.requested_frame_rate = package.frame_rate;
     for (u32 i = 0; i < 12; ++i)
         spec.knobs[i / 4][i % 4] = package.knobs[i];
+    spec.graph = package.graph;
+    spec.shaders = package.shaders;
     return spec;
 }
 
@@ -74,6 +129,19 @@ BackgroundEffectSpec reference_spec(float coverage, float burn = 0) noexcept {
     spec.blend = EffectBlend::normal;
     spec.knobs[0][0] = coverage;
     spec.knobs[1][0] = burn;
+    return spec;
+}
+
+// A graph spec: shader 0 is its first; the identity differs from a single pass of the same shader.
+BackgroundEffectSpec graph_spec(const EffectGraph& graph, const ConstSlice<u8>* shaders, float burn = 0) noexcept {
+    BackgroundEffectSpec spec{};
+    spec.bytecode = shaders[0];
+    spec.identity = identity_of(shaders[0].data, shaders[0].count) ^ 2;
+    spec.blend = EffectBlend::normal;
+    spec.knobs[0][0] = 1;
+    spec.knobs[1][0] = burn;
+    spec.graph = &graph;
+    spec.shaders = shaders;
     return spec;
 }
 
@@ -278,7 +346,8 @@ bool pass_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
 // ---- Budget ------------------------------------------------------------------------------------------
 // A package that costs real GPU time under the Low budget: the probe starts it low, or refuses it, or the
 // controller steps it down, or turns it off. Any of those is the budget at work; none of them is a stuck effect.
-bool budget_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
+// `probe_ms` is the selection probe's frame time at its larger size (0 when the device could not time it).
+bool budget_pixels(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpec& spec, float* probe_ms) noexcept {
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     const UiRect canvas{0, 0, width, height};
     Scene scene(r, theme, &canvas, 1, nullptr);
@@ -286,10 +355,11 @@ bool budget_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
         return failure(160);
     StreamSwap restore{r, scene.stream, kDefaultTheme, true};
     install(r, scene);
-    const BackgroundEffectSpec spec = reference_spec(.6f, 6000);
+    r.effect.probe = {};
     const auto selected = renderer_select_effect(&r, spec, settings_of(4, EffectBlend::normal, 1, EffectBudget::low));
     if (selected.state == EffectSelect::rejected)
         return failure(161);
+    *probe_ms = r.effect.probe.large_ms;
     bool reacted = selected.state == EffectSelect::refused;
     if (reacted) {
         if (r.effect.selected || r.effect.verdict != EffectVerdict::refused)
@@ -449,6 +519,84 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     }
     log_write(LogLevel::info, "probe", "effect_samples_render_and_move_passed");
     return true;
+}
+
+// ---- Pass graph ---------------------------------------------------------------------------------------
+// The test graph (tests/shaders/background_effect_graph.hlsl) `frames` frames after its state was cleared, which takes
+// every pass: the persistent count, the half-size float target read back, the grid added, the quads alpha-blended.
+bool graph_shows(D3D11Renderer& r, float frames) noexcept {
+    PixelReadback pixels{r};
+    const float red = frames / 16;
+    const float base[]{red, 0, .5f}, right[]{red, .5f, .5f}, bar[]{.5f + red * .5f, .5f, .75f};
+    return pixels.color(.25f, .7f, base) && pixels.color(.75f, .7f, right) && pixels.color(.15f, .25f, bar) &&
+           pixels.color(.35f, .25f, bar) && pixels.color(.25f, .25f, base);
+}
+
+// Selects a graph at the full resolution with the controller held.
+bool select_graph(D3D11Renderer& r, const BackgroundEffectSpec& spec) noexcept {
+    if (renderer_select_effect(&r, spec, settings_of(4)).state == EffectSelect::rejected || !r.effect.selected)
+        return false;
+    r.effect.step = 4;
+    r.effect.budget.step = r.effect.budget.ceiling = 4;
+    r.effect.budget.warmup = 0x7fffffff;
+    r.effect.dirty = true;
+    return true;
+}
+
+bool graph_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
+    const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
+    const UiRect canvas{0, 0, width, height};
+    Scene scene(r, theme, &canvas, 1, nullptr);
+    if (!scene.built)
+        return failure(220);
+    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
+    install(r, scene);
+    const BackgroundEffectSpec spec = graph_spec(kGraph, kGraphShaders);
+    // 1. The first frame after the selection draws one of each pass; the probe's frames left no state behind.
+    if (!select_graph(r, spec) || r.effect.graph.pass_count != 5 || !frame(r, theme, 0) || !graph_shows(r, 1))
+        return failure(221);
+    // The fixed persistent target has two planes; the scaled one is half the output, one plane.
+    const D3D11EffectGraphTarget& counter = r.effect.graph_targets[0];
+    const D3D11EffectGraphTarget& scaled = r.effect.graph_targets[1];
+    if (counter.width != 4 || counter.height != 4 || !counter.views[1] || scaled.views[1] ||
+        scaled.width != effect_target_extent(kGraph.targets[1], r.effect.used_width, false) ||
+        scaled.height != effect_target_extent(kGraph.targets[1], r.effect.used_height, true) ||
+        scaled.width * 2 < r.effect.used_width)
+        return failure(222);
+    // 2. The state survives frames: each redraw counts one more, and a frame at the same clock draws nothing.
+    const u32 renders = r.effect.renders;
+    if (!frame(r, theme, .05f) || !frame(r, theme, .1f) || !frame(r, theme, .1f) || r.effect.renders != renders + 2 ||
+        !graph_shows(r, 3))
+        return failure(223);
+    if (capture_wanted() && !write_frame(r, "graph-test", L"frame", 3))
+        return failure(224);
+    // 3. Selecting it again after another effect starts the state over.
+    if (renderer_select_effect(&r, reference_spec(.6f), settings_of(4)).state == EffectSelect::rejected ||
+        !frame(r, theme, .15f) || !select_graph(r, spec) || !frame(r, theme, .2f) || !graph_shows(r, 1))
+        return failure(225);
+    // 4. So does a device reset: the objects go with the device, and the host's next selection rebuilds them.
+    if (!renderer_recover_device(&r) || r.effect.shader || r.effect.graph_targets[0].views[0] ||
+        r.effect.graph_shaders[3].vertex || !select_graph(r, spec))
+        return failure(226);
+    install(r, scene);
+    r.retained_presentation.valid = false;
+    if (!frame(r, theme, .25f) || !frame(r, theme, .3f) || !graph_shows(r, 2))
+        return failure(227);
+    // 5. Clearing it releases the graph's shaders and targets.
+    renderer_clear_effect(&r);
+    if (r.effect.graph.pass_count || r.effect.graph_targets[0].views[0] || r.effect.graph_targets[1].views[0] ||
+        r.effect.graph_shaders[5].vertex)
+        return failure(228);
+    log_write(LogLevel::info, "probe", "effect_graph_passes_targets_geometry_blends_and_persistent_state_passed");
+    return true;
+}
+
+// The probe times the whole graph: a graph whose costly pass draws only into an intermediate target measures like
+// the same shader drawn straight to the output.
+bool graph_budget(float single_ms, float graph_ms) noexcept {
+    log_u64(LogLevel::info, "probe", "effect_budget_single_probe_us", static_cast<u64>(single_ms * 1000));
+    log_u64(LogLevel::info, "probe", "effect_budget_graph_probe_us", static_cast<u64>(graph_ms * 1000));
+    return single_ms <= 0 || graph_ms <= 0 || graph_ms >= single_ms * .5f ? true : failure(229);
 }
 
 // ---- Ambient inputs ---------------------------------------------------------------------------------
@@ -626,8 +774,11 @@ bool effect_package_pixels(D3D11Renderer& r) noexcept {
     if (r.effect.selected || r.effect.target || r.effect.shader || r.effect.draws_last_frame)
         return failure(139);
     const Theme theme = kDefaultTheme;
-    return pass_pixels(r, theme) && budget_pixels(r, theme) && samples_pixels(r, theme) && ambient_pixels(r, theme) &&
-           device_loss_pixels(r, theme);
+    float single_ms = 0, graph_ms = 0;
+    return pass_pixels(r, theme) && budget_pixels(r, theme, reference_spec(.6f, 6000), &single_ms) &&
+           budget_pixels(r, theme, graph_spec(kBurnGraph, kBurnShaders, 6000), &graph_ms) &&
+           graph_budget(single_ms, graph_ms) && graph_pixels(r, theme) && samples_pixels(r, theme) &&
+           ambient_pixels(r, theme) && device_loss_pixels(r, theme);
 }
 
 } // namespace background_theme_detail

@@ -15,6 +15,7 @@ consent a plugin needs.
 | `wave-lines` | screen | 50 %, 24 fps | none |
 | `film-grain` | normal | 100 %, 15 fps | noise |
 | `day-night` | normal | 50 %, 15 fps | blue noise, clock, appearance |
+| `spark-ribbon` | normal | 50 %, 24 fps | blue noise; a pass graph: grid, quads, a persistent particle target |
 
 ## Quick start
 
@@ -66,8 +67,10 @@ What the header gives you (read it: it is the whole interface, about 125 lines):
 | `mc_glyph(uv)`, `mc_glyph_cell(code, inside)` | The 16x16 glyph grid of Latin-1 |
 | `mc_dither(pixel)` | Blue noise in -0.5/255..0.5/255: add it to a gradient to hide banding |
 | `mc_tex0`, `mc_tex1` | Your own PNG textures (at most 512x512, 512 KiB each) |
+| `mc_tex2`, `mc_tex3` | Interface 3: two more, PNG or float data |
 | `mc_ambient.day`, `.year`, `.month`, `mc_daylight(sunrise, sunset)` | `@uses clock`: the local time of day and of the year (0..1) and the month (1..12); daylight 0..1 between two hours |
 | `mc_ambient.dark` | `@uses appearance`: 1 dark, 0 light; glides when it changes |
+| `mc_pass`, `mc_target0..3`, `mc_grid_point`, `mc_quad_corner`, `mc_clip` | Interface 3, a pass graph: the pass being drawn, the targets, and host geometry by vertex ID (see [Pass graphs](#pass-graphs)) |
 
 Only the inputs the effect declares with `@uses` are bound; an undeclared `mc_ambient` value reads 0.
 
@@ -83,8 +86,10 @@ Knobs and metadata are comments at the top of the `.hlsl`; the tool reads them, 
 // @knob <id> toggle = on|off "<Label>"
 // @knob <id> color  = #RRGGBB "<Label>"                        sRGB in the UI and in the shader
 // @knob <id> choice "A|B|C" = <index> "<Label>"
-// @uses noise | glyphs | blue_noise | pointer | texture0 | texture1 | clock | appearance     (space separated)
+// @uses noise | glyphs | blue_noise | pointer | texture0 | texture1 | clock | appearance | texture2 | texture3
 // @blend normal | screen | add                                 the default of the user's Blend choice
+// @target <id> rgba8|rgba16f|rgba32f <W>x<H>|<P>% [persistent]  a pass graph's target (see Pass graphs)
+// @pass <ps> [vs=<entry> grid=<W>x<H> | quads=<N>] [to=<id>] [in=<id>,...] [blend=...] [clear]
 ```
 
 Limits: a name of at most 48 bytes, knob ids `[a-z][a-z0-9_]*` up to 24 characters, labels up to 48 bytes, at most 16
@@ -107,11 +112,12 @@ the two keys you edit by hand; the catalog's CI checks that the sidecar and the 
 | Key | Value |
 |---|---|
 | `name` | The title shown in the picker. |
-| `uses` | Space separated, in this order: `noise`, `glyphs`, `blue_noise`, `pointer`, `texture0`, `texture1`, `clock`, `appearance`. Only declared inputs are bound. |
+| `uses` | Space separated, in this order: `noise`, `glyphs`, `blue_noise`, `pointer`, `texture0`, `texture1`, `clock`, `appearance`, `texture2`, `texture3`. Only declared inputs are bound. |
 | `blend` | `normal`, `screen` or `add`. |
 | `resolution` | 25, 35, 50, 75 or 100 (percent): the effect's request. A user setting wins. Yours to edit. |
 | `fps` | 10, 15, 24, 30 or 60. A request too. Yours to edit. |
 | `knobs` | The 32 default values in thousandths (`350` is 0.35), in `mc_knobs` order. |
+| `targets`, `passes` | A pass graph's, as the manifest holds them (compact JSON; see [Pass graphs](#pass-graphs)). |
 
 The user's per-effect setting wins over the global one, which wins over the request, which wins over 50 % at 24 fps.
 
@@ -174,18 +180,70 @@ maicord-plugin effect preview --real-inputs                     # back to the re
 The options merge into `simulate-inputs.txt` in the dev folder (`time=HH:MM`, `date=MM-DD`, `appearance=dark|light`,
 `day_seconds=N`), which MaiCord reads when the folder changes; a change glides as a real one does.
 
+### Pass graphs
+
+One full-screen function can't draw everything: a mesh that folds over itself, particles that remember where they
+were, a glow from a blurred copy. An interface-3 effect can be a **pass graph**: up to six passes, each a pixel
+shader drawn over its whole target, or a vertex shader over geometry MaiCord makes, into the effect's output or into
+one of up to four small targets of its own. Effects stay data: the package ships no vertex data or code for the CPU,
+only shaders, and every count and size below is checked when MaiCord reads the package.
+
+```hlsl
+// @target parts rgba32f 32x32 persistent        a target: its format and a fixed size, or a share of the output
+// @target glow  rgba16f 50%
+// @pass simulate to=parts in=parts              shader 0: reads the last frame's state and writes the next
+// @pass ribbon vs=ribbon_vs grid=96x24 to=glow blend=add clear
+// @pass compose in=glow                         to=out (the effect's output) unless `to` says otherwise
+// @pass spark vs=spark_vs quads=1024 in=parts blend=add
+#define MC_GRAPH                                  // before the include: no main(); each pass names its entry points
+#include <maicord/sdk/background.hlsli>
+```
+
+- **Targets**: `rgba8`, `rgba16f` or `rgba32f`, either a fixed `<W>x<H>` up to 512x512 or `<P>%` (1 to 100) of the
+  output on both axes. Fixed targets may take 8 MiB together and targets sized by a share 16 bytes per output pixel
+  (a persistent target counts twice). A pass reads the targets it lists in `in=` as `mc_target0`..`mc_target3`
+  (`t7`..`t10`, in `@target` order) with `Load` or a sampler, in vertex and pixel shaders alike; the output can't be
+  read.
+- **Persistent targets** keep their contents from frame to frame: a pass that writes one and lists it in `in=` reads
+  the last frame's state and writes the next (MaiCord keeps two planes and swaps them). The state never leaves the
+  GPU, and starts over (all zero) when the effect is selected, after a graphics reset and when the target's size
+  changes, so a texel that reads zero is one to initialise. That is how `spark-ribbon` simulates its sparks: one
+  texel each, position, age and "alive".
+- **Geometry**: `grid=<W>x<H>` (2 to 256 points each way) draws `H - 1` instanced triangle strips of `2W` vertices;
+  `mc_grid_point(SV_VertexID, SV_InstanceID)` is the vertex's point of the grid. `quads=<N>` (up to 16,384) draws `N`
+  instanced four-vertex strips; `mc_quad_corner(SV_VertexID)` is the corner. `mc_clip(pixel)` turns a position in
+  the pass's target pixels into `SV_Position`. The vertex shader passes whatever it likes on to the pixel shader.
+- **Blends** per pass: `opaque` (the default), `alpha`, `add` or `premultiplied`; `clear` clears the target to
+  transparent black first. Whatever reaches the output is premultiplied colour, as `main()` writes it in a
+  single-pass effect, and the user's Blend composites it.
+- **`mc_pass`**: `.size` is the pass's target in pixels, `.count` the grid's points or the quad count and 1.
+  `mc.resolution` is still the output's.
+- **Cost**: the whole graph is one effect frame. The GPU budget times every pass together, the resolution and
+  frame rate apply to the output (a target sized by a share follows them), and the graph pauses as an effect does.
+
+**Textures.** Interface 3 adds `@uses texture2 texture3` (`mc_tex2`, `mc_tex3`), and any of the four may be float
+data instead of a PNG: `texture<N>.mcft` beside the HLSL holds `MCFT`, the width and height as little-endian 16-bit
+numbers (1 to 512), then width x height RGBA32F texels, at most 512 KiB as for a PNG. The tool packs
+`texture<N>.png` or `texture<N>.mcft` for each declared texture; `mcfx_tool.float_texture(width, height, texels)`
+writes the second.
+
+**Older MaiCord.** A graph, `texture2`, `texture3` or float data make the package `"interface": 3`. A MaiCord before
+interface 3 refuses such a package when it reads it, and a single-pass effect without them keeps interface 1 or 2 and
+runs exactly as it did.
+
 ## Building
 
 `maicord-plugin effect build` does what the catalog's CI does, except the cost measurement:
 
-1. reads the annotations and the sidecar, and checks the defines;
+1. reads the annotations and the sidecar, and checks the defines and the graph's limits;
 2. compiles to `ps_5_0` (`/O3 /Ges /WX`, debug and reflection stripped; at most 64 KiB) with `fxc.exe` (found through
    `MAICORD_FXC_EXECUTABLE`, the Windows SDK, or `PATH`) or the in-box `d3dcompiler_47.dll` (`--compiler` picks one:
    the bytes of the two can differ, and the catalog rebuilds yours from source, with `fxc`, so that doesn't matter);
-3. lints the disassembly: only constant buffer `b0`, textures `t0` to `t4` and samplers `s0` to `s2`, no unordered-access
-   or 3D resources, at most 4,096 instructions and 64 texture reads;
-4. packs the container (manifest `"interface": 2` when the effect uses `clock` or `appearance`, else 1) and writes
-   `build\<slug>.mcfx`.
+   a graph compiles each pass's entry points, to `ps_5_0` and `vs_5_0`;
+3. lints each shader's disassembly: only constant buffer `b0`, textures `t0` to `t4` (`t10` under interface 3) and
+   samplers `s0` to `s2`, no unordered-access or 3D resources, at most 4,096 instructions and 64 texture reads;
+4. packs the container (manifest `"interface": 3` for a graph or its textures, 2 when the effect uses `clock` or
+   `appearance`, else 1) and writes `build\<slug>.mcfx`.
 
 It prints the instruction and texture-read counts and a guess ("likely light"). The real **cost class** (light,
 medium, heavy) is measured in the catalog's CI by rendering 300 frames on WARP, the in-box software rasterizer; an effect
@@ -196,9 +254,10 @@ Without `fxc`, errors print as `soft-rain.hlsl(23,19-28): error X3004: undeclare
 ## The `.mcfx` package
 
 MaiCord loads effects from `.mcfx` packages: a container with a manifest (name, authors, license, knobs, inputs,
-blend, requested resolution and frame rate), the `ps_5_0` bytecode (at most 64 KiB), up to two PNG textures, the
-source and a preview. `include/maicord/app/packages/mcfx.hpp` describes the layout, and the client never runs a
-package on the CPU: it checks the container and the manifest, then asks D3D11 to build the shader.
+blend, requested resolution and frame rate, and a graph's targets and passes), the `ps_5_0` bytecode (at most 64
+KiB; a graph's other shaders follow in a SHADERS section, each a whole container of at most 64 KiB), up to four
+textures, the source and a preview. `include/maicord/app/packages/mcfx.hpp` describes the layout, and the client never
+runs a package on the CPU: it checks the container and the manifest, then asks D3D11 to build the shaders.
 
 You can also drop a `.mcfx` onto Settings > Effects > Install from link or file; it appears behind a "not reviewed"
 card with a live preview and never updates by itself. Packages from the catalog live in
@@ -240,6 +299,7 @@ clients notice; installed catalog effects update on their own and keep the value
 
 ```
 fxc /nologo /T ps_5_0 /E main /O3 /Ges /WX /I include /Fo aurora.cso samples/effects/aurora/aurora.hlsl
+fxc /nologo /T vs_5_0 /E spark_vs /O3 /Ges /WX /I include /Fo spark_vs.cso samples/effects/spark-ribbon/spark-ribbon.hlsl
 ```
 
 or copy a sample's folder somewhere, run `maicord-plugin effect build` in it (it writes `build\` and rewrites the sidecar), and copy the `.mcfx` into the dev folder.
@@ -251,6 +311,8 @@ captures: `effect-<name>-still.bmp` and 48 `effect-<name>-loop-NN.bmp` frames at
 21 June in the dark appearance). The probe also drives `day-night`'s inputs as MaiCord eases them, with the effect's
 clock held: `effect-day-night-hour-NN.bmp` is each hour of 21 June in the light appearance, and
 `effect-day-night-transition-NN.bmp` is Windows turning dark at noon, one frame every 50 ms (30 frames move, then the
-picture holds).
+picture holds). It checks the graph pass against `tests/shaders/background_effect_graph.hlsl`, a graph of every
+feature with known pixels (`effect-graph-test-frame-03.bmp`), and `maicord_packages` parses `spark-ribbon` as
+`maicord-plugin` packs it.
 
 `ascii-rain` is an original rewrite of the matrix-rain idea and is MPL-2.0 like the rest of the samples.

@@ -736,6 +736,12 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
     for (u32 i = 0; i < kEffectTextureCount && ok; ++i) {
         if (!package.texture[i].data)
             continue;
+        // A float data texture is used as the package holds it.
+        u32 width{}, height{};
+        if (mcfx_float_texture(package.texture[i], &width, &height)) {
+            spec->textures[i] = {package.texture[i].data + 8, static_cast<u16>(width), static_cast<u16>(height), true};
+            continue;
+        }
         PngImage image;
         if (!png_parse(package.texture[i], &image).ok() || image.width > kEffectTextureMaximumExtent ||
             image.height > kEffectTextureMaximumExtent || image.bit_depth != 8 ||
@@ -759,8 +765,7 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
             }
         if (scan)
             VirtualFree(scan, 0, MEM_RELEASE);
-        spec->textures[i] = {reinterpret_cast<const u32*>(textures->memory[i]), static_cast<u16>(image.width),
-                             static_cast<u16>(image.height)};
+        spec->textures[i] = {textures->memory[i], static_cast<u16>(image.width), static_cast<u16>(image.height), false};
     }
     deflate_workspace_free(workspace);
     return ok;
@@ -770,7 +775,11 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
 bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValue (&values)[kMcfxKnobMaximum],
                     EffectBlend blend, EffectSettings settings, bool trial) noexcept {
     BackgroundEffectSpec spec{};
-    spec.bytecode = package.bytecode;
+    spec.bytecode = package.shaders[0];
+    if (package.graph.pass_count) {
+        spec.graph = &package.graph;
+        spec.shaders = package.shaders;
+    }
     spec.identity = identity;
     spec.uses = package.uses;
     spec.blend = blend;

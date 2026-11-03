@@ -6,20 +6,27 @@ compiles the file to ps_5_0 bytecode, lints what the client will run (only b0, t
 4,096 instructions and 64 texture reads), keeps the `<slug>.effect` sidecar in step with the comments and packs the
 `.mcfx` container the client's mcfx_parse reads:
 
-  header   16 bytes: "MCFX", u16 format = 1, u16 section count (<= 6), u32 file bytes, u32 0
+  header   16 bytes: "MCFX", u16 format = 1, u16 section count (<= 9), u32 file bytes, u32 0
   table    count x 16 bytes: u32 type, u32 offset, u32 bytes, u32 0
-  types    1 MANIFEST, 2 DXBC, 3 TEXTURE0, 4 TEXTURE1, 5 SOURCE, 6 PREVIEW; ascending, each at most once
+  types    1 MANIFEST, 2 DXBC, 3 TEXTURE0, 4 TEXTURE1, 5 SOURCE, 6 PREVIEW, 7 TEXTURE2, 8 TEXTURE3, 9 SHADERS;
+           ascending, each at most once
   sections packed back to back after the table; the last one ends at the end of the file
+
+A pass graph (interface 3) is declared with `// @target` and `// @pass` lines: each pass names its own entry points
+(ps_5_0, and vs_5_0 over host geometry), the tool compiles and lints every one (the textures t0-t10 then), packs the
+first pass's pixel shader as DXBC and the others, in order of first use, as SHADERS. A declared texture N is packed
+from texture<N>.png (8-bit RGB or RGBA) or texture<N>.mcft (float data: "MCFT", u16 width, u16 height, RGBA32F
+texels; interface 3) beside the HLSL.
 
 Compiling uses fxc.exe when the Windows SDK has it (MAICORD_FXC_EXECUTABLE, the SDK's bin, PATH; the catalog's CI
 uses it, so its bytes are the catalog's), else the in-box d3dcompiler_47.dll through ctypes, so no SDK is needed.
 The cost class (light, medium, heavy) is measured on WARP by the catalog's CI; here the static counts show whether
 an effect is likely to be refused.
 
-The manifest's "interface" is 1, or 2 when the effect uses clock or appearance (mc_ambient, after mc_knobs): a
-MaiCord before interface 2 refuses such a package instead of running it without the inputs. `effect preview`
-can stand in for both inputs (--time, --date, --day-seconds, --appearance) through simulate-inputs.txt in the dev
-folder, which MaiCord reads in Developer Mode.
+The manifest's "interface" is 1; 2 when the effect uses clock or appearance (mc_ambient, after mc_knobs); 3 with a
+pass graph, texture2/texture3 or a float data texture. A MaiCord before an interface refuses such a package instead
+of running it without what it needs. `effect preview` can stand in for the ambient inputs (--time, --date,
+--day-seconds, --appearance) through simulate-inputs.txt in the dev folder, which MaiCord reads in Developer Mode.
 """
 
 from __future__ import annotations
@@ -38,29 +45,43 @@ from pathlib import Path
 import plugin_tool as core
 from plugin_tool import ToolError, say, write_text
 
-# Interface 1, and the names of interface 2 (mc_ambient): an effect that uses one is packed as interface 2.
+# Interface 1, and the names of interface 2 (mc_ambient) and 3: an effect that uses one is packed at that interface.
 INTERFACE = 1
 AMBIENT_USES = ("clock", "appearance")
+GRAPH_USES = ("texture2", "texture3")
 MANIFEST_MAX = 16 * 1024
 DXBC_MAX = 64 * 1024
+SHADERS_MAX = 512 * 1024
+TEXTURE_MAX = 512 * 1024
 SOURCE_MAX = 64 * 1024
 PACKAGE_MAX = 1536 * 1024
 INSTRUCTIONS_MAX = 4096
 SAMPLES_MAX = 64
 KNOB_ROWS = 8
 NAME_MAX = 48
-USES = ("noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1", *AMBIENT_USES)
+USES = ("noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1", *AMBIENT_USES, *GRAPH_USES)
+TEXTURES = ("texture0", "texture1", "texture2", "texture3")
 SIMULATION_FILE = "simulate-inputs.txt"
 BLENDS = ("normal", "screen", "add")
 RESOLUTIONS = (25, 35, 50, 75, 100)
 FRAME_RATES = (10, 15, 24, 30, 60)
-SECTION = {"MANIFEST": 1, "DXBC": 2, "TEXTURE0": 3, "TEXTURE1": 4, "SOURCE": 5, "PREVIEW": 6}
+SECTION = {"MANIFEST": 1, "DXBC": 2, "TEXTURE0": 3, "TEXTURE1": 4, "SOURCE": 5, "PREVIEW": 6, "TEXTURE2": 7,
+           "TEXTURE3": 8, "SHADERS": 9}
+# The pass graph's limits (include/maicord/render/effects/background_effect.hpp).
+GRAPH_PASSES, GRAPH_TARGETS, GRAPH_SHADERS = 6, 4, 12
+TARGET_EXTENT, FIXED_BYTES, SCALED_BYTES = 512, 8 << 20, 16
+GRID_EXTENT, QUADS_MAX = 256, 16384
+TEXEL_BYTES = {"rgba8": 4, "rgba16f": 8, "rgba32f": 16}
+PASS_BLENDS = ("opaque", "alpha", "add", "premultiplied")
+VERSION_TOKENS = {"ps_5_0": 0x50, "vs_5_0": 0x10050}
 
 
 # ---- the HLSL header -------------------------------------------------------------------------------------
 _PAIR = re.compile(r'(\w+)="([^"]*)"')
 _NUMBER = r"-?\d+(?:\.\d+)?"
 _KNOB = re.compile(r'//\s*@knob\s+([a-z][a-z0-9_]*)\s+(float|int|toggle|color|choice)\s*(.*)$')
+_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+_TARGET = re.compile(r"//\s*@target\s+([a-z][a-z0-9_]*)\s+(rgba8|rgba16f|rgba32f)\s+(?:(\d+)x(\d+)|(\d+)%)(\s+persistent)?$")
 
 
 def _number(text: str):
@@ -69,8 +90,8 @@ def _number(text: str):
 
 
 def parse_header(source: str) -> dict:
-    """The `@effect`, `@knob`, `@uses` and `@blend` comment lines of one effect."""
-    header = {"effect": {}, "knobs": [], "uses": [], "blend": None}
+    """The `@effect`, `@knob`, `@uses`, `@blend`, `@target` and `@pass` comment lines of one effect."""
+    header = {"effect": {}, "knobs": [], "uses": [], "blend": None, "targets": [], "passes": []}
     for number, line in enumerate(source.splitlines(), 1):
         line = line.strip()
         where = f"line {number}"
@@ -85,6 +106,18 @@ def parse_header(source: str) -> dict:
             if not match:
                 raise ToolError(f"{where}: cannot read the @knob line")
             header["knobs"].append(_parse_knob(match, where))
+        elif line.startswith("// @target"):
+            match = _TARGET.match(line)
+            if not match:
+                raise ToolError(f"{where}: expected @target <id> rgba8|rgba16f|rgba32f <W>x<H>|<P>% [persistent]")
+            target = {"id": match.group(1), "format": match.group(2), "persistent": bool(match.group(6))}
+            if match.group(5):
+                target["scale"] = int(match.group(5))
+            else:
+                target["size"] = [int(match.group(3)), int(match.group(4))]
+            header["targets"].append(target)
+        elif line.startswith("// @pass"):
+            header["passes"].append(_parse_pass(line[len("// @pass"):].split(), where))
     for use in header["uses"]:
         if use not in USES:
             raise ToolError(f"@uses names {use!r}; the interface has {', '.join(USES)}")
@@ -94,7 +127,117 @@ def parse_header(source: str) -> dict:
         raise ToolError('@effect needs name="..." and license="..." (an SPDX id)')
     if len({k["id"] for k in header["knobs"]}) != len(header["knobs"]):
         raise ToolError("two knobs have the same id")
+    if header["targets"] and not header["passes"]:
+        raise ToolError("@target needs @pass lines that draw into it")
     return header
+
+
+def _parse_pass(words: list, where: str) -> dict:
+    """`@pass <ps> [vs=<entry>] [grid=WxH | quads=N] [to=<target>] [in=<target>,...] [blend=...] [clear]`."""
+    if not words or not re.fullmatch(_IDENTIFIER, words[0]):
+        raise ToolError(f"{where}: @pass starts with the pixel shader's entry point")
+    result = {"ps": words[0], "to": "out", "in": [], "blend": "opaque", "clear": False}
+    for word in words[1:]:
+        key, _, value = word.partition("=")
+        if word == "clear":
+            result["clear"] = True
+        elif key == "vs" and re.fullmatch(_IDENTIFIER, value):
+            result["vs"] = value
+        elif key == "grid" and re.fullmatch(r"\d+x\d+", value):
+            result["grid"] = [int(v) for v in value.split("x")]
+        elif key == "quads" and value.isdigit():
+            result["quads"] = int(value)
+        elif key == "to" and value:
+            result["to"] = value
+        elif key == "in" and value:
+            result["in"] = value.split(",")
+        elif key == "blend" and value in PASS_BLENDS:
+            result["blend"] = value
+        else:
+            raise ToolError(f"{where}: cannot read {word!r} (vs=, grid=WxH, quads=N, to=, in=, "
+                            f"blend={'|'.join(PASS_BLENDS)}, clear)")
+    return result
+
+
+def graph_of(header: dict) -> tuple[list, list, list] | None:
+    """(manifest "targets", manifest "passes", the shaders as (entry, profile) in index order), checked against the
+    client's limits; None without @pass lines. Shader 0 is the first pass's pixel shader; the others follow in order
+    of first use."""
+    targets, passes = header["targets"], header["passes"]
+    if not passes:
+        return None
+    if len(passes) > GRAPH_PASSES or len(targets) > GRAPH_TARGETS:
+        raise ToolError(f"a graph has at most {GRAPH_PASSES} passes and {GRAPH_TARGETS} targets")
+    ids = [t["id"] for t in targets]
+    if len(set(ids)) != len(ids) or "out" in ids:
+        raise ToolError("target ids must differ, and 'out' is the output")
+    fixed = scaled = 0
+    documents = []
+    for target in targets:
+        planes = 2 if target["persistent"] else 1
+        if "size" in target:
+            width, height = target["size"]
+            if not (1 <= width <= TARGET_EXTENT and 1 <= height <= TARGET_EXTENT):
+                raise ToolError(f"target {target['id']}: a fixed size is 1x1 to {TARGET_EXTENT}x{TARGET_EXTENT}")
+            fixed += TEXEL_BYTES[target["format"]] * planes * width * height
+            document = {"format": target["format"], "size": [width, height]}
+        else:
+            if not 1 <= target["scale"] <= 100:
+                raise ToolError(f"target {target['id']}: a scale is 1% to 100% of the output")
+            scaled += TEXEL_BYTES[target["format"]] * planes * target["scale"] ** 2
+            document = {"format": target["format"], "scale": target["scale"]}
+        if target["persistent"]:
+            document["persistent"] = True
+        documents.append(document)
+    if fixed > FIXED_BYTES or scaled > SCALED_BYTES * 10000:
+        raise ToolError(f"the targets need more than {FIXED_BYTES >> 20} MiB at fixed sizes, or more than "
+                        f"{SCALED_BYTES} bytes per output pixel")
+    shaders = [(passes[0]["ps"], "ps_5_0")]
+    for item in passes:
+        for entry, profile in ((item.get("vs"), "vs_5_0"), (item["ps"], "ps_5_0")):
+            if entry and (entry, profile) not in shaders:
+                if (entry, "ps_5_0" if profile == "vs_5_0" else "vs_5_0") in shaders:
+                    raise ToolError(f"{entry} is used as both a vertex and a pixel shader")
+                shaders.append((entry, profile))
+    if len(shaders) > GRAPH_SHADERS:
+        raise ToolError(f"a graph has at most {GRAPH_SHADERS} shaders")
+    pass_documents = []
+    for item in passes:
+        where = f"@pass {item['ps']}"
+        document = {"ps": shaders.index((item["ps"], "ps_5_0"))}
+        if ("grid" in item or "quads" in item) != ("vs" in item) or ("grid" in item and "quads" in item):
+            raise ToolError(f"{where}: a vertex shader draws grid=WxH or quads=N, and only one")
+        if "vs" in item:
+            document["vs"] = shaders.index((item["vs"], "vs_5_0"))
+        if "grid" in item:
+            if not all(2 <= v <= GRID_EXTENT for v in item["grid"]):
+                raise ToolError(f"{where}: a grid is 2x2 to {GRID_EXTENT}x{GRID_EXTENT} points")
+            document["grid"] = item["grid"]
+        if "quads" in item:
+            if not 1 <= item["quads"] <= QUADS_MAX:
+                raise ToolError(f"{where}: quads is 1 to {QUADS_MAX}")
+            document["quads"] = item["quads"]
+        for name in item["in"] + ([] if item["to"] == "out" else [item["to"]]):
+            if name not in ids:
+                raise ToolError(f"{where}: no target {name!r} (the output is 'out', which no pass reads)")
+        inputs = [ids.index(name) for name in item["in"]]
+        if len(set(inputs)) != len(inputs):
+            raise ToolError(f"{where}: an input is named twice")
+        if item["to"] != "out":
+            target = ids.index(item["to"])
+            if target in inputs and not targets[target]["persistent"]:
+                raise ToolError(f"{where}: a pass reads the target it draws only when that target is persistent")
+            document["target"] = target
+        if inputs:
+            document["inputs"] = inputs
+        if item["blend"] != "opaque":
+            document["blend"] = item["blend"]
+        if item["clear"]:
+            document["clear"] = True
+        pass_documents.append(document)
+    if all(item["to"] != "out" for item in passes):
+        raise ToolError("no @pass draws the output (to=out, the default)")
+    return documents, pass_documents, shaders
 
 
 def _parse_knob(match, where: str) -> dict:
@@ -264,8 +407,8 @@ class _Blob:
         self._call(2, ctypes.c_ulong)
 
 
-def compile_d3dcompiler(source: str, name: str) -> tuple[bytes, str]:
-    """ps_5_0 bytecode and its disassembly from the in-box compiler, with fxc's /O3 /Ges /WX /Qstrip_*."""
+def compile_d3dcompiler(source: str, name: str, entry: str = "main", profile: str = "ps_5_0") -> tuple[bytes, str]:
+    """Bytecode and its disassembly from the in-box compiler, with fxc's /O3 /Ges /WX /Qstrip_*."""
     try:
         library = ctypes.WinDLL(str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "d3dcompiler_47.dll"))
     except (OSError, AttributeError):
@@ -277,7 +420,7 @@ def compile_d3dcompiler(source: str, name: str) -> tuple[bytes, str]:
                                    ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_uint,
                                    ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]
     library.D3DCompile.restype = ctypes.c_long
-    status = library.D3DCompile(data, len(data), name.encode(), None, None, b"main", b"ps_5_0", flags, 0,
+    status = library.D3DCompile(data, len(data), name.encode(), None, None, entry.encode(), profile.encode(), flags, 0,
                                 ctypes.byref(code), ctypes.byref(errors))
     if status < 0 or not code.value:
         message = ""
@@ -311,29 +454,35 @@ def compile_d3dcompiler(source: str, name: str) -> tuple[bytes, str]:
     return bytecode, assembly
 
 
-def compile_fxc(fxc: str, hlsl: Path, include: Path, work: Path) -> tuple[bytes, str]:
+def compile_fxc(fxc: str, hlsl: Path, include: Path, work: Path, entry: str = "main",
+                profile: str = "ps_5_0") -> tuple[bytes, str]:
     work.mkdir(parents=True, exist_ok=True)
-    cso, asm = work / (hlsl.stem + ".cso"), work / (hlsl.stem + ".asm")
-    result = subprocess.run([fxc, "/nologo", "/T", "ps_5_0", "/E", "main", "/O3", "/Ges", "/WX", "/I", str(include),
+    stem = hlsl.stem if entry == "main" else f"{hlsl.stem}.{entry}"
+    cso, asm = work / (stem + ".cso"), work / (stem + ".asm")
+    result = subprocess.run([fxc, "/nologo", "/T", profile, "/E", entry, "/O3", "/Ges", "/WX", "/I", str(include),
                              "/Qstrip_debug", "/Qstrip_reflect", "/Fo", str(cso), "/Fc", str(asm), str(hlsl)],
                             capture_output=True, text=True, errors="replace")
     if result.returncode:
-        raise ToolError(f"fxc failed for {hlsl.name}:\n{(result.stdout + result.stderr).strip()}")
-    return cso.read_bytes(), asm.read_text(encoding="utf-8", errors="replace")
+        raise ToolError(f"fxc failed for {hlsl.name} ({entry}):\n{(result.stdout + result.stderr).strip()}")
+    code, assembly = cso.read_bytes(), asm.read_text(encoding="utf-8", errors="replace")
+    cso.unlink()
+    asm.unlink()
+    return code, assembly
 
 
-def compile_effect(hlsl: Path, include: Path, work: Path, compiler: str = "auto") -> tuple[bytes, str, str]:
-    """(bytecode, disassembly, which compiler)."""
+def compile_effect(hlsl: Path, include: Path, work: Path, compiler: str = "auto", entry: str = "main",
+                   profile: str = "ps_5_0") -> tuple[bytes, str, str]:
+    """(bytecode, disassembly, which compiler) of one entry point."""
     fxc = find_fxc() if compiler in ("auto", "fxc") else None
     if compiler == "fxc" and not fxc:
         raise ToolError("fxc.exe was not found (set MAICORD_FXC_EXECUTABLE or install the Windows SDK)")
     if fxc:
-        return (*compile_fxc(fxc, hlsl, include, work), "fxc")
+        return (*compile_fxc(fxc, hlsl, include, work, entry, profile), "fxc")
     source = expand_includes(hlsl.read_text(encoding="utf-8"), include, hlsl.name)
-    return (*compile_d3dcompiler(source, hlsl.name), "d3dcompiler_47")
+    return (*compile_d3dcompiler(source, hlsl.name, entry, profile), "d3dcompiler_47")
 
 
-def check_bytecode(code: bytes) -> None:
+def check_bytecode(code: bytes, profile: str = "ps_5_0") -> None:
     if len(code) > DXBC_MAX:
         raise ToolError(f"the bytecode is {len(code)} bytes, over {DXBC_MAX}")
     if code[:4] != b"DXBC":
@@ -343,19 +492,19 @@ def check_bytecode(code: bytes) -> None:
         offset = struct.unpack_from("<I", code, 32 + 4 * index)[0]
         tag, _ = struct.unpack_from("<4sI", code, offset)
         if tag in (b"SHEX", b"SHDR"):
-            if struct.unpack_from("<I", code, offset + 8)[0] != 0x50:
-                raise ToolError("the shader is not ps_5_0")
+            if struct.unpack_from("<I", code, offset + 8)[0] != VERSION_TOKENS[profile]:
+                raise ToolError(f"the shader is not {profile}")
             return
     raise ToolError("the bytecode has no shader chunk")
 
 
-def lint(assembly: str) -> dict:
-    """The static part of the catalog's gate, from the disassembly: only b0, t0-t4 and s0-s2; no UAVs; at most 4,096
-    instructions and 64 texture reads."""
+def lint(assembly: str, textures: int = 4) -> dict:
+    """The static part of the catalog's gate, from the disassembly: only b0, t0-t4 (t0-t10 at interface 3: TEXTURE2/3
+    and the graph's targets) and s0-s2; no UAVs; at most 4,096 instructions and 64 texture reads. Vertex shaders too."""
     instructions = samples = 0
     for raw in assembly.splitlines():
         line = raw.strip()
-        if not line or line.startswith("//") or line.startswith("ps_"):
+        if not line or line.startswith("//") or line.startswith("ps_") or line.startswith("vs_"):
             continue
         opcode = line.split()[0]
         if opcode.startswith("dcl_"):
@@ -363,8 +512,8 @@ def lint(assembly: str) -> dict:
                 raise ToolError(f"the shader declares {opcode}: unordered-access and 3D resources are not bound")
             if opcode == "dcl_constantbuffer" and not re.search(r"\bcb0\b", line, re.I):
                 raise ToolError("only constant buffer b0 is bound")
-            if opcode.startswith("dcl_resource") and not re.search(r"\bt[0-4]\b", line):
-                raise ToolError("only textures t0-t4 are bound")
+            if opcode.startswith("dcl_resource") and not any(int(t) <= textures for t in re.findall(r"\bt(\d+)\b", line)):
+                raise ToolError(f"only textures t0-t{textures} are bound")
             if opcode == "dcl_sampler" and not re.search(r"\bs[0-2]\b", line):
                 raise ToolError("only samplers s0-s2 are bound")
             continue
@@ -387,15 +536,18 @@ def cost_hint(counts: dict) -> str:
 
 
 # ---- the package --------------------------------------------------------------------------------------------------
-def interface_of(uses: list) -> int:
-    """2 when the effect reads mc_ambient (clock, appearance), else 1, so it still runs on every MaiCord."""
-    return 2 if any(u in AMBIENT_USES for u in uses) else INTERFACE
+def interface_of(header: dict, data_textures: bool = False) -> int:
+    """3 with a pass graph, TEXTURE2/3 or a float data texture; 2 when the effect reads mc_ambient (clock, appearance);
+    else 1, so it still runs on every MaiCord."""
+    if header.get("passes") or data_textures or any(u in GRAPH_USES for u in header["uses"]):
+        return 3
+    return 2 if any(u in AMBIENT_USES for u in header["uses"]) else INTERFACE
 
 
-def manifest(slug: str, header: dict, sidecar: dict, version: str) -> dict:
+def manifest(slug: str, header: dict, sidecar: dict, version: str, data_textures: bool = False) -> dict:
     """The MANIFEST section, members in the order the client documents."""
     effect = header["effect"]
-    result = {"interface": interface_of(header["uses"]), "slug": slug, "name": effect["name"], "version": version,
+    result = {"interface": interface_of(header, data_textures), "slug": slug, "name": effect["name"], "version": version,
               "authors": [{"name": a.strip()} for a in effect.get("authors", "").split(";") if a.strip()] or [{"name": "Unknown"}],
               "license": effect["license"]}
     if effect.get("derived_from"):
@@ -406,7 +558,41 @@ def manifest(slug: str, header: dict, sidecar: dict, version: str) -> dict:
     result["resolution"] = int(sidecar.get("resolution", 50))
     result["fps"] = int(sidecar.get("fps", 24))
     result["knobs"] = header["knobs"]
+    graph = graph_of(header)
+    if graph:
+        result["targets"], result["passes"] = graph[0], graph[1]
     return result
+
+
+def texture_sections(directory: Path, uses: list) -> tuple[dict, bool]:
+    """TEXTURE<N> sections from texture<N>.png or texture<N>.mcft beside the HLSL, for each declared texture; and
+    whether one is float data (interface 3)."""
+    sections, data = {}, False
+    for index, name in enumerate(TEXTURES):
+        if name not in uses:
+            continue
+        png, mcft = directory / f"{name}.png", directory / f"{name}.mcft"
+        if png.is_file() == mcft.is_file():
+            raise ToolError(f"@uses {name} needs {png.name} or {mcft.name} beside the HLSL (one of them)")
+        payload = (png if png.is_file() else mcft).read_bytes()
+        if len(payload) > TEXTURE_MAX:
+            raise ToolError(f"{name} is {len(payload)} bytes, over {TEXTURE_MAX}")
+        if mcft.is_file():
+            width, height = struct.unpack_from("<HH", payload, 4) if len(payload) >= 8 else (0, 0)
+            if payload[:4] != b"MCFT" or not (0 < width <= 512 and 0 < height <= 512) or len(payload) != 8 + 16 * width * height:
+                raise ToolError(f"{mcft.name} must be 'MCFT', u16 width and height (1..512), then width x height RGBA32F texels")
+            data = True
+        else:
+            width, height, depth, colour = struct.unpack_from(">IIBB", payload, 16) if payload[:8] == b"\x89PNG\r\n\x1a\n" else (0,) * 4
+            if not (0 < width <= 512 and 0 < height <= 512) or depth != 8 or colour not in (2, 6):
+                raise ToolError(f"{png.name} must be an 8-bit RGB or RGBA PNG of at most 512x512")
+        sections[name.upper()] = payload
+    return sections, data
+
+
+def float_texture(width: int, height: int, texels: list) -> bytes:
+    """A float data texture (texture<N>.mcft): `texels` is width x height (r, g, b, a) tuples, rows top first."""
+    return struct.pack("<4sHH", b"MCFT", width, height) + b"".join(struct.pack("<4f", *texel) for texel in texels)
 
 
 def pack_mcfx(sections: dict) -> bytes:
@@ -435,6 +621,11 @@ def sidecar_text(header: dict, sidecar: dict) -> str:
     # Every mc_knobs value, as far as the format goes (the catalog checks all of them).
     values = knob_values(header["knobs"])
     lines.append("knobs=" + " ".join(str(round(v * 1000)) for v in values))
+    # A pass graph as the manifest holds it (compact JSON), so the catalog can check the two agree.
+    graph = graph_of(header)
+    if graph:
+        lines.append("targets=" + json.dumps(graph[0], separators=(",", ":")))
+        lines.append("passes=" + json.dumps(graph[1], separators=(",", ":")))
     return "\n".join(lines) + "\n"
 
 
@@ -472,20 +663,32 @@ def build_effect(effect: Effect, include: Path, compiler: str = "auto") -> dict:
     check_defines(source, header["knobs"])
     work = effect.directory / "build"
     work.mkdir(exist_ok=True)
-    code, assembly, used = compile_effect(effect.hlsl, include, work, compiler)
-    check_bytecode(code)
-    counts = lint(assembly)
+    graph = graph_of(header)
+    textures, data = texture_sections(effect.directory, header["uses"])
+    interface = interface_of(header, data)
+    # Every shader is compiled and linted on its own; a graph's are counted together for the cost hint.
+    codes, counts, used = [], {"instructions": 0, "samples": 0}, ""
+    for entry, profile in graph[2] if graph else [("main", "ps_5_0")]:
+        code, assembly, used = compile_effect(effect.hlsl, include, work, compiler, entry, profile)
+        check_bytecode(code, profile)
+        for key, value in lint(assembly, 10 if interface == 3 else 4).items():
+            counts[key] += value
+        codes.append(code)
     write_text(effect.sidecar, sidecar_text(header, existing))
-    document = manifest(effect.slug, header, existing, version)
+    document = manifest(effect.slug, header, existing, version, data)
     text = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     source_bytes = source.encode("utf-8")
-    if len(text) > MANIFEST_MAX or len(source_bytes) > SOURCE_MAX:
-        raise ToolError("the manifest or the source is too large")
-    package = pack_mcfx({"MANIFEST": text, "DXBC": code, "SOURCE": source_bytes})
+    if len(text) > MANIFEST_MAX or len(source_bytes) > SOURCE_MAX or sum(map(len, codes[1:])) > SHADERS_MAX:
+        raise ToolError("the manifest, the source or the graph's shaders are too large")
+    sections = {"MANIFEST": text, "DXBC": codes[0], "SOURCE": source_bytes, **textures}
+    if len(codes) > 1:
+        sections["SHADERS"] = b"".join(codes[1:])
+    package = pack_mcfx(sections)
     effect.output.write_bytes(package)
     for leftover in (work / f"{effect.slug}.cso", work / f"{effect.slug}.asm"):
         leftover.unlink(missing_ok=True)
-    return {"package": package, "manifest": document, "lint": counts, "compiler": used, "name": name}
+    return {"package": package, "manifest": document, "lint": counts, "compiler": used, "name": name,
+            "shaders": len(codes)}
 
 
 # ---- templates --------------------------------------------------------------------------------------------------
@@ -556,8 +759,9 @@ def command_effect_build(arguments) -> int:
     effect = Effect(arguments.dir, arguments.source)
     result = build_effect(effect, core.sdk_include(arguments.sdk), arguments.compiler)
     counts = result["lint"]
+    shaders = f" in {result['shaders']} shaders" if result["shaders"] > 1 else ""
     say(f"{result['name']}: {len(result['package']):,} bytes, {counts['instructions']} instructions, "
-        f"{counts['samples']} texture reads ({cost_hint(counts)}; the catalog measures the class on WARP).")
+        f"{counts['samples']} texture reads{shaders} ({cost_hint(counts)}; the catalog measures the class on WARP).")
     say(f"Built {effect.output} with {result['compiler']}; {effect.sidecar.name} is up to date.")
     return 0
 
@@ -653,7 +857,8 @@ def command_effect_preview(arguments) -> int:
         say("In MaiCord (Developer Mode): Settings > Appearance > Background effect, or Settings > Effects > Developer.")
         return 0
     say("Watching for changes; Ctrl+C stops.")
-    core.watch(lambda: [effect.hlsl, *effect.directory.glob("*.hlsli"), *effect.directory.glob("*.png")], step,
+    core.watch(lambda: [effect.hlsl, *effect.directory.glob("*.hlsli"), *effect.directory.glob("*.png"),
+                        *effect.directory.glob("*.mcft")], step,
                interval=0.3, rounds=arguments.rounds)
     return 0
 

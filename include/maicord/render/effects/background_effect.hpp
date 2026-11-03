@@ -27,7 +27,8 @@ enum class EffectBudget : u8 { low, balanced, high };
 enum class EffectUnfocused : u8 { keep, slow, pause };
 inline constexpr float kEffectBudgetMs[3]{0.5f, 1.5f, 4.f};
 // Built-in inputs a package declares (@uses); an undeclared input is not bound and costs no memory. Clock and
-// appearance are interface 2: they fill mc_ambient, which interface-1 shaders never declare.
+// appearance are interface 2: they fill mc_ambient, which interface-1 shaders never declare. TEXTURE2 and TEXTURE3
+// are interface 3.
 enum EffectUse : u32 {
     effect_use_noise = 1,
     effect_use_glyphs = 2,
@@ -37,10 +38,13 @@ enum EffectUse : u32 {
     effect_use_texture1 = 32,
     effect_use_clock = 64,
     effect_use_appearance = 128,
-    effect_use_all = 255,
+    effect_use_texture2 = 256,
+    effect_use_texture3 = 512,
+    effect_use_all = 1023,
 };
-// The inputs a package can only declare under manifest interface 2.
+// The inputs a package can only declare under manifest interface 2, and under interface 3.
 inline constexpr u32 kEffectAmbientUses = effect_use_clock | effect_use_appearance;
+inline constexpr u32 kEffectGraphUses = effect_use_texture2 | effect_use_texture3;
 
 // A step value from the first of: the per-shader override, the global setting, the spec's request,
 // then the default index. All are index + 1 (0 = unset); the result is an index.
@@ -52,9 +56,9 @@ constexpr u32 effect_resolve_step(u8 shader, u8 global, u8 requested, u32 fallba
 // ---- Constants -----------------------------------------------------------------------------
 inline constexpr u32 kEffectKnobRows = 8;
 
-// McBackground (b0): McFrame (176 bytes), mc_knobs[8], then mc_ambient (interface 2). Interface-1 shaders end
-// their cbuffer at mc_knobs, so their layout is unchanged. The roles are the theme's, in the sRGB values the UI
-// draws with.
+// McBackground (b0): McFrame (176 bytes), mc_knobs[8], then mc_ambient (interface 2) and mc_pass (interface 3).
+// Older shaders end their cbuffer before the rows they don't know, so their layout is unchanged. The roles are the
+// theme's, in the sRGB values the UI draws with.
 enum EffectAmbientValue : u32 { effect_ambient_day, effect_ambient_year, effect_ambient_month, effect_ambient_dark };
 struct EffectFrameConstants {
     float time, delta, frame, dip;
@@ -63,12 +67,60 @@ struct EffectFrameConstants {
     float dark, intensity, reserved[2];
     float knobs[kEffectKnobRows][4];
     float ambient[4]; // EffectAmbientValue order; zero for an input the package does not declare
+    float pass[4];    // mc_pass: the pass's target in pixels, then its draw count (EffectGraphPass::count)
 };
-static_assert(sizeof(EffectFrameConstants) == 320);
+static_assert(sizeof(EffectFrameConstants) == 336);
 static_assert(__builtin_offsetof(EffectFrameConstants, palette) == 32 &&
               __builtin_offsetof(EffectFrameConstants, dark) == 160 &&
               __builtin_offsetof(EffectFrameConstants, knobs) == 176 &&
-              __builtin_offsetof(EffectFrameConstants, ambient) == 304);
+              __builtin_offsetof(EffectFrameConstants, ambient) == 304 &&
+              __builtin_offsetof(EffectFrameConstants, pass) == 320);
+
+// ---- Pass graph (interface 3) ---------------------------------------------------------------------
+// Up to kEffectGraphPasses passes, each a pixel shader drawn over its whole target (the host's strip) or a vertex
+// shader over host geometry, into the output or one of up to kEffectGraphTargets intermediate targets. Geometry is
+// vertex IDs only: grid(W, H) is H - 1 instanced strips of 2W vertices, quads(N) is N instanced 4-vertex strips. A
+// persistent target has two planes that swap after each pass that writes it, so the pass reads the last state and
+// writes the next; its planes are cleared when the effect is selected, after a device reset and on a size change,
+// and never read back. Memory is bounded: fixed targets together (both planes) at most kEffectGraphFixedBytes, and
+// targets sized by a share of the output at most kEffectGraphScaledBytes per output pixel.
+inline constexpr u32 kEffectGraphPasses = 6, kEffectGraphTargets = 4, kEffectGraphShaders = 12;
+inline constexpr u32 kEffectGraphExtent = 512, kEffectGraphFixedBytes = 8u << 20, kEffectGraphScaledBytes = 16;
+inline constexpr u32 kEffectGridExtent = 256, kEffectQuadsMaximum = 16384;
+inline constexpr u8 kEffectGraphOutput = 0xFF;
+enum class EffectTargetFormat : u8 { rgba8, rgba16f, rgba32f };
+inline constexpr u8 kEffectTargetTexelBytes[3]{4, 8, 16};
+enum class EffectPassBlend : u8 { opaque, alpha, add, premultiplied };
+enum class EffectPassDraw : u8 { screen, grid, quads };
+struct EffectGraphTarget {
+    u16 width, height; // a fixed size (0 when scaled)
+    u8 scale;          // percent of the output on both axes, 1..100 (0 when fixed)
+    EffectTargetFormat format;
+    bool persistent;
+};
+struct EffectGraphPass {
+    u8 vertex, pixel; // shader indices; vertex 0 is the host's full-screen strip (shader 0 is a pixel shader)
+    u8 target;        // a target index, or kEffectGraphOutput
+    u8 inputs;        // a bit per target, bound at t7 + index (a persistent target it writes: the last state)
+    EffectPassBlend blend;
+    EffectPassDraw draw;
+    bool clear;       // to transparent black before the pass draws
+    u16 count[2];     // grid: columns and rows of points; quads: the count and 1; screen: 0
+};
+// pass_count 0: the single-pass effect of interfaces 1 and 2.
+struct EffectGraph {
+    u8 pass_count, target_count, shader_count;
+    u16 vertex_shaders; // a bit per shader index
+    EffectGraphTarget targets[kEffectGraphTargets];
+    EffectGraphPass passes[kEffectGraphPasses];
+};
+// A target's width (`vertical`: height) for an output extent of `output` pixels on that axis.
+constexpr u32 effect_target_extent(const EffectGraphTarget& target, u32 output, bool vertical) noexcept {
+    if (!target.scale)
+        return vertical ? target.height : target.width;
+    const u32 scaled = (output * target.scale + 50) / 100;
+    return scaled ? scaled : 1;
+}
 
 // The composite pass's constants: a canvas rectangle in DIPs, the map from a DIP to a position in the effect
 // target (uv = dip * scale + offset), the used part of the target (inset half a texel, for the bilinear
@@ -232,22 +284,27 @@ constexpr bool effect_ambient_easing(const EffectAmbient& ambient, u64 now_ms) n
 
 // ---- What the renderer is given ---------------------------------------------------------------
 struct EffectTexturePixels {
-    const u32* rgba; // premultiplication-free RGBA8, rows contiguous (the package's PNG, decoded)
+    // Premultiplication-free RGBA8 (the package's PNG, decoded), or with `rgba32f` RGBA32F texels (an interface-3
+    // data texture, borrowed from the package); rows contiguous.
+    const void* pixels;
     u16 width, height;
+    bool rgba32f;
 };
 
-inline constexpr u32 kEffectTextureCount = 2;
+inline constexpr u32 kEffectTextureCount = 4; // TEXTURE2 and TEXTURE3 are interface 3
 inline constexpr u32 kEffectTextureMaximumExtent = 512;
 
 // A loaded effect package. The bytes are borrowed for the call.
 struct BackgroundEffectSpec {
-    ConstSlice<u8> bytecode; // DXBC, ps_5_0
+    ConstSlice<u8> bytecode; // DXBC, ps_5_0 (a graph's shader 0)
     u64 identity;            // a hash of the package; persisted choices and refusals are keyed by it
     u32 uses;                // EffectUse mask
     EffectBlend blend;       // the package's default blend
     u8 requested_resolution, requested_frame_rate; // step + 1, 0 = no request
     float knobs[kEffectKnobRows][4];
     EffectTexturePixels textures[kEffectTextureCount];
+    const EffectGraph* graph;      // null: the single pass
+    const ConstSlice<u8>* shaders; // with a graph: its graph->shader_count shaders ([0] is `bytecode`)
 };
 
 // The user's side: universal knobs and the steps they resolved to.

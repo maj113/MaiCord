@@ -156,6 +156,7 @@ enum D3D11_BLEND {
     D3D11_BLEND_ZERO = 1,
     D3D11_BLEND_ONE = 2,
     D3D11_BLEND_INV_SRC_COLOR = 4,
+    D3D11_BLEND_SRC_ALPHA = 5,
     D3D11_BLEND_INV_SRC_ALPHA = 6,
     D3D11_BLEND_BLEND_FACTOR = 14,
 };
@@ -499,8 +500,9 @@ struct __declspec(uuid("c0bfa96c-e089-44fb-8eaf-26f8796190da")) __declspec(novta
     MAICORD_COM_UNUSED(GSSetConstantBuffers);
     MAICORD_COM_UNUSED(GSSetShader);
     virtual void __stdcall IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY Topology) = 0;
-    MAICORD_COM_UNUSED(VSSetShaderResources);
-    MAICORD_COM_UNUSED(VSSetSamplers);
+    virtual void __stdcall VSSetShaderResources(UINT StartSlot, UINT NumViews,
+        ID3D11ShaderResourceView* const* ppShaderResourceViews) = 0;
+    virtual void __stdcall VSSetSamplers(UINT StartSlot, UINT NumSamplers, ID3D11SamplerState* const* ppSamplers) = 0;
     virtual void __stdcall Begin(ID3D11Asynchronous* pAsync) = 0;
     virtual void __stdcall End(ID3D11Asynchronous* pAsync) = 0;
     virtual HRESULT __stdcall GetData(ID3D11Asynchronous* pAsync, void* pData, UINT DataSize, UINT GetDataFlags) = 0;
