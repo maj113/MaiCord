@@ -1,7 +1,6 @@
 #include "maicord/app/voice/account_soundboard.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../support/soundboard_clip_fixture.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

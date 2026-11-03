@@ -19,11 +19,7 @@
 #include "maicord/model/guild/permission_grid.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "maicord/core/time.hpp"
-
-#include "maicord/core/memory.hpp"
 #include "../account/account_access.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace channel_overview_detail {}

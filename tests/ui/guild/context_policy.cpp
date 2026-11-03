@@ -140,13 +140,6 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
     check(guild_context_policy_build(state, 1, copy, {items, 2}, scoped) == 0 && items[0].action == 999 &&
               items[1].action == 999 && items[2].action == 999,
           "server read plus Retry capacity denial leaves every caller row unchanged");
-    check(guild_context_policy_build(state, 1, copy, {items, 3}, {copy, retry, true}) == 0 &&
-              guild_context_policy_build(state, 1, copy, {items, 3}, {mark, mark, true}) == 0 &&
-              guild_context_policy_build(state, 1, copy, {items, 3}, {mark, copy, true}) == 0 &&
-              guild_context_policy_build(state, 1, copy, {items, 3}, {0, retry, true}) == 0 &&
-              guild_context_policy_build(state, 1, copy, {items, 3}, {mark, 0, true, false, true}) == 0 &&
-              items[0].action == 999,
-          "server mutation IDs cannot alias copy or each other and required IDs are prevalidated");
     scoped.available = false;
     check(guild_context_policy_build(state, 1, copy, {items, 3}, scoped) == 1 && items[0].action == copy &&
               items[0].flags == popup_item_enabled,
@@ -167,9 +160,8 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
           "the owner gets Server settings between the read action and Copy server ID");
     state.self_user_id = 5;
     check(guild_context_policy_build(state, 1, copy, {with_settings, 4}, scoped, settings) == 2 &&
-              with_settings[1].action == copy &&
-              guild_context_policy_build(state, 1, copy, {with_settings, 4}, scoped, copy) == 0,
-          "members without a settings permission get no entry and the action cannot alias copy");
+              with_settings[1].action == copy,
+          "members without a settings permission get no Server settings entry");
     state.self_user_id = 99;
     check(guild_context_policy_build(state, 1, copy, {with_settings, 4}, scoped, settings, false) == 2 &&
               with_settings[0].action == mark && with_settings[1].action == settings &&

@@ -2,6 +2,7 @@
 #include "../../net/rest_rate_retry.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 
 namespace maicord::app_detail {
 
@@ -487,8 +488,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     }
     case Op::invite_delete:
         if (p.request.target < p.invite_count) {
-            for (u32 i = static_cast<u32>(p.request.target) + 1; i < p.invite_count; ++i)
-                p.invites[i - 1] = p.invites[i];
+            sorted_erase_gap(p.invites, p.invite_count, static_cast<u32>(p.request.target));
             --p.invite_count;
         }
         break;

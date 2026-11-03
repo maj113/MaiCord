@@ -6,7 +6,6 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/guild/card_scene.hpp"

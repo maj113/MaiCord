@@ -1,8 +1,6 @@
 #include "maicord/app/guild/account_channel_overview.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace channel_overview_account_test {

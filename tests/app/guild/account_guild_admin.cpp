@@ -1,9 +1,7 @@
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace guild_admin_test {

@@ -2,6 +2,7 @@
 #include "../member_moderation.hpp"
 #include "../../settings/settings.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/guild/member_context_policy.hpp"
 
@@ -152,8 +153,7 @@ void select(u64 user, bool on) noexcept {
     for (u32 i = 0; i < p.selected_count; ++i)
         if (p.selected[i] == user) {
             if (!on) {
-                for (u32 j = i + 1; j < p.selected_count; ++j)
-                    p.selected[j - 1] = p.selected[j];
+                sorted_erase_gap(p.selected, p.selected_count, i);
                 --p.selected_count;
             }
             return;
@@ -684,8 +684,7 @@ void choose(Menu menu, u32 action) noexcept {
         bool removed = false;
         for (u32 i = 0; i < p.filter_role_count; ++i)
             if (p.filter_roles[i] == role_id) {
-                for (u32 j = i + 1; j < p.filter_role_count; ++j)
-                    p.filter_roles[j - 1] = p.filter_roles[j];
+                sorted_erase_gap(p.filter_roles, p.filter_role_count, i);
                 --p.filter_role_count;
                 removed = true;
                 break;

@@ -12,7 +12,7 @@ bool channel_context_target_current(const ChatStateStore&, u64 channel_id, u16 g
 // then optional Edit Channel for resolved manageable guild text channels.
 // Supply retry_unread_action only for a scope-owned failed unread intent; zero
 // optional action IDs omit their rows. Unknown/hidden channels and insufficient
-// storage leave output unchanged. Action IDs come from the caller.
+// storage leave output unchanged. Action IDs come from the caller and must be distinct (PopupAction values).
 u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u32 mark_read_action,
                                  u32 close_dm_action, const Slice<PopupItem>& output, u32 edit_action = 0,
                                  u32 mark_unread_action = 0, u32 retry_unread_action = 0,

@@ -14,11 +14,7 @@
 #include "maicord/app/media/profile_image.hpp"
 #include "maicord/protocol/guild/assets.hpp"
 #include "../../voice/soundboard.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
-#include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 

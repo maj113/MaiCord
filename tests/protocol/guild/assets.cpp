@@ -1,7 +1,6 @@
 #include "maicord/app/guild/account_guild_assets.hpp"
 #include "maicord/app/media/guild_image.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/protocol/encoding/base64.hpp"

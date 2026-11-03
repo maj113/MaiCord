@@ -103,7 +103,7 @@ bool thread_member_store_remove(ThreadMemberStore* store, u64 id) noexcept {
     const auto bank = store->banks[store->active_bank];
     const u32 pos = lower_bound(bank, store->count, id);
     if (pos == store->count || bank[pos] != id) return false;
-    for (u32 i = pos + 1; i < store->count; ++i) bank[i - 1] = bank[i];
+    sorted_erase_gap(bank.data, store->count, pos);
     --store->count; saturating_increment(store->revision); return true;
 }
 } // namespace maicord

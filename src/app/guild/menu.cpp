@@ -16,7 +16,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/member_moderation.hpp"
-#include "maicord/ui/text/clipboard.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/chat/messages/context_menu.hpp"
 #include "../account/account_ui_runtime.hpp"

@@ -1,6 +1,7 @@
 #include "community_internal.hpp"
 #include "../chat/messages/history.hpp"
 #include "maicord/model/guild/settings_model.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/win32_system_time.hpp"
 
@@ -133,8 +134,7 @@ void discard_modal_submissions() noexcept {
 }
 void pop_request() noexcept {
     auto& b = *background;
-    for (u32 i = 1; i < b.queue_count; ++i)
-        b.queue[i - 1] = b.queue[i];
+    sorted_erase_gap(b.queue, b.queue_count, 0);
     --b.queue_count;
 }
 

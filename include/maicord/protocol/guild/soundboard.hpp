@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/gateway/events.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord {

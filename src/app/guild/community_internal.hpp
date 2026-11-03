@@ -3,16 +3,10 @@
 #include "community.hpp"
 #include "../settings/modal.hpp"
 #include "../shell/state.hpp"
-#include "maicord/core/deadline.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "../account/account_access.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace community_detail {}

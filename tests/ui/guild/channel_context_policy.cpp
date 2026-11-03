@@ -91,10 +91,8 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
           "channel context: insufficient output capacity leaves caller menu unchanged");
     check(channel_context_policy_build(state, 9, mark, close, {items, 2}) == 0 &&
               channel_context_policy_build(state, 7, 0, close, {items, 2}) == 0 &&
-              channel_context_policy_build(state, 7, mark, mark, {items, 2}) == 0 &&
               channel_context_policy_build(state, 7, mark, close, {}) == 0 && items[0].action == 900,
-          "channel context: missing identity, invalid action IDs and missing storage cannot publish "
-          "partial items");
+          "channel context: missing identity, missing action ID and missing storage cannot publish partial items");
 
     constexpr u32 edit = 703;
     channel.type = 0;
@@ -179,12 +177,9 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
     items[0] = {utf8_literal("unchanged"), 900, 0, 0};
     items[1] = items[0];
     channel.actions |= channel_action_read_history;
-    check(channel_context_policy_build(state, 7, mark, close, {items, 1}, edit) == 0 &&
-              items[0].action == 900 && items[1].action == 900 &&
-              channel_context_policy_build(state, 7, mark, close, {items, 2}, mark) == 0 &&
-              channel_context_policy_build(state, 7, mark, close, {items, 2}, close) == 0 &&
-              items[0].action == 900,
-          "channel context: edit capacity and duplicate action rejection preserve caller output");
+    check(channel_context_policy_build(state, 7, mark, close, {items, 1}, edit) == 0 && items[0].action == 900 &&
+              items[1].action == 900,
+          "channel context: edit capacity denial preserves caller output");
     constexpr u32 unread = 704;
     PopupItem extended[3]{};
     channel.last_message_id = 900;
@@ -238,11 +233,6 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
     check(channel_context_policy_build(state, 7, mark, close, {extended, 1}, 0, unread) == 0 &&
               extended[0].action == 900 && extended[1].action == 900,
           "unread extra row capacity denial leaves caller output intact");
-    check(channel_context_policy_build(state, 7, mark, close, {extended, 3}, edit, mark) == 0 &&
-              channel_context_policy_build(state, 7, mark, close, {extended, 3}, edit, close) == 0 &&
-              channel_context_policy_build(state, 7, mark, close, {extended, 3}, edit, edit) == 0 &&
-              extended[0].action == 900,
-          "unread action cannot alias existing read close or edit namespace");
     constexpr u32 retry_unread = 705;
     channel.type = 1;
     channel.guild_id = 0;
@@ -253,10 +243,6 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
               utf8_equal(extended[1].label, utf8_literal("Retry mark as unread")),
           "failed optimistic channel unread retains a separate reachable scoped Retry action after "
           "ordinary availability is absent");
-    extended[0] = {utf8_literal("unchanged"), 900, 0, 0};
-    check(channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, unread, unread) == 0 &&
-              extended[0].action == 900,
-          "retry unread cannot impersonate ordinary unread action namespace");
     channel.type = 4;
     channel.guild_id = 1;
     channel.permissions_resolved = true;
@@ -281,12 +267,8 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
     extended[0].action = 900;
     extended[1].action = 900;
     check(channel_context_policy_build(state, 7, mark, close, {extended, 1}, 0, 0, 0, scoped) == 0 &&
-              extended[0].action == 900 && extended[1].action == 900 &&
-              channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, 0, 0,
-                                           {mark, scoped_retry, true}) == 0 &&
-              channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, 0, 0,
-                                           {scoped_mark, scoped_mark, true}) == 0,
-          "category capacity and action alias failures are transactional");
+              extended[0].action == 900 && extended[1].action == 900,
+          "category capacity failure is transactional");
     scoped.available = false;
     check(channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, 0, 0, scoped) == 0,
           "category read is hidden when scoped host authority is unavailable");

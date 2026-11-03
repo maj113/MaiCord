@@ -1,8 +1,6 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/model/chat/message_composer.hpp"
 #include "maicord/protocol/guild/admin.hpp"
-#include "maicord/ui/core/geometry.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {

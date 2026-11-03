@@ -18,15 +18,7 @@ u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 co
                                const Slice<PopupItem>& output, UiScopedReadMenuState scoped,
                                u32 settings_action, bool developer_mode) noexcept {
     const auto* guild = chat_state_store_find_guild(state, guild_id);
-    if (!copy_id_action || !output.data || !output.count || !guild || guild->unavailable ||
-        (settings_action && (settings_action == copy_id_action || settings_action == scoped.mark_action ||
-                             settings_action == scoped.retry_action)))
-        return 0;
-    if ((scoped.mark_action && scoped.mark_action == copy_id_action) ||
-        (scoped.retry_action &&
-         (scoped.retry_action == copy_id_action || scoped.retry_action == scoped.mark_action)) ||
-        (scoped.available && !scoped.mark_action) ||
-        (scoped.available && scoped.retry_available && !scoped.retry_action))
+    if (!copy_id_action || !output.data || !output.count || !guild || guild->unavailable)
         return 0;
     const bool mark = scoped.available && guild->permissions_resolved;
     const bool retry = mark && scoped.retry_available && !scoped.pending;

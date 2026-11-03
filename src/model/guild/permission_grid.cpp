@@ -1,5 +1,6 @@
 #include "maicord/model/guild/permission_grid.hpp"
 #include "maicord/core/packed_reader.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
 
 namespace maicord {
@@ -121,8 +122,7 @@ bool permission_overwrite_draft_remove(PermissionOverwriteDraft* draft, u64 id) 
     const u32 index = draft ? permission_overwrite_draft_find(*draft, id) : ~0u;
     if (index == ~0u)
         return false;
-    for (u32 i = index + 1; i < draft->count; ++i)
-        draft->entries[i - 1] = draft->entries[i];
+    sorted_erase_gap(draft->entries, draft->count, index);
     --draft->count;
     return true;
 }

@@ -23,27 +23,7 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
                                  u32 mark_unread_action, u32 retry_unread_action,
                                  UiScopedReadMenuState scoped) noexcept {
     const auto* channel = chat_state_store_find_channel(state, channel_id);
-    if (!channel || !output.data || !mark_read_action || !close_dm_action ||
-        mark_read_action == close_dm_action ||
-        (edit_action && (edit_action == mark_read_action || edit_action == close_dm_action)) ||
-        (mark_unread_action &&
-         (mark_unread_action == mark_read_action || mark_unread_action == close_dm_action ||
-          mark_unread_action == edit_action)) ||
-        (retry_unread_action &&
-         (retry_unread_action == mark_read_action || retry_unread_action == close_dm_action ||
-          retry_unread_action == edit_action || retry_unread_action == mark_unread_action)) ||
-        !context_eligible(state, channel))
-        return 0;
-    const u32 existing_actions[]{mark_read_action, close_dm_action, edit_action, mark_unread_action,
-                                 retry_unread_action};
-    for (const u32 action : existing_actions) {
-        if (action && ((scoped.mark_action && scoped.mark_action == action) ||
-                       (scoped.retry_action && scoped.retry_action == action)))
-            return 0;
-    }
-    if ((scoped.retry_action && scoped.retry_action == scoped.mark_action) ||
-        (scoped.available && !scoped.mark_action) ||
-        (scoped.available && scoped.retry_available && !scoped.retry_action))
+    if (!channel || !output.data || !mark_read_action || !close_dm_action || !context_eligible(state, channel))
         return 0;
     const bool readable = channel_is_message_capable(channel->type) &&
                           (channel->actions & channel_action_read_history) != 0;

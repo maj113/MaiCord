@@ -1,5 +1,6 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
@@ -616,9 +617,7 @@ bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_
     }
     const u32 index = static_cast<u32>(role - store->roles);
     store->name_wasted += role->name_bytes;
-    for (u32 move = index + 1; move < store->role_count; ++move) {
-        store->roles[move - 1] = store->roles[move];
-    }
+    sorted_erase_gap(store->roles, store->role_count, index);
     --store->role_count;
     reset_value<RoleRecord>(&store->roles[store->role_count]);
     return true;
@@ -713,9 +712,7 @@ bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channe
     if (channel->overwrite_count != 0) {
         insert = channel->overwrite_offset + channel->overwrite_count;
     }
-    for (u32 index = store->overwrite_count; index > insert; --index) {
-        store->overwrites[index] = store->overwrites[index - 1];
-    }
+    sorted_insert_gap(store->overwrites, store->overwrite_count, insert);
     if (insert != store->overwrite_count) {
         for (u32 order = 0; order < store->channel_count; ++order) {
             ChannelRecord& other = store->channels[store->channel_order[order]];

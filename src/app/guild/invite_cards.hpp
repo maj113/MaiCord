@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
 
 namespace maicord::app_detail {

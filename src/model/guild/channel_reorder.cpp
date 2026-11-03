@@ -1,5 +1,6 @@
 #include "maicord/model/guild/channel_reorder.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 
 namespace maicord {
@@ -217,8 +218,7 @@ u32 channel_reorder_plan(const ChatStateStore& state, u64 source_id, u64 target_
     }
     Entry moved = old_order.entries[from];
     moved.parent = r.group == ChannelSortGroup::category ? 0 : r.destination_parent;
-    for (u32 i = new_order.count; i > at; --i)
-        new_order.entries[i] = new_order.entries[i - 1];
+    sorted_insert_gap(new_order.entries, new_order.count, at);
     new_order.entries[at] = moved;
     ++new_order.count;
     const bool reparent = r.group != ChannelSortGroup::category && moved.parent != source_parent;

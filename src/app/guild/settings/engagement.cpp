@@ -2,7 +2,6 @@
 #include "../../shell/toast.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/text/clipboard.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail::server_settings {
