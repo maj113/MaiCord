@@ -28,33 +28,10 @@ sample. Output includes every sample, QPC frequency/ticks, min/median/max in
 input and static storage budgets, and final checksum. An emitter cold iteration
 has two projections; its time must not be described as a single projection.
 
-## Root-owned wiring
+## Build
 
-In `cmake/benchmarks.cmake` (`MAICORD_BUILD_BENCHMARKS`), with shipping code
-generation (`/GL`, LTCG) from the compile contract:
-
-```cmake
-maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_benchmark_entry
-    SOURCES tests/bench/text_projection.cpp tests/bench/text_projection_observer.cpp
-    LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol
-        maicord_app_core maicord_text kernel32 user32 crypt32 dwrite)
-set_source_files_properties(tests/bench/text_projection_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
-```
-
-The listed library set follows the existing native UI benchmark dependencies
-without its rendering/media implementation; root can trim archives that prove
-unneeded or resolve any transitive source dependency during the owned build.
-The benchmark source and observer are separate translation units. Verify the
-observer's actual compiler invocation ends with **/GL-**: a function marked
-`noinline` inside an LTCG-visible TU alone is insufficient to guarantee stored
-record materialization. Do not unity-build the two sources.
-
-Build and run only this target in the existing build tree. Redirect output and
-keep binary/hash/compiler invocation metadata outside the checkout; no CTest
-registration or production target dependency is needed. Turn the existing
-benchmark option off again for the ordinary build. No result or speed claim is
-provided before root executes it. Results apply to these two fixture workloads,
-not native frame latency or general client performance.
-
-The normal build has the benchmark option OFF; the standalone measurement binary
-and logs remain external.
+`cmake/benchmarks.cmake` (`MAICORD_BUILD_BENCHMARKS`) builds `MaiCordTextProjectionBenchmark` with shipping code
+generation (`/GL`, LTCG); no CTest registration. The benchmark and its observer are separate translation units and
+the observer is excluded from LTCG: a `noinline` function inside an LTCG-visible TU alone does not guarantee stored
+record materialization. Do not unity-build the two sources. Results apply to these two fixture workloads, not
+native frame latency or general client performance.

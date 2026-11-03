@@ -1,4 +1,3 @@
-#include "application_media_animation_ui_probe.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "../../src/app/media/pump.hpp"

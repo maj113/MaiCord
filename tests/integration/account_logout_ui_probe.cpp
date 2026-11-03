@@ -1,6 +1,5 @@
 #include "maicord/app/account/account_logout.hpp"
 #include "../support/ui_scene_fixtures.hpp"
-#include "account_logout_ui_probe.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
@@ -1008,6 +1007,9 @@ void remove_files() noexcept {
 } // namespace maicord::logout_native
 
 namespace maicord {
+// Offline native GPU fixture. Logout/form/login/menu controllers are real;
+// server transport and surrounding lifecycle coordination are injected.
+// Stop/join and canonical fixture-file cleanup use real first-party helpers.
 bool account_logout_ui_probe() noexcept {
     using namespace app_detail;
     using namespace logout_native;

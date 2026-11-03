@@ -9,6 +9,8 @@ namespace maicord {
 struct Line {
     char text[1024];
     u32 used = 0;
+    Line() noexcept = default;
+    explicit Line(const char* label) noexcept { put(label); }
     void put(const char* value) noexcept {
         while (*value && used + 3 < sizeof(text)) text[used++] = *value++;
     }
@@ -20,8 +22,8 @@ struct Line {
         const u32 count = decimal_write(digits, value);
         put(digits, count);
     }
-    void field(const char* key, u64 value) noexcept { put(" "), put(key), put("="), number(value); }
-    void field(const char* key, const char* value) noexcept { put(" "), put(key), put("="), put(value); }
+    Line& field(const char* key, u64 value) noexcept { put(" "), put(key), put("="), number(value); return *this; }
+    Line& field(const char* key, const char* value) noexcept { put(" "), put(key), put("="), put(value); return *this; }
     void digest(const char* key, u64 value) noexcept {
         put(" "), put(key), put("=");
         for (i32 shift = 60; shift >= 0 && used + 3 < sizeof(text); shift -= 4)

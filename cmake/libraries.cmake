@@ -29,7 +29,7 @@ set(maicord_sys_headers
     include/maicord/sys/dxva.hpp include/maicord/sys/d2d1.hpp include/maicord/sys/dwrite.hpp
     include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
     include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
-    include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/ioctl.hpp
+    include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp
     include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h
     include/maicord/sys/libc/stdarg.h include/maicord/sys/libc/crtdbg.h)
 set(maicord_sys_conformance_unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance.cpp")
@@ -427,7 +427,7 @@ maicord_library(maicord_ui
     src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/scene_layout.cpp
     src/ui/settings/scene_paint.cpp src/ui/settings/theme_editor.cpp src/ui/theme/styles.cpp
     src/ui/theme/style_projection.cpp src/ui/widgets/settings_choice.cpp src/ui/account/friends_scene.cpp
-    src/ui/widgets/kit_fields.cpp src/ui/widgets/kit_collections.cpp src/ui/widgets/kit_panels.cpp
+    src/ui/widgets/kit_fields.cpp src/ui/widgets/kit_collections.cpp
     src/ui/widgets/kit_markdown.cpp
     src/ui/store/store_layout.cpp src/ui/store/store_input.cpp src/ui/store/store_paint.cpp src/ui/store/store_access.cpp
     src/ui/account/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp

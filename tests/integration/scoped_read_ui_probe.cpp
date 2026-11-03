@@ -1,4 +1,3 @@
-#include "scoped_read_ui_probe.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "probe_account_ui.hpp"
@@ -1313,6 +1312,8 @@ bool scenarios() noexcept {
 }
 } // namespace maicord::scoped_read_native
 namespace maicord {
+// Native frame assertions remain in memory; failures report to inherited
+// console pipes without application file logs or capture artifacts.
 bool scoped_read_ui_probe() noexcept {
     using namespace app_detail;
     using namespace scoped_read_native;

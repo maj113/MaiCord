@@ -1,6 +1,7 @@
 #pragma once
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
+#include "native_message_scene.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/chat/messages/reaction_presentation.hpp"
@@ -8,41 +9,21 @@
 
 namespace maicord {
 namespace reaction_intent_probe_detail {
-inline constexpr u32 kRows = 4;
+inline constexpr u32 kRows = kNativeMessageRows;
 // Only the native projection lives here. The shipping App adapter owns the
 // actual reaction controller and message/rich stores used by this timeline.
-struct NativeFixture {
+struct NativeFixture : NativeMessageScene {
     u32 heights[kRows]{};
     u64 fenwick[kRows]{};
     UiVariableList list{};
     MessageTimeline timeline{};
-    MessageScene scene{};
-    UiWidget widgets[kRows * kMessageSceneWidgetsPerRow + 1]{};
-    UiLayoutNode nodes[kRows * kMessageSceneWidgetsPerRow + 1]{};
-    MessageTextPresentation text{};
-    MessageTextCommand commands[128]{};
-    char bytes[8192]{};
-    TextStyleSpan styles[128]{};
-    MessageMarkdownSemantic semantics[64]{};
-    MessageTextMeasurement measurements[8]{};
-    MessageTextSpoilerReveal reveals[4]{};
-    u32 markdown_scratch[8192]{};
-    ~NativeFixture() noexcept {
-        message_scene_release(&scene);
-    }
     bool initialize(MessageStore* store, MessageRichStore* rich) noexcept {
         return store && rich && store->count && store->count <= kRows &&
                ui_variable_list_initialize(&list, {heights, kRows}, {fenwick, kRows}, store->count,
                                            ui_extent_units(80)) &&
                message_timeline_initialize(&timeline, store, &list, ui_extent_units(80),
                                            ui_extent_units(600), false) &&
-               message_timeline_bind_rich_store(&timeline, rich) &&
-               message_scene_initialize_owned(&scene, &timeline, kRows, 1,
-                                              {widgets, kRows * kMessageSceneWidgetsPerRow + 1},
-                                              {nodes, kRows * kMessageSceneWidgetsPerRow + 1}) &&
-               message_text_presentation_initialize(&text, {commands, 128}, {bytes, sizeof(bytes)},
-                                                    {styles, 128}, {semantics, 64}, {measurements, 8},
-                                                    {reveals, 4}, {markdown_scratch, 8192});
+               message_timeline_bind_rich_store(&timeline, rich) && NativeMessageScene::initialize(&timeline);
     }
 };
 inline bool ink(const surface_motion_probe_detail::Readback& rb, UiRect rectangle, float scale,

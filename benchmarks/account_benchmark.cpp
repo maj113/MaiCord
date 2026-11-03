@@ -1,5 +1,4 @@
 #include "maicord/app/account/account_host.hpp"
-#include "maicord/app/account/account_module_version.hpp"
 #include "maicord/app/account/account_paths.hpp"
 #include "maicord/app/account/account_profile_promotion.hpp"
 #include "maicord/app/account/login/captcha_challenge.hpp"
@@ -200,8 +199,7 @@ u32 run() noexcept {
 
     u8 auth_output[512]{};
     UserAuthPasswordRequest password{utf8_literal("benchmark@example.test"),
-                                     utf8_literal("benchmark-password"), kUserAuthDefaultLoginSource,
-                                     false};
+                                     utf8_literal("benchmark-password"), false};
     begin = clock_now();
     for (u32 iteration = 0; iteration < kCommandIterations; ++iteration) {
         password.undelete = (iteration & 1u) != 0;
@@ -233,8 +231,8 @@ u32 run() noexcept {
     u8 webauthn_output[4 * 1024]{};
     const UserAuthMfaRequest webauthn{
         Utf8View{webauthn_credential, static_cast<u32>(sizeof(webauthn_credential))},
-        utf8_literal("benchmark-mfa-ticket"), utf8_literal("MFA Login"),
-        utf8_literal("benchmark-login-instance"), UserAuthMfaType::webauthn};
+        utf8_literal("benchmark-mfa-ticket"), utf8_literal("benchmark-login-instance"),
+        UserAuthMfaType::webauthn};
     begin = clock_now();
     for (u32 iteration = 0; iteration < kWebauthnIterations; ++iteration) {
         const UserAuthWriteResult written =

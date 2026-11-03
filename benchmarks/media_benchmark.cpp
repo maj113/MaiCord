@@ -900,8 +900,7 @@ int run() noexcept {
         if (!decoded.ok()) {
             return 25;
         }
-        webp_decode_checksum += g_webp_rgba[iteration & (sizeof(g_webp_rgba) - 1)] + decoded.rgba_bytes +
-                                decoded.huffman_symbols;
+        webp_decode_checksum += g_webp_rgba[iteration & (sizeof(g_webp_rgba) - 1)] + decoded.rgba_bytes;
     }
     const u64 webp_decode_us = maximum<u64>(1, clock_microseconds(clock, webp_decode_begin, clock_now()));
 
@@ -941,7 +940,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % progressive_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks + decoded.decoded_scans;
+            decoded.decoded_blocks + decoded.decoded_scans;
     }
     const u64 progressive_jpeg_decode_us =
         maximum<u64>(1, clock_microseconds(clock, progressive_jpeg_decode_begin, clock_now()));
@@ -961,7 +960,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % cmyk_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks;
+            decoded.decoded_blocks;
     }
     const u64 cmyk_jpeg_decode_us =
         maximum<u64>(1, clock_microseconds(clock, cmyk_jpeg_decode_begin, clock_now()));
@@ -981,7 +980,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % ycck_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks + decoded.decoded_scans;
+            decoded.decoded_blocks + decoded.decoded_scans;
     }
     const u64 ycck_jpeg_decode_us =
         maximum<u64>(1, clock_microseconds(clock, ycck_jpeg_decode_begin, clock_now()));
@@ -998,7 +997,7 @@ int run() noexcept {
         jpeg_decode_checksum +=
             static_cast<u16>(g_jpeg_workspace.coefficients.blocks[iteration % jpeg_image.coefficient_blocks]
                                  .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks;
+            decoded.decoded_blocks;
     }
     const u64 jpeg_decode_us = maximum<u64>(1, clock_microseconds(clock, jpeg_decode_begin, clock_now()));
 
@@ -1026,7 +1025,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % oriented_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks +
+            decoded.decoded_blocks +
             static_cast<u8>(oriented_jpeg_image.orientation);
     }
     const u64 oriented_jpeg_decode_us =
@@ -1055,7 +1054,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % icc_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks +
+            decoded.decoded_blocks +
             icc_jpeg_image.tables->icc->profile.profile_bytes;
     }
     const u64 icc_jpeg_decode_us =
@@ -1086,7 +1085,7 @@ int run() noexcept {
             static_cast<u16>(
                 g_jpeg_workspace.coefficients.blocks[iteration % icc_lut_jpeg_image.coefficient_blocks]
                     .values[iteration & 63u]) +
-            decoded.huffman_symbols + decoded.decoded_blocks +
+            decoded.decoded_blocks +
             icc_lut_jpeg_image.tables->icc->profile.entry_count;
     }
     const u64 icc_lut_jpeg_decode_us =

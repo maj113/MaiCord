@@ -22,6 +22,5 @@
  "cpp/suspicious-pointer-scaling|src/ui/text/native_text_candidate.cpp|This pointer might have type [NativeParagraphRun](1) (size 24), but this pointer arithmetic is done with type u32 * (size 4).",
  "cpp/suspicious-pointer-scaling|src/ui/theme/styles.cpp|This pointer might have type [UiThemeTokens](1) (size 1584), but this pointer arithmetic is done with type const Color * (size 16).",
  "cpp/suspicious-pointer-scaling|third_party/opus/celt/celt_decoder.c|This pointer might have type [int](1) (size 4), but this pointer arithmetic is done with type opus_val16 * (size 2).",
- "cpp/use-after-free|src/app/guild/folders.cpp|Memory may have been previously freed by [call to VirtualFree](1).",
- "cpp/use-after-free|src/app/plugins/plugins.cpp|Memory may have been previously freed by [call to VirtualFree](1)."
+ "cpp/use-after-free|src/app/guild/folders.cpp|Memory may have been previously freed by [call to VirtualFree](1)."
 ]

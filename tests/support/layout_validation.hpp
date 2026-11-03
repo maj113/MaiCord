@@ -15,7 +15,6 @@ enum class UiLayoutDiagnosticKind : u8 {
     sibling_collision,
     invalid_clip,
     text_overflow,
-    invalid_baseline,
     invalid_content_owner,
     content_overflow,
     content_collision,
@@ -227,22 +226,6 @@ inline UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& 
             const UiLayoutNode& left = engine.storage[left_slot];
             if (!left.visible || has_flag(left.spec.style, ui_layout_node_allow_overlap)) {
                 continue;
-            }
-            if (parent.spec.style.flow == UiLayoutFlow::horizontal &&
-                left.spec.style.vertical_alignment == UiLayoutAlignment::baseline) {
-                const float expected = left.rectangle.top + left.measured_baseline;
-                for (u16 peer_slot = left.next_sibling; peer_slot != kInvalidUiLayoutSlot;
-                     peer_slot = engine.storage[peer_slot].next_sibling) {
-                    const UiLayoutNode& peer = engine.storage[peer_slot];
-                    if (peer.visible && peer.spec.style.vertical_alignment == UiLayoutAlignment::baseline &&
-                        absolute_value(expected - (peer.rectangle.top + peer.measured_baseline)) > kEpsilon) {
-                        push_diagnostic(&result, output,
-                                        UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_baseline,
-                                                           handle_for(left, left_slot),
-                                                           handle_for(peer, peer_slot), left.rectangle,
-                                                           peer.rectangle, UiLayoutOverflow{}});
-                    }
-                }
             }
             for (u16 right_slot = left.next_sibling; right_slot != kInvalidUiLayoutSlot;
                  right_slot = engine.storage[right_slot].next_sibling) {

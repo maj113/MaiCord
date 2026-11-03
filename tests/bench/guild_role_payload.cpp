@@ -1,15 +1,15 @@
 // Manual benchmark: built only with -DMAICORD_BUILD_BENCHMARKS=ON (cmake/benchmarks.cmake) and
 // never part of the CTest suite.
 #include "guild_role_payload_observer.hpp"
+#include "bench_common.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/model/chat/chat_state.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 
 namespace maicord::guild_role_payload_bench {
 namespace {
+using namespace bench_support;
 constexpr u32 kMaximumRoles = 256, kIterations = 32, kWarmups = 16, kSamples = 7, kModes = 3;
 static_assert(kMaximumRoles == kGuildRoleMaximum);
 const char* const kModeNames[kModes] = {"table_setup_observe", "ordinal_sweep_observe", "indexed_sweep_observe"};
@@ -145,19 +145,6 @@ bool measure(u32 mode, u64* ticks) noexcept {
     published_checksum = published_checksum ^ checksum ^ *ticks;
     return true;
 }
-u64 ns_per_iteration(u64 ticks, u64 frequency) noexcept {
-    return ((ticks / frequency) * 1000000000ull + (ticks % frequency) * 1000000000ull / frequency) / kIterations;
-}
-void emit(const TraceRecord& line) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
-bool deadline_ok(i64 started, u64 frequency) noexcept {
-    LARGE_INTEGER now{};
-    return QueryPerformanceCounter(&now) && now.QuadPart >= started &&
-        static_cast<u64>(now.QuadPart - started) / frequency < 45;
-}
 bool case_run(u32 count, u64 frequency, i64 started) noexcept {
     if (!validate(count)) return false;
     TraceRecord validation("role_payload_case");
@@ -176,23 +163,19 @@ bool case_run(u32 count, u64 frequency, i64 started) noexcept {
         for (u32 slot = 0; slot < kModes; ++slot) {
             const u32 mode = sample % 2 ? (sample + kModes - slot) % kModes : (sample + slot) % kModes;
             if (!deadline_ok(started, frequency) || !measure(mode, &samples[mode][sample])) return false;
-            row.field(kModeNames[mode], ns_per_iteration(samples[mode][sample], frequency));
+            row.field(kModeNames[mode], nanoseconds(samples[mode][sample], frequency, kIterations));
             row.field(kTickNames[mode], samples[mode][sample]);
         }
         row.field("unit", "ns_per_iteration"); emit(row);
     }
     for (u32 mode = 0; mode < kModes; ++mode) {
-        for (u32 i = 1; i < kSamples; ++i) {
-            const u64 value = samples[mode][i]; u32 at = i;
-            while (at && samples[mode][at - 1] > value) { samples[mode][at] = samples[mode][at - 1]; --at; }
-            samples[mode][at] = value;
-        }
+        sort_samples(samples[mode]);
         TraceRecord row("role_payload_summary"); row.field("roles", count); row.field("mode", kModeNames[mode]);
-        row.field("min_ns", ns_per_iteration(samples[mode][0], frequency));
-        row.field("median_ns", ns_per_iteration(samples[mode][kSamples / 2], frequency));
-        row.field("max_ns", ns_per_iteration(samples[mode][kSamples - 1], frequency));
+        row.field("min_ns", nanoseconds(samples[mode][0], frequency, kIterations));
+        row.field("median_ns", nanoseconds(samples[mode][kSamples / 2], frequency, kIterations));
+        row.field("max_ns", nanoseconds(samples[mode][kSamples - 1], frequency, kIterations));
         row.field("median_batch_ticks", samples[mode][kSamples / 2]);
-        if (mode != 0) row.field("median_ns_per_query", ns_per_iteration(samples[mode][kSamples / 2], frequency) / count);
+        if (mode != 0) row.field("median_ns_per_query", nanoseconds(samples[mode][kSamples / 2], frequency, kIterations) / count);
         emit(row);
     }
     return deadline_ok(started, frequency);

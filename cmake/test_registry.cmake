@@ -56,7 +56,7 @@ maicord_test(MaiCordAccountLoginHandoffTests ENTRY maicord_account_login_handoff
     TIMEOUT 15 TEST maicord_account_login_handoff)
 maicord_test(MaiCordNotificationRetentionTests ENTRY maicord_notification_retention_tests_entry
     SOURCES tests/model/notifications/retention.cpp
-    LIBS maicord_model maicord_core kernel32
+    LIBS maicord_model
     BUNDLE MaiCordCoreUnitTests
     TEST maicord_notification_retention)
 maicord_test(MaiCordNotificationSoundAssetTests ENTRY maicord_notification_sound_assets_tests_entry
@@ -65,7 +65,7 @@ maicord_test(MaiCordNotificationSoundAssetTests ENTRY maicord_notification_sound
     TEST maicord_notification_sound_assets)
 maicord_test(MaiCordNotificationAudioTests ENTRY maicord_notification_audio_tests_entry
     SOURCES tests/platform/audio/native_notification_audio.cpp
-    LIBS maicord_notification_audio kernel32 ole32 user32
+    LIBS maicord_notification_audio ole32 user32
     BUNDLE MaiCordCoreUnitTests
     TEST maicord_notification_audio)
 # Compile an isolated copy with deterministic COM transport hooks. The
@@ -77,7 +77,7 @@ maicord_test(MaiCordNotificationAudioFaultTests ENTRY maicord_notification_audio
     DEFINES MAICORD_NOTIFICATION_AUDIO_FIXTURE=1
     TEST maicord_notification_audio_faults)
 maicord_test(MaiCordNotificationPcmTests ENTRY maicord_notification_pcm_tests_entry SOURCES tests/media/audio/notification_pcm.cpp
-    LIBS maicord_notification_pcm kernel32
+    LIBS maicord_notification_pcm
     BUNDLE MaiCordCoreUnitTests
     TEST maicord_notification_pcm)
 # ABI 6 (include/maicord/sdk/maicord_plugin.h, plugin.hpp): the samples in
@@ -383,7 +383,7 @@ maicord_test(MaiCordPluginDevTests ENTRY maicord_plugin_dev_tests_entry
     DEFINES "MAICORD_DX_FOLDER=L\"${maicord_dx}\""
     DEPENDS MaiCordPluginReloadAFixture MaiCordPluginReloadBFixture MaiCordPluginReloadCFixture MaiCordPluginReloadDFixture
         MaiCordDevToolFixtures
-    TIMEOUT 30 TEST maicord_plugin_dev)
+    TEST maicord_plugin_dev)
 # Nested rounded rectangles, clipped highlights and per-component padding
 # across representative synthetic scenes.
 maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_tests_entry
@@ -442,12 +442,12 @@ maicord_test(MaiCordProfileActivityTests ENTRY maicord_profile_activity_entry SO
 # A large-account READY through the production projection and the app's
 # message event pump; skipped-event isolation and diagnostics.
 maicord_test(MaiCordReadyScalePumpTests ENTRY maicord_ready_scale_pump_entry SOURCES tests/model/user/ready_scale_pump.cpp
-    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 ole32
+    LIBS ole32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 10 TEST maicord_ready_scale_pump)
 maicord_test(MaiCordAccessibilityTests ENTRY maicord_accessibility_entry
     SOURCES tests/ui/accessibility/accessibility.cpp tests/ui/accessibility/accessibility_overlays.cpp
-    LIBS maicord_core maicord_ui maicord_message_runtime maicord_uia kernel32 user32 ole32 oleaut32
+    LIBS maicord_uia ole32 oleaut32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 10 TEST maicord_accessibility)
 # Queries a provider window through the system UI Automation client.
@@ -482,7 +482,7 @@ maicord_test(MaiCordReactionPreferencesStorageTests ENTRY maicord_reaction_prefe
     SOURCES tests/model/chat/reaction_preferences_storage.cpp
     BUNDLE MaiCordModelTests TEST maicord_reaction_preference_storage)
 maicord_test(MaiCordRegionalFlagTests ENTRY maicord_regional_flag_test_entry SOURCES tests/ui/text/regional_flag_test.cpp
-    LIBS maicord_core maicord_platform maicord_ui maicord_cdn_media maicord_media_core kernel32
+    LIBS maicord_cdn_media maicord_media_core
     BUNDLE MaiCordUiUnitTests
     TEST maicord_regional_flag_identity)
 # Compile the alternate native geometry path without changing the shipping
@@ -494,7 +494,7 @@ maicord_test(MaiCordRegionalFlagNativeGeometryTests ENTRY maicord_flag_native_ge
     TIMEOUT 15 ENVIRONMENT LOCALAPPDATA= TEST maicord_regional_flag_native_geometry)
 maicord_test(MaiCordRegionalFlagSvgTests ENTRY maicord_regional_flag_svg_test_entry
     SOURCES tests/media/image/regional_flag_svg_test.cpp
-    LIBS maicord_core maicord_platform maicord_render_core maicord_paint_program kernel32
+    LIBS maicord_render_core maicord_paint_program
     BUNDLE MaiCordUiUnitTests
     TIMEOUT 15 TEST maicord_regional_flag_svg --self-test)
 set(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY "" CACHE PATH
@@ -661,7 +661,6 @@ maicord_test(MaiCordPermissionComputeTests ENTRY maicord_permission_compute_entr
 maicord_test(MaiCordCookieJarTests ENTRY maicord_cookie_jar_entry SOURCES tests/protocol/http/cookie_jar.cpp
     BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_cookie_jar)
 maicord_test(MaiCordUserSettingsTests ENTRY maicord_user_settings_tests_entry SOURCES tests/protocol/user/settings_proto.cpp
-    LIBS maicord_core maicord_platform maicord_protocol kernel32
     BUNDLE MaiCordProtocolTests
     TIMEOUT 10 TEST maicord_user_settings)
 maicord_test(MaiCordGuildSettingsTests ENTRY maicord_guild_settings_entry SOURCES tests/model/guild/settings_model.cpp
@@ -716,14 +715,14 @@ maicord_test(MaiCordProfileEditorTests ENTRY maicord_profile_editor_entry
     BUNDLE MaiCordAccountRequestTests TIMEOUT 10 TEST maicord_profile_editor)
 maicord_test(MaiCordMediaWorkerPosterLeaseTests ENTRY maicord_media_worker_poster_lease_entry
     SOURCES tests/app/media/worker_poster_lease.cpp
-    LIBS maicord_account_media kernel32 ole32
+    LIBS maicord_account_media ole32
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_worker_poster_lease)
 # Media decode lanes: threads start on first use; lane stacks keep a margin
 # over the deepest decode (every image codec and the largest bundled flag).
 maicord_test(MaiCordMediaWorkerLanesTests ENTRY maicord_media_worker_lanes_entry
     SOURCES tests/app/media/worker_lanes.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
-    LIBS maicord_account_media maicord_media_codec kernel32
+    LIBS maicord_account_media
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_worker_lanes)
 maicord_test(MaiCordGuildAdminGatewayTests ENTRY maicord_guild_admin_gateway_entry
@@ -771,7 +770,7 @@ maicord_test(MaiCordAccountThreadActionsTests ENTRY maicord_account_thread_actio
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_thread_actions)
 maicord_test(MaiCordThreadBrowserProtocolTests ENTRY maicord_thread_browser_protocol_test_entry
     SOURCES tests/protocol/messages/thread_browser_protocol.cpp
-    LIBS maicord_core maicord_protocol maicord_model kernel32
+    LIBS maicord_model
     BUNDLE MaiCordProtocolTests
     TIMEOUT 15 TEST maicord_thread_browser_protocol)
 maicord_test(MaiCordAccountThreadBrowserTests ENTRY maicord_account_thread_browser_test_entry
@@ -954,7 +953,6 @@ maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
     SOURCES tests/model/notifications/policy.cpp tests/protocol/user/notification_settings_wire.cpp tests/model/notifications/desktop_notification_queue.cpp
         tests/model/notifications/sound_policy.cpp tests/model/notifications/sound_admission.cpp tests/protocol/user/notification_controls.cpp
         tests/model/notifications/rules.cpp
-    LIBS maicord_core maicord_model maicord_protocol kernel32
     BUNDLE MaiCordAppUnitTests
     TEST maicord_notifications)
 # tests/platform/desktop/toast_abi.cpp checks the client's WinRT toast ABI against the SDK's
@@ -1038,7 +1036,6 @@ maicord_test(MaiCordSecureBufferLockBudgetTests ENTRY maicord_secure_buffer_lock
     TIMEOUT 20 TEST maicord_secure_buffer_lock_budget)
 maicord_test(MaiCordGuildChannelUniquenessTests ENTRY maicord_guild_channel_uniqueness_entry
     SOURCES tests/app/gateway/guild_channel_uniqueness.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_message_runtime kernel32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 20 TEST maicord_guild_channel_uniqueness)
 # The plugin loader's cleanup failures (a failed handle close, hash destruction or provider close during
@@ -1061,7 +1058,7 @@ maicord_test(MaiCordMp4Tests ENTRY maicord_mp4_tests_entry SOURCES tests/media/c
     BUNDLE MaiCordCodecUnitTests TEST maicord_mp4_demux)
 maicord_test(MaiCordProgressiveVideoTests ENTRY maicord_progressive_video_tests_entry
     SOURCES tests/app/media/progressive_video.cpp
-    LIBS maicord_core maicord_app_core maicord_protocol maicord_media_codec maicord_media_core kernel32
+    LIBS maicord_app_core maicord_protocol maicord_media_core
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_progressive_video)
 # AV1 header parsing and DXVA parameters on the synthetic SVT-AV1 fixture, with fuzzing.
@@ -1070,7 +1067,6 @@ maicord_test(MaiCordAv1Tests ENTRY maicord_av1_tests_entry SOURCES tests/media/v
 maicord_test(MaiCordH264Tests ENTRY maicord_h264_tests_entry
     SOURCES tests/media/video/h264_parameters_test.cpp tests/media/video/h264_state_test.cpp tests/media/video/h264_stream_test.cpp
         tests/media/video/hevc_stream_test.cpp
-    LIBS maicord_core maicord_media_codec kernel32
     BUNDLE MaiCordCodecUnitTests
     TEST maicord_h264_parameters)
 # Live H.264 and H.265 stream decoders on real DXVA hardware with synthetic
@@ -1151,7 +1147,7 @@ maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry SOURCES tests/text/
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_bidi)
 # Real Windows spell checker (read-only); CI may pass -ExcludeTestLabels system_spellcheck.
 maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry SOURCES tests/platform/desktop/system_spellcheck.cpp
-    LIBS maicord_core maicord_platform kernel32 ole32
+    LIBS maicord_platform ole32
     BUNDLE MaiCordCoreUnitTests
     TIMEOUT 10 LABELS system_spellcheck TEST maicord_system_spellcheck)
 # Multi-click pointer selection: click counting, word/line units, drags.
@@ -1238,7 +1234,6 @@ maicord_test(MaiCordFontCatalogTests ENTRY maicord_font_catalog_entry SOURCES te
     TIMEOUT 2 LABELS native-text-font-catalog TEST maicord_native_font_catalog)
 maicord_test(MaiCordFontCatalogCoverageTests ENTRY maicord_font_catalog_coverage_entry
     SOURCES tests/text/fonts/catalog_coverage_test.cpp
-    LIBS maicord_core maicord_font kernel32 advapi32
     BUNDLE MaiCordTextUnitTests
     TIMEOUT 2 LABELS native-text-font-coverage TEST maicord_native_font_catalog_coverage)
 maicord_font_test(MaiCordFontFallbackTests maicord_font_fallback_entry text/fonts/fallback_test
@@ -1411,7 +1406,7 @@ maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_mixed_bidi --mixed-bidi-wrap-profile --family "Segoe UI" 400
     TEST maicord_native_mixed_bidi_gates --mixed-bidi-gates
     TEST maicord_native_bidi_styles --bidi-styles-profile --family "Segoe UI" 400)
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30
+maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_bidi_emoji --bidi-emoji-profile --family "Segoe UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_symbols --symbols-profile --family "Segoe UI" 400
@@ -1419,7 +1414,7 @@ maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_simulated_styles --simulated-styles)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-app
     TEST maicord_native_emoji_dispatch --emoji-dispatch)
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30 TEST maicord_native_mixed_emoji --mixed-emoji)
+maicord_add_tests(MaiCordNativeAppLineTests TEST maicord_native_mixed_emoji --mixed-emoji)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-owned-formats
     TEST maicord_native_owned_formats --native-formats)
 maicord_add_tests(MaiCordNativeAppLineTests TEST maicord_native_tracking --tracking-profile --family "Segoe UI" 400)
@@ -1649,7 +1644,7 @@ maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe
         src/app/chat/threads/actions.cpp src/core/log.cpp src/app/chat/application_channel_memory.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
     TEST maicord_message_link_ui_probe)
 maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/composer_ui_probe.cpp src/app/chat/composer/composer.cpp
@@ -1658,7 +1653,7 @@ maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
         tests/support/pipeline_host_stubs.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
     TEST maicord_composer_ui_probe)
 maicord_test(MaiCordAccountLogoutUiProbe WIN32 ENTRY maicord_account_logout_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/account_logout_ui_probe.cpp src/app/chat/composer/text_form.cpp
@@ -1666,7 +1661,7 @@ maicord_test(MaiCordAccountLogoutUiProbe WIN32 ENTRY maicord_account_logout_ui_p
         src/app/shell/input.cpp src/core/log.cpp
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1 MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1 MAICORD_GPU_METRICS=1
     TEST maicord_account_logout_ui_probe)
 maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/scoped_read_ui_probe.cpp src/app/chat/scoped_read.cpp
@@ -1676,7 +1671,7 @@ maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_e
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
     OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/scoped_read_clock_fixture.hpp"
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_UI_SCOPED_READ_PROBE=1 MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_UI_SCOPED_READ_PROBE=1 MAICORD_GPU_METRICS=1
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
@@ -1709,24 +1704,24 @@ maicord_ui_probe_test(maicord_media_memory_probe MEDIA_MEMORY_PROBE BOOTSTRAP TI
 # Call view grid/focus/fullscreen with synthetic NV12 camera pictures.
 maicord_ui_probe_test(maicord_call_ui_probe UI_CALL_PROBE BOOTSTRAP TIMEOUT 20 LABELS native-ui display
     RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_post_resize_pacing_probe UI_POST_RESIZE_PACING_PROBE BOOTSTRAP TIMEOUT 30
+maicord_ui_probe_test(maicord_post_resize_pacing_probe UI_POST_RESIZE_PACING_PROBE BOOTSTRAP
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 # Exit 77: the display is asleep and DWM composes at ~4 Hz, which no paced
 # frame can meet; CTest reports a skip instead of a pacing failure.
 set_tests_properties(maicord_post_resize_pacing_probe PROPERTIES SKIP_RETURN_CODE 77)
-maicord_ui_probe_test(maicord_unread_boundary_probe UI_UNREAD_BOUNDARY_PROBE BOOTSTRAP TIMEOUT 30
+maicord_ui_probe_test(maicord_unread_boundary_probe UI_UNREAD_BOUNDARY_PROBE BOOTSTRAP
     LABELS native-ui read-state display RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_rich_search_probe UI_RICH_SEARCH_PROBE BOOTSTRAP TIMEOUT 30 LABELS native-ui search
+maicord_ui_probe_test(maicord_rich_search_probe UI_RICH_SEARCH_PROBE BOOTSTRAP LABELS native-ui search
     RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_reaction_intent_probe UI_REACTION_INTENT_PROBE BOOTSTRAP TIMEOUT 30
+maicord_ui_probe_test(maicord_reaction_intent_probe UI_REACTION_INTENT_PROBE BOOTSTRAP
     LABELS native-ui reactions RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_thread_membership_probe UI_THREAD_MEMBERSHIP_PROBE BOOTSTRAP TIMEOUT 30
+maicord_ui_probe_test(maicord_thread_membership_probe UI_THREAD_MEMBERSHIP_PROBE BOOTSTRAP
     LABELS native-ui threads RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_thread_browser_probe UI_THREAD_BROWSER_PROBE BOOTSTRAP TIMEOUT 30
+maicord_ui_probe_test(maicord_thread_browser_probe UI_THREAD_BROWSER_PROBE BOOTSTRAP
     LABELS native-ui threads RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_reply_draft_probe UI_REPLY_DRAFT_PROBE BOOTSTRAP TIMEOUT 30 LABELS native-ui reply-drafts
+maicord_ui_probe_test(maicord_reply_draft_probe UI_REPLY_DRAFT_PROBE BOOTSTRAP LABELS native-ui reply-drafts
     RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_forum_media_probe UI_FORUM_MEDIA_PROBE BOOTSTRAP TIMEOUT 30 LABELS native-ui forum-media
+maicord_ui_probe_test(maicord_forum_media_probe UI_FORUM_MEDIA_PROBE BOOTSTRAP LABELS native-ui forum-media
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_hangul_render_probe HANGUL_RENDER_PROBE TIMEOUT 15 LABELS native-text-render
     RESOURCE_LOCK native_gpu)
@@ -1769,7 +1764,7 @@ endforeach()
 # Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
-maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP TIMEOUT 120 LABELS showcase display
+maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
     RESOURCE_LOCK native_gpu)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built
 # programs, upload growth, owner changes and failed-submission unbinding.
@@ -1791,7 +1786,6 @@ endif()
 # Fast CPU decode paths (PNG filters, GIF LZW, JPEG entropy) against bit-serial references.
 maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_reference_tests_entry
     SOURCES tests/media/image/media_decode_reference.cpp
-    LIBS maicord_media_codec maicord_core kernel32
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_decode_reference)
 # Production GPU image stages: all PNG sample layouts against integer references,
@@ -1800,7 +1794,7 @@ maicord_test(MaiCordMediaGpuReferenceTests ENTRY maicord_media_gpu_reference_tes
     SOURCES tests/media/image/media_gpu_reference.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_media_gpu_reference)
 maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry SOURCES tests/media/audio/opus_encoder.cpp
-    LIBS maicord_voice_encoder maicord_media_codec maicord_opus_encoder maicord_core kernel32
+    LIBS maicord_voice_encoder maicord_opus_encoder
     INCLUDES tests third_party/opus/include
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_encoder)
@@ -1808,15 +1802,15 @@ maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry SOUR
 # bit-exact; the official test vectors run opt-in (tools/opus_conformance.ps1).
 maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tests_entry
     SOURCES tests/media/audio/opus_decoder_vectors.cpp
-    LIBS maicord_opus_decoder maicord_core kernel32
+    LIBS maicord_opus_decoder
     INCLUDES tests third_party/opus/include
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_decoder_vectors)
 # Voice messages: the Ogg Opus writer, recorder, waveform, upload/message
 # bodies, gating, the composer flow and the module with a synthetic microphone.
 maicord_test(MaiCordVoiceMessageTests ENTRY maicord_voice_message_tests_entry SOURCES tests/app/voice/voice_message.cpp
-    LIBS maicord_app_core maicord_message_runtime maicord_model maicord_protocol maicord_platform maicord_media_codec
-        maicord_voice_encoder maicord_opus_encoder maicord_opus_decoder maicord_core kernel32 ole32 user32
+    LIBS maicord_app_core maicord_message_runtime maicord_model maicord_protocol maicord_platform
+        maicord_voice_encoder maicord_opus_encoder maicord_opus_decoder ole32 user32
     INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_voice_message)
@@ -1850,7 +1844,6 @@ maicord_test(MaiCordTikTokPlayerTests ENTRY maicord_tiktok_player_entry SOURCES 
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_tiktok_player)
 
 maicord_test(MaiCordTwitchPlayerTests ENTRY maicord_twitch_player_entry SOURCES tests/protocol/media/twitch_player.cpp
-    LIBS maicord_protocol maicord_core kernel32
     BUNDLE MaiCordProtocolTests
     TIMEOUT 5 TEST maicord_twitch_player)
 
@@ -1872,7 +1865,7 @@ maicord_test(MaiCordAppleMusicPlayerTests ENTRY maicord_apple_music_player_entry
 
 maicord_test(MaiCordMp4FragmentTests ENTRY maicord_mp4_fragment_entry
     SOURCES tests/media/containers/mp4_fragment.cpp tests/media/containers/fragment_audio_playback_probe.cpp
-    LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
+    LIBS maicord_account_media maicord_platform ole32 user32 d3d11 dxgi
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_mp4_fragment)
 
@@ -1902,7 +1895,7 @@ maicord_test(MaiCordHlsPlaylistTests ENTRY maicord_hls_playlist_entry SOURCES te
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_hls_playlist)
 
 maicord_test(MaiCordMpegTsTests ENTRY maicord_mpeg_ts_entry SOURCES tests/media/containers/mpeg_ts.cpp
-    LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
+    LIBS maicord_account_media maicord_platform ole32 user32 d3d11 dxgi
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_mpeg_ts)
 

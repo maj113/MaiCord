@@ -2,31 +2,15 @@
 #include "reply_draft_ui_adapter.hpp"
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
+#include "native_message_scene.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace reply_draft_probe_detail {
-struct NativeMessages {
-    MessageScene scene{};
-    MessageTextPresentation text{};
-    UiWidget widgets[4 * kMessageSceneWidgetsPerRow + 1]{};
-    UiLayoutNode nodes[4 * kMessageSceneWidgetsPerRow + 1]{};
-    MessageTextCommand commands[128]{};
-    char bytes[8192]{};
-    TextStyleSpan styles[128]{};
-    MessageMarkdownSemantic semantics[64]{};
-    MessageTextMeasurement measurements[8]{};
-    MessageTextSpoilerReveal reveals[4]{};
-    u32 markdown_scratch[8192]{};
-    ~NativeMessages() noexcept { message_scene_release(&scene); }
-    bool initialize() noexcept {
-        return message_scene_initialize_owned(&scene, reply_draft_ui_adapter_timeline(), 4, 1,
-            {widgets, 4 * kMessageSceneWidgetsPerRow + 1}, {nodes, 4 * kMessageSceneWidgetsPerRow + 1}) &&
-            message_text_presentation_initialize(&text, {commands, 128}, {bytes, sizeof(bytes)},
-                {styles, 128}, {semantics, 64}, {measurements, 8}, {reveals, 4}, {markdown_scratch, 8192});
-    }
+struct NativeMessages : NativeMessageScene {
+    bool initialize() noexcept { return NativeMessageScene::initialize(reply_draft_ui_adapter_timeline()); }
 };
 
 inline bool text_pixels(const surface_motion_probe_detail::Readback& rb, UiRect text, UiRect fill,

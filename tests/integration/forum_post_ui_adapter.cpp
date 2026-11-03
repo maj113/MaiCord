@@ -1,7 +1,6 @@
 #include "forum_post_ui_adapter.hpp"
 #include "../support/secure_text_store_access.hpp"
 #include "forum_media_ui_adapter.hpp"
-#include "clipboard_attachment_ui_fixture.hpp"
 #include "chat/threads/forum_preview.hpp"
 #include "chat/composer/text_form_state.hpp"
 #include "maicord/app/media/account_media_worker.hpp"
@@ -935,6 +934,8 @@ bool forum_media_ui_adapter_pump() noexcept {
                application_forum_form_synchronize();
     });
 }
+// UiProbe owns this borrowed provider. Capture still marshals it for the native
+// worker; no fixture operation reads or replaces the live OS clipboard.
 IDataObject* clipboard_attachment_ui_fixture_provider() noexcept {
     return clipboard_fixture_provider;
 }

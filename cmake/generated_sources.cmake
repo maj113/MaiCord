@@ -98,8 +98,8 @@ set_source_files_properties(src/app/settings/catalog.cpp PROPERTIES
     COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
 
 # The permission grid (src/model/guild/permission_grid_data.inc) and the built-in games (src/app/account/game_data.inc)
-# ship as zlib streams their owners inflate on first use; tests/model/guild/permission_grid_pack.cpp and
-# tests/app/account/game_pack.cpp check the decoded tables against the data files.
+# ship as zlib streams their owners inflate on first use; tests/model/guild/settings_model.cpp and
+# tests/ui/widgets/presence_wave.cpp check the decoded tables against the data files.
 set(MAICORD_PERMISSION_GRID_PACK "${MAICORD_GENERATED_DIRECTORY}/permission_grid_pack.inc")
 set(MAICORD_GAME_PACK "${MAICORD_GENERATED_DIRECTORY}/game_pack.inc")
 add_custom_command(

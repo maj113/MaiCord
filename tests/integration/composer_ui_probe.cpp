@@ -1,6 +1,5 @@
 #include "settings/emoji_preferences.hpp"
 #include "../support/model_store_fixtures.hpp"
-#include "composer_ui_probe.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
@@ -1238,6 +1237,10 @@ bool scenarios() noexcept {
 }
 } // namespace composer_probe_detail
 
+// Native focused-view fixture for shipping composer layout/input/controller.
+// Compact viewports exercise the reusable API; the shipping 624-DIP minimum
+// window is unchanged. Transport, dialogs, picker presentation and scheduling
+// are fixture boundaries; no live account, network or clipboard is used.
 bool composer_ui_probe() noexcept {
     using namespace app_detail;
     using namespace composer_probe_detail;

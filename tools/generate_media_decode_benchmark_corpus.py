@@ -78,7 +78,7 @@ def screenshot(width, height, seed):
     return image
 
 
-def with_alpha(rgb, seed):
+def with_alpha(rgb):
     height, width, _ = rgb.shape
     y, x = np.mgrid[0:height, 0:width].astype(np.float32)
     alpha = 255 * np.clip(1.4 - np.hypot(x / width - 0.5, y / height - 0.5) * 2.2, 0, 1)
@@ -103,7 +103,7 @@ def animation_frames(width, height, count, seed, alpha=False):
         for sx, sy, dx, dy, color, radius in sprites:
             cx, cy = (sx + dx * index * 3) % width, (sy + dy * index * 3) % height
             frame[(x - cx) ** 2 + (y - cy) ** 2 < radius * radius] = color
-        frames.append(with_alpha(frame, seed + index) if alpha else frame)
+        frames.append(with_alpha(frame) if alpha else frame)
     return frames
 
 
@@ -228,14 +228,14 @@ def entries(quick):
     shot = screenshot(1920 // scale, 1080 // scale, 1)
     picture = photo(1024 // scale, 1024 // scale, 2)
     yield 'png', 'png_screenshot_rgb_1920x1080', 0, png_bytes(shot, 2)
-    yield 'png', 'png_photo_rgba_1024', 0, png_bytes(with_alpha(picture, 3), 6)
+    yield 'png', 'png_photo_rgba_1024', 0, png_bytes(with_alpha(picture), 6)
     indices, palette = quantized(shot, 64)
     yield 'png', 'png_palette8_1920x1080', 0, png_bytes(indices, 3, 8, palette)
     small_indices, small_palette = quantized(photo(800 // scale, 600 // scale, 4), 16)
     yield 'png', 'png_palette4_800x600', 0, png_bytes(small_indices, 3, 4, small_palette)
     yield 'png', 'png_gray8_1024', 0, png_bytes(picture[..., 1], 0)
-    yield 'png', 'png_adam7_rgba_512', 0, png_bytes(with_alpha(photo(512, 512, 5), 6), 6, interlace=True)
-    emoji = with_alpha(photo(128, 128, 7), 8)
+    yield 'png', 'png_adam7_rgba_512', 0, png_bytes(with_alpha(photo(512, 512, 5)), 6, interlace=True)
+    emoji = with_alpha(photo(128, 128, 7))
     yield 'png', 'png_emoji_rgba_128', 0, png_bytes(emoji, 6)
 
     apng = animation_frames(256, 256, 48 // scale, 9, alpha=True)
@@ -272,10 +272,10 @@ def entries(quick):
                                                                               quality=88, subsampling=2)
 
     yield 'webp', 'webp_lossy_512', 0, pillow(Image.fromarray(cdn), 'WEBP', quality=80, method=4)
-    yield 'webp', 'webp_lossy_alpha_512', 0, pillow(Image.fromarray(with_alpha(cdn, 16)), 'WEBP', quality=80,
+    yield 'webp', 'webp_lossy_alpha_512', 0, pillow(Image.fromarray(with_alpha(cdn)), 'WEBP', quality=80,
                                                     method=4, alpha_quality=100)
     yield 'webp', 'webp_lossless_photo_512', 0, pillow(Image.fromarray(cdn), 'WEBP', lossless=True, quality=60)
-    yield 'webp', 'webp_lossless_ui_512', 0, pillow(Image.fromarray(with_alpha(shot[:512, 300:812], 17)), 'WEBP',
+    yield 'webp', 'webp_lossless_ui_512', 0, pillow(Image.fromarray(with_alpha(shot[:512, 300:812])), 'WEBP',
                                                     lossless=True, quality=60)
     lossy = animation_frames(320, 320, 60 // scale, 18)
     yield 'animated_webp', 'awebp_lossy_320x60', 0, pillow(Image.fromarray(lossy[0]), 'WEBP', save_all=True,

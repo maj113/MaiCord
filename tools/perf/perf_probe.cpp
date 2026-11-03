@@ -5,6 +5,7 @@
 // allocation calls, private working set and committed memory by owner on standard
 // output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe_internal.hpp"
+#include "maicord/app/account/account_paths.hpp"
 #include "../../src/app/chat/channel_session.hpp"
 #include "../../src/app/shell/content_input.hpp"
 #include "../../src/app/chat/messages/history.hpp"

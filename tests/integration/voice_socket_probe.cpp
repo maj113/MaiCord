@@ -109,10 +109,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_socket_probe_entry() n
         test_write_u64(g_socket.peer_closed);
         test_write_text(" error=");
         test_write_u64(static_cast<u64>(g_socket.error));
-        test_write_text(" tls_error=");
-        test_write_u64(static_cast<u64>(g_socket.tls.error));
-        test_write_text(" native=");
-        test_write_u64(g_socket.tls.native_error);
+        test_write_text(" tls_status=");
+        test_write_u64(static_cast<u32>(g_socket.tls.tls_status));
         test_write_text("\r\n");
     }
     ExitProcess(ok ? 0 : 1);

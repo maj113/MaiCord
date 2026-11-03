@@ -1,14 +1,13 @@
 // Manual benchmark: built only with -DMAICORD_BUILD_BENCHMARKS=ON (cmake/benchmarks.cmake) and
 // never part of the CTest suite.
 #include "channel_name_preflight_observer.hpp"
+#include "bench_common.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/trace_record.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::channel_name_preflight_bench {
 namespace {
+using namespace bench_support;
 constexpr u32 kGuilds = 256, kChannels = 4096, kRoles = 8192, kNameBank = 32768;
 constexpr u32 kModes = 4, kIterations = 512, kWarmups = 16, kSamples = 7;
 const char* const kModesNames[kModes] = {"empty", "identical", "append_fit", "compaction_required"};
@@ -26,11 +25,6 @@ Fixture source{}, oracle{};
 volatile u64 published_checksum = 0;
 u32 live_name_bytes = 0;
 
-void emit(const TraceRecord& row) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), row.text, row.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
 bool initialize(u32 guilds, u32 channels, u32 roles) noexcept {
     source = {};
     auto& s = source.state;
@@ -120,11 +114,6 @@ bool iteration(u32 mode, u32 ordinal, u64* digest) noexcept {
     *digest = observe_preflight(source.state, input, ordinal);
     return *digest == expected_observation(input, ordinal);
 }
-bool deadline_ok(i64 start, u64 frequency) noexcept {
-    LARGE_INTEGER now{};
-    return QueryPerformanceCounter(&now) && now.QuadPart >= start &&
-        static_cast<u64>(now.QuadPart - start) / frequency < 45;
-}
 bool measure(u32 mode, u64* ticks) noexcept {
     LARGE_INTEGER start{}, finish{};
     if (!QueryPerformanceCounter(&start)) return false;
@@ -137,9 +126,6 @@ bool measure(u32 mode, u64* ticks) noexcept {
     *ticks = static_cast<u64>(finish.QuadPart - start.QuadPart);
     published_checksum = published_checksum ^ checksum ^ *ticks;
     return true;
-}
-u64 nanoseconds(u64 ticks, u64 frequency) noexcept {
-    return ((ticks / frequency) * 1000000000ull + (ticks % frequency) * 1000000000ull / frequency) / kIterations;
 }
 bool case_run(u32 guilds, u32 channels, u32 roles, u64 frequency, i64 started) noexcept {
     if (!initialize(guilds, channels, roles)) return false;
@@ -162,19 +148,15 @@ bool case_run(u32 guilds, u32 channels, u32 roles, u64 frequency, i64 started) n
             TraceRecord row("channel_preflight_sample");
             row.field("channels", channels); row.field("roles", roles); row.field("sample", sample);
             row.field("mode", kModesNames[mode]); row.field("batch_ticks", samples[mode][sample]);
-            row.field("ns_per_call", nanoseconds(samples[mode][sample], frequency)); emit(row);
+            row.field("ns_per_call", nanoseconds(samples[mode][sample], frequency, kIterations)); emit(row);
         }
     for (u32 mode = 0; mode < kModes; ++mode) {
-        for (u32 i = 1; i < kSamples; ++i) {
-            const u64 value = samples[mode][i]; u32 at = i;
-            while (at && samples[mode][at - 1] > value) { samples[mode][at] = samples[mode][at - 1]; --at; }
-            samples[mode][at] = value;
-        }
+        sort_samples(samples[mode]);
         TraceRecord row("channel_preflight_summary");
         row.field("channels", channels); row.field("roles", roles); row.field("mode", kModesNames[mode]);
-        row.field("min_ns", nanoseconds(samples[mode][0], frequency));
-        row.field("median_ns", nanoseconds(samples[mode][kSamples / 2], frequency));
-        row.field("max_ns", nanoseconds(samples[mode][kSamples - 1], frequency));
+        row.field("min_ns", nanoseconds(samples[mode][0], frequency, kIterations));
+        row.field("median_ns", nanoseconds(samples[mode][kSamples / 2], frequency, kIterations));
+        row.field("max_ns", nanoseconds(samples[mode][kSamples - 1], frequency, kIterations));
         row.field("median_batch_ticks", samples[mode][kSamples / 2]); emit(row);
     }
     return deadline_ok(started, frequency);

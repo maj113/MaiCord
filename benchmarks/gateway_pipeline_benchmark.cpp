@@ -15,43 +15,12 @@
 #include "../src/app/gateway/client_transport.cpp"
 #include "../src/app/gateway/client_outputs.cpp"
 #include "../src/app/gateway/client_session.cpp"
-#include "maicord/core/decimal.hpp"
-#include "maicord/protocol/encoding/writer.hpp"
+#include "benchmark_line.hpp"
 #include <psapi.h>
 #include <shellapi.h>
 
 namespace maicord::gateway_pipeline {
 namespace {
-
-// ------------------------------------------------------------------ output
-void write_text(const char* text, u32 bytes) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, bytes, &written, nullptr);
-}
-struct Line {
-    char text[1024];
-    u32 used = 0;
-    explicit Line(const char* label) noexcept { add(label); }
-    void add(const char* value) noexcept {
-        while (*value && used + 3 < sizeof(text)) text[used++] = *value++;
-    }
-    Line& field(const char* key, u64 value) noexcept {
-        add(" "); add(key); add("=");
-        char digits[20];
-        const u32 count = decimal_write(digits, value);
-        for (u32 i = 0; i < count && used + 3 < sizeof(text); ++i) text[used++] = digits[i];
-        return *this;
-    }
-    Line& field(const char* key, const char* value) noexcept {
-        add(" "); add(key); add("="); add(value);
-        return *this;
-    }
-    void emit() noexcept {
-        text[used++] = '\r';
-        text[used++] = '\n';
-        write_text(text, used);
-    }
-};
 
 // ----------------------------------------------------------------- fixture
 struct Rng {
@@ -827,7 +796,6 @@ bool start_runtime() noexcept {
     if (!client.runtime) return false;
     runtime = static_cast<GatewayClientRuntime*>(client.runtime);
     runtime->allocation_bytes = kGatewayUserClientRuntimeBytes;
-    runtime->identity = GatewayClientIdentity::normal_user;
     runtime->owner = &client;
     runtime->user = reinterpret_cast<GatewayUserRuntime*>(static_cast<u8*>(client.runtime) + kGatewayUserRuntimeOffset);
     if (!stable_storage_initialize(&runtime->structural_scratch, kStructuralCount, kInitialStructuralCount,

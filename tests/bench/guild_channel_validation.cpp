@@ -1,17 +1,17 @@
 // Manual benchmark: built only with -DMAICORD_BUILD_BENCHMARKS=ON (cmake/benchmarks.cmake) and
 // never part of the CTest suite.
 #include "guild_channel_validation_observer.hpp"
+#include "bench_common.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 
 
 namespace maicord::guild_channel_validation_bench {
 namespace {
+using namespace bench_support;
 constexpr u32 kChannels = 1000, kIterations = 32, kWarmups = 16, kSamples = 7, kModes = 4;
 constexpr u64 kGuild = 77, kSelf = 42, kOwner = 999;
 constexpr u64 kPermissions = kPermissionViewChannel | kPermissionReadMessageHistory |
@@ -161,11 +161,6 @@ bool validate() noexcept {
     workload.expected_digest = observe(actual.state, result);
     return true;
 }
-bool deadline_ok(i64 start, u64 frequency) noexcept {
-    LARGE_INTEGER now{};
-    return QueryPerformanceCounter(&now) && now.QuadPart >= start &&
-        static_cast<u64>(now.QuadPart - start) / frequency < 45;
-}
 bool iteration(u64* ticks, i64 started, u64 frequency) noexcept {
     // Initialization and all exact expected-output checking are outside QPC.
     if (!deadline_ok(started, frequency) || !reset(&actual)) return false;
@@ -177,14 +172,6 @@ bool iteration(u64* ticks, i64 started, u64 frequency) noexcept {
     *ticks = static_cast<u64>(finish.QuadPart - start.QuadPart);
     checksum = (checksum ^ digest ^ *ticks) * 1099511628211ull;
     return result.error == (workload.mode == 3 ? ChatStateApplyError::invalid_payload : ChatStateApplyError::none);
-}
-u64 ns(u64 ticks, u64 frequency) noexcept {
-    return ((ticks / frequency) * 1000000000ull + (ticks % frequency) * 1000000000ull / frequency) / kIterations;
-}
-void emit(const TraceRecord& line) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
 }
 bool case_run(u32 count, bool named, i64 started, u64 frequency) noexcept {
     u64 samples[kModes][kSamples]{};
@@ -207,18 +194,14 @@ bool case_run(u32 count, bool named, i64 started, u64 frequency) noexcept {
             }
             samples[mode][sample] = ticks;
             TraceRecord line("guild_channel_sample"); line.field("channels", count); line.field("mode", kModesText[mode]);
-            line.field("sample", sample); line.field("summed_call_ticks", ticks); line.field("ns_per_call", ns(ticks, frequency)); emit(line);
+            line.field("sample", sample); line.field("summed_call_ticks", ticks); line.field("ns_per_call", nanoseconds(ticks, frequency, kIterations)); emit(line);
         }
     }
     for (u32 mode = 0; mode < kModes; ++mode) {
-        for (u32 i = 1; i < kSamples; ++i) {
-            const u64 value = samples[mode][i]; u32 at = i;
-            while (at && samples[mode][at - 1] > value) { samples[mode][at] = samples[mode][at - 1]; --at; }
-            samples[mode][at] = value;
-        }
+        sort_samples(samples[mode]);
         TraceRecord line("guild_channel_summary"); line.field("channels", count); line.field("mode", kModesText[mode]);
-        line.field("min_ns", ns(samples[mode][0], frequency)); line.field("median_ns", ns(samples[mode][kSamples / 2], frequency));
-        line.field("max_ns", ns(samples[mode][kSamples - 1], frequency)); emit(line);
+        line.field("min_ns", nanoseconds(samples[mode][0], frequency, kIterations)); line.field("median_ns", nanoseconds(samples[mode][kSamples / 2], frequency, kIterations));
+        line.field("max_ns", nanoseconds(samples[mode][kSamples - 1], frequency, kIterations)); emit(line);
     }
     return deadline_ok(started, frequency);
 }

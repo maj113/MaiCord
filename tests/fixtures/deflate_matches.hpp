@@ -75,120 +75,120 @@ inline constexpr u8 kDeflateMatch20[] = {
 inline constexpr u8 kDeflateMatch21[]{
 #embed "deflate_matches/kDeflateMatch21.bin"
 };
-inline constexpr u8 kDeflateMatch22[]{
-#embed "deflate_matches/kDeflateMatch22.bin"
-};
-inline constexpr u8 kDeflateMatch23[] = {
+inline constexpr u8 kDeflateMatch22[] = {
     0x78,0x9c,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch24[] = {
+inline constexpr u8 kDeflateMatch23[] = {
     0x78,0x01,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch25[] = {
+inline constexpr u8 kDeflateMatch24[] = {
     0x78,0x9c,0x73,0x04,0x00,0x00,0x42,0x00,0x42,
 };
-inline constexpr u8 kDeflateMatch26[] = {
+inline constexpr u8 kDeflateMatch25[] = {
     0x78,0x01,0x73,0x04,0x00,0x00,0x42,0x00,0x42,
 };
-inline constexpr u8 kDeflateMatch27[] = {
+inline constexpr u8 kDeflateMatch26[] = {
     0x78,0x9c,0x73,0x74,0x02,0x00,0x00,0xc6,0x00,0x84,
 };
-inline constexpr u8 kDeflateMatch28[] = {
+inline constexpr u8 kDeflateMatch27[] = {
     0x78,0x01,0x73,0x74,0x02,0x00,0x00,0xc6,0x00,0x84,
 };
-inline constexpr u8 kDeflateMatch29[] = {
+inline constexpr u8 kDeflateMatch28[] = {
     0x78,0x9c,0x73,0x74,0x72,0x06,0x00,0x01,0x8d,0x00,0xc7,
 };
-inline constexpr u8 kDeflateMatch30[] = {
+inline constexpr u8 kDeflateMatch29[] = {
     0x78,0x01,0x73,0x74,0x72,0x06,0x00,0x01,0x8d,0x00,0xc7,
 };
-inline constexpr u8 kDeflateMatch31[] = {
+inline constexpr u8 kDeflateMatch30[] = {
     0x78,0x9c,0x73,0x74,0x72,0x76,0x74,0x72,0x76,0x04,0x00,0x07,0x3a,0x01,0xce,
 };
-inline constexpr u8 kDeflateMatch32[] = {
+inline constexpr u8 kDeflateMatch31[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0x74,0x72,0x76,0x04,0x00,0x07,0x3a,0x01,0xce,
 };
-inline constexpr u8 kDeflateMatch33[] = {
+inline constexpr u8 kDeflateMatch32[] = {
     0x78,0x9c,0x73,0x74,0x72,0x76,0xc4,0x83,0x00,0x7f,0xea,0x07,0xfe,
 };
-inline constexpr u8 kDeflateMatch34[] = {
+inline constexpr u8 kDeflateMatch33[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0xc4,0x83,0x00,0x7f,0xea,0x07,0xfe,
 };
-inline constexpr u8 kDeflateMatch35[] = {
+inline constexpr u8 kDeflateMatch34[] = {
     0x78,0x9c,0x73,0x74,0x72,0x76,0x1c,0xd1,0x08,0x00,0x65,0x86,0x42,0x42,
 };
-inline constexpr u8 kDeflateMatch36[] = {
+inline constexpr u8 kDeflateMatch35[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0x1c,0xd1,0x08,0x00,0x65,0x86,0x42,0x42,
 };
-inline constexpr u8 kDeflateMatch37[] = {
+inline constexpr u8 kDeflateMatch36[] = {
     0x78,0x9c,0x73,0x74,0x72,0x76,0x1c,0xd9,0x08,0x00,0xa8,0x0b,0x42,0x85,
 };
-inline constexpr u8 kDeflateMatch38[] = {
+inline constexpr u8 kDeflateMatch37[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0x1c,0xd9,0x08,0x00,0xa8,0x0b,0x42,0x85,
 };
-inline constexpr u8 kDeflateMatch39[] = {
+inline constexpr u8 kDeflateMatch38[] = {
     0x78,0x9c,0x73,0x74,0x72,0x76,0x1c,0xe1,0x08,0x00,0xea,0xd1,0x42,0xc6,
 };
-inline constexpr u8 kDeflateMatch40[] = {
+inline constexpr u8 kDeflateMatch39[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0x1c,0xe1,0x08,0x00,0xea,0xd1,0x42,0xc6,
 };
-inline constexpr u8 kDeflateMatch41[] = {
+inline constexpr u8 kDeflateMatch40[] = {
     0x78,0x9c,0xed,0xc2,0x01,0x0d,0x00,0x00,0x0c,0x02,0xa0,0x6c,0xfa,0xfe,0x9d,0xec,0xf1,0xc1,0x48,0x2f,0xaa,0xaa,0xaa,0x6a,
     0x5f,0x1f,0x04,0x91,0x20,0x3c,
 };
-inline constexpr u8 kDeflateMatch42[] = {
+inline constexpr u8 kDeflateMatch41[] = {
     0x78,0x01,0x73,0x74,0x72,0x76,0x1c,0x45,0xa3,0x68,0x14,0x8d,0xa2,0x51,0x34,0x8a,0x46,0xd1,0x28,0x1a,0x45,0xa3,0x68,0x14,
     0x8d,0xa2,0x51,0x34,0x8a,0x46,0x91,0xd3,0xb0,0x46,0x00,0x04,0x91,0x20,0x3c,
 };
-inline constexpr u8 kDeflateMatch43[] = {
+inline constexpr u8 kDeflateMatch42[] = {
     0x78,0x9c,0xed,0xc2,0x01,0x09,0x00,0x00,0x00,0x02,0xa0,0x6d,0xd5,0xff,0x4f,0x1d,0x51,0x4c,0x17,0x55,0x55,0x55,0x55,0x55,
     0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,
     0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,
     0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x3d,0x74,0x45,0x03,0xde,
 };
-inline constexpr u8 kDeflateMatch44[]{
-#embed "deflate_matches/kDeflateMatch44.bin"
+inline constexpr u8 kDeflateMatch43[]{
+#embed "deflate_matches/kDeflateMatch43.bin"
 };
-inline constexpr u8 kDeflateMatch45[]{
-#embed "deflate_matches/kDeflateMatch45.bin"
-};
-inline constexpr u8 kDeflateMatch46[] = {
+inline constexpr u8 kDeflateMatch44[] = {
     0x78,0x9c,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch47[] = {
+inline constexpr u8 kDeflateMatch45[] = {
     0x78,0x01,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch48[] = {
+inline constexpr u8 kDeflateMatch46[] = {
     0x78,0x9c,0x63,0x00,0x00,0x00,0x01,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch49[] = {
+inline constexpr u8 kDeflateMatch47[] = {
     0x78,0x01,0x63,0x00,0x00,0x00,0x01,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch50[] = {
+inline constexpr u8 kDeflateMatch48[] = {
     0x78,0x9c,0x63,0x10,0x04,0x00,0x00,0x13,0x00,0x12,
 };
-inline constexpr u8 kDeflateMatch51[] = {
+inline constexpr u8 kDeflateMatch49[] = {
     0x78,0x01,0x63,0x10,0x04,0x00,0x00,0x13,0x00,0x12,
 };
-inline constexpr u8 kDeflateMatch52[] = {
+inline constexpr u8 kDeflateMatch50[] = {
     0x78,0x9c,0x63,0x10,0x54,0x02,0x00,0x00,0x47,0x00,0x34,
 };
-inline constexpr u8 kDeflateMatch53[] = {
+inline constexpr u8 kDeflateMatch51[] = {
     0x78,0x01,0x63,0x10,0x54,0x02,0x00,0x00,0x47,0x00,0x34,
 };
-inline constexpr u8 kDeflateMatch54[] = {
+inline constexpr u8 kDeflateMatch52[] = {
     0x78,0x9c,0x63,0x10,0x54,0x32,0x76,0x09,0x4d,0x03,0x00,0x03,0xbf,0x01,0x66,
 };
-inline constexpr u8 kDeflateMatch55[] = {
+inline constexpr u8 kDeflateMatch53[] = {
     0x78,0x01,0x63,0x10,0x54,0x32,0x76,0x09,0x4d,0x03,0x00,0x03,0xbf,0x01,0x66,
 };
-inline constexpr u8 kDeflateMatch56[] = {
+inline constexpr u8 kDeflateMatch54[] = {
     0x78,0x9c,0x63,0x10,0x54,0x32,0x76,0x09,0x4d,0x2b,0xef,0x98,0xb9,0x6a,0xf7,0x99,0xbb,0xef,0xfe,0x0b,0x28,0x1a,0x39,0x87,
     0xa4,0x96,0xb5,0xcf,0x58,0xb9,0xeb,0xf4,0x9d,0xb7,0xff,0x00,0xd1,0x7f,0x0f,0xe2,
 };
-inline constexpr u8 kDeflateMatch57[] = {
+inline constexpr u8 kDeflateMatch55[] = {
     0x78,0x01,0x63,0x10,0x54,0x32,0x76,0x09,0x4d,0x2b,0xef,0x98,0xb9,0x6a,0xf7,0x99,0xbb,0xef,0xfe,0x0b,0x28,0x1a,0x39,0x87,
     0xa4,0x96,0xb5,0xcf,0x58,0xb9,0xeb,0xf4,0x9d,0xb7,0xff,0x00,0xd1,0x7f,0x0f,0xe2,
+};
+inline constexpr u8 kDeflateMatch56[]{
+#embed "deflate_matches/kDeflateMatch56.bin"
+};
+inline constexpr u8 kDeflateMatch57[]{
+#embed "deflate_matches/kDeflateMatch57.bin"
 };
 inline constexpr u8 kDeflateMatch58[]{
 #embed "deflate_matches/kDeflateMatch58.bin"
@@ -214,52 +214,52 @@ inline constexpr u8 kDeflateMatch64[]{
 inline constexpr u8 kDeflateMatch65[]{
 #embed "deflate_matches/kDeflateMatch65.bin"
 };
-inline constexpr u8 kDeflateMatch66[]{
-#embed "deflate_matches/kDeflateMatch66.bin"
-};
-inline constexpr u8 kDeflateMatch67[]{
-#embed "deflate_matches/kDeflateMatch67.bin"
-};
-inline constexpr u8 kDeflateMatch68[]{
-#embed "deflate_matches/kDeflateMatch68.bin"
-};
-inline constexpr u8 kDeflateMatch69[] = {
+inline constexpr u8 kDeflateMatch66[] = {
     0x78,0x9c,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch70[] = {
+inline constexpr u8 kDeflateMatch67[] = {
     0x78,0x01,0x03,0x00,0x00,0x00,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch71[] = {
+inline constexpr u8 kDeflateMatch68[] = {
     0x78,0x9c,0x63,0x00,0x00,0x00,0x01,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch72[] = {
+inline constexpr u8 kDeflateMatch69[] = {
     0x78,0x01,0x63,0x00,0x00,0x00,0x01,0x00,0x01,
 };
-inline constexpr u8 kDeflateMatch73[] = {
+inline constexpr u8 kDeflateMatch70[] = {
     0x78,0x9c,0x63,0x90,0x07,0x00,0x00,0x21,0x00,0x20,
 };
-inline constexpr u8 kDeflateMatch74[] = {
+inline constexpr u8 kDeflateMatch71[] = {
     0x78,0x01,0x63,0x90,0x07,0x00,0x00,0x21,0x00,0x20,
 };
-inline constexpr u8 kDeflateMatch75[] = {
+inline constexpr u8 kDeflateMatch72[] = {
     0x78,0x9c,0x63,0x90,0xb7,0x03,0x00,0x00,0x7f,0x00,0x5e,
 };
-inline constexpr u8 kDeflateMatch76[] = {
+inline constexpr u8 kDeflateMatch73[] = {
     0x78,0x01,0x63,0x90,0xb7,0x03,0x00,0x00,0x7f,0x00,0x5e,
 };
-inline constexpr u8 kDeflateMatch77[] = {
+inline constexpr u8 kDeflateMatch74[] = {
     0x78,0x9c,0x63,0x90,0xb7,0x8b,0xad,0x99,0xbd,0x0b,0x00,0x06,0xcf,0x02,0x8c,
 };
-inline constexpr u8 kDeflateMatch78[] = {
+inline constexpr u8 kDeflateMatch75[] = {
     0x78,0x01,0x63,0x90,0xb7,0x8b,0xad,0x99,0xbd,0x0b,0x00,0x06,0xcf,0x02,0x8c,
 };
-inline constexpr u8 kDeflateMatch79[] = {
+inline constexpr u8 kDeflateMatch76[] = {
     0x78,0x9c,0x63,0x90,0xb7,0x8b,0xad,0x99,0xbd,0xeb,0xe6,0x4f,0x09,0xf3,0xb0,0xd2,0x29,0x9b,0x2f,0x7d,0x12,0x34,0xf0,0xcf,
     0xeb,0x5d,0x73,0xfa,0x35,0x97,0xa6,0x47,0x7a,0xdb,0x52,0x00,0xdf,0x67,0x0e,0x7d,
 };
-inline constexpr u8 kDeflateMatch80[] = {
+inline constexpr u8 kDeflateMatch77[] = {
     0x78,0x01,0x63,0x90,0xb7,0x8b,0xad,0x99,0xbd,0xeb,0xe6,0x4f,0x09,0xf3,0xb0,0xd2,0x29,0x9b,0x2f,0x7d,0x12,0x34,0xf0,0xcf,
     0xeb,0x5d,0x73,0xfa,0x35,0x97,0xa6,0x47,0x7a,0xdb,0x52,0x00,0xdf,0x67,0x0e,0x7d,
+};
+inline constexpr u8 kDeflateMatch78[]{
+#embed "deflate_matches/kDeflateMatch78.bin"
+};
+inline constexpr u8 kDeflateMatch79[]{
+#embed "deflate_matches/kDeflateMatch79.bin"
+};
+inline constexpr u8 kDeflateMatch80[]{
+#embed "deflate_matches/kDeflateMatch80.bin"
 };
 inline constexpr u8 kDeflateMatch81[]{
 #embed "deflate_matches/kDeflateMatch81.bin"
@@ -284,15 +284,6 @@ inline constexpr u8 kDeflateMatch87[]{
 };
 inline constexpr u8 kDeflateMatch88[]{
 #embed "deflate_matches/kDeflateMatch88.bin"
-};
-inline constexpr u8 kDeflateMatch89[]{
-#embed "deflate_matches/kDeflateMatch89.bin"
-};
-inline constexpr u8 kDeflateMatch90[]{
-#embed "deflate_matches/kDeflateMatch90.bin"
-};
-inline constexpr u8 kDeflateMatch91[]{
-#embed "deflate_matches/kDeflateMatch91.bin"
 };
 #pragma clang diagnostic pop
 struct DeflateMatchFixture { const u8* data; u32 bytes; u32 size; u32 pattern; };
@@ -319,75 +310,72 @@ inline constexpr DeflateMatchFixture kDeflateMatchFixtures[] = {
     {kDeflateMatch19, sizeof(kDeflateMatch19), 4096, 0},
     {kDeflateMatch20, sizeof(kDeflateMatch20), 65536, 0},
     {kDeflateMatch21, sizeof(kDeflateMatch21), 65536, 0},
-    {kDeflateMatch22, sizeof(kDeflateMatch22), 4096, 3},
+    {kDeflateMatch22, sizeof(kDeflateMatch22), 0, 1},
     {kDeflateMatch23, sizeof(kDeflateMatch23), 0, 1},
-    {kDeflateMatch24, sizeof(kDeflateMatch24), 0, 1},
+    {kDeflateMatch24, sizeof(kDeflateMatch24), 1, 1},
     {kDeflateMatch25, sizeof(kDeflateMatch25), 1, 1},
-    {kDeflateMatch26, sizeof(kDeflateMatch26), 1, 1},
+    {kDeflateMatch26, sizeof(kDeflateMatch26), 2, 1},
     {kDeflateMatch27, sizeof(kDeflateMatch27), 2, 1},
-    {kDeflateMatch28, sizeof(kDeflateMatch28), 2, 1},
+    {kDeflateMatch28, sizeof(kDeflateMatch28), 3, 1},
     {kDeflateMatch29, sizeof(kDeflateMatch29), 3, 1},
-    {kDeflateMatch30, sizeof(kDeflateMatch30), 3, 1},
+    {kDeflateMatch30, sizeof(kDeflateMatch30), 7, 1},
     {kDeflateMatch31, sizeof(kDeflateMatch31), 7, 1},
-    {kDeflateMatch32, sizeof(kDeflateMatch32), 7, 1},
+    {kDeflateMatch32, sizeof(kDeflateMatch32), 31, 1},
     {kDeflateMatch33, sizeof(kDeflateMatch33), 31, 1},
-    {kDeflateMatch34, sizeof(kDeflateMatch34), 31, 1},
+    {kDeflateMatch34, sizeof(kDeflateMatch34), 257, 1},
     {kDeflateMatch35, sizeof(kDeflateMatch35), 257, 1},
-    {kDeflateMatch36, sizeof(kDeflateMatch36), 257, 1},
+    {kDeflateMatch36, sizeof(kDeflateMatch36), 258, 1},
     {kDeflateMatch37, sizeof(kDeflateMatch37), 258, 1},
-    {kDeflateMatch38, sizeof(kDeflateMatch38), 258, 1},
+    {kDeflateMatch38, sizeof(kDeflateMatch38), 259, 1},
     {kDeflateMatch39, sizeof(kDeflateMatch39), 259, 1},
-    {kDeflateMatch40, sizeof(kDeflateMatch40), 259, 1},
+    {kDeflateMatch40, sizeof(kDeflateMatch40), 4096, 1},
     {kDeflateMatch41, sizeof(kDeflateMatch41), 4096, 1},
-    {kDeflateMatch42, sizeof(kDeflateMatch42), 4096, 1},
+    {kDeflateMatch42, sizeof(kDeflateMatch42), 65536, 1},
     {kDeflateMatch43, sizeof(kDeflateMatch43), 65536, 1},
-    {kDeflateMatch44, sizeof(kDeflateMatch44), 65536, 1},
-    {kDeflateMatch45, sizeof(kDeflateMatch45), 4096, 3},
-    {kDeflateMatch46, sizeof(kDeflateMatch46), 0, 2},
-    {kDeflateMatch47, sizeof(kDeflateMatch47), 0, 2},
-    {kDeflateMatch48, sizeof(kDeflateMatch48), 1, 2},
-    {kDeflateMatch49, sizeof(kDeflateMatch49), 1, 2},
-    {kDeflateMatch50, sizeof(kDeflateMatch50), 2, 2},
-    {kDeflateMatch51, sizeof(kDeflateMatch51), 2, 2},
-    {kDeflateMatch52, sizeof(kDeflateMatch52), 3, 2},
-    {kDeflateMatch53, sizeof(kDeflateMatch53), 3, 2},
-    {kDeflateMatch54, sizeof(kDeflateMatch54), 7, 2},
-    {kDeflateMatch55, sizeof(kDeflateMatch55), 7, 2},
-    {kDeflateMatch56, sizeof(kDeflateMatch56), 31, 2},
-    {kDeflateMatch57, sizeof(kDeflateMatch57), 31, 2},
-    {kDeflateMatch58, sizeof(kDeflateMatch58), 257, 2},
-    {kDeflateMatch59, sizeof(kDeflateMatch59), 257, 2},
-    {kDeflateMatch60, sizeof(kDeflateMatch60), 258, 2},
-    {kDeflateMatch61, sizeof(kDeflateMatch61), 258, 2},
-    {kDeflateMatch62, sizeof(kDeflateMatch62), 259, 2},
-    {kDeflateMatch63, sizeof(kDeflateMatch63), 259, 2},
-    {kDeflateMatch64, sizeof(kDeflateMatch64), 4096, 2},
-    {kDeflateMatch65, sizeof(kDeflateMatch65), 4096, 2},
-    {kDeflateMatch66, sizeof(kDeflateMatch66), 65536, 2},
-    {kDeflateMatch67, sizeof(kDeflateMatch67), 65536, 2},
-    {kDeflateMatch68, sizeof(kDeflateMatch68), 4096, 3},
-    {kDeflateMatch69, sizeof(kDeflateMatch69), 0, 3},
-    {kDeflateMatch70, sizeof(kDeflateMatch70), 0, 3},
-    {kDeflateMatch71, sizeof(kDeflateMatch71), 1, 3},
-    {kDeflateMatch72, sizeof(kDeflateMatch72), 1, 3},
-    {kDeflateMatch73, sizeof(kDeflateMatch73), 2, 3},
-    {kDeflateMatch74, sizeof(kDeflateMatch74), 2, 3},
-    {kDeflateMatch75, sizeof(kDeflateMatch75), 3, 3},
-    {kDeflateMatch76, sizeof(kDeflateMatch76), 3, 3},
-    {kDeflateMatch77, sizeof(kDeflateMatch77), 7, 3},
-    {kDeflateMatch78, sizeof(kDeflateMatch78), 7, 3},
-    {kDeflateMatch79, sizeof(kDeflateMatch79), 31, 3},
-    {kDeflateMatch80, sizeof(kDeflateMatch80), 31, 3},
-    {kDeflateMatch81, sizeof(kDeflateMatch81), 257, 3},
-    {kDeflateMatch82, sizeof(kDeflateMatch82), 257, 3},
-    {kDeflateMatch83, sizeof(kDeflateMatch83), 258, 3},
-    {kDeflateMatch84, sizeof(kDeflateMatch84), 258, 3},
-    {kDeflateMatch85, sizeof(kDeflateMatch85), 259, 3},
-    {kDeflateMatch86, sizeof(kDeflateMatch86), 259, 3},
-    {kDeflateMatch87, sizeof(kDeflateMatch87), 4096, 3},
+    {kDeflateMatch44, sizeof(kDeflateMatch44), 0, 2},
+    {kDeflateMatch45, sizeof(kDeflateMatch45), 0, 2},
+    {kDeflateMatch46, sizeof(kDeflateMatch46), 1, 2},
+    {kDeflateMatch47, sizeof(kDeflateMatch47), 1, 2},
+    {kDeflateMatch48, sizeof(kDeflateMatch48), 2, 2},
+    {kDeflateMatch49, sizeof(kDeflateMatch49), 2, 2},
+    {kDeflateMatch50, sizeof(kDeflateMatch50), 3, 2},
+    {kDeflateMatch51, sizeof(kDeflateMatch51), 3, 2},
+    {kDeflateMatch52, sizeof(kDeflateMatch52), 7, 2},
+    {kDeflateMatch53, sizeof(kDeflateMatch53), 7, 2},
+    {kDeflateMatch54, sizeof(kDeflateMatch54), 31, 2},
+    {kDeflateMatch55, sizeof(kDeflateMatch55), 31, 2},
+    {kDeflateMatch56, sizeof(kDeflateMatch56), 257, 2},
+    {kDeflateMatch57, sizeof(kDeflateMatch57), 257, 2},
+    {kDeflateMatch58, sizeof(kDeflateMatch58), 258, 2},
+    {kDeflateMatch59, sizeof(kDeflateMatch59), 258, 2},
+    {kDeflateMatch60, sizeof(kDeflateMatch60), 259, 2},
+    {kDeflateMatch61, sizeof(kDeflateMatch61), 259, 2},
+    {kDeflateMatch62, sizeof(kDeflateMatch62), 4096, 2},
+    {kDeflateMatch63, sizeof(kDeflateMatch63), 4096, 2},
+    {kDeflateMatch64, sizeof(kDeflateMatch64), 65536, 2},
+    {kDeflateMatch65, sizeof(kDeflateMatch65), 65536, 2},
+    {kDeflateMatch66, sizeof(kDeflateMatch66), 0, 3},
+    {kDeflateMatch67, sizeof(kDeflateMatch67), 0, 3},
+    {kDeflateMatch68, sizeof(kDeflateMatch68), 1, 3},
+    {kDeflateMatch69, sizeof(kDeflateMatch69), 1, 3},
+    {kDeflateMatch70, sizeof(kDeflateMatch70), 2, 3},
+    {kDeflateMatch71, sizeof(kDeflateMatch71), 2, 3},
+    {kDeflateMatch72, sizeof(kDeflateMatch72), 3, 3},
+    {kDeflateMatch73, sizeof(kDeflateMatch73), 3, 3},
+    {kDeflateMatch74, sizeof(kDeflateMatch74), 7, 3},
+    {kDeflateMatch75, sizeof(kDeflateMatch75), 7, 3},
+    {kDeflateMatch76, sizeof(kDeflateMatch76), 31, 3},
+    {kDeflateMatch77, sizeof(kDeflateMatch77), 31, 3},
+    {kDeflateMatch78, sizeof(kDeflateMatch78), 257, 3},
+    {kDeflateMatch79, sizeof(kDeflateMatch79), 257, 3},
+    {kDeflateMatch80, sizeof(kDeflateMatch80), 258, 3},
+    {kDeflateMatch81, sizeof(kDeflateMatch81), 258, 3},
+    {kDeflateMatch82, sizeof(kDeflateMatch82), 259, 3},
+    {kDeflateMatch83, sizeof(kDeflateMatch83), 259, 3},
+    {kDeflateMatch84, sizeof(kDeflateMatch84), 4096, 3},
+    {kDeflateMatch85, sizeof(kDeflateMatch85), 4096, 3},
+    {kDeflateMatch86, sizeof(kDeflateMatch86), 65536, 3},
+    {kDeflateMatch87, sizeof(kDeflateMatch87), 65536, 3},
     {kDeflateMatch88, sizeof(kDeflateMatch88), 4096, 3},
-    {kDeflateMatch89, sizeof(kDeflateMatch89), 65536, 3},
-    {kDeflateMatch90, sizeof(kDeflateMatch90), 65536, 3},
-    {kDeflateMatch91, sizeof(kDeflateMatch91), 4096, 3},
 };
 } // namespace maicord

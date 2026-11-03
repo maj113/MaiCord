@@ -434,7 +434,7 @@ bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, const UiRect& vie
     const void* about = nullptr;
     if (st.detail && f.model.details_markdown.bytes) {
         UiMarkdown* block = ui_markdown_bank_block(&f.bank, 1);
-        if (block && ui_markdown_parse(block, f.model.details_markdown, UiMarkdownOptions{true, text_size_md}, ui_markdown_bank_scratch(f.bank)))
+        if (block && ui_markdown_parse(block, f.model.details_markdown, text_size_md, ui_markdown_bank_scratch(f.bank)))
             about = block;
     }
     StoreLayoutInput in{&f.model, &st, nullptr, ui_rect_width(rect), false, about, nullptr};
