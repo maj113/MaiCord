@@ -1,6 +1,7 @@
 #include "updates.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/state.hpp"
 #include "maicord/app/update/https.hpp"
@@ -618,7 +619,7 @@ u32 application_updates_release_notes_url(const ApplicationUpdatesView& v, Utf8V
 
 bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View commit) noexcept {
     if (g_worker) return true;
-    auto* w = static_cast<Worker*>(VirtualAlloc(nullptr, sizeof(Worker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* w = commit_pages<Worker>();
     if (!w) return false;
     w->config = config;
     w->view.own_version = config.own_version;
@@ -723,8 +724,7 @@ namespace {
 ApplicationUpdatesChangelogRows* page_rows() noexcept {
     Worker* w = g_worker;
     if (!w) return nullptr;
-    if (!g_rows) g_rows = static_cast<ApplicationUpdatesChangelogRows*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationUpdatesChangelogRows), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!g_rows) g_rows = commit_pages<ApplicationUpdatesChangelogRows>();
     ApplicationUpdatesChangelogRows* rows = g_rows;
     if (rows && (!rows->built || rows->built_revision != g_view.changelog_revision || rows->built_own != g_view.own_version ||
                  rows->built_offer != offered_version(g_view) || rows->built_stamp != rows->stamp)) {

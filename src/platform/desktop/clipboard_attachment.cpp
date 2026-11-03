@@ -2,6 +2,7 @@
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/win32_threadpool.hpp"
 namespace maicord {
@@ -107,7 +108,7 @@ bool valid_drop(HGLOBAL block) noexcept {
 }
 Content* content_create(DWORD* error) noexcept {
     *error = ERROR_NOT_ENOUGH_MEMORY;
-    auto* content = static_cast<Content*>(VirtualAlloc(nullptr, sizeof(Content), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* content = commit_pages<Content>();
     if (!content) return nullptr;
     content->cleanup = CreateThreadpoolWork(cleanup, content, nullptr);
     if (!content->cleanup || FAILED(CoIncrementMTAUsage(&content->apartment))) {
@@ -154,7 +155,7 @@ DWORD visit_files(IDataObject* object, u32 maximum, ClipboardAttachmentVisitor v
     if (!valid_drop(metadata.hGlobal)) { ReleaseStgMedium(&metadata); return ERROR_INVALID_DATA; }
     const u32 files = DragQueryFileW(static_cast<HDROP>(metadata.hGlobal), 0xffffffffu, nullptr, 0);
     DWORD error = !files ? ERROR_INVALID_DATA : files > maximum ? ERROR_TOO_MANY_NAMES : ERROR_SUCCESS;
-    auto* path = error ? nullptr : static_cast<wchar_t*>(VirtualAlloc(nullptr, 65536, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* path = error ? nullptr : commit_pages<wchar_t>(65536);
     if (!error && !path) error = ERROR_NOT_ENOUGH_MEMORY;
     for (u32 i = 0; !error && i < files; ++i) {
         const u32 units = DragQueryFileW(static_cast<HDROP>(metadata.hGlobal), i, path, 32768);
@@ -214,14 +215,14 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
     STATSTG stat{};
     u64 capacity = SUCCEEDED(stream->Stat(&stat, STATFLAG_NONAME)) && stat.cbSize.QuadPart ? stat.cbSize.QuadPart : 1u << 20;
     if (capacity > cap) capacity = cap;
-    u8* buffer = static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(capacity), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u8* buffer = commit_pages<u8>(static_cast<SIZE_T>(capacity));
     u64 used = 0;
     DWORD error = buffer ? ERROR_SUCCESS : ERROR_NOT_ENOUGH_MEMORY;
     while (!error) {
         if (used == capacity) {
             if (capacity >= cap) break; // larger than any acceptable payload; convert what fits
             const u64 grown = minimum(cap, capacity * 2);
-            auto* next = static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(grown), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            auto* next = commit_pages<u8>(static_cast<SIZE_T>(grown));
             if (!next) { error = ERROR_NOT_ENOUGH_MEMORY; break; }
             copy_bytes(next, buffer, static_cast<u32>(used));
             VirtualFree(buffer, 0, MEM_RELEASE); buffer = next; capacity = grown;

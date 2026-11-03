@@ -1,6 +1,7 @@
 #include "maicord/platform/audio/voice_audio_output.hpp"
 #include "endpoint_watch.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/wasapi.hpp"
 
 namespace maicord {
@@ -141,7 +142,7 @@ bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* de
                                      void* context) noexcept {
     if (!output || output->runtime || !render)
         return false;
-    auto* r = static_cast<Runtime*>(VirtualAlloc(nullptr, sizeof(Runtime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* r = commit_pages<Runtime>();
     if (!r)
         return false;
     r->render = render;

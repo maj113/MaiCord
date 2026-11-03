@@ -1,6 +1,7 @@
 #include "maicord/ui/media/picker.hpp"
 #include "picker_internal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
@@ -318,7 +319,7 @@ bool layout_tiles(UiMediaPickerScene& scene) noexcept {
     if (count > scene.tile_capacity) {
         const usize bytes = (static_cast<usize>(count) * sizeof(UiMediaPickerTile) + 4095) & ~usize{4095};
         auto* next = static_cast<UiMediaPickerTile*>(
-            VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(bytes));
         if (!next)
             return false;
         if (scene.tiles)
@@ -645,7 +646,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
     if (prior_count > scene.prior_capacity) {
         const usize bytes = (static_cast<usize>(prior_count) * sizeof(UiMediaPickerCell) + 4095) & ~usize{4095};
         auto* next = static_cast<UiMediaPickerCell*>(
-            VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(bytes));
         if (next) {
             if (scene.prior)
                 VirtualFree(scene.prior, 0, MEM_RELEASE);

@@ -1,4 +1,5 @@
 #include "account_video_session_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/containers/mp4_fragment_audio.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
 
@@ -317,7 +318,7 @@ bool opus_workspace(AccountVideoSession& s) noexcept {
         return false;
     }
     const usize bytes = opus_scratch_offset(state_bytes) + sizeof(OpusScratch);
-    auto* w = static_cast<OpusWorkspace*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* w = static_cast<OpusWorkspace*>(commit_pages(bytes));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
@@ -375,7 +376,7 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
         return false;
     }
     const u32 allocation = mp3 ? offset + state_bytes : sizeof(PcmWorkspace);
-    s.workspace = VirtualAlloc(nullptr, allocation, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    s.workspace = commit_pages(allocation);
     if (!s.workspace) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
@@ -419,7 +420,7 @@ bool workspace(AccountVideoSession& s) noexcept {
     if (pcm_backed(s))
         return pcm_workspace(s);
     auto* w = static_cast<Workspace*>(
-        VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(Workspace)));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;

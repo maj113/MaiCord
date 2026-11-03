@@ -1,5 +1,6 @@
 #include "maicord/app/voice/account_voice_message.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -102,8 +103,7 @@ bool finish(AccountVoiceMessage* v) noexcept {
         v->state = VoiceMessageState::finished;
         const u32 state_bytes = opus_decoder_storage_bytes(1);
         v->preview_state = static_cast<VoiceMessagePreview*>(
-            VirtualAlloc(nullptr, preview_scratch_offset(state_bytes) + sizeof(OpusScratch), MEM_RESERVE | MEM_COMMIT,
-                         PAGE_READWRITE));
+            commit_pages(preview_scratch_offset(state_bytes) + sizeof(OpusScratch)));
         auto* p = v->preview_state;
         preview = p && state_bytes &&
                   ogg_opus_demux_initialize(&p->demux, voice_message_recorder_stream(v->recorder), {}) ==

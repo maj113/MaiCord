@@ -4,6 +4,7 @@
 #include "../shell/state.hpp"
 #include "maicord/app/plugins/settings_page.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 
@@ -245,7 +246,7 @@ bool application_plugin_settings_open(PluginBinding* target) noexcept {
         f.capacities[i] = typed(descriptor.settings[i]) ? capacity_for(descriptor.settings[i]) : 0;
         total += (f.capacities[i] + 15) & ~15u;
     }
-    f.storage = total ? static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) : nullptr;
+    f.storage = total ? static_cast<u8*>(commit_pages(total)) : nullptr;
     if (total && !f.storage) return false;
     f.binding_address = target;
     f.runtime = target->runtime;

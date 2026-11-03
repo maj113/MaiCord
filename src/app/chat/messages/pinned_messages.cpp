@@ -13,6 +13,7 @@
 #include "../../net/rest_rate_retry.hpp"
 #include "maicord/app/chat/messages/pinned_message_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
@@ -79,7 +80,7 @@ bool front() noexcept {
 ApplicationPinnedMessages* ensure_owner() noexcept {
     if (!g_app.pinned_messages) {
         g_app.pinned_messages = static_cast<ApplicationPinnedMessages*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationPinnedMessages), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(ApplicationPinnedMessages)));
         if (g_app.pinned_messages) {
             g_app.pinned_messages->source = {g_app.pinned_messages, 0, 1, nullptr, source_current};
         }

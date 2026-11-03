@@ -1,5 +1,6 @@
 #include "rest_client_internal.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 namespace {
@@ -415,7 +416,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         }
     }
     reset_value<RestClient>(client);
-    client->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    client->runtime = commit_pages(bytes);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(RestClientError::memory));
         InterlockedExchange(&client->native_error, static_cast<LONG>(thread_last_error()));

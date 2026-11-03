@@ -1,5 +1,6 @@
 #include "maicord/app/plugins/keep.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -36,9 +37,9 @@ Store* g_store;
 bool ensure() noexcept {
     if (g_store) return true;
     const u32 bytes = (static_cast<u32>(sizeof(Store)) + 4095u) & ~4095u;
-    auto* store = static_cast<Store*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* store = static_cast<Store*>(commit_pages(bytes));
     if (!store) return false;
-    store->pool = static_cast<u8*>(VirtualAlloc(nullptr, kKeepPoolBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    store->pool = static_cast<u8*>(commit_pages(kKeepPoolBytes));
     if (!store->pool) {
         VirtualFree(store, 0, MEM_RELEASE);
         return false;
@@ -90,7 +91,7 @@ void evict(Record* record) noexcept {
 
 // Moves every live block to the front of a fresh pool.
 bool compact() noexcept {
-    auto* fresh = static_cast<u8*>(VirtualAlloc(nullptr, kKeepPoolBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* fresh = static_cast<u8*>(commit_pages(kKeepPoolBytes));
     if (!fresh) return false;
     u32 used = 0;
     const auto move = [&](Block* block) noexcept {

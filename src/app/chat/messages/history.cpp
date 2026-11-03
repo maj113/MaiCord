@@ -64,6 +64,7 @@
 #include "maicord/ui/chat/messages/scene.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
@@ -92,7 +93,7 @@ struct LargeResponseBank {
     bool allocate(u32 size) noexcept {
         if (data || !size || size > kRestClientMaximumResponseBytes)
             return false;
-        data = static_cast<u8*>(VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        data = static_cast<u8*>(commit_pages(size));
         bytes = data ? size : 0;
         return data != nullptr;
     }

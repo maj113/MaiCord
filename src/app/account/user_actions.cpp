@@ -17,6 +17,7 @@
 #include "maicord/app/chat/private_conversation.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/role_policy.hpp"
 #include "maicord/model/user/note_store.hpp"
@@ -102,7 +103,7 @@ u64 self_id() noexcept {
 }
 State* ensure() noexcept {
     if (!g_state) {
-        g_state = static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_state = static_cast<State*>(commit_pages(sizeof(State)));
         if (!g_state)
             return nullptr;
         g_state->scope = g_app.plugin_account_scope_serial;
@@ -126,7 +127,7 @@ UserNoteStore* notes() noexcept {
         return nullptr;
     if (!s->notes)
         s->notes = static_cast<UserNoteStore*>(
-            VirtualAlloc(nullptr, sizeof(UserNoteStore), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(UserNoteStore)));
     return s->notes;
 }
 void wake() noexcept {

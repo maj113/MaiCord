@@ -1,6 +1,7 @@
 #include "maicord/app/chat/polls/account_poll_create.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -14,7 +15,7 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
     if (!path.ok()) return {RestClientSubmitError::target_capacity};
     // Fully escaped question, ten answers and their emoji stay below this; staged off the stack.
     constexpr u32 kBodyBytes = 16 * 1024;
-    auto* body = static_cast<u8*>(VirtualAlloc(nullptr, kBodyBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* body = static_cast<u8*>(commit_pages(kBodyBytes));
     if (!body) return {RestClientSubmitError::memory};
     RestClientSubmitResult result{RestClientSubmitError::body_capacity};
     const auto written = write_message_poll_body(*poll, nonce, {body, kBodyBytes});

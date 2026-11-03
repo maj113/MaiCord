@@ -4,6 +4,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/image/gif.hpp"
 #include "maicord/media/image/jpeg.hpp"
 #include "maicord/media/image/png.hpp"
@@ -33,7 +34,7 @@ struct Block {
         if (!size || size > 0x7FFF'FFFFull)
             return nullptr;
         data = static_cast<u8*>(
-            VirtualAlloc(nullptr, static_cast<SIZE_T>(size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(static_cast<SIZE_T>(size)));
         bytes = data ? size : 0;
         return data;
     }

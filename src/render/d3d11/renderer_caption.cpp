@@ -2,6 +2,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/media/atlas.hpp"
@@ -432,7 +433,7 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
     auto* caption = renderer->caption;
     if (!caption) {
         caption = static_cast<RendererCaption*>(
-            VirtualAlloc(nullptr, sizeof(RendererCaption), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(RendererCaption)));
         if (!caption || !paint_stream_initialize(&caption->paint, kCaptionPaintCapacity) ||
             !shaped_text_initialize(&caption->title_line.shape,
                                     Slice<TextGlyph>{caption->title_line.glyphs, kCaptionGlyphCapacity},

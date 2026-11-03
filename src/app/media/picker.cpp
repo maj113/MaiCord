@@ -3,6 +3,7 @@
 #include "../chat/composer/text_input.hpp"
 #include "../settings/emoji_preferences.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "../chat/composer/commands.hpp"
 
@@ -13,7 +14,7 @@ ApplicationMediaPicker* ensure_owner() noexcept {
     if (g_app.media_picker)
         return g_app.media_picker;
     auto* p = static_cast<ApplicationMediaPicker*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationMediaPicker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationMediaPicker)));
     if (!p)
         return nullptr;
     if (!message_composer_initialize(&p->edit, {p->query, sizeof(p->query)})) {
@@ -661,8 +662,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
     CatalogBank* candidate = nullptr;
     if (response.transport_ok() && response.status_code == 200) {
         auto* scratch =
-            static_cast<u32*>(VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32),
-                                           MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            static_cast<u32*>(commit_pages(kMediaCatalogStructuralCapacity * sizeof(u32)));
         if (scratch) {
             const auto measured =
                 media_catalog_measure(operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32);
@@ -675,7 +675,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                 const u32 bytes = sizeof(CatalogBank) + measured.item_count * sizeof(MediaCatalogItem) +
                                   measured.text_bytes + preview_bytes + mask_bytes;
                 candidate = static_cast<CatalogBank*>(
-                    VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                    commit_pages(bytes));
                 if (candidate) {
                     candidate->items = reinterpret_cast<MediaCatalogItem*>(candidate + 1);
                     candidate->text = reinterpret_cast<char*>(candidate->items + measured.item_count);

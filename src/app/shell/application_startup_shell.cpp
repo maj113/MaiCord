@@ -10,6 +10,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/core/win32_threadpool.hpp"
 
@@ -69,7 +70,7 @@ void wait(StartupShellOwner& owner) noexcept {
 // Fresh pages each time: a shell is only ever read whole or written whole.
 bool allocate_shell(StartupShellOwner& owner) noexcept {
     owner.shell = static_cast<StartupShell*>(
-        VirtualAlloc(nullptr, sizeof(StartupShell), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(StartupShell)));
     return owner.shell != nullptr;
 }
 
@@ -150,7 +151,7 @@ void application_startup_shell_begin(const AccountPaths& paths, u64 profile_id) 
     if (!profile_id || !length)
         return;
     auto* owner = static_cast<StartupShellOwner*>(
-        VirtualAlloc(nullptr, sizeof(StartupShellOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(StartupShellOwner)));
     if (!owner)
         return;
     owner->work = CreateThreadpoolWork(run, owner, nullptr);

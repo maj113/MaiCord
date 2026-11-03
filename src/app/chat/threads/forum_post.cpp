@@ -13,6 +13,7 @@
 #include "maicord/protocol/messages/forum_post.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
 
@@ -729,7 +730,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
             const auto bytes = message_attachment_storage_bytes(request.attachments, {owner.prepared_sizes, request.attachments.count});
             admitted.attachment_bank_bytes = (bytes + 4095u) & ~4095u;
             if (!bytes || bytes > kForumPostMaximumBodyBytes) { forum_fail(owner, utf8_literal("Couldn't prepare attachments. Try again.")); return false; }
-            admitted.attachment_bank = static_cast<u8*>(VirtualAlloc(nullptr, admitted.attachment_bank_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            admitted.attachment_bank = commit_pages<u8>(admitted.attachment_bank_bytes);
             u32 count{};
             if (!admitted.attachment_bank || !message_attachment_storage_write(request.attachments, {admitted.attachment_bank, bytes}, {owner.prepared_sizes, request.attachments.count}) ||
                 !message_attachment_storage_read({admitted.attachment_bank, bytes}, {admitted.attachment_views, kAttachmentUploadMaximumCount}, &count)) {

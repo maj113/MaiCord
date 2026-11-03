@@ -1,5 +1,6 @@
 #include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 #include "message_poll_owned_storage.hpp"
@@ -55,8 +56,7 @@ void clear_observations(MessagePollStore& store, u64 id) noexcept {
 }
 bool ensure_storage(MessagePollStore& store, u32 required) noexcept {
     if (!store.owned) {
-        auto* storage = static_cast<MessagePollOwnedStorage*>(VirtualAlloc(
-            nullptr, sizeof(MessagePollOwnedStorage), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* storage = static_cast<MessagePollOwnedStorage*>(commit_pages(sizeof(MessagePollOwnedStorage)));
         if (!storage)
             return false;
         if (!stable_storage_initialize(&storage->records, store.capacity, 0, sizeof(MessagePollRecord),

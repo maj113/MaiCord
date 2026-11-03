@@ -1,4 +1,5 @@
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/render/text/glyph_font_limits.hpp"
 #include "maicord/text/fonts/instance.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -67,7 +68,7 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
 }
 bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;
-    if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(VirtualAlloc(nullptr,sizeof(NativeGlyphOutlines),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!o)return false;
+    if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(commit_pages(sizeof(NativeGlyphOutlines)));if(!o)return false;
         if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){VirtualFree(o,0,MEM_RELEASE);return false;}
         if(!native_font_session_retain(fonts)){arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);return false;}
         o->fonts=fonts;*pointer=o;}
@@ -115,7 +116,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     auto* instances=native_font_session_instances(o.fonts);if(!native_font_instance_retain(instances,binding))return failed(o,20,0);
     struct Retain {NativeFontInstanceStore* store;NativeFontInstanceHandle handle;~Retain() noexcept {native_font_instance_release(store,handle);}} retained{instances,binding};
     if(!o.color){
-        auto* color=static_cast<NativeColorState*>(VirtualAlloc(nullptr,sizeof(NativeColorState),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+        auto* color=static_cast<NativeColorState*>(commit_pages(sizeof(NativeColorState)));
         if(!color)return failed(o,21,GetLastError());
         if(!arena_initialize(&color->scalars,1024*1024,0,4096)||!arena_initialize(&color->stops,2*1024*1024,0,4096)){
             arena_release(&color->scalars);arena_release(&color->stops);VirtualFree(color,0,MEM_RELEASE);return failed(o,22,0);}
@@ -147,7 +148,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
         if(!outline_impl(c.owner,c.face_id,glyph,output,SfntOutlineMode::colr,c.fonts,c.run))return false;
         if(output->count>32)return true;
         if(!color.outline_cache_attempted){color.outline_cache_attempted=true;
-            color.outlines=static_cast<NativeColorOutline*>(VirtualAlloc(nullptr,64*sizeof(NativeColorOutline),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));}
+            color.outlines=static_cast<NativeColorOutline*>(commit_pages(64*sizeof(NativeColorOutline)));}
         if(color.outlines){auto& saved=color.outlines[slot];saved.key=key;saved.instance=owner.bindings[c.face_id-1];saved.outline=*output;
             saved.outline.commands=nullptr;saved.outline.capacity=0;copy_bytes(saved.commands,output->commands,output->count*sizeof(GlyphPathCommand));}
         return true;

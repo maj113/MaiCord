@@ -1,5 +1,6 @@
 #include "maicord/app/voice/send.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 #include "maicord/core/interlocked.hpp"
@@ -130,7 +131,7 @@ bool voice_send_open(VoiceSend* send) noexcept {
     if (!encoder_bytes)
         return false;
     auto* block = static_cast<u8*>(
-        VirtualAlloc(nullptr, kEncoderOffset + encoder_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kEncoderOffset + encoder_bytes));
     if (!block)
         return false;
     auto* shared = reinterpret_cast<VoiceSendShared*>(block);

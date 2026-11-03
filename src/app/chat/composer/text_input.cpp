@@ -15,6 +15,7 @@
 #include "../threads/browser.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
@@ -363,8 +364,7 @@ bool application_composer_text_input_synchronize() noexcept {
     }
     auto* input = g_app.composer_text_input;
     if (!input) {
-        input = static_cast<ApplicationComposerTextInput*>(VirtualAlloc(
-            nullptr, sizeof(ApplicationComposerTextInput), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        input = static_cast<ApplicationComposerTextInput*>(commit_pages(sizeof(ApplicationComposerTextInput)));
         if (!input)
             return false;
         g_app.composer_text_input = input;

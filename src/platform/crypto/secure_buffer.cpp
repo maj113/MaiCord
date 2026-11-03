@@ -1,6 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/sys/crypto.hpp"
 
@@ -111,7 +112,7 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
     }
     reset_value<SecureBuffer>(buffer);
     auto* allocation =
-        static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(capacity));
     if (!allocation) {
         return failure(SecureBufferError::allocation_failed, thread_last_error());
     }
@@ -218,7 +219,7 @@ SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& pl
     }
     for (u32 attempt = 0; attempt < 2; ++attempt) {
         const u32 total = header_bytes + capacity;
-        auto* bytes = static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* bytes = static_cast<u8*>(commit_pages(total));
         if (!bytes) {
             return failure(SecureBufferError::allocation_failed, thread_last_error());
         }

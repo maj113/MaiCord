@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -137,8 +138,7 @@ void release_response(Slot& slot) noexcept {
 
 PluginHttp* http_of(PluginRuntime* runtime, bool create) noexcept {
     if (runtime->http || !create) return runtime->http;
-    auto* http = static_cast<PluginHttp*>(
-        VirtualAlloc(nullptr, sizeof(PluginHttp), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* http = commit_pages<PluginHttp>();
     if (!http) return nullptr;
     http->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!http->notify) {
@@ -358,8 +358,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         PluginHttpTransport transport = injected;
         if (!transport.exchange) {
             if (!https) {
-                https = static_cast<UpdateHttpsTransport*>(
-                    VirtualAlloc(nullptr, sizeof(UpdateHttpsTransport), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                https = commit_pages<UpdateHttpsTransport>();
                 if (https && !update_https_initialize(https)) {
                     VirtualFree(https, 0, MEM_RELEASE);
                     https = nullptr;

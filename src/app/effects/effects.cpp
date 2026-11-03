@@ -252,7 +252,7 @@ void init_values(Loaded& l, const ClientThemeEffect* theme) noexcept {
 
 bool load(Loaded& l, const Entry& entry, const ClientThemeEffect* theme) noexcept {
     release(l);
-    l.file = static_cast<u8*>(VirtualAlloc(nullptr, entry.info.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    l.file = static_cast<u8*>(commit_pages(entry.info.bytes));
     if (!l.file)
         return false;
     l.bytes = entry.info.bytes;
@@ -390,7 +390,7 @@ void load_library() noexcept {
     InterlockedExchange(&g.dirty, 0);
     reset_value(&g.entries);
     g.count = 0;
-    auto* buffer = static_cast<u8*>(VirtualAlloc(nullptr, kMcfxMaximumBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* buffer = static_cast<u8*>(commit_pages(kMcfxMaximumBytes));
     ScratchPages<McfxWorkspace> workspace;
     if (buffer && workspace.data) {
         scan_folder(false, buffer, workspace.data);
@@ -567,8 +567,8 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
         }
         const u32 pixels = image.width * image.height;
         const u32 scan_bytes = png_decode_buffer_bytes(image);
-        auto* scan = static_cast<u8*>(VirtualAlloc(nullptr, scan_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        textures->memory[i] = static_cast<u8*>(VirtualAlloc(nullptr, pixels * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* scan = static_cast<u8*>(commit_pages(scan_bytes));
+        textures->memory[i] = static_cast<u8*>(commit_pages(pixels * 4));
         ok = scan && textures->memory[i] && png_decode_parsed_scanlines(&image, workspace, {scan, scan_bytes}).ok();
         for (u32 y = 0; ok && y < image.height; ++y)
             for (u32 x = 0; x < image.width; ++x) {

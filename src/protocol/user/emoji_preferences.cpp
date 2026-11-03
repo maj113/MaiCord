@@ -5,6 +5,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -630,7 +631,7 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
         return E::envelope;
     if (!measured.bytes || measured.bytes > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
         return E::capacity;
-    u8* raw = static_cast<u8*>(VirtualAlloc(nullptr, measured.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u8* raw = static_cast<u8*>(commit_pages(measured.bytes));
     if (!raw)
         return E::capacity;
     E error = base64_decode(parsed.encoded, {raw, measured.bytes}).ok() ? E::none : E::envelope;

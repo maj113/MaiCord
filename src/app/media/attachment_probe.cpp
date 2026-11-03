@@ -2,6 +2,7 @@
 #include "../shell/state.hpp"
 #include "maicord/app/media/attachment_media_probe.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/com.hpp"
@@ -127,8 +128,7 @@ bool application_attachment_probe_synchronize() noexcept {
         if (known)
             continue;
         if (!owner) {
-            owner = static_cast<ProbeOwner*>(
-                VirtualAlloc(nullptr, sizeof(ProbeOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            owner = commit_pages<ProbeOwner>();
             if (!owner)
                 return changed;
         }

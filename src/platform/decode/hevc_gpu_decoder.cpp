@@ -5,6 +5,7 @@
 #include "maicord/media/video/h264_output_queue.hpp"
 #include "maicord/media/video/video_display.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "hevc_dxva_parameters.hpp"
 #include "gpu_decoder_fence.hpp"
@@ -139,8 +140,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         return false;
     }
     constexpr u32 offset = (sizeof(State) + 15u) & ~15u;
-    auto* s = static_cast<State*>(VirtualAlloc(nullptr, u64{offset} + (borrowed ? 0 : encoded.count),
-                                               MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* s = static_cast<State*>(commit_pages(u64{offset} + (borrowed ? 0 : encoded.count)));
     if (!s) {
         handle->status = E_OUTOFMEMORY;
         return false;

@@ -2,6 +2,7 @@
 #include "maicord/protocol/media/embed_player.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/media/containers/mpeg_ts_segment_store.hpp"
 
@@ -104,8 +105,7 @@ bool progressive_video_fetch_begin_hls(ProgressiveVideoFetch* f, Utf8View manife
         (live && !live_locations(parsed,youtube))) return false;
     u32 leaf = manifest.bytes; while (leaf && manifest.data[leaf - 1] != '/') --leaf;
     if (!leaf || (!live && (vimeo || soundcloud ? manifest.bytes : leaf) > 1024)) return false;
-    auto* s = static_cast<SegmentedVideoFetch*>(VirtualAlloc(nullptr,
-        sizeof(SegmentedVideoFetch) + (live ? manifest.bytes + 65536 : text.bytes), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* s = static_cast<SegmentedVideoFetch*>(commit_pages(sizeof(SegmentedVideoFetch) + (live ? manifest.bytes + 65536 : text.bytes)));
     if (!s) return false;
     s->youtube=youtube;
     s->vimeo=vimeo;
@@ -137,7 +137,7 @@ bool progressive_video_fetch_begin_segments(ProgressiveVideoFetch* f, Utf8View m
     u32 leaf = manifest.bytes;
     while (leaf && manifest.data[leaf - 1] != '/') --leaf;
     if (!leaf || leaf > 1024) return false;
-    auto* s = static_cast<SegmentedVideoFetch*>(VirtualAlloc(nullptr, sizeof(SegmentedVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* s = static_cast<SegmentedVideoFetch*>(commit_pages(sizeof(SegmentedVideoFetch)));
     if (!s) return false;
     s->track = track; s->folder_bytes = leaf; copy_bytes(s->folder, manifest.data, leaf);
     Utf8View* views[]{&s->track.id, &s->track.initialization, &s->track.media};

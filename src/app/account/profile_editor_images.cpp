@@ -1,4 +1,5 @@
 #include "profile_editor_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "profile_editor.hpp"
 #include "application_account_logout.hpp"
 #include "../settings/settings.hpp"
@@ -32,7 +33,7 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
         return false;
     }
     auto* data = static_cast<u8*>(
-        VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(static_cast<SIZE_T>(size.QuadPart)));
     u32 total = 0;
     while (data && total < size.QuadPart) {
         DWORD read = 0;
@@ -129,7 +130,7 @@ bool prepare_uri(Picked& picked) noexcept {
     if (!picked.data || !g_app.account.api.profile_image)
         return false;
     auto* uri = static_cast<u8*>(
-        VirtualAlloc(nullptr, kAccountProfileImageUriCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kAccountProfileImageUriCapacity));
     if (!uri)
         return false;
     ProfileImageRequest request{};

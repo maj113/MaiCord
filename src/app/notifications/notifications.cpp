@@ -14,6 +14,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/model/notifications/desktop_notification_queue.hpp"
 #include "maicord/model/notifications/retention.hpp"
 #include "maicord/model/notifications/sound_admission.hpp"
@@ -67,7 +68,7 @@ void prepare_icon(Identity& i) noexcept {
     if(!i.icon_units) return;
     constexpr u32 extent = kTrayIconMaximumExtent, pixels_bytes = extent*extent*4;
     const u64 png_bytes = clipboard_image_png_bytes(extent,extent);
-    auto* memory = static_cast<u8*>(VirtualAlloc(nullptr,pixels_bytes*2+static_cast<SIZE_T>(png_bytes),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* memory = commit_pages<u8>(pixels_bytes*2+static_cast<SIZE_T>(png_bytes));
     if(!memory) return;
     const TrayIconPalette palette = application_tray_palette();
     auto* argb = reinterpret_cast<u32*>(memory);
@@ -241,7 +242,7 @@ void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
 }
 Display* ensure_display(ApplicationNotifications& n) noexcept {
     if(n.display) return n.display;
-    auto* display=static_cast<Display*>(VirtualAlloc(nullptr,sizeof(Display),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* display=commit_pages<Display>();
     if(!display) return nullptr;
     if(!desktop_notification_queue_initialize(&display->queue,{display->rows,kDesktopNotificationQueueRows},
         {display->bytes,kDesktopNotificationQueueBytes},{display->scratch,kDesktopNotificationQueueItemBytes})) {
@@ -285,10 +286,8 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
 #else
     constexpr bool allocate_rows=true, allocate_index=true;
 #endif
-    auto* rows=allocate_rows?static_cast<NotificationRetentionRow*>(VirtualAlloc(nullptr,
-        static_cast<SIZE_T>(row_bytes),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE)):nullptr;
-    auto* index=rows && allocate_index?static_cast<u32*>(VirtualAlloc(nullptr,
-        static_cast<SIZE_T>(index_bytes),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE)):nullptr;
+    auto* rows=allocate_rows?commit_pages<NotificationRetentionRow>(static_cast<SIZE_T>(row_bytes)):nullptr;
+    auto* index=rows && allocate_index?commit_pages<u32>(static_cast<SIZE_T>(index_bytes)):nullptr;
     auto* old_rows=n.retention.rows.data; auto* old_index=n.retention.index.data;
     if(!rows || !index || notification_retention_rebind(&n.retention,{rows,capacity},{index,slots})!=NotificationRetentionError::none) {
         if(rows) VirtualFree(rows,0,MEM_RELEASE);
@@ -311,7 +310,7 @@ void release_storage(ApplicationNotifications& n) noexcept {
 ApplicationNotifications* ensure(Application* a) noexcept {
     if(!a) return nullptr;
     if(a->notifications) return a->notifications;
-    auto* n = static_cast<ApplicationNotifications*>(VirtualAlloc(nullptr,sizeof(ApplicationNotifications),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* n = commit_pages<ApplicationNotifications>();
     if(!n) return nullptr;
     if(!stable_storage_initialize(&n->guilds,guild_capacity,0,sizeof(MessageNotificationGuildSetting),alignof(MessageNotificationGuildSetting)) ||
        !stable_storage_initialize(&n->overrides,channel_capacity,0,sizeof(MessageNotificationOverride),alignof(MessageNotificationOverride)) ||
@@ -463,7 +462,7 @@ bool application_notifications_initialize(Application* a) noexcept {
     if(!a) return false;
     if(!notification_identity_set_process({app_id,sizeof(app_id)/sizeof(wchar_t)-1}).ok()) return false;
     // A path-sized identity is transient and does not enlarge Application.
-    auto* identity=static_cast<Identity*>(VirtualAlloc(nullptr,sizeof(Identity),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* identity=commit_pages<Identity>();
     if(!identity) return false;
     const bool paths=identity_paths(*identity);
     auto checked=paths?notification_identity_check(identity->config):NotificationIdentityResult{NotificationIdentityError::invalid_input};
@@ -511,7 +510,7 @@ bool application_notifications_setup(Application* a) noexcept {
     // Enrollment runs only from the explicit Notifications setup action. Startup only repairs an identity the
     // user already enrolled. The Set up button doubles as the retry.
     if(n->enrolled) { application_notifications_settings_refresh(a); return true; }
-    auto* identity=static_cast<Identity*>(VirtualAlloc(nullptr,sizeof(Identity),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* identity=commit_pages<Identity>();
     if(!identity) { n->status=utf8_literal("Couldn't set up notifications. Try again."); return false; }
     auto checked=identity_paths(*identity)?notification_identity_check(identity->config):
         NotificationIdentityResult{NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER};

@@ -1,5 +1,6 @@
 #include "internal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../settings/settings.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "maicord/core/deadline.hpp"
@@ -195,7 +196,7 @@ bool prepare_icon() noexcept {
     const auto state = image_crop_begin(ImageCropUse::avatar, p.icon_info.width, p.icon_info.height,
                                         kCropEditorWidth, kCropEditorHeight);
     auto* uri = static_cast<u8*>(
-        VirtualAlloc(nullptr, kAccountProfileImageUriCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kAccountProfileImageUriCapacity));
     if (!uri)
         return false;
     ProfileImageRequest request{};

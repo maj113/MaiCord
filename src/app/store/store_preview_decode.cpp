@@ -2,6 +2,7 @@
 
 #include "maicord/app/media/local_preview_thumbnail.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/image/png_stream.hpp"
 
@@ -16,7 +17,7 @@ struct Pages {
     }
     u8* allocate(u64 bytes) noexcept {
         base = bytes && bytes < 0x7fffffffull
-                   ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                   ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(bytes)))
                    : nullptr;
         return base;
     }

@@ -4,6 +4,7 @@
 #include "maicord/app/voice/playback.hpp"
 #include "maicord/app/net/request_body_bank.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -15,7 +16,7 @@ static_assert(kSoundboardCdnTargetBytes <= kCdnMaximumTargetBytes);
 namespace {
 SoundboardFileInfo check_file(const SoundboardRequest& request) noexcept {
     auto* scratch = static_cast<u8*>(
-        VirtualAlloc(nullptr, kSoundboardProbeScratchBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kSoundboardProbeScratchBytes));
     SoundboardFileInfo info{};
     if (!scratch)
         info.error = SoundboardFileError::memory;

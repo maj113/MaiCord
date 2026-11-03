@@ -1,5 +1,6 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -93,7 +94,7 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
 
     u8* base;
     if (initial_commit == reserved) {
-        base = static_cast<u8*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        base = commit_pages<u8>(reserved);
     } else {
         base = static_cast<u8*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE, PAGE_READWRITE));
         if (base && initial_commit != 0 &&

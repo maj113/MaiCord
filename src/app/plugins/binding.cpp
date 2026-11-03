@@ -3,6 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -404,7 +405,7 @@ bool allocate_data(PluginBinding& binding) noexcept {
     // The text offsets are relative to data, which starts on a page: every state alignment holds.
     const u32 staging_at = align_up(binding.text_end, kAlignment);
     binding.data_bytes = align_up(staging_at + kPluginStagedBytes, kPageBytes);
-    binding.data = static_cast<u8*>(VirtualAlloc(nullptr, binding.data_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    binding.data = commit_pages<u8>(binding.data_bytes);
     if (!binding.data) return false;
     binding.staging = binding.data + staging_at;
     binding.ctx.api = &kApi;
@@ -653,8 +654,7 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     const CarryHold hold(runtime);
     const Carry& carry = hold.carry;
     if (runtime->binding_count == kPluginMaximumBindings) return enable_failed(PluginEnableError::capacity);
-    auto* binding = static_cast<PluginBinding*>(VirtualAlloc(nullptr, align_up(sizeof(PluginBinding), kPageBytes),
-                                                             MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* binding = commit_pages<PluginBinding>(align_up(sizeof(PluginBinding), kPageBytes));
     if (!binding) return enable_failed(PluginEnableError::allocation);
     binding->runtime = runtime;
     const PluginLoadResult loaded = plugin_image_load(&binding->image, runtime->directory, leaf, approved_permissions, sha256);
@@ -751,7 +751,7 @@ bool plugin_runtime_keep_state(PluginRuntime* runtime, const PluginBinding* bind
     const mc_descriptor& d = *binding->image.descriptor;
     u8* copy = nullptr;
     if (d.state_bytes) {
-        copy = static_cast<u8*>(VirtualAlloc(nullptr, d.state_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        copy = commit_pages<u8>(d.state_bytes);
         if (!copy) return false;
         copy_bytes(copy, binding->data, d.state_bytes);
     }

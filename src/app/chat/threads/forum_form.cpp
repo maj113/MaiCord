@@ -1,5 +1,6 @@
 #include "../../shell/click_count.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../shell/content_point.hpp"
 #include "../../shell/overlay_input.hpp"
 #include "forum_form_state.hpp"
@@ -533,7 +534,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
         !application_forum_post_current(ticket))
         return false;
     auto* f = static_cast<ApplicationForumForm*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationForumForm), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationForumForm)));
     if (!f)
         return false;
     f->ticket = ticket;

@@ -1,6 +1,7 @@
 #include "effect_inputs.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/glyph_text.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
@@ -53,7 +54,7 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, ID3D11ShaderResourceView**
              .ok())
         return false;
     auto* commands = static_cast<GlyphPathCommand*>(
-        VirtualAlloc(nullptr, sizeof(GlyphPathCommand) * kRendererPathCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(GlyphPathCommand) * kRendererPathCapacity));
     GlyphOutline outline{};
     if (!commands || !glyph_outline_initialize(&outline, Slice<GlyphPathCommand>{commands, kRendererPathCapacity})) {
         if (commands)

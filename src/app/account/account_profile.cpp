@@ -4,6 +4,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -138,7 +139,7 @@ AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* p
         return failure(AccountProfileError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     auto* file_bytes = static_cast<u8*>(
-        VirtualAlloc(nullptr, kAccountProfileMaximumFileBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kAccountProfileMaximumFileBytes));
     if (!file_bytes)
         return failure(AccountProfileError::memory, thread_last_error());
     const FileReadResult read =

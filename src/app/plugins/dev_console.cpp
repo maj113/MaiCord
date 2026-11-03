@@ -1,5 +1,6 @@
 #include "dev_console.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -65,7 +66,7 @@ bool application_dev_console_enabled() noexcept { return g.enabled; }
 void application_dev_console_add(DevLineKind kind, const Utf8View& name, const Utf8View& text) noexcept {
     if (!g.enabled) return;
     if (!g.lines) {
-        g.lines = static_cast<DevLine*>(VirtualAlloc(nullptr, sizeof(DevLine) * kDevConsoleLines, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g.lines = static_cast<DevLine*>(commit_pages(sizeof(DevLine) * kDevConsoleLines));
         if (!g.lines) return;
     }
     u32 slot;

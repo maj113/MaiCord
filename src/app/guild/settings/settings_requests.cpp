@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../net/rest_rate_retry.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
@@ -447,8 +448,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         // (at most one per body byte) live in a bank for this decode only.
         const u32 units = body.bytes + 1;
         const SIZE_T rows_bytes = SIZE_T{kBanPage} * sizeof(GuildAdminBan);
-        auto* bank = static_cast<u8*>(VirtualAlloc(nullptr, rows_bytes + SIZE_T{units} * sizeof(u32),
-                                                   MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* bank = static_cast<u8*>(commit_pages(rows_bytes + SIZE_T{units} * sizeof(u32)));
         auto* rows = reinterpret_cast<GuildAdminBan*>(bank);
         const auto decoded =
             bank ? guild_admin_decode_bans(body, {reinterpret_cast<u32*>(bank + rows_bytes), units},

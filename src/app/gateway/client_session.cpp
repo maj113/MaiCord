@@ -1,5 +1,6 @@
 #include "client_internal.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 
@@ -928,7 +929,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     }
     reset_value<GatewayClient>(client);
     const u32 allocation_bytes = kGatewayUserClientRuntimeBytes;
-    client->runtime = VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    client->runtime = commit_pages(allocation_bytes);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(GatewayClientError::memory));
         InterlockedExchange(&client->native_error, static_cast<LONG>(thread_last_error()));

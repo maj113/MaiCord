@@ -17,6 +17,7 @@
 #include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
 #include "../shell/content_point.hpp"
 
@@ -636,7 +637,7 @@ ApplicationSettings* ensure() noexcept {
     if (g_app.settings)
         return g_app.settings;
     auto* settings = static_cast<ApplicationSettings*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationSettings), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationSettings)));
     if (!settings)
         return nullptr;
     if (!ui_page_registry_initialize(&settings->registry, {settings->pages, kSettingsPageCapacity})) {

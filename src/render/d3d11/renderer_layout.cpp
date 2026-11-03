@@ -9,6 +9,7 @@
 #include "maicord/ui/chat/inbox_avatar_media.hpp"
 #include "maicord/ui/chat/polls/voters_avatar_media.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
 #include "maicord/ui/media/picker_presentation.hpp"
 #include "maicord/ui/chat/messages/reaction_viewer_presentation.hpp"
@@ -46,7 +47,7 @@ static_assert(sizeof(MediaDrawBatch) == 24);
 LayoutScratch* layout_scratch(D3D11Renderer* renderer) noexcept {
     if (!renderer->layout_scratch)
         renderer->layout_scratch =
-            VirtualAlloc(nullptr, sizeof(LayoutScratch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            commit_pages(sizeof(LayoutScratch));
     return static_cast<LayoutScratch*>(renderer->layout_scratch);
 }
 

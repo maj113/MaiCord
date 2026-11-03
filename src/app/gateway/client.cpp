@@ -1,4 +1,5 @@
 #include "client_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/net/rest_client.hpp"
 
 namespace maicord {
@@ -505,7 +506,7 @@ bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 sel
     if (!client || client->runtime || !profile || !self || !submit)
         return false;
     auto* runtime = static_cast<GatewayClientRuntime*>(
-        VirtualAlloc(nullptr, kGatewayUserClientRuntimeBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kGatewayUserClientRuntimeBytes));
     if (!runtime)
         return false;
     client->runtime = runtime;

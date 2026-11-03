@@ -15,6 +15,7 @@
 #include "maicord/app/guild/account_guild_invite.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../chat/composer/command_request.hpp"
 #include "maicord/app/guild/account_channel_overview.hpp"
 #include "maicord/app/chat/threads/account_forum_post.hpp"
@@ -170,8 +171,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         result.error = AccountModuleError::invalid_input;
         return result;
     }
-    auto* runtime = static_cast<AccountModuleRuntime*>(
-        VirtualAlloc(nullptr, sizeof(AccountModuleRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = commit_pages<AccountModuleRuntime>();
     if (!runtime) {
         result.error = AccountModuleError::memory;
         result.native_error = thread_last_error();
@@ -443,8 +443,7 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
             result.submit_error = HttpsFileDownloadError::invalid_input;
             return result;
         }
-        auto* owner = static_cast<AccountDownloadOwner*>(
-            VirtualAlloc(nullptr, sizeof(AccountDownloadOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* owner = commit_pages<AccountDownloadOwner>();
         if (!owner) {
             result.submit_error = HttpsFileDownloadError::memory;
             return result;

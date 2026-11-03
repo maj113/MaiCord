@@ -19,6 +19,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "messages/history_decode.hpp"
@@ -316,7 +317,7 @@ bool source_current(void* context) noexcept {
 }
 Inbox* ensure() noexcept {
     if (!inbox) {
-        inbox = static_cast<Inbox*>(VirtualAlloc(nullptr, sizeof(Inbox), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        inbox = static_cast<Inbox*>(commit_pages(sizeof(Inbox)));
         if (!inbox)
             return nullptr;
         inbox->everyone = inbox->roles = true;

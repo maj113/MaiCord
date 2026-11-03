@@ -17,6 +17,7 @@
 #include "maicord/ui/text/clipboard.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -457,7 +458,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     const usize owner_bytes =
         sizeof(ApplicationTextForm) + (request.login_owner ? sizeof(LoginFormMeasureStorage) : 0);
     auto* form = static_cast<ApplicationTextForm*>(
-        VirtualAlloc(nullptr, owner_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(owner_bytes));
     if (!form) {
         if (request.login_owner)
             renderer_release_login_form_text(&g_app.renderer);

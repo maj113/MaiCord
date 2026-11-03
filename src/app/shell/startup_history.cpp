@@ -7,6 +7,7 @@
 
 #include "maicord/app/chat/channel_memory.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
@@ -146,7 +147,7 @@ bool application_startup_history_take(const RestClientResponse& response, Utf8Vi
     }
     if (!restoration_settled()) {
         auto* copy =
-            static_cast<u8*>(VirtualAlloc(nullptr, body.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            static_cast<u8*>(commit_pages(body.bytes));
         if (!copy) {
             finish("dropped_memory", response);
             return false;

@@ -1,6 +1,7 @@
 #include "loopback_server.hpp"
 #include "maicord/app/account/login/browser_sign_in_receiver.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 namespace maicord {
@@ -102,7 +103,7 @@ bool admit(Runtime* runtime, u64 generation, BrowserSignInReceiverPhase phase, u
 
 BrowserSignInReceiverStatus browser_sign_in_receiver_start(BrowserSignInReceiver* receiver, u64 generation, u32 timeout_ms) noexcept {
     if (!receiver || receiver->runtime || !generation || timeout_ms < 1000 || timeout_ms > 5 * 60 * 1000) return invalid();
-    auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, kOwnerBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = static_cast<Runtime*>(commit_pages(kOwnerBytes));
     if (!runtime) return invalid(BrowserSignInReceiverError::memory);
     receiver->runtime = runtime;
     runtime->status.generation = generation; runtime->status.deadline_ms = deadline_after(GetTickCount64(), timeout_ms);

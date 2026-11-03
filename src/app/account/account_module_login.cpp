@@ -1,5 +1,6 @@
 #include "account_module_internal.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/messages/edit.hpp"
 #include "login/account_login_handoff.hpp"
 
@@ -81,8 +82,7 @@ AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profi
                                            bool reset) noexcept {
     if (!instance || *instance || !profile_path)
         return login_invalid_input();
-    auto* runtime = static_cast<AccountLoginRuntime*>(
-        VirtualAlloc(nullptr, sizeof(AccountLoginRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = commit_pages<AccountLoginRuntime>();
     if (!runtime) {
         AccountLoginStatus status{};
         status.error = AccountLoginError::memory;

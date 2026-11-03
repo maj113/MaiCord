@@ -1,4 +1,5 @@
 #include "rest_client_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 
@@ -146,8 +147,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
             extended_response_capacity ? extended_response_capacity : runtime->response_capacity;
         const u32 bank_bytes = maximum(request.body.count, response_capacity);
         adopted_body = owned_body && request.body.count >= response_capacity;
-        auto* bank = adopted_body ? *owned_body : static_cast<u8*>(VirtualAlloc(nullptr, bank_bytes,
-                                                   MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* bank = adopted_body ? *owned_body : static_cast<u8*>(commit_pages(bank_bytes));
         if (!bank) {
             InterlockedExchange(&client->request_state, request_state_empty);
             return {RestClientSubmitError::memory};

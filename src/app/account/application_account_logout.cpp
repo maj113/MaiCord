@@ -1,5 +1,6 @@
 #include "application_account_logout.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "application_account_module.hpp"
 #include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
@@ -79,7 +80,7 @@ bool allocate_owner() noexcept {
     if (g_app.account_logout)
         return true;
     g_app.account_logout = static_cast<ApplicationAccountLogout*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationAccountLogout), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationAccountLogout)));
     return g_app.account_logout != nullptr;
 }
 void initialize_key(ApplicationAccountLogout& owner, u64 profile, u64 self) noexcept {

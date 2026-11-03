@@ -1,6 +1,7 @@
 #include "maicord/platform/audio/voice_audio_capture.hpp"
 #include "endpoint_watch.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/sys/wasapi.hpp"
 
@@ -190,7 +191,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
                                VoiceAudioCaptureSink sink, VoiceAudioCaptureTick tick, void* context) noexcept {
     if (!capture || capture->runtime || !sink || !tick)
         return false;
-    auto* r = static_cast<Runtime*>(VirtualAlloc(nullptr, sizeof(Runtime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* r = commit_pages<Runtime>();
     if (!r)
         return false;
     r->sink = sink;

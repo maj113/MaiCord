@@ -5,6 +5,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -138,7 +139,7 @@ MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const Messag
     }
     const u32 total = static_cast<u32>(total64);
     auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(total));
     if (!file_bytes) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
@@ -224,8 +225,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         !store || !store_valid(*store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
-    auto* file_bytes = static_cast<u8*>(VirtualAlloc(nullptr, kMessageDraftPersistenceMaximumFileBytes,
-                                                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* file_bytes = static_cast<u8*>(commit_pages(kMessageDraftPersistenceMaximumFileBytes));
     if (!file_bytes) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
@@ -319,7 +319,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
     const u32 scratch_bytes = static_cast<u32>(scratch64);
     auto* scratch =
-        static_cast<u8*>(VirtualAlloc(nullptr, scratch_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(scratch_bytes));
     if (!scratch) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }

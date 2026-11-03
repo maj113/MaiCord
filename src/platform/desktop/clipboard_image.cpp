@@ -1,5 +1,6 @@
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -146,7 +147,7 @@ namespace {
 // ---- Paste conversion -------------------------------------------------------
 u8* reserve(u64 bytes) noexcept {
     return bytes && bytes <= (u64{1} << 40)
-               ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+               ? commit_pages<u8>(static_cast<SIZE_T>(bytes))
                : nullptr;
 }
 void unreserve(void* memory) noexcept { if (memory) VirtualFree(memory, 0, MEM_RELEASE); }

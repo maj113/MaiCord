@@ -14,6 +14,7 @@
 #include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
@@ -365,7 +366,7 @@ ApplicationDownloads* ensure_owner() noexcept {
     if (!account_ready())
         return nullptr;
     auto* q = static_cast<ApplicationDownloads*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationDownloads), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationDownloads)));
     if (!q)
         return nullptr;
     q->account_ui = g_app.account_ui;
@@ -783,8 +784,7 @@ void picker_complete(ApplicationDownloads& q) noexcept {
                 fail_job(q, j, HttpsFileDownloadError::file_open);
             else {
                 const auto units = selected.path.count;
-                j.path = static_cast<wchar_t*>(VirtualAlloc(nullptr, (units + 1) * sizeof(wchar_t),
-                                                            MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                j.path = static_cast<wchar_t*>(commit_pages((units + 1) * sizeof(wchar_t)));
                 if (!j.path)
                     fail_job(q, j, HttpsFileDownloadError::memory);
                 else {
@@ -1251,7 +1251,7 @@ bool embed_context(float x, float y, UiRect anchor) noexcept {
 bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noexcept {
     constexpr u32 capacity = 2048u * 2048u * 4u;
     auto* pixels =
-        static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(capacity));
     if (!pixels)
         return false;
     static constexpr MediaResolutionTier tiers[]{MediaResolutionTier::original, MediaResolutionTier::px2048,

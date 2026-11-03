@@ -4,6 +4,7 @@
 #include "maicord/protocol/http/http1.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/com.hpp"
@@ -227,7 +228,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
         return HttpsFileUploadError::invalid_input;
     for (u32 i = 0; i < path.count; ++i) if (!path[i]) return HttpsFileUploadError::invalid_input;
     reset_value(upload);
-    upload->runtime = VirtualAlloc(nullptr, runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    upload->runtime = commit_pages(runtime_bytes());
     if (!upload->runtime) return HttpsFileUploadError::memory;
     auto* r = static_cast<Runtime*>(upload->runtime);
     r->content = content; upload_source_retain(content);

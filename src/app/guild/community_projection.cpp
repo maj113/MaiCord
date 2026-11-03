@@ -4,6 +4,7 @@
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -40,8 +41,7 @@ bool ensure_background() noexcept {
     if (!g_app.account_ui)
         return false;
     if (!background) {
-        background = static_cast<Background*>(
-            VirtualAlloc(nullptr, sizeof(Background), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        background = commit_pages<Background>();
         if (!background)
             return false;
         background->account_scope = g_app.plugin_account_scope_serial;
@@ -57,8 +57,7 @@ bool ensure_background() noexcept {
 bool ensure_events() noexcept {
     if (events)
         return true;
-    events = static_cast<ScheduledEventStore*>(
-        VirtualAlloc(nullptr, sizeof(ScheduledEventStore), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    events = commit_pages<ScheduledEventStore>();
     return events != nullptr;
 }
 void events_changed() noexcept {

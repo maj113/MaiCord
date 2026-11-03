@@ -1,6 +1,7 @@
 #include "pipeline_internal.hpp"
 #include "maicord/app/plugins/keep.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -348,8 +349,7 @@ u32 plugin_timers_poll(u64 now_ms) noexcept {
 void plugin_pipeline_add(PluginBinding* binding) noexcept {
     if (plugin_subscribed(binding, PluginHook::events)) {
         if (!g_ring) {
-            g_ring = static_cast<EventSlot*>(VirtualAlloc(nullptr, kPluginEventSlots * sizeof(EventSlot),
-                                                          MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            g_ring = static_cast<EventSlot*>(commit_pages(kPluginEventSlots * sizeof(EventSlot)));
         }
         if (PluginSide* side = plugin_side(binding, true)) side->cursor = g_head;
     }

@@ -4,6 +4,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip* clip) noexcept {
@@ -26,7 +27,7 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
         const u32 frames=byte_load_le32(data+8);
         if(!frames || frames>10*rate || frames>kNotificationPcmMaximumFrames) {bank->failed_mask|=1u<<index;return false;}
         const u32 bytes=frames*4;
-        void* pcm=VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+        void* pcm=commit_pages(bytes);
         if(!pcm) return false;
         DeflateWorkspace* workspace=deflate_workspace_allocate();
         if(!workspace) {VirtualFree(pcm,0,MEM_RELEASE);return false;}

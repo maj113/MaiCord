@@ -7,6 +7,7 @@
 #include "../../media/picker.hpp"
 #include "maicord/app/chat/messages/reaction_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
@@ -275,7 +276,7 @@ bool ensure_owner(MessageReactionActor current) noexcept {
     if (owner)
         return same_actor(owner->controller.actor, current) && !owner->closing;
     auto* next = static_cast<ReactionOwner*>(
-        VirtualAlloc(nullptr, sizeof(ReactionOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ReactionOwner)));
     if (!next)
         return false;
     if (!stable_storage_initialize(&next->storage, kMessageReactionMaximumIntents, 1,

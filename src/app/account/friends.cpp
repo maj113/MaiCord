@@ -2,6 +2,7 @@
 #include "../shell/window_state.hpp"
 #include "login/action_captcha.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/hash.hpp"
 #include "../shell/content_point.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
@@ -198,7 +199,7 @@ bool requests_find(void* opaque, u64 id, u32* index) noexcept {
 }
 ApplicationFriends* ensure() noexcept {
     if (g_app.friends) return g_app.friends;
-    auto* friends = static_cast<ApplicationFriends*>(VirtualAlloc(nullptr, sizeof(ApplicationFriends), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* friends = commit_pages<ApplicationFriends>();
     if (!friends) return nullptr;
     if (!friends_search_documents_initialize(&friends->search) ||
         !friends_relationship_storage_initialize(&friends->storage)) {

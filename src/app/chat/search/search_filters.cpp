@@ -6,6 +6,7 @@
 #include "maicord/model/user/friend_search.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 namespace search_detail {
@@ -333,8 +334,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         return false;
     }
     if (!s.choices)
-        s.choices = static_cast<SearchFilterChoices*>(
-            VirtualAlloc(nullptr, sizeof(SearchFilterChoices), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        s.choices = commit_pages<SearchFilterChoices>();
     if (!s.choices)
         return false;
     auto& b = *s.choices;
@@ -609,8 +609,7 @@ void recent_load(ApplicationSearch& s) noexcept {
     if (!s.profile_id || s.recent_profile == s.profile_id)
         return;
     if (!s.recent)
-        s.recent = static_cast<SearchRecentList*>(
-            VirtualAlloc(nullptr, sizeof(SearchRecentList), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        s.recent = commit_pages<SearchRecentList>();
     wchar_t path[512];
     if (!s.recent || !search_recent_path(s.profile_id, path, 512))
         return;

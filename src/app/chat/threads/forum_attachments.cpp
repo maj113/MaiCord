@@ -4,6 +4,7 @@
 #include "forum_preview.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/sys/shell.hpp"
@@ -88,7 +89,7 @@ bool application_forum_attachments_begin(const ApplicationForumPostTicket& ticke
         if (!reap(*forum_attachments)) return false;
     }
     if (forum_attachments) return source(*forum_attachments);
-    auto* owner = static_cast<ApplicationForumAttachments*>(VirtualAlloc(nullptr, sizeof(ApplicationForumAttachments), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* owner = static_cast<ApplicationForumAttachments*>(commit_pages(sizeof(ApplicationForumAttachments)));
     if (!owner) return false;
     if (!message_attachment_drafts_initialize(&owner->drafts)) { VirtualFree(owner, 0, MEM_RELEASE); return false; }
     const auto* p = parent(ticket);
@@ -345,7 +346,7 @@ bool application_forum_attachments_decode_media(Utf8View body, const ForumPostRe
     auto& owner = *forum_attachments;
     if (!owner.receipt) {
         owner.receipt_bytes = (2u * sizeof(ForumPostMediaSnapshot) + 4095u) & ~4095u;
-        owner.receipt = static_cast<ForumPostMediaSnapshot*>(VirtualAlloc(nullptr, owner.receipt_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        owner.receipt = static_cast<ForumPostMediaSnapshot*>(commit_pages(owner.receipt_bytes));
         if (!owner.receipt) { owner.receipt_bytes = 0; return false; }
         // Two disjoint decoder banks share this single allocation and release.
         owner.transaction = owner.receipt + 1;

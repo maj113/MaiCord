@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/media/image/png.hpp"
@@ -170,8 +171,7 @@ Shape probe(GuildImageKind kind, ConstSlice<u8> s) noexcept {
 }
 
 u8* allocate(u64 bytes) noexcept {
-    return bytes && bytes <= ~0u ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes),
-                                                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+    return bytes && bytes <= ~0u ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(bytes)))
                                  : nullptr;
 }
 void release(u8* data) noexcept {

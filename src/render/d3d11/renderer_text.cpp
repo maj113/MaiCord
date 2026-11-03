@@ -11,6 +11,7 @@
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 struct RendererTypographyOwner {
@@ -1208,7 +1209,7 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
     if (renderer->typography_revision == ~u32{0})
         return false;
     auto* owner = static_cast<RendererTypographyOwner*>(
-        VirtualAlloc(nullptr, sizeof(RendererTypographyOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(RendererTypographyOwner)));
     if (!owner)
         return false;
     // Fresh zeroed storage supplies the system fields; policy defaults are replaced below.

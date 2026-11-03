@@ -1,6 +1,7 @@
 #include "../../shell/overlay_input.hpp"
 #include "poll.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../shell/cursor.hpp"
 #include "../../account/application_account_logout.hpp"
 #include "../../account/account_presentation.hpp"
@@ -290,7 +291,7 @@ bool ensure_owner() noexcept {
     if (owner)
         return !owner->release_pending;
     owner = static_cast<PollOwner*>(
-        VirtualAlloc(nullptr, sizeof(PollOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(PollOwner)));
     if (!owner)
         return false;
     poll_controller_initialize(&owner->controller);
@@ -356,7 +357,7 @@ u32 cache_slot(const MessagePollRecord& p, u32 answer) noexcept {
 bool page_storage(u8 bank) noexcept {
     if (!owner->pages[bank])
         owner->pages[bank] = static_cast<PollPage*>(
-            VirtualAlloc(nullptr, sizeof(PollPage), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(PollPage)));
     return owner->pages[bank] != nullptr;
 }
 Utf8View error_text(PollControllerError e) noexcept {
@@ -1189,7 +1190,7 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
         const u32 slot = current ? cache_slot(*current, flight.command.answer_id) : kUiPollMaximumAnswers;
         if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && !value.voter_cache)
             value.voter_cache = static_cast<PollVoterCache*>(
-                VirtualAlloc(nullptr, sizeof(PollVoterCache), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                commit_pages(sizeof(PollVoterCache)));
         if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && value.voter_cache) {
             auto& cache = *value.voter_cache;
             if (cache.message_id != current->message_id) {

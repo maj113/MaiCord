@@ -1,6 +1,7 @@
 #include "maicord/media/compression/inflated_block.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 namespace {
@@ -17,8 +18,7 @@ const u8* inflate_once(InflatedBlock& block, const u8* packed, u32 packed_bytes,
             return nullptr;
         if (state == 0 && InterlockedCompareExchange(&block.state, 1, 0) == 0) {
             u8* data = destination ? destination
-                                   : static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_COMMIT | MEM_RESERVE,
-                                                                   PAGE_READWRITE));
+                                   : static_cast<u8*>(commit_pages(bytes));
             DeflateWorkspace* workspace = data ? deflate_workspace_allocate() : nullptr;
             const DeflateInputSpan input{packed, packed_bytes};
             const bool ok = workspace && zlib_inflate({&input, 1}, {data, bytes}, bytes, workspace).ok();

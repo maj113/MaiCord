@@ -11,6 +11,7 @@
 #include "maicord/app/voice/voice_message.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
@@ -102,7 +103,7 @@ bool preparing(const ApplicationAttachments* state, u64 channel_id) noexcept {
 inline constexpr u64 kPreparingTileId = ~0ull;
 ApplicationAttachments* ensure() noexcept {
     if (g_app.attachments) return current(g_app.attachments) ? g_app.attachments : nullptr;
-    auto* state = static_cast<ApplicationAttachments*>(VirtualAlloc(nullptr, sizeof(ApplicationAttachments), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* state = static_cast<ApplicationAttachments*>(commit_pages(sizeof(ApplicationAttachments)));
     if (!state) return nullptr;
     if (!message_attachment_drafts_initialize(&state->drafts)) { VirtualFree(state, 0, MEM_RELEASE); return nullptr; }
     state->profile_id = g_app.account.status.profile_id;

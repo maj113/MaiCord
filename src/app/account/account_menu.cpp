@@ -17,6 +17,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/render/text/form_surface.hpp"
 #include "account_ui_runtime.hpp"
 
@@ -207,8 +208,7 @@ bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcep
         return refresh_account_frame(true);
     }
     if (!g_app.account_menu)
-        g_app.account_menu = static_cast<ApplicationAccountMenu*>(VirtualAlloc(
-            nullptr, sizeof(ApplicationAccountMenu), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_app.account_menu = static_cast<ApplicationAccountMenu*>(commit_pages(sizeof(ApplicationAccountMenu)));
     if (!g_app.account_menu)
         return false;
     application_account_menu_clear();

@@ -12,6 +12,7 @@
 #include "maicord/ui/chat/private_channel_title.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
@@ -50,7 +51,7 @@ ApplicationGuildFolders* owner() noexcept {
         // Fresh pages are zero; clearing them would make the whole owner
         // (two layouts and the edit buffer) resident before any folder exists.
         g_folders = static_cast<ApplicationGuildFolders*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationGuildFolders), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(ApplicationGuildFolders)));
         if (!g_folders)
             return nullptr;
         g_folders->ui = g_app.account_ui;

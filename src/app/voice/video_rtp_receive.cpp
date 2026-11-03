@@ -1,5 +1,6 @@
 #include "maicord/app/voice/video_rtp_receive.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/media/video/rtp_av1.hpp"
@@ -336,7 +337,7 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
             return nullptr;
         release_window(chosen);
     }
-    void* block = VirtualAlloc(nullptr, window_bytes(kInitialSlots), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* block = commit_pages(window_bytes(kInitialSlots));
     if (!block)
         return nullptr;
     reset_value(chosen);
@@ -352,7 +353,7 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
 }
 // Moves the live window [base, highest] into a block of `slots` entries.
 bool grow(VideoRtpStream& stream, u32 slots) noexcept {
-    void* block = VirtualAlloc(nullptr, window_bytes(slots), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* block = commit_pages(window_bytes(slots));
     if (!block)
         return false;
     VideoRtpStream next = stream;
@@ -483,7 +484,7 @@ bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFr
     if (!receiver || receiver->frame || !sink)
         return false;
     auto* frame =
-        static_cast<u8*>(VirtualAlloc(nullptr, kVideoRtpFrameBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(kVideoRtpFrameBytes));
     if (!frame)
         return false;
     reset_value(receiver);

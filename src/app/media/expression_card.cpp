@@ -11,6 +11,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -82,7 +83,7 @@ void free_bank(Bank** bank) noexcept {
 }
 bool ensure() noexcept {
     if (!g_card) {
-        g_card = static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_card = static_cast<State*>(commit_pages(sizeof(State)));
         if (!g_card)
             return false;
         g_card->scope = g_app.plugin_account_scope_serial;
@@ -362,15 +363,14 @@ void activate(UiExpressionCardControl control) noexcept {
 }
 
 Bank* decode_bank(MediaCatalogOperation operation, Utf8View body) noexcept {
-    auto* scratch = static_cast<u32*>(VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32),
-                                                  MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* scratch = static_cast<u32*>(commit_pages(kMediaCatalogStructuralCapacity * sizeof(u32)));
     if (!scratch)
         return nullptr;
     Bank* bank = nullptr;
     const auto measured = media_catalog_measure(operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32);
     if (measured.ok() && measured.item_count) {
         const u32 bytes = sizeof(Bank) + measured.item_count * sizeof(MediaCatalogItem) + measured.text_bytes;
-        bank = static_cast<Bank*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        bank = static_cast<Bank*>(commit_pages(bytes));
         if (bank) {
             bank->items = reinterpret_cast<MediaCatalogItem*>(bank + 1);
             const auto decoded =

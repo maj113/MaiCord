@@ -8,6 +8,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -78,7 +79,7 @@ ApplicationScopedRead* ensure_owner(const ApplicationScopedReadTicket& actor) no
     if (g_app.scoped_read)
         return g_app.scoped_read;
     auto* o = static_cast<ApplicationScopedRead*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationScopedRead), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationScopedRead)));
     if (!o)
         return nullptr;
     if (!stable_storage_initialize(&o->queued, 4096, 0, sizeof(BulkReadAckIntent),

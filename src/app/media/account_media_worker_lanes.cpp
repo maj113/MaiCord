@@ -1,4 +1,5 @@
 #include "account_media_worker_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/media/embed_resolver.hpp"
 
 namespace maicord {
@@ -286,8 +287,7 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         }
     }
     auto* bytes =
-        valid ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(work.local_snapshot.bytes),
-                                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+        valid ? commit_pages<u8>(static_cast<SIZE_T>(work.local_snapshot.bytes))
               : nullptr;
     if (!bytes)
         return request_result(AccountMediaRequestState::failed,
@@ -331,7 +331,7 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWork
     case AccountMediaWorkKind::collection_title: {
         auto* resolver = lane->media.provider_resolver;
         if (!resolver) {
-            resolver = static_cast<EmbedResolver*>(VirtualAlloc(nullptr, sizeof(EmbedResolver), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            resolver = commit_pages<EmbedResolver>();
             if (!resolver) return request_result(AccountMediaRequestState::failed, AccountMediaError::memory);
             InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&lane->media.provider_resolver), resolver);
         }

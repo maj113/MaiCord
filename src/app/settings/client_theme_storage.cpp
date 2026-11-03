@@ -10,6 +10,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 static_assert(kClientThemeCatalogFileUnits == MAX_PATH);
@@ -111,8 +112,7 @@ ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const 
     const HANDLE file = open_read(path, &result);
     if (file == INVALID_HANDLE_VALUE)
         return result;
-    auto* workspace = static_cast<Workspace*>(
-        VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* workspace = commit_pages<Workspace>();
     if (workspace)
         result = read_bytes(file, {workspace->record, maximum}, expected, bytes);
     else
@@ -193,8 +193,7 @@ ClientThemeStorageResult export_document(const wchar_t* directory, const ClientT
     }
     copy_bytes(leaf + units, L".json", 5 * sizeof(wchar_t));
     units += 5;
-    auto* text = static_cast<char*>(
-        VirtualAlloc(nullptr, kClientThemeDocumentMaximumBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* text = commit_pages<char>(kClientThemeDocumentMaximumBytes);
     if (!text)
         return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     u32 bytes = 0;
@@ -384,8 +383,7 @@ ClientThemeStorageResult client_theme_storage_save_file(
     u32 length = 0;
     if (!path_length(path, &length))
         return failure(ClientThemeStorageError::invalid_input);
-    auto* record = static_cast<u8*>(
-        VirtualAlloc(nullptr, kClientThemeStorageMaximumBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* record = commit_pages<u8>(kClientThemeStorageMaximumBytes);
     if (!record)
         return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     u32 bytes = 0;
@@ -483,8 +481,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
         Workspace files;
         ClientThemeCatalog catalog;
     };
-    auto* memory = static_cast<ScanWorkspace*>(
-        VirtualAlloc(nullptr, sizeof(ScanWorkspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* memory = commit_pages<ScanWorkspace>();
     if (!memory)
         return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     Workspace* const workspace = &memory->files;

@@ -4,6 +4,7 @@
 #include "maicord/app/account/client_session_metadata.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 
 namespace maicord {
@@ -1064,8 +1065,7 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         if (!runtime->decompression) {
             u8* scratch = runtime->handshake_output;
             if (runtime->response_capacity > kHandshakeOutputBytes) {
-                scratch = static_cast<u8*>(VirtualAlloc(nullptr, runtime->response_capacity,
-                                                        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                scratch = static_cast<u8*>(commit_pages(runtime->response_capacity));
                 if (!scratch)
                     return false;
             }

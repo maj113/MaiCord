@@ -2,6 +2,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -16,8 +17,7 @@ template <typename T> bool reserve(T*& data, u32& capacity, u32 count, u32 requi
     u32 next = capacity ? capacity : 4096 / sizeof(T);
     while (next < required)
         next = next > maximum / 2 ? maximum : next * 2;
-    auto* replacement = static_cast<T*>(VirtualAlloc(nullptr, static_cast<usize>(next) * sizeof(T),
-                                                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* replacement = static_cast<T*>(commit_pages(static_cast<usize>(next) * sizeof(T)));
     if (!replacement)
         return false;
     copy_bytes(replacement, data, count * static_cast<u32>(sizeof(T)));

@@ -10,6 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/invite_card_cache.hpp"
@@ -167,7 +168,7 @@ bool project() noexcept {
 }
 bool ensure() noexcept {
     if (!g_card) {
-        g_card = static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_card = static_cast<State*>(commit_pages(sizeof(State)));
         if (!g_card)
             return false;
         g_card->scope = g_app.plugin_account_scope_serial;

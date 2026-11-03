@@ -1,5 +1,6 @@
 #include "../media/downloads.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "read_state.hpp"
 #include "../shell/state.hpp"
 #include "../shell/window_state.hpp"
@@ -258,7 +259,7 @@ ApplicationReadState* ensure_owner() noexcept {
     if (!account_live())
         return nullptr;
     auto* owner = static_cast<ApplicationReadState*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationReadState), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationReadState)));
     if (!owner)
         return nullptr;
     if (!stable_storage_initialize(&owner->intents, kReadAckMaximumIntents, 0, sizeof(ReadAckIntent),

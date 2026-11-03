@@ -6,6 +6,7 @@
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/model/guild/channel_settings_model.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "../../account/account_access.hpp"
 
@@ -1102,7 +1103,7 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
     if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
         return false;
     auto* name = static_cast<wchar_t*>(
-        VirtualAlloc(nullptr, (path.count + 1) * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages((path.count + 1) * sizeof(wchar_t)));
     if (!name)
         return false;
     copy_bytes(name, path.data, path.count * sizeof(wchar_t));
@@ -1118,8 +1119,7 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
         *error = utf8_literal("Choose a file of 16 MB or less.");
         ok = false;
     }
-    u8* contents = ok ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart),
-                                                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+    u8* contents = ok ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(size.QuadPart)))
                       : nullptr;
     u32 total = 0;
     while (contents && total < size.QuadPart) {

@@ -5,6 +5,7 @@
 #include "maicord/app/plugins/call_ledger.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/plugins/render.hpp"
@@ -311,7 +312,7 @@ bool ensure_memory(Plugin& plugin) noexcept {
     if (plugin.memory) return true;
     u32 total = 0;
     for (u32 k = 0; k < kKinds; ++k) total += kEntries[k] * sizeof(Entry) + kArenaBytes[k];
-    u8* memory = static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u8* memory = static_cast<u8*>(commit_pages(total));
     if (!memory) return false;
     u8* at = memory;
     for (u32 k = 0; k < kKinds; ++k) {

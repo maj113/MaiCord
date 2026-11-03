@@ -1,6 +1,7 @@
 #include "maicord/app/voice/voice_message.hpp"
 #include "maicord/app/voice/transmit.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -75,7 +76,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     reset_value(r);
     // Reserved and committed once for the longest recording; pages fault in
     // as the stream grows and nothing is allocated per frame.
-    r->block = static_cast<u8*>(VirtualAlloc(nullptr, l.total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    r->block = static_cast<u8*>(commit_pages(l.total));
     if (!r->block)
         return fail(r, VoiceMessageRecorderError::memory);
     r->block_bytes = l.total;

@@ -1,5 +1,6 @@
 #include "maicord/platform/audio/media_audio.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
@@ -261,7 +262,7 @@ MediaAudioResult free_runtime(MediaAudio& owner) noexcept {
     if(!VirtualFree(&r,0,MEM_RELEASE))return fail(Error::release,GetLastError());owner.runtime=nullptr;return {};
 }
 MediaAudioResult launch(MediaAudio& owner) noexcept {
-    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,sizeof(Runtime),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!r)return fail(Error::memory,GetLastError());
+    auto* r=commit_pages<Runtime>();if(!r)return fail(Error::memory,GetLastError());
     owner.runtime=r;r->config=owner.config;r->ring=owner.ring;r->observed=owner.epoch;r->status.desired_epoch=r->status.observed_epoch=owner.epoch;
     r->origin=owner.config.source_origin_100ns;r->volume=owner.config.volume;r->status.desired_volume=r->volume;r->desired_play=true;r->command_serial=1;r->status.worker_started=true;
     r->command=CreateEventW(nullptr,FALSE,FALSE,nullptr);r->stop=CreateEventW(nullptr,TRUE,FALSE,nullptr);r->render=CreateEventW(nullptr,FALSE,FALSE,nullptr);

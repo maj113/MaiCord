@@ -1,4 +1,5 @@
 #include "client_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/gateway/guild_folders.hpp"
 #include "maicord/app/gateway/user_settings.hpp"
 #include "maicord/app/account/user_client_configuration.hpp"
@@ -826,8 +827,7 @@ bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value
         return false;
     }
     if (!runtime->self_status_group)
-        runtime->self_status_group = static_cast<u8*>(VirtualAlloc(
-            nullptr, kSelfStatusSettingsMaximumGroupBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        runtime->self_status_group = static_cast<u8*>(commit_pages(kSelfStatusSettingsMaximumGroupBytes));
     if (!runtime->self_status_group) {
         owner.authoritative = false;
         runtime->self_status_error = GatewaySelfStatusError::unavailable;

@@ -17,6 +17,7 @@
 #include "../shell/toast.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/shell.hpp"
@@ -97,7 +98,7 @@ StorePageState& page() noexcept {
 bool ensure() noexcept {
     if (g)
         return true;
-    g = static_cast<StoreHost*>(VirtualAlloc(nullptr, sizeof(StoreHost), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    g = static_cast<StoreHost*>(commit_pages(sizeof(StoreHost)));
     if (!g)
         return false;
     for (u32 i = 0; i < 3; ++i)

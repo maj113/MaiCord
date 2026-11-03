@@ -7,6 +7,7 @@
 #include "maicord/protocol/http/http_response_stream.hpp"
 #include "maicord/protocol/media/attachment_download.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/media/cdn_url.hpp"
 
@@ -306,7 +307,7 @@ HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const
          (!request.overwrite_authorized || !request.destination.identity.index)))
         return HttpsFileDownloadError::invalid_input;
     reset_value(owner);
-    owner->runtime = VirtualAlloc(nullptr, https_file_download_runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    owner->runtime = commit_pages(https_file_download_runtime_bytes());
     if (!owner->runtime) return HttpsFileDownloadError::memory;
     auto* r = static_cast<Runtime*>(owner->runtime);
     // Embed media has no attachment identity: its media-proxy URL is fetched as is.

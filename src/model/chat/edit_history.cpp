@@ -1,5 +1,6 @@
 #include "edit_history_state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -56,7 +57,7 @@ bool text_edit_enable_history(TextEditHistoryState* edit, u32 byte_budget) noexc
     if (!edit || !edit->storage.data || !edit->storage.capacity || edit->storage.bytes > edit->storage.capacity ||
         edit->anchor > edit->storage.bytes || edit->caret > edit->storage.bytes || edit->history ||
         byte_budget > 1024 * 1024 || edit->storage.capacity > byte_budget / 2) return false;
-    auto* history = static_cast<TextEditHistory*>(VirtualAlloc(nullptr, sizeof(TextEditHistory), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* history = static_cast<TextEditHistory*>(commit_pages(sizeof(TextEditHistory)));
     if (!history) return false;
     if (!secure_buffer_initialize(&history->payload, byte_budget).ok()) { VirtualFree(history, 0, MEM_RELEASE); return false; }
     edit->history = history;

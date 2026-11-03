@@ -7,6 +7,7 @@
 #include "maicord/ui/guild/member_context_policy.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -182,8 +183,7 @@ bool ensure_bank() noexcept {
     auto& p = *owner;
     if (p.search_bank)
         return true;
-    p.search_bank = static_cast<GuildSearchMember*>(VirtualAlloc(
-        nullptr, sizeof(GuildSearchMember) * kGuildMemberSearchCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    p.search_bank = static_cast<GuildSearchMember*>(commit_pages(sizeof(GuildSearchMember) * kGuildMemberSearchCapacity));
     return p.search_bank && guild_member_search_bind(&p.search, {p.search_bank, kGuildMemberSearchCapacity});
 }
 
@@ -794,7 +794,7 @@ void members_search_response(const RestClientResponse& response, const Utf8View&
     const u32 units = body.bytes + 1;
     const SIZE_T rows_bytes = SIZE_T{rows} * sizeof(GuildSearchMember);
     auto* bank = static_cast<u8*>(
-        VirtualAlloc(nullptr, rows_bytes + SIZE_T{units} * sizeof(u32), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(rows_bytes + SIZE_T{units} * sizeof(u32)));
     GuildMemberSearchPage page{{reinterpret_cast<GuildSearchMember*>(bank), bank ? rows : 0}, 0, 0, false};
     const bool decoded =
         bank && guild_member_search_decode(body, {reinterpret_cast<u32*>(bank + rows_bytes), units}, &page).ok();

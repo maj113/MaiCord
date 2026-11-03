@@ -1,5 +1,6 @@
 #include "maicord/platform/decode/aac_decoder.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/audio/aac_configuration.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/media_foundation.hpp"
@@ -109,7 +110,7 @@ HRESULT open(AacDecoder& owner) noexcept {
     if (apartment != APTTYPE_MTA)
         return RPC_E_CHANGED_MODE;
     auto* s =
-        static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<State*>(commit_pages(sizeof(State)));
     if (!s)
         return E_OUTOFMEMORY;
     owner.runtime = s;

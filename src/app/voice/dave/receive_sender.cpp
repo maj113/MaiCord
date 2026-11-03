@@ -5,6 +5,7 @@
 #include "../../shell/byte_views.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -104,7 +105,7 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
     if (seed.count != 16 || !external(sender, seed))
         return {{}, 0, DaveSenderError::invalid_input};
     auto* node = static_cast<DaveReceiveNode*>(
-        VirtualAlloc(nullptr, sizeof(DaveReceiveNode), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(DaveReceiveNode)));
     if (!node)
         return {{}, thread_last_error(), DaveSenderError::storage};
     const auto initialized = dave_receive_epoch_initialize(&node->epoch, seed, now);

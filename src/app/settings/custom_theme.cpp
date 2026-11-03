@@ -6,6 +6,7 @@
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/decimal.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -54,7 +55,7 @@ CustomThemeOwner* ensure() noexcept {
     if (owner)
         return owner->releasing ? nullptr : owner;
     auto* o = static_cast<CustomThemeOwner*>(
-        VirtualAlloc(nullptr, sizeof(CustomThemeOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(CustomThemeOwner)));
     if (!o)
         return nullptr;
     const auto defaults = client_theme_document_defaults();

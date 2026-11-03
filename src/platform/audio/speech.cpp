@@ -1,5 +1,6 @@
 #include "maicord/platform/audio/speech.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/speech.hpp"
@@ -32,7 +33,7 @@ bool speech_speak(Speech* speech, Utf8View text) noexcept {
     if (!text.data || !text.bytes || !speech_available(speech))
         return false;
     wchar_t* wide = static_cast<wchar_t*>(
-        VirtualAlloc(nullptr, (kSpeechMaximumChars + 1) * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages((kSpeechMaximumChars + 1) * sizeof(wchar_t)));
     if (!wide)
         return false;
     // Over-long messages are cut at a code point boundary the converter accepts.

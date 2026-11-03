@@ -5,6 +5,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -243,7 +244,7 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
         return failure(AccountSessionStoreError::invalid_input);
     }
     auto* file_bytes = static_cast<u8*>(
-        VirtualAlloc(nullptr, kAccountSessionStoreMaximumFileBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(kAccountSessionStoreMaximumFileBytes));
     if (!file_bytes)
         return failure(AccountSessionStoreError::memory, thread_last_error());
     const FileReadResult read =

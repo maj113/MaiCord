@@ -4,6 +4,7 @@
 #include "maicord/protocol/auth/browser_sign_in.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 namespace {
@@ -316,7 +317,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
     reset_value<UserAuthCoordinator>(coordinator);
-    coordinator->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    coordinator->runtime = commit_pages(bytes);
     if (!coordinator->runtime) {
         return fail(coordinator, UserAuthCoordinatorError::memory, thread_last_error());
     }

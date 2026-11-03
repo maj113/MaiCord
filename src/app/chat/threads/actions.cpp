@@ -1,5 +1,6 @@
 #include "actions.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../shell/state.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -175,7 +176,7 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
     }
     if (!owner) {
         owner = static_cast<ThreadOwner*>(
-            VirtualAlloc(nullptr, sizeof(ThreadOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(ThreadOwner)));
         if (!owner)
             return Admission::storage;
     }
@@ -330,7 +331,7 @@ bool application_thread_actions_admission_status(const ApplicationThreadActionTi
         return false;
     if (!owner) {
         owner = static_cast<ThreadOwner*>(
-            VirtualAlloc(nullptr, sizeof(ThreadOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(ThreadOwner)));
         if (!owner)
             return false;
         owner->source = source;

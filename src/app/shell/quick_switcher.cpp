@@ -1,6 +1,7 @@
 #include "../media/downloads.hpp"
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "overlay_input.hpp"
 #include "window_state.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
@@ -333,7 +334,7 @@ static bool application_quick_switcher_open() noexcept {
     recent_scope();
     auto* q = g_app.quick_switcher;
     if (!q) {
-        q = static_cast<ApplicationQuickSwitcher*>(VirtualAlloc(nullptr, sizeof(*q), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        q = static_cast<ApplicationQuickSwitcher*>(commit_pages(sizeof(*q)));
         if (!q) return false;
         if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)})) { VirtualFree(q, 0, MEM_RELEASE); return false; }
         g_app.quick_switcher = q;

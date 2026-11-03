@@ -1,5 +1,6 @@
 #include "dm_profile.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "account_presentation.hpp"
 #include "../shell/content_input.hpp"
 #include "friends.hpp"
@@ -202,7 +203,7 @@ void hide() noexcept {
 bool show(u64 user, UiRect slot) noexcept {
     if (!g_panel) {
         g_panel = static_cast<DmProfilePanel*>(
-            VirtualAlloc(nullptr, sizeof(DmProfilePanel), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(DmProfilePanel)));
         if (!g_panel)
             return false;
     }

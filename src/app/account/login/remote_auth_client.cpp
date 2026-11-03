@@ -5,6 +5,7 @@
 #include "maicord/core/byte_queue.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/spsc_queue.hpp"
 #include "maicord/platform/net/network.hpp"
 #include "maicord/platform/crypto/random.hpp"
@@ -969,8 +970,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
         return client_result(nullptr);
     reset_value<RemoteAuthClient>(client);
     publish_phase(client, RemoteAuthClientPhase::starting);
-    auto* runtime = static_cast<RemoteAuthClientRuntime*>(
-        VirtualAlloc(nullptr, sizeof(RemoteAuthClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = commit_pages<RemoteAuthClientRuntime>();
     if (!runtime)
         return start_failure(client, RemoteAuthClientError::memory, thread_last_error());
     client->runtime = runtime;

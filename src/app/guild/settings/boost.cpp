@@ -1,6 +1,7 @@
 #include "internal.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -217,7 +218,7 @@ bool prepare_banner() noexcept {
     if (!p.banner.data)
         return false;
     const u32 bytes = guild_image_data_uri_bytes(p.banner.info.kind, p.banner.info.bytes);
-    auto* uri = bytes ? static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+    auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes))
                       : nullptr;
     if (!uri)
         return false;
@@ -239,7 +240,7 @@ bool prepare_splash() noexcept {
         return true;
     const auto kind = p.splash.info.source_kind;
     const u32 bytes = p.splash.data ? guild_image_data_uri_bytes(kind, p.splash.bytes) : 0;
-    auto* uri = bytes ? static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+    auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes))
                       : nullptr;
     if (!uri)
         return false;

@@ -8,6 +8,7 @@
 #include "maicord/media/containers/mp4_fragment_source.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
@@ -206,9 +207,7 @@ static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID
         return false;
     }
     constexpr u32 input_offset = (sizeof(State) + 15u) & ~15u;
-    auto* s = static_cast<State*>(VirtualAlloc(
-        nullptr, static_cast<SIZE_T>(input_offset) + (borrowed ? 0 : encoded.count), MEM_RESERVE | MEM_COMMIT,
-        PAGE_READWRITE));
+    auto* s = static_cast<State*>(commit_pages(static_cast<SIZE_T>(input_offset) + (borrowed ? 0 : encoded.count)));
     if (!s) { probe->status = E_OUTOFMEMORY; return false; }
     probe->state = s;
     s->fragmented = fragmented;

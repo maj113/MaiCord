@@ -1,6 +1,7 @@
 #include "picker_internal.hpp"
 #include "../settings/emoji_preferences.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/user/emoji_preferences.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
@@ -32,8 +33,7 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
     }
     p.sticker_store_revision = g_sticker_store.revision;
     auto* scratch =
-        servers ? static_cast<u32*>(VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32),
-                                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+        servers ? static_cast<u32*>(commit_pages(kMediaCatalogStructuralCapacity * sizeof(u32)))
                 : nullptr;
     if (servers && !scratch)
         return false;
@@ -53,7 +53,7 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
     const u32 bytes = sizeof(CatalogBank) + items * sizeof(MediaCatalogItem) + text + items * 64 +
                       servers * kNameBytes + (items + 7) / 8;
     auto* bank = items ? static_cast<CatalogBank*>(
-                             VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                             commit_pages(bytes))
                        : nullptr;
     p.sticker_server_count = 0;
     if (bank) {

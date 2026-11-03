@@ -2,6 +2,7 @@
 #include "maicord/app/account/login/oauth_sign_in.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 namespace {
@@ -182,7 +183,7 @@ void destroy(OAuthSignIn* owner) noexcept {
 bool oauth_sign_in_start(OAuthSignIn* owner, Utf8View client, u64 generation, u32 timeout_ms,
                            OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
     if (!owner || owner->runtime || !generation || timeout_ms < 1000 || timeout_ms > 300000 || !oauth_client_valid(provider, client)) return false;
-    auto* r = static_cast<Runtime*>(VirtualAlloc(nullptr, sizeof(Runtime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* r = commit_pages<Runtime>();
     if (!r) return false;
     owner->runtime = r;
     r->listener = r->client = INVALID_SOCKET;

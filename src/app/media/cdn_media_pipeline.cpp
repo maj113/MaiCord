@@ -1,6 +1,7 @@
 #include "maicord/app/media/cdn_media_pipeline.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/image/webp_alpha.hpp"
 #include "maicord/media/image/webp_thumbnail.hpp"
 
@@ -426,7 +427,7 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
     if (needed > sizeof(JpegCoefficientWorkspace)) {
         if (needed <= kTemporaryScratchMaximum)
             temporary =
-                VirtualAlloc(nullptr, static_cast<SIZE_T>(needed), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+                commit_pages(static_cast<SIZE_T>(needed));
         if (!temporary) {
             out->decode.error = JpegError::sink;
             return;

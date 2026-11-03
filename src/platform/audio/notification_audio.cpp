@@ -1,5 +1,6 @@
 #include "maicord/platform/audio/notification_audio.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -329,7 +330,7 @@ void free_runtime(Runtime* r) noexcept {
     if(r->thread)CloseHandle(r->thread);if(r->command)CloseHandle(r->command);if(r->stop)CloseHandle(r->stop);if(r->render)CloseHandle(r->render);VirtualFree(r,0,MEM_RELEASE);
 }
 NotificationAudioResult launch(NotificationAudio& owner) noexcept {
-    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,sizeof(Runtime),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* r=commit_pages<Runtime>();
     if(!r)return fail(NotificationAudioError::memory,thread_last_error());
     // VirtualAlloc memory is zeroed; every queue and voice slot is written in full on insertion.
     r->config=owner.config;r->status.desired_epoch=owner.epoch;r->status.enabled=owner.enabled;

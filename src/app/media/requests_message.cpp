@@ -3,6 +3,7 @@
 #include "../shell/log_fields.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 
@@ -919,8 +920,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
         const u64 png_bytes = clipboard_image_png_bytes(resident.width, resident.height);
         if (!png_bytes || png_bytes > 1u << 20)
             return {};
-        auto* memory = static_cast<u8*>(VirtualAlloc(nullptr, pixels_bytes + static_cast<SIZE_T>(png_bytes),
-                                                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* memory = static_cast<u8*>(commit_pages(pixels_bytes + static_cast<SIZE_T>(png_bytes)));
         if (!memory)
             return {};
         u32 width = 0, height = 0;

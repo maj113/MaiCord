@@ -1,4 +1,5 @@
 #include "video_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "video.hpp"
 #include "../shell/frame_presentation.hpp"
 #include "policy.hpp"
@@ -230,7 +231,7 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
     AccountVideoIdentity retired{};
     close_video_session(&retired);
     void* allocation =
-        VirtualAlloc(nullptr, sizeof(ApplicationVideo), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        commit_pages(sizeof(ApplicationVideo));
     if (!allocation)
         return false;
     auto* video = source.audio ? new (allocation) ApplicationVideo(InlineAudioSceneSelection{})

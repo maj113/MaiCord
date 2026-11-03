@@ -9,6 +9,7 @@
 #include "content.hpp"
 #include "navigation.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
 
 namespace maicord::app_detail {
@@ -249,8 +250,7 @@ bool publish_polls(ApplicationSearch& s, SearchBank& bank, u32 message_count) no
     if (!count)
         return true;
     auto* publication = static_cast<SearchPollPublication*>(
-        VirtualAlloc(nullptr, usize{count} * (sizeof(SearchPollPublication) + sizeof(MessagePollPageInput)),
-                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(usize{count} * (sizeof(SearchPollPublication) + sizeof(MessagePollPageInput))));
     if (!publication)
         return false;
     static_assert(sizeof(SearchPollPublication) % alignof(MessagePollPageInput) == 0);

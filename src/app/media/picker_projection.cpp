@@ -10,6 +10,7 @@
 #include "../shell/retained_projection.hpp"
 #include "catalog_preview_log.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/app/media/account_media.hpp"
@@ -346,8 +347,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         if (view.records.count > kUiMediaPickerMaximumItems || p.favorite_generation == ~u32{0})
             return false;
         const u32 mask_bytes = (view.records.count + 7) / 8;
-        auto* mask = mask_bytes ? static_cast<u8*>(VirtualAlloc(nullptr, mask_bytes,
-                                                                MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+        auto* mask = mask_bytes ? static_cast<u8*>(commit_pages(mask_bytes))
                                 : nullptr;
         if (mask_bytes && !mask)
             return false;
@@ -675,7 +675,7 @@ bool projection(ApplicationMediaPicker& p) noexcept {
                           : (p.guild ? p.guild->count : 0) + (p.packs ? p.packs->count : 0);
     if (count > p.filtered_capacity) {
         auto* next = static_cast<u32*>(
-            VirtualAlloc(nullptr, count * sizeof(u32), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(count * sizeof(u32)));
         if (!next)
             return false;
         if (p.filtered)

@@ -2,6 +2,7 @@
 #include "maicord/media/video/video_display.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
@@ -56,8 +57,7 @@ bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
     if (input->capacity >= bytes)
         return true;
     const u32 capacity = (bytes + 0xFFFFu) & ~0xFFFFu;
-    auto* data =
-        static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* data = commit_pages<u8>(capacity);
     if (!data)
         return false;
     if (input->data)
@@ -416,8 +416,7 @@ u32 gpu_stream_decoder_codecs(ID3D11Device* device) noexcept {
 GpuStreamDecoder* gpu_stream_decoder_create(const GpuStreamDecoderOptions& options) noexcept {
     if (!options.device || options.codec > GpuStreamCodec::av1)
         return nullptr;
-    auto* stream = static_cast<GpuStreamDecoder*>(
-        VirtualAlloc(nullptr, sizeof(GpuStreamDecoder), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* stream = commit_pages<GpuStreamDecoder>();
     if (!stream)
         return nullptr;
     stream->options = options;

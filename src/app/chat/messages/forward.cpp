@@ -1,6 +1,7 @@
 #include "forward.hpp"
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../shell/overlay_input.hpp"
 #include "../../shell/window_state.hpp"
 #include "../composer/text_edit_keys.hpp"
@@ -298,7 +299,7 @@ bool application_message_forward_open(u64 id) noexcept {
     application_account_menu_clear();
     if (!application_profile_close() || !dismiss_popup()) return false;
     if (!q) {
-        q = static_cast<ApplicationMessageForward*>(VirtualAlloc(nullptr, sizeof(*q), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        q = static_cast<ApplicationMessageForward*>(commit_pages(sizeof(*q)));
         if (!q) return false;
         if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)}) ||
             !message_composer_initialize(&q->caption, {q->caption_text, sizeof(q->caption_text)})) {

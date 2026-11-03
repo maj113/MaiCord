@@ -3,6 +3,7 @@
 #include "maicord/platform/crypto/random.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -206,7 +207,7 @@ bool voice_socket_begin(VoiceSocket* socket, NetworkLoop* loop, const GatewayEnd
     socket->close_code = 0;
     socket->sending = VoiceSocketOutput::none;
     socket->storage.data = static_cast<u8*>(
-        VirtualAlloc(nullptr, static_cast<usize>(total), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(static_cast<usize>(total)));
     if (!socket->storage.data) {
         socket->error = VoiceSocketError::storage;
         socket->phase = VoiceSocketPhase::closed;

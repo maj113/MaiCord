@@ -4,6 +4,7 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/module.hpp"
 #include "maicord/sys/shell.hpp"
@@ -340,7 +341,7 @@ NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) no
     if (!picker || picker->runtime || picker->thread || picker->notification || !maximum_files ||
         maximum_files > kNativeFilePickerMaximumFiles) return NativeFilePickerError::invalid_input;
     reset_value(picker);
-    auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, sizeof(Runtime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = commit_pages<Runtime>();
     if (!runtime) return NativeFilePickerError::memory;
     picker->runtime = runtime; runtime->maximum_files = maximum_files;
     if (!arena_initialize(&runtime->paths, static_cast<usize>(maximum_files) * (kNativeFilePickerMaximumPathUnits + 1) * sizeof(wchar_t), 0, 4096)) {

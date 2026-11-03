@@ -1,6 +1,7 @@
 #include "maicord/render/effects/lottie_program.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/d2d1.hpp"
 #include "maicord/sys/crt.hpp"
@@ -1293,8 +1294,7 @@ struct ScannedJson {
             VirtualFree(index, 0, MEM_RELEASE);
     }
     bool read(ConstSlice<u8> encoded) noexcept {
-        index = static_cast<u32*>(VirtualAlloc(nullptr, encoded.count * sizeof(u32),
-                                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        index = commit_pages<u32>(encoded.count * sizeof(u32));
         if (!index)
             return false;
         index = new (index) u32[encoded.count];
@@ -1332,8 +1332,7 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
                      float frame, float pixels) noexcept {
     const usize ends_bytes = json.structurals.count * sizeof(u32);
     const usize doc_offset = (ends_bytes + alignof(Document) - 1) & ~(alignof(Document) - 1);
-    void* block = VirtualAlloc(nullptr, doc_offset + sizeof(Document),
-                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* block = commit_pages(doc_offset + sizeof(Document));
     if (!block)
         return false;
     // The hot ends table precedes the header and first leaf records.

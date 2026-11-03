@@ -13,6 +13,7 @@
 #include "maicord/app/voice/voice_message.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/core/time.hpp"
@@ -118,7 +119,7 @@ bool begin_upload() noexcept {
     if (s.state != VoiceMessageState::finished || !s.bytes || !s.duration_ms)
         return false;
     const usize bytes = sizeof(UploadBuffer) + s.bytes;
-    auto* buffer = static_cast<UploadBuffer*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* buffer = commit_pages<UploadBuffer>(bytes);
     if (!buffer)
         return false;
     buffer->references = 1;

@@ -10,6 +10,7 @@
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
 
 namespace maicord::app_detail {
@@ -118,8 +119,7 @@ bool capture_poll_tickets(ApplicationSearch& s) noexcept {
     if (!store.records || store.count > store.capacity || store.count > 65535)
         return false;
     s.submitted_poll_tickets = static_cast<MessagePollResultTicket*>(
-        VirtualAlloc(nullptr, usize{store.count} * sizeof(MessagePollResultTicket),
-                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(usize{store.count} * sizeof(MessagePollResultTicket)));
     if (!s.submitted_poll_tickets)
         return false;
     s.submitted_poll_count = store.count;
@@ -485,7 +485,7 @@ MessageTextPresentation* application_search_message_text_presentation() noexcept
         return nullptr;
     if (!s->text_owner) {
         s->text_owner = static_cast<SearchTextOwner*>(
-            VirtualAlloc(nullptr, sizeof(SearchTextOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(SearchTextOwner)));
         if (!s->text_owner)
             return nullptr;
         auto& o = *s->text_owner;
@@ -618,7 +618,7 @@ bool application_search_synchronize() noexcept {
     auto* s = g_app.search;
     if (!s) {
         s = static_cast<ApplicationSearch*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationSearch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(ApplicationSearch)));
         if (!s)
             return false;
         if (!message_composer_initialize(&s->edit, {s->query_text, sizeof(s->query_text)})) {
@@ -927,12 +927,12 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
     if (response.transport_ok() && response.status_code == 200) {
         bank_release(s->candidate);
         s->candidate = static_cast<SearchBank*>(
-            VirtualAlloc(nullptr, sizeof(SearchBank), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(SearchBank)));
         auto* scratch = static_cast<SearchDecodeScratch*>(
-            VirtualAlloc(nullptr, sizeof(SearchDecodeScratch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(SearchDecodeScratch)));
         auto* text = body.bytes && body.bytes <= search_bank_text_limit
                          ? static_cast<char*>(
-                               VirtualAlloc(nullptr, body.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                               commit_pages(body.bytes))
                          : nullptr;
         if (s->candidate && scratch && text && bank_initialize(*s->candidate)) {
             decoded = decode_message_search_page(

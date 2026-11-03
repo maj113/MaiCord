@@ -1,5 +1,6 @@
 #include "downloads.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../shell/toast.hpp"
 #include "../shell/overlay_input.hpp"
 #include "image_viewer.hpp"
@@ -264,7 +265,7 @@ bool copy_image() noexcept {
         return false;
     // The decoded viewer texture is bounded by the 2048 DIP decode tier.
     constexpr u32 capacity = 2048u * 2048u * 4u;
-    auto* pixels = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* pixels = static_cast<u8*>(commit_pages(capacity));
     if (!pixels)
         return false;
     u32 width = 0, height = 0;

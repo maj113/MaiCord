@@ -3,6 +3,7 @@
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/app/media/segmented_video_fetch.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/com.hpp"
@@ -249,8 +250,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
     if (account_media_worker_stop_requested(worker))
         return failed(AccountVideoError::busy);
     if (!worker->video_runtime) {
-        auto* memory = static_cast<AccountMediaVideoRuntime*>(VirtualAlloc(
-            nullptr, sizeof(AccountMediaVideoRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* memory = static_cast<AccountMediaVideoRuntime*>(commit_pages(sizeof(AccountMediaVideoRuntime)));
         if (!memory)
             return failed(AccountVideoError::memory, GetLastError());
         memory->selected_lane = -1;

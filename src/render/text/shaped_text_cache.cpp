@@ -1,6 +1,7 @@
 #include "shaped_text_cache.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -177,7 +178,7 @@ ShapedTextCacheEntry* append(ShapedTextGeneration& generation, const ShapedTextC
 ShapedTextCache* shaped_text_cache_create() noexcept {
     // Zero pages are committed on first touch; most capacity stays untouched.
     return static_cast<ShapedTextCache*>(
-        VirtualAlloc(nullptr, sizeof(ShapedTextCache), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ShapedTextCache)));
 }
 
 void shaped_text_cache_clear(ShapedTextCache* cache) noexcept {

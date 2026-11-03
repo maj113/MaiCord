@@ -2,6 +2,7 @@
 #include "maicord/app/account/login/captcha_bridge.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 namespace maicord {
@@ -160,7 +161,7 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
         !captcha_bridge_rqdata_valid(challenge.rqdata) ||
         !captcha_bridge_user_flow_valid(challenge.user_flow))
         return invalid();
-    auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, kOwnerBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = static_cast<Runtime*>(commit_pages(kOwnerBytes));
     if (!runtime) return invalid(CaptchaBridgeError::memory, thread_last_error());
     bridge->runtime = runtime;
     runtime->status.generation = generation;

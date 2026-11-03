@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -143,7 +144,7 @@ AcceptanceRecordResult catalog_state_decode(ConstSlice<u8> record, CatalogState*
 AcceptanceRecordResult catalog_state_load(const wchar_t* path, CatalogState* state) noexcept {
     if (!state || !path) return fail(RE::invalid_input);
     clear_bytes(state, sizeof(*state));
-    auto* record = static_cast<u8*>(VirtualAlloc(nullptr, kCatalogStateRecordBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* record = static_cast<u8*>(commit_pages(kCatalogStateRecordBytes));
     if (!record) return fail(RE::invalid_input);
     auto result = acceptance_record_read(path, {record, kCatalogStateRecordBytes});
     if (result.error == RE::missing) result = {};
@@ -154,7 +155,7 @@ AcceptanceRecordResult catalog_state_load(const wchar_t* path, CatalogState* sta
 }
 
 AcceptanceRecordResult catalog_state_save(const wchar_t* path, u32 path_characters, const CatalogState& state) noexcept {
-    auto* record = static_cast<u8*>(VirtualAlloc(nullptr, kCatalogStateRecordBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* record = static_cast<u8*>(commit_pages(kCatalogStateRecordBytes));
     if (!record) return fail(RE::invalid_input);
     auto result = catalog_state_encode(state, {record, kCatalogStateRecordBytes});
     if (result.ok()) result = acceptance_record_write(path, path_characters, {record, kCatalogStateRecordBytes});

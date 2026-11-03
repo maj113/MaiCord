@@ -25,6 +25,7 @@
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/text/clipboard.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 
@@ -539,8 +540,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     end_message_composer_pointer_selection();
     end_message_text_selection();
     if (!g_app.profile)
-        g_app.profile = static_cast<ApplicationProfile*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationProfile), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_app.profile = commit_pages<ApplicationProfile>();
     auto* p = g_app.profile;
     if (!p)
         return false;

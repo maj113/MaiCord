@@ -1,4 +1,5 @@
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "caption.hpp"
 #include "state.hpp"
 #include "window_state.hpp"
@@ -720,7 +721,7 @@ ApplicationTooltip* ensure() noexcept {
     if (g_app.tooltip)
         return g_app.tooltip;
     auto* owner = static_cast<ApplicationTooltip*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationTooltip), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationTooltip)));
     if (!owner)
         return nullptr;
     if (!ui_widget_manager_initialize(&owner->widgets, {&owner->root, 1}, {&owner->root_layout, 1})) {

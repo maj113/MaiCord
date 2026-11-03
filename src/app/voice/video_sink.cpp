@@ -1,6 +1,7 @@
 #include "maicord/app/voice/video_sink.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 // Per-frame hand-off and call bookkeeping, not a byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -45,7 +46,7 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     if (!sink.decrypt || !frame.annex_b.count || frame.annex_b.count > kVideoRtpFrameBytes)
         return;
     if (!sink.buffer) {
-        sink.buffer = static_cast<u8*>(VirtualAlloc(nullptr, kBufferBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        sink.buffer = static_cast<u8*>(commit_pages(kBufferBytes));
         if (!sink.buffer)
             return;
     }

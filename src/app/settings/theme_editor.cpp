@@ -14,6 +14,7 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -328,7 +329,7 @@ bool application_theme_editor_open() noexcept {
     application_settings_cancel_pointer();
     application_tooltip_clear();
     auto* e = static_cast<ApplicationThemeEditor*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationThemeEditor), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(ApplicationThemeEditor)));
     if (!e)
         return false;
     ui_scroll_host_cancel(&g_app.scroll_host);

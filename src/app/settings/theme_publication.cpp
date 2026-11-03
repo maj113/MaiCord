@@ -1,5 +1,6 @@
 #include "../shell/state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "custom_theme.hpp"
 #include "theme_publication.hpp"
 
@@ -62,7 +63,7 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     bool allocated = false;
     if (document && !destination) {
         destination = static_cast<UiResolvedThemeStyles*>(
-            VirtualAlloc(nullptr, sizeof(UiResolvedThemeStyles), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(UiResolvedThemeStyles)));
         if (!destination)
             return false;
         allocated = true;

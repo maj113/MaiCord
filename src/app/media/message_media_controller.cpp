@@ -4,6 +4,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
@@ -381,7 +382,7 @@ bool message_media_controller_initialize_owned(MessageMediaController* controlle
     controller->asset_marks = stable_storage_data<MessageMediaAssetMark>(controller->owned_asset_marks);
     // Zero-filled on demand; a failed reservation only parses every visit.
     controller->emoji_memo = static_cast<MessageMediaEmojiMemoBank*>(
-        VirtualAlloc(nullptr, sizeof(MessageMediaEmojiMemoBank), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        commit_pages(sizeof(MessageMediaEmojiMemoBank)));
     controller->row_capacity = row_capacity;
     controller->asset_mark_capacity = asset_mark_capacity;
     controller->asset_mark_epoch = 1;

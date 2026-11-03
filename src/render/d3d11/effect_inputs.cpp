@@ -1,6 +1,7 @@
 #include "effect_inputs.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/sys/d3d11.hpp"
@@ -47,8 +48,7 @@ HRESULT make_view(ID3D11Device* device, u32 width, u32 height, DXGI_FORMAT forma
 
 HRESULT make_noise(ID3D11Device* device, ID3D11ShaderResourceView** view) noexcept {
     constexpr u32 count = kNoiseExtent * kNoiseExtent;
-    auto* pixels = static_cast<u32*>(VirtualAlloc(nullptr, count * sizeof(u32), MEM_RESERVE | MEM_COMMIT,
-                                                  PAGE_READWRITE));
+    auto* pixels = commit_pages<u32>(count * sizeof(u32));
     if (!pixels)
         return E_OUTOFMEMORY;
     for (u32 i = 0; i < count; ++i)

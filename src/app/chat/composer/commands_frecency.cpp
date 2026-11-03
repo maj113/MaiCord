@@ -2,6 +2,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {
@@ -10,7 +11,7 @@ Commands* commands;
 Commands* ensure_commands() noexcept {
     if (!commands)
         commands = static_cast<Commands*>(
-            VirtualAlloc(nullptr, sizeof(Commands), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(Commands)));
     return commands;
 }
 
@@ -58,7 +59,7 @@ namespace commands_detail {
 Frecency* ensure_frecency() noexcept {
     if (!frecency)
         frecency = static_cast<Frecency*>(
-            VirtualAlloc(nullptr, sizeof(Frecency), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(Frecency)));
     if (frecency)
         frecency_store_read(*frecency);
     return frecency;

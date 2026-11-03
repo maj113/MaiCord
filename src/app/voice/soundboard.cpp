@@ -11,6 +11,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/guild/assets.hpp"
@@ -106,8 +107,7 @@ struct DecodeScratch {
 DecodeScratch* g_decode;
 DecodeScratch* decode_scratch() noexcept {
     if (!g_decode)
-        g_decode = static_cast<DecodeScratch*>(
-            VirtualAlloc(nullptr, sizeof(DecodeScratch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_decode = commit_pages<DecodeScratch>();
     return g_decode;
 }
 // Empty when the commit failed; every decoder then reports failure.
@@ -292,7 +292,7 @@ bool enqueue(SoundboardRequest request, ConstSlice<u8> file = {}) noexcept {
     request.name = {slot.name, utf8_copy_truncated(slot.name, sizeof(slot.name), request.name)};
     request.emoji_name = {slot.emoji, utf8_copy_truncated(slot.emoji, sizeof(slot.emoji), request.emoji_name)};
     if (file.count) {
-        slot.file = static_cast<u8*>(VirtualAlloc(nullptr, file.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        slot.file = commit_pages<u8>(file.count);
         if (!slot.file)
             return false;
         copy_bytes(slot.file, file.data, file.count);

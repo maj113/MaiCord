@@ -1,5 +1,6 @@
 #include "../text/glyph_effect_ordinals.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../text/d3d11_color_glyph_owner.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
@@ -23,7 +24,7 @@ namespace {
 D3D11ColorGlyphOwner* color_owner(D3D11GlyphTextOwner* owner) noexcept {
     if (!owner->color)
         owner->color = static_cast<D3D11ColorGlyphOwner*>(
-            VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(D3D11ColorGlyphOwner)));
     return owner->color;
 }
 

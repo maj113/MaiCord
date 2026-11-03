@@ -3,6 +3,7 @@
 #include "../plugins/catalog_service.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/image/apng.hpp"
@@ -176,7 +177,7 @@ u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
             p->failed_loop_slot = wanted;
             return 0;
         }
-        auto* loop = static_cast<StorePreviewLoop*>(VirtualAlloc(nullptr, sizeof(StorePreviewLoop), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* loop = static_cast<StorePreviewLoop*>(commit_pages(sizeof(StorePreviewLoop)));
         if (!loop) {
             p->failed_loop_slot = wanted;
             return 0;
@@ -191,7 +192,7 @@ u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
         if (!application_catalog_asset_take(loop.sha256, &loop.asset))
             return in.now_ms + 100;
         loop.taken = true;
-        loop.workspace = static_cast<ApngWorkspace*>(VirtualAlloc(nullptr, sizeof(ApngWorkspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        loop.workspace = static_cast<ApngWorkspace*>(commit_pages(sizeof(ApngWorkspace)));
         loop.inflate = deflate_workspace_allocate();
         const ConstSlice<u8> bytes{loop.asset.bytes, loop.asset.count};
         if (!loop.workspace || !loop.inflate || !apng_parse(bytes, &loop.image, loop.workspace).ok() ||
@@ -200,7 +201,7 @@ u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
             loop.image.canvas.width * loop.image.canvas.height > kLoopCanvasMaximumPixels)
             return loop_fail(p, wanted);
         loop.scanline_bytes = png_decode_buffer_bytes(loop.image.canvas);
-        loop.scanlines = loop.scanline_bytes ? static_cast<u8*>(VirtualAlloc(nullptr, loop.scanline_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) : nullptr;
+        loop.scanlines = loop.scanline_bytes ? static_cast<u8*>(commit_pages(loop.scanline_bytes)) : nullptr;
         if (!loop.scanlines)
             return loop_fail(p, wanted);
         // One identity for the loop's canvas: its width in pixels.

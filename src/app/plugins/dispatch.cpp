@@ -1,5 +1,6 @@
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -51,7 +52,7 @@ bool plugin_dispatch_add(PluginBinding* binding) noexcept {
     const mc_descriptor& descriptor = *binding->image.descriptor;
     if (!descriptor.hook_count) return true;
     if (!g_buffers) {
-        g_buffers = static_cast<u8*>(VirtualAlloc(nullptr, 3 * kBufferBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_buffers = static_cast<u8*>(commit_pages(3 * kBufferBytes));
         if (!g_buffers) return false;
         ++g_stats.allocations;
     }
