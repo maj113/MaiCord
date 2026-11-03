@@ -13,8 +13,7 @@ __declspec(noinline) inline Theme client_theme_projection(const ClientPreference
         : preferences.theme == ClientTheme::amoled ? ui_theme_amoled()
                                                    : kDefaultTheme;
     if (preferences.theme == ClientTheme::light || preferences.theme < ClientTheme::aurora ||
-        (preferences.theme > ClientTheme::custom_gradient &&
-         preferences.theme != ClientTheme::custom_light_gradient)) {
+        preferences.theme > ClientTheme::custom_light_gradient) {
         // Effect choice is independent of appearance. The effect-only
         // descriptor leaves all flat palette tokens and gradient materials
         // unchanged; designated canvases use their own actual fill color.

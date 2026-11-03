@@ -222,6 +222,15 @@ inline constexpr u64 kSettingsListFirst = 0x7E000000u;
 constexpr u64 settings_list_control_id(SettingBinding list, u32 index) noexcept {
     return kSettingsListFirst + (static_cast<u64>(list) << 8) + index;
 }
+constexpr bool settings_list_control(u64 id) noexcept {
+    return id >= kSettingsListFirst && id < kSettingsListFirst + 0x10000;
+}
+constexpr SettingBinding settings_list_binding(u64 id) noexcept {
+    return static_cast<SettingBinding>((id - kSettingsListFirst) >> 8);
+}
+constexpr u32 settings_list_index(u64 id) noexcept {
+    return static_cast<u32>((id - kSettingsListFirst) & 0xff);
+}
 
 // Stable control ids: panel and node index, unique across the catalog so a
 // search result and its panel row share one id.

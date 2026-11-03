@@ -2,7 +2,6 @@
 #include "maicord/protocol/user/settings_proto.hpp"
 
 #include "maicord/app/net/request_body_bank.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_settings_submit(RestClient* rest, const AccountSettingsRequest& request,

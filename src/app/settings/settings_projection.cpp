@@ -25,7 +25,7 @@ namespace maicord::app_detail {
 static_assert(sizeof(ApplicationSettingsChoice) == 88);
 
 inline constexpr u32 kSettingsPanelRowLimit = kKeybindsSettingsBankCapacity;
-static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity);
+static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity && kSettingsPanelRowLimit >= kApplicationUpdatesSettingsRows);
 inline constexpr u32 kSettingsSearchHits = 16;
 
 // The bank is allocated lazily; nothing is allocated at application startup.
@@ -39,10 +39,7 @@ Utf8View saved_account_message() noexcept {
     return utf8_literal("Sign-in saved on this device. Spotify playback is limited to previews.");
 }
 
-} // namespace settings_detail
-namespace {
-
-void media_saved_state() noexcept {
+static void media_saved_state() noexcept {
     auto& account = g_spotify_account;
     if (account.checked) return;
     account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
@@ -52,9 +49,6 @@ void media_saved_state() noexcept {
     account.checked = true;
     if (account.saved) account.message = saved_account_message();
 }
-
-} // namespace
-namespace settings_detail {
 
 void media_close(MediaAccount& account) noexcept {
     account.stopping = !oauth_sign_in_stop(&account.sign_in, 0);
@@ -76,7 +70,6 @@ bool media_account_action() noexcept {
         account.message = utf8_literal("Sign-in cancelled.");
         return true;
     }
-    if (account.generation == ~u64{0}) return false;
     account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
     if (!account.client_bytes) {
         account.message = utf8_literal("Configure MaiCord's Spotify client registration before signing in.");
@@ -104,17 +97,11 @@ bool page_allowed(const UiPageKey& page) noexcept {
             settings_panel_signed_out(static_cast<SettingsPanel>(page.page_id - 1)));
 }
 
-} // namespace settings_detail
-namespace {
-
 static_assert(kUiSettingsNoDefault == 0xffff, "UiSettingsSchemaNode stores no default as 0xffff");
-SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
+static SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
     return node.binding_slot < static_cast<u32>(SettingBinding::count) ? static_cast<SettingBinding>(node.binding_slot)
                                                                        : SettingBinding::none;
 }
-
-} // namespace
-namespace settings_detail {
 
 bool theme_panel(const UiPageKey& page) noexcept {
     return page.owner_id == kNativeSettingsOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
@@ -127,12 +114,6 @@ u32 installed_theme_at(u32 tile) noexcept {
                    tile == kInstalledThemeTiles - 1
                ? active
                : tile;
-}
-// Rows of side-by-side options that a click picks directly.
-bool option_row(UiSettingsControlKind kind) noexcept {
-    return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
-           kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
-           kind == UiSettingsControlKind::colors;
 }
 bool theme_binding(SettingBinding binding) noexcept {
     return binding == SettingBinding::theme_base || binding == SettingBinding::theme_color ||
@@ -168,31 +149,28 @@ bool persist() noexcept {
     return result;
 }
 
-} // namespace settings_detail
-namespace {
-
-bool same_control(const UiSettingsControl& a, const UiSettingsControl& b) noexcept {
+static bool same_control(const UiSettingsControl& a, const UiSettingsControl& b) noexcept {
     return a.id == b.id && a.kind == b.kind && a.enabled == b.enabled && a.checked == b.checked &&
            a.choices.data == b.choices.data && a.choices.count == b.choices.count &&
            a.selected_choice == b.selected_choice && a.editor == b.editor && utf8_equal(a.label, b.label) &&
            utf8_equal(a.description, b.description) && utf8_equal(a.action_label, b.action_label) &&
            utf8_equal(a.detail, b.detail);
 }
-bool same_presentation(const UiSettingsControlPresentation& a, const UiSettingsControlPresentation& b) noexcept {
+static bool same_presentation(const UiSettingsControlPresentation& a, const UiSettingsControlPresentation& b) noexcept {
     return a.variant == b.variant && a.flags == b.flags && a.default_choice == b.default_choice &&
            a.chip_tones == b.chip_tones && a.icon_plus_one == b.icon_plus_one && a.more == b.more;
 }
-Utf8View search_query(const ApplicationSettings& settings) noexcept {
+static Utf8View search_query(const ApplicationSettings& settings) noexcept {
     return {settings.search_text, settings.search_bytes};
 }
 // The "Your themes" tile captions: installed theme names (borrowed from the installed list, which only changes
 // with a new theme revision and so a new projection), then "Browse" (opens Themes; a swatch caption fits one word).
-Utf8View g_theme_tiles[kInstalledThemeTiles + 1];
+static Utf8View g_theme_tiles[kInstalledThemeTiles + 1];
 
 // Live projection of one catalog node. Returns false when the node has no
 // backing in the current state and must be omitted.
-bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiSettingsControl* control,
-                  UiSettingsControlPresentation* presentation) noexcept {
+static bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiSettingsControl* control,
+                         UiSettingsControlPresentation* presentation) noexcept {
     const auto& node = settings_catalog().panels[panel].nodes[index];
     const auto binding = binding_of(node);
     const auto custom = application_custom_theme_view();
@@ -217,13 +195,14 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
         return true;
     if (binding != SettingBinding::game_detection && application_activity_settings_project(binding, control))
         return true;
-    if (settings_binding_backend(binding) == SettingBackend::voice)
+    const auto backend = settings_binding_backend(binding);
+    if (backend == SettingBackend::voice)
         return application_voice_settings_project(binding, control, presentation);
-    if (settings_binding_backend(binding) == SettingBackend::proto1)
+    if (backend == SettingBackend::proto1)
         return application_user_settings_project(binding, control, presentation);
-    if (settings_binding_backend(binding) == SettingBackend::account)
+    if (backend == SettingBackend::account)
         return application_account_settings_project(binding, control, presentation);
-    if (settings_binding_backend(binding) == SettingBackend::keybinds)
+    if (backend == SettingBackend::keybinds)
         return application_keybinds_settings_project(binding, control, presentation);
     auto preferences = g_app.preferences;
     if (theme_binding(binding))
@@ -314,26 +293,25 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     }
 }
 
-UiSettingsAvatarMedia self_avatar_media() noexcept {
+static UiSettingsAvatarMedia self_avatar_media() noexcept {
     return g_app.account_ui ? application_user_avatar_media(g_app.account_ui->chat_state.self_user_id)
                             : UiSettingsAvatarMedia{};
 }
-bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
+static bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
     return media_asset_key_equal(left.key, right.key) && left.hash_bytes == right.hash_bytes &&
            bytes_equal(left.hash, right.hash, left.hash_bytes);
 }
 
-u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
-                  UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
+static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
+                         UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
     // Staging rows (several KiB) on the UI thread, not re-entered; on the stack each projection
     // walked its guard pages. Value-initialized per call, as the arrays were.
     static UiSettingsControl controls[kSettingsPanelRowLimit];
     static UiSettingsControlPresentation presentation[kSettingsPanelRowLimit];
-    for (u32 i = 0; i < kSettingsPanelRowLimit; ++i) {
+    for (u32 i = 0; i < capacity; ++i) {
         reset_value(&controls[i]);
         reset_value(&presentation[i]);
     }
-    capacity = minimum(capacity, kSettingsPanelRowLimit);
     u32 count = 0;
     UiSettingsSchemaLocation retry{};
     if (settings.save_failed && settings_catalog_binding(SettingBinding::preferences_retry, &retry) &&
@@ -371,7 +349,7 @@ u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSet
     return kept;
 }
 
-u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
+static u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
     UiSettingsSearchHit hits[kSettingsSearchHits]{};
     const auto& schema = settings_catalog();
     const u32 found = ui_settings_schema_search(schema, search_query(settings), {hits, kSettingsSearchHits});
@@ -426,8 +404,14 @@ u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
     return count;
 }
 
-} // namespace
-namespace settings_detail {
+// The selected page's id when it is one of the native pages (panels, then search results), else zero.
+u32 native_page_of(const ApplicationSettings& settings) noexcept {
+    const auto* selected = ui_page_registry_selected(settings.registry);
+    return selected && selected->key.owner_id == kNativeSettingsOwner && selected->key.page_id >= 1 &&
+                   selected->key.page_id <= kSettingsSearchPage
+               ? static_cast<u32>(selected->key.page_id)
+               : 0;
+}
 
 void project(ApplicationSettings& settings) noexcept {
     bool changed[kSettingsSearchPage]{};
@@ -436,11 +420,7 @@ void project(ApplicationSettings& settings) noexcept {
         settings.custom_theme_revision = custom.revision;
         changed[static_cast<u32>(SettingsPanel::appearance)] = true;
     }
-    const auto* selected = ui_page_registry_selected(settings.registry);
-    const u32 native = selected && selected->key.owner_id == kNativeSettingsOwner &&
-                               selected->key.page_id >= 1 && selected->key.page_id <= kSettingsSearchPage
-                           ? static_cast<u32>(selected->key.page_id)
-                           : 0;
+    const u32 native = native_page_of(settings);
     if (settings.native_page != native) {
         // Release the previous borrow before building the next native page.
         for (u32 i = 0; i < kSettingsSearchPage; ++i) {
@@ -655,8 +635,6 @@ void finish_signed_out() noexcept {
 ApplicationSettings* ensure() noexcept {
     if (g_app.settings)
         return g_app.settings;
-    if (g_app.settings_lifetime_serial == ~u64{0})
-        return nullptr;
     auto* settings = static_cast<ApplicationSettings*>(
         VirtualAlloc(nullptr, sizeof(ApplicationSettings), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!settings)
@@ -711,18 +689,15 @@ bool refresh() noexcept {
     return application_request_frame();
 }
 
-} // namespace settings_detail
-namespace {
-
-UiKitMeasure g_measure;
+static UiKitMeasure g_measure;
 // Before sign-in no account cache exists; the settings measure through a cache of their own over the renderer.
-UiTextMeasureRecord g_measure_records[128];
-UiTextMeasureCache g_measure_cache;
-u32 g_measure_typography;
+static UiTextMeasureRecord g_measure_records[128];
+static UiTextMeasureCache g_measure_cache;
+static u32 g_measure_typography;
 // The catalog's sidebar with the attention dot on Updates while an update waits for Restart to update.
-UiSettingsNavEntry g_navigation[kUiSettingsNavigationMaximum]{};
+static UiSettingsNavEntry g_navigation[kUiSettingsNavigationMaximum]{};
 
-UiTextMeasureCache* measure_cache() noexcept {
+static UiTextMeasureCache* measure_cache() noexcept {
     if (g_app.account_ui)
         return &g_app.account_ui->text_measure_cache;
     if (!g_measure_cache.storage.data &&
@@ -736,7 +711,7 @@ UiTextMeasureCache* measure_cache() noexcept {
     return &g_measure_cache;
 }
 
-void bind_chrome(ApplicationSettings& settings) noexcept {
+static void bind_chrome(ApplicationSettings& settings) noexcept {
     // Widths and wrapped heights come from a text cache (shaped, not estimated).
     ui_kit_measure_cache(&g_measure, measure_cache());
     ui_settings_scene_bind_measure(&settings.scene, &g_measure);
@@ -762,9 +737,6 @@ void bind_chrome(ApplicationSettings& settings) noexcept {
          focused ? &g_app.renderer.media_picker_edit_geometry : nullptr,
          utf8_literal("Search")});
 }
-
-} // namespace
-namespace settings_detail {
 
 bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept {
     ui_settings_scene_bind_theme_styles(&settings.scene, application_theme().styles);

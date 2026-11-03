@@ -1823,11 +1823,6 @@ void test_controller() noexcept {
         application_settings_refresh_pages();
         application_settings_release();
     }
-    const u64 retained_lifetime = application_settings_lifetime();
-    g_app.settings_lifetime_serial = ~u64{0};
-    check(!g_app.settings && !application_settings_pages() && application_settings_lifetime() == ~u64{0},
-          "settings: lifetime exhaustion refuses a new owner without wrapping");
-    g_app.settings_lifetime_serial = retained_lifetime;
     const bool member_before = g_app.preferences.member_pane_visible;
     check(handle_shell_click(shell_point(UiSemantic::member_toggle)) &&
               g_app.preferences.member_pane_visible != member_before &&

@@ -60,17 +60,24 @@ bool name_valid(Utf8View text) noexcept {
     }
     return true;
 }
+bool effect_slug_valid(const char* text, u32 bytes) noexcept {
+    if (!bytes || bytes > kClientThemeEffectSlugBytes)
+        return false;
+    for (u32 i = 0; i < bytes; ++i) {
+        const char c = text[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i)))
+            return false;
+    }
+    return true;
+}
 bool effect_valid(const ClientThemeEffect& effect) noexcept {
     const u32 slug = c_string_length(effect.slug);
     if (slug > kClientThemeEffectSlugBytes || effect.knob_count > kClientThemeEffectKnobMaximum ||
         effect.universal > 31 || effect.speed > 60 || effect.opacity > 100 || effect.resolution > kEffectResolutionSteps ||
         effect.frame_rate > kEffectFrameRateSteps || effect.blend > 2 || (!slug && (effect.knob_count || effect.universal)))
         return false;
-    for (u32 i = 0; i < slug; ++i) {
-        const char c = effect.slug[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i)))
-            return false;
-    }
+    if (slug && !effect_slug_valid(effect.slug, slug))
+        return false;
     for (u32 i = 0; i < effect.knob_count; ++i)
         if (!effect.knobs[i].id[0] || !is_finite(effect.knobs[i].number) || effect.knobs[i].rgb > 0xffffffu)
             return false;
@@ -92,8 +99,7 @@ bool real_values_finite(const ClientThemeDocument& document) noexcept {
     const auto colors = ui_theme_color_descriptors();
     for (u32 i = 0; i < colors.count; ++i) {
         const auto* color = ui_theme_color_get(document.theme, colors[i].id);
-        if (!color || !is_finite(color->red) || !is_finite(color->green) || !is_finite(color->blue) ||
-            !is_finite(color->alpha))
+        if (!is_finite(color->red) || !is_finite(color->green) || !is_finite(color->blue) || !is_finite(color->alpha))
             return false;
     }
     for (const auto member : kTypographyValues)
@@ -102,7 +108,8 @@ bool real_values_finite(const ClientThemeDocument& document) noexcept {
     const auto metrics = ui_theme_metric_descriptors();
     for (u32 i = 0; i < metrics.count; ++i) {
         float value{};
-        if (!ui_theme_metric_get(document.metrics, metrics[i].id, &value) || !is_finite(value))
+        ui_theme_metric_get(document.metrics, metrics[i].id, &value);
+        if (!is_finite(value))
             return false;
     }
     return true;
@@ -666,16 +673,6 @@ bool palette_color(void* context, u32 index, JsonValue value) noexcept {
     ++array.count;
     return true;
 }
-bool effect_slug_valid(const char* text, u32 bytes) noexcept {
-    if (!bytes || bytes > kClientThemeEffectSlugBytes)
-        return false;
-    for (u32 i = 0; i < bytes; ++i) {
-        const char c = text[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i)))
-            return false;
-    }
-    return true;
-}
 bool effect_knob_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
     auto& effect = parse.candidate.effect;
@@ -1002,13 +999,13 @@ struct Writer {
         }
         character('"');
     }
-    void hex(u32 rgba) noexcept {
-        static constexpr char digits[] = "0123456789abcdef";
+    // "#" and `bits`/4 lowercase digits, quoted.
+    void hex(u32 value, u32 bits) noexcept {
         character('"');
         character('#');
-        for (u32 shift = 32; shift;) {
+        for (u32 shift = bits; shift;) {
             shift -= 4;
-            character(digits[(rgba >> shift) & 15]);
+            character(ascii_hex_digit(value >> shift));
         }
         character('"');
     }
@@ -1169,50 +1166,34 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.number(background.density);
     if (package.slug[0]) {
         writer.text(utf8_literal(",\"knobs\":{"));
+        comma = false;
         for (u32 i = 0; i < package.knob_count; ++i) {
-            if (i)
-                writer.character(',');
-            writer.quoted({package.knobs[i].id, c_string_length(package.knobs[i].id)});
-            writer.character(':');
-            if (package.knobs[i].color) {
-                writer.character('"');
-                writer.character('#');
-                for (u32 shift = 24; shift;) {
-                    shift -= 4;
-                    writer.character("0123456789abcdef"[(package.knobs[i].rgb >> shift) & 15]);
-                }
-                writer.character('"');
-            } else {
+            writer.key(comma, {package.knobs[i].id, c_string_length(package.knobs[i].id)});
+            if (package.knobs[i].color)
+                writer.hex(package.knobs[i].rgb, 24);
+            else
                 writer.real(package.knobs[i].number);
-            }
         }
         writer.text(utf8_literal("},\"universal\":{"));
-        bool first = true;
-        const auto member = [&](Utf8View key) noexcept {
-            if (!first)
-                writer.character(',');
-            first = false;
-            writer.quoted(key);
-            writer.character(':');
-        };
+        comma = false;
         if (package.universal & theme_effect_speed) {
-            member(utf8_literal("speed"));
+            writer.key(comma, utf8_literal("speed"));
             writer.real(static_cast<float>(package.speed) * .05f);
         }
         if (package.universal & theme_effect_resolution) {
-            member(utf8_literal("resolution"));
+            writer.key(comma, utf8_literal("resolution"));
             writer.number(kEffectResolutionPercent[package.resolution - 1]);
         }
         if (package.universal & theme_effect_frame_rate) {
-            member(utf8_literal("fps"));
+            writer.key(comma, utf8_literal("fps"));
             writer.number(kEffectFramesPerSecond[package.frame_rate - 1]);
         }
         if (package.universal & theme_effect_opacity) {
-            member(utf8_literal("opacity"));
+            writer.key(comma, utf8_literal("opacity"));
             writer.real(static_cast<float>(package.opacity) * .01f);
         }
         if (package.universal & theme_effect_blend) {
-            member(utf8_literal("blend"));
+            writer.key(comma, utf8_literal("blend"));
             writer.quoted(name_list_at("normal\0screen\0add\0", package.blend));
         }
         writer.character('}');
@@ -1242,7 +1223,7 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     for (u32 i = 0; i < kIconRoleCount; ++i)
         if (document.icons.colors[i]) {
             writer.key(comma, name_list_at(kIconRoles, i));
-            writer.hex(document.icons.colors[i]);
+            writer.hex(document.icons.colors[i], 32);
         }
     if (document.icons.weight != UiThemeIcons{}.weight) {
         writer.key(comma, utf8_literal("weight"));
@@ -1255,7 +1236,7 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     for (u32 i = 0; i < kSettingsColorCount; ++i)
         if (const u32 packed = colors[i]) {
             writer.key(comma, name_list_at(kSettingsColorNames, i));
-            writer.hex(packed);
+            writer.hex(packed, 32);
         }
     for (u32 i = 0; i < kSettingsSizeCount; ++i)
         if (sizes[i] != defaults[i]) {

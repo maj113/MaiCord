@@ -492,7 +492,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 } else if (control && control->kind == UiSettingsControlKind::radio) {
                     if (ui_settings_scene_radio_pointer(settings->scene, hit, x, y, &value))
                         activate(hit, false, false, value.selected_choice);
-                } else if (control && option_row(control->kind)) {
+                } else if (control && settings_option_row(control->kind)) {
                     // Tabs, segments, swatches and button groups take the
                     // option under the pointer; a click between them does nothing.
                     if (ui_settings_scene_option_pointer(settings->scene, hit, x, y, &value))
@@ -515,8 +515,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         return true;
     }
     return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-           message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL ||
-           message == WM_LBUTTONDBLCLK;
+           message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL;
 }
 
 } // namespace maicord::app_detail

@@ -123,10 +123,12 @@ bool commit(ApplicationThemeEditor& e) noexcept {
     e.scene.save_failed = false;
     return true;
 }
+bool builtin_effect(UiThemeEditorElement element) noexcept {
+    return element >= UiThemeEditorElement::effect_none && element <= UiThemeEditorElement::effect_both;
+}
 bool effect_control(UiThemeEditorElement element) noexcept {
     return element == UiThemeEditorElement::speed || element == UiThemeEditorElement::strength ||
-           element == UiThemeEditorElement::density ||
-           (element >= UiThemeEditorElement::effect_none && element <= UiThemeEditorElement::effect_both);
+           element == UiThemeEditorElement::density || builtin_effect(element);
 }
 bool flat_theme(ClientTheme theme) noexcept {
     return theme == ClientTheme::dark || theme == ClientTheme::amoled || theme == ClientTheme::light;
@@ -282,9 +284,7 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
         return application_store_open_effect_knobs({slug, bytes});
     }
     // A built-in effect replaces the installed one in use.
-    const bool builtin_effect =
-        element >= UiThemeEditorElement::effect_none && element <= UiThemeEditorElement::effect_both;
-    if (builtin_effect && application_effects_selected_index() >= 0) {
+    if (builtin_effect(element) && application_effects_selected_index() >= 0) {
         application_effects_select_none();
         sync_packages(e);
     }
@@ -297,8 +297,7 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
         }
         preview(e, next, !effect_control(element));
         if (element == UiThemeEditorElement::surprise || element == UiThemeEditorElement::reset ||
-            element == UiThemeEditorElement::add || element == UiThemeEditorElement::remove ||
-            (element >= UiThemeEditorElement::effect_none && element <= UiThemeEditorElement::effect_both))
+            element == UiThemeEditorElement::add || element == UiThemeEditorElement::remove || builtin_effect(element))
             return commit(e);
     }
     return true;

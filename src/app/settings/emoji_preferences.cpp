@@ -112,9 +112,6 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     u8* bank = ok && size.group_bytes ? committed_allocate<u8>(size.group_bytes) : nullptr;
     ok = ok && (bank || !size.group_bytes) &&
          emoji_preferences_decode(proto, {bank, size.group_bytes}, snapshot).ok();
-    if (ok && !bank) {
-        snapshot->favorites = snapshot->frecency = snapshot->reaction_frecency = snapshot->sticker_frecency = {};
-    }
     dispose(raw, measured.bytes);
     if (!ok) {
         dispose(bank, size.group_bytes);
@@ -276,7 +273,7 @@ void application_emoji_preferences_track_message(const ApplicationEmojiUse& uses
     if (!preferences || !uses.count)
         return;
     const u64 now = clock_unix_milliseconds();
-    for (u32 i = 0; i < minimum(uses.count, kApplicationEmojiUseCapacity); ++i)
+    for (u32 i = 0; i < uses.count; ++i)
         reaction_preferences_track_emoji(preferences, ReactionPreferenceKind::message, uses.emoji[i], now);
     if (ensure())
         application_emoji_preferences_synchronize();

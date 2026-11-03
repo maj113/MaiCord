@@ -8,7 +8,7 @@
 
 namespace maicord::app_detail {
 namespace {
-constexpr u32 kDefaultRows = 48, kChipBytes = 40;
+constexpr u32 kDefaultRows = kKeybindsSettingsBankCapacity, kChipBytes = 40;
 constexpr Utf8View kActionChoices[]{utf8_literal("Push to talk"), utf8_literal("Toggle mute"),
                                     utf8_literal("Toggle deafen")};
 static_assert(sizeof(kActionChoices) / sizeof(kActionChoices[0]) == static_cast<u32>(CustomKeybindAction::count));
@@ -69,7 +69,7 @@ u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresen
     ensure_loaded();
     u32 count = 0;
     const auto emit = [&](const UiSettingsControl& control, UiSettingsVariant variant) noexcept {
-        if (count >= controls.count || count >= presentation.count)
+        if (count >= controls.count)
             return;
         controls[count] = control;
         presentation[count++] = {variant, 0, kUiSettingsNoDefault};
@@ -113,7 +113,7 @@ u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresen
 u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
     const u32 listed = shortcut_listing({}, {ui.listing, kDefaultRows});
     u32 count = 0;
-    for (u32 i = 0; i < listed && count < controls.count && count < presentation.count; ++i) {
+    for (u32 i = 0; i < listed && count < controls.count; ++i) {
         const auto& source = ui.listing[i];
         auto& chips = ui.defaults[i];
         u32 chip_count = 0;
@@ -187,8 +187,6 @@ bool application_keybinds_settings_project(SettingBinding binding, UiSettingsCon
 
 u32 application_keybinds_settings_list(SettingBinding binding, Slice<UiSettingsControl> controls,
                                        Slice<UiSettingsControlPresentation> presentation) noexcept {
-    if (!controls.data || !presentation.data)
-        return 0;
     if (binding == SettingBinding::keybinds_custom)
         return custom_rows(controls, presentation);
     if (binding == SettingBinding::keybinds_defaults)
@@ -206,9 +204,9 @@ bool application_keybinds_settings_activate(SettingBinding binding) noexcept {
 }
 
 bool application_keybinds_settings_row(u64 control_id) noexcept {
-    if (control_id < kSettingsListFirst || control_id >= kSettingsListFirst + 0x10000)
+    if (!settings_list_control(control_id))
         return false;
-    const auto binding = static_cast<SettingBinding>((control_id - kSettingsListFirst) >> 8);
+    const auto binding = settings_list_binding(control_id);
     return binding == SettingBinding::keybinds_custom || binding == SettingBinding::keybinds_defaults;
 }
 
@@ -216,8 +214,8 @@ bool application_keybinds_settings_activate_row(u64 control_id, u32 choice) noex
     if (!application_keybinds_settings_row(control_id))
         return false;
     ensure_loaded();
-    const auto binding = static_cast<SettingBinding>((control_id - kSettingsListFirst) >> 8);
-    const u32 index = static_cast<u32>((control_id - kSettingsListFirst) & 0xff);
+    const auto binding = settings_list_binding(control_id);
+    const u32 index = settings_list_index(control_id);
     if (binding != SettingBinding::keybinds_custom)
         return false; // Default shortcuts are read-only.
     if (index < kCustomKeybindMaximum) {

@@ -27,7 +27,7 @@ bool application_keybinds_settings_capture(UiInputKind kind, u32 code) noexcept;
 bool application_keybinds_settings_recording() noexcept;
 
 // The Keybinds page projects into this bank instead of the shared settings
-// bank (21 rows): it lists every default shortcut.
+// bank (kSettingsControlCapacity rows): it lists every default shortcut.
 inline constexpr u32 kKeybindsSettingsBankCapacity = 48;
 void application_keybinds_settings_bank(UiSettingsControl** controls, UiSettingsControlPresentation** presentation) noexcept;
 

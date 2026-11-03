@@ -3,6 +3,7 @@
 #include "settings.hpp"
 #include "../shell/state.hpp"
 #include "custom_theme.hpp"
+#include "layer.hpp"
 #include "catalog.hpp"
 #include "../voice/settings.hpp"
 #include "maicord/app/account/login/oauth_sign_in.hpp"
@@ -131,12 +132,12 @@ constexpr u32 kInstalledThemeTiles = 11;
 u32 installed_theme_at(u32 tile) noexcept;
 
 bool theme_panel(const UiPageKey& page) noexcept;
-bool option_row(UiSettingsControlKind kind) noexcept;
 bool theme_binding(SettingBinding binding) noexcept;
 const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding = nullptr) noexcept;
 BackgroundTheme gradient_edit_base() noexcept;
 bool persist() noexcept;
 void project(ApplicationSettings& settings) noexcept;
+u32 native_page_of(const ApplicationSettings& settings) noexcept;
 bool begin_signed_out() noexcept;
 void end_signed_out() noexcept;
 void finish_signed_out() noexcept;

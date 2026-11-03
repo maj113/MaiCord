@@ -9,7 +9,7 @@
 #include "../chat/messages/interaction.hpp"
 #include "../shell/scrolling.hpp"
 #include "../shell/overlay_input.hpp"
-#include "../shell/input.hpp"
+#include "maicord/ui/layout/splitter.hpp"
 #include "../media/image_zoom.hpp"
 #include "../chat/composer/attachments.hpp"
 #include "../account/friends.hpp"
@@ -64,34 +64,30 @@ bool choice_action(u32 action, const ApplicationSettingsChoice* captured) noexce
     return refresh() && result;
 }
 
-} // namespace settings_detail
-namespace {
-
+// The search field's model, with its undo history enabled on first use.
+static MessageComposer& search_model(ApplicationSettings& settings) noexcept {
+    auto& model = settings.search_edit;
+    if (!model.history)
+        message_composer_enable_history(&model, 2048);
+    return model;
+}
 // Focus moves to the field before the edit is published, so the stale scene
 // (the results page has not been laid out yet) cannot drop it.
-bool search_changed(ApplicationSettings& settings) noexcept {
+static bool search_changed(ApplicationSettings& settings) noexcept {
     settings.scene.focus = {UiSettingsTargetKind::search, {}, 0};
     apply_search(settings);
     const bool refreshed = refresh();
     ui_settings_scene_focus(&settings.scene, {UiSettingsTargetKind::search, {}, 0});
     return refreshed;
 }
-
-} // namespace
-namespace settings_detail {
-
 bool search_character(ApplicationSettings& settings, u32 code) noexcept {
-    auto& model = settings.search_edit;
-    if (!model.history)
-        message_composer_enable_history(&model, 2048);
+    auto& model = search_model(settings);
     message_composer_insert_utf16(&model, static_cast<u16>(code), clock_monotonic_milliseconds());
     return search_changed(settings);
 }
 // Editing keys of the focused search field; false when the key is not one.
 bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift) noexcept {
-    auto& model = settings.search_edit;
-    if (!model.history)
-        message_composer_enable_history(&model, 2048);
+    auto& model = search_model(settings);
     const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (control && (key == 'C' || key == 'X')) {
@@ -158,13 +154,9 @@ bool application_preferences_persist_pane_widths() noexcept {
     return persist();
 }
 
-namespace {
-
 // Set by WM_ACTIVATE(WA_INACTIVE), cleared on activation. A window shown
 // without activation (offline probes) counts as active.
-bool g_window_inactive = false;
-
-} // namespace
+static bool g_window_inactive = false;
 
 void application_animation_activity_synchronize() noexcept {
     const auto now = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
@@ -605,11 +597,7 @@ bool application_settings_synchronize() noexcept {
         application_settings_close(false);
         return true;
     }
-    const auto* selected = ui_page_registry_selected(settings->registry);
-    const u32 native_page = selected && selected->key.owner_id == kNativeSettingsOwner &&
-                                    selected->key.page_id <= kSettingsSearchPage
-                                ? static_cast<u32>(selected->key.page_id)
-                                : 0;
+    const u32 native_page = native_page_of(*settings);
     // A connection change (READY, a stop) re-projects the account pages by itself.
     const bool connection = application_account_settings_connection_changed();
     if (settings->native_page != native_page ||

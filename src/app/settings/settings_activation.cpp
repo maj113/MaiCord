@@ -1,3 +1,4 @@
+#include "maicord/ui/theme/background_color_math.hpp"
 #include "settings_internal.hpp"
 #include "../effects/effects.hpp"
 #include "../account/profile_editor.hpp"
@@ -20,12 +21,10 @@ namespace settings_detail {
 
 bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) noexcept {
     // The current device's accent dot uses the theme accent.
-    if (output && choice == kUiSettingsAccentChoice && control >= kSettingsListFirst &&
-        control < kSettingsListFirst + 0x10000) {
+    if (output && choice == kUiSettingsAccentChoice && settings_list_control(control)) {
         const Color accent = application_theme().accent;
         *output = background_theme_defaults();
-        output->colors[0] = static_cast<u32>(accent.red * 255 + .5f) << 16 |
-                            static_cast<u32>(accent.green * 255 + .5f) << 8 | static_cast<u32>(accent.blue * 255 + .5f);
+        output->colors[0] = background_color_pack(accent);
         output->color_count = 1;
         return true;
     }
@@ -111,10 +110,7 @@ bool project_choice(ApplicationSettingsChoice choice) noexcept {
     return false;
 }
 
-} // namespace settings_detail
-namespace {
-
-bool open_choice(const UiSettingsTarget& target) noexcept {
+static bool open_choice(const UiSettingsTarget& target) noexcept {
     auto* settings = g_app.settings;
     ApplicationSettingsChoice choice{};
     const auto* control = settings ? ui_settings_scene_control(settings->scene, target, &choice.control_index) : nullptr;
@@ -133,9 +129,6 @@ bool open_choice(const UiSettingsTarget& target) noexcept {
     choice.active = true;
     return project_choice(choice);
 }
-
-} // namespace
-namespace settings_detail {
 
 // Publishes the search model's text: switches to or from the results page.
 void apply_search(ApplicationSettings& settings) noexcept {
@@ -175,17 +168,11 @@ void set_search(ApplicationSettings& settings, const Utf8View& text) noexcept {
     apply_search(settings);
 }
 
-} // namespace settings_detail
-namespace {
-
 // The scene holds the flashed control; synchronize animates its strength.
-bool flash(ApplicationSettings& settings, u64 control_id) noexcept {
+static bool flash(ApplicationSettings& settings, u64 control_id) noexcept {
     settings.flash_started_ms = clock_monotonic_milliseconds();
     return ui_settings_scene_set_flash(&settings.scene, control_id, .001f);
 }
-
-} // namespace
-namespace settings_detail {
 
 // Opens a panel, optionally scrolling to and flashing one of its controls.
 bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_id) noexcept {
@@ -213,10 +200,7 @@ bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_
     return refresh();
 }
 
-} // namespace settings_detail
-namespace {
-
-bool navigate_link(ApplicationSettings& settings, u64 id) noexcept {
+static bool navigate_link(ApplicationSettings& settings, u64 id) noexcept {
     if (id >= kSettingsPanelLinkFirst + 0x100 && id < kSettingsPanelLinkFirst + 0x100 + settings.registry.count)
         return navigate(settings, settings.registry.storage[static_cast<u32>(id - kSettingsPanelLinkFirst - 0x100)].key,
                         0);
@@ -224,9 +208,6 @@ bool navigate_link(ApplicationSettings& settings, u64 id) noexcept {
         return navigate(settings, {kNativeSettingsOwner, id - kSettingsPanelLinkFirst + 1}, 0);
     return false;
 }
-
-} // namespace
-namespace settings_detail {
 
 bool open_result(ApplicationSettings& settings, u64 control_id) noexcept {
     UiSettingsSchemaLocation location{};
@@ -250,19 +231,13 @@ bool searching(const ApplicationSettings& settings) noexcept {
     return ui_page_key_equal(settings.scene.selected_page, {kNativeSettingsOwner, kSettingsSearchPage});
 }
 
-} // namespace settings_detail
-namespace {
-
 // Motion needs a presenting window; headless hosts settle immediately.
-void animate_toggle(ApplicationSettings& settings, const UiSettingsTarget& target,
-                    const UiSettingsActivation& request) noexcept {
+static void animate_toggle(ApplicationSettings& settings, const UiSettingsTarget& target,
+                           const UiSettingsActivation& request) noexcept {
     if (request.kind == UiSettingsControlKind::toggle && g_app.window)
         ui_settings_scene_animate_toggle(&settings.scene, target, request.checked,
                                          clock_monotonic_milliseconds());
 }
-
-} // namespace
-namespace settings_detail {
 
 // Reprojects after an action and reports its result once the scene is refreshed.
 bool settled(ApplicationSettings& settings, bool result) noexcept {
@@ -270,19 +245,13 @@ bool settled(ApplicationSettings& settings, bool result) noexcept {
     return refresh() && result;
 }
 
-} // namespace settings_detail
-namespace {
-
 // A toggle's result: the thumb animates on success, then the page refreshes.
-bool settled_toggle(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request,
-                    bool result) noexcept {
+static bool settled_toggle(ApplicationSettings& settings, const UiSettingsTarget& target,
+                           const UiSettingsActivation& request, bool result) noexcept {
     if (result)
         animate_toggle(settings, target, request);
     return settled(settings, result);
 }
-
-} // namespace
-namespace settings_detail {
 
 bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 selected, bool save) noexcept {
     auto* settings = g_app.settings;
@@ -293,7 +262,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         return false;
     const bool choice_kind = request.kind == UiSettingsControlKind::choice || request.kind == UiSettingsControlKind::slider ||
                              request.kind == UiSettingsControlKind::palette || request.kind == UiSettingsControlKind::radio ||
-                             option_row(request.kind);
+                             settings_option_row(request.kind);
     if (choice_kind && target.kind == UiSettingsTargetKind::control) {
         if (picker && request.kind == UiSettingsControlKind::choice)
             return open_choice(target);
@@ -350,7 +319,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         return settled(*settings, application_activity_settings_activate_row(target.control_id));
     if (application_updates_changelog_row(target.control_id))
         return settled(*settings, application_updates_activate_row(target.control_id));
-    if (target.control_id >= kSettingsListFirst && target.control_id < kSettingsListFirst + 0x10000)
+    if (settings_list_control(target.control_id))
         return settled(*settings, application_account_settings_activate_row(target.control_id));
     SettingBinding binding{};
     if (!control_node(target.control_id, &binding))

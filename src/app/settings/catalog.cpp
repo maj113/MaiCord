@@ -5,6 +5,7 @@
 #include "maicord/core/packed_reader.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
 #include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/theme/background_color_math.hpp"
 
 namespace maicord {
 namespace {
@@ -398,7 +399,7 @@ const UiSettingsSchema& settings_catalog() noexcept {
 }
 const UiSettingsSchemaPanel& settings_catalog_panel(SettingsPanel panel) noexcept {
     ready();
-    return g.panels[static_cast<u32>(panel) < kSettingsPanelCount ? static_cast<u32>(panel) : 0];
+    return g.panels[static_cast<u32>(panel)];
 }
 
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation(bool log_out) noexcept {
@@ -467,9 +468,7 @@ bool settings_theme_swatch(const ClientPreferences& preferences, SettingBinding 
     *output = theme.background;
     if (!background_theme_valid(*output)) {
         *output = background_theme_defaults();
-        const auto base = theme.base_low;
-        const u32 rgb = static_cast<u32>(base.red * 255 + .5f) << 16 | static_cast<u32>(base.green * 255 + .5f) << 8 |
-                        static_cast<u32>(base.blue * 255 + .5f);
+        const u32 rgb = background_color_pack(theme.base_low);
         output->colors[0] = output->colors[1] = rgb;
         output->colors[2] = output->colors[3] = output->colors[4] = 0;
         output->color_count = 2;

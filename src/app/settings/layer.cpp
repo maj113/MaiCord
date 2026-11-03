@@ -824,10 +824,8 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             }
             if (target.kind == UiSettingsTargetKind::control) {
                 const auto* c = ui_settings_scene_control(*scene, target);
-                if (c && (c->kind == UiSettingsControlKind::segments || c->kind == UiSettingsControlKind::swatches ||
-                          c->kind == UiSettingsControlKind::tabs || c->kind == UiSettingsControlKind::buttons ||
-                          c->kind == UiSettingsControlKind::colors ||
-                          c->kind == UiSettingsControlKind::radio || c->kind == UiSettingsControlKind::palette))
+                if (c && (settings_option_row(c->kind) || c->kind == UiSettingsControlKind::radio ||
+                          c->kind == UiSettingsControlKind::palette))
                     return true;
             }
             if (!ui_settings_scene_activation(*scene, target, false, &activation)) {

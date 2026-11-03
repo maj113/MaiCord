@@ -1,4 +1,6 @@
 #include "maicord/app/settings/client_theme_storage.hpp"
+#include "maicord/ui/theme/background_color_math.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "client_gradient_record.hpp"
 #include "maicord/app/net/file_persistence.hpp"
@@ -123,9 +125,6 @@ ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const 
     *output = workspace;
     return result;
 }
-wchar_t ascii_lower(wchar_t c) noexcept {
-    return c >= L'A' && c <= L'Z' ? static_cast<wchar_t>(c + 32) : c;
-}
 bool ascii_equal_folded(const wchar_t* a, const wchar_t* b, u32 units) noexcept {
     for (u32 i = 0; i < units; ++i)
         if (ascii_lower(a[i]) != ascii_lower(b[i]))
@@ -247,11 +246,8 @@ BackgroundTheme client_theme_document_swatch(const ClientThemeDocument& document
     const auto& background = document.theme.background;
     if (background_theme_valid(background) && background.color_count >= 2)
         return background;
-    const Color surface = document.theme.base_low;
     BackgroundTheme swatch = background_theme_defaults();
-    swatch.colors[0] = swatch.colors[1] = static_cast<u32>(surface.red * 255 + .5f) << 16 |
-                                          static_cast<u32>(surface.green * 255 + .5f) << 8 |
-                                          static_cast<u32>(surface.blue * 255 + .5f);
+    swatch.colors[0] = swatch.colors[1] = background_color_pack(document.theme.base_low);
     swatch.colors[2] = 0;
     swatch.color_count = 2;
     // A flat theme keeps its own effect, if any.
@@ -295,25 +291,22 @@ ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSna
         byte_ranges_conflict(record.data, record.count, bytes, sizeof(*bytes)) ||
         byte_ranges_conflict(bytes, sizeof(*bytes), &snapshot, sizeof(snapshot)))
         return failure(ClientThemeStorageError::invalid_input);
+    if (record.count < kClientThemeStorageHeaderBytes)
+        return failure(ClientThemeStorageError::size);
     u32 document_bytes = 0;
     if (snapshot.custom_present) {
-        const auto sized = client_theme_document_write(snapshot.custom, {}, &document_bytes);
-        if (!sized.ok())
-            return document_failure(sized);
-        if (!document_bytes || document_bytes > kClientThemeImportMaximumBytes)
-            return failure(ClientThemeStorageError::size);
-    }
-    const u32 total = kClientThemeStorageHeaderBytes + document_bytes;
-    if (record.count < total)
-        return failure(ClientThemeStorageError::size);
-    if (document_bytes) {
+        // Written straight into the record; a document that does not fit is a size error when the buffer, not the
+        // format, is the limit.
+        const u32 room = minimum(record.count - kClientThemeStorageHeaderBytes, kClientThemeImportMaximumBytes);
         const auto written = client_theme_document_write(
-            snapshot.custom,
-            {reinterpret_cast<char*>(record.data + kClientThemeStorageHeaderBytes), document_bytes},
+            snapshot.custom, {reinterpret_cast<char*>(record.data + kClientThemeStorageHeaderBytes), room},
             &document_bytes);
         if (!written.ok())
-            return document_failure(written);
+            return written.error == ClientThemeDocumentError::capacity && room < kClientThemeImportMaximumBytes
+                       ? failure(ClientThemeStorageError::size)
+                       : document_failure(written);
     }
+    const u32 total = kClientThemeStorageHeaderBytes + document_bytes;
     u8 header[kClientThemeStorageHeaderBytes]{};
     copy_bytes(header, kMagic, sizeof(kMagic));
     byte_store_le32(header + 8, kClientThemeStorageVersion);
@@ -389,7 +382,7 @@ ClientThemeStorageResult client_theme_storage_load_file(const wchar_t* path,
 ClientThemeStorageResult client_theme_storage_save_file(
     const wchar_t* path, const ClientThemeStorageSnapshot& snapshot) noexcept {
     u32 length = 0;
-    if (!path_length(path, &length) || !client_theme_storage_valid(snapshot))
+    if (!path_length(path, &length))
         return failure(ClientThemeStorageError::invalid_input);
     auto* record = static_cast<u8*>(
         VirtualAlloc(nullptr, kClientThemeStorageMaximumBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -434,8 +427,7 @@ bool catalog_directory_beside(const wchar_t* storage, wchar_t* output) noexcept 
 }
 bool wide_less(const wchar_t* a, u32 an, const wchar_t* b, u32 bn) noexcept {
     for (u32 i = 0; i < an && i < bn; ++i) {
-        const wchar_t x = a[i] >= L'A' && a[i] <= L'Z' ? a[i] + 32 : a[i];
-        const wchar_t y = b[i] >= L'A' && b[i] <= L'Z' ? b[i] + 32 : b[i];
+        const wchar_t x = ascii_lower(a[i]), y = ascii_lower(b[i]);
         if (x != y)
             return x < y;
     }

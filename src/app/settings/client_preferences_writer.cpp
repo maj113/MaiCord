@@ -1,7 +1,7 @@
 #include "maicord/app/settings/client_preferences_writer.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/app/account/account_profile.hpp"
-#include "maicord/app/net/file_persistence.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -111,10 +111,9 @@ bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
     if (!writer || !revision || !client_preferences_valid(preferences))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(writer->lock.native());
-    if (writer->stopping || writer->requested_revision == ~u64{0}) {
-        const u32 error = writer->stopping ? ERROR_OPERATION_ABORTED : ERROR_ARITHMETIC_OVERFLOW;
+    if (writer->stopping) {
         ReleaseSRWLockExclusive(writer->lock.native());
-        return reject(error);
+        return reject(ERROR_OPERATION_ABORTED);
     }
     writer->pending = preferences;
     writer->pending_ready = true;

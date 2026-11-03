@@ -47,8 +47,7 @@ bool same(const ClientThemeStorageSnapshot& a, const ClientThemeStorageSnapshot&
     return !a.custom_present || client_theme_document_equal(a.custom, b.custom);
 }
 void changed(CustomThemeOwner& o) noexcept {
-    if (o.revision != ~u64{0})
-        ++o.revision;
+    ++o.revision;
     application_request_frame();
 }
 CustomThemeOwner* ensure() noexcept {
@@ -103,8 +102,6 @@ bool capture_interaction(CustomThemeOwner& o) noexcept {
     return interaction_current(o);
 }
 bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot) noexcept {
-    if (!client_theme_storage_valid(snapshot))
-        return false;
     if (same(snapshot, o.effective))
         return true;
     const auto prior = o.effective;
@@ -512,7 +509,7 @@ bool application_custom_theme_edit_background(const BackgroundTheme& background)
     // The copy starts from the active document itself, so only the background differs from it.
     fork(next.custom);
     activate_document(next);
-    if (!client_theme_document_valid(next.custom) || !publish(*o, next))
+    if (!publish(*o, next))
         return false;
     o->fork_dirty = true;
     adopt_effective(*o);

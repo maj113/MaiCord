@@ -56,6 +56,12 @@ struct SettingsLayer {
     // A press on a dialog's scrim; releasing it there closes the dialog.
     bool backdrop_pressed;
 };
+// Rows of side-by-side options that a click picks directly.
+inline bool settings_option_row(UiSettingsControlKind kind) noexcept {
+    return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
+           kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
+           kind == UiSettingsControlKind::colors;
+}
 
 void settings_layer_reset(SettingsLayer*) noexcept;
 // Focused text control, if editable.

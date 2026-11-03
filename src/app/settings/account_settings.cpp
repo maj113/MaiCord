@@ -420,7 +420,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     auto* b = g_owner.bank;
     const bool devices = binding == SettingBinding::devices_list;
     const u8 load = devices ? load_sessions : load_tokens;
-    if (!b || !(g_owner.loaded & load) || !controls.data || !presentation.data)
+    if (!b || !(g_owner.loaded & load))
         return 0;
     const bool idle = online() && !mutation_pending();
     u32 count = 0;
@@ -428,7 +428,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     const u32 row_base = devices ? 0 : kAccountSessionMaximum;
     // The current device leads the list, as in the official client.
     for (u32 pass = 0; pass < (devices ? 2u : 1u); ++pass)
-        for (u32 i = 0; i < total && count < controls.count && count < presentation.count; ++i) {
+        for (u32 i = 0; i < total && count < controls.count; ++i) {
             Row& row = b->rows[row_base + i];
             UiSettingsControl& c = controls[count];
             UiSettingsControlPresentation& p = presentation[count];
@@ -457,7 +457,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
             }
             ++count;
         }
-    if (!count && controls.count && presentation.count) {
+    if (!count && controls.count) {
         controls[0] = {settings_list_control_id(binding, 0xFF), devices ? utf8_literal("No devices") : utf8_literal("No authorized apps"),
                        {}, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
         presentation[0] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
@@ -525,8 +525,8 @@ bool application_account_settings_activate_row(u64 id) noexcept {
     const auto* b = g_owner.bank;
     if (!b || id < kSettingsListFirst || !online())
         return false;
-    const auto binding = static_cast<SettingBinding>((id - kSettingsListFirst) >> 8);
-    const u32 index = static_cast<u32>((id - kSettingsListFirst) & 0xFF);
+    const auto binding = settings_list_binding(id);
+    const u32 index = settings_list_index(id);
     static char title[160];
     if (binding == SettingBinding::devices_list && index < g_owner.session_count &&
         !current_session(b->sessions[index])) {
