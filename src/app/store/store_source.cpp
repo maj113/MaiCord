@@ -264,7 +264,8 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         if (!info)
             continue;
         const Utf8View slug = w.c_text(info->slug);
-        const u32 at = store_find_item(*m, CatalogKind::effect, slug);
+        // A development copy lists on its own, even when the catalog has an item with its slug.
+        const u32 at = info->developer ? ~0u : store_find_item(*m, CatalogKind::effect, slug);
         StoreItem* out = at != ~0u ? &m->items[at] : add_item(m);
         if (!out)
             break;

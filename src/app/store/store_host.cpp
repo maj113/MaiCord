@@ -490,10 +490,14 @@ void execute(const StoreCommand& c) noexcept {
     case StoreCommandKind::link_open_file:
         start_pick(0);
         break;
-    case StoreCommandKind::link_commit:
-        toast(application_packages_commit() == PackageError::none, "Installed", "Couldn't install it. Try again.");
+    case StoreCommandKind::link_commit: {
+        const PackageError error = application_packages_commit();
+        toast(error == PackageError::none, "Installed",
+              error == PackageError::conflict ? "The catalog has an item with this name. Install it from there."
+                                              : "Couldn't install it. Try again.");
         application_packages_drop_enable(false);
         break;
+    }
     case StoreCommandKind::link_cancel:
         application_packages_cancel();
         if (c.arg != 1)

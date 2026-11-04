@@ -247,11 +247,17 @@ u32 store_installed_count(const StoreModel& model, CatalogKind kind) noexcept {
     return count;
 }
 
+// The installed item when two share a slug (a development copy next to the catalog's listing), else the first.
 u32 store_find_item(const StoreModel& model, CatalogKind kind, const Utf8View& slug) noexcept {
+    u32 found = ~0u;
     for (u32 i = 0; i < model.count; ++i)
-        if (model.items[i].kind == kind && utf8_equal(model.items[i].slug, slug))
-            return i;
-    return ~0u;
+        if (model.items[i].kind == kind && utf8_equal(model.items[i].slug, slug)) {
+            if (model.items[i].installed)
+                return i;
+            if (found == ~0u)
+                found = i;
+        }
+    return found;
 }
 
 StoreTab store_initial_tab(const StoreModel& model, CatalogKind kind) noexcept {
