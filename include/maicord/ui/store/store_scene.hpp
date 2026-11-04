@@ -247,8 +247,11 @@ bool ui_store_scene_commit(UiStoreScene*, const UiRect& panel, const UiRect& col
 bool ui_store_scene_hover(UiStoreScene*, float x, float y) noexcept;
 bool ui_store_scene_press(UiStoreScene*, float x, float y, UiStoreEvent*) noexcept;
 bool ui_store_scene_release_pointer(UiStoreScene*, float x, float y, UiStoreEvent*) noexcept;
+// `delta` moves the open dialog's body, else the page.
 bool ui_store_scene_scroll(UiStoreScene*, float delta) noexcept;
 bool ui_store_scene_scroll_to(UiStoreScene*, float offset) noexcept;
+// The page's (or the open dialog body's) scroll viewport, offset and largest offset; false when it has none.
+bool ui_store_scene_scroll_range(const UiStoreScene&, bool dialog, UiRect* viewport, float* offset, float* most) noexcept;
 enum class UiStoreKey : u8 { left, right, up, down, home, end, page_up, page_down, first, last, enter, space, menu, tab, back_tab };
 // Keyboard: returns whether the key was used; *event reports an activation.
 bool ui_store_scene_key(UiStoreScene*, UiStoreKey, UiStoreEvent*) noexcept;

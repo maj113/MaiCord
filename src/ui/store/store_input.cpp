@@ -35,6 +35,18 @@ void reveal(UiStoreScene* s, u16 index) noexcept {
         ui_store_scene_scroll_to(s, s->scroll + r.bottom - bottom);
 }
 
+// Page Up/Down and Home/End outside a group move the page (or the open dialog's body), not the focus.
+bool paging(UiStoreKey key) noexcept {
+    return key == UiStoreKey::page_up || key == UiStoreKey::page_down || key == UiStoreKey::home || key == UiStoreKey::end;
+}
+bool page_scroll(UiStoreScene* s, UiStoreKey key) noexcept {
+    const float page = ui_rect_height(s->panel) * .8f, far = s->content_height + s->dialog_height;
+    return ui_store_scene_scroll(s, key == UiStoreKey::page_up     ? -page
+                                    : key == UiStoreKey::page_down ? page
+                                    : key == UiStoreKey::home      ? -far
+                                                                   : far);
+}
+
 bool set_focus(UiStoreScene* s, u16 index, bool visible_ring) noexcept {
     const u32 action = s->nodes[index].action;
     const bool changed = s->focus_action != action || s->focus_visible != visible_ring;
@@ -278,6 +290,8 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
         return true;
     }
     if (current == kUiStoreNone) {
+        if (paging(key))
+            return page_scroll(s, key);
         if (key == UiStoreKey::down || key == UiStoreKey::right) {
             const u16 first = scan(*s, range.first, range.end, false);
             if (first != kUiStoreNone) {
@@ -325,11 +339,8 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
             fill_event(*s, current, UiStoreEventKind::value, value, event);
         return true;
     }
-    if (!n.group) {
-        if (key == UiStoreKey::page_up || key == UiStoreKey::page_down)
-            return ui_store_scene_scroll(s, (key == UiStoreKey::page_up ? -1.f : 1.f) * ui_rect_height(s->panel) * .8f);
-        return false;
-    }
+    if (!n.group)
+        return paging(key) && page_scroll(s, key);
     u16 target = kUiStoreNone;
     switch (key) {
     case UiStoreKey::left:

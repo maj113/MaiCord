@@ -715,12 +715,20 @@ namespace {
 float visible_height(const UiStoreScene& s) noexcept {
     return maximum(1.f, s.panel.bottom - s.column.top);
 }
+float page_most(const UiStoreScene& s) noexcept {
+    return maximum(0.f, s.content_height - visible_height(s));
+}
+// The dialog body's height above its pinned footer.
+float dialog_body(const UiStoreScene& s) noexcept {
+    return s.dialog_rect.bottom - s.dialog_rect.top - (s.dialog_footer != kUiStoreNone ? s.nodes[s.dialog_footer].h : 0);
+}
+float dialog_most(const UiStoreScene& s) noexcept {
+    return maximum(0.f, s.dialog_height - dialog_body(s));
+}
 void clamp_scroll(UiStoreScene* s) noexcept {
-    const float most = maximum(0.f, s->content_height - visible_height(*s));
+    const float most = page_most(*s);
     s->scroll = s->scroll < 0 ? 0 : s->scroll > most ? most : s->scroll;
-    const float body = s->dialog_rect.bottom - s->dialog_rect.top;
-    const float footer = s->dialog_footer != kUiStoreNone ? s->nodes[s->dialog_footer].h : 0;
-    const float dmost = maximum(0.f, s->dialog_height - (body - footer));
+    const float dmost = dialog_most(*s);
     s->dialog_scroll = s->dialog_scroll < 0 ? 0 : s->dialog_scroll > dmost ? dmost : s->dialog_scroll;
 }
 
@@ -806,6 +814,16 @@ bool ui_store_scene_scroll(UiStoreScene* s, float delta) noexcept {
         return true;
     }
     return ui_store_scene_scroll_to(s, s->scroll + delta);
+}
+
+bool ui_store_scene_scroll_range(const UiStoreScene& s, bool dialog, UiRect* viewport, float* offset, float* most) noexcept {
+    if (!s.active || (dialog && !s.dialog_open))
+        return false;
+    const UiRect& d = s.dialog_rect;
+    *viewport = dialog ? UiRect{d.left, d.top, d.right, d.top + dialog_body(s)} : UiRect{s.panel.left, s.column.top, s.panel.right, s.panel.bottom};
+    *offset = dialog ? s.dialog_scroll : s.scroll;
+    *most = dialog ? dialog_most(s) : page_most(s);
+    return ui_rect_has_area(*viewport);
 }
 
 namespace store_detail {

@@ -13,7 +13,7 @@
 #include "../settings/catalog.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
-#include "../shell/overlay_input.hpp"
+#include "../shell/modal_scroll.hpp"
 #include "../shell/toast.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/core/memory.hpp"
@@ -966,6 +966,54 @@ UiScrollbarGeometry scrollbar() noexcept {
                                  g->scene.content_height);
 }
 
+// The page an offset belongs to: kind, tab and shown item. Navigation changes it, ending any glide (it jumps).
+u64 page_identity() noexcept {
+    const StorePageState& st = page();
+    u64 id = static_cast<u64>(g->kind) | static_cast<u64>(st.tab) << 8 | static_cast<u64>(st.detail) << 16 |
+             static_cast<u64>(st.knobs) << 17;
+    for (const char* c = st.slug; st.detail && *c; ++c)
+        id = (id ^ static_cast<u8>(*c)) * 0x100000001b3ull;
+    return id;
+}
+
+// The page (key 0) and the open dialog's body (key 1) share the scroll host's wheel curve, paging and jump-vs-glide
+// policy (smooth scrolling, reduced motion) with every native list; a scrollbar drag stays direct.
+UiScrollBinding scroll_binding(bool dialog) noexcept {
+    return {nullptr, dialog ? 1u : 0u,
+            [](void*, u64 key, UiScrollRange* range) noexcept {
+                float offset = 0, most = 0;
+                if (!application_store_active() || g->dragging_scrollbar || g->menu_open ||
+                    !ui_store_scene_scroll_range(g->scene, key != 0, &range->viewport, &offset, &most))
+                    return false;
+                range->offset = offset;
+                range->maximum = most;
+                range->line = kUiScrollLineDips;
+                range->units_per_dip = 1;
+                range->origin = 0;
+                range->generation = page_identity();
+                return true;
+            },
+            [](void*, u64 key, double offset, bool* changed) noexcept {
+                if (!application_store_active() || (key && !g->scene.dialog_open))
+                    return false;
+                const float target = static_cast<float>(offset);
+                *changed = key ? ui_store_scene_scroll(&g->scene, target - g->scene.dialog_scroll)
+                               : ui_store_scene_scroll_to(&g->scene, target);
+                return true;
+            }};
+}
+
+// A key moved the page or the dialog's body at once: replay the move from `before` on the wheel's curve.
+void glide_from(bool dialog, float before, float after) noexcept {
+    float& offset = dialog ? g->scene.dialog_scroll : g->scene.scroll;
+    if (after == before || offset != after)
+        return;
+    offset = before;
+    if (ui_scroll_host_scroll_to(&g_app.scroll_host, scroll_binding(dialog), after, application_now_us(),
+                                 96.0 / maximum(g_app.renderer.dpi, 1u)) != UiScrollDispatch::handled)
+        offset = after;
+}
+
 void handle_event(const UiStoreEvent& event, bool commit) noexcept {
     if (event.kind == UiStoreEventKind::value) {
         StoreCommand c = store_page_act(g->model, &page(), event.action, event.value, event.anchor);
@@ -1064,7 +1112,11 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
     if (message == WM_MOUSEWHEEL) {
         if (!inside && !dialog)
             return false;
-        ui_store_scene_scroll(&g->scene, -static_cast<float>(static_cast<short>(HIWORD(wparam))) / 120.f * 56.f);
+        // Wherever the store took it, the wheel moves the open dialog's body, else the page.
+        const auto binding = scroll_binding(g->scene.dialog_open);
+        UiScrollRange range{};
+        if (binding.read(nullptr, binding.key, &range))
+            application_modal_scroll_wheel(binding, {range.viewport.left, range.viewport.top}, wparam);
         application_request_frame();
         return true;
     }
@@ -1337,9 +1389,17 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
         }
         return true;
     }
+    // Paging and focus reveals glide like the wheel; an activation that navigates keeps its jump.
+    const float page_before = g->scene.scroll, dialog_before = g->scene.dialog_scroll;
+    const u64 identity = page_identity();
     const bool used = ui_store_scene_key(&g->scene, key, &event);
+    const float page_after = g->scene.scroll, dialog_after = g->scene.dialog_scroll;
     if (event.kind != UiStoreEventKind::none)
         handle_event(event, true);
+    if (application_store_active() && page_identity() == identity) {
+        glide_from(false, page_before, page_after);
+        glide_from(true, dialog_before, dialog_after);
+    }
     if (used)
         application_request_frame();
     return used;

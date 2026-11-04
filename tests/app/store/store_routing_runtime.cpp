@@ -5,6 +5,7 @@
 #include "shell/state.hpp"
 #include "settings/settings.hpp"
 #include "store/store_host.hpp"
+#include "shell/overlay_input.hpp"
 #include "store/store_model.hpp"
 #include "../settings/settings_runtime_internal.hpp"
 #include "../settings/settings_runtime_keys.hpp"
@@ -22,6 +23,8 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/win32_user.hpp"
+
+#include <limits.h>
 
 namespace maicord {
 namespace app_detail {
@@ -576,6 +579,77 @@ bool drawn_knobs_follow_the_background() noexcept {
     return none && application_effects_count() == before && !g_app.renderer.effect.selected;
 }
 
+// A wheel notch on a store page eases on the shared scroll curve like a native page: it moves nothing at once, the
+// page then glides over several frames to the notch's target, and the settled page leaves the animator idle (the
+// frame loop and the scheduler's fallback timer only ask for scroll frames while it is active). Reduced motion lands
+// the notch in one step.
+bool wheel_glides(UiPageKey plugins) noexcept {
+    auto& observed = settings_runtime_test::observed;
+    const UiRect viewport = observed.viewport;
+    observed.viewport = {0, 0, 1000, 480};
+    const ClientPreferences preferences = g_app.preferences;
+    const auto motion = [](bool reduced) noexcept {
+        g_app.preferences.smooth_scroll = true;
+        g_app.preferences.reduced_motion = reduced;
+        application_preferences_apply();
+    };
+    // Enough listed plugins that Browse scrolls.
+    constexpr u32 kItems = 24;
+    index.text_bytes = 0;
+    for (u32 i = 0; i < kItems; ++i) {
+        reset_value(&index.items[i]);
+        index.items[i].kind = CatalogKind::plugin;
+        copy_bytes(index.text + index.text_bytes, "plugin-", 7);
+        index.text[index.text_bytes + 7] = static_cast<char>('a' + i);
+        index.items[i].slug = index.items[i].name = {index.text_bytes, 8};
+        index.text_bytes += 8;
+    }
+    index.item_count = kItems;
+    store_stub_catalog_index(&index);
+    motion(false);
+    UiRect pane{};
+    float offset = 0, most = 0;
+    bool ok = open_store(plugins) && ui_store_scene_scroll_range(*store(), false, &pane, &offset, &most) && most > 0;
+    if (ok && offset != 0)
+        ok = ui_store_scene_scroll_to(const_cast<UiStoreScene*>(store()), 0) && application_settings_synchronize();
+    const u32 lines = application_wheel_scroll_lines();
+    const float step = lines == WHEEL_PAGESCROLL ? ui_rect_height(pane) : static_cast<float>(lines) * kUiScrollLineDips;
+    const float target = minimum(most, step), x = (pane.left + pane.right) * .5f, y = (pane.top + pane.bottom) * .5f;
+    const u64 start = application_now_us();
+    if (ok)
+        wheel(x, y, -WHEEL_DELTA);
+    // The notch only queues the glide: no jump before the first frame.
+    ok = ok && store() && store()->scroll == 0 && ui_scroll_host_active(g_app.scroll_host);
+    u32 frames = 0;
+    float first = 0;
+    for (u64 t = start + 16'000; ok && ui_scroll_host_active(g_app.scroll_host) && frames < 64; t += 16'000) {
+        bool changed = false;
+        ok = ui_scroll_host_tick(&g_app.scroll_host, t, &changed) && application_settings_synchronize() && store();
+        if (ok && frames++ == 0)
+            first = store()->scroll;
+    }
+    const float landed = ok ? store()->scroll : -1;
+    const bool glided = ok && first > 0 && first < target * .5f && frames >= 4 && landed > target - .01f &&
+                        landed < target + .01f;
+    bool changed = true;
+    const bool settled = glided && !ui_scroll_host_active(g_app.scroll_host) &&
+                         ui_scroll_host_tick(&g_app.scroll_host, start + 2'000'000, &changed) && !changed &&
+                         store()->scroll == landed;
+    // Reduced motion: the notch back up lands at once, with nothing left animating.
+    motion(true);
+    if (settled)
+        wheel(x, y, WHEEL_DELTA);
+    const bool instant = settled && store() && store()->scroll == maximum(0.f, landed - step) &&
+                         !ui_scroll_host_active(g_app.scroll_host);
+    store_stub_catalog_index(nullptr);
+    index.item_count = index.text_bytes = 0;
+    g_app.preferences = preferences;
+    application_preferences_apply();
+    application_settings_close(false);
+    observed.viewport = viewport;
+    return glided && settled && instant;
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -656,6 +730,10 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     check(drawn_knobs_follow_the_background(),
           "effect knobs a theme follows: the background's own values, the user's change at once, and none for an "
           "effect in the library, previewed in another's place, or no longer the background");
+    check(wheel_glides(stores[0]),
+          "store routing: a wheel notch on a store page glides over several frames to its target with no first-frame "
+          "jump, the settled animator schedules no frames, and reduced motion lands it at once");
+    g_app.scroll_host.immediate = true;
     // The wheel scrolls the category list over its rows and over its scrollbar, which sits in the sidebar's padding.
     auto& observed = settings_runtime_test::observed;
     const UiRect viewport = observed.viewport;
