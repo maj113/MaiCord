@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 
 namespace maicord::app_detail {
@@ -14,20 +15,20 @@ __declspec(noinline) inline bool message_composer_edit_key(MessageComposer* mode
         *result = shift ? message_composer_redo(model) : message_composer_undo(model);
     else if (control && key == 'Y')
         *result = message_composer_redo(model);
-    else if (key == VK_BACK)
+    else if (key == key::backspace)
         *result = control ? message_composer_delete_word(model, false) : message_composer_backspace(model);
-    else if (key == VK_DELETE)
+    else if (key == key::del)
         *result = control ? message_composer_delete_word(model, true)
                           : message_composer_delete_forward(model);
-    else if (key == VK_LEFT || key == VK_RIGHT)
+    else if (key == key::left || key == key::right)
         *result = message_composer_move(
             model,
-            control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                    : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next),
+            control ? (key == key::left ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
+                    : (key == key::left ? MessageComposerMove::previous : MessageComposerMove::next),
             shift);
-    else if (key == VK_HOME || key == VK_END)
+    else if (key == key::home || key == key::end)
         *result = message_composer_move(
-            model, key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end,
+            model, key == key::home ? MessageComposerMove::document_home : MessageComposerMove::document_end,
             shift);
     else
         return false;

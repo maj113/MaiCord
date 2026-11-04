@@ -7,6 +7,7 @@
 #include "chat/threads/browser.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 namespace maicord {
 inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
                                 bool (*capture)(const wchar_t*, const Theme&) noexcept,
@@ -283,7 +284,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             if (!forum_post_ui_adapter_input(UiInputKind::character, unit))
                 return false;
         const u32 title_bytes = forum_post_ui_adapter_edit(0)->storage.bytes;
-        if (!forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN) ||
+        if (!forum_post_ui_adapter_input(UiInputKind::key_down, key::enter) ||
             !forum_post_ui_adapter_input(UiInputKind::character, '\r') ||
             forum_post_ui_adapter_edit(0)->storage.bytes != title_bytes ||
             !forum_post_ui_adapter_pointer({ForumPostElement::body, 0}))
@@ -294,7 +295,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                 return false;
         const u32 submissions = forum_post_ui_adapter_submissions(),
                   body_bytes = forum_post_ui_adapter_edit(1)->storage.bytes;
-        if (!forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN) ||
+        if (!forum_post_ui_adapter_input(UiInputKind::key_down, key::enter) ||
             !forum_post_ui_adapter_input(UiInputKind::character, '\r') ||
             forum_post_ui_adapter_submissions() != submissions ||
             forum_post_ui_adapter_edit(1)->storage.bytes != body_bytes + 1)
@@ -498,7 +499,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                      forum_post_ui_adapter_response(200, body) &&
                      application_forum_post_view().require_tag && type(),
                  6) ||
-        !require(forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+        !require(forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                      application_forum_post_view().error &&
                      application_forum_post_view().phase == ApplicationForumPostPhase::editing &&
                      !application_forum_post_view().can_retry && application_forum_post_view().can_submit &&
@@ -527,7 +528,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         !require(application_forum_post_view().tags[6].selected &&
                      !application_forum_post_view().tags[6].enabled,
                  1103) ||
-        !require(forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true), 1104) ||
+        !require(forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true), 1104) ||
         !require(application_forum_post_view().error &&
                      application_forum_post_view().phase == ApplicationForumPostPhase::editing &&
                      !application_forum_post_view().can_retry && application_forum_post_view().can_submit &&
@@ -609,7 +610,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
     if (!require(begin() && forum_post_ui_adapter_open() && metadata(91001, false) &&
                      !application_forum_post_view().require_tag && type() &&
                      application_forum_post_view().selected_tags.count == 0 &&
-                     forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+                     forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                      forum_post_ui_adapter_submit(91002) && forum_post_ui_adapter_success(&body) &&
                      forum_post_ui_adapter_response(201, body) && !forum_post_ui_adapter_scene() &&
                      reply_draft_ui_adapter_state()->selected_channel_id == kForumPostProbeThread,
@@ -654,7 +655,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         context.ready = false;
         forum_post_ui_adapter_end();
         if (!require(begin() && forum_post_ui_adapter_open() && metadata(92000 + reason, false) && type() &&
-                         forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+                         forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                          forum_post_ui_adapter_submit(93000 + reason) &&
                          forum_post_ui_adapter_success(&body),
                      30 + reason))

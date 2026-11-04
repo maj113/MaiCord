@@ -206,7 +206,7 @@ bool prepare_icon() noexcept {
     request.info = &info;
     request.data_uri = {uri, kAccountProfileImageUriCapacity};
     if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
-        VirtualFree(uri, 0, MEM_RELEASE);
+        pages_release(uri);
         return false;
     }
     p.icon_uri = uri;

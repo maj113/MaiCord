@@ -675,7 +675,7 @@ void application_updates_release(bool normal_exit) noexcept {
     update_https_release(&w->https);
     const HANDLE events[]{w->wake, w->stop, w->notify};
     for (HANDLE h : events) if (h) CloseHandle(h);
-    VirtualFree(w, 0, MEM_RELEASE);
+    pages_release(w);
 }
 void application_updates_relaunch() noexcept {
     if (!g_relaunch_count) return;
@@ -767,7 +767,7 @@ u16 application_updates_meter() noexcept {
 }
 void application_updates_visible(bool visible) noexcept {
     if (visible || !g_rows) return;
-    VirtualFree(g_rows, 0, MEM_RELEASE);
+    pages_release(g_rows);
     g_rows = nullptr;
     // The bank's changelog rows point into the freed rows; the next projection compares against the bank.
     if (Worker* w = g_worker) {

@@ -2,6 +2,8 @@
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/gpos_fixture.inc"
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
@@ -125,7 +127,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
 bool guards() noexcept {
     const u32 size=byte_load_le32(gpos_fixture+16);const u8* raw=gpos_fixture+36;SfntLayout layout{};if(sfnt_layout_open({raw,size},SfntLayoutKind::positioning,&layout)!=SfntStatus::ok)return false;
     ConstSlice<u8> originals[4];u16 types[4];for(u16 i=0;i<4;++i){SfntLookup lookup{};if(sfnt_layout_lookup(layout,i,&lookup)!=SfntStatus::ok || sfnt_lookup_subtable(lookup,0,&originals[i])!=SfntStatus::ok)return false;types[i]=lookup.type;}
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     SfntGsubGlyph glyphs[]{{1,SfntGlyphClass::base,0},{3,SfntGlyphClass::mark,0},{2,SfntGlyphClass::base,0}};u32 random=0x317d9821;bool ok=true;
     for(u32 i=0;i<10000;++i){const auto original=originals[i%4];if(original.count>page){ok=false;break;}random^=random<<13;random^=random>>17;random^=random<<5;const u32 length=i<4?original.count:random%(original.count+1);u8* data=mem+page-length;copy_bytes(data,original.data,length);if(i>=4 && length)data[(random>>8)%length]^=static_cast<u8>(random>>16);
         SfntGposSubtable sub{};auto s=sfnt_gpos_subtable_open({data,length},types[i%4],5,&sub,1000);observations=observations+static_cast<u32>(s)+1;
@@ -133,7 +135,7 @@ bool guards() noexcept {
             if(s==SfntStatus::ok && m.matched)for(u32 j=0;j<2;++j){SfntPositionValue v{};s=sfnt_value_record_read(m.values[j],&v);observations=observations+static_cast<u32>(s)+static_cast<u16>(v.design[0]);}}
         SfntAnchor anchor{};s=sfnt_anchor_open({data,length},&anchor,1000);observations=observations+static_cast<u32>(s)+1;if(s==SfntStatus::ok){SfntAnchorValue a{};s=sfnt_anchor_read(anchor,&a);observations=observations+static_cast<u32>(s)+a.point;}
     }
-    VirtualFree(mem,0,MEM_RELEASE);return ok;
+    pages_release(mem);return ok;
 }
 bool file_corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
@@ -147,4 +149,4 @@ int run() noexcept {
     print(utf8_literal("value_checks="));number(value_checks);print(utf8_literal("\ndevice_samples="));number(device_samples);print(utf8_literal("\nanchor_checks="));number(anchor_checks);print(utf8_literal("\nqueries="));number(queries);print(utf8_literal("\ngap_queries="));number(gap_queries);print(utf8_literal("\nguard_observations="));number(observations);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));print(ok && !failures?utf8_literal("PASS native GPOS basic matching\n"):utf8_literal("FAIL native GPOS basic matching\n"));return ok && !failures?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gpos_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gpos_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

@@ -3,7 +3,9 @@
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../shell/content_input.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -303,20 +305,20 @@ bool application_downloads_input(UiInputKind kind, u32 key, bool repeated) noexc
         return !yield;
     }
     if (kind == UiInputKind::key_down) {
-        if (key == VK_ESCAPE) {
+        if (key == key::escape) {
             g_app.downloads_held_key = key;
             application_downloads_close();
-        } else if (key == VK_TAB) {
+        } else if (key == key::tab) {
             g_app.downloads_held_key = key;
             ui_widget_manager_focus(&q->scene.widgets, ui_widget_manager_next_focus(
                                                            q->scene.widgets, q->scene.widgets.focused,
                                                            application_shift_down(), true));
             application_request_frame();
-        } else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) {
+        } else if ((key == key::enter || key == key::space) && !repeated) {
             g_app.downloads_held_key = key;
             activate(*q, ui_download_scene_target(q->scene, q->scene.widgets.focused));
-        } else if (key == VK_PRIOR || key == VK_NEXT)
-            activate(*q, {key == VK_PRIOR ? UiDownloadAction::previous : UiDownloadAction::next});
+        } else if (key == key::page_up || key == key::page_down)
+            activate(*q, {key == key::page_up ? UiDownloadAction::previous : UiDownloadAction::next});
     }
     return true;
 }
@@ -523,7 +525,7 @@ bool application_downloads_release() noexcept {
     for (auto& j : q->jobs)
         release_path(j);
     SecureZeroMemory(q, sizeof(*q));
-    VirtualFree(q, 0, MEM_RELEASE);
+    pages_release(q);
     g_app.downloads = nullptr;
     return true;
 }

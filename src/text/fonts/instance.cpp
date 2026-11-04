@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "../opentype/sfnt_read.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_process.hpp"
 namespace maicord {namespace {
@@ -69,7 +70,12 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
         }
         instance.instructions=prepared;
     }
+#if defined(_WIN32)
+    // The DWORD for the old protection stays in this frame (pages_protect would end its lifetime at once).
     if(state.base){DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());}
+#else
+    if(state.base){if(!pages_protect(state.base,state.committed,PageAccess::read))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());}
+#endif
     if(!native_font_retain(store->fonts,handle))return result(NativeFontError::capacity);
     auto& p=store->slots[free_slot];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     *output={free_slot+1,p.generation};return result(NativeFontError::none);

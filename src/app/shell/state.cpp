@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "../settings/theme_publication.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 
@@ -72,7 +73,7 @@ const Theme& application_theme() noexcept {
 // Call after renderer and scene owners retire their borrowed Theme/styles.
 void application_theme_release() noexcept {
     if (theme_publication.styles)
-        VirtualFree(theme_publication.styles, 0, MEM_RELEASE);
+        pages_release(theme_publication.styles);
     reset_value(&theme_publication);
 }
 

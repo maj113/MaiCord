@@ -133,7 +133,7 @@ void release_bank(const ApplicationMediaPicker& p, CatalogBank* bank) noexcept {
         if (bank == cached)
             return;
     if (bank)
-        VirtualFree(bank, 0, MEM_RELEASE);
+        pages_release(bank);
 }
 // Removes a cached query's bank, freed unless the current results borrow it.
 void inline_cache_drop(ApplicationMediaPicker& p, u32 at) noexcept {
@@ -378,7 +378,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
             }
         }
         if (p.saved_preview_mask)
-            VirtualFree(p.saved_preview_mask, 0, MEM_RELEASE);
+            pages_release(p.saved_preview_mask);
         p.saved_preview_mask = mask;
         reset_value(&p.saved);
         p.saved.count = view.records.count;
@@ -679,7 +679,7 @@ bool projection(ApplicationMediaPicker& p) noexcept {
         if (!next)
             return false;
         if (p.filtered)
-            VirtualFree(p.filtered, 0, MEM_RELEASE);
+            pages_release(p.filtered);
         p.filtered = next;
         p.filtered_capacity = count;
     }

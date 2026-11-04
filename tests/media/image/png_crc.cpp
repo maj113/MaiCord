@@ -1,6 +1,7 @@
 #include "../../../src/media/image/png_common.hpp"
 #include "../../fixtures/png_crc_reference.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 void test_png_crc(void (*check)(bool, const char*) noexcept) noexcept {
@@ -17,8 +18,8 @@ void test_png_crc(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 size : large_sizes)
         valid = valid && png_crc32(bytes + 1, size) == png_crc32_reference(bytes + 1, size);
     check(valid, "PNG CRC matches independent nibble reference for lengths and alignments");
-    auto* allocation = static_cast<u8*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
-    valid = allocation && VirtualAlloc(allocation, 4096, MEM_COMMIT, PAGE_READWRITE);
+    auto* allocation = static_cast<u8*>(pages_reserve_no_access(8192));
+    valid = allocation && pages_commit_at(allocation, 4096);
     if (valid) {
         copy_bytes(allocation, bytes, sizeof(bytes));
         constexpr u32 guarded_sizes[] = {0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 4095, 4096};
@@ -28,6 +29,6 @@ void test_png_crc(void (*check)(bool, const char*) noexcept) noexcept {
         }
     }
     check(valid, "PNG CRC does not read beyond a guarded source boundary");
-    if (allocation) VirtualFree(allocation, 0, MEM_RELEASE);
+    if (allocation) pages_release(allocation);
 }
 }

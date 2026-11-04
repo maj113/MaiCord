@@ -6,7 +6,12 @@ cbuffer UiFrame : register(b0) {
     // this pass's DIPs: saturate(dot(point, xy) + z). The axis is the palette
     // direction scaled by the backdrop surface (window caption and content)
     // that the gradient spans.
+#if defined(__spirv__)
+    // std140 aligns a float3 to 16 bytes, but the host packs it HLSL-style at offset 20.
+    float backdrop_axis_x, backdrop_axis_y, backdrop_axis_z;
+#else
     float3 backdrop_gradient_axis;
+#endif
 };
 
 // D3D11BackgroundConstants: stop colours (colors[1].w flags a light theme),
@@ -81,7 +86,12 @@ float3 background_gradient(float position) {
 // The global gradient spans the whole backdrop surface, so it continues from
 // the window caption into the content.
 float3 backdrop_gradient(float2 dip_position) {
+#if defined(__spirv__)
+    return background_gradient(
+        saturate(dot(dip_position, float2(backdrop_axis_x, backdrop_axis_y)) + backdrop_axis_z));
+#else
     return background_gradient(saturate(dot(dip_position, backdrop_gradient_axis.xy) + backdrop_gradient_axis.z));
+#endif
 }
 
 float3 background_dither(float3 color, float2 pixel_position) {

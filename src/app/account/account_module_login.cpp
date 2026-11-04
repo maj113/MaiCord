@@ -91,7 +91,7 @@ AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profi
     }
     if (!copy_path(profile_path, runtime->profile_path)) {
         SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        pages_release(runtime);
         AccountLoginStatus status{};
         status.error = AccountLoginError::invalid_input;
         return status;

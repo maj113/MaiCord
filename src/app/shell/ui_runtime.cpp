@@ -57,6 +57,7 @@
 #include "maicord/ui/chat/composer/autocomplete.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 
@@ -73,7 +74,7 @@ u32 commit_step(u32 required, u32 step, u32 limit) noexcept {
 }
 
 bool commit_bytes(void* base, usize from, usize to) noexcept {
-    return to <= from || VirtualAlloc(static_cast<u8*>(base) + from, to - from, MEM_COMMIT, PAGE_READWRITE);
+    return to <= from || pages_commit_at(static_cast<u8*>(base) + from, to - from);
 }
 
 bool commit_chat_state_backing(void* context, ChatStateBacking backing, u32 bank, u32 required) noexcept {
@@ -370,7 +371,7 @@ void application_release_account_ui(Application& application) noexcept {
     account_permission_storage_release(*application.account_ui);
     if (application.member_list_scene.media_cache == &application.account_ui->member_media_cache)
         application.member_list_scene.media_cache = nullptr;
-    VirtualFree(application.account_ui, 0, MEM_RELEASE);
+    pages_release(application.account_ui);
     application.account_ui = nullptr;
 }
 
@@ -382,12 +383,12 @@ bool application_initialize_account_ui(Application& application) noexcept {
     }
     // Reserve the demand tail; commit only the fixed owner up front.
     auto* runtime = static_cast<AccountUiRuntime*>(
-        VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE, PAGE_READWRITE));
+        pages_reserve(sizeof(AccountUiRuntime)));
     if (!runtime) {
         return false;
     }
-    if (!VirtualAlloc(runtime, kAccountUiFixedBytes, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(runtime, 0, MEM_RELEASE);
+    if (!pages_commit_at(runtime, kAccountUiFixedBytes)) {
+        pages_release(runtime);
         return false;
     }
     if (!application_history_decode_storage_initialize(*runtime) ||
@@ -538,7 +539,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         application_history_decode_storage_release(*runtime);
         reaction_preferences_release(&runtime->reaction_preferences);
         account_permission_storage_release(*runtime);
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        pages_release(runtime);
         return false;
     }
     application.account_ui = runtime;

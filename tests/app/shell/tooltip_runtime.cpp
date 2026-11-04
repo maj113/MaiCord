@@ -12,6 +12,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 void test_reaction_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;
@@ -117,7 +118,7 @@ void run() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, gear);
-    application_tooltip_input(WM_KEYDOWN, VK_TAB, 0);
+    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
     const u64 keyboard_deadline = application_tooltip_next_wake();
     check(keyboard_deadline && application_tooltip_synchronize(keyboard_deadline) &&
               g_app.renderer.tooltip_scene->visible,
@@ -170,7 +171,7 @@ void run() noexcept {
     g_app.context_focus = &composer.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&composer.widgets, emoji.handle);
-    application_tooltip_input(WM_KEYDOWN, VK_TAB, 0);
+    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
     const u64 composer_deadline = application_tooltip_next_wake();
     check(composer_deadline && application_tooltip_synchronize(composer_deadline) &&
               g_app.renderer.tooltip_scene->key.owner.manager == &composer.widgets &&
@@ -183,7 +184,7 @@ void run() noexcept {
           "tooltip runtime: semantic composer revision requires a fresh delayed admission");
     check(application_tooltip_synchronize(application_tooltip_next_wake()),
           "tooltip runtime: revised source can show after its new deadline");
-    application_tooltip_input(WM_KEYDOWN, VK_RETURN, 0);
+    application_tooltip_input(WM_KEYDOWN, key::enter, 0);
     check(!g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake() &&
               application_tooltip_synchronize(composer_deadline + 1000) && !application_tooltip_next_wake(),
           "tooltip runtime: keyboard activation dismisses same semantic source without automatic rearm");
@@ -225,7 +226,7 @@ void run() noexcept {
     g_app.context_focus = &search.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&search.widgets, search.buttons[0]);
-    application_tooltip_input(WM_KEYDOWN, VK_TAB, 0);
+    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
     const u64 search_keyboard_deadline = application_tooltip_next_wake();
     check(search_keyboard_deadline && application_tooltip_synchronize(search_keyboard_deadline) &&
               g_app.renderer.tooltip_scene->visible &&
@@ -412,7 +413,7 @@ void run() noexcept {
     g_app.keyboard_focus_visible = true;
     check(ui_pinned_messages_scene_focus(&pins_scene, {UiPinnedMessagesAction::unpin, 8, 99}),
           "tooltip Pins: permission-aware Unpin receives exact keyboard owner");
-    application_tooltip_input(WM_KEYDOWN, VK_TAB, 0);
+    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
     const u64 unpin_deadline = application_tooltip_next_wake();
     check(unpin_deadline && application_tooltip_synchronize(unpin_deadline) &&
               g_app.renderer.tooltip_scene->visible &&

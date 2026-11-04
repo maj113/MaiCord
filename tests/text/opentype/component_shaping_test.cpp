@@ -11,6 +11,8 @@
 #include "maicord/text/opentype/nominal_participation.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/component_shaping_fixture.inc"
 bool error(u32 font,u32 split,Utf8View what,u32 value=0) noexcept {print(what);print(utf8_literal(" font="));number(font);print(utf8_literal(" split="));number(split);print(utf8_literal(" value="));number(value);print(utf8_literal("\n"));return false;}
@@ -213,4 +215,4 @@ int run() noexcept {
     print(ok&&!failures?utf8_literal("PASS native component shaping\n"):utf8_literal("FAIL native component shaping\n"));return ok&&!failures?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_component_shaping_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_component_shaping_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

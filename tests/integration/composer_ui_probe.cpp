@@ -26,6 +26,7 @@
 #include "../support/application_action_captcha_stubs.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/media/picker.hpp"
@@ -627,8 +628,8 @@ struct Keyboard {
     bool valid;
     Keyboard(bool control = false, bool shift = false) noexcept : valid(GetKeyboardState(prior) != FALSE) {
         BYTE keys[256]{};
-        keys[VK_CONTROL] = control ? 0x80 : 0;
-        keys[VK_SHIFT] = shift ? 0x80 : 0;
+        keys[key::ctrl] = control ? 0x80 : 0;
+        keys[key::shift] = shift ? 0x80 : 0;
         valid = valid && SetKeyboardState(keys) != FALSE;
     }
     ~Keyboard() noexcept {
@@ -641,7 +642,7 @@ bool key(u32 code, bool control = false, bool shift = false) noexcept {
     return keyboard.valid && handle_composer_key(code) && fixture->refresh_ok;
 }
 bool text(Utf8View expected, const wchar_t* value) noexcept {
-    if (!focus_message_composer_control(MessageComposerControl::edit) || !key('A', true) || !key(VK_BACK))
+    if (!focus_message_composer_control(MessageComposerControl::edit) || !key('A', true) || !key(key::backspace))
         return false;
     Keyboard keyboard;
     if (!keyboard.valid)
@@ -681,9 +682,9 @@ bool button(MessageComposerControl control) noexcept {
     Keyboard keyboard;
     if (!keyboard.valid || !focus_message_composer_control(control))
         return false;
-    return handle_composer_button_key(VK_SPACE, true, false) &&
-           handle_composer_button_key(VK_SPACE, true, true) &&
-           handle_composer_button_key(VK_SPACE, false, false) && fixture->refresh_ok;
+    return handle_composer_button_key(key::space, true, false) &&
+           handle_composer_button_key(key::space, true, true) &&
+           handle_composer_button_key(key::space, false, false) && fixture->refresh_ok;
 }
 bool disabled_send() noexcept {
     const auto queued = g_app.account_ui->message_composer_controller.queued;
@@ -695,8 +696,8 @@ bool disabled_send() noexcept {
     Keyboard keyboard;
     if (!keyboard.valid)
         return false;
-    handle_composer_button_key(VK_SPACE, true, false);
-    handle_composer_button_key(VK_SPACE, false, false);
+    handle_composer_button_key(key::space, true, false);
+    handle_composer_button_key(key::space, false, false);
     return g_app.account_ui->message_composer_controller.queued == queued &&
            fixture->history_calls == history && !g_app.button_keyboard.pressed.manager;
 }
@@ -719,10 +720,10 @@ bool compact160_routes() noexcept {
     Keyboard keyboard;
     if (!require(keyboard.valid && handle_composer_hover(center(MessageComposerControl::send)) &&
                      focus_message_composer_control(MessageComposerControl::send) &&
-                     handle_composer_button_key(VK_SPACE, true, false) &&
-                     handle_composer_button_key(VK_SPACE, true, true) &&
-                     handle_composer_button_key(VK_ESCAPE, true, false) &&
-                     handle_composer_button_key(VK_SPACE, false, false) &&
+                     handle_composer_button_key(key::space, true, false) &&
+                     handle_composer_button_key(key::space, true, true) &&
+                     handle_composer_button_key(key::escape, true, false) &&
+                     handle_composer_button_key(key::space, false, false) &&
                      !g_app.button_keyboard.pressed.manager &&
                      g_app.account_ui->message_composer_controller.queued == queued &&
                      fixture->history_calls == history && pointer(MessageComposerControl::edit),
@@ -1148,12 +1149,12 @@ bool scenarios() noexcept {
                      capture(L"composer-compact232-dark-unicode96.bmp") && require(spelling_marks(), 15),
                  3))
         return false;
-    if (!require(key(VK_HOME, false, true) &&
+    if (!require(key(key::home, false, true) &&
                      g_app.message_composer.anchor != g_app.message_composer.caret &&
                      capture(L"composer-compact232-dark-selection96.bmp"),
                  4))
         return false;
-    if (!require(key(VK_END) && key(VK_RETURN, false, true) && handle_composer_character('N') &&
+    if (!require(key(key::end) && key(key::enter, false, true) && handle_composer_character('N') &&
                      handle_composer_character('e') && handle_composer_character('w') &&
                      capture(L"composer-compact232-dark-multiline96.bmp") &&
                      g_app.renderer.composer_layout.layout_height >

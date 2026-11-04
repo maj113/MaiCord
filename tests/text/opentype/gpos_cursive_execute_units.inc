@@ -14,8 +14,7 @@ bool cursive_units() noexcept {
         if(result.matches && p[0].ascender_offset==-120)++cursive_unresolved_failures;
     }
     if(!succeeded || !cursive_unresolved_failures)return false;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}auto* chain=reinterpret_cast<u64*>(memory+page-65*sizeof(u64));
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}auto* chain=reinterpret_cast<u64*>(memory+page-65*sizeof(u64));
     bool good=true;
     for(u32 backward=0;backward<2 && good;++backward)for(u32 rtl=0;rtl<2 && good;++rtl){lookup.filter.flags=static_cast<u16>(backward);
         for(u32 i=0;i<4097;++i){long_marks[i]=glyphs[i%2];long_advances[i]=600;long_flags[i]=2;}for(u32 i=0;i<65;++i)chain[i]=0xaaaaaaaaaaaaaaaaull;
@@ -35,7 +34,7 @@ bool cursive_units() noexcept {
     if(good && (sfnt_gpos_attachment_open({raw,46},3,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({long_advances,4097},{long_flags,4097},false,{long_positions,4097})!=SfntStatus::ok || sfnt_position_execute_cursive_lookup(lookup,{},sfnt_glyph_view({long_marks,4097}),{long_advances,4097},{long_positions,4097},0,4097,false,{}, {chain,65},&result,30000)!=SfntStatus::ok || result.matches!=2048))good=false;
     if(good){for(u32 i=0;i<64;++i)if(chain[i]!=0x5555555555555555ull)good=false;if(chain[64])good=false;
         for(u32 i=0;i<4097;++i)if(long_positions[i].ascender_offset!=(i<4096 && !(i%2)?-120:0))good=false;}
-    VirtualFree(memory,0,MEM_RELEASE);if(!good)return false;
+    pages_release(memory);if(!good)return false;
     // An anchor that needs contour-point resolution is unsupported and leaves the connection unapplied.
     put(raw,34,2);put(raw,40,9);lookup.filter.flags=0;
     if(sfnt_gpos_attachment_open({raw,42},3,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({nominal,2},{flags,2},false,{p,2})!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));

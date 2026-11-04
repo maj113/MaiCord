@@ -161,7 +161,7 @@ bool pending(const Picked& picked) noexcept {
 void release_picked(Picked* picked) noexcept {
     if (picked->data) {
         secure_clear_bytes(picked->data, picked->capacity);
-        VirtualFree(picked->data, 0, MEM_RELEASE);
+        pages_release(picked->data);
     }
     reset_value(picked);
 }
@@ -1118,7 +1118,7 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
     name[path.count] = 0;
     const HANDLE file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                     FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    VirtualFree(name, 0, MEM_RELEASE);
+    pages_release(name);
     if (file == INVALID_HANDLE_VALUE)
         return false;
     Win32LargeInteger size{};
@@ -1140,7 +1140,7 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
     CloseHandle(file);
     if (!contents || total != size.QuadPart) {
         if (contents)
-            VirtualFree(contents, 0, MEM_RELEASE);
+            pages_release(contents);
         return false;
     }
     *data = contents;

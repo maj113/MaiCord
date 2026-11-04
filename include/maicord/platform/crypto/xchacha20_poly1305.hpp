@@ -5,16 +5,17 @@
 
 namespace maicord {
 
+// native is the operating system's ChaCha20-Poly1305 (CNG, or OpenSSL on Linux); portable is the in-house one,
+// which also serves systems that lack the native cipher (older Windows 10 builds, a Linux without OpenSSL).
 enum class XChaChaBackend : u8 {
     automatic,
-    cng,
+    native,
     portable
 };
 
 // Zero-initialize; single worker ownership, no copying or concurrent operations.
-// One locked allocation holds the CNG object workspace, original key and derived
-// key. CNG workspace is reused, not allocated per packet. The portable backend
-// supports older Windows 10 builds without CNG ChaCha. Only the original key
+// One locked allocation holds the native workspace, original key and derived
+// key. The native workspace is reused, not allocated per packet. Only the original key
 // survives an operation; temporary keys are erased. Backend selection is once
 // at initialization, not a retry after an authentication or key-import failure.
 struct XChaChaKey {

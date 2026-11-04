@@ -20,18 +20,26 @@ import subprocess
 import sys
 import tempfile
 
-# soname -> (version node, exported functions). Add a function here together with its declaration in
-# include/maicord/sys/linux/libc.hpp. The versions are those glibc introduced the symbols with on x86-64.
+# soname -> [(version node, exported functions)], oldest node first. Add a function here together with its declaration
+# in include/maicord/sys/linux/libc.hpp. The versions are those glibc introduced the symbols with on x86-64.
 STUBS = {
-    "libc.so.6": ("GLIBC_2.17", ["clock_gettime"]),
-    "libdl.so.2": ("GLIBC_2.2.5", ["dlopen", "dlsym", "dlclose", "dlerror"]),
-    "libpthread.so.0": ("GLIBC_2.2.5", ["pthread_create", "pthread_join", "pthread_detach"]),
+    "libc.so.6": [("GLIBC_2.2.5", ["malloc", "calloc", "free"]), ("GLIBC_2.17", ["clock_gettime"])],
+    "libdl.so.2": [("GLIBC_2.2.5", ["dlopen", "dlsym", "dlclose", "dlerror"])],
+    "libpthread.so.0": [("GLIBC_2.2.5", ["pthread_create", "pthread_join", "pthread_detach", "pthread_attr_init",
+                                         "pthread_attr_setstacksize", "pthread_attr_destroy"])],
 }
 
 
-def write_stub(compiler, directory, soname, version, functions):
+def write_stub(compiler, directory, soname, nodes):
+    functions = [name for _, names in nodes for name in names]
     source = "".join("void %s(void) {}\n" % name for name in functions)
-    script = "%s {\n  global:\n%s  local:\n    *;\n};\n" % (version, "".join("    %s;\n" % name for name in functions))
+    # One version node per introducing glibc version; each inherits the one before, as glibc's own nodes do.
+    script = ""
+    for index, (version, names) in enumerate(nodes):
+        script += "%s {\n  global:\n%s" % (version, "".join("    %s;\n" % name for name in names))
+        if index == len(nodes) - 1:
+            script += "  local:\n    *;\n"
+        script += "}%s;\n" % (" " + nodes[index - 1][0] if index else "")
     with tempfile.TemporaryDirectory() as scratch:
         source_path = os.path.join(scratch, "stub.c")
         script_path = os.path.join(scratch, "stub.map")
@@ -55,8 +63,8 @@ def main():
     parser.add_argument("--output-directory", required=True)
     arguments = parser.parse_args()
     os.makedirs(arguments.output_directory, exist_ok=True)
-    for soname, (version, functions) in STUBS.items():
-        write_stub(arguments.compiler, arguments.output_directory, soname, version, functions)
+    for soname, nodes in STUBS.items():
+        write_stub(arguments.compiler, arguments.output_directory, soname, nodes)
     return 0
 
 

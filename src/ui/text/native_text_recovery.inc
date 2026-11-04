@@ -48,8 +48,8 @@ bool native_text_context_rebuild(const TextSystem& system,NativeTextRebuild atte
     if(owner->last_format==&next->first_format)owner->last_format=&owner->first_format;
     for(auto* sign=owner->omission_signs;sign;sign=sign->next)if(sign->format==&next->first_format)sign->format=&owner->first_format;
     next=nullptr;
-    if(old_backing!=owner)VirtualFree(old_backing,0,MEM_RELEASE);
-    else VirtualFree(reinterpret_cast<u8*>(owner)+4096,context_reserved_bytes-4096,MEM_DECOMMIT);
+    if(old_backing!=owner)pages_release(old_backing);
+    else pages_decommit(reinterpret_cast<u8*>(owner)+4096, context_reserved_bytes-4096);
     return true;
 }
 namespace {

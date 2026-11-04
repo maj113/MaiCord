@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/interlocked.hpp"
 #include "maicord/media/compression/deflate.hpp"
 
 namespace maicord {
@@ -28,7 +29,7 @@ namespace maicord {
 // before any thread sees them (to point the owner's tables at them).
 struct InflatedBlock {
     const u8* data;
-    volatile long state; // 0 packed, 1 inflating, 2 ready, 3 unavailable
+    volatile Atomic32 state; // 0 packed, 1 inflating, 2 ready, 3 unavailable
 };
 
 // /volatile:ms makes a read of `state` == 2 an acquire of the inflated bytes.

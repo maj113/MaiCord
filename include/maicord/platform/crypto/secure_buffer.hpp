@@ -24,6 +24,8 @@ struct SecureBufferResult {
     }
 };
 
+// locked means the storage is ready for secrets. Windows VirtualLocks it; Linux mlocks it when the limit allows and
+// otherwise keeps it excluded from core dumps and fork (the failure is logged once).
 struct SecureBuffer {
     u8* data;
     u32 capacity;
@@ -38,14 +40,15 @@ void secure_buffer_clear(SecureBuffer* buffer) noexcept;
 void secure_buffer_release(SecureBuffer* buffer) noexcept;
 ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept;
 
-// DPAPI output is copied into caller storage, then the OS allocation is
-// securely erased and released. Protect reports the required encrypted size
+// User-bound protection (DPAPI on Windows; on Linux an authenticated blob under a per-user key file, see
+// src/platform/crypto/linux/secure_buffer.cpp). The protected bytes are copied into caller storage, then the
+// temporary allocation is securely erased and released. Protect reports the required encrypted size
 // without partially writing when output is too small.
 SecureBufferResult secure_buffer_protect_user_bound(
     const SecureBuffer& plaintext, ConstSlice<u8> entropy,
     Slice<u8> protected_output) noexcept;
-// Protects into a new zero-initialized VirtualAlloc block with header_bytes of
-// caller-owned space in front, using one DPAPI call (two only when the output
+// Protects into a new zero-initialized page block with header_bytes of
+// caller-owned space in front, using one protection call (two only when the output
 // guess is short). On success *block holds header_bytes + result.bytes used
 // bytes within *block_bytes allocated; the caller securely clears and frees
 // it. Fails with output_too_small when the result would exceed maximum_bytes.

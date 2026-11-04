@@ -9,6 +9,7 @@
 
 #include <limits.h>
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -40,7 +41,7 @@ void compact_geometry(Arena& arena,NativeMessageGeometry& geometry) noexcept {
     }
     const usize keep=(arena.offset+arena.commit_step-1)&~(arena.commit_step-1);
     // Release large temporary/high-water tails on cold rebuilds, never on hits.
-    if(arena.committed>=keep+16*1024&&VirtualFree(arena.base+keep,arena.committed-keep,MEM_DECOMMIT))arena.committed=keep;
+    if(arena.committed>=keep+16*1024&&pages_decommit(arena.base+keep, arena.committed-keep))arena.committed=keep;
 }
 // The styles that move glyphs, validated against the text and packed into `arena`.
 bool take_position_spans(Arena& arena,const MessageTextCommand& command,ConstSlice<TextStyleSpan>* styles) noexcept {

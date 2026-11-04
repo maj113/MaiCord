@@ -23,6 +23,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::app_detail {
@@ -197,7 +198,7 @@ void application_account_menu_release() noexcept {
     auto* owner = g_app.account_menu;
     g_app.account_menu = nullptr;
     if (owner)
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
 }
 bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcept {
     if (!surface_available() || !application_account_scope() || !g_app.account_ui->chat_state.self_user_id ||
@@ -328,9 +329,9 @@ bool application_account_menu_action(u32 value) noexcept {
     return false;
 }
 bool application_account_menu_key(u32 key) noexcept {
-    if ((key != VK_RETURN && key != VK_SPACE) || !surface_available() || g_app.popup_scene.active ||
-        g_app.context_focus != &g_app.shell_scene.widgets || (GetKeyState(VK_CONTROL) & 0x8000) ||
-        (GetKeyState(VK_MENU) & 0x8000))
+    if ((key != key::enter && key != key::space) || !surface_available() || g_app.popup_scene.active ||
+        g_app.context_focus != &g_app.shell_scene.widgets || (GetKeyState(key::ctrl) & 0x8000) ||
+        (GetKeyState(key::alt) & 0x8000))
         return false;
     const auto source = g_app.shell_scene.widgets.focused;
     const auto* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, source);

@@ -31,7 +31,7 @@ void finish(VoiceSocket* socket) noexcept {
         // packet input/fragments. Clear the remaining region once, not the
         // entire allocation a second time.
         secure_clear_bytes(socket->output.data, socket->output.count);
-        VirtualFree(socket->storage.data, 0, MEM_RELEASE);
+        pages_release(socket->storage.data);
         reset_value(&socket->storage);
     }
     reset_value(&socket->output);

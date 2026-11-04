@@ -5,6 +5,7 @@
 #include "maicord/ui/chat/messages/context_controller.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 namespace maicord {
@@ -139,7 +140,7 @@ bool thread_creation_ui_adapter_input(UiInputKind kind, u32 code, bool repeated,
         const auto& input = *static_cast<Input*>(opaque);
         BYTE prior[256]{}, keys[256]{};
         if (!GetKeyboardState(prior)) return false;
-        keys[VK_CONTROL] = input.control ? 0x80 : 0; keys[VK_SHIFT] = input.shift ? 0x80 : 0;
+        keys[key::ctrl] = input.control ? 0x80 : 0; keys[key::shift] = input.shift ? 0x80 : 0;
         if (!SetKeyboardState(keys)) return false;
         const bool accepted = application_text_form_input(input.kind, input.code, input.repeated);
         if (input.kind == UiInputKind::key_down) application_text_form_input(UiInputKind::key_up, input.code, false);

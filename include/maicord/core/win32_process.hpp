@@ -1,5 +1,12 @@
 #pragma once
 
+#if !defined(_WIN32)
+// Linux: the process id from the entry state, the thread's last error from the os layer; the TEB and PEB
+// accessors below are Windows-only.
+#include "maicord/os/linux/error.hpp"
+#include "maicord/sys/linux/process.hpp"
+#else
+
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/sys/intrin.hpp"
@@ -29,3 +36,5 @@ __forceinline u32 thread_last_error() noexcept {
 }
 
 } // namespace maicord
+
+#endif // _WIN32

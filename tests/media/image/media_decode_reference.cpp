@@ -7,8 +7,9 @@
 #include "maicord/media/image/gif.hpp"
 #include "maicord/media/image/jpeg.hpp"
 #include "../../../src/media/image/png_common.hpp"
-
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
+
 
 namespace maicord {
 namespace {
@@ -28,7 +29,7 @@ struct Random {
 };
 
 u8* reserve(usize bytes) noexcept {
-    return static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    return static_cast<u8*>(pages_allocate(bytes));
 }
 
 // ---- PNG scanline filters ---------------------------------------------------------
@@ -402,12 +403,12 @@ void test_gif_lzw(Check check) noexcept {
     }
     check(exact && decoded_ok > 100 && rejected > 100 && interlaced_ok > 30 && unparsed < 60,
           "gif_lzw_matches_reference_decoder");
-    VirtualFree(pixels, 0, MEM_RELEASE);
-    VirtualFree(lzw, 0, MEM_RELEASE);
-    VirtualFree(gif, 0, MEM_RELEASE);
-    VirtualFree(expected, 0, MEM_RELEASE);
-    VirtualFree(decoded, 0, MEM_RELEASE);
-    VirtualFree(workspace, 0, MEM_RELEASE);
+    pages_release(pixels);
+    pages_release(lzw);
+    pages_release(gif);
+    pages_release(expected);
+    pages_release(decoded);
+    pages_release(workspace);
 }
 
 // ---- JPEG entropy decoding -------------------------------------------------------------
@@ -718,9 +719,9 @@ void test_jpeg_entropy(Check check) noexcept {
         }
     }
     check(exact && images >= 6 && failures > cases / 2, "jpeg_entropy_matches_bit_serial_reference");
-    VirtualFree(workspace, 0, MEM_RELEASE);
-    VirtualFree(reference, 0, MEM_RELEASE);
-    VirtualFree(mutated, 0, MEM_RELEASE);
+    pages_release(workspace);
+    pages_release(reference);
+    pages_release(mutated);
 }
 
 } // namespace
@@ -742,7 +743,7 @@ void report(bool passed, const char* message) noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_media_decode_reference_tests_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_media_decode_reference_tests_entry) {
     maicord::test_media_decode_reference(maicord::report);
     maicord::test_exit(maicord::g_failures, "media decode reference");
 }

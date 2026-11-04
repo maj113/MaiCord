@@ -40,6 +40,7 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
@@ -205,7 +206,7 @@ ApplicationFriends* ensure() noexcept {
         !friends_relationship_storage_initialize(&friends->storage)) {
         friends_search_documents_release(&friends->search);
         friends_relationship_storage_release(&friends->storage);
-        VirtualFree(friends, 0, MEM_RELEASE); return nullptr;
+        pages_release(friends); return nullptr;
     }
     friends->records = stable_storage_data<RelationshipRecord>(friends->storage.active);
     friends->candidate = stable_storage_data<RelationshipRecord>(friends->storage.candidate);
@@ -787,17 +788,17 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
         return true;
     }
     if (kind != UiInputKind::key_down || alt) return false;
-    if (key == VK_SPACE && !control) return true;
-    if (key == VK_UP || key == VK_DOWN || key == VK_PRIOR || key == VK_NEXT) return true;
-    if (key == VK_TAB) { search_focus(friends, false);return false; }
-    if (key == VK_RETURN || key == VK_ESCAPE) {
-        if (key == VK_ESCAPE && model->bytes) message_composer_clear(model);
+    if (key == key::space && !control) return true;
+    if (key == key::up || key == key::down || key == key::page_up || key == key::page_down) return true;
+    if (key == key::tab) { search_focus(friends, false);return false; }
+    if (key == key::enter || key == key::escape) {
+        if (key == key::escape && model->bytes) message_composer_clear(model);
         else { search_focus(friends, false);ui_friends_scene_navigate(&friends.scene, UiListMove::first); }
         friends.held_key = key;application_friends_search_changed(true);return true;
     }
     const u32 text_revision = model->text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (key == VK_BACK) friends.held_key = key;
+    if (key == key::backspace) friends.held_key = key;
     if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
         if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
@@ -944,7 +945,7 @@ void application_friends_release() noexcept {
     if (friends) {
         friends_search_documents_release(&friends->search);
         stable_storage_release(&friends->requests_indices);
-        friends_relationship_storage_release(&friends->storage);VirtualFree(friends, 0, MEM_RELEASE);
+        friends_relationship_storage_release(&friends->storage);pages_release(friends);
     }
 }
 bool application_friends_synchronize() noexcept {
@@ -1215,13 +1216,13 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
     if (!modal && search_keys(*friends, kind, key)) return true;
-    if (modal && kind == UiInputKind::key_down && key == VK_ESCAPE) {
+    if (modal && kind == UiInputKind::key_down && key == key::escape) {
         friends->held_key = key;close_requests(*friends);return repaint();
     }
     if (!modal && g_app.context_focus && g_app.context_focus != &scene.widgets) return false;
     if (kind == UiInputKind::character) return true;
     if (kind != UiInputKind::key_down || application_control_down() || application_alt_down()) return modal;
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         const auto next = ui_widget_manager_next_focus(scene.widgets, scene.widgets.focused,
             application_shift_down(), true);
         if (next.generation) {
@@ -1230,10 +1231,10 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
                 (node->rectangle.left + node->rectangle.right) * .5f, (node->rectangle.top + node->rectangle.bottom) * .5f));
             search_focus(*friends, ui_friends_scene_focused(scene).action == UiFriendsAction::search);
         }
-    } else if (key == VK_UP || key == VK_DOWN || key == VK_HOME || key == VK_END)
-        ui_friends_scene_navigate(&scene, key == VK_UP ? UiListMove::previous : key == VK_DOWN ? UiListMove::next : key == VK_HOME ? UiListMove::first : UiListMove::last);
-    else if (key == VK_PRIOR || key == VK_NEXT) ui_friends_scene_page(&scene, key == VK_PRIOR);
-    else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) { friends->held_key = key;activate(ui_friends_scene_focused(scene)); }
+    } else if (key == key::up || key == key::down || key == key::home || key == key::end)
+        ui_friends_scene_navigate(&scene, key == key::up ? UiListMove::previous : key == key::down ? UiListMove::next : key == key::home ? UiListMove::first : UiListMove::last);
+    else if (key == key::page_up || key == key::page_down) ui_friends_scene_page(&scene, key == key::page_up);
+    else if ((key == key::enter || key == key::space) && !repeated) { friends->held_key = key;activate(ui_friends_scene_focused(scene)); }
     else return modal;
     if (!g_app.text_form && !g_app.popup_scene.active && !(g_app.profile && g_app.profile->scene.active))
         g_app.context_focus = &input_scene(*friends).widgets;

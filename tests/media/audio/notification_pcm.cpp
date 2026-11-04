@@ -51,6 +51,6 @@ namespace maicord {
 namespace notification_pcm_entry {u32 failures;
 void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_notification_pcm_tests_entry() noexcept {
-    maicord::test_notification_pcm(maicord::notification_pcm_entry::check);ExitProcess(maicord::notification_pcm_entry::failures?1:0);
+MAICORD_TEST_ENTRY(maicord_notification_pcm_tests_entry) {
+    maicord::test_notification_pcm(maicord::notification_pcm_entry::check);::maicord::test_process_exit(maicord::notification_pcm_entry::failures?1:0);
 }

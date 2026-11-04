@@ -28,6 +28,7 @@
 #include "../account/friends.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -50,9 +51,9 @@ bool keybinds_blocked() noexcept {
 // Ctrl+Alt is AltGr on many layouts; in a text field it types instead.
 bool altgr_types(u8 key) noexcept {
     BYTE state[256]{};
-    state[VK_CONTROL] = state[VK_LCONTROL] = state[VK_MENU] = state[VK_RMENU] = 0x80;
-    if (GetKeyState(VK_SHIFT) & 0x8000)
-        state[VK_SHIFT] = 0x80;
+    state[key::ctrl] = state[key::left_ctrl] = state[key::alt] = state[key::right_alt] = 0x80;
+    if (GetKeyState(key::shift) & 0x8000)
+        state[key::shift] = 0x80;
     wchar_t output[4];
     // Flag 4: leave the keyboard's dead-key state untouched.
     const int produced = ToUnicodeEx(key, MapVirtualKeyW(key, MAPVK_VK_TO_VSC), state, output, 4, 4,

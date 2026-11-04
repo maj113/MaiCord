@@ -73,14 +73,15 @@ inline i64 clock_now() noexcept {
     return counter;
 }
 #else
-// Nanoseconds of the clock that keeps counting while the machine sleeps, as QueryPerformanceCounter does.
+// Nanoseconds of CLOCK_MONOTONIC, the frame and interval clock (D19): QueryPerformanceCounter's counterpart. The
+// millisecond tick below is CLOCK_BOOTTIME instead, so deadlines held in it keep running while the machine sleeps.
 inline Clock clock_initialize() noexcept {
     return Clock{1'000'000'000};
 }
 
 inline i64 clock_now() noexcept {
     TimeSpec time{};
-    clock_gettime(kClockBoottime, &time);
+    clock_gettime(kClockMonotonic, &time);
     return time.seconds * 1'000'000'000 + time.nanoseconds;
 }
 #endif

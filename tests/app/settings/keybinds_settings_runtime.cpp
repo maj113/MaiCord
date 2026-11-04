@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -38,7 +39,7 @@ u64 node(SettingBinding binding) noexcept {
     UiSettingsSchemaLocation location{};
     return settings_catalog_binding(binding, &location) ? settings_control_id(location.panel, location.node) : 0;
 }
-bool press(u64 id, u32 key = VK_RETURN) noexcept {
+bool press(u64 id, u32 key = key::enter) noexcept {
     auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
     if (!scene || !ui_settings_scene_focus(scene, {UiSettingsTargetKind::control, kKeybindsPage, id}))
         return false;
@@ -50,13 +51,13 @@ bool press(u64 id, u32 key = VK_RETURN) noexcept {
 // sent to the desktop session.
 bool type(u32 key, u8 modifiers) noexcept {
     BYTE keys[256]{};
-    keys[VK_CONTROL] = (modifiers & C) ? 0x80 : 0;
-    keys[VK_MENU] = (modifiers & L) ? 0x80 : 0;
-    keys[VK_SHIFT] = (modifiers & H) ? 0x80 : 0;
+    keys[key::ctrl] = (modifiers & C) ? 0x80 : 0;
+    keys[key::alt] = (modifiers & L) ? 0x80 : 0;
+    keys[key::shift] = (modifiers & H) ? 0x80 : 0;
     if (!SetKeyboardState(keys))
         return false;
-    const bool held = ((GetKeyState(VK_CONTROL) & 0x8000) != 0) == ((modifiers & C) != 0) &&
-                      ((GetKeyState(VK_MENU) & 0x8000) != 0) == ((modifiers & L) != 0);
+    const bool held = ((GetKeyState(key::ctrl) & 0x8000) != 0) == ((modifiers & C) != 0) &&
+                      ((GetKeyState(key::alt) & 0x8000) != 0) == ((modifiers & L) != 0);
     const bool consumed = held && application_settings_input(UiInputKind::key_down, key, false) &&
                           application_settings_input(UiInputKind::key_up, key, false);
     BYTE clear[256]{};
@@ -116,9 +117,9 @@ void test_application_keybinds_settings_runtime(Check check) noexcept {
 
     auto& voice = application_voice_preferences();
     voice.audio.push_to_talk_key = 0;
-    const bool ptt = press(node(SettingBinding::keybinds_add)) && press(custom(kKeybindsDraftActionRow), VK_LEFT) &&
+    const bool ptt = press(node(SettingBinding::keybinds_add)) && press(custom(kKeybindsDraftActionRow), key::left) &&
                      control(custom(kKeybindsDraftActionRow))->selected_choice == 0 &&
-                     press(custom(kKeybindsDraftRecordRow)) && type(VK_ESCAPE, 0) &&
+                     press(custom(kKeybindsDraftRecordRow)) && type(key::escape, 0) &&
                      !application_keybinds_settings_recording() && control(custom(kKeybindsDraftRecordRow)) &&
                      press(custom(kKeybindsDraftRecordRow)) && type('V', 0);
     check(ptt && voice.audio.push_to_talk_key == 'V' && chip(control(custom(kKeybindsPushToTalkRow)), utf8_literal("V")) &&

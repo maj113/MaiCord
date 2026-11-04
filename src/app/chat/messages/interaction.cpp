@@ -13,6 +13,7 @@
 #include "../../guild/channel_overview.hpp"
 #include "../../guild/settings/settings.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -345,15 +346,15 @@ bool handle_reaction_viewer_key(WPARAM key) noexcept {
     if (!viewer.active) {
         return false;
     }
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         return dismiss_reaction_viewer();
     }
     bool changed = false;
-    if (key == VK_UP || key == VK_DOWN || key == VK_PRIOR || key == VK_NEXT) {
+    if (key == key::up || key == key::down || key == key::page_up || key == key::page_down) {
         ui_scroll_host_cancel(&g_app.scroll_host);
-        const i32 rows = key == VK_UP      ? -1
-                         : key == VK_DOWN  ? 1
-                         : key == VK_PRIOR ? -static_cast<i32>(reaction_viewer_visible_user_count(viewer))
+        const i32 rows = key == key::up      ? -1
+                         : key == key::down  ? 1
+                         : key == key::page_up ? -static_cast<i32>(reaction_viewer_visible_user_count(viewer))
                                            : static_cast<i32>(reaction_viewer_visible_user_count(viewer));
         reaction_viewer_scroll_users(&viewer, rows, &changed);
         const ReactionViewerControllerResult more =
@@ -362,9 +363,9 @@ bool handle_reaction_viewer_key(WPARAM key) noexcept {
         if (more.ok() && more.changed) {
             pump_message_history();
         }
-    } else if ((key == VK_LEFT || key == VK_RIGHT) && viewer.aggregate_count != 0) {
+    } else if ((key == key::left || key == key::right) && viewer.aggregate_count != 0) {
         ui_scroll_host_cancel(&g_app.scroll_host);
-        const u32 selected = key == VK_LEFT
+        const u32 selected = key == key::left
                                  ? (viewer.selected_aggregate == 0 ? viewer.aggregate_count - 1
                                                                    : viewer.selected_aggregate - 1)
                                  : (viewer.selected_aggregate + 1) % viewer.aggregate_count;
@@ -444,15 +445,15 @@ bool handle_popup_key(WPARAM key) noexcept {
         // hands its built-in's inline results their keys; Escape dismisses them.
         if (!g_app.message_composer.focused || !application_commands_bar_visible())
             return false;
-        if (key == VK_ESCAPE)
+        if (key == key::escape)
             return application_commands_escape();
         bool handled = false;
         return application_media_picker_inline_key(static_cast<u32>(key), &handled) && handled &&
                refresh_popup_text();
     }
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         // The command picker's rail hands Escape back to its list first.
-        if (g_app.popup_owner_kind == PopupOwnerKind::commands && application_commands_key(VK_ESCAPE))
+        if (g_app.popup_owner_kind == PopupOwnerKind::commands && application_commands_key(key::escape))
             return refresh_popup_text();
         return dismiss_popup();
     }
@@ -465,44 +466,44 @@ bool handle_popup_key(WPARAM key) noexcept {
             return false;
         // Shift+Tab selects the previous option chip.
         if (shift) {
-            if (key != VK_TAB || !application_commands_option_tab(true))
+            if (key != key::tab || !application_commands_option_tab(true))
                 return false;
             if (!g_app.popup_scene.active)
                 g_app.composer_menu_held_key = static_cast<u32>(key);
             return refresh_popup_text();
         }
         if (application_commands_key(static_cast<u32>(key))) {
-            if (!g_app.popup_scene.active && (key == VK_RETURN || key == VK_TAB))
+            if (!g_app.popup_scene.active && (key == key::enter || key == key::tab))
                 g_app.composer_menu_held_key = static_cast<u32>(key);
             return refresh_popup_text();
         }
         return false;
     }
-    if (key == VK_RETURN || (key == VK_TAB && g_app.popup_scene.kind == PopupKind::autocomplete) ||
-        (key == VK_SPACE && g_app.popup_scene.kind != PopupKind::autocomplete)) {
+    if (key == key::enter || (key == key::tab && g_app.popup_scene.kind == PopupKind::autocomplete) ||
+        (key == key::space && g_app.popup_scene.kind != PopupKind::autocomplete)) {
         const u32 action = popup_scene_selected_action(g_app.popup_scene);
         if (action && (g_app.popup_owner_kind == PopupOwnerKind::composer_edit ||
                        g_app.popup_owner_kind == PopupOwnerKind::account_menu))
             g_app.composer_menu_held_key = static_cast<u32>(key);
         return action == 0 || activate_popup_action(action, application_shift_down());
     }
-    if ((key == VK_PRIOR || key == VK_NEXT) && (g_app.popup_scene.kind == PopupKind::context_menu ||
+    if ((key == key::page_up || key == key::page_down) && (g_app.popup_scene.kind == PopupKind::context_menu ||
                                                 g_app.popup_scene.kind == PopupKind::autocomplete ||
                                                 g_app.popup_scene.kind == PopupKind::popover)) {
         ui_scroll_host_cancel(&g_app.scroll_host);
         const float before = g_app.popup_scene.scroll_offset;
         bool changed = false;
-        if (!popup_scene_page_selection(&g_app.popup_scene, key == VK_PRIOR, &changed))
+        if (!popup_scene_page_selection(&g_app.popup_scene, key == key::page_up, &changed))
             return true;
         return animate_popup_scroll_from(before) && (!changed || refresh_popup_text());
     }
-    if ((key == VK_HOME || key == VK_END) && (g_app.popup_scene.kind == PopupKind::context_menu ||
+    if ((key == key::home || key == key::end) && (g_app.popup_scene.kind == PopupKind::context_menu ||
                                               g_app.popup_scene.kind == PopupKind::popover)) {
         ui_scroll_host_cancel(&g_app.scroll_host);
         const float before = g_app.popup_scene.scroll_offset;
         const u32 count = g_app.popup_scene.item_count;
         for (u32 i = 0; i < count; ++i) {
-            const u32 index = key == VK_HOME ? i : count - i - 1;
+            const u32 index = key == key::home ? i : count - i - 1;
             if (!(g_app.popup_scene.items[index].flags & popup_item_enabled))
                 continue;
             bool changed = false;
@@ -511,11 +512,11 @@ bool handle_popup_key(WPARAM key) noexcept {
         }
         return true;
     }
-    if (key == VK_UP || key == VK_DOWN) {
+    if (key == key::up || key == key::down) {
         ui_scroll_host_cancel(&g_app.scroll_host);
         const float before = g_app.popup_scene.scroll_offset;
         bool changed = false;
-        if (!popup_scene_move_selection(&g_app.popup_scene, key == VK_DOWN ? 1 : -1, &changed)) {
+        if (!popup_scene_move_selection(&g_app.popup_scene, key == key::down ? 1 : -1, &changed)) {
             return false;
         }
         return animate_popup_scroll_from(before) && (!changed || refresh_popup_text());

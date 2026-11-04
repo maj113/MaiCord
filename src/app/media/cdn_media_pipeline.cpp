@@ -442,7 +442,7 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
         jpeg_thumbnail_decode_rows(encoded, out->image, layout, {scratch, scratch_bytes},
                                    {scratch + scratch_bytes, layout.width * 4u}, reduced_jpeg_row, &rows);
     if (temporary)
-        VirtualFree(temporary, 0, MEM_RELEASE);
+        pages_release(temporary);
     if (!out->decode.ok())
         return;
     const bool swap = jpeg_orientation_swaps_dimensions(out->image.orientation);

@@ -17,6 +17,7 @@
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/platform/desktop/window_frame.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/sys/shell.hpp"
@@ -414,7 +415,7 @@ bool application_caption_command(UiCaptionPart part) noexcept {
     switch (part) {
     case UiCaptionPart::icon:
         // As Alt+Space: the window menu at the caption.
-        return PostMessageW(window, WM_SYSCOMMAND, SC_KEYMENU, VK_SPACE) != FALSE;
+        return PostMessageW(window, WM_SYSCOMMAND, SC_KEYMENU, key::space) != FALSE;
     case UiCaptionPart::update:
         if (application_updates_restart())
             return true;

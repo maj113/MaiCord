@@ -7,8 +7,7 @@
 #include "maicord/media/containers/track_info.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
 #include "maicord/app/media/attachment_media_probe.hpp"
-
-struct ID3D11Device;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -191,7 +190,7 @@ struct AccountMediaCatalogPreviewRequest {
     u8 reserved[4];
     // Borrowed host device for an MP4 (VIDEO favourite) tile's hardware
     // decoder; it must outlive account stop. Other formats ignore it.
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
 };
 
 struct AccountMediaRequestOptions {
@@ -213,7 +212,7 @@ struct AccountMediaAttachmentRequest {
     AccountMediaRequestOptions options;
     // Borrowed from the host. It must outlive account stop; the decoder's
     // device manager takes its own COM reference while playback is active.
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
 };
 
 struct AccountMediaGuildIconRequest {
@@ -267,7 +266,7 @@ struct AccountMedia {
     JpegWorkspace* jpeg_workspace;
     Mp4Decoder owned_mp4_decoder;
     Mp4Decoder* mp4_decoder;
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
     MediaAssetKey active_key;
     MediaAssetKey frame_key;
     MediaAssetKey mp4_key;

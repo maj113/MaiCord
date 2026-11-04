@@ -41,7 +41,7 @@ bool ensure() noexcept {
     if (!store) return false;
     store->pool = static_cast<u8*>(commit_pages(kKeepPoolBytes));
     if (!store->pool) {
-        VirtualFree(store, 0, MEM_RELEASE);
+        pages_release(store);
         return false;
     }
     g_store = store;
@@ -105,7 +105,7 @@ bool compact() noexcept {
         move(&record.name);
         for (u32 i = 0; i < record.edit_count; ++i) move(&record.edits[i]);
     }
-    VirtualFree(g_store->pool, 0, MEM_RELEASE);
+    pages_release(g_store->pool);
     g_store->pool = fresh;
     g_store->used = used;
     g_store->wasted = 0;
@@ -273,8 +273,8 @@ bool keep_add_edit(u64 channel_id, u64 message_id, Utf8View text) noexcept {
 
 void keep_clear() noexcept {
     if (!g_store) return;
-    VirtualFree(g_store->pool, 0, MEM_RELEASE);
-    VirtualFree(g_store, 0, MEM_RELEASE);
+    pages_release(g_store->pool);
+    pages_release(g_store);
     g_store = nullptr;
 }
 

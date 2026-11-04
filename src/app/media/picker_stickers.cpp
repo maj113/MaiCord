@@ -105,7 +105,7 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
         }
         bank->count = used;
         if (!sticker_previews(bank, bank->text + text, items * 64)) {
-            VirtualFree(bank, 0, MEM_RELEASE);
+            pages_release(bank);
             bank = nullptr;
             p.sticker_server_count = 0;
         } else {
@@ -117,11 +117,11 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
         }
     }
     if (scratch)
-        VirtualFree(scratch, 0, MEM_RELEASE);
+        pages_release(scratch);
     revoke_capture(p);
     ui_media_picker_scene_close(&p.scene);
     if (p.guild)
-        VirtualFree(p.guild, 0, MEM_RELEASE);
+        pages_release(p.guild);
     p.guild = bank;
     ++p.source.revision;
     return true;

@@ -38,7 +38,8 @@ add_custom_command(OUTPUT "${maicord_sys_conformance_unit}"
         --root "${CMAKE_CURRENT_SOURCE_DIR}" --headers ${maicord_sys_headers} --output "${maicord_sys_conformance_unit}"
     DEPENDS ${maicord_sys_headers} tools/generate_sys_conformance.py
     VERBATIM)
-add_library(maicord_sys_conformance OBJECT src/core/win32_sdk_conformance.cpp "${maicord_sys_conformance_unit}")
+add_library(maicord_sys_conformance OBJECT src/core/win32_sdk_conformance.cpp src/platform/window/win32/key_conformance.cpp
+    "${maicord_sys_conformance_unit}")
 target_link_libraries(maicord_sys_conformance PRIVATE maicord_compile_contract)
 target_include_directories(maicord_sys_conformance PRIVATE src/sys)
 # The checks name every vtable slot, including members the SDK deprecates. The

@@ -2,6 +2,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -16,7 +17,7 @@ struct RequestBodyBank {
     u32 used = 0;
 
     explicit RequestBodyBank(u32 bytes) noexcept
-        : data(static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))),
+        : data(static_cast<u8*>(pages_allocate(bytes))),
           capacity(bytes) {}
     RequestBodyBank(const RequestBodyBank&) = delete;
     RequestBodyBank& operator=(const RequestBodyBank&) = delete;
@@ -24,7 +25,7 @@ struct RequestBodyBank {
         if (!data)
             return;
         secure_clear_bytes(data, used);
-        VirtualFree(data, 0, MEM_RELEASE);
+        pages_release(data);
     }
     Slice<u8> all() const noexcept {
         return {data, capacity};

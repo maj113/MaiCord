@@ -1,6 +1,8 @@
 #include "maicord/text/opentype/layout_tables.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 u32 expected[65536];u8 seen[65536];
@@ -51,8 +53,8 @@ bool units() noexcept {
 }
 bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;
-    DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;
+    if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
     u8 base[32]{};put(base,0,2);put(base,2,2);put(base,4,1);put(base,6,3);put(base,8,0);put(base,10,6);put(base,12,7);put(base,14,3);
     bool ok=true;u32 random=0x07c0a117;
     for(u32 iteration=0;iteration<20000 && ok;++iteration) {
@@ -66,7 +68,7 @@ bool guards() noexcept {
         if(sfnt_class_def_open(view,128,&classes)==SfntStatus::ok)for(u32 glyph=0;glyph<128;++glyph)if(sfnt_class_value(classes,static_cast<u16>(glyph))>classes.max_class)ok=false;
         if(sfnt_device_open(view,&device)==SfntStatus::ok){i16 delta=0;const auto status=sfnt_device_pixels(device,device.start_or_outer,&delta);if(status!=SfntStatus::ok && status!=SfntStatus::unsupported)ok=false;}
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* value) noexcept {if(size-at<4)return false;*value=byte_load_le32(data+at);at+=4;return true;}
@@ -112,4 +114,4 @@ int run() noexcept {
     print(utf8_literal("PASS native layout common tables\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_layout_tables_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_layout_tables_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

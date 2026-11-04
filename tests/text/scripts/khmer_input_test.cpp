@@ -3,6 +3,8 @@
 #include "maicord/text/scripts/khmer_input.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -65,15 +67,15 @@ bool units() noexcept {
     CHECK(sfnt_khmer_expand_cluster({opaque,5},{actual,16},&result)==SfntStatus::ok&&result.scalar_count==5);
     for(u32 i=0;i<5;++i)CHECK(actual[i].scalar==opaque[i]&&actual[i].source==i);
     Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-    const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+    const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
     bool good=false;
     if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(original));copy_bytes(input,original,sizeof(original));
         auto* target=reinterpret_cast<SfntKhmerInputScalar*>(memory+page*3-sizeof(expanded));
         good=sfnt_khmer_expand_cluster({input,11},{target,16},&result)==SfntStatus::ok&&bytes_equal(target,expanded,sizeof(expanded));
         good=good&&sfnt_khmer_cluster_boundaries({input,11},{memory+page*3-11,11})==SfntStatus::ok;
     }
-    CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&good);
+    CHECK(pages_release(memory));CHECK(committed&&good);
     print("PASS Khmer input; assertions=");number(checks);print("\n");return true;
 }
 bool read(void* destination,u32 count) noexcept {u8* out=static_cast<u8*>(destination);while(count){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),out,count,&got,nullptr)||!got)return false;out+=got;count-=got;}return true;}
@@ -92,4 +94,4 @@ int run() noexcept {
     return units()?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_khmer_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_khmer_input_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

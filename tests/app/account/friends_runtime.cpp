@@ -16,6 +16,7 @@
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;
@@ -67,13 +68,13 @@ bool synthetic_input(UiInputKind kind, u32 code, bool repeated, u8 modifiers = 0
     const bool control = (modifiers & synthetic_control) != 0;
     const bool shift = (modifiers & synthetic_shift) != 0;
     const bool alt = (modifiers & synthetic_alt) != 0;
-    if (control) keys[VK_CONTROL] = keys[VK_LCONTROL] = 0x80;
-    if (shift) keys[VK_SHIFT] = keys[VK_LSHIFT] = 0x80;
-    if (alt) keys[VK_MENU] = keys[VK_LMENU] = 0x80;
+    if (control) keys[key::ctrl] = keys[key::left_ctrl] = 0x80;
+    if (shift) keys[key::shift] = keys[key::left_shift] = 0x80;
+    if (alt) keys[key::alt] = keys[key::left_alt] = 0x80;
     const bool applied = SetKeyboardState(keys) != FALSE &&
-        ((GetKeyState(VK_CONTROL) & 0x8000) != 0) == control &&
-        ((GetKeyState(VK_SHIFT) & 0x8000) != 0) == shift &&
-        ((GetKeyState(VK_MENU) & 0x8000) != 0) == alt;
+        ((GetKeyState(key::ctrl) & 0x8000) != 0) == control &&
+        ((GetKeyState(key::shift) & 0x8000) != 0) == shift &&
+        ((GetKeyState(key::alt) & 0x8000) != 0) == alt;
     check(applied, "friends fixture: synthetic message owns exact thread-local modifiers");
     const bool handled = applied && application_friends_input(kind, code, repeated);
     BYTE restored_keys[256]{};
@@ -110,8 +111,8 @@ bool remove_relationship(Utf8View json, u64 sequence, bool synchronize = true) n
 bool action(UiFriendsAction operation, u64 user = 0, UiFriendsTab tab = UiFriendsTab::all,UiFriendsSectionKind section=UiFriendsSectionKind::incoming) noexcept {
     auto* current = scene();
     if(application_friends_search_focused()){
-        synthetic_input(UiInputKind::key_down,VK_TAB,false);
-        synthetic_input(UiInputKind::key_up,VK_TAB,false);
+        synthetic_input(UiInputKind::key_down,key::tab,false);
+        synthetic_input(UiInputKind::key_up,key::tab,false);
     }
     if(operation==UiFriendsAction::profile||operation==UiFriendsAction::remove||operation==UiFriendsAction::block||
         operation==UiFriendsAction::ignore||operation==UiFriendsAction::unignore){
@@ -120,8 +121,8 @@ bool action(UiFriendsAction operation, u64 user = 0, UiFriendsTab tab = UiFriend
     }
     if (!current || !ui_friends_scene_focus(current, {operation, user, tab,section})) return false;
     g_app.context_focus = &current->widgets;
-    const bool down = synthetic_input(UiInputKind::key_down, VK_RETURN, false);
-    const bool up = synthetic_input(UiInputKind::key_up, VK_RETURN, false);
+    const bool down = synthetic_input(UiInputKind::key_down, key::enter, false);
+    const bool up = synthetic_input(UiInputKind::key_up, key::enter, false);
     return down && up;
 }
 bool save_form(Utf8View text={}) noexcept {
@@ -228,12 +229,12 @@ void search_runtime_fixture() noexcept {
         "friends search: leading whitespace matches literal name substring and is never trimmed from username query");
     check(replace_query(utf8_literal("needle"))&&scene()->source_count==2,"friends search: broad query returns matching fields once per user");
     const auto key_owner=g_app.context_focus;
-    check(synthetic_input(UiInputKind::key_down,VK_SPACE,false)&&
+    check(synthetic_input(UiInputKind::key_down,key::space,false)&&
         synthetic_input(UiInputKind::character,' ',false)&&
         utf8_equal(message_composer_text(*all),utf8_literal("needle "))&&application_friends_search_focused(),
         "friends search: Space key preserves edit ownership and its character inserts literal whitespace");
-    check(synthetic_input(UiInputKind::key_down,VK_UP,false)&&synthetic_input(UiInputKind::key_down,VK_DOWN,false)&&
-        synthetic_input(UiInputKind::key_down,VK_PRIOR,false)&&synthetic_input(UiInputKind::key_down,VK_NEXT,false)&&
+    check(synthetic_input(UiInputKind::key_down,key::up,false)&&synthetic_input(UiInputKind::key_down,key::down,false)&&
+        synthetic_input(UiInputKind::key_down,key::page_up,false)&&synthetic_input(UiInputKind::key_down,key::page_down,false)&&
         application_friends_search_focused()&&g_app.context_focus==key_owner&&replace_query(utf8_literal("needle")),
         "friends search: list navigation keys leave focused single-line edit and document unchanged");
     const auto target=application_friends_search_target();
@@ -722,8 +723,8 @@ void run() noexcept {
     const u32 modifier_submissions = seen.submissions, modifier_forms = seen.form_opens;
     const auto modifier_tab = scene()->tab;
     check(ui_friends_scene_focus(scene(), {UiFriendsAction::select_tab, 0, UiFriendsTab::pending}) &&
-        !synthetic_input(UiInputKind::key_down, VK_RETURN, false, synthetic_control) &&
-        !synthetic_input(UiInputKind::key_up, VK_RETURN, false, synthetic_control) &&
+        !synthetic_input(UiInputKind::key_down, key::enter, false, synthetic_control) &&
+        !synthetic_input(UiInputKind::key_up, key::enter, false, synthetic_control) &&
         scene()->tab == modifier_tab && seen.submissions == modifier_submissions && seen.form_opens == modifier_forms,
         "friends fixture: explicit Ctrl rejects retained tab activation before mutation without weakening production modifiers");
     check(tab(UiFriendsTab::pending) && scene()->source_count == 1 &&

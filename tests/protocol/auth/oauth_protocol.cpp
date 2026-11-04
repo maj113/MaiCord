@@ -132,5 +132,5 @@ void responses() noexcept {
 }
 extern "C" void maicord_oauth_protocol_entry() noexcept {
     maicord::requests(); maicord::callbacks(); maicord::responses();
-    ExitProcess(maicord::failures ? 1 : 0);
+    ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

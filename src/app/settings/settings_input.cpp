@@ -8,6 +8,7 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -44,7 +45,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
             refresh();
             return true;
         }
-        if (code == VK_ESCAPE) {
+        if (code == key::escape) {
             g_app.settings_held_key = code;
             close_choice();
             refresh();
@@ -52,22 +53,22 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         }
         const bool reverse = application_shift_down();
         bool changed = false;
-        if (code == VK_UP || code == VK_DOWN || code == VK_TAB) {
-            popup_scene_move_selection(&g_app.popup_scene, code == VK_UP || (code == VK_TAB && reverse) ? -1 : 1,
+        if (code == key::up || code == key::down || code == key::tab) {
+            popup_scene_move_selection(&g_app.popup_scene, code == key::up || (code == key::tab && reverse) ? -1 : 1,
                                        &changed);
             if (changed)
                 refresh();
-        } else if (code == VK_PRIOR || code == VK_NEXT) {
-            choice_action(code == VK_PRIOR ? kUiSettingsChoicePrevious : kUiSettingsChoiceNext);
-        } else if ((code == VK_RETURN || code == VK_SPACE) && !repeated) {
+        } else if (code == key::page_up || code == key::page_down) {
+            choice_action(code == key::page_up ? kUiSettingsChoicePrevious : kUiSettingsChoiceNext);
+        } else if ((code == key::enter || code == key::space) && !repeated) {
             g_app.settings_held_key = code;
             choice_action(popup_scene_selected_action(g_app.popup_scene));
-        } else if ((code == VK_LEFT || code == VK_RIGHT) && !repeated) {
+        } else if ((code == key::left || code == key::right) && !repeated) {
             const auto choice = settings->choice;
             close_choice();
             g_app.settings_held_key = code;
             if (choice_control(choice))
-                activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, code == VK_LEFT);
+                activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, code == key::left);
             if (plugin_ui_scope_current(g_app.plugin_account_scope_serial, choice.account_serial) &&
                 choice.profile_id == g_app.account.status.profile_id)
                 refresh();
@@ -87,7 +88,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         ui_settings_scene_focus(&settings->scene, {UiSettingsTargetKind::search, {}, 0});
         return refresh();
     }
-    if (code == VK_ESCAPE) {
+    if (code == key::escape) {
         g_app.settings_held_key = code;
         // Escape unwinds: search text, then the dialog.
         if (settings->search_bytes) {
@@ -101,7 +102,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
     if (zone == UiSettingsFocusZone::search) {
         if (search_key(*settings, code, control_key && !application_alt_down(), reverse))
             return true;
-        if (code == VK_RETURN && !repeated && searching(*settings)) {
+        if (code == key::enter && !repeated && searching(*settings)) {
             g_app.settings_held_key = code;
             const auto controls = settings->scene.content.controls;
             for (u32 i = 0; i < controls.count; ++i)
@@ -111,7 +112,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
                 }
             return true;
         }
-        if (code == VK_DOWN && searching(*settings)) {
+        if (code == key::down && searching(*settings)) {
             ui_settings_scene_move_zone(&settings->scene, false);
             ui_settings_scene_move_zone(&settings->scene, false);
             refresh();
@@ -122,15 +123,15 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
     if (focused_control && (focused_control->kind == UiSettingsControlKind::slider ||
                             focused_control->kind == UiSettingsControlKind::palette ||
                             focused_control->kind == UiSettingsControlKind::radio)) {
-        const bool decrease = code == VK_LEFT, increase = code == VK_RIGHT;
+        const bool decrease = code == key::left, increase = code == key::right;
         // Page Up/Down move a slider by a tenth of its range.
-        const bool page = focused_control->kind == UiSettingsControlKind::slider && (code == VK_PRIOR || code == VK_NEXT);
-        if (code == VK_HOME || code == VK_END || decrease || increase || page) {
+        const bool page = focused_control->kind == UiSettingsControlKind::slider && (code == key::page_up || code == key::page_down);
+        if (code == key::home || code == key::end || decrease || increase || page) {
             UiSettingsActivation activation{};
-            const auto direction = code == VK_HOME   ? UiSettingsSliderKey::home
-                                   : code == VK_END   ? UiSettingsSliderKey::end
-                                   : code == VK_PRIOR ? UiSettingsSliderKey::page_increase
-                                   : code == VK_NEXT  ? UiSettingsSliderKey::page_decrease
+            const auto direction = code == key::home   ? UiSettingsSliderKey::home
+                                   : code == key::end   ? UiSettingsSliderKey::end
+                                   : code == key::page_up ? UiSettingsSliderKey::page_increase
+                                   : code == key::page_down  ? UiSettingsSliderKey::page_decrease
                                    : decrease         ? UiSettingsSliderKey::decrease
                                                       : UiSettingsSliderKey::increase;
             if (ui_settings_scene_slider_key(settings->scene, focused, direction, &activation) &&
@@ -150,51 +151,51 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
             }
             return true;
         }
-        if (code == VK_RETURN || code == VK_SPACE) {
+        if (code == key::enter || code == key::space) {
             g_app.settings_held_key = code;
-            if (code == VK_RETURN && searching(*settings) && !repeated)
+            if (code == key::enter && searching(*settings) && !repeated)
                 open_result(*settings, focused.control_id);
             return true;
         }
     }
-    if (code == VK_TAB) {
+    if (code == key::tab) {
         ui_settings_scene_move_zone(&settings->scene, reverse);
         refresh();
         return true;
     }
-    if (code == VK_UP || code == VK_DOWN) {
+    if (code == key::up || code == key::down) {
         const float before = settings->scene.content_offset;
-        if (!ui_settings_scene_move_within(&settings->scene, code == VK_UP) && zone == UiSettingsFocusZone::none)
-            ui_settings_scene_move_zone(&settings->scene, code == VK_UP);
+        if (!ui_settings_scene_move_within(&settings->scene, code == key::up) && zone == UiSettingsFocusZone::none)
+            ui_settings_scene_move_zone(&settings->scene, code == key::up);
         settings_glide_reveal(before);
         refresh();
         return true;
     }
-    if ((code == VK_HOME || code == VK_END) && zone != UiSettingsFocusZone::search) {
+    if ((code == key::home || code == key::end) && zone != UiSettingsFocusZone::search) {
         const float before = settings->scene.content_offset;
         u32 steps = 0;
-        while (steps < 64 && ui_settings_scene_move_within(&settings->scene, code == VK_HOME))
+        while (steps < 64 && ui_settings_scene_move_within(&settings->scene, code == key::home))
             ++steps;
         settings_glide_reveal(before);
         refresh();
         return true;
     }
-    if ((code == VK_RETURN || code == VK_SPACE || code == VK_LEFT || code == VK_RIGHT) && !repeated) {
+    if ((code == key::enter || code == key::space || code == key::left || code == key::right) && !repeated) {
         if (zone == UiSettingsFocusZone::search)
             return true;
         g_app.settings_held_key = code;
-        if (code == VK_RETURN && searching(*settings) && focused.kind == UiSettingsTargetKind::control) {
+        if (code == key::enter && searching(*settings) && focused.kind == UiSettingsTargetKind::control) {
             open_result(*settings, focused.control_id);
             return true;
         }
-        if ((code == VK_LEFT || code == VK_RIGHT) && zone != UiSettingsFocusZone::panel)
+        if ((code == key::left || code == key::right) && zone != UiSettingsFocusZone::panel)
             return true;
-        activate(focused, code == VK_LEFT || reverse, code == VK_RETURN || code == VK_SPACE);
+        activate(focused, code == key::left || reverse, code == key::enter || code == key::space);
         return true;
     }
-    if (code == VK_PRIOR || code == VK_NEXT) {
+    if (code == key::page_up || code == key::page_down) {
         settings_glide_to(false, settings->scene.content_offset +
-                                     (code == VK_PRIOR ? -1.f : 1.f) * ui_rect_height(settings->scene.viewport) * .8f);
+                                     (code == key::page_up ? -1.f : 1.f) * ui_rect_height(settings->scene.viewport) * .8f);
         refresh();
     }
     return true;
@@ -208,9 +209,9 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
     if (application_store_window_message(message, wparam, lparam))
         return true;
     if (message == WM_XBUTTONDOWN || message == WM_MBUTTONDOWN) {
-        const u32 button = message == WM_MBUTTONDOWN               ? VK_MBUTTON
-                           : GET_XBUTTON_WPARAM(wparam) == XBUTTON1 ? VK_XBUTTON1
-                                                                    : VK_XBUTTON2;
+        const u32 button = message == WM_MBUTTONDOWN               ? key::mbutton
+                           : GET_XBUTTON_WPARAM(wparam) == XBUTTON1 ? key::xbutton1
+                                                                    : key::xbutton2;
         if (application_voice_settings_capture(UiInputKind::key_down, button) ||
             application_keybinds_settings_capture(UiInputKind::key_down, button))
             return settled(*settings, true);

@@ -1,6 +1,8 @@
 #include "maicord/text/scripts/emoji_line.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "emoji_test_support.inc"
 #include "../../generated/emoji_line_fixture.inc"
@@ -69,5 +71,5 @@ bool run_lines() noexcept {
 extern "C" void maicord_emoji_line_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run_lines());
     print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nnominal_runs=");number(nominal_runs);
-    print(ok?"\nPASS native emoji line geometry\n":"\nFAIL native emoji line geometry\n");ExitProcess(ok?0u:1u);
+    print(ok?"\nPASS native emoji line geometry\n":"\nFAIL native emoji line geometry\n");::maicord::test_process_exit(ok?0u:1u);
 }

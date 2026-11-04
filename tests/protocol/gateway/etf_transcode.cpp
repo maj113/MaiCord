@@ -5,6 +5,7 @@
 #include "maicord/protocol/gateway/etf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -325,11 +326,11 @@ bool run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_etf_transcode_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_etf_transcode_entry) {
     using namespace maicord;
     const bool ok = run();
     print("checks=");
     number(checks);
     print(ok ? " PASS ETF transcoding\n" : " FAIL ETF transcoding\n");
-    ExitProcess(ok && print_ok ? 0 : 1);
+    ::maicord::test_process_exit(ok && print_ok ? 0 : 1);
 }

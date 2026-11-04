@@ -5,6 +5,7 @@
 #include "../chat/application_link_trust.hpp"
 #include "policy.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -425,7 +426,7 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
                          application_window_keyboard_focus() && !g_app.message_composer.focused && !g_app.context_focus;
     if (!focused && !hovered && !video->expanded)
         return false;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         if (video->expanded)
             set_video_expanded(*video, false);
         else if (focused)
@@ -437,17 +438,17 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     }
     if (video->source.audio) {
         UiAudioKey action{};
-        if (key == VK_TAB)
+        if (key == key::tab)
             action = shift ? UiAudioKey::previous : UiAudioKey::next;
-        else if (key == VK_LEFT || key == VK_DOWN)
+        else if (key == key::left || key == key::down)
             action = UiAudioKey::decrease;
-        else if (key == VK_RIGHT || key == VK_UP)
+        else if (key == key::right || key == key::up)
             action = UiAudioKey::increase;
-        else if (key == VK_HOME)
+        else if (key == key::home)
             action = UiAudioKey::home;
-        else if (key == VK_END)
+        else if (key == key::end)
             action = UiAudioKey::end;
-        else if ((key == VK_SPACE || key == VK_RETURN) && !repeat)
+        else if ((key == key::space || key == key::enter) && !repeat)
             action = UiAudioKey::activate;
         else
             return false;
@@ -465,34 +466,34 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     u32 digit = 10;
     if (key >= '0' && key <= '9')
         digit = key - '0';
-    else if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9)
-        digit = key - VK_NUMPAD0;
-    const bool printable = key == VK_SPACE || digit < 10 || key == 'M' || key == 'F';
-    if (modified && printable && key != VK_SPACE)
+    else if (key >= key::numpad0 && key <= key::numpad9)
+        digit = key - key::numpad0;
+    const bool printable = key == key::space || digit < 10 || key == 'M' || key == 'F';
+    if (modified && printable && key != key::space)
         return false;
     UiVideoSceneResult result{};
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         if (!focused && !video->expanded)
             return false;
         result = ui_video_scene_key(&scene, shift ? UiVideoKey::previous : UiVideoKey::next);
-    } else if (key == VK_RETURN) {
+    } else if (key == key::enter) {
         if (!focused)
             return false;
         if (!repeat)
             result = ui_video_scene_key(&scene, UiVideoKey::activate);
-    } else if (key == VK_SPACE) {
+    } else if (key == key::space) {
         if (!repeat)
             result = player(UiVideoPlayerKey::toggle_play);
-    } else if (key == VK_LEFT || key == VK_RIGHT) {
-        result = range_focus ? ui_video_scene_key(&scene, key == VK_LEFT ? UiVideoKey::decrease
+    } else if (key == key::left || key == key::right) {
+        result = range_focus ? ui_video_scene_key(&scene, key == key::left ? UiVideoKey::decrease
                                                                           : UiVideoKey::increase)
-                              : player(key == VK_LEFT ? UiVideoPlayerKey::seek_backward
+                              : player(key == key::left ? UiVideoPlayerKey::seek_backward
                                                       : UiVideoPlayerKey::seek_forward);
-    } else if (key == VK_UP || key == VK_DOWN) {
-        result = player(key == VK_UP ? UiVideoPlayerKey::volume_up : UiVideoPlayerKey::volume_down);
-    } else if (key == VK_HOME || key == VK_END) {
-        result = range_focus ? ui_video_scene_key(&scene, key == VK_HOME ? UiVideoKey::home : UiVideoKey::end)
-                              : player(UiVideoPlayerKey::seek_percent, key == VK_HOME ? 0 : 100);
+    } else if (key == key::up || key == key::down) {
+        result = player(key == key::up ? UiVideoPlayerKey::volume_up : UiVideoPlayerKey::volume_down);
+    } else if (key == key::home || key == key::end) {
+        result = range_focus ? ui_video_scene_key(&scene, key == key::home ? UiVideoKey::home : UiVideoKey::end)
+                              : player(UiVideoPlayerKey::seek_percent, key == key::home ? 0 : 100);
     } else if (digit < 10) {
         if (!repeat)
             result = player(UiVideoPlayerKey::seek_percent, digit * 10);

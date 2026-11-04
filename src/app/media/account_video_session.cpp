@@ -1,3 +1,4 @@
+#include "maicord/core/virtual_memory.hpp"
 #include "account_video_session_internal.hpp"
 
 namespace maicord {
@@ -288,7 +289,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
             if (!decoder.ok())
                 return result(AccountVideoError::release, static_cast<u32>(decoder.native_status), true);
         }
-        if (!VirtualFree(s->workspace, 0, MEM_RELEASE))
+        if (!pages_release(s->workspace))
             return result(AccountVideoError::release, GetLastError(), true);
     }
     reset_value(s);

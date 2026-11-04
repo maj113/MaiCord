@@ -7,6 +7,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "../../../src/text/opentype/lookup_plan_finish.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/lookup_plan_fixture.inc"
 #include "../../generated/layout_directory_fixture.inc"
@@ -33,12 +35,11 @@ bool plan_units(const SfntLayout& layout,bool independent,ConstSlice<u16> expect
         if(status==SfntStatus::ok){if(result.lookup_count!=expected.count||!bytes_equal(out,expected.data,expected.count*2))return false;}
         else for(auto value:out)if(value!=0xeeee)return false;
     }
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,words=(static_cast<u32>(layout.lookup_count)+63)/64;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    bool ok=VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old)!=0;
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,words=(static_cast<u32>(layout.lookup_count)+63)/64;auto* memory=static_cast<u8*>(pages_allocate(page*4));if(!memory)return false;bool ok=pages_protect(memory+page, page, PageAccess::none)!=0 && pages_protect(memory+page*3, page, PageAccess::none)!=0;
     if(ok){auto* scratch=reinterpret_cast<u64*>(memory+page-words*8);auto* indices=reinterpret_cast<u16*>(memory+page*3-expected.count*2);ok=sfnt_latin_lookup_plan(layout,variations,independent,{scratch,words},{indices,expected.count},&result)==SfntStatus::ok && result.lookup_count==expected.count && bytes_equal(indices,expected.data,expected.count*2);++guard_checks;
         const auto counted=sfnt_latin_lookup_plan(layout,variations,independent,{scratch,words},{},&result);
         ok=ok&&(counted==SfntStatus::ok||counted==SfntStatus::output_too_small)&&finish_lookup_plan({scratch,words},{indices,result.lookup_count},result.operations,full)==SfntStatus::ok&&bytes_equal(indices,expected.data,expected.count*2);++guard_checks;}
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 bool hangul_stages() noexcept {
@@ -144,4 +145,4 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
 int run() noexcept {
     const bool boundary_ok=boundaries();if(!boundary_ok)print(utf8_literal("FAIL plan boundaries\n"));const bool ok=boundary_ok && corpus({plan_fixture,sizeof(plan_fixture)});print(utf8_literal("queries="));number(queries);print(utf8_literal("\nlookup_checks="));number(lookup_checks);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nplacement_checks="));number(placement_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_checks="));number(guard_checks);print(utf8_literal("\napp_checks="));number(app_checks);print(ok?utf8_literal("\nPASS native lookup plan\n"):utf8_literal("\nFAIL native lookup plan\n"));return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_lookup_plan_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_lookup_plan_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

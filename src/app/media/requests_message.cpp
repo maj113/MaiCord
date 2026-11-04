@@ -940,7 +940,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
             if (!written)
                 DeleteFileW(path);
         }
-        VirtualFree(memory, 0, MEM_RELEASE);
+        pages_release(memory);
         if (!written)
             return {};
     }

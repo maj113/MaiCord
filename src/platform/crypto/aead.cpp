@@ -1,6 +1,8 @@
 #include "aead_internal.hpp"
 
+#if defined(_WIN32)
 #include "maicord/sys/crypto.hpp"
+#endif
 
 namespace maicord {
 
@@ -36,6 +38,7 @@ AeadResult aead_validate(ConstSlice<u8> owner, ConstSlice<u8> storage, u32 nonce
     return aead_result(AeadError::none);
 }
 
+#if defined(_WIN32)
 AeadResult aead_cng_crypt(void* handle, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                           Slice<u8> output, u8* tag, bool encrypt) noexcept {
     BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO auth;
@@ -67,5 +70,7 @@ AeadResult aead_cng_crypt(void* handle, ConstSlice<u8> nonce, ConstSlice<u8> aad
     }
     return aead_result(AeadError::none, bytes);
 }
+
+#endif
 
 } // namespace maicord

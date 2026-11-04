@@ -78,6 +78,6 @@ void run() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_tiktok_player_entry() noexcept {
-    maicord::run(); ExitProcess(maicord::failures ? 1 : 0);
+MAICORD_TEST_ENTRY(maicord_tiktok_player_entry) {
+    maicord::run(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

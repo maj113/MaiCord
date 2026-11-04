@@ -19,7 +19,7 @@ inline void owner_release(T*& owner) noexcept {
     if (!owner)
         return;
     secure_clear_bytes(owner, sizeof(T));
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
     owner = nullptr;
 }
 

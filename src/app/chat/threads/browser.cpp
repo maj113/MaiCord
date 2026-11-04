@@ -24,8 +24,10 @@
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "../../account/account_access.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 
 namespace maicord::app_detail {
@@ -185,24 +187,24 @@ void free_owner() noexcept {
     if (!value) return;
     renderer_bind_thread_browser_scene(&g_app.renderer, nullptr);
     ui_thread_browser_scene_release(&value->scene);
-    for (auto& bank : value->banks) if (bank.storage) VirtualFree(bank.storage, 0, MEM_RELEASE);
+    for (auto& bank : value->banks) if (bank.storage) pages_release(bank.storage);
     if (auto* forum = value->forum) {
-        if (forum->cache) VirtualFree(forum->cache, 0, MEM_RELEASE);
-        if (forum->scratch) VirtualFree(forum->scratch, 0, MEM_RELEASE);
-        VirtualFree(forum, 0, MEM_RELEASE);
+        if (forum->cache) pages_release(forum->cache);
+        if (forum->scratch) pages_release(forum->scratch);
+        pages_release(forum);
     }
-    VirtualFree(value, 0, MEM_RELEASE);
+    pages_release(value);
     browser_owner = nullptr;
 }
 bool ensure_owner() noexcept {
     return owner_ensure(browser_owner) != nullptr;
 }
 bool ensure_bank(BrowserBank& bank, u32 count) noexcept {
-    if (!bank.storage) bank.storage = static_cast<u8*>(VirtualAlloc(nullptr, bank_bytes, MEM_RESERVE, PAGE_READWRITE));
+    if (!bank.storage) bank.storage = static_cast<u8*>(pages_reserve(bank_bytes));
     if (!bank.storage) return false;
     const u32 bytes = (count * sizeof(ThreadBrowserRow) + count * kThreadBrowserNameMaximumBytes + 4095) & ~4095u;
     if (bytes > bank.committed) {
-        if (!VirtualAlloc(bank.storage + bank.committed, bytes - bank.committed, MEM_COMMIT, PAGE_READWRITE)) return false;
+        if (!pages_commit_at(bank.storage + bank.committed, bytes - bank.committed)) return false;
         bank.committed = bytes;
     }
     return true;
@@ -312,7 +314,7 @@ bool forum_commit(u8* base, u32* committed, u32 bytes, u32 reserve) noexcept {
     bytes = (bytes + 65535) & ~65535u;
     if (bytes > reserve) bytes = reserve;
     if (bytes <= *committed) return true;
-    if (!VirtualAlloc(base + *committed, bytes - *committed, MEM_COMMIT, PAGE_READWRITE)) return false;
+    if (!pages_commit_at(base + *committed, bytes - *committed)) return false;
     *committed = bytes;
     return true;
 }
@@ -337,8 +339,8 @@ bool forum_meta_active(const ApplicationThreadBrowser& value) noexcept {
 bool forum_prepare(ApplicationThreadBrowser& value, const ChannelRecord& parent) noexcept {
     if (!owner_ensure(value.forum)) return false;
     auto& forum = *value.forum;
-    if (!forum.cache) forum.cache = static_cast<ForumPostEntry*>(VirtualAlloc(nullptr, forum_cache_bytes, MEM_RESERVE, PAGE_READWRITE));
-    if (!forum.scratch) forum.scratch = static_cast<u8*>(VirtualAlloc(nullptr, forum_scratch_bytes, MEM_RESERVE, PAGE_READWRITE));
+    if (!forum.cache) forum.cache = static_cast<ForumPostEntry*>(pages_reserve(forum_cache_bytes));
+    if (!forum.scratch) forum.scratch = static_cast<u8*>(pages_reserve(forum_scratch_bytes));
     if (!forum.cache || !forum.scratch) return false;
     if (forum.parent == parent.id && forum.account_scope == value.scope.account_scope) return true;
     // A metadata request for the previous forum stays in flight until consumed.
@@ -1125,7 +1127,7 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
 bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* value = browser_owner;
     if ((kind == UiInputKind::key_down || kind == UiInputKind::system_key_down) &&
-        (code == VK_RETURN || code == VK_SPACE) && application_thread_browser_available() && application_panel_uncovered() &&
+        (code == key::enter || code == key::space) && application_thread_browser_available() && application_panel_uncovered() &&
         g_app.context_focus == &g_app.shell_scene.widgets) {
         const auto handle = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::threads_toggle)];
         const auto focused = g_app.shell_scene.widgets.focused;
@@ -1143,17 +1145,17 @@ bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated)
     // The search shortcut belongs to the header search bar, which scopes
     // itself to this panel while it is open.
     if (shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(code))) return false;
-    if (code == VK_ESCAPE) { value->held_key = code; application_thread_browser_close(); repaint(); return true; }
-    if (code == VK_TAB) {
+    if (code == key::escape) { value->held_key = code; application_thread_browser_close(); repaint(); return true; }
+    if (code == key::tab) {
         ui_thread_browser_scene_move_focus(&value->scene, application_shift_down());
         application_request_frame(); return true;
     }
-    if (code == VK_RETURN || code == VK_SPACE) {
+    if (code == key::enter || code == key::space) {
         if (!repeated) application_thread_browser_activate(ui_thread_browser_scene_focused_target(value->scene));
         value->held_key = code; return true;
     }
-    if (code == VK_DOWN || code == VK_UP) {
-        ui_thread_browser_scene_move_focus(&value->scene, code == VK_UP); application_request_frame(); return true;
+    if (code == key::down || code == key::up) {
+        ui_thread_browser_scene_move_focus(&value->scene, code == key::up); application_request_frame(); return true;
     }
     return true;
 }

@@ -2,6 +2,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/nominal_scalar_fixture.inc"
 u64 scalar_checks=0,map_checks=0,budget_checks=0,guard_checks=0;volatile u64 observation=0;
@@ -27,8 +29,7 @@ bool verify(ConstSlice<u8> bytes={file,sizeof(file)},bool exhaustive=true,bool t
         QueryPerformanceCounter(&end);print(utf8_literal("source_ticks="));number(end.QuadPart-begin.QuadPart);print(utf8_literal("\nsource_frequency="));number(frequency.QuadPart);print(utf8_literal("\nsource_repeats=1024\nsource_work="));number(work);print(utf8_literal("\n"));}
     const u64 full=work;for(u64 i=0;i<(exhaustive?full+1:3);++i){const u64 budget=exhaustive?i:i==0?0:i==1?full-1:full;const auto status=sfnt_nominal_sources(cmap,{actual,1024},&work,budget);++budget_checks;if(status!=(budget<full?SfntStatus::resource_limit:SfntStatus::ok) || work>budget || (status==SfntStatus::ok && !bytes_equal(actual,expected,words*8)))return false;}
     actual[0]=0xaaaaaaaaaaaaaaaaull;if(sfnt_nominal_sources(cmap,{actual,words-1},&work)!=SfntStatus::output_too_small || actual[0]!=0xaaaaaaaaaaaaaaaaull)return false;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,storage=((words*8+page-1)/page)*page;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,storage+page,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    bool ok=VirtualProtect(memory+storage,page,PAGE_NOACCESS,&old)!=0;auto* out=reinterpret_cast<u64*>(memory+storage-words*8);if(ok)ok=sfnt_nominal_sources(cmap,{out,words},&work)==SfntStatus::ok && bytes_equal(out,expected,words*8);++guard_checks;VirtualFree(memory,0,MEM_RELEASE);return ok;
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,storage=((words*8+page-1)/page)*page;auto* memory=static_cast<u8*>(pages_allocate(storage+page));if(!memory)return false;bool ok=pages_protect(memory+storage, page, PageAccess::none)!=0;auto* out=reinterpret_cast<u64*>(memory+storage-words*8);if(ok)ok=sfnt_nominal_sources(cmap,{out,words},&work)==SfntStatus::ok && bytes_equal(out,expected,words*8);++guard_checks;pages_release(memory);return ok;
 }
 bool units() noexcept {
     for(u32 cp=0;cp<=0x110100;++cp){if(nominal_scalar_is_simple(cp)!=observed(cp))return false;++scalar_checks;}if(nominal_scalar_is_simple(0xffffffff))return false;
@@ -79,4 +80,4 @@ int run() noexcept {
     else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_check(path);}
 print(utf8_literal("scalar_checks="));number(scalar_checks);print(utf8_literal("\nmap_checks="));number(map_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guard_checks);print(ok?utf8_literal("\nPASS native nominal sources\n"):utf8_literal("\nFAIL native nominal sources\n"));return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_nominal_sources_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_nominal_sources_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

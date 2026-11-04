@@ -2,11 +2,8 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/gpu/gpu.hpp"
 
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11DeviceContext1;
-struct ID3D11RenderTargetView;
 struct IDCompositionDevice;
 struct IDCompositionTarget;
 struct IDCompositionVisual;
@@ -45,14 +42,14 @@ struct D3D11DeviceOwnerResult {
 // Owns the platform D3D11/DXGI/DirectComposition lifetime graph. Logical UI
 // dimensions, paint policy and shader resources remain renderer concerns.
 struct D3D11DeviceOwner {
-    ID3D11Device* device;
-    ID3D11DeviceContext* context;
-    ID3D11DeviceContext1* context1;
+    GpuDevice* device;
+    GpuContext* context;
+    GpuContext1* context1;
     IDXGISwapChain1* swap_chain;
     IDCompositionDevice* composition_device;
     IDCompositionTarget* composition_target;
     IDCompositionVisual* composition_visual;
-    ID3D11RenderTargetView* target;
+    GpuRtv* target;
     HANDLE frame_latency_waitable;
     u32 buffer_width;
     u32 buffer_height;
@@ -65,7 +62,7 @@ static_assert(sizeof(D3D11DeviceOwner) == 88);
 // worker owns the context (protected for several threads) until
 // d3d11_device_prestart_finish returns: neither the owner nor any other thread
 // may use it before then. Device object creation is free-threaded.
-using D3D11DevicePrestartContinuation = void (*)(ID3D11Device* device, ID3D11DeviceContext* context) noexcept;
+using D3D11DevicePrestartContinuation = void (*)(GpuDevice* device, GpuContext* context) noexcept;
 // Starts hardware device creation on a worker thread so user-mode driver
 // initialization overlaps the rest of startup, then runs the continuation on
 // it. The next owner initialization adopts that device as soon as it exists,

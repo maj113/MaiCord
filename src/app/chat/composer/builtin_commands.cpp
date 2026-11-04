@@ -19,6 +19,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/protocol/guild/admin.hpp"
@@ -301,7 +302,7 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         // query sends the selected one (the first by default), waiting for
         // results still loading. With none to send the command is refused.
         bool handled = false;
-        if (!builtin_command_results_key(VK_RETURN, &handled))
+        if (!builtin_command_results_key(key::enter, &handled))
             return BuiltinCommandRun::failed;
         return handled ? BuiltinCommandRun::results : BuiltinCommandRun::rejected;
     }

@@ -1,6 +1,7 @@
 #include "maicord/app/chat/composer/message_attachment_drafts.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {
@@ -18,7 +19,7 @@ bool commit(MessageAttachmentDraftStore* store, MessageAttachmentDraft* record, 
     if (rounded > kPayloadBytes) return false;
     if (rounded > record->committed_bytes) {
         const u32 delta = rounded - record->committed_bytes;
-        if (!VirtualAlloc(payload(store, id) + record->committed_bytes, delta, MEM_COMMIT, PAGE_READWRITE)) return false;
+        if (!pages_commit_at(payload(store, id) + record->committed_bytes, delta)) return false;
         record->committed_bytes = rounded;
         store->committed_bytes += delta;
         store->peak_committed_bytes = maximum(store->committed_bytes, store->peak_committed_bytes);
@@ -30,14 +31,14 @@ u32 message_attachment_drafts_reserved_bytes() noexcept { return kPayloadBytes *
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept {
     if (!store || store->payload) return false;
     reset_value(store);
-    store->payload = static_cast<u8*>(VirtualAlloc(nullptr, message_attachment_drafts_reserved_bytes(), MEM_RESERVE, PAGE_READWRITE));
+    store->payload = static_cast<u8*>(pages_reserve(message_attachment_drafts_reserved_bytes()));
     return store->payload != nullptr;
 }
 void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexcept {
     if (!store) return;
     for (u32 i = 0; i < kMessageAttachmentDraftCapacity; ++i)
         if (store->records[i].occupied) message_attachment_drafts_remove(store, identifier(store->records[i], i));
-    if (store->payload) VirtualFree(store->payload, 0, MEM_RELEASE);
+    if (store->payload) pages_release(store->payload);
     reset_value(store);
 }
 MessageAttachmentDraft* message_attachment_drafts_get(MessageAttachmentDraftStore* store, u64 id) noexcept {
@@ -250,7 +251,7 @@ bool message_attachment_drafts_remove(MessageAttachmentDraftStore* store, u64 id
     auto* record = message_attachment_drafts_get(store, id);
     if (!record) return false;
     secure_clear_bytes(payload(store, id), record->committed_bytes);
-    if (!VirtualFree(payload(store, id), record->committed_bytes, MEM_DECOMMIT)) return false;
+    if (!pages_decommit(payload(store, id), record->committed_bytes)) return false;
     store->committed_bytes -= record->committed_bytes;
     const u32 generation = record->generation;
     upload_source_release(record->content);

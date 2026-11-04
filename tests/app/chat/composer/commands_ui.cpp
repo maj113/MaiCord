@@ -7,6 +7,7 @@
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord {
@@ -130,7 +131,7 @@ bool send_fake_result() noexcept {
     return application_commands_builtin_used({});
 }
 bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
-    *handled = key == VK_RETURN && fake_results != FakeResults::none;
+    *handled = key == key::enter && fake_results != FakeResults::none;
     if (!*handled)
         return true;
     if (fake_results == FakeResults::ready)
@@ -395,33 +396,33 @@ void run() noexcept {
             const auto selected = [] noexcept { return popup_scene_selected_action(g_app.popup_scene); };
             edit(utf8_literal("/"));
             check(g_app.popup_scene.active && !selected(), "discovery opens without a keyboard selection");
-            check(!application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer), utf8_literal("/")),
+            check(!application_commands_key(key::enter) && utf8_equal(message_composer_text(composer), utf8_literal("/")),
                   "Enter without a discovery selection keeps its composer meaning");
-            check(application_commands_key(VK_TAB) && selected() == row_action(false) &&
+            check(application_commands_key(key::tab) && selected() == row_action(false) &&
                       utf8_equal(message_composer_text(composer), utf8_literal("/")),
                   "Tab without a selection selects the top discovery row without choosing it");
-            check(application_commands_key(VK_UP) && selected() == row_action(false),
+            check(application_commands_key(key::up) && selected() == row_action(false),
                   "Up stops at the top of the discovery list");
-            check(application_commands_key(VK_DOWN) && selected() != row_action(false) && selected(),
+            check(application_commands_key(key::down) && selected() != row_action(false) && selected(),
                   "Down moves the discovery selection");
             application_commands_hover();
-            check(application_commands_key(VK_DOWN) && selected() == row_action(false),
+            check(application_commands_key(key::down) && selected() == row_action(false),
                   "after hovering, Down starts again at the top of the discovery list");
             edit(utf8_literal("/o"));
             check(selected() == row_action(false), "typed query results focus their first row");
-            check(application_commands_key(VK_UP) && selected() == row_action(true),
+            check(application_commands_key(key::up) && selected() == row_action(true),
                   "Up from the first query result wraps to the last");
-            check(application_commands_key(VK_DOWN) && selected() == row_action(false),
+            check(application_commands_key(key::down) && selected() == row_action(false),
                   "Down from the last query result wraps to the first");
             application_commands_hover();
-            check(application_commands_key(VK_UP) && selected() == row_action(true),
+            check(application_commands_key(key::up) && selected() == row_action(true),
                   "after hovering, Up starts from the end of the query results");
             application_commands_hover();
-            check(!application_commands_key(VK_TAB) && utf8_equal(message_composer_text(composer), utf8_literal("/o")),
+            check(!application_commands_key(key::tab) && utf8_equal(message_composer_text(composer), utf8_literal("/o")),
                   "Tab after hovering keeps its composer meaning instead of choosing the hovered row");
         }
         edit(utf8_literal("/word"));
-        check(application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer),
+        check(application_commands_key(key::enter) && utf8_equal(message_composer_text(composer),
               utf8_literal("/wordle ")), "Enter selects command without submitting");
         const auto& selected_scene = g_app.message_composer_scene;
         check(!g_app.popup_scene.active &&
@@ -453,7 +454,7 @@ void run() noexcept {
                       MessageComposerControl::command_close,
               "the option bar stacks above the editor with its trailing close button");
         const u32 before = calls, modals_before = modal_nonces;
-        check(application_commands_key(VK_RETURN) && !g_app.popup_scene.active && !composer.bytes &&
+        check(application_commands_key(key::enter) && !g_app.popup_scene.active && !composer.bytes &&
               calls == before && modal_nonces == modals_before + 1,
               "Enter queues the command, clears the draft like the official client and dismisses the picker");
         const MessageRecord* echo = only_echo();
@@ -483,7 +484,7 @@ void run() noexcept {
               "INTERACTION_SUCCESS matched by interaction id leaves the message without a status");
         application_commands_message_created(submitted_nonce);
         check(!only_echo(), "the response message with the command nonce replaces the local message");
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/word")); application_commands_key(key::enter); application_commands_key(key::enter);
         check(application_commands_submit(5), "failed command submits");
         respond(400, utf8_literal(R"({"code":50035,"errors":{"data":{"options":{"_errors":[{"code":"INTERACTION_APPLICATION_COMMAND_INVALID_VERSION","message":"This command is outdated, please try again in a few minutes"}]}}},"message":"Invalid Form Body"})"));
         echo = only_echo();
@@ -499,7 +500,7 @@ void run() noexcept {
         check(application_commands_submit(8) && operation == 1, "an outdated command version refetches the user index");
         respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
         message_timeline_remove_local(&g_app.message_view.timeline, only_echo() ? only_echo()->id : 0);
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/word")); application_commands_key(key::enter); application_commands_key(key::enter);
         submit_error = RestClientSubmitError::busy;
         check(application_commands_submit(6) && !g_app.popup_scene.active && !composer.bytes &&
                   application_commands_pending(106),
@@ -519,7 +520,7 @@ void run() noexcept {
               "Retry send re-executes a failed command with a new nonce and local message like the client");
         respond(204);
         message_timeline_remove_local(&g_app.message_view.timeline, submitted_nonce);
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/word")); application_commands_key(key::enter); application_commands_key(key::enter);
         check(application_commands_submit(200), "failing command submits after the busy retry floor");
         respond(204);
         interaction(GatewayClientDispatchKind::interaction_failure, 0, submitted_nonce);
@@ -528,7 +529,7 @@ void run() noexcept {
               utf8_equal(echo_text(*echo), utf8_literal("This interaction failed")),
               "a quick INTERACTION_FAILURE fails the local message");
         message_timeline_remove_local(&g_app.message_view.timeline, echo ? echo->id : 0);
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/word")); application_commands_key(key::enter); application_commands_key(key::enter);
         check(application_commands_submit(201) && only_echo(), "modal command submits");
         respond(204);
         interaction(GatewayClientDispatchKind::interaction_modal_create, 901, submitted_nonce);
@@ -573,7 +574,7 @@ void run() noexcept {
         check(application_commands_insert(0, 103, utf8_literal("admin other")) &&
                   !g_app.message_composer_scene.command.name_bytes,
               "a mention whose name no longer matches the id selects nothing, like the client");
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/word")); application_commands_key(key::enter);
         popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none);
         message_composer_select_all(&composer); refresh_message_composer_ui();
         check(!g_app.popup_scene.active, "dismissed picker stays closed during selection edits");
@@ -583,7 +584,7 @@ void run() noexcept {
         check(g_app.popup_scene.active && !g_app.message_composer_scene.command.name_bytes &&
               popup_items_command_picker({g_app.popup_scene.items.data, g_app.popup_scene.item_count}),
               "backspacing through a selected command name restores the picker and clears its decoration");
-        application_commands_key(VK_RETURN);
+        application_commands_key(key::enter);
         check(application_commands_close() && !composer.bytes && !g_app.popup_scene.active &&
                   !g_app.message_composer_scene.command.name_bytes &&
                   !message_composer_scene_command_bar_name(g_app.message_composer_scene).bytes,
@@ -642,13 +643,13 @@ void run() noexcept {
                       (chips[0].flags & message_composer_chip_active),
                   "the selected command's typed option draws as the client's active option chip");
         }
-        check(application_commands_key(VK_RETURN) && application_commands_submit(1000) && operation == 2 &&
+        check(application_commands_key(key::enter) && application_commands_submit(1000) && operation == 2 &&
               payload_contains(utf8_literal("\"value\":\"keep \\\"quoted\\\" value\"")),
               "typed values are sent as typed, quotes included, like the client's pill text");
         respond(204);
 
         edit(utf8_literal("/pick"));
-        application_commands_key(VK_RETURN);
+        application_commands_key(key::enter);
         // A chosen command is set up with its required options as
         // empty chips, the caret in the first: its choices list right away.
         check(utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:\xE2\x81\xA3")) &&
@@ -665,7 +666,7 @@ void run() noexcept {
               utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:Two\xE2\x81\xA3")) &&
               composer.caret == composer.bytes,
               "static choice shows its name in the draft like the official client");
-        check(application_commands_key(VK_RETURN) && application_commands_submit(1001) &&
+        check(application_commands_key(key::enter) && application_commands_submit(1001) &&
               payload_contains(utf8_literal("\"type\":4,\"value\":2")),
               "chosen numeric choice name executes as its JSON number value");
         respond(204);
@@ -673,21 +674,21 @@ void run() noexcept {
               "a retired choice action cannot dereference or edit a completed command");
 
         edit(utf8_literal("/upload"));
-        application_commands_key(VK_RETURN);
+        application_commands_key(key::enter);
         const u32 file_option = action_named(utf8_literal("Drag and drop or click to upload file"));
         const u32 opens = picker_opens;
         check(file_option && application_commands_activate(file_option) && picker_opens == opens + 1 &&
                   utf8_equal(message_composer_text(composer), utf8_literal("/upload file:\xE2\x81\xA3")),
               "an attachment chip asks for its file like the client's upload area");
         const u32 before_upload = calls;
-        check(application_commands_key(VK_RETURN) && composer.bytes && calls == before_upload &&
+        check(application_commands_key(key::enter) && composer.bytes && calls == before_upload &&
                   !application_commands_pending(1100),
               "a required attachment option without a staged upload never sends");
         staged_uploads[0] = {utf8_literal("a.png"), utf8_literal("up/a.png"), {}, 0, false};
         staged_uploads[1] = {utf8_literal("b.txt"), utf8_literal("up/b.txt"), {}, 1, false};
         staged_upload_count = 2;
         edit(utf8_literal("/upload file:b.txt"));
-        check(application_commands_key(VK_RETURN) && !composer.bytes && application_commands_submit(1101) &&
+        check(application_commands_key(key::enter) && !composer.bytes && application_commands_submit(1101) &&
                   operation == 2 && payload_contains(utf8_literal("\"name\":\"file\",\"type\":11,\"value\":0")) &&
                   payload_contains(utf8_literal(
                       R"(,"attachments":[{"id":"0","filename":"b.txt","uploaded_filename":"up/b.txt"}]})")) &&
@@ -705,7 +706,7 @@ void run() noexcept {
         edit(utf8_literal("/admin group run count:4"));
         const u32 nested_action = action_named(utf8_literal("/admin group run"));
         check(nested_action && application_commands_activate(nested_action) &&
-              application_commands_key(VK_RETURN) && application_commands_submit(1002) &&
+              application_commands_key(key::enter) && application_commands_submit(1002) &&
               payload_contains(utf8_literal("\"type\":2,\"name\":\"group\",\"options\":[{\"type\":1,\"name\":\"run\"")),
               "flattened subcommand selection preserves arguments and serializes its nested wire scope");
         respond(204);
@@ -716,7 +717,7 @@ void run() noexcept {
         check(second_app_action && application_commands_activate(second_app_action) &&
               utf8_equal(picture_url(g_app.message_composer_scene.command.avatar, second_picture),
                          utf8_literal("https://cdn.discordapp.com/app-icons/20/0f1e2d.png?size=160")) &&
-              application_commands_key(VK_RETURN) && application_commands_submit(1003) &&
+              application_commands_key(key::enter) && application_commands_submit(1003) &&
               submitted_application == 20 && payload_contains(utf8_literal("\"id\":\"105\"")),
               "duplicate command labels retain the selected application and command identity");
         respond(204);
@@ -728,7 +729,7 @@ void run() noexcept {
             // value stays text, Tab leaves the chip, a key typed after it makes
             // the next chip, and Backspace after a chip deletes its last character.
             edit(utf8_literal("/search"));
-            application_commands_key(VK_RETURN);
+            application_commands_key(key::enter);
             const bool set_up = utf8_equal(message_composer_text(composer), utf8_literal("/search query:\xE2\x81\xA3")) &&
                                 composer.caret == 14;
             composer_apply_result(message_composer_insert_utf8(&composer, utf8_literal("a count:")), true);
@@ -765,7 +766,7 @@ void run() noexcept {
             edit({});
         }
         edit(utf8_literal("/search"));
-        application_commands_key(VK_RETURN);
+        application_commands_key(key::enter);
         edit(utf8_literal("/search query:old count:2"));
         // Shift+Tab selects the previous chip's value; Tab the next one, then the end.
         // Typed options get end markers: "/search query:old⁣ count:2⁣".
@@ -797,15 +798,15 @@ void run() noexcept {
                          utf8_literal("/search query:Picked\xE2\x81\xA3 count:2\xE2\x81\xA3")) &&
               composer.anchor == 30 && composer.caret == 31,
               "a suggestion's name replaces only its value, then the next chip is selected");
-        check(application_commands_key(VK_RETURN) && application_commands_submit(clock_monotonic_milliseconds()) &&
+        check(application_commands_key(key::enter) && application_commands_submit(clock_monotonic_milliseconds()) &&
               operation == 2 && payload_contains(utf8_literal("\"value\":\"picked value\"")),
               "accepted dynamic choice is execution data rather than another autocomplete request");
         respond(204);
 
-        edit(utf8_literal("/echo")); application_commands_key(VK_RETURN);
+        edit(utf8_literal("/echo")); application_commands_key(key::enter);
         const u32 unchanged = calls;
         check(utf8_equal(message_composer_text(composer), utf8_literal("/echo text:\xE2\x81\xA3")) &&
-                  application_commands_key(VK_RETURN) && composer.bytes && calls == unchanged &&
+                  application_commands_key(key::enter) && composer.bytes && calls == unchanged &&
                   g_app.message_composer_scene.command_bar_error &&
                   utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene),
                              utf8_literal("text")) &&
@@ -930,20 +931,20 @@ void run() noexcept {
                     const u32 n = g_app.popup_scene.selected_index;
                     return n < g_app.popup_scene.item_count ? &g_app.popup_scene.items[n] : nullptr;
                 };
-                check(application_commands_key(VK_LEFT) && selected_item() &&
+                check(application_commands_key(key::left) && selected_item() &&
                           (selected_item()->flags & popup_item_command_category) &&
                           utf8_equal(selected_item()->label, utf8_literal("Frequently Used")),
                       "Left moves the keyboard into the rail at the highlighted section");
-                check(application_commands_key(VK_DOWN) && selected_item() &&
-                          utf8_equal(selected_item()->label, utf8_literal("Other")) && application_commands_key(VK_UP) &&
-                          application_commands_key(VK_UP) && utf8_equal(selected_item()->label,
+                check(application_commands_key(key::down) && selected_item() &&
+                          utf8_equal(selected_item()->label, utf8_literal("Other")) && application_commands_key(key::up) &&
+                          application_commands_key(key::up) && utf8_equal(selected_item()->label,
                                                                          utf8_literal("Frequently Used")),
                       "Up and Down move through the rail and stop at its ends");
-                check(application_commands_key(VK_DOWN) && application_commands_key(VK_DOWN) &&
-                          application_commands_key(VK_RETURN) && selected_item() &&
+                check(application_commands_key(key::down) && application_commands_key(key::down) &&
+                          application_commands_key(key::enter) && selected_item() &&
                           utf8_equal(selected_item()->label, utf8_literal("Test")) &&
                           !section(utf8_literal("Frequently Used")) && section(utf8_literal("Test")) &&
-                          g_app.composer_menu_held_key == VK_RETURN,
+                          g_app.composer_menu_held_key == key::enter,
                       "Enter in the rail filters to the focused section and keeps the rail focus");
                 g_app.composer_menu_held_key = 0;
                 const auto first_row = [] noexcept {
@@ -953,12 +954,12 @@ void run() noexcept {
                             return g_app.popup_scene.items[i].action;
                     return 0u;
                 };
-                check(application_commands_key(VK_RIGHT) && first_row() &&
+                check(application_commands_key(key::right) && first_row() &&
                           popup_scene_selected_action(g_app.popup_scene) == first_row(),
                       "Right returns to the list at the section's first row");
-                check(application_commands_key(VK_LEFT) && application_commands_key(VK_ESCAPE) &&
+                check(application_commands_key(key::left) && application_commands_key(key::escape) &&
                           popup_scene_selected_action(g_app.popup_scene) == first_row() &&
-                          !application_commands_key(VK_ESCAPE),
+                          !application_commands_key(key::escape),
                       "Escape leaves the rail first and only then belongs to the popup");
                 application_commands_activate(app_action);
             }
@@ -974,7 +975,7 @@ void run() noexcept {
             for (u32 use = 0; use < 5; ++use) {
                 edit(utf8_literal("/shrug"));
                 bool shrug_handled = false;
-                check(application_commands_key(VK_RETURN) && application_commands_send(&shrug_handled),
+                check(application_commands_key(key::enter) && application_commands_send(&shrug_handled),
                       "built-in use: send");
             }
             edit(utf8_literal("/"));

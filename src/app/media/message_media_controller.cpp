@@ -399,7 +399,7 @@ void message_media_controller_release(MessageMediaController* controller) noexce
         stable_storage_release(&controller->owned_asset_marks);
         stable_storage_release(&controller->owned_rows);
         if (controller->emoji_memo)
-            VirtualFree(controller->emoji_memo, 0, MEM_RELEASE);
+            pages_release(controller->emoji_memo);
     }
     reset_value<MessageMediaController>(controller);
 }

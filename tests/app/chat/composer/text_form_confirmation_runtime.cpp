@@ -6,6 +6,7 @@
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;
@@ -153,7 +154,7 @@ void locked_progress_lifecycle() noexcept {
     check(cancel &&
               application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, cancel_point, &result) &&
               form->pointer_button.generation &&
-              application_text_form_input(UiInputKind::key_down, VK_SPACE, false) &&
+              application_text_form_input(UiInputKind::key_down, key::space, false) &&
               form->keyboard.pressed.manager == &form->scene.widgets,
           "locked async form: Cancel owns real pointer and Space press before progress changes");
     async_progress.editable = async_progress.can_accept = async_progress.can_cancel =
@@ -172,12 +173,12 @@ void locked_progress_lifecycle() noexcept {
     check(application_text_form_synchronize() && !form->dismissible,
           "locked async form: nondismissible flag restores without a synthetic revision change");
     check(application_text_form_window_message(WM_LBUTTONUP, 0, cancel_point, &result) &&
-              application_text_form_input(UiInputKind::key_up, VK_SPACE, false) &&
+              application_text_form_input(UiInputKind::key_up, key::space, false) &&
               g_app.text_form == form && !text_form_focus(&form->scene, TextFormElement::cancel) &&
               seen.saves == initial_saves,
           "locked async form: disabled Cancel click and old Space release cannot dismiss or accept");
-    check(application_text_form_input(UiInputKind::key_down, VK_ESCAPE, false) && g_app.text_form == form &&
-              application_text_form_input(UiInputKind::key_up, VK_ESCAPE, false) &&
+    check(application_text_form_input(UiInputKind::key_down, key::escape, false) && g_app.text_form == form &&
+              application_text_form_input(UiInputKind::key_up, key::escape, false) &&
               application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) &&
               application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) &&
               g_app.text_form == form && closed_owners == initial_closed && seen.saves == initial_saves,
@@ -207,7 +208,7 @@ void locked_progress_lifecycle() noexcept {
     ++async_progress.revision;
     check(application_text_form_synchronize() && g_app.text_form == form &&
               text_form_focused(form->scene) == TextFormElement::accept && !form->can_cancel &&
-              !form->dismissible && application_text_form_input(UiInputKind::key_down, VK_SPACE, false),
+              !form->dismissible && application_text_form_input(UiInputKind::key_down, key::space, false),
           "locked async form: retry failure enables only Accept and preserves nondismissible ownership");
     async_progress.can_accept = false;
     ++async_progress.revision;
@@ -216,22 +217,22 @@ void locked_progress_lifecycle() noexcept {
     async_progress.can_accept = true;
     ++async_progress.revision;
     check(application_text_form_synchronize() &&
-              application_text_form_input(UiInputKind::key_up, VK_SPACE, false) &&
-              application_text_form_input(UiInputKind::key_down, VK_RETURN, true) &&
+              application_text_form_input(UiInputKind::key_up, key::space, false) &&
+              application_text_form_input(UiInputKind::key_down, key::enter, true) &&
               seen.saves == initial_saves && g_app.text_form == form,
           "locked async form: old Space release and held repeated Return do not activate newly reenabled "
           "Retry");
-    tail(VK_RETURN);
-    check(application_text_form_input(UiInputKind::key_down, VK_RETURN, false) && g_app.text_form == form &&
+    tail(key::enter);
+    check(application_text_form_input(UiInputKind::key_down, key::enter, false) && g_app.text_form == form &&
               seen.saves == initial_saves + 1 &&
-              application_text_form_input(UiInputKind::key_down, VK_RETURN, true) &&
+              application_text_form_input(UiInputKind::key_down, key::enter, true) &&
               seen.saves == initial_saves + 1,
           "locked async form: fresh Retry activates once and held Return cannot duplicate pending work");
-    tail(VK_RETURN);
-    check(application_text_form_input(UiInputKind::key_down, VK_RETURN, false) &&
+    tail(key::enter);
+    check(application_text_form_input(UiInputKind::key_down, key::enter, false) &&
               seen.saves == initial_saves + 2 && g_app.text_form == form,
           "locked async form: deliberate Retry after a fresh key-up can activate again");
-    tail(VK_RETURN);
+    tail(key::enter);
     seen.owner_valid = false;
     check(application_text_form_synchronize() && !g_app.text_form && closed_owners == initial_closed + 1,
           "locked async form: stale callback validity retires nondismissible owner unconditionally");
@@ -305,8 +306,8 @@ void startup_recovery_lifecycle() noexcept {
               "startup recovery: bounded renderer font cache shares modal allocation and borrows no "
               "account storage");
         LRESULT result = 0;
-        check(application_text_form_input(UiInputKind::key_down, VK_ESCAPE, false) &&
-                  application_text_form_input(UiInputKind::key_up, VK_ESCAPE, false) &&
+        check(application_text_form_input(UiInputKind::key_down, key::escape, false) &&
+                  application_text_form_input(UiInputKind::key_up, key::escape, false) &&
                   application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) &&
                   application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) &&
                   application_text_form_window_message(WM_KILLFOCUS, 0, 0, &result) &&
@@ -342,12 +343,12 @@ void startup_recovery_lifecycle() noexcept {
               "startup recovery: every actual font change invalidates private measurements, not only "
               "the first observation of a compact token");
         seen.save_ok = false;
-        check(application_text_form_input(UiInputKind::key_down, VK_RETURN, false) &&
-                  application_text_form_input(UiInputKind::key_down, VK_RETURN, true) &&
+        check(application_text_form_input(UiInputKind::key_down, key::enter, false) &&
+                  application_text_form_input(UiInputKind::key_down, key::enter, true) &&
                   seen.saves == saves + 1 && g_app.text_form == form && !g_app.account_ui,
               "startup recovery: deliberate Retry invokes exact owner once while repeated Return remains "
               "blocked");
-        tail(VK_RETURN);
+        tail(key::enter);
         seen.owner_valid = false;
         check(application_text_form_synchronize() && !g_app.text_form && closed_owners == closures + 1 &&
                   !g_app.account_ui && !g_app.renderer.text_form,
@@ -436,26 +437,26 @@ void run() noexcept {
               !seen.measurements,
           "confirmation: unbounded tick has no editor blink or native text work");
     void* owner = g_app.text_form;
-    check(application_text_form_input(UiInputKind::key_down, VK_RETURN, false) && !g_app.text_form &&
+    check(application_text_form_input(UiInputKind::key_down, key::enter, false) && !g_app.text_form &&
               !seen.saves && freed(owner),
           "confirmation: default Enter cancels safely and releases both retained scene and modal owner");
-    tail(VK_RETURN);
+    tail(key::enter);
     seen.save_ok = false;
     check(application_text_form_open(request()) &&
-              application_text_form_input(UiInputKind::key_down, VK_TAB, false) && g_app.text_form &&
+              application_text_form_input(UiInputKind::key_down, key::tab, false) && g_app.text_form &&
               text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
-              application_text_form_input(UiInputKind::key_down, VK_RETURN, false) && g_app.text_form &&
+              application_text_form_input(UiInputKind::key_down, key::enter, false) && g_app.text_form &&
               seen.saves == 1 && g_app.text_form->status.bytes &&
-              application_text_form_input(UiInputKind::key_down, VK_RETURN, true) && seen.saves == 1,
+              application_text_form_input(UiInputKind::key_down, key::enter, true) && seen.saves == 1,
           "confirmation: Tab reaches Accept, failed semantic action retains error and repeated Enter "
           "cannot duplicate submission");
-    tail(VK_RETURN);
+    tail(key::enter);
     seen.save_ok = true;
-    check(application_text_form_input(UiInputKind::key_down, VK_RETURN, false) && !g_app.text_form &&
+    check(application_text_form_input(UiInputKind::key_down, key::enter, false) && !g_app.text_form &&
               seen.saves == 2,
           "confirmation: deliberate Retry accepts empty semantic callback and closes without editor "
           "resources");
-    tail(VK_RETURN);
+    tail(key::enter);
     // An information dialog: read-only text under its label and Accept alone. The text gets no editor,
     // caret, native text store or focus; Escape dismisses it without accepting.
     auto info = request();
@@ -494,19 +495,19 @@ void run() noexcept {
         check(detail && application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
                   application_text_form_window_message(WM_LBUTTONUP, 0, point, &result) && g_app.text_form &&
                   application_text_form_input(UiInputKind::character, 'x', false) &&
-                  application_text_form_input(UiInputKind::key_down, VK_TAB, false) && g_app.text_form &&
+                  application_text_form_input(UiInputKind::key_down, key::tab, false) && g_app.text_form &&
                   text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
                   !g_app.text_form->caret_visible && seen.saves == info_saves && untouched(),
               "info dialog: clicking or typing on the read-only text edits nothing and Tab stays on Close");
     }
-    check(application_text_form_input(UiInputKind::key_down, VK_ESCAPE, false) && !g_app.text_form &&
+    check(application_text_form_input(UiInputKind::key_down, key::escape, false) && !g_app.text_form &&
               seen.saves == info_saves,
           "info dialog: Escape dismisses it without accepting");
-    tail(VK_ESCAPE);
-    check(application_text_form_open(info) && application_text_form_input(UiInputKind::key_down, VK_RETURN, false) &&
+    tail(key::escape);
+    check(application_text_form_open(info) && application_text_form_input(UiInputKind::key_down, key::enter, false) &&
               !g_app.text_form && seen.saves == info_saves + 1 && untouched(),
           "info dialog: Enter presses its only button");
-    tail(VK_RETURN);
+    tail(key::enter);
     check(application_text_form_open(request()), "confirmation: pointer-button fixture reopens");
     if (g_app.text_form) {
         const auto* node = text_form_node(g_app.text_form->scene, TextFormElement::accept);
@@ -543,11 +544,11 @@ void run() noexcept {
     const u32 saves_before = seen.saves;
     check(
         application_text_form_open(asynchronous) &&
-            application_text_form_input(UiInputKind::key_down, VK_TAB, false) &&
-            application_text_form_input(UiInputKind::key_down, VK_RETURN, false) && g_app.text_form &&
+            application_text_form_input(UiInputKind::key_down, key::tab, false) &&
+            application_text_form_input(UiInputKind::key_down, key::enter, false) && g_app.text_form &&
             seen.saves == saves_before + 1 && utf8_equal(g_app.text_form->status, async_progress.status),
         "async form: queued save retains exact owner and explicit host status without generic retry text");
-    tail(VK_RETURN);
+    tail(key::enter);
     async_progress.can_accept = false;
     ++async_progress.revision;
     check(application_text_form_synchronize() && g_app.text_form &&

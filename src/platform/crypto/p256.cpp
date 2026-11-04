@@ -1,18 +1,16 @@
-#include "maicord/platform/crypto/p256.hpp"
+#include "p256_internal.hpp"
 #include "maicord/platform/crypto/random.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 
 namespace maicord {
+using namespace p256_internal;
 namespace {
 struct Blob {
     BCRYPT_ECCKEY_BLOB header;
     u8 data[96];
 };
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 BCRYPT_ALG_HANDLE algorithm(P256Kind kind) noexcept {
     return kind == P256Kind::ecdh ? BCRYPT_ECDH_P256_ALG_HANDLE : BCRYPT_ECDSA_P256_ALG_HANDLE;
 }
@@ -20,38 +18,6 @@ ULONG magic(P256Kind kind, bool private_key) noexcept {
     return kind == P256Kind::ecdh
                ? (private_key ? BCRYPT_ECDH_PRIVATE_P256_MAGIC : BCRYPT_ECDH_PUBLIC_P256_MAGIC)
                : (private_key ? BCRYPT_ECDSA_PRIVATE_P256_MAGIC : BCRYPT_ECDSA_PUBLIC_P256_MAGIC);
-}
-bool scalar_valid(ConstSlice<u8> scalar) noexcept {
-    static constexpr u8 order[]{0xff, 0xff, 0xff, 0xff, 0,    0,    0,    0,    0xff, 0xff, 0xff,
-                         0xff, 0xff, 0xff, 0xff, 0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17,
-                         0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51};
-    u32 borrow = 0, nonzero = 0;
-    for (u32 i = 32; i != 0;) {
-        --i;
-        const u32 value = scalar.data[i];
-        nonzero |= value;
-        borrow = (value - order[i] - borrow) >> 31;
-    }
-    return nonzero && borrow;
-}
-bool public_valid(ConstSlice<u8> point) noexcept {
-    if (point.count != 65 || !byte_range_valid(point) || point.data[0] != 4)
-        return false;
-    u32 nonzero = 0;
-    for (u32 i = 1; i != 65; ++i)
-        nonzero |= point.data[i];
-    return nonzero != 0; // CNG validates curve membership and coordinate bounds.
-}
-P256Result destination(const P256Key& key, Slice<u8> output, u32 needed) noexcept {
-    if (!key.handle)
-        return {0, 0, P256Error::not_initialized};
-    if (!byte_range_valid({output.data, output.count}))
-        return {0, 0, P256Error::invalid_input};
-    if (output.count < needed)
-        return {0, 0, P256Error::output_capacity};
-    if (byte_ranges_overlap({output.data, needed}, bytes(key)))
-        return {0, 0, P256Error::invalid_input};
-    return {};
 }
 P256Result import(P256Key* key, P256Kind kind, ConstSlice<u8> point, ConstSlice<u8> scalar,
                   bool private_key) noexcept {

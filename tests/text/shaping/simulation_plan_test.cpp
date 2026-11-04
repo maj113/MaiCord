@@ -2,6 +2,7 @@
 #include "maicord/text/fonts/prepare.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u64 checks=0,glyphs=0,base_bytes=0,bold_bytes=0;u32 faces=0;
 void print(const char* s) noexcept{u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
@@ -61,4 +62,4 @@ bool run() noexcept {
     CHECK(!reader.left);return true;
 }
 }}
-extern "C" void maicord_simulation_plan_entry(){using namespace maicord;const bool ok=run();print("faces=");number(faces);print(" glyph_advances=");number(glyphs);print(" base_state_sum=");number(base_bytes);print(" bold_state_sum=");number(bold_bytes);print(" checks=");number(checks);print(ok?" PASS simulation plans\n":" FAIL simulation plans\n");ExitProcess(ok?0:1);}
+extern "C" void maicord_simulation_plan_entry(){using namespace maicord;const bool ok=run();print("faces=");number(faces);print(" glyph_advances=");number(glyphs);print(" base_state_sum=");number(base_bytes);print(" bold_state_sum=");number(bold_bytes);print(" checks=");number(checks);print(ok?" PASS simulation plans\n":" FAIL simulation plans\n");::maicord::test_process_exit(ok?0:1);}

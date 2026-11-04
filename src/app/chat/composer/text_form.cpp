@@ -21,6 +21,7 @@
 #include "../../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
@@ -474,7 +475,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         if (!ui_text_measure_cache_initialize(
                 &measurement->cache, {measurement->records, kTextFormElements * kUiTextMeasureCacheWays},
                 renderer_text_measure_backend, &g_app.renderer)) {
-            VirtualFree(form, 0, MEM_RELEASE);
+            pages_release(form);
             renderer_release_login_form_text(&g_app.renderer);
             return false;
         }
@@ -531,7 +532,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         text_form_release(&form->scene);
         if (!request.confirmation_only)
             secure_edit_release(&form->edit);
-        VirtualFree(form, 0, MEM_RELEASE);
+        pages_release(form);
         if (request.login_owner)
             renderer_release_login_form_text(&g_app.renderer);
         return false;
@@ -569,8 +570,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         set_popup_owner(PopupOwnerKind::none);
     }
     g_app.text_form = form;
-    if (application_key_down(VK_RETURN))
-        g_app.text_form_held_key = VK_RETURN;
+    if (application_key_down(key::enter))
+        g_app.text_form_held_key = key::enter;
     g_app.context_focus = &form->scene.widgets;
     form->surface.scene = &form->scene;
     renderer_bind_text_form(&g_app.renderer, &form->surface);
@@ -615,10 +616,10 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     const auto forum_parent = form->request.forum_parent;
     const bool login_owner = form->request.login_owner;
     const bool composer = form->previous_composer_focus;
-    if (application_key_down(VK_RETURN))
-        g_app.text_form_held_key = VK_RETURN;
-    else if (application_key_down(VK_SPACE))
-        g_app.text_form_held_key = VK_SPACE;
+    if (application_key_down(key::enter))
+        g_app.text_form_held_key = key::enter;
+    else if (application_key_down(key::space))
+        g_app.text_form_held_key = key::space;
     g_app.text_form = nullptr;
     g_app.context_focus = nullptr;
     renderer_bind_text_form(&g_app.renderer, nullptr);
@@ -632,7 +633,7 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     if (!form->request.confirmation_only)
         secure_edit_release(&form->edit);
     SecureZeroMemory(form, sizeof(*form));
-    VirtualFree(form, 0, MEM_RELEASE);
+    pages_release(form);
     if (restore && previous.manager) {
         auto* manager = const_cast<UiWidgetManager*>(previous.manager);
         if (ui_widget_manager_focus(manager, previous.handle) ||
@@ -714,27 +715,27 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     if (!settle(form))
         return true;
     if (kind == UiInputKind::system_key_down)
-        return code != VK_F4 && code != VK_SPACE;
+        return code != key::f4 && code != key::space;
     if (kind == UiInputKind::system_character)
         return code != ' ';
     const bool ctrl = application_control_down();
     const bool shift = application_shift_down();
     const auto focused = text_form_focused(form->scene);
-    if (kind == UiInputKind::key_down && code == VK_ESCAPE) {
+    if (kind == UiInputKind::key_down && code == key::escape) {
         g_app.text_form_held_key = code;
         if (user_dismissible(*form))
             application_text_form_close();
         return true;
     }
-    if (kind == UiInputKind::key_down && code == VK_TAB) {
+    if (kind == UiInputKind::key_down && code == key::tab) {
         if (text_form_move_focus(&form->scene, shift))
             focus_field(form, text_form_focused(form->scene));
         return true;
     }
     if (focused != TextFormElement::edit || form->request.confirmation_only || !form->editable) {
         if (kind == UiInputKind::key_down || kind == UiInputKind::key_up) {
-            const auto key = code == VK_RETURN  ? UiButtonKey::enter
-                             : code == VK_SPACE ? UiButtonKey::space
+            const auto key = code == key::enter  ? UiButtonKey::enter
+                             : code == key::space ? UiButtonKey::space
                                                 : UiButtonKey::other;
             const auto action = ui_button_keyboard_key(&form->keyboard, &form->scene.widgets, key,
                                                        kind == UiInputKind::key_down, repeated);
@@ -759,14 +760,14 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     }
     if (kind != UiInputKind::key_down)
         return true;
-    if (code == VK_RETURN && form->request.single_line) {
+    if (code == key::enter && form->request.single_line) {
         if (!repeated && !form->composition.active) {
             g_app.text_form_held_key = code;
             activate(form, TextFormElement::accept);
         }
         return true;
     }
-    if (ctrl && code == VK_RETURN) {
+    if (ctrl && code == key::enter) {
         if (!repeated) {
             g_app.text_form_held_key = code;
             activate(form, TextFormElement::accept);
@@ -800,26 +801,26 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     if (ctrl && code == 'V')
         return paste_clipboard(form);
     switch (code) {
-    case VK_BACK:
+    case key::backspace:
         return apply(form, secure_edit_backspace(&form->edit, clock_monotonic_milliseconds()));
-    case VK_DELETE:
+    case key::del:
         return apply(form, secure_edit_delete_forward(&form->edit, clock_monotonic_milliseconds()));
-    case VK_LEFT:
+    case key::left:
         return apply(form, secure_edit_move(&form->edit, SecureEditMove::previous, shift));
-    case VK_RIGHT:
+    case key::right:
         return apply(form, secure_edit_move(&form->edit, SecureEditMove::next, shift));
-    case VK_HOME:
+    case key::home:
         return apply(
             form,
             secure_edit_move(&form->edit, ctrl ? SecureEditMove::home : SecureEditMove::line_home, shift));
-    case VK_END:
+    case key::end:
         return apply(form, secure_edit_move(&form->edit,
                                             ctrl ? SecureEditMove::end : SecureEditMove::line_end, shift));
-    case VK_UP:
-    case VK_DOWN: {
+    case key::up:
+    case key::down: {
         u32 position = 0;
         SecureEditUtf16Selection selection{};
-        if (text_edit_layout_move_vertical(form->surface.layout, code == VK_DOWN, &position) &&
+        if (text_edit_layout_move_vertical(form->surface.layout, code == key::down, &position) &&
             secure_edit_utf16_selection(form->edit, &selection) == SecureEditResult::unchanged) {
             if (!shift)
                 selection.anchor = position;

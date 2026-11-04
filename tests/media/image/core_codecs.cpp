@@ -10,6 +10,7 @@
 #include "../../fixtures/jpeg_cmyk_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 u8 g_png_encoded[17'000];
@@ -1479,8 +1480,7 @@ void test_animated_webp_lossless() noexcept {
 
     // An animation can exceed the still-frame budget while every frame remains small.
     // A valid trailing unknown RIFF chunk exercises whole-container byte boundaries.
-    auto* large = static_cast<u8*>(VirtualAlloc(nullptr, kAnimatedWebpEncodedMaximumBytes,
-                                               MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* large = static_cast<u8*>(pages_allocate(kAnimatedWebpEncodedMaximumBytes));
     expect(large != nullptr, "animated_webp_large_container_allocate");
     if (large) {
         copy_bytes(large, encoded, fixture.encoded_bytes);
@@ -1503,7 +1503,7 @@ void test_animated_webp_lossless() noexcept {
         expect(animated_webp_parse({large, kAnimatedWebpEncodedMaximumBytes + 1}, &animation,
                                    &animation_workspace).error == AnimatedWebpError::encoded_limit,
                "animated_webp_over_container_budget_rejected_before_read");
-        VirtualFree(large, 0, MEM_RELEASE);
+        pages_release(large);
     }
 
     bool prefixes_rejected = true;

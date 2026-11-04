@@ -288,6 +288,13 @@ add_test(NAME maicord_theme_literals COMMAND "${Python3_EXECUTABLE}" -B tools/ch
 add_test(NAME maicord_theme_example COMMAND "${Python3_EXECUTABLE}" -B tools/generate_theme_example.py --check
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(maicord_theme_literals maicord_theme_example PROPERTIES TIMEOUT 10)
+# HLSL cbuffer layouts agree between HLSL packing (fxc, the host structs) and std140 (the DXC -> SPIR-V -> GLSL ES
+# path of the Linux build), and the checker itself flags the known divergences.
+add_test(NAME maicord_cbuffer_layout COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME maicord_cbuffer_layout_self_test COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py --self-test
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+set_tests_properties(maicord_cbuffer_layout maicord_cbuffer_layout_self_test PROPERTIES TIMEOUT 10)
 add_test(NAME maicord_build_output_guard COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
     -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_output_guard.ps1")
 set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
@@ -547,7 +554,8 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
         tests/app/voice/dave/key_derivation.cpp tests/app/voice/mls/exporter.cpp tests/app/voice/mls/key_schedule.cpp tests/app/voice/mls/signature.cpp
         tests/app/voice/mls/hpke_derivation.cpp tests/app/voice/mls/hpke_context.cpp tests/app/voice/mls/hpke.cpp tests/protocol/voice/mls_objects.cpp
         tests/protocol/voice/mls_join_messages.cpp tests/app/voice/dave/key_package.cpp tests/app/voice/dave/welcome.cpp tests/app/voice/mls/dave_package_policy.cpp
-        tests/platform/crypto/p256.cpp tests/app/voice/dave/receive_epoch.cpp tests/app/voice/dave/receive_sender.cpp tests/voice_setup_entry.cpp
+        tests/platform/crypto/p256.cpp tests/platform/crypto/kdf_sha256.cpp tests/platform/crypto/random.cpp
+        tests/platform/crypto/hash_stream.cpp tests/app/voice/dave/receive_epoch.cpp tests/app/voice/dave/receive_sender.cpp tests/voice_setup_entry.cpp
         tests/app/voice/connection_setup.cpp tests/app/gateway/voice_control.cpp tests/app/account/account_session_identity.cpp
         tests/protocol/voice/gateway.cpp tests/protocol/voice/heartbeat.cpp tests/protocol/voice/session.cpp tests/platform/net/tls_stream_lifecycle.cpp
         tests/app/voice/socket.cpp tests/app/voice/connection.cpp tests/protocol/voice/media_events.cpp tests/app/voice/udp.cpp
@@ -1117,6 +1125,11 @@ maicord_test(MaiCordGlyphCapacityProbe ENTRY maicord_glyph_capacity_entry
 maicord_test(MaiCordShaderBytecodeProbe ENTRY maicord_shader_bytecode_probe_entry
     SOURCES tests/integration/shader_bytecode_probe.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 5 LABELS native-text-renderer gpu TEST maicord_shader_bytecode)
+# The ui quads scene through the draw pipeline's Direct3D 11 shaders against tests/gpu/golden/ui_quads.png, which the
+# OpenGL ES test of the Linux build (tests/gpu/ui_quads.cpp) also reproduces; tools/update_gpu_goldens.py renews it.
+maicord_test(MaiCordGpuUiQuadsProbe ENTRY maicord_gpu_ui_quads_windows_entry
+    SOURCES tests/gpu/ui_quads_windows.cpp
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_ui_quads)
 maicord_shader(MAICORD_GLYPH_LIST_VERTEX_HEADER maicord_glyph_list_vs.hpp vs_4_0 glyph_vertex
         g_maicord_glyph_list_vertex_shader src/render/shaders/glyph_draw.hlsl
         MAICORD_GLYPH_TRIANGLE_LIST_REFERENCE=1)
@@ -1304,6 +1317,19 @@ maicord_test(MaiCordGatewayEtfSessionTests ENTRY maicord_gateway_etf_session_ent
     BUNDLE MaiCordCoreUnitTests TEST maicord_gateway_etf_session)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/core/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
+# The Gpu* handle vocabulary (include/maicord/gpu): each handle is its D3D11 interface, GpuStatus an HRESULT.
+maicord_test(MaiCordGpuTypesTests ENTRY maicord_gpu_types_entry SOURCES tests/gpu/gpu_types.cpp
+    BUNDLE MaiCordCoreUnitTests TEST maicord_gpu_types)
+# The window vocabulary (include/maicord/platform/window): key numbering, event layout, headers compile.
+maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
+    SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
+# The neutral os layer (include/maicord/os): events, timers and waits, threads, and SRW lock contention.
+maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wait.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_wait)
+maicord_test(MaiCordOsThreadTests ENTRY maicord_os_thread_entry SOURCES tests/os/thread.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_thread)
+maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 # The inline TEB/PEB reads in core/win32_process.hpp against the public APIs, on two threads.
 maicord_test(MaiCordProcessAccessorTests ENTRY maicord_process_accessors_entry SOURCES tests/core/process_accessors.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_process_accessors)

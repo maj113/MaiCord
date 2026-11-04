@@ -21,6 +21,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -470,18 +471,18 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
     if (layer->choice) {
         if (kind != UiInputKind::key_down)
             return true;
-        if (key == VK_ESCAPE) {
+        if (key == key::escape) {
             layer->held_key = key;
             settings_layer_close_choice(layer);
             layer->hooks->choose(layer, 0);
             repaint(layer);
-        } else if (key == VK_UP || key == VK_DOWN || key == VK_TAB) {
+        } else if (key == key::up || key == key::down || key == key::tab) {
             bool changed = false;
-            popup_scene_move_selection(&g_app.popup_scene, key == VK_UP || (key == VK_TAB && shift) ? -1 : 1,
+            popup_scene_move_selection(&g_app.popup_scene, key == key::up || (key == key::tab && shift) ? -1 : 1,
                                        &changed);
             if (changed)
                 repaint(layer);
-        } else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) {
+        } else if ((key == key::enter || key == key::space) && !repeated) {
             const u32 action = popup_scene_selected_action(g_app.popup_scene);
             layer->held_key = key;
             settings_layer_close_choice(layer);
@@ -516,12 +517,12 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
     }
     if (kind != UiInputKind::key_down)
         return true;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         layer->held_key = key;
         layer->hooks->close(layer);
         return true;
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         layer->held_key = key;
         application_composer_text_input_suspend();
         const float before = scene->content_offset;
@@ -530,42 +531,42 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         glide_reveal(layer, before);
         return true;
     }
-    if (key == VK_RETURN && control && !repeated) {
+    if (key == key::enter && control && !repeated) {
         layer->held_key = key;
         settings_layer_activate_target(layer, {UiSettingsTargetKind::save, scene->selected_page, 0});
         return true;
     }
     if (!editing) {
         const auto focused = ui_settings_scene_focused(*scene);
-        if ((key == VK_RETURN || key == VK_SPACE) && !repeated) {
+        if ((key == key::enter || key == key::space) && !repeated) {
             layer->held_key = key;
             settings_layer_activate_target(layer, focused);
-        } else if (key == VK_UP || key == VK_DOWN) {
+        } else if (key == key::up || key == key::down) {
             const float before = scene->content_offset;
-            if (!ui_settings_scene_move_within(scene, key == VK_UP))
-                ui_settings_scene_move_focus(scene, key == VK_UP);
+            if (!ui_settings_scene_move_within(scene, key == key::up))
+                ui_settings_scene_move_focus(scene, key == key::up);
             settings_layer_focus(layer, ui_settings_scene_focused(*scene));
             glide_reveal(layer, before);
-        } else if (key == VK_LEFT || key == VK_RIGHT || key == VK_HOME || key == VK_END) {
+        } else if (key == key::left || key == key::right || key == key::home || key == key::end) {
             UiSettingsActivation activation{};
-            const auto step = key == VK_LEFT    ? UiSettingsSliderKey::decrease
-                              : key == VK_RIGHT ? UiSettingsSliderKey::increase
-                              : key == VK_HOME  ? UiSettingsSliderKey::home
+            const auto step = key == key::left    ? UiSettingsSliderKey::decrease
+                              : key == key::right ? UiSettingsSliderKey::increase
+                              : key == key::home  ? UiSettingsSliderKey::home
                                                 : UiSettingsSliderKey::end;
             if (ui_settings_scene_slider_key(*scene, focused, step, &activation))
                 dispatch(layer, activation, false, false);
-        } else if (key == VK_PRIOR || key == VK_NEXT) {
+        } else if (key == key::page_up || key == key::page_down) {
             glide_to(layer, false,
-                     scene->content_offset + (key == VK_PRIOR ? -1.f : 1.f) * ui_rect_height(scene->viewport) * .8f);
+                     scene->content_offset + (key == key::page_up ? -1.f : 1.f) * ui_rect_height(scene->viewport) * .8f);
         }
         return true;
     }
     const u32 revision = model->text_revision;
     const auto native_target = bounded_edit_input_target(binding);
-    const bool destructive = key == VK_BACK || key == VK_DELETE || (control && key == 'X');
+    const bool destructive = key == key::backspace || key == key::del || (control && key == 'X');
     const bool group = destructive && text_input_begin_group(native_target);
     auto result = MessageComposerResult::unchanged;
-    if (key == VK_RETURN) {
+    if (key == key::enter) {
         layer->held_key = key;
         if (group)
             text_input_end_group(native_target);
@@ -583,17 +584,17 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         if (paste_clipboard(layer))
             result = MessageComposerResult::changed;
     } else if (!message_composer_edit_key(model, key, control, shift, &result) &&
-               (key == VK_UP || key == VK_DOWN)) {
+               (key == key::up || key == key::down)) {
         if (group)
             text_input_end_group(native_target);
         if (!multiline) {
-            ui_settings_scene_move_focus(scene, key == VK_UP);
+            ui_settings_scene_move_focus(scene, key == key::up);
             settings_layer_focus(layer, ui_settings_scene_focused(*scene));
             return true;
         }
         const auto& edit_layout = g_app.renderer.media_picker_layout;
         select_point(layer, edit_layout.caret.left,
-                     edit_layout.caret.top + (key == VK_UP ? -.5f : 1.5f) * edit_layout.caret.height, shift);
+                     edit_layout.caret.top + (key == key::up ? -.5f : 1.5f) * edit_layout.caret.height, shift);
         return true;
     }
     if (group)

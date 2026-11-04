@@ -152,4 +152,4 @@ int run() noexcept {
     if(ok&&mode==OutlineMode::normal)ok=corpus({normal_fixture::tt_recovery_fixture,sizeof(normal_fixture::tt_recovery_fixture)});
     test_write_metric("fonts=",fonts);test_write_metric("outlines=",outlines);test_write_metric("commands=",command_checks);test_write_metric("bounds=",bound_checks);test_write_metric("budgets=",budgets);test_write_metric("invalid=",invalid);test_write_metric("vertical=",vertical_checks);test_write_line(ok?"PASS native instructed outlines":"FAIL native instructed outlines");return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_tt_outline_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_tt_outline_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

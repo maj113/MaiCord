@@ -13,7 +13,7 @@ struct Pages {
     u8* base = nullptr;
     ~Pages() noexcept {
         if (base)
-            VirtualFree(base, 0, MEM_RELEASE);
+            pages_release(base);
     }
     u8* allocate(u64 bytes) noexcept {
         base = bytes && bytes < 0x7fffffffull
@@ -104,7 +104,7 @@ bool store_preview_decode(ConstSlice<u8> png, u32 pixels, StorePreviewImage* out
 
 void store_preview_free(StorePreviewImage* image) noexcept {
     if (image->pixels)
-        VirtualFree(image->pixels, 0, MEM_RELEASE);
+        pages_release(image->pixels);
     *image = {};
 }
 

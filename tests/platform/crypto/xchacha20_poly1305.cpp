@@ -1,7 +1,7 @@
 #include "maicord/platform/crypto/xchacha20_poly1305.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/crypto.hpp"
+#include "../../support/test_sha256.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -89,13 +89,8 @@ void matrix(Check check, XChaChaBackend backend) noexcept {
         if (!key.storage.data)
             continue;
         const u8* retained_storage = key.storage.data;
-        BCRYPT_HASH_HANDLE hash = nullptr;
-        check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
-              "XChaCha oracle comparison hash initialization");
-        if (!hash) {
-            xchacha_release(&key);
-            continue;
-        }
+        TestSha256 hash;
+        test_sha256_begin(&hash);
         u32 counter = 0;
         for (u32 size : sizes) {
             for (u32 aad_size : aad_sizes) {
@@ -110,7 +105,7 @@ void matrix(Check check, XChaChaBackend backend) noexcept {
                                                  {packet, sizeof(packet)}, {packet + size, 16});
                 check(enc.ok() && enc.bytes == size && packet[size + 16] == 0xa5 && workspace_erased(key),
                       "XChaCha matrix in-place encryption, adjacent tag and workspace erasure");
-                check(BCryptHashData(hash, packet, size + 16, 0) >= 0, "XChaCha matrix digest update");
+                test_sha256_update(&hash, packet, size + 16);
                 const auto dec = xchacha_decrypt(key, {nonce, 24}, {aad, aad_size}, {packet, size},
                                                  {packet + size, 16}, {packet, sizeof(packet)});
                 check(
@@ -120,13 +115,12 @@ void matrix(Check check, XChaChaBackend backend) noexcept {
                     "XChaCha matrix in-place authenticated round trip retains only original key/workspace");
             }
         }
-        check(BCryptFinishHash(hash, digest, 32, 0) >= 0, "XChaCha matrix digest finish");
+        test_sha256_finish(&hash, digest);
         test_unhex(digests[k], expected);
         check(bytes_equal(digest, expected, 32),
               "XChaCha ciphertexts/tags match independent libsodium matrix");
         check(bytes_equal(key.storage.data + key.object_bytes, secret, 32),
               "XChaCha matrix original key unchanged");
-        BCryptDestroyHash(hash);
         xchacha_release(&key);
         check(!key.storage.data && !key.storage.locked && !key.storage.capacity && !key.object_bytes,
               "XChaCha releases all retained key storage");

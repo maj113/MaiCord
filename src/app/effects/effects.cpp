@@ -246,7 +246,7 @@ bool save_knob_file(const Loaded& l) noexcept {
 // ---- Loaded packages ---------------------------------------------------------------------------------------
 void release(Loaded& l) noexcept {
     if (l.file)
-        VirtualFree(l.file, 0, MEM_RELEASE);
+        pages_release(l.file);
     reset_value(&l);
 }
 
@@ -508,7 +508,7 @@ void load_library() noexcept {
         scan_folder(true, buffer, workspace.data);
     }
     if (buffer)
-        VirtualFree(buffer, 0, MEM_RELEASE);
+        pages_release(buffer);
     // Sorted by name.
     for (u32 i = 1; i < g.count; ++i)
         for (u32 j = i; j && name_before(g.entries[j], g.entries[j - 1]); --j) {
@@ -759,7 +759,7 @@ struct Textures {
 void free_textures(Textures& t) noexcept {
     for (auto*& memory : t.memory)
         if (memory) {
-            VirtualFree(memory, 0, MEM_RELEASE);
+            pages_release(memory);
             memory = nullptr;
         }
 }
@@ -797,7 +797,7 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
                 to[3] = image.color_type == 6 ? from[3] : 255;
             }
         if (scan)
-            VirtualFree(scan, 0, MEM_RELEASE);
+            pages_release(scan);
         spec->textures[i] = {textures->memory[i], static_cast<u16>(image.width), static_cast<u16>(image.height), false};
     }
     deflate_workspace_free(workspace);

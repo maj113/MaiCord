@@ -48,7 +48,7 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
     CloseHandle(file);
     if (!data || total != size.QuadPart) {
         if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
+            pages_release(data);
         release_picked(staged);
         return false;
     }
@@ -142,7 +142,7 @@ bool prepare_uri(Picked& picked) noexcept {
     request.info = &info;
     request.data_uri = {uri, kAccountProfileImageUriCapacity};
     if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
-        VirtualFree(uri, 0, MEM_RELEASE);
+        pages_release(uri);
         return false;
     }
     picked.uri = uri;

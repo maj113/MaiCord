@@ -19,6 +19,7 @@
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -297,7 +298,7 @@ bool ensure_owner() noexcept {
     poll_controller_initialize(&owner->controller);
     if (!ui_widget_manager_initialize(&owner->widgets, {owner->widget_storage, 1},
                                       {owner->layout_storage, 1})) {
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         owner = nullptr;
         return false;
     }
@@ -312,7 +313,7 @@ bool ensure_owner() noexcept {
                                              ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable,
                                              {utf8_literal("PollVoters"), style, {}, 1}});
     if (!root.ok()) {
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         owner = nullptr;
         return false;
     }
@@ -329,10 +330,10 @@ void free_owner() noexcept {
     renderer_bind_poll_voters_scene(&g_app.renderer, nullptr);
     for (auto* page : owner->pages)
         if (page)
-            VirtualFree(page, 0, MEM_RELEASE);
+            pages_release(page);
     if (owner->voter_cache)
-        VirtualFree(owner->voter_cache, 0, MEM_RELEASE);
-    VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner->voter_cache);
+    pages_release(owner);
     owner = nullptr;
 }
 // Copies a page with its user labels rebased onto the destination text.
@@ -1338,7 +1339,7 @@ bool application_poll_input(UiInputKind kind, u32 code, bool repeated) noexcept 
         return true;
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return false;
-    if (code == VK_ESCAPE) {
+    if (code == key::escape) {
         owner->held_key = code;
         if (voters)
             application_poll_voters_close();
@@ -1348,15 +1349,15 @@ bool application_poll_input(UiInputKind kind, u32 code, bool repeated) noexcept 
         return true;
     }
     UiPollKey key{};
-    if (code == VK_RETURN || code == VK_SPACE)
+    if (code == key::enter || code == key::space)
         key = UiPollKey::activate;
-    else if (code == VK_TAB || code == VK_DOWN || code == VK_RIGHT)
-        key = code == VK_TAB && application_shift_down() ? UiPollKey::previous : UiPollKey::next;
-    else if (code == VK_UP || code == VK_LEFT)
+    else if (code == key::tab || code == key::down || code == key::right)
+        key = code == key::tab && application_shift_down() ? UiPollKey::previous : UiPollKey::next;
+    else if (code == key::up || code == key::left)
         key = UiPollKey::previous;
-    else if (code == VK_HOME)
+    else if (code == key::home)
         key = UiPollKey::first;
-    else if (code == VK_END)
+    else if (code == key::end)
         key = UiPollKey::last;
     else
         return true;

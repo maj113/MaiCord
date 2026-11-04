@@ -261,7 +261,7 @@ void end_session() noexcept {
     if (s.theme_offered || s.theme_previewing)
         application_custom_theme_action(ApplicationCustomThemeAction::cancel);
     if (s.candidate)
-        VirtualFree(s.candidate, 0, MEM_RELEASE);
+        pages_release(s.candidate);
     const u64 revision = s.revision;
     reset_value(&s);
     s.revision = revision + 1;
@@ -299,7 +299,7 @@ DWORD WINAPI fetch_main(void*) noexcept {
         update_https_release(https);
     }
     if (https)
-        VirtualFree(https, 0, MEM_RELEASE);
+        pages_release(https);
     InterlockedExchange(&s.finished, 1);
     SetEvent(g.notify);
     return 0;

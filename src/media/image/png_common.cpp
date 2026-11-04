@@ -4,15 +4,45 @@
 
 #include "maicord/sys/simd.hpp"
 
+#if defined(_WIN32)
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
     unsigned long initial, const void* bytes, unsigned long count);
+#endif
 
 namespace maicord {
+#if defined(_WIN32)
 u32 png_crc32(const u8* bytes, u32 count) noexcept {
     // ntdll selects its CRC-32 implementation for the host CPU. PNG/APNG and
     // gzip use the same IEEE polynomial and an initial published CRC of zero.
     return count ? static_cast<u32>(RtlComputeCrc32(0, bytes, count)) : 0;
 }
+#else
+namespace {
+// The reflected IEEE polynomial's byte table, built at compile time.
+constexpr auto kCrcTable = [] {
+    struct Table {
+        u32 value[256];
+    } table{};
+    for (u32 byte = 0; byte < 256; ++byte) {
+        u32 crc = byte;
+        for (u32 bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+        table.value[byte] = crc;
+    }
+    return table;
+}();
+} // namespace
+
+// The CRC-32 ntdll's RtlComputeCrc32 returns for an initial value of zero: the zlib crc32 of the bytes.
+u32 png_crc32(const u8* bytes, u32 count) noexcept {
+    u32 crc = ~0u;
+    for (u32 index = 0; index < count; ++index) {
+        crc = kCrcTable.value[(crc ^ bytes[index]) & 0xFFu] ^ (crc >> 8);
+    }
+    return count ? ~crc : 0;
+}
+#endif
 
 bool png_format_channels(u8 color_type, u8 bit_depth, u8* channels) noexcept {
     switch (color_type) {

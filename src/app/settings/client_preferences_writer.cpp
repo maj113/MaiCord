@@ -5,6 +5,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord {
@@ -37,7 +38,7 @@ void release_writer(ClientPreferencesWriter* writer) noexcept {
     if (writer->thread) CloseHandle(writer->thread);
     if (writer->completion_event) CloseHandle(writer->completion_event);
     if (writer->work_event) CloseHandle(writer->work_event);
-    HeapFree(process_heap(), 0, writer);
+    heap_free(writer);
 }
 
 DWORD WINAPI write_preferences(void* context) noexcept {
@@ -82,7 +83,7 @@ bool client_preferences_writer_create(ClientPreferencesWriter** output,
     if (path && (length == 0 || length + 4 >= kAccountProfileMaximumPathCharacters))
         return reject(ERROR_INVALID_PARAMETER);
     auto* writer = static_cast<ClientPreferencesWriter*>(
-        HeapAlloc(process_heap(), HEAP_ZERO_MEMORY, sizeof(ClientPreferencesWriter)));
+        heap_allocate(sizeof(ClientPreferencesWriter), true));
     if (!writer) return reject(ERROR_NOT_ENOUGH_MEMORY);
     writer->explicit_path = path != nullptr;
     for (u32 i = 0; i < length; ++i) writer->path[i] = path[i];

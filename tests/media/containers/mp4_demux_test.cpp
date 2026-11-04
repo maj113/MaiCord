@@ -7,6 +7,7 @@
 #include "../../../src/media/containers/mp4_demux_detail.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -1481,6 +1482,6 @@ int run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_mp4_tests_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run()));
+MAICORD_TEST_ENTRY(maicord_mp4_tests_entry) {
+    ::maicord::test_process_exit(static_cast<UINT>(maicord::run()));
 }

@@ -2,7 +2,8 @@
 #include "maicord/platform/crypto/aes_gcm.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/crypto.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_sha256.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -82,15 +83,12 @@ void matrix(Check check) noexcept {
     AesGcm64Key key{};
     AesGcmKey reference{};
     check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "GCM64 matrix key initialization");
-    check(aes_gcm_initialize(&reference, {secret, 16}).ok(), "GCM64 CNG reference key initialization");
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
-          "GCM64 independent matrix hash initialization");
-    if (!key.storage.data || !reference.handle || !hash) {
+    check(aes_gcm_initialize(&reference, {secret, 16}).ok(), "GCM64 native reference key initialization");
+    TestSha256 hash;
+    test_sha256_begin(&hash);
+    if (!key.storage.data || !reference.handle) {
         aes_gcm64_release(&key);
         aes_gcm_release(&reference);
-        if (hash)
-            BCryptDestroyHash(hash);
         return;
     }
     const auto* retained_storage = key.storage.data;
@@ -110,7 +108,7 @@ void matrix(Check check) noexcept {
             check(enc.ok() && enc.bytes == size && bytes_equal(packet, oracle, size + 8) &&
                       test_filled(packet + size + 8, sizeof(packet) - size - 8, 0xa5),
                   "GCM64 matches native ciphertext and truncated tag with untouched tail");
-            check(BCryptHashData(hash, packet, size + 8, 0) >= 0, "GCM64 matrix hash update");
+            test_sha256_update(&hash, packet, size + 8);
             memset(packet, 0xa5, sizeof(packet));
             const auto disjoint = aes_gcm64_encrypt(key, {nonce, 12}, {aad, aad_size}, {plain, size},
                                                     {packet, sizeof(packet)}, {packet + size, 8});
@@ -133,9 +131,9 @@ void matrix(Check check) noexcept {
                   "GCM64 operations retain the original locked owner without allocations");
         }
     }
-    check(BCryptFinishHash(hash, digest, 32, 0) >= 0 && bytes_equal(digest, expected_digest, 32),
+    test_sha256_finish(&hash, digest);
+    check(bytes_equal(digest, expected_digest, 32),
           "GCM64 780-case ciphertext/tag digest matches independent OpenSSL oracle");
-    BCryptDestroyHash(hash);
     aes_gcm64_release(&key);
     aes_gcm_release(&reference);
     check(!key.storage.data && !key.storage.locked && !key.storage.capacity,
@@ -242,19 +240,15 @@ void boundaries(Check check) noexcept {
                   .error == AeadError::invalid_input,
           "GCM64 rejects reading the key owner as payload");
     // Guard-page inputs expose any full-block read of a partial final block.
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
-    auto* pages = static_cast<u8*>(
-        VirtualAlloc(nullptr, info.dwPageSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    const usize page = pages_page_size();
+    auto* pages = static_cast<u8*>(pages_allocate(page * 2));
     check(pages != nullptr, "GCM64 guard allocation");
     if (pages) {
-        DWORD previous = 0;
-        const bool guarded =
-            VirtualProtect(pages + info.dwPageSize, info.dwPageSize, PAGE_NOACCESS, &previous) != 0;
+        const bool guarded = pages_protect(pages + page, page, PageAccess::none);
         check(guarded, "GCM64 guard protection");
         if (guarded) {
             for (u32 size = 0; size != 130; ++size) {
-                auto* tail = pages + info.dwPageSize - size;
+                auto* tail = pages + page - size;
                 ++nonce[11];
                 const auto enc = aes_gcm64_encrypt(key, {nonce, 12}, {tail, size}, {tail, size},
                                                    {output, 160}, {tag, 8});
@@ -270,7 +264,7 @@ void boundaries(Check check) noexcept {
             if (initialized) {
                 constexpr u32 guarded_sizes[]{1023, 1024, 1025, 2047, 2048, 2049};
                 for (u32 size : guarded_sizes) {
-                    auto* tail = pages + info.dwPageSize - size;
+                    auto* tail = pages + page - size;
                     ++nonce[11];
                     check(aes_gcm_encrypt(reference, {nonce, 12}, {aad, 33}, {plain, size},
                                           {expected, size}, {expected + size, 16})
@@ -302,7 +296,7 @@ void boundaries(Check check) noexcept {
             }
             aes_gcm_release(&reference);
         }
-        VirtualFree(pages, 0, MEM_RELEASE);
+        pages_release(pages, page * 2);
     }
     aes_gcm64_release(&key);
 }

@@ -149,7 +149,7 @@ AcceptanceRecordResult catalog_state_load(const wchar_t* path, CatalogState* sta
     auto result = acceptance_record_read(path, {record, kCatalogStateRecordBytes});
     if (result.error == RE::missing) result = {};
     else if (result.ok()) result = catalog_state_decode({record, kCatalogStateRecordBytes}, state);
-    VirtualFree(record, 0, MEM_RELEASE);
+    pages_release(record);
     if (!result.ok()) clear_bytes(state, sizeof(*state));
     return result;
 }
@@ -159,7 +159,7 @@ AcceptanceRecordResult catalog_state_save(const wchar_t* path, u32 path_characte
     if (!record) return fail(RE::invalid_input);
     auto result = catalog_state_encode(state, {record, kCatalogStateRecordBytes});
     if (result.ok()) result = acceptance_record_write(path, path_characters, {record, kCatalogStateRecordBytes});
-    VirtualFree(record, 0, MEM_RELEASE);
+    pages_release(record);
     return result;
 }
 

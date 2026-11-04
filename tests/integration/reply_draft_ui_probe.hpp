@@ -6,6 +6,7 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace reply_draft_probe_detail {
@@ -243,7 +244,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
     };
     if (!require(resize(1100, 760, 96) && reply_draft_ui_adapter_begin_reply(kReplyDraftProbeMessage) &&
         show(L"reply-draft-empty-ping-on-dark.bmp") && geometry(), 2)) return false;
-    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::reply_mention, VK_SPACE), 301) ||
+    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::reply_mention, key::space), 301) ||
         !require(!reply_draft_ui_adapter_reply().mention_reply_author, 302) ||
         !require(reply_draft_ui_adapter_select(kReplyDraftProbeChannelB) && !reply_draft_ui_adapter_reply().message_id, 303) ||
         !require(reply_draft_ui_adapter_select(kReplyDraftProbeChannelA), 304) ||
@@ -303,7 +304,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
     struct ReleaseExternal { MessageComposer& model; ~ReleaseExternal() noexcept { message_composer_release(&model); } } release_external{external};
     if (!message_composer_initialize(&external, {external_text, sizeof(external_text)})) return false;
     message_composer_reset(&external, kReplyDraftProbeChannelA, false);
-    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::edit, VK_ESCAPE) &&
+    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::edit, key::escape) &&
         !reply_draft_ui_adapter_reply().message_id && reply_draft_ui_adapter_begin_reply(kReplyDraftProbeOwnMessage) &&
         message_composer_insert_utf8(&external, utf8_literal("Independent producer caption")) == MessageComposerResult::changed &&
         !message_composer_controller_queue_send(controller, true, kReplyDraftProbeSelf, 1'759'667'480'000ull,
@@ -315,7 +316,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
         reply_draft_ui_adapter_deleted_menu() && show(L"reply-draft-queued-target-deleted-menu.bmp") &&
         utf8_equal(message_composer_text(*reply_draft_ui_adapter_composer()), draft), 9)) return false;
     reply_draft_ui_adapter_close_menu();
-    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::edit, VK_ESCAPE) &&
+    if (!require(reply_draft_ui_adapter_key(MessageComposerControl::edit, key::escape) &&
         reply_draft_ui_adapter_profile(true) &&
         utf8_equal(message_composer_text(*reply_draft_ui_adapter_composer()), utf8_literal("Second profile draft")) &&
         !reply_draft_ui_adapter_reply().message_id && reply_draft_ui_adapter_profile(false) &&

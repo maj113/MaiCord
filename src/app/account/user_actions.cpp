@@ -1025,8 +1025,8 @@ void application_user_actions_release() noexcept {
     application_text_form_cancel_owner(note_form_valid);
     speech_release(&g_state->speech);
     if (g_state->notes)
-        VirtualFree(g_state->notes, 0, MEM_RELEASE);
-    VirtualFree(g_state, 0, MEM_RELEASE);
+        pages_release(g_state->notes);
+    pages_release(g_state);
     g_state = nullptr;
 }
 } // namespace maicord::app_detail

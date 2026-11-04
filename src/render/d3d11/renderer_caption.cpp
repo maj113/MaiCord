@@ -445,7 +445,7 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
                                     Slice<u16>{caption->tooltip_line.clusters, kCaptionGlyphCapacity})) {
             if (caption) {
                 paint_stream_release(&caption->paint);
-                VirtualFree(caption, 0, MEM_RELEASE);
+                pages_release(caption);
             }
             return false;
         }
@@ -800,7 +800,7 @@ void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {
     shaped_text_reset(&caption->title_line.shape);
     shaped_text_reset(&caption->tooltip_line.shape);
     paint_stream_release(&caption->paint);
-    VirtualFree(caption, 0, MEM_RELEASE);
+    pages_release(caption);
     renderer->caption = nullptr;
 }
 

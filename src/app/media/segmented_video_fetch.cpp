@@ -126,7 +126,7 @@ bool progressive_video_fetch_begin_hls(ProgressiveVideoFetch* f, Utf8View manife
     u8 probe[kCdnMaximumTargetBytes];
     const u32 last = live ? minimum(3u, parsed.segments) - 1 : parsed.segments - 1;
     if (!write_target(*s, {probe, sizeof(probe)}, true, 0) || !write_target(*s, {probe, sizeof(probe)}, false, last)) {
-        VirtualFree(s, 0, MEM_RELEASE); return false;
+        pages_release(s); return false;
     }
     adopt(f, s, live ? (youtube?CdnHost::youtube_live:CdnHost::twitch_live) : soundcloud ? CdnHost::soundcloud_audio : vimeo ? CdnHost::vimeo_video : CdnHost::twitch_vod, audio);
     return true;
@@ -143,12 +143,12 @@ bool progressive_video_fetch_begin_segments(ProgressiveVideoFetch* f, Utf8View m
     Utf8View* views[]{&s->track.id, &s->track.initialization, &s->track.media};
     u32 used = 0;
     for (auto* view : views) {
-        if (!view->data || !view->bytes || view->bytes > sizeof(s->text) - used) { VirtualFree(s, 0, MEM_RELEASE); return false; }
+        if (!view->data || !view->bytes || view->bytes > sizeof(s->text) - used) { pages_release(s); return false; }
         copy_bytes(s->text + used, view->data, view->bytes); view->data = s->text + used; used += view->bytes;
     }
     u8 probe[kCdnMaximumTargetBytes];
     if (!write_target(*s, {probe, sizeof(probe)}, true, 0) || !write_target(*s, {probe, sizeof(probe)}, false, track.segment_count - 1)) {
-        VirtualFree(s, 0, MEM_RELEASE); return false;
+        pages_release(s); return false;
     }
     adopt(f, s, CdnHost::steam_video, audio);
     return true;
@@ -251,7 +251,7 @@ void segmented_video_retire(ProgressiveVideoFetch* f) noexcept {
 void segmented_video_release(ProgressiveVideoFetch* f) noexcept {
     if (!f || !f->segmented) return;
     mp4_fragment_source_release(&f->fragment); mp4_segment_store_release(&f->segmented->store);
-    VirtualFree(f->segmented, 0, MEM_RELEASE); f->segmented = nullptr;
+    pages_release(f->segmented); f->segmented = nullptr;
 }
 Mp4DemuxError segmented_video_synchronize(ProgressiveVideoFetch* video, ProgressiveVideoFetch* audio) noexcept {
     using E = Mp4DemuxError;

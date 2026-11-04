@@ -107,28 +107,28 @@ bool wide_equal_text(const wchar_t* wide, const char* text) noexcept {
     return path_to_utf8(wide, converted, sizeof(converted)) != 0 && text_equal(converted, text);
 }
 
-// XDG_DATA_HOME is set (absolute): <it>/MaiCord, with the relative path's backslashes as slashes.
+// XDG_DATA_HOME is set (absolute): <it>/maicord, with the relative path's backslashes as slashes.
 void test_data_path_xdg() noexcept {
     wchar_t path[256]{};
     const DataPathResult plain = data_path(path, 256, nullptr);
-    expect(plain.ok() && wide_equal_text(path, "/maicord-xdg-test/data/MaiCord"), "data_path_xdg_data_home");
+    expect(plain.ok() && wide_equal_text(path, "/maicord-xdg-test/data/maicord"), "data_path_xdg_data_home");
     const DataPathResult nested = data_path(path, 256, L"plugin-data\\effect.bin");
-    expect(nested.ok() && wide_equal_text(path, "/maicord-xdg-test/data/MaiCord/plugin-data/effect.bin"),
+    expect(nested.ok() && wide_equal_text(path, "/maicord-xdg-test/data/maicord/plugin-data/effect.bin"),
            "data_path_xdg_relative_with_backslash");
     const DataPathResult tiny = data_path(path, 8, nullptr);
     expect(!tiny.ok() && tiny.error == DataPathError::path, "data_path_xdg_capacity");
     expect(profile_data_path(0x1fu, path, 256, L"accounts\\links-", L".trust") &&
-               wide_equal_text(path, "/maicord-xdg-test/data/MaiCord/accounts/links-000000000000001f.trust"),
+               wide_equal_text(path, "/maicord-xdg-test/data/maicord/accounts/links-000000000000001f.trust"),
            "data_path_xdg_profile_file");
     expect(!profile_data_path(0, path, 256, L"accounts\\links-", L".trust"), "data_path_xdg_profile_zero");
 }
 
-// XDG_DATA_HOME is unset: $HOME/.local/share/MaiCord.
+// XDG_DATA_HOME is unset: $HOME/.local/share/maicord.
 void test_data_path_home() noexcept {
     wchar_t path[256]{};
     const DataPathResult built = data_path(path, 256, L"logs/maicord.log");
     expect(environment_get("XDG_DATA_HOME") == nullptr && built.ok() &&
-               wide_equal_text(path, "/maicord-home-test/.local/share/MaiCord/logs/maicord.log"),
+               wide_equal_text(path, "/maicord-home-test/.local/share/maicord/logs/maicord.log"),
            "data_path_home_fallback");
 }
 
@@ -136,7 +136,7 @@ void test_data_path_home() noexcept {
 void test_data_path_relative_xdg() noexcept {
     wchar_t path[256]{};
     const DataPathResult built = data_path(path, 256, nullptr);
-    expect(built.ok() && wide_equal_text(path, "/maicord-home-test/.local/share/MaiCord"),
+    expect(built.ok() && wide_equal_text(path, "/maicord-home-test/.local/share/maicord"),
            "data_path_relative_xdg_ignored");
 }
 
@@ -166,7 +166,7 @@ void test_data_path_create() noexcept {
     expect(!syscall_failed(directory), "data_path_create_makes_parents");
     if (!syscall_failed(directory)) sys_close(static_cast<int>(directory));
     expect(data_path(path, 512, L"a\\b\\c.bin", true).ok(), "data_path_create_accepts_existing");
-    // Remove what was made: b, a and MaiCord (the profile directory is the harness's), then make MaiCord again.
+    // Remove what was made: b, a and maicord (the profile directory is the harness's), then make maicord again.
     for (u32 directories = 0; directories < 3; ++directories) {
         sys_remove_directory(text);
         end = 0;

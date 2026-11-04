@@ -1,5 +1,7 @@
 #include "maicord/text/fonts/fallback.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -27,19 +29,18 @@ bool guards() noexcept {
     const u16 end=65535;const NativeFallbackRange one{0,0,1};
     CHECK(native_fallback_cascade_open({&one,1},{&end,1},65536,&c)==SfntStatus::ok);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup {u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
-    CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
+    struct Cleanup {u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};CHECK(pages_protect(memory+page, page, PageAccess::none)&&pages_protect(memory+page*3, page, PageAccess::none));
     auto* guarded=reinterpret_cast<NativeFallbackRange*>(memory+page-sizeof(ranges));auto* guarded_tokens=reinterpret_cast<u16*>(memory+page*3-sizeof(tokens));
     copy_bytes(guarded,ranges,sizeof(ranges));copy_bytes(guarded_tokens,tokens,sizeof(tokens));
-    CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old)&&VirtualProtect(memory+page*2,page,PAGE_READONLY,&old));
+    CHECK(pages_protect(memory, page, PageAccess::read)&&pages_protect(memory+page*2, page, PageAccess::read));
     CHECK(native_fallback_cascade_open({guarded,4},{guarded_tokens,3},3,&c)==SfntStatus::ok);
     for(u32 scalar=0;scalar<102;++scalar)CHECK(native_fallback_cascade_find(c,scalar)==(scalar<100?0u:scalar-99));
     CHECK(native_fallback_cascade_find(c,0x10ffff)==3);
     return true;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_fallback_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_font_fallback_entry) {
     using namespace maicord;const bool ok=guards();
-    print(ok?"PASS native fallback cascade checks=":"FAIL native fallback cascade checks=");number(checks);print("\n");ExitProcess(ok?0:1);
+    print(ok?"PASS native fallback cascade checks=":"FAIL native fallback cascade checks=");number(checks);print("\n");::maicord::test_process_exit(ok?0:1);
 }

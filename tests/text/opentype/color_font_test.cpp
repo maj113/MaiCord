@@ -1,6 +1,7 @@
 #include "maicord/text/opentype/color_font.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -166,8 +167,8 @@ bool deferred_payloads() noexcept {
     return true;
 }
 bool guards() noexcept {
-    u8* memory=static_cast<u8*>(VirtualAlloc(nullptr,8192,MEM_RESERVE,PAGE_NOACCESS));if(!memory)return false;
-    if(!VirtualAlloc(memory,4096,MEM_COMMIT,PAGE_READWRITE)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    u8* memory=static_cast<u8*>(pages_reserve_no_access(8192));if(!memory)return false;
+    if(!pages_commit_at(memory, 4096)){pages_release(memory);return false;}
     bool ok=true;u32 random=0xc010f019;
     for(u32 i=0;i<20000 && ok;++i) {
         fixture();random^=random<<13;random^=random>>17;random^=random<<5;
@@ -185,7 +186,7 @@ bool guards() noexcept {
             }
         }
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 }
 bool color_font_tests() noexcept {return palettes_and_graphs() && paint_formats() && malformed() && deferred_payloads() && guards();}

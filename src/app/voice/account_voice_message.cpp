@@ -51,7 +51,7 @@ void free_preview(AccountVoiceMessage* v) noexcept {
     if (!v->preview_state)
         return;
     opus_decoder_release(&v->preview_state->decoder);
-    VirtualFree(v->preview_state, 0, MEM_RELEASE);
+    pages_release(v->preview_state);
     v->preview_state = nullptr;
 }
 void discard(AccountVoiceMessage* v) noexcept {

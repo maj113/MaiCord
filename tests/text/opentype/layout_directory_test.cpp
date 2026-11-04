@@ -1,6 +1,8 @@
 #include "maicord/text/opentype/layout_directory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 #include "../../generated/layout_directory_fixture.inc"
@@ -77,10 +79,10 @@ bool units() noexcept {
     const u32 lookup_at=static_cast<u32>(l.lookups.data-b)+byte_load_be16(l.lookups.data+4),extension_at=lookup_at+byte_load_be16(b+lookup_at+6),second_at=lookup_at+byte_load_be16(b+lookup_at+8);
     put(b,extension_at+2,7);if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&l)!=SfntStatus::ok || sfnt_layout_lookup(l,1,&lookup)!=SfntStatus::malformed || lookup.table.data)return false;
     put(b,extension_at+2,1);put(b,second_at+2,2);if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&l)!=SfntStatus::ok || sfnt_layout_lookup(l,1,&lookup)!=SfntStatus::malformed)return false;
-    auto* wide=static_cast<u8*>(VirtualAlloc(nullptr,70000,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!wide)return false;
+    auto* wide=static_cast<u8*>(pages_allocate(70000));if(!wide)return false;
     for(u32 i=0;i<size;++i)wide[i]=layout_directory_fixture[i];byte_store_be32(wide+extension_at+4,66000);put(wide,extension_at+66000,1);
     bool ok=sfnt_layout_open({wide,70000},SfntLayoutKind::substitution,&l)==SfntStatus::ok && sfnt_layout_lookup(l,1,&lookup)==SfntStatus::ok && sfnt_lookup_subtable(lookup,0,&sub)==SfntStatus::ok && sub.data==wide+extension_at+66000;
-    VirtualFree(wide,0,MEM_RELEASE);
+    pages_release(wide);
     const u8 empty[]{0,1,0,0,0,10,0,10,0,10,0,0};
     ok=ok && sfnt_layout_open({empty,sizeof(empty)},SfntLayoutKind::positioning,&l)==SfntStatus::ok && !l.script_count && !l.feature_count && !l.lookup_count &&
        sfnt_layout_find_script(l,sfnt_tag('D','F','L','T'),&index)==SfntStatus::missing_table && sfnt_layout_variation_select(l,{},&selected,&record,0)==SfntStatus::ok && record==sfnt_no_variation_record;
@@ -98,7 +100,7 @@ bool units() noexcept {
 }
 bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;constexpr u32 seed_size=sizeof(layout_directory_fixture);if(seed_size>page)return false;
-    auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     u32 random=0x52a2b783;for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i<=seed_size?i:random%(seed_size+1);u8* b=mem+page-size;
         for(u32 j=0;j<size;++j)b[j]=layout_directory_fixture[j];if(i>seed_size && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
         SfntLayout l{};if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&l)!=SfntStatus::ok)continue;
@@ -109,7 +111,7 @@ bool guards() noexcept {
         for(u16 j=0;j<l.lookup_count;++j){SfntLookup lkp{};if(sfnt_layout_lookup(l,j,&lkp)!=SfntStatus::ok)continue;for(u16 k=0;k<lkp.subtable_count;++k){ConstSlice<u8> payload{};observe(sfnt_lookup_subtable(lkp,k,&payload));}}
         i16 coords[]{0,0};SfntFeatureSubstitutions substitutions{};u32 record=0;const auto vs=sfnt_layout_variation_select(l,{coords,2},&substitutions,&record,1000);observe(vs);if(vs==SfntStatus::ok)for(u16 j=0;j<l.feature_count;++j){u32 tag=0;SfntFeature f{};observe(sfnt_layout_feature(l,j,substitutions,&tag,&f));}
     }
-    VirtualFree(mem,0,MEM_RELEASE);return true;
+    pages_release(mem);return true;
 }
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
@@ -160,4 +162,4 @@ int run() noexcept {
     print(utf8_literal("PASS native layout directory\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_layout_directory_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_layout_directory_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

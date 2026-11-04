@@ -208,7 +208,7 @@ void forum_free() noexcept {
         return;
     if (forum_owner->flight.attachment_bank) {
         secure_clear_bytes(forum_owner->flight.attachment_bank, forum_owner->flight.attachment_bank_bytes);
-        VirtualFree(forum_owner->flight.attachment_bank, 0, MEM_RELEASE);
+        pages_release(forum_owner->flight.attachment_bank);
     }
     owner_release(forum_owner);
 }
@@ -228,7 +228,7 @@ struct ForumPin {
 struct ForumFlightBank {
     u8* data;
     u32 bytes;
-    ~ForumFlightBank() noexcept { if (data) { secure_clear_bytes(data, bytes); VirtualFree(data, 0, MEM_RELEASE); } }
+    ~ForumFlightBank() noexcept { if (data) { secure_clear_bytes(data, bytes); pages_release(data); } }
 };
 bool forum_metadata_fresh(const ForumOwner& owner) noexcept {
     return owner.metadata_ready && forum_parent_authority_current(owner.source.parent, owner.metadata_parent_authority) &&
@@ -734,7 +734,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
             u32 count{};
             if (!admitted.attachment_bank || !message_attachment_storage_write(request.attachments, {admitted.attachment_bank, bytes}, {owner.prepared_sizes, request.attachments.count}) ||
                 !message_attachment_storage_read({admitted.attachment_bank, bytes}, {admitted.attachment_views, kAttachmentUploadMaximumCount}, &count)) {
-                if (admitted.attachment_bank) VirtualFree(admitted.attachment_bank, 0, MEM_RELEASE);
+                if (admitted.attachment_bank) pages_release(admitted.attachment_bank);
                 forum_fail(owner, utf8_literal("Couldn't prepare attachments. Try again.")); return false;
             }
             admitted.request.attachments = {admitted.attachment_views, count};
@@ -746,7 +746,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
     }
     const auto result = g_app.account.api.forum_post(g_app.account.instance, &admitted.request, id);
     if (!result.ok()) {
-        if (admitted.attachment_bank) { secure_clear_bytes(admitted.attachment_bank, admitted.attachment_bank_bytes); VirtualFree(admitted.attachment_bank, 0, MEM_RELEASE); }
+        if (admitted.attachment_bank) { secure_clear_bytes(admitted.attachment_bank, admitted.attachment_bank_bytes); pages_release(admitted.attachment_bank); }
         if (operation == ForumOperation::attachment_url) application_forum_attachments_url_unadmitted(forum_ticket(owner), attachment_id);
         if (owner.serial != admitted.serial || owner.retired)
             return false;

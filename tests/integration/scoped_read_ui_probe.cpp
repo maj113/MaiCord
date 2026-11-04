@@ -34,6 +34,7 @@
 #include "../../src/render/d3d11/renderer_layout.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord::app_detail {
@@ -568,7 +569,7 @@ LRESULT CALLBACK window_message(HWND window, UINT message, WPARAM wparam, LPARAM
                                                      {x, y, x + 1, y + 1});
     }
     if (message == WM_KEYDOWN) {
-        if (wparam == VK_APPS) {
+        if (wparam == key::menu) {
             const bool guild = g_app.context_focus == &g_app.guild_rail_scene.widgets;
             const auto kind = guild ? ReadScopeKind::guild : ReadScopeKind::category;
             const auto id = guild ? g_app.guild_rail_scene.focused_guild_id
@@ -576,14 +577,14 @@ LRESULT CALLBACK window_message(HWND window, UINT message, WPARAM wparam, LPARAM
             return application_scoped_read_menu_open(kind, id, row_rectangle(kind, id));
         }
         if (g_app.popup_scene.active) {
-            if (wparam == VK_ESCAPE)
+            if (wparam == key::escape)
                 return dismiss_popup();
-            if (wparam == VK_UP || wparam == VK_DOWN) {
+            if (wparam == key::up || wparam == key::down) {
                 bool changed{};
-                return popup_scene_move_selection(&g_app.popup_scene, wparam == VK_UP ? -1 : 1, &changed) &&
+                return popup_scene_move_selection(&g_app.popup_scene, wparam == key::up ? -1 : 1, &changed) &&
                        (!changed || project());
             }
-            if (wparam == VK_RETURN) {
+            if (wparam == key::enter) {
                 const u32 selected = popup_scene_selected_action(g_app.popup_scene);
                 return application_guild_menu_action(selected) ? application_guild_menu_activate(selected)
                                                                : application_scoped_read_menu_activate(selected);
@@ -646,7 +647,7 @@ bool menu(ReadScopeKind kind, u64 id, bool keyboard) noexcept {
             g_app.context_focus = &g_app.shell_navigation_scene.widgets;
         }
         g_app.keyboard_focus_visible = true;
-        SendMessageW(g_app.window, WM_KEYDOWN, VK_APPS, 0);
+        SendMessageW(g_app.window, WM_KEYDOWN, key::menu, 0);
     } else {
         g_app.keyboard_focus_visible = false;
         SendMessageW(g_app.window, WM_RBUTTONUP, 0, center(rectangle));
@@ -668,7 +669,7 @@ bool action(u32 action_id, bool keyboard) noexcept {
         if (!popup_scene_resolve_item_layout(popup, i, &layout) || !layout.visible)
             return fail_at(__LINE__);
         if (keyboard)
-            SendMessageW(g_app.window, WM_KEYDOWN, VK_RETURN, 0);
+            SendMessageW(g_app.window, WM_KEYDOWN, key::enter, 0);
         else {
             SendMessageW(g_app.window, WM_MOUSEMOVE, 0, center(layout.visible_rectangle));
             SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, center(layout.visible_rectangle));
@@ -1051,12 +1052,12 @@ bool server_menus() noexcept {
         !SCOPED_READ_REQUIRE(header_popout() && g_app.popup_scene.selected_index == 0, 404))
         return fail_at(__LINE__);
     for (u32 i = 0; i < 3; ++i)
-        SendMessageW(g_app.window, WM_KEYDOWN, VK_DOWN, 0);
-    SendMessageW(g_app.window, WM_KEYDOWN, VK_RETURN, 0);
+        SendMessageW(g_app.window, WM_KEYDOWN, key::down, 0);
+    SendMessageW(g_app.window, WM_KEYDOWN, key::enter, 0);
     if (!SCOPED_READ_REQUIRE(f.creations == 1 && f.creation_type == 4 && !g_app.popup_scene.active, 405) ||
         !application_guild_menu_toggle(true))
         return fail_at(__LINE__);
-    SendMessageW(g_app.window, WM_KEYDOWN, VK_ESCAPE, 0);
+    SendMessageW(g_app.window, WM_KEYDOWN, key::escape, 0);
     application_guild_menu_synchronize();
     if (!SCOPED_READ_REQUIRE(!g_app.popup_scene.active && !g_app.shell_scene.guild_menu_expanded, 406))
         return fail_at(__LINE__);

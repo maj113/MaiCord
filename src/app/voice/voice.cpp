@@ -20,6 +20,7 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
 #include "../account/account_ui_runtime.hpp"
 
@@ -228,7 +229,7 @@ void application_voice_pump() noexcept {
     refresh_view();
     application_voice_channels_pump();
     application_voice_settings_tick();
-    if (voice.save_pending && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
+    if (voice.save_pending && !(GetKeyState(key::lbutton) & 0x8000)) {
         voice.save_pending = false;
         save();
     }
@@ -453,7 +454,7 @@ bool application_voice_menu_activate(u32 action) noexcept {
 
 VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool press, u16 steps, u32* value) noexcept {
     const UiRect track = popup_feedback_slider(g_app.popup_scene);
-    if (!press && *dragging && !application_key_down(VK_LBUTTON)) {
+    if (!press && *dragging && !application_key_down(key::lbutton)) {
         *dragging = false;
         ReleaseCapture();
         return VolumeMenuPointer::handled;

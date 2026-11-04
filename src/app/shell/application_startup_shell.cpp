@@ -76,7 +76,7 @@ bool allocate_shell(StartupShellOwner& owner) noexcept {
 
 void release_shell(StartupShellOwner& owner) noexcept {
     if (owner.shell)
-        VirtualFree(owner.shell, 0, MEM_RELEASE);
+        pages_release(owner.shell);
     owner.shell = nullptr;
 }
 
@@ -101,7 +101,7 @@ void release_owner() noexcept {
     CloseThreadpoolWork(g_owner->work);
     startup_shell_key_release(&g_owner->key);
     release_shell(*g_owner);
-    VirtualFree(g_owner, 0, MEM_RELEASE);
+    pages_release(g_owner);
     g_owner = nullptr;
 }
 
@@ -156,7 +156,7 @@ void application_startup_shell_begin(const AccountPaths& paths, u64 profile_id) 
         return;
     owner->work = CreateThreadpoolWork(run, owner, nullptr);
     if (!owner->work) {
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         return;
     }
     copy_bytes(owner->path, paths.shell, (length + 1) * static_cast<u32>(sizeof(wchar_t)));

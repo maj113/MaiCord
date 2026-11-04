@@ -49,7 +49,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
 
 ### Linux (in progress)
 
-The Linux port builds the core library and its tests, nothing more yet. Run
+The Linux port builds the core library, the portable libraries (`protocol`, `model`, the `text` engine and `media`)
+and their tests, nothing more yet. Run
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build_linux.ps1 -Test` (or `tools/build_linux.sh
 --test` inside WSL): the script rsyncs the tree to ext4, builds with clang and ld.lld 23 into `~/mc-build`, runs
 `tools/audit_elf.py` on the images and the Linux tests, and empties the build directory afterwards (`--keep` /
@@ -57,6 +58,29 @@ The Linux port builds the core library and its tests, nothing more yet. Run
 `src/core/linux` and `include/maicord/sys/linux`; shared headers choose between the two with `#if defined(_WIN32)`
 and the Windows branch stays byte-for-byte the code it was. Shared code uses the portable wrappers in
 `include/maicord/core` (`intrinsics.hpp`, `virtual_memory.hpp`, `interlocked.hpp`) instead of MSVC intrinsics.
+
+The Win32 value vocabulary stays in shared code (`Interlocked*`, SRW locks, `LONG`/`DWORD`/`HANDLE`, `WAIT_*`,
+`ERROR_*`, `SecureZeroMemory`): the `win32_*.hpp` headers give Linux its twins from `include/maicord/os/linux`.
+Operations that mean different things on the two systems have neutral names in `include/maicord/os`: events,
+waitable timers and waits (`wait.hpp`: `Waitable`, `wait_any`, `wait_many`), threads, sleep and the processor count
+(`thread.hpp`). They are inline forwarders to the Win32 call on Windows (`os/windows/*.inl`) and out-of-line bodies in
+`src/os/linux` over futex, eventfd, timerfd, ppoll and pthread. Page-granular memory is `pages_*`
+(`core/virtual_memory.hpp`) and heap blocks are `heap_allocate`/`heap_free` (`core/heap.hpp`), never `VirtualAlloc`
+and `HeapAlloc` in shared code; a forwarder must compile to the same code (`python tools/compare_pe.py`), which is
+why a few call sites keep a Windows `#if` where a wrapper would change a stack frame. The millisecond tick is
+`CLOCK_BOOTTIME` and `clock_now` `CLOCK_MONOTONIC`. The Linux test registry (`cmake/linux_test_registry.cmake`)
+lists the library tests the Linux build runs; shared tests call a few Win32 file and console functions that
+`tests/support/win32_test_compat.hpp` supplies there.
+
+The GPU backend is chosen at compile time behind `include/maicord/gpu/api.hpp` (D3D11-shaped free functions over the
+`Gpu*` handles of `gpu.hpp`). On Linux it is OpenGL ES 3.1 over EGL, both opened with dlopen
+(`src/gpu/gles`, tests `tests/gpu`): a surfaceless Mesa context (or a pbuffer) per process, so the tests run on
+llvmpipe anywhere and on a GPU with the driver's own selection (on WSL `GALLIUM_DRIVER=d3d12`). Shaders stay HLSL:
+`tools/build_gles_shader_pack.py` turns the packed shaders of `cmake/generated_sources.cmake` into a deflate-packed
+GLSL ES 3.10 pack with DXC and SPIRV-Cross, both pinned in `tools/linux_shader_toolchain.json` and built or fetched
+into `~/.cache/maicord-toolchain` (`MAICORD_TOOLCHAIN_CACHE`) by `tools/fetch_linux_shader_toolchain.py`. A change to
+a shader or to the ui quads scene renews `tests/gpu/golden/ui_quads.png` from Direct3D 11 with
+`tools/update_gpu_goldens.py`; the Linux render must match it within the tolerance of `tests/gpu/ui_quads_scene.hpp`.
 
 ### The toolchain release
 
@@ -164,9 +188,13 @@ files instead of re-sorting the lists.
   changes with before/after numbers from [`tools/perf`](tools/perf/README.md).
 - UI colors, radii and spacing come from theme tokens;
   `tools/check_theme_literals.py` (part of the suite) rejects new literals.
+- HLSL constant buffers keep the layout their C++ struct has under HLSL packing, and the Linux build reads the same
+  buffers as std140 uniform blocks (a `float3` or `uint2` that straddles a register, or a `packoffset` gap, differs).
+  Wherever the two differ, name the bytes with scalars and the gaps with `_unused_` members inside
+  `#if defined(__spirv__)`; `tools/check_cbuffer_layout.py` (part of the suite) rejects a divergent cbuffer.
 - Public headers in `include/maicord/` document ownership and failure
   behavior; keep those comments accurate when behavior changes.
-- **Source layout.** Each module (`app`, `ui`, `render`, `protocol`, `model`,
+- **Source layout.** Each module (`app`, `ui`, `render`, `gpu`, `protocol`, `model`,
   `text`, `media`, `platform`) is split into topic folders, and
   `include/maicord/<module>/<folder>/` mirrors `src/<module>/<folder>/`. Put a
   new file in the folder of its feature; a header private to a module stays

@@ -72,8 +72,8 @@ bool reap(ApplicationForumAttachments& owner) noexcept {
     if (!picker || !upload) return false;
     const bool close = owner.close_window;
     message_attachment_drafts_release(&owner.drafts);
-    if (owner.receipt) { SecureZeroMemory(owner.receipt, owner.receipt_bytes); VirtualFree(owner.receipt, 0, MEM_RELEASE); }
-    SecureZeroMemory(&owner, sizeof(owner)); VirtualFree(&owner, 0, MEM_RELEASE); forum_attachments = nullptr;
+    if (owner.receipt) { SecureZeroMemory(owner.receipt, owner.receipt_bytes); pages_release(owner.receipt); }
+    SecureZeroMemory(&owner, sizeof(owner)); pages_release(&owner); forum_attachments = nullptr;
     if (close && g_app.window) PostMessageW(g_app.window, WM_CLOSE, 0, 0);
     return true;
 }
@@ -101,7 +101,7 @@ bool application_forum_attachments_begin(const ApplicationForumPostTicket& ticke
     if (forum_attachments) return source(*forum_attachments);
     auto* owner = static_cast<ApplicationForumAttachments*>(commit_pages(sizeof(ApplicationForumAttachments)));
     if (!owner) return false;
-    if (!message_attachment_drafts_initialize(&owner->drafts)) { VirtualFree(owner, 0, MEM_RELEASE); return false; }
+    if (!message_attachment_drafts_initialize(&owner->drafts)) { pages_release(owner); return false; }
     const auto* p = parent(ticket);
     owner->ticket = ticket; owner->instance = g_app.account.instance; owner->ui = g_app.account_ui;
     owner->scope = g_app.plugin_account_scope_serial; owner->profile = g_app.account.status.profile_id;

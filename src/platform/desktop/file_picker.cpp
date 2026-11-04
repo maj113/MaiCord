@@ -333,7 +333,7 @@ void destroy(NativeFilePicker* picker) noexcept {
         for (auto source : runtime->sources) upload_source_release(source);
         arena_reset(&runtime->paths, ArenaRewindMode::erase);
         arena_release(&runtime->paths);
-        SecureZeroMemory(runtime, sizeof(*runtime)); VirtualFree(runtime, 0, MEM_RELEASE);
+        SecureZeroMemory(runtime, sizeof(*runtime)); pages_release(runtime);
     }
     if (picker->thread) CloseHandle(picker->thread);
     if (picker->notification) CloseHandle(picker->notification);

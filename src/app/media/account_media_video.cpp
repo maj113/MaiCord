@@ -633,7 +633,7 @@ bool account_media_video_destroy(AccountMediaWorker* worker) noexcept {
     auto* v = worker->video_runtime;
     if (ReadAcquire(&v->selected_lane) >= 0 || v->session.workspace || v->session.initialized)
         return false;
-    if (!VirtualFree(v, 0, MEM_RELEASE))
+    if (!pages_release(v))
         return false;
     worker->video_runtime = nullptr;
     return true;

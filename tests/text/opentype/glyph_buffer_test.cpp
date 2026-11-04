@@ -1,5 +1,7 @@
 #include "maicord/text/opentype/glyph_buffer.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 struct Record {SfntGsubGlyph glyph;u32 source,color,flags;u64 provenance;};
@@ -71,12 +73,12 @@ bool streaming() noexcept {
     for(u32 i=0;i<n;++i)if(sfnt_glyph_at(view,i*2).glyph!=i || sfnt_glyph_at(view,i*2+1).glyph!=i+8192 || sfnt_glyph_at(view,i*2+1).glyph_class!=SfntGlyphClass::mark)return false;return true;
 }
 bool guards() noexcept {
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
     bool ok=true;Record replacement=make_record(17);
     for(u32 capacity=1;capacity<=32 && ok;++capacity){auto* b=memory+page-capacity*sizeof(Record);SfntGlyphBuffer buffer{};for(u32 i=0;i<capacity;++i)copy_bytes(b+i*sizeof(Record),&replacement,sizeof(Record));
         ok=sfnt_glyph_buffer_open({b,static_cast<u32>(capacity*sizeof(Record))},sizeof(Record),capacity,&buffer)==SfntStatus::ok;
         for(u32 start=0;start<capacity && ok;++start){const u32 consumed=start;SfntGlyphEdit edit{};ok=sfnt_glyph_buffer_seek(&buffer,start)==SfntStatus::ok && sfnt_glyph_buffer_replace(&buffer,start,{&consumed,1},{reinterpret_cast<const u8*>(&replacement),sizeof(replacement)},&edit)==SfntStatus::ok;}}
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 int run() noexcept {
     if(!failures()){print(utf8_literal("FAIL glyph buffer failure checks\n"));return 1;}
@@ -85,4 +87,4 @@ int run() noexcept {
     print(utf8_literal("edits="));number(edit_checks);print(utf8_literal("\nrecords="));number(record_checks);print(utf8_literal("\nboundaries="));number(boundary_checks);print(utf8_literal("\ngap_record_copies="));number(stream_moves);print(utf8_literal("\nflat_record_copies="));number(flat_moves);print(utf8_literal("\nPASS native glyph gap buffer\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_glyph_buffer_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_glyph_buffer_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

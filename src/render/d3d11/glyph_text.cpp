@@ -1033,7 +1033,7 @@ void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {
     if (owner->color) {
         colr_paint_gpu_release(&owner->color->gpu);
         arena_release(&owner->color->program.storage);
-        VirtualFree(owner->color, 0, MEM_RELEASE);
+        pages_release(owner->color);
         owner->color = nullptr;
     }
     glyph_atlas_gpu_release(&owner->gpu);

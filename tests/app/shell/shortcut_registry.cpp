@@ -5,6 +5,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
@@ -41,29 +42,29 @@ void test_precedence(Check check) noexcept {
     check(resolves(message, {'S', C}, A::save_attachment, A::sticker_picker) &&
               resolves(composer, {'S', C}, A::sticker_picker) && resolves(text, {'S', C}, A::sticker_picker),
           "shortcut precedence: Ctrl+S saves a focused message's attachment before the sticker picker");
-    check(resolves(composer, {VK_UP, 0}, A::edit_last_message) && resolves(typed, {VK_UP, 0}) &&
-              resolves(content, {VK_UP, 0}) && resolves(message, {VK_UP, 0}),
+    check(resolves(composer, {key::up, 0}, A::edit_last_message) && resolves(typed, {key::up, 0}) &&
+              resolves(content, {key::up, 0}) && resolves(message, {key::up, 0}),
           "shortcut precedence: Up edits the last message only from an empty composer");
-    check(resolves(content, {VK_ESCAPE, 0}, A::mark_channel_read) &&
-              resolves(composer, {VK_ESCAPE, H}, A::mark_server_read) && resolves(text, {VK_ESCAPE, 0}) &&
-              resolves(text, {VK_ESCAPE, H}),
+    check(resolves(content, {key::escape, 0}, A::mark_channel_read) &&
+              resolves(composer, {key::escape, H}, A::mark_server_read) && resolves(text, {key::escape, 0}) &&
+              resolves(text, {key::escape, H}),
           "shortcut precedence: Escape marks read outside other text fields");
     check(resolves(message, {'R', 0}, A::message_reply) && resolves(composer, {'R', 0}) &&
               resolves(content, {'E', 0}) && resolves(message, {'E', C}, A::emoji_picker) &&
-              resolves(message, {VK_ADD, 0}, A::message_react),
+              resolves(message, {key::add, 0}, A::message_react),
           "shortcut precedence: plain letters act only on a focused message, never while typing");
-    check(resolves(text, {VK_UP, L}, A::channel_previous) && resolves(text, {'K', C}, A::quick_switcher) &&
-              resolves(typed, {'M', C | H}, A::toggle_mute) && resolves(content, {VK_OEM_2, C}, A::shortcuts_help) &&
+    check(resolves(text, {key::up, L}, A::channel_previous) && resolves(text, {'K', C}, A::quick_switcher) &&
+              resolves(typed, {'M', C | H}, A::toggle_mute) && resolves(content, {key::slash, C}, A::shortcuts_help) &&
               resolves(content, {'K', C | L}) && shortcut_matches(A::search, {'F', C | H}) &&
               !shortcut_matches(A::search, {'F', C | L}),
           "shortcut precedence: global chords apply in every focus and need their exact modifiers");
-    check(navigation_shortcut(VK_UP, true, true, true).mode == NavigationMode::mention &&
-              navigation_shortcut(VK_DOWN, true, true, false).mode == NavigationMode::guild &&
+    check(navigation_shortcut(key::up, true, true, true).mode == NavigationMode::mention &&
+              navigation_shortcut(key::down, true, true, false).mode == NavigationMode::guild &&
               navigation_shortcut('K', true, false, false).mode == NavigationMode::none,
           "shortcut registry: navigation chords come from the registry");
-    check(label_is({'M', C | H}, utf8_literal("Ctrl+Shift+M")) && label_is({VK_OEM_2, C}, utf8_literal("Ctrl+/")) &&
-              label_is({VK_UP, L}, utf8_literal("Alt+\xE2\x86\x91")) && label_is({VK_F12, 0}, utf8_literal("F12")) &&
-              label_is({VK_NUMPAD5, C | L}, utf8_literal("Ctrl+Alt+Num 5")) &&
+    check(label_is({'M', C | H}, utf8_literal("Ctrl+Shift+M")) && label_is({key::slash, C}, utf8_literal("Ctrl+/")) &&
+              label_is({key::up, L}, utf8_literal("Alt+\xE2\x86\x91")) && label_is({key::f12, 0}, utf8_literal("F12")) &&
+              label_is({key::numpad5, C | L}, utf8_literal("Ctrl+Alt+Num 5")) &&
               label_is({0xE9, 0}, utf8_literal("Key 0xE9")) && label_is({}, {}),
           "shortcut labels: modifiers, arrows, function, numpad and unknown keys use the official wording");
 }
@@ -74,27 +75,27 @@ void test_recorder(Check check) noexcept {
     check(shortcut_recorder_input(&recorder, true, 'A', 0, &chord) == ShortcutRecordStep::ignored,
           "shortcut recorder: idle recorders ignore keys");
     shortcut_recorder_start(&recorder, ShortcutRecordMode::chord);
-    const bool chord_ok = shortcut_recorder_input(&recorder, true, VK_CONTROL, C, &chord) == ShortcutRecordStep::pending &&
-                          shortcut_recorder_input(&recorder, true, VK_SHIFT, C | H, &chord) == ShortcutRecordStep::pending &&
-                          shortcut_recorder_input(&recorder, false, VK_SHIFT, C, &chord) == ShortcutRecordStep::pending &&
+    const bool chord_ok = shortcut_recorder_input(&recorder, true, key::ctrl, C, &chord) == ShortcutRecordStep::pending &&
+                          shortcut_recorder_input(&recorder, true, key::shift, C | H, &chord) == ShortcutRecordStep::pending &&
+                          shortcut_recorder_input(&recorder, false, key::shift, C, &chord) == ShortcutRecordStep::pending &&
                           shortcut_recorder_input(&recorder, true, 'M', C | H | 0x80, &chord) == ShortcutRecordStep::recorded &&
                           chord.key == 'M' && chord.modifiers == (C | H) && !recorder.active;
     check(chord_ok, "shortcut recorder: chord mode waits past modifiers and records the combination");
     shortcut_recorder_start(&recorder, ShortcutRecordMode::chord);
-    const bool cancel = shortcut_recorder_input(&recorder, true, VK_ESCAPE, 0, &chord) == ShortcutRecordStep::cancelled &&
+    const bool cancel = shortcut_recorder_input(&recorder, true, key::escape, 0, &chord) == ShortcutRecordStep::cancelled &&
                         !recorder.active && chord.key == 'M';
     shortcut_recorder_start(&recorder, ShortcutRecordMode::chord);
-    const bool escape_chord = shortcut_recorder_input(&recorder, true, VK_ESCAPE, H, &chord) == ShortcutRecordStep::recorded &&
-                              chord.key == VK_ESCAPE && chord.modifiers == H;
+    const bool escape_chord = shortcut_recorder_input(&recorder, true, key::escape, H, &chord) == ShortcutRecordStep::recorded &&
+                              chord.key == key::escape && chord.modifiers == H;
     check(cancel && escape_chord, "shortcut recorder: Esc cancels, while Shift+Esc is a chord like any other");
     shortcut_recorder_start(&recorder, ShortcutRecordMode::single_key);
-    const bool single = shortcut_recorder_input(&recorder, true, VK_SHIFT, H, &chord) == ShortcutRecordStep::recorded &&
-                        chord.key == VK_SHIFT && chord.modifiers == 0;
+    const bool single = shortcut_recorder_input(&recorder, true, key::shift, H, &chord) == ShortcutRecordStep::recorded &&
+                        chord.key == key::shift && chord.modifiers == 0;
     shortcut_recorder_start(&recorder, ShortcutRecordMode::single_key);
-    const bool cleared = shortcut_recorder_input(&recorder, true, VK_BACK, 0, &chord) == ShortcutRecordStep::cleared;
+    const bool cleared = shortcut_recorder_input(&recorder, true, key::backspace, 0, &chord) == ShortcutRecordStep::cleared;
     shortcut_recorder_start(&recorder, ShortcutRecordMode::single_key);
-    const bool mouse = shortcut_recorder_input(&recorder, true, VK_XBUTTON1, 0, &chord) == ShortcutRecordStep::recorded &&
-                       chord.key == VK_XBUTTON1;
+    const bool mouse = shortcut_recorder_input(&recorder, true, key::xbutton1, 0, &chord) == ShortcutRecordStep::recorded &&
+                       chord.key == key::xbutton1;
     check(single && cleared && mouse,
           "shortcut recorder: push-to-talk mode takes the first key or mouse button; Backspace clears");
 }
@@ -108,21 +109,21 @@ void test_custom(Check check) noexcept {
         return !custom_keybinds_add(&keybinds, keybind, &error) && error == expected;
     };
     const bool added = custom_keybinds_add(&keybinds, {K::toggle_mute, {'M', C | L}}, &error) && error == E::none &&
-                       custom_keybinds_add(&keybinds, {K::toggle_deafen, {VK_F9, 0}}) && keybinds.count == 2;
+                       custom_keybinds_add(&keybinds, {K::toggle_deafen, {key::f9, 0}}) && keybinds.count == 2;
     check(added && rejects({K::toggle_deafen, {'M', C | L}}, E::duplicate) &&
               rejects({K::toggle_mute, {'M', C | H}}, E::reserved) && rejects({K::toggle_mute, {'M', H}}, E::needs_modifier) &&
-              rejects({K::toggle_mute, {'V', C}}, E::system) && rejects({K::toggle_mute, {VK_F4, L}}, E::system) &&
-              rejects({K::toggle_mute, {VK_LEFT, C | H}}, E::system) &&
-              custom_keybind_check(keybinds, {K::toggle_mute, {VK_LEFT, C | L}}) == E::none &&
+              rejects({K::toggle_mute, {'V', C}}, E::system) && rejects({K::toggle_mute, {key::f4, L}}, E::system) &&
+              rejects({K::toggle_mute, {key::left, C | H}}, E::system) &&
+              custom_keybind_check(keybinds, {K::toggle_mute, {key::left, C | L}}) == E::none &&
               rejects({K::toggle_mute, {'Q', 0}}, E::needs_modifier) && rejects({K::push_to_talk, {'Q', C}}, E::invalid) &&
-              rejects({K::toggle_mute, {VK_SHIFT, C}}, E::invalid) && rejects({K::toggle_mute, {}}, E::invalid) &&
+              rejects({K::toggle_mute, {key::shift, C}}, E::invalid) && rejects({K::toggle_mute, {}}, E::invalid) &&
               keybinds.count == 2,
           "custom keybinds: duplicates, built-in chords, typing keys and stored-elsewhere actions are refused");
-    check(custom_keybinds_find(keybinds, {VK_F9, 0}) == 1 && custom_keybinds_find(keybinds, {VK_F9, C}) == kCustomKeybindMaximum,
+    check(custom_keybinds_find(keybinds, {key::f9, 0}) == 1 && custom_keybinds_find(keybinds, {key::f9, C}) == kCustomKeybindMaximum,
           "custom keybinds: lookup matches exact chords");
-    for (u32 key = VK_F1; keybinds.count < kCustomKeybindMaximum; ++key)
+    for (u32 key = key::f1; keybinds.count < kCustomKeybindMaximum; ++key)
         custom_keybinds_add(&keybinds, {K::toggle_mute, {static_cast<u8>(key), C}});
-    check(rejects({K::toggle_mute, {VK_F10, 0}}, E::full), "custom keybinds: the list holds eight keybinds");
+    check(rejects({K::toggle_mute, {key::f10, 0}}, E::full), "custom keybinds: the list holds eight keybinds");
     const CustomKeybind second = keybinds.items[2];
     check(custom_keybinds_remove(&keybinds, 1) && keybinds.count == kCustomKeybindMaximum - 1 &&
               keybinds.items[1].chord.key == second.chord.key && !custom_keybinds_remove(&keybinds, 9),
@@ -172,14 +173,14 @@ void test_listing(Check check) noexcept {
             servers = i;
     }
     check(all > 20 && headers == static_cast<u32>(ShortcutGroup::count) && rows[0].header &&
-              servers < all && rows[servers].chords[0].key == VK_UP && rows[servers].chords[1].key == VK_DOWN,
+              servers < all && rows[servers].chords[0].key == key::up && rows[servers].chords[1].key == key::down,
           "shortcut overlay listing: grouped rows, with previous/next pairs merged");
     const u32 mute = shortcut_listing(utf8_literal("MUTE"), {rows, 64});
     check(mute == 2 && rows[0].header && rows[0].group == ShortcutGroup::voice &&
               utf8_equal(rows[1].label, utf8_literal("Toggle mute")),
           "shortcut overlay listing: search matches labels and keeps the group heading");
     const u32 alt_shift = shortcut_listing(utf8_literal("alt shift"), {rows, 64});
-    const bool quick = alt_shift == 3 && rows[1].chords[0].key == VK_UP && rows[1].chords[0].modifiers == (L | H) &&
+    const bool quick = alt_shift == 3 && rows[1].chords[0].key == key::up && rows[1].chords[0].modifiers == (L | H) &&
                        rows[2].chords[0].modifiers == (C | L | H);
     const u32 voice = shortcut_listing(utf8_literal("voice"), {rows, 64});
     check(quick && voice == 3 && !shortcut_listing(utf8_literal("zzz"), {rows, 64}) &&

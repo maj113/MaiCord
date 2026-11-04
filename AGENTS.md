@@ -36,6 +36,17 @@ has the same rules in more detail.
   on ext4 (never under `/mnt`), emptied after each run unless `--keep`. The Windows build, its toolchain and every
   rule above stay as they are: code the Windows build compiles must not change for the port, and
   `python tools/compare_pe.py OLD.exe NEW.exe` proves it by comparing two builds section by section.
+  The Linux crypto and TLS backend (`src/platform/crypto/openssl`, `src/platform/net/linux/tls_client.cpp`) uses the
+  system OpenSSL 3 or 4 through `dlopen` only, so images gain no `DT_NEEDED`: `python tools/check_openssl_abi.py`
+  checks its function and constant tables against the installed libssl-dev headers, and the TLS tests run
+  `openssl s_server` on the loopback (`tests/platform/net/tls_smoke.sh`).
+  The Linux window backend (`src/platform/window/wayland`) loads libwayland-client, libwayland-egl, libwayland-cursor
+  and libxkbcommon through `dlopen` too; its protocol bindings are generated at build time by
+  `tools/generate_wayland_protocols.py` from the XML in `third_party/wayland` (no `wayland-scanner`). The pure part
+  of it (`maicord_wayland_input`: key table, characters, double click, key repeat, the generated tables against
+  libwayland-client's) runs in the normal Linux suite; `tools/test_wayland_window.sh` starts headless or nested sway
+  and runs the opt-in integration tests (`maicord_wayland_window_lifecycle`, `maicord_wayland_window_input`, which
+  drive a virtual pointer and keyboard) with `grim` screenshots.
 
 ## Code rules
 

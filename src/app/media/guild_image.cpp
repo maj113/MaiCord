@@ -176,7 +176,7 @@ u8* allocate(u64 bytes) noexcept {
 }
 void release(u8* data) noexcept {
     if (data)
-        VirtualFree(data, 0, MEM_RELEASE);
+        pages_release(data);
 }
 
 // One straight-alpha RGBA8 pixel of decoded PNG scanlines.

@@ -1,11 +1,12 @@
 #include "../../../src/app/chat/messages/history_decode.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 void test_profile_decode_scratch(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace app_detail;
     auto* ui = static_cast<AccountUiRuntime*>(
-        VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        pages_allocate(sizeof(AccountUiRuntime)));
     if (!ui) { check(false, "profile scratch fixture allocation"); return; }
     UserProfile retained{};
     const auto full = utf8_literal(
@@ -32,6 +33,6 @@ void test_profile_decode_scratch(void (*check)(bool, const char*) noexcept) noex
           retained.role_count == 0 && retained.bio.bytes == 0 && !retained.has_theme &&
           utf8_equal(retained.display_name.view(), utf8_literal("next")),
           "scratch reuse clears fields absent from the next valid profile");
-    VirtualFree(ui, 0, MEM_RELEASE);
+    pages_release(ui);
 }
 }

@@ -2,6 +2,8 @@
 #include "maicord/text/opentype/glyph_buffer.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 #include "../../generated/arabic_joining_fixture.inc"
@@ -46,15 +48,15 @@ bool contracts() noexcept {
     return true;
 }
 bool long_marks() noexcept {
-    constexpr u32 count=8194;u32* scalars=static_cast<u32*>(VirtualAlloc(nullptr,count*sizeof(u32),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    constexpr u32 count=8194;u32* scalars=static_cast<u32*>(pages_allocate(count*sizeof(u32)));
     if(!scalars)return false;
-    u8* forms=static_cast<u8*>(VirtualAlloc(nullptr,count,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
-    if(!forms){VirtualFree(scalars,0,MEM_RELEASE);return false;}
+    u8* forms=static_cast<u8*>(pages_allocate(count));
+    if(!forms){pages_release(scalars);return false;}
     for(u32 i=0;i<count;++i)scalars[i]=(i==0 || i==count-1)?0x628:0x64e;
-    DWORD old=0;bool ok=VirtualProtect(scalars,count*sizeof(u32),PAGE_READONLY,&old)!=0;
+    bool ok=pages_protect(scalars, count*sizeof(u32), PageAccess::read)!=0;
     ok=ok && arabic_joining_forms({scalars,count},{forms,count},1,count*2)==S::ok;
     for(u32 i=0;i<count && ok;++i)ok=forms[i]==(i==0?8:i==count-1?2:0);
-    VirtualFree(forms,0,MEM_RELEASE);VirtualFree(scalars,0,MEM_RELEASE);return ok;
+    pages_release(forms);pages_release(scalars);return ok;
 }
 int run() noexcept {
     if(!vectors())return 1;
@@ -64,6 +66,6 @@ int run() noexcept {
     DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data,message.bytes,&done,nullptr);return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_arabic_joining_tests_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run()));
+MAICORD_TEST_ENTRY(maicord_arabic_joining_tests_entry) {
+    ::maicord::test_process_exit(static_cast<UINT>(maicord::run()));
 }

@@ -3,8 +3,8 @@
 bool memo_benchmark(SfntShapeStorage scratch,const OwnedProfile& owned) noexcept {
     constexpr u32 capacity=4096;
     struct Output {u16 glyphs[capacity];SfntPlacement placements[capacity];u32 characters[capacity];};
-    auto* outputs=static_cast<Output*>(VirtualAlloc(nullptr,2*sizeof(Output),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(outputs);
-    struct Release {void* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{outputs};
+    auto* outputs=static_cast<Output*>(pages_allocate(2*sizeof(Output)));CHECK(outputs);
+    struct Release {void* p;~Release() noexcept {pages_release(p);}} release{outputs};
     const auto* parent=native_run_plan_get(owned.store,owned.profile.indic.run);CHECK(parent);auto plan=*parent;
     plan.substitution_roots={};plan.positioning_roots=owned.profile.indic.positioning();plan.refresh_substitution_classes=true;
     const char* names[]{"repeated","natural","unique"};char source[8192];LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));

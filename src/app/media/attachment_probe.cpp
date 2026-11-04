@@ -178,7 +178,7 @@ void application_attachment_probe_release() noexcept {
     for (auto& probe : owner->probes)
         if (probe.occupied)
             retire(probe);
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
     owner = nullptr;
 }
 } // namespace maicord::app_detail

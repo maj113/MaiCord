@@ -159,6 +159,7 @@ MAICORD_SIMD(128) double _mm_cvtsd_f64(__m128d __a) { return __a[0]; }
 MAICORD_SIMD(128) int _mm_cvtsi128_si32(__m128i __a) { return ((__v4si)__a)[0]; }
 MAICORD_SIMD(128) long long _mm_cvtsi128_si64(__m128i __a) { return __a[0]; }
 MAICORD_SIMD(128) int _mm_cvtss_si32(__m128 __a) { return __builtin_ia32_cvtss2si((__v4sf)__a); }
+MAICORD_SIMD(128) int _mm_cvt_ss2si(__m128 __a) { return __builtin_ia32_cvtss2si((__v4sf)__a); }
 MAICORD_SIMD(128) __m128 _mm_cvtepi32_ps(__m128i __a) { return (__m128)__builtin_convertvector((__v4si)__a, __v4sf); }
 MAICORD_SIMD(128) __m128 _mm_castsi128_ps(__m128i __a) { return (__m128)__a; }
 MAICORD_SIMD(128) __m128i _mm_castps_si128(__m128 __a) { return (__m128i)__a; }

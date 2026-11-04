@@ -14,6 +14,7 @@
 #include "settings_runtime_keys.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
@@ -67,7 +68,7 @@ void check(bool success, const char* name) noexcept {
 UiSettingsScene* scene() noexcept {
     return const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
 }
-bool activate_control(UiPageKey page, u64 control, u32 key = VK_RETURN) noexcept {
+bool activate_control(UiPageKey page, u64 control, u32 key = key::enter) noexcept {
     auto* current = scene();
     if (!current || !ui_settings_scene_select(current, page) || !application_settings_synchronize() ||
         !ui_settings_scene_focus(current, {UiSettingsTargetKind::control, page, control}))
@@ -272,25 +273,25 @@ void test_search_field() noexcept {
     check(query("theme") && current->search.view.caret == 5 && ui_page_key_equal(current->selected_page, kSearchPage) &&
               ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: typing from the sidebar focuses the field and opens results");
-    check(key(VK_BACK) && query("them") && ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
+    check(key(key::backspace) && query("them") && ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: Backspace deletes after the results page relayouts");
-    check(key(VK_LEFT) && key(VK_LEFT) && key(VK_DELETE) && query("thm") && current->search.view.caret == 2,
+    check(key(key::left) && key(key::left) && key(key::del) && query("thm") && current->search.view.caret == 2,
           "settings search: arrows move the caret and Delete removes forward");
     BYTE original_keys[256]{};
     if (GetKeyboardState(original_keys)) {
         BYTE local_keys[256]{};
-        local_keys[VK_CONTROL] = 0x80;
-        if (SetKeyboardState(local_keys) && (GetKeyState(VK_CONTROL) & 0x8000)) {
+        local_keys[key::ctrl] = 0x80;
+        if (SetKeyboardState(local_keys) && (GetKeyState(key::ctrl) & 0x8000)) {
             const bool selected = key('A') && current->search.view.anchor == 0 && current->search.view.caret == 3;
             SetKeyboardState(original_keys);
-            check(selected && key(VK_BACK) && query("") && ui_page_key_equal(current->selected_page, kAppearancePage) &&
+            check(selected && key(key::backspace) && query("") && ui_page_key_equal(current->selected_page, kAppearancePage) &&
                       ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
                   "settings search: Ctrl+A then Backspace clears the query and restores the page");
         } else
             SetKeyboardState(original_keys);
     }
     application_settings_window_message(WM_CHAR, 'x', 0);
-    check(query("x") && key(VK_ESCAPE) && query("") && application_settings_active() &&
+    check(query("x") && key(key::escape) && query("") && application_settings_active() &&
               ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: Escape clears a query before it closes Settings");
 }
@@ -691,10 +692,10 @@ void test_controller() noexcept {
     BYTE original_keys[256]{};
     if (GetKeyboardState(original_keys)) {
         BYTE local_keys[256]{};
-        local_keys[VK_MENU] = 0x80;
+        local_keys[key::alt] = 0x80;
         const bool set = SetKeyboardState(local_keys) != FALSE;
-        if (set && (GetKeyState(VK_MENU) & 0x8000))
-            check(!application_settings_input(UiInputKind::system_key_down, VK_F4, false) &&
+        if (set && (GetKeyState(key::alt) & 0x8000))
+            check(!application_settings_input(UiInputKind::system_key_down, key::f4, false) &&
                       application_settings_active(),
                   "settings: Alt+F4 passes through modal keyboard handling");
         // A platform which cannot establish thread-local modifiers leaves this
@@ -760,7 +761,7 @@ void test_controller() noexcept {
     const u32 theme_account_text = observed.account_text_updates;
     const Theme amoled_theme = ui_theme_amoled();
     check(
-        activate_control(kAppearancePage, cid("appearance.theme"), VK_RIGHT) && g_app.preferences.theme == ClientTheme::amoled &&
+        activate_control(kAppearancePage, cid("appearance.theme"), key::right) && g_app.preferences.theme == ClientTheme::amoled &&
             bytes_equal(&application_theme().base_lowest, &amoled_theme.base_lowest, sizeof(Color)) &&
             bytes_equal(&application_theme().text_primary, &amoled_theme.text_primary, sizeof(Color)) &&
             !application_theme().background.color_count && !g_app.renderer.retained_presentation.valid &&
@@ -814,7 +815,7 @@ void test_controller() noexcept {
         for (u32 effect = 1; effect <= kBackgroundEffectProfileCount && flat_effects_preserved; ++effect) {
             const auto expected_effect = static_cast<BackgroundEffect>(effect);
             flat_effects_preserved =
-                activate_control(kAppearancePage, cid("appearance.background_effect"), VK_RIGHT) && g_app.preferences.theme == base &&
+                activate_control(kAppearancePage, cid("appearance.background_effect"), key::right) && g_app.preferences.theme == base &&
                 g_app.preferences.gradient.effect == expected_effect && await_save_retained() &&
                 client_preferences_load_file(cleanup.path, &loaded).ok() && loaded.theme == base &&
                 loaded.gradient.effect == expected_effect;
@@ -829,8 +830,8 @@ void test_controller() noexcept {
             flat_effects_preserved =
                 flat_effects_preserved && flat_editor &&
                 ui_theme_editor_focus(flat_editor, range_control) &&
-                application_theme_editor_input(UiInputKind::key_down, VK_RIGHT, false) &&
-                application_theme_editor_input(UiInputKind::key_up, VK_RIGHT, false) &&
+                application_theme_editor_input(UiInputKind::key_down, key::right, false) &&
+                application_theme_editor_input(UiInputKind::key_up, key::right, false) &&
                 g_app.preferences.theme == base && application_settings_synchronize() &&
                 await_save_retained();
             application_theme_editor_close(true);
@@ -840,21 +841,21 @@ void test_controller() noexcept {
             flat_effects_preserved =
                 flat_effects_preserved && flat_editor &&
                 ui_theme_editor_focus(flat_editor, UiThemeEditorElement::effect_none) &&
-                application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-                application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+                application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+                application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
                 g_app.preferences.theme == base &&
                 g_app.preferences.gradient.effect == BackgroundEffect::none &&
                 application_settings_synchronize() && await_save_retained() &&
                 ui_theme_editor_focus(flat_editor, flat_effect_cards[effect - 1]) &&
-                application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-                application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+                application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+                application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
                 g_app.preferences.theme == base && g_app.preferences.gradient.effect == expected_effect &&
                 application_settings_synchronize() && await_save_retained();
             const auto flat_cancel_baseline = g_app.preferences;
             const auto flat_cancel_revision = g_app.preferences_request_revision;
             flat_effects_preserved = flat_effects_preserved &&
                                      ui_theme_editor_focus(flat_editor, UiThemeEditorElement::strength) &&
-                                     application_theme_editor_input(UiInputKind::key_down, VK_RIGHT, false);
+                                     application_theme_editor_input(UiInputKind::key_down, key::right, false);
             application_theme_editor_window_message(WM_CANCELMODE, 0, 0);
             flat_effects_preserved = flat_effects_preserved &&
                                      client_preferences_equal(g_app.preferences, flat_cancel_baseline) &&
@@ -863,7 +864,7 @@ void test_controller() noexcept {
         }
         // Choices cycle with Left/Right; Home/End belong to slider/palette
         // controls. After Stars and comets, the next supported choice is None.
-        flat_effects_preserved = flat_effects_preserved && activate_control(kAppearancePage, cid("appearance.background_effect"), VK_RIGHT) &&
+        flat_effects_preserved = flat_effects_preserved && activate_control(kAppearancePage, cid("appearance.background_effect"), key::right) &&
                                  g_app.preferences.theme == base &&
                                  g_app.preferences.gradient.effect == BackgroundEffect::none &&
                                  await_save_retained();
@@ -875,14 +876,14 @@ void test_controller() noexcept {
             flat_effects_preserved && mode_editor &&
             ui_theme_editor_focus(mode_editor, opposite_light ? UiThemeEditorElement::light
                                                               : UiThemeEditorElement::dark) &&
-            application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-            application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+            application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+            application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
             g_app.preferences.theme == opposite_flat && application_settings_synchronize() &&
             await_save_retained();
         const auto before_color_revision = g_app.preferences_request_revision;
         flat_effects_preserved =
             flat_effects_preserved && ui_theme_editor_focus(mode_editor, UiThemeEditorElement::intensity) &&
-            application_theme_editor_input(UiInputKind::key_down, VK_RIGHT, false) &&
+            application_theme_editor_input(UiInputKind::key_down, key::right, false) &&
             g_app.preferences.theme ==
                 (opposite_light ? ClientTheme::custom_light_gradient : ClientTheme::custom_gradient);
         application_theme_editor_close(false);
@@ -924,7 +925,7 @@ void test_controller() noexcept {
         application_preferences_apply();
         named_effects_preserve_raw =
             named_effects_preserve_raw && ui_settings_scene_select(scene(), kAccessibilityPage) &&
-            application_settings_synchronize() && activate_control(kAppearancePage, cid("appearance.background_effect"), VK_LEFT) &&
+            application_settings_synchronize() && activate_control(kAppearancePage, cid("appearance.background_effect"), key::left) &&
             g_app.preferences.theme == base &&
             g_app.preferences.gradient.effect == BackgroundEffect::stars_and_comets &&
             raw_palette_equal(g_app.preferences.gradient) && await_save_retained() &&
@@ -934,8 +935,8 @@ void test_controller() noexcept {
         named_effects_preserve_raw =
             named_effects_preserve_raw && preset_editor &&
             ui_theme_editor_focus(preset_editor, UiThemeEditorElement::speed) &&
-            application_theme_editor_input(UiInputKind::key_down, VK_RIGHT, false) &&
-            application_theme_editor_input(UiInputKind::key_up, VK_RIGHT, false) &&
+            application_theme_editor_input(UiInputKind::key_down, key::right, false) &&
+            application_theme_editor_input(UiInputKind::key_up, key::right, false) &&
             g_app.preferences.theme == base && raw_palette_equal(g_app.preferences.gradient) &&
             application_settings_synchronize() && await_save_retained() &&
             client_preferences_load_file(cleanup.path, &loaded).ok() && raw_palette_equal(loaded.gradient);
@@ -943,7 +944,7 @@ void test_controller() noexcept {
         const auto preset_cancel_revision = g_app.preferences_request_revision;
         named_effects_preserve_raw = named_effects_preserve_raw &&
                                      ui_theme_editor_focus(preset_editor, UiThemeEditorElement::strength) &&
-                                     application_theme_editor_input(UiInputKind::key_down, VK_RIGHT, false);
+                                     application_theme_editor_input(UiInputKind::key_down, key::right, false);
         application_theme_editor_window_message(WM_CANCELMODE, 0, 0);
         named_effects_preserve_raw = named_effects_preserve_raw &&
                                      client_preferences_equal(g_app.preferences, preset_cancel_baseline) &&
@@ -964,11 +965,11 @@ void test_controller() noexcept {
           "settings effects: named preset fixtures restore original Appearance projection");
     const auto original_gradient = g_app.preferences.gradient;
     const u32 gradient_layouts = observed.layout_updates, gradient_account = observed.account_text_updates;
-    check(activate_control(kAppearancePage, cid("appearance.color_theme"), VK_RIGHT) &&
-              activate_control(kAppearancePage, cid("appearance.color_theme"), VK_RIGHT) &&
+    check(activate_control(kAppearancePage, cid("appearance.color_theme"), key::right) &&
+              activate_control(kAppearancePage, cid("appearance.color_theme"), key::right) &&
               g_app.preferences.theme == ClientTheme::sunset &&
               application_theme().background.colors[0] == 0x7a284b &&
-              activate_control(kAppearancePage, cid("appearance.gradient_direction"), VK_RIGHT) &&
+              activate_control(kAppearancePage, cid("appearance.gradient_direction"), key::right) &&
               g_app.preferences.theme == ClientTheme::custom_gradient &&
               g_app.preferences.gradient.colors[0] == 0x7a284b &&
               g_app.preferences.gradient.angle_degrees == 121,
@@ -977,12 +978,12 @@ void test_controller() noexcept {
     g_app.preferences.gradient = original_gradient;
     check(ui_settings_scene_select(scene(), kAccessibilityPage) && application_settings_synchronize(),
           "settings gradient: controlled baseline change retires prior shared Appearance projection");
-    check(activate_control(kAppearancePage, cid("appearance.theme"), VK_RIGHT), "settings gradient: base Appearance projection restores");
-    check(activate_control(kAppearancePage, cid("appearance.background_effect"), VK_RIGHT) && g_app.preferences.theme == ClientTheme::amoled &&
+    check(activate_control(kAppearancePage, cid("appearance.theme"), key::right), "settings gradient: base Appearance projection restores");
+    check(activate_control(kAppearancePage, cid("appearance.background_effect"), key::right) && g_app.preferences.theme == ClientTheme::amoled &&
               g_app.preferences.gradient.effect == BackgroundEffect::stars &&
-              activate_control(kAppearancePage, cid("appearance.gradient_direction"), VK_RIGHT) &&
+              activate_control(kAppearancePage, cid("appearance.gradient_direction"), key::right) &&
               g_app.preferences.theme == ClientTheme::custom_gradient &&
-              g_app.preferences.gradient.angle_degrees == 121 && activate_control(kAppearancePage, cid("appearance.gradient_intensity"), VK_RIGHT) &&
+              g_app.preferences.gradient.angle_degrees == 121 && activate_control(kAppearancePage, cid("appearance.gradient_intensity"), key::right) &&
               g_app.preferences.gradient.intensity == 41 && observed.layout_updates == gradient_layouts &&
               observed.account_text_updates == gradient_account,
           "settings gradient: effect, arbitrary direction and intensity reuse projection without hidden "
@@ -1148,15 +1149,15 @@ void test_controller() noexcept {
             await_save_retained();
         released_effect = released_effect &&
                           ui_theme_editor_focus(editor, UiThemeEditorElement::effect_comets) &&
-                          application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-                          application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+                          application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+                          application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
                           g_app.preferences.gradient.effect == BackgroundEffect::comets &&
                           g_app.preferences.gradient.strength ==
                               background_effect_settings_defaults(BackgroundEffect::comets).strength &&
                           application_settings_synchronize() && await_save_retained() &&
                           ui_theme_editor_focus(editor, UiThemeEditorElement::effect_stars) &&
-                          application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-                          application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+                          application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+                          application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
                           g_app.preferences.gradient.effect == BackgroundEffect::stars &&
                           g_app.preferences.gradient.strength == retained_strength &&
                           g_app.preferences.effect_profiles[0].strength == retained_strength &&
@@ -1190,8 +1191,8 @@ void test_controller() noexcept {
     u8 both_record[kClientPreferencesRecordBytes]{};
     ClientPreferences both_decoded{};
     check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::effect_both) &&
-              application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-              application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+              application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+              application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
               g_app.preferences.gradient.effect == BackgroundEffect::stars_and_comets &&
               g_app.preferences_request_revision == both_write_revision + 1 &&
               g_app.preferences.gradient.speed == 28 && g_app.preferences.gradient.strength == 18 &&
@@ -1206,8 +1207,8 @@ void test_controller() noexcept {
                   .ok() &&
               client_preferences_equal(both_decoded, g_app.preferences) &&
               ui_theme_editor_focus(editor, UiThemeEditorElement::effect_stars) &&
-              application_theme_editor_input(UiInputKind::key_down, VK_RETURN, false) &&
-              application_theme_editor_input(UiInputKind::key_up, VK_RETURN, false) &&
+              application_theme_editor_input(UiInputKind::key_down, key::enter, false) &&
+              application_theme_editor_input(UiInputKind::key_up, key::enter, false) &&
               application_settings_synchronize() && await_save_retained(),
           "theme editor host: Stars and comets card commits one save with exact third-profile "
           "roundtrip");
@@ -1281,7 +1282,7 @@ void test_controller() noexcept {
               gradient_form.active && gradient_form.opens == hex_canceled_opens + 1,
           "theme editor host: native second-click message preserves release-only hex activation");
     gradient_form.active = false;
-    check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::hex) && editor_key(VK_RETURN) &&
+    check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::hex) && editor_key(key::enter) &&
               gradient_form.active && gradient_form.request.valid &&
               gradient_form.request.valid(gradient_form.request.owner),
           "theme editor host: optional single-color form has current drawer authority");
@@ -1312,14 +1313,14 @@ void test_controller() noexcept {
           "theme editor host: close and reopen cannot retarget captured hex callback");
     editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
     const u32 before_light_forced = observed.forced_account_text_updates;
-    check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::light) && editor_key(VK_RETURN) &&
+    check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::light) && editor_key(key::enter) &&
               g_app.preferences.theme == ClientTheme::custom_light_gradient &&
               observed.forced_account_text_updates == before_light_forced &&
               application_theme_editor_publish_foreground() &&
               observed.forced_account_text_updates == before_light_forced + 1 &&
               application_settings_synchronize() && await_save_retained(),
           "theme editor host: Light segment commits actual light gradient mode");
-    constexpr u32 close_keys[]{VK_RETURN, VK_SPACE, VK_ESCAPE};
+    constexpr u32 close_keys[]{key::enter, key::space, key::escape};
     for (const u32 close_key : close_keys) {
         if (!application_theme_editor_active())
             application_theme_editor_open();
@@ -1351,7 +1352,7 @@ void test_controller() noexcept {
     g_app.preferences.theme = ClientTheme::dark;
     check(ui_settings_scene_select(scene(), kAccessibilityPage) && application_settings_synchronize(),
           "theme editor host: controlled restored baseline republishes shared native bank");
-    check(activate_control(kAppearancePage, cid("appearance.theme"), VK_RIGHT) && g_app.preferences.theme == ClientTheme::amoled &&
+    check(activate_control(kAppearancePage, cid("appearance.theme"), key::right) && g_app.preferences.theme == ClientTheme::amoled &&
               await_save_retained(),
           "settings gradient: original palette and preferences can be restored through ordinary choice "
           "input");
@@ -1407,13 +1408,13 @@ void test_controller() noexcept {
               activate_control(kAppearancePage, cid("appearance.image_zoom")) && !g_app.preferences.image_zoom &&
               await_save_retained(),
           "settings image zoom: the lens shape and switch toggle and persist");
-    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_END) &&
+    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), key::end) &&
               g_app.preferences.image_zoom_factor == 100 && await_save_retained() &&
-              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_HOME) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), key::home) &&
               g_app.preferences.image_zoom_factor == 2 && await_save_retained() &&
-              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_END) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), key::end) &&
               g_app.preferences.image_zoom_size == 100 && await_save_retained() &&
-              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_HOME) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), key::home) &&
               g_app.preferences.image_zoom_size == 5 && await_save_retained(),
           "settings image zoom: the zoom and size sliders span 1x..50x and 50..1000 DIPs");
     const auto* zoom_slider =
@@ -1422,10 +1423,10 @@ void test_controller() noexcept {
         ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.image_zoom_size")});
     check(zoom_slider && size_slider && zoom_slider->selected_choice == 0 && size_slider->selected_choice == 0,
           "settings image zoom: the sliders read the stored values back");
-    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_RIGHT) &&
+    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), key::right) &&
               g_app.preferences.image_zoom_factor == 3 && await_save_retained() &&
-              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_HOME) &&
-              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_RIGHT) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), key::home) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), key::right) &&
               g_app.preferences.image_zoom_size == 6 && await_save_retained(),
           "settings image zoom: one slider step moves half a zoom unit and ten DIPs");
     g_app.preferences.image_zoom = true;
@@ -1517,16 +1518,16 @@ void test_controller() noexcept {
     check(activate_control(kNotificationsPage, cid("notifications.selected_channel_sounds")) && g_app.preferences.selected_message_sounds_enabled &&
               await_save_retained(),
           "settings: selected channel sounds toggles through keyboard and persists independently");
-    check(activate_control(kNotificationsPage, cid("notifications.volume"), VK_END) && g_app.preferences.output_volume == 200 &&
+    check(activate_control(kNotificationsPage, cid("notifications.volume"), key::end) && g_app.preferences.output_volume == 200 &&
               !g_app.popup_scene.active && await_save_retained() &&
               client_preferences_load_file(cleanup.path, &loaded).ok() &&
               client_preferences_equal(loaded, g_app.preferences),
           "settings: native volume slider End saves exact 200 percent and selected sounds");
     const u64 maximum_volume_revision = g_app.preferences_request_revision;
-    check(activate_control(kNotificationsPage, cid("notifications.volume"), VK_RIGHT) && g_app.preferences.output_volume == 200 &&
+    check(activate_control(kNotificationsPage, cid("notifications.volume"), key::right) && g_app.preferences.output_volume == 200 &&
               g_app.preferences_request_revision == maximum_volume_revision,
           "settings: native slider maximum clamps without duplicate write or wrap");
-    check(activate_control(kNotificationsPage, cid("notifications.volume"), VK_HOME) && g_app.preferences.output_volume == 0 &&
+    check(activate_control(kNotificationsPage, cid("notifications.volume"), key::home) && g_app.preferences.output_volume == 0 &&
               await_save_retained(),
           "settings: native volume slider Home commits exact mute");
     const HWND volume_previous_window = g_app.window;
@@ -1631,13 +1632,13 @@ void test_controller() noexcept {
     const auto native_snapshot = g_app.preferences;
     check(ui_settings_scene_select(scene(), kAppearancePage) && application_settings_synchronize() &&
               ui_settings_scene_focus(scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.member_list")}) &&
-              application_settings_input(UiInputKind::key_down, VK_SPACE, false),
+              application_settings_input(UiInputKind::key_down, key::space, false),
           "settings: Space activates focused native toggle once");
     const auto held_snapshot = g_app.preferences;
     check(!client_preferences_equal(native_snapshot, held_snapshot) &&
-              application_settings_input(UiInputKind::key_down, VK_SPACE, true) &&
+              application_settings_input(UiInputKind::key_down, key::space, true) &&
               application_settings_input(UiInputKind::character, ' ', false) &&
-              application_settings_input(UiInputKind::key_up, VK_SPACE, false) &&
+              application_settings_input(UiInputKind::key_up, key::space, false) &&
               client_preferences_equal(held_snapshot, g_app.preferences) && !g_app.settings_held_key &&
               await_save(),
           "settings: held activation key repeat, character and release tails cannot toggle twice");
@@ -1683,11 +1684,11 @@ void test_controller() noexcept {
 
     test_menu_runtime();
     check(application_settings_open(), "settings: native modal reopens after the plugin menu tests");
-    check(application_settings_input(UiInputKind::key_down, VK_ESCAPE, false) &&
+    check(application_settings_input(UiInputKind::key_down, key::escape, false) &&
               !application_settings_active() &&
-              application_settings_input(UiInputKind::key_down, VK_ESCAPE, true) &&
-              application_settings_input(UiInputKind::character, VK_ESCAPE, false) &&
-              application_settings_input(UiInputKind::key_up, VK_ESCAPE, false) &&
+              application_settings_input(UiInputKind::key_down, key::escape, true) &&
+              application_settings_input(UiInputKind::character, key::escape, false) &&
+              application_settings_input(UiInputKind::key_up, key::escape, false) &&
               !application_settings_input(UiInputKind::key_down, 'A', false) && !g_app.settings_held_key,
           "settings: Escape close consumes held key tails before returning control to account input");
     const u64 ending_settings_lifetime = application_settings_lifetime();
@@ -1748,7 +1749,7 @@ void test_controller() noexcept {
         check(tiles && scene()->content.presentation &&
                   scene()->content.presentation[tiles_index].icon_plus_one == static_cast<u8>(UiIcon::arrow_right) + 1,
               "your themes: the Browse tile is marked as an action tile with the arrow icon");
-        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 1 &&
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), key::right) && installed_selection.calls == 1 &&
                   installed_selection.last == 0 && !installed_selection.preview,
               "your themes: one activation applies the installed theme without a preview");
         application_settings_refresh_pages();
@@ -1758,12 +1759,12 @@ void test_controller() noexcept {
         check(tiles && tiles->selected_choice == 0 && builtin_tiles && builtin_tiles->choices.count == 3 &&
                   builtin_tiles->selected_choice == kUiSettingsNoChoice,
               "your themes: the applied theme is checked and no built-in tile claims to be in use");
-        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 2 &&
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), key::right) && installed_selection.calls == 2 &&
                   installed_selection.last == 1,
               "your themes: the next tile applies the next installed theme");
         application_settings_refresh_pages();
         const UiPageKey themes_page{1, static_cast<u64>(SettingsPanel::themes) + 1};
-        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 2 &&
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), key::right) && installed_selection.calls == 2 &&
                   ui_page_key_equal(scene()->selected_page, themes_page),
               "your themes: the Browse themes tile opens Settings > Themes");
         // An installed theme in use: the built-in gradient knobs are disabled, say why, and never act on it.
@@ -1782,9 +1783,9 @@ void test_controller() noexcept {
               "installed theme: the built-in gradient knobs are disabled with a hint naming the theme");
         const u32 theme_changes_before = theme_preference_changes;
         const BackgroundTheme gradient_before = g_app.preferences.gradient;
-        activate_control(kAppearancePage, cid("appearance.gradient_intensity"), VK_RIGHT);
-        activate_control(kAppearancePage, cid("appearance.gradient_direction"), VK_LEFT);
-        activate_control(kAppearancePage, cid("appearance.background_effect"), VK_RIGHT);
+        activate_control(kAppearancePage, cid("appearance.gradient_intensity"), key::right);
+        activate_control(kAppearancePage, cid("appearance.gradient_direction"), key::left);
+        activate_control(kAppearancePage, cid("appearance.background_effect"), key::right);
         check(theme_preference_changes == theme_changes_before && theme_background_edits == 0 &&
                   background_theme_equal(g_app.preferences.gradient, gradient_before),
               "installed theme: gradient knob input never reaches (or forks) the theme");
@@ -1811,8 +1812,8 @@ void test_controller() noexcept {
         const UiSettingsTarget import_row{UiSettingsTargetKind::control, kSearchPage, cid("themes.import")};
         check(ui_page_key_equal(scene()->selected_page, kSearchPage) && ui_settings_scene_control(*scene(), import_row) &&
                   ui_settings_scene_focus(scene(), import_row) &&
-                  application_settings_input(UiInputKind::key_down, VK_RETURN, false) &&
-                  application_settings_input(UiInputKind::key_up, VK_RETURN, false) && application_settings_synchronize() &&
+                  application_settings_input(UiInputKind::key_down, key::enter, false) &&
+                  application_settings_input(UiInputKind::key_up, key::enter, false) && application_settings_synchronize() &&
                   custom_theme_actions == actions_before_import + 1 &&
                   custom_theme_last_action == ApplicationCustomThemeAction::import_file &&
                   ui_page_key_equal(scene()->selected_page, themes_page),

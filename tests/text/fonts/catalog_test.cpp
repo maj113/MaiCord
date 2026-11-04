@@ -7,6 +7,7 @@
 #include "../../../src/text/fonts/path_stat.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
 #include "catalog_fixture.inc"
@@ -64,6 +65,6 @@ bool run() noexcept {
     CHECK(equal(wide(arg),wide(L"--handle-stat-fallback-check")));return handle_stat_tests::run(true);
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_catalog_entry() noexcept {
-    using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font catalog\n":"\nFAIL native font catalog\n");ExitProcess(ok?0:1);
+MAICORD_TEST_ENTRY(maicord_font_catalog_entry) {
+    using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font catalog\n":"\nFAIL native font catalog\n");::maicord::test_process_exit(ok?0:1);
 }

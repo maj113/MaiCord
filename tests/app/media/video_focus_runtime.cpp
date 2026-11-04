@@ -12,6 +12,7 @@
 #include "maicord/ui/chat/pinned_messages_scene.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "maicord/ui/shell/quick_switcher_scene.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord::video_focus_runtime_test {
@@ -532,16 +533,16 @@ void run_search_video() noexcept {
         const bool focused = pump() && g_app.renderer.video_scene &&
                              g_app.renderer.video_scene->focus == UiVideoControl::play_pause &&
                              g_app.renderer.video_scene->keyboard_focus;
-        const bool paused = focused && application_video_key(VK_SPACE, false, false) && pump();
+        const bool paused = focused && application_video_key(key::space, false, false) && pump();
         check(paused && account.status.playback.paused,
               "search video runtime: native keyboard Play Pause routes to actual Search audio owner");
-        const bool seek = application_video_key(VK_TAB, false, false) &&
-                          application_video_key(VK_END, false, false) && pump();
+        const bool seek = application_video_key(key::tab, false, false) &&
+                          application_video_key(key::end, false, false) && pump();
         check(seek && account.status.playback.position_100ns == account.status.playback.duration_100ns,
               "search video runtime: native seek control updates exact accepted playback source");
-        const bool volume = application_video_key(VK_TAB, false, false) &&
-                            application_video_key(VK_TAB, false, false) &&
-                            application_video_key(VK_HOME, false, false) && pump();
+        const bool volume = application_video_key(key::tab, false, false) &&
+                            application_video_key(key::tab, false, false) &&
+                            application_video_key(key::home, false, false) && pump();
         check(volume && account.status.playback.applied_volume == 0,
               "search video runtime: native volume control reaches existing audio session");
         ++source.revision;
@@ -564,7 +565,7 @@ void run_search_video() noexcept {
         const auto* searched_owner = g_app.video;
         const u32 before_browser = account.commands;
         g_app.renderer.thread_browser_scene = &browser;
-        check(!application_video_key(VK_SPACE, false, false) && g_app.video == searched_owner && pump() &&
+        check(!application_video_key(key::space, false, false) && g_app.video == searched_owner && pump() &&
                   account.status.playback.paused && account.commands == before_browser + 1 &&
                   application_video_search_active() && !g_app.renderer.video_scene &&
                   !g_app.renderer.video_scene_search_result && !application_video_next_wake() &&
@@ -573,7 +574,7 @@ void run_search_video() noexcept {
               "audio and blocks controls reopen and wakes");
         browser.active = false;
         g_app.renderer.thread_browser_scene = nullptr;
-        check(pump() && account.status.playback.paused && !application_video_key(VK_SPACE, false, false) &&
+        check(pump() && account.status.playback.paused && !application_video_key(key::space, false, false) &&
                   application_video_open_search(target) && pump() && account.status.playback.playing &&
                   account.selections == selections + 1,
               "search video browser runtime: dismissal restores current geometry with explicit same-source "
@@ -594,7 +595,7 @@ void run_search_video() noexcept {
         browser.active = true;
         g_app.renderer.thread_browser_scene = &browser;
         const u32 before_stale = account.commands;
-        check(!application_video_key(VK_SPACE, false, false) && pump() &&
+        check(!application_video_key(key::space, false, false) && pump() &&
                   !application_video_search_active() && !g_app.renderer.video_scene &&
                   !g_app.renderer.video_scene_search_result && !account.status.playback.playing &&
                   account.commands == before_stale + 1 && !application_video_next_wake() &&
@@ -832,10 +833,10 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         g_app.keyboard_focus_visible = true;
         SetFocus(g_app.window);
         g_window_state.keyboard_focus = true;
-        check(pump() && application_video_key(VK_SPACE, false, false) && pump() &&
+        check(pump() && application_video_key(key::space, false, false) && pump() &&
                   account.status.playback.paused,
               "audio runtime: native keyboard Play Pause controls the exact selected session");
-        check(application_video_key(VK_TAB, false, false) && application_video_key(VK_END, false, false) &&
+        check(application_video_key(key::tab, false, false) && application_video_key(key::end, false, false) &&
                   pump() &&
                   account.status.playback.position_100ns == account.status.playback.duration_100ns,
               "audio runtime: retained keyboard seek reaches observed duration");
@@ -1101,7 +1102,7 @@ void run() noexcept {
               "video expand runtime: the hosted player uses the expanded idle delay and collapse control");
         terminal_buffering();
         retry_range_commands(true);
-        check(application_video_key(VK_ESCAPE, false, false) &&
+        check(application_video_key(key::escape, false, false) &&
                   !g_app.image_viewer.scene.active && pump() && g_app.renderer.video_scene &&
                   !g_app.renderer.video_scene_viewer &&
                   ui_rect_equal(g_app.renderer.video_scene->preview, inline_preview) &&
@@ -1114,13 +1115,13 @@ void run() noexcept {
         viewer_allowed = true;
     }
     g_app.keyboard_focus_visible = true;
-    check(application_video_key(VK_TAB, false, false) && pump() && g_app.renderer.video_scene &&
+    check(application_video_key(key::tab, false, false) && pump() && g_app.renderer.video_scene &&
               g_app.renderer.video_scene->keyboard_focus &&
               g_app.renderer.video_scene->controls_transition.value == 1 && !application_video_next_wake(),
           "video focus runtime: actual native keyboard focus reveals controls without a settled wake");
     const u32 before_competing = account.commands;
     g_app.message_composer.focused = true;
-    check(!application_video_key(VK_SPACE, false, false) && pump() && dormant() &&
+    check(!application_video_key(key::space, false, false) && pump() && dormant() &&
               account.commands == before_competing,
           "video focus runtime: competing composer blocks commands and retires old video focus");
     g_app.context_focus = &g_app.message_scene.widgets;
@@ -1131,13 +1132,13 @@ void run() noexcept {
         "video focus runtime: existing preview click reacquires native focus and clears competing owners");
     g_app.context_focus = &g_app.message_scene.widgets;
     const u32 before_context = account.commands;
-    check(!application_video_key(VK_SPACE, false, false) && pump() && dormant() &&
+    check(!application_video_key(key::space, false, false) && pump() && dormant() &&
               account.commands == before_context,
           "video focus runtime: competing widget context blocks a stale keyboard command");
     application_video_pointer(WM_LBUTTONDOWN, preview_point);
     pump();
     g_app.keyboard_focus_visible = true;
-    application_video_key(VK_TAB, false, false);
+    application_video_key(key::tab, false, false);
     pump();
     SetFocus(nullptr);
     g_window_state.keyboard_focus = false;
@@ -1145,7 +1146,7 @@ void run() noexcept {
     SetFocus(g_app.window);
     g_window_state.keyboard_focus = true;
     check(
-        !application_video_key(VK_SPACE, false, false) && pump() && dormant(),
+        !application_video_key(key::space, false, false) && pump() && dormant(),
         "video focus runtime: blur survives native focus restoration without reviving keyboard ownership");
     g_app.keyboard_focus_visible = false;
     application_video_pointer(WM_LBUTTONDOWN, preview_point);
@@ -1169,7 +1170,7 @@ void run() noexcept {
           "video focus runtime: opaque Settings retires capture, focus and the video deadline");
     settings = false;
     g_app.keyboard_focus_visible = true;
-    check(pump() && dormant() && !application_video_key(VK_SPACE, false, false),
+    check(pump() && dormant() && !application_video_key(key::space, false, false),
           "video focus runtime: modal dismissal cannot restore a stale input-focus flag");
     const auto original_clip = g_app.renderer.video_scene ? g_app.renderer.video_scene->clip : UiRect{};
     UiSearchContent search_content{};
@@ -1293,7 +1294,7 @@ void run() noexcept {
                   account.status.playback.paused && account.commands == before_quick + 1 &&
                   !application_video_next_wake() &&
                   !application_video_pointer(WM_LBUTTONDOWN, preview_point) &&
-                  !application_video_key(VK_SPACE, false, false),
+                  !application_video_key(key::space, false, false),
               "video quick runtime: authoritative modal pauses audio retires capture and blocks controls");
         bool idle = true;
         for (u32 frame = 0; frame < 8; ++frame)
@@ -1334,7 +1335,7 @@ void run() noexcept {
         g_app.preferences.reduced_motion = false;
         g_app.renderer.thread_browser_scene = &browser;
         check(!application_video_pointer(WM_LBUTTONDOWN, preview_point) &&
-                  !application_video_key(VK_SPACE, false, false) && !application_video_next_wake() &&
+                  !application_video_key(key::space, false, false) && !application_video_next_wake() &&
                   pump() && !g_app.renderer.video_scene && GetCapture() != g_app.window &&
                   account.status.playback.paused && !account.status.playback.playing &&
                   account.commands == commands + 1 && account.gpu_publications == uploads &&
@@ -1355,7 +1356,7 @@ void run() noexcept {
         browser.active = false;
         g_app.preferences.reduced_motion = true;
         check(pump() && dormant() && account.status.playback.paused && account.commands == commands + 1 &&
-                  !application_video_key(VK_SPACE, false, false) &&
+                  !application_video_key(key::space, false, false) &&
                   application_video_pointer(WM_LBUTTONDOWN, preview_point) && pump() &&
                   account.status.playback.playing && account.selections == selections,
               "video browser runtime: dismissal restores geometry with paused playback and explicit "
@@ -1684,12 +1685,12 @@ void run() noexcept {
                 check(controls && controls->projection.playback.live && !controls->projection.playback.can_seek &&
                     !controls->projection.playback.duration_ms && utf8_equal({label, label_bytes}, utf8_literal("LIVE")),
                     "maximized live controls identify the stream without a finite duration");
-                application_video_key(VK_RIGHT, false, false);
+                application_video_key(key::right, false, false);
                 check(account.commands == before_seek, "maximized live controls do not emit timeline seek commands");
                 account.status.playback.desired_volume = account.status.playback.applied_volume = .37f;
-                check(pump() && application_video_key(VK_SPACE, false, false) && pump() && !account.status.playback.playing,
+                check(pump() && application_video_key(key::space, false, false) && pump() && !account.status.playback.playing,
                     "live pause retains the current selection without resolving or polling");
-                check(application_video_key(VK_SPACE, false, false) && pump() && g_app.image_viewer.scene.active &&
+                check(application_video_key(key::space, false, false) && pump() && g_app.image_viewer.scene.active &&
                     !account.status.selected && selection_busy && pump() && account.network_requests == requested_before + 1,
                     "live resume joins the old owner and requests fresh media while preserving maximized geometry");
                 selection_busy = false;
@@ -1703,7 +1704,7 @@ void run() noexcept {
                 selected_before = account.selections; requested_before = account.network_requests;
                 position_before = account.status.playback.position_100ns;
             }
-            check(application_video_key(VK_ESCAPE, false, false) && pump() && !g_app.image_viewer.scene.active &&
+            check(application_video_key(key::escape, false, false) && pump() && !g_app.image_viewer.scene.active &&
                   media_asset_key_equal(g_app.renderer.inline_embed_video, account.status.key) &&
                   account.selections == selected_before && account.network_requests == requested_before,
                   "provider collapse restores the decoded inline frame without another request or decoder");
@@ -1855,10 +1856,10 @@ void run() noexcept {
                 check(pump() && pump() && account.status.collection_track == 3 && account.network_requests == last_requests &&
                     !g_app.renderer.video_scene->projection.controls[8].enabled,
                     "collection runtime: final EOF remains stopped without wrapping or fetching another track");
-                for (u32 i=0;i<10 && g_app.renderer.video_scene->focus!=UiVideoControl::track;++i) application_video_key(VK_TAB,false,false);
-                check(g_app.renderer.video_scene->focus==UiVideoControl::track && application_video_key(VK_HOME,false,false) &&
+                for (u32 i=0;i<10 && g_app.renderer.video_scene->focus!=UiVideoControl::track;++i) application_video_key(key::tab,false,false);
+                check(g_app.renderer.video_scene->focus==UiVideoControl::track && application_video_key(key::home,false,false) &&
                     pump() && pump() && pump() && account.status.collection_track==1 &&
-                    application_video_key(VK_RIGHT,false,false) && pump() && pump() && pump() && account.status.collection_track==2,
+                    application_video_key(key::right,false,false) && pump() && pump() && pump() && account.status.collection_track==2,
                     "collection runtime: focused selector Home/Right selects tracks and keeps keyboard focus across restarts");
             }
         } else check(false, "preview runtime: album art geometry");

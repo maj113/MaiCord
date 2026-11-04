@@ -30,6 +30,7 @@
 #include "../../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
@@ -216,7 +217,7 @@ void application_message_forward_release() noexcept {
     message_composer_release(&q->edit); message_composer_release(&q->caption);
     ui_message_forward_scene_release(&q->scene);
     g_app.message_forward = nullptr;
-    SecureZeroMemory(q, sizeof(*q)); VirtualFree(q, 0, MEM_RELEASE);
+    SecureZeroMemory(q, sizeof(*q)); pages_release(q);
 }
 bool application_message_forward_synchronize() noexcept {
     auto* q = g_app.message_forward;
@@ -303,7 +304,7 @@ bool application_message_forward_open(u64 id) noexcept {
         if (!q) return false;
         if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)}) ||
             !message_composer_initialize(&q->caption, {q->caption_text, sizeof(q->caption_text)})) {
-            message_composer_release(&q->edit); message_composer_release(&q->caption); VirtualFree(q, 0, MEM_RELEASE); return false;
+            message_composer_release(&q->edit); message_composer_release(&q->caption); pages_release(q); return false;
         }
         g_app.message_forward = q;
     }
@@ -366,11 +367,11 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     const bool ctrl_raw = application_control_down(), alt = application_alt_down();
     const bool control = ctrl_raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_up) return true;
-    if (kind == UiInputKind::key_down && key == VK_ESCAPE) { g_app.message_forward_held_key = key; application_message_forward_close(); return true; }
-    if (kind == UiInputKind::key_down && key == VK_TAB) {
+    if (kind == UiInputKind::key_down && key == key::escape) { g_app.message_forward_held_key = key; application_message_forward_close(); return true; }
+    if (kind == UiInputKind::key_down && key == key::tab) {
         g_app.message_forward_held_key = key; if (!repeated) focus_field(*q, !q->caption_focused); return true;
     }
-    if (kind == UiInputKind::key_down && key == VK_RETURN) {
+    if (kind == UiInputKind::key_down && key == key::enter) {
         g_app.message_forward_held_key = key;
         if (!repeated && !application_composer_text_input_composing()) {
             if (control || q->caption_focused) activate(*q, {q->controller.committed ? UiMessageForwardAction::retry : UiMessageForwardAction::send});
@@ -378,9 +379,9 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
         }
         return true;
     }
-    if (kind == UiInputKind::key_down && (key == VK_UP || key == VK_DOWN || key == VK_PRIOR || key == VK_NEXT)) {
-        ui_message_forward_scene_move(&q->scene, key == VK_UP ? UiQuickSwitcherMove::previous :
-            key == VK_DOWN ? UiQuickSwitcherMove::next : key == VK_PRIOR ? UiQuickSwitcherMove::page_previous : UiQuickSwitcherMove::page_next);
+    if (kind == UiInputKind::key_down && (key == key::up || key == key::down || key == key::page_up || key == key::page_down)) {
+        ui_message_forward_scene_move(&q->scene, key == key::up ? UiQuickSwitcherMove::previous :
+            key == key::down ? UiQuickSwitcherMove::next : key == key::page_up ? UiQuickSwitcherMove::page_previous : UiQuickSwitcherMove::page_next);
         application_request_frame(); return true;
     }
     if (!application_message_forward_edit_focused()) return true;
@@ -402,7 +403,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     } else if (control && key == 'V') {
         result = paste_single_line(&model);
     } else {
-        if (key == VK_BACK) g_app.message_forward_held_key = key;
+        if (key == key::backspace) g_app.message_forward_held_key = key;
         message_composer_edit_key(&model, key, control, shift, &result);
     }
     if (result == MessageComposerResult::changed) application_message_forward_edit_changed(revision != model.text_revision);

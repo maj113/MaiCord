@@ -2,6 +2,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "names_reference.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;bool print_ok=true;char print_buffer[65536];u32 output_count=0;u16 decoded[32768];
 void flush() noexcept {DWORD written=0;if(output_count&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),print_buffer,output_count,&written,nullptr)||written!=output_count))print_ok=false;output_count=0;}
@@ -71,22 +73,22 @@ bool selection_permutations() noexcept {
 }
 bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};
-    DWORD old=0;CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old));CHECK(VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
+    struct Cleanup{u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};
+    CHECK(pages_protect(memory+page, page, PageAccess::none));CHECK(pages_protect(memory+page*3, page, PageAccess::none));
     u8 table[40]{};byte_store_be16(table,1);byte_store_be16(table+2,1);byte_store_be16(table+4,24);
     record(table+6,3,1,0x8000,1,4,0);byte_store_be16(table+18,1);byte_store_be16(table+20,10);byte_store_be16(table+22,4);
     const u16 data[]{'A','B','e','n','-','U','S'};for(u32 i=0;i<7;++i)byte_store_be16(table+24+i*2,data[i]);
     for(u32 size=0;size<=38;++size){auto* end=memory+page-size;copy_bytes(end,table,size);SfntNames names{};
         CHECK(sfnt_names_open({end,size},&names)==(size<38?SfntStatus::truncated:SfntStatus::ok));if(size<38)CHECK(!names.table.data);}
-    auto* source=memory+page-38;copy_bytes(source,table,38);CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old));
+    auto* source=memory+page-38;copy_bytes(source,table,38);CHECK(pages_protect(memory, page, PageAccess::read));
     SfntNames names{};SfntName name{};bool found=false;CHECK(sfnt_names_open({source,38},&names)==SfntStatus::ok);
     CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found);
     auto* target=reinterpret_cast<u16*>(memory+page*3-4);u32 units=0;CHECK(sfnt_name_decode(name,{target,2},&units)==SfntStatus::ok&&units==2&&target[0]=='A'&&target[1]=='B');
-    CHECK(VirtualProtect(memory,page,PAGE_READWRITE,&old));
+    CHECK(pages_protect(memory, page, PageAccess::read_write));
     byte_store_be16(memory+page-4,0xd83d);byte_store_be16(memory+page-2,0xde00);name={{memory+page-4,4},{},3,10,0x409,1};
-    CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old));CHECK(sfnt_name_decode(name,{target,2},&units)==SfntStatus::ok&&units==2&&target[0]==0xd83d&&target[1]==0xde00);
-    CHECK(VirtualProtect(memory,page,PAGE_READWRITE,&old));
+    CHECK(pages_protect(memory, page, PageAccess::read));CHECK(sfnt_name_decode(name,{target,2},&units)==SfntStatus::ok&&units==2&&target[0]==0xd83d&&target[1]==0xde00);
+    CHECK(pages_protect(memory, page, PageAccess::read_write));
     const u16 invalid[][3]{{0xdc00,0,0},{0xd800,0,0},{0xd800,'A',0},{'A',0xdfff,0},{0xd800,0xdbff,0}};
     const u32 sizes[]{1,1,2,2,2};
     for(u32 i=0;i<5;++i){const u32 size=sizes[i]*2;auto* end=memory+page-size;for(u32 j=0;j<sizes[i];++j)byte_store_be16(end+j*2,invalid[i][j]);
@@ -132,6 +134,6 @@ bool run() noexcept {
     CHECK(!*command);return audit(path,index);
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_names_entry() noexcept {
-    using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font names\n":"\nFAIL native font names\n");flush();ExitProcess(ok&&print_ok?0:1);
+MAICORD_TEST_ENTRY(maicord_font_names_entry) {
+    using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font names\n":"\nFAIL native font names\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);
 }

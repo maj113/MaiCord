@@ -329,7 +329,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
     if (!secret_result.ok()) {
         const u32 native_error = secret_result.native_error;
         secure_clear_bytes(runtime, bytes);
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        pages_release(runtime);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::memory, native_error);
     }
@@ -341,7 +341,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
     if (!started.ok()) {
         secure_buffer_release(&runtime->secrets);
         secure_clear_bytes(runtime, bytes);
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        pages_release(runtime);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::transport_start, started.native_error);
     }
@@ -979,7 +979,7 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     const u32 bytes = page_round(sizeof(UserAuthCoordinatorRuntime));
     secure_buffer_release(&runtime->secrets);
     secure_clear_bytes(runtime, bytes);
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     UserAuthCoordinatorResult stopped{};
     stopped.phase = UserAuthCoordinatorPhase::stopped;
     if (coordinator->state.http_status == 429) {

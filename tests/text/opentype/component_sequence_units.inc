@@ -43,11 +43,11 @@ bool sequence_units() noexcept {
         if(status==SfntStatus::ok)sfnt_components_rollback(&forest,{sequence_journal,result.undo_count});if(!bytes_equal(sequence_snapshot,sequence_nodes,sizeof(sequence_nodes)))return false;++sequence_rollbacks;}
     // Guard exactly the required mutation journal, including its failing edge.
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;const usize bytes=static_cast<usize>(complete_journal)*sizeof(SfntComponentUndo);if(bytes>page*4)return false;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*5,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page*4,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_allocate(page*5));if(!memory)return false;if(!pages_protect(memory+page*4, page, PageAccess::none)){pages_release(memory);return false;}
     auto* guarded=reinterpret_cast<SfntComponentUndo*>(memory+page*4-bytes);const u32 indices[]{0,1};SfntComponentGlyph output=sequence_inputs[0];const SfntGlyphView view{&sequence_inputs[0].glyph,nullptr,2,0,sizeof(SfntComponentGlyph)};
     bool ok=sfnt_components_edit(&forest,view,{indices,2},true,{reinterpret_cast<u8*>(&output),sizeof(output)},{guarded,complete_journal-1},&result)==SfntStatus::output_too_small && bytes_equal(sequence_snapshot,sequence_nodes,sizeof(sequence_nodes));
     ok=ok && sfnt_components_edit(&forest,view,{indices,2},true,{reinterpret_cast<u8*>(&output),sizeof(output)},{guarded,complete_journal},&result)==SfntStatus::ok;
-    if(ok)sfnt_components_rollback(&forest,{guarded,result.undo_count});ok=ok && bytes_equal(sequence_snapshot,sequence_nodes,sizeof(sequence_nodes));VirtualFree(memory,0,MEM_RELEASE);return ok;
+    if(ok)sfnt_components_rollback(&forest,{guarded,result.undo_count});ok=ok && bytes_equal(sequence_snapshot,sequence_nodes,sizeof(sequence_nodes));pages_release(memory);return ok;
 }
 bool affinity_units() noexcept {
     constexpr u32 count=4096;for(u32 i=0;i<count;++i)sequence_glyphs[i]={{static_cast<u16>(i?3:1),i?SfntGlyphClass::mark:SfntGlyphClass::base,0},i,0,0};

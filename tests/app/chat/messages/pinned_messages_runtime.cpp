@@ -4,6 +4,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord::pins_runtime_test {
@@ -186,7 +187,7 @@ void run() noexcept {
     const bool composer_passes = owner.scene.viewport.bottom <= composer_bounds.top &&
         !application_pinned_messages_window_message(WM_LBUTTONDOWN, 0, point(composer_bounds)) &&
         !application_pinned_messages_input(UiInputKind::character, 'a', false) &&
-        !application_pinned_messages_input(UiInputKind::key_down, VK_RETURN, false) &&
+        !application_pinned_messages_input(UiInputKind::key_down, key::enter, false) &&
         g_app.message_composer.focused;
     g_app.context_focus = &owner.scene.widgets;
     g_app.message_composer.focused = false;
@@ -239,8 +240,8 @@ void run() noexcept {
           application_pinned_messages_window_message(WM_LBUTTONUP, 0, point(jump_bounds)) && navigations == 1,
           "pins runtime: native press survives hover-only scene revision before original-message Jump");
     check(ui_pinned_messages_scene_focus(&owner.scene, {UiPinnedMessagesAction::jump, 70, 300}) &&
-          application_pinned_messages_input(UiInputKind::key_down, VK_RETURN, false) &&
-          application_pinned_messages_input(UiInputKind::key_up, VK_RETURN, false) &&
+          application_pinned_messages_input(UiInputKind::key_down, key::enter, false) &&
+          application_pinned_messages_input(UiInputKind::key_up, key::enter, false) &&
           navigations == 2 && navigated_channel == 70 && navigated_message == 300,
           "pins runtime: native scene keyboard action navigates original channel and message IDs");
     check(application_pinned_messages_action(900, true), "pins runtime: native confirmation opens for cancellation");
@@ -362,8 +363,8 @@ void run() noexcept {
           "pins runtime: server history denial overrides unchanged cached channel authority");
     const u32 before_retry = account.submissions;
     const bool retry_activated = ui_pinned_messages_scene_focus(&owner.scene, {UiPinnedMessagesAction::retry, 70, 0}) &&
-        application_pinned_messages_input(UiInputKind::key_down, VK_RETURN, false) &&
-        application_pinned_messages_input(UiInputKind::key_up, VK_RETURN, false);
+        application_pinned_messages_input(UiInputKind::key_down, key::enter, false) &&
+        application_pinned_messages_input(UiInputKind::key_up, key::enter, false);
     check(retry_activated && application_pinned_messages_pending(1) && account.submissions == before_retry &&
           application_pinned_messages_submit(18, 1) && account.submissions == before_retry + 1 &&
           account.request.operation == MessagePinsOperation::fetch && response(18, 403) &&

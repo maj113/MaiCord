@@ -20,6 +20,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -46,7 +47,7 @@ void buffer_release(void* context) noexcept {
     auto* buffer = static_cast<UploadBuffer*>(context);
     if (InterlockedDecrement(&buffer->references) == 0) {
         secure_clear_bytes(buffer->data(), buffer->bytes);
-        VirtualFree(buffer, 0, MEM_RELEASE);
+        pages_release(buffer);
     }
 }
 ConstSlice<u8> buffer_read(void* context, u64 offset, Slice<u8> scratch) noexcept {
@@ -378,13 +379,13 @@ bool application_voice_message_input(UiInputKind kind, u32 code, bool repeated) 
     if (kind == UiInputKind::character)
         return true;
     if (kind != UiInputKind::key_down || repeated)
-        return kind == UiInputKind::key_down && (code == VK_ESCAPE || code == VK_RETURN);
-    const bool modifiers = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000);
-    if (code == VK_ESCAPE) {
+        return kind == UiInputKind::key_down && (code == key::escape || code == key::enter);
+    const bool modifiers = (GetKeyState(key::ctrl) & 0x8000) || (GetKeyState(key::alt) & 0x8000);
+    if (code == key::escape) {
         apply(VoiceMessageEvent::cancel);
         return refresh_message_composer_ui();
     }
-    if (code == VK_RETURN && !modifiers) {
+    if (code == key::enter && !modifiers) {
         apply(g_voice.flow.phase == VoiceMessagePhase::failed ? VoiceMessageEvent::retry : VoiceMessageEvent::send);
         return refresh_message_composer_ui();
     }

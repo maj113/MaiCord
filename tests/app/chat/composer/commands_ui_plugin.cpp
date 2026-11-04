@@ -6,6 +6,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 
@@ -173,12 +174,12 @@ void plugin_cases() noexcept {
               "the picker lists the plugin's commands in a section named after it");
 
         // An insert reply puts the text in the draft, unsent.
-        check(pick(utf8_literal("/calc"), utf8_literal("/calc a:5 b:7")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/calc"), utf8_literal("/calc a:5 b:7")) && application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("5+7=12")),
               "a command's insert reply replaces the draft");
 
         // A send reply goes out as the message itself.
-        check(pick(utf8_literal("/say"), utf8_literal("/say text:hello there")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/say"), utf8_literal("/say text:hello there")) && application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("hello there")),
               "a command's send reply becomes the message to send");
         bool handled = true;
@@ -188,8 +189,8 @@ void plugin_cases() noexcept {
         // takes the highlighted choice of the mode; the second sends.
         shown = {};
         bool noted = pick(utf8_literal("/note"), utf8_literal("/note text:hey mode:loud")) &&
-                     application_commands_key(VK_RETURN);
-        if (!shown.notices) noted = noted && application_commands_key(VK_RETURN);
+                     application_commands_key(key::enter);
+        if (!shown.notices) noted = noted && application_commands_key(key::enter);
         check(noted && shown.notices == 1 && shown.notice_channel == 9 && equals(shown.notice, "note:loud:hey") &&
                   message_composer_text(composer).bytes == 0,
               "a local reply is shown only to the user and clears the draft");
@@ -198,19 +199,19 @@ void plugin_cases() noexcept {
         const auto* state = static_cast<const FixtureState*>(binding->ctx.state);
         const u32 before = state->command_calls;
         const bool typed = pick(utf8_literal("/calc"), utf8_literal("/calc a:500"));
-        application_commands_key(VK_RETURN);
+        application_commands_key(key::enter);
         check(typed && state->command_calls == before && message_composer_text(composer).bytes != 0,
               "a value above the declared maximum is refused before the plugin runs");
 
         // A toast reply. The first Enter takes the boolean's highlighted choice; the second sends.
         shown = {};
-        bool flagged = pick(utf8_literal("/flag"), utf8_literal("/flag on:true")) && application_commands_key(VK_RETURN);
-        if (!shown.toasts) flagged = flagged && application_commands_key(VK_RETURN);
+        bool flagged = pick(utf8_literal("/flag"), utf8_literal("/flag on:true")) && application_commands_key(key::enter);
+        if (!shown.toasts) flagged = flagged && application_commands_key(key::enter);
         check(flagged && shown.toasts == 1 && equals(shown.toast, "flag:1:0:0") && shown.tone == MC_TONE_POSITIVE,
               "a toast reply reaches the application with its tone");
 
         // A failing command keeps the draft and says so.
-        check(pick(utf8_literal("/fail"), utf8_literal("/fail")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/fail"), utf8_literal("/fail")) && application_commands_key(key::enter) &&
                   message_composer_text(composer).bytes != 0,
               "a command that fails keeps the draft");
 

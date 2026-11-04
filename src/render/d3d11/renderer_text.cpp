@@ -307,7 +307,7 @@ void release_typography_owner(RendererTypographyOwner* owner) noexcept {
     if (!owner)
         return;
     text_system_release(&owner->system);
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
 }
 u64 typography_source_identity(const TextSystem& system) noexcept {
     return native_text_format_identity(system);

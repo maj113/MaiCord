@@ -43,6 +43,38 @@ struct TimeSpec {
     i64 nanoseconds;
 };
 
+// <linux/time.h>: a timerfd's setting. `value` is the first expiry (relative unless absolute), `interval` the repeat.
+struct ITimerSpec {
+    TimeSpec interval;
+    TimeSpec value;
+};
+
+// <asm-generic/poll.h>
+inline constexpr i16 kPollIn = 0x1;
+inline constexpr i16 kPollError = 0x8;
+inline constexpr i16 kPollHangUp = 0x10;
+inline constexpr i16 kPollInvalid = 0x20;
+struct PollFd {
+    int fd;
+    i16 events;
+    i16 revents;
+};
+
+// <linux/eventfd.h>, <linux/timerfd.h>
+inline constexpr int kEventfdNonBlock = 0x800;
+inline constexpr int kEventfdCloseOnExec = 0x80000;
+inline constexpr int kTimerfdNonBlock = 0x800;
+inline constexpr int kTimerfdCloseOnExec = 0x80000;
+
+// <linux/prctl.h>
+inline constexpr int kPrctlSetTimerSlack = 29;
+
+// <linux/sched.h>
+inline constexpr int kSchedRoundRobin = 2;
+struct SchedParam {
+    int priority;
+};
+
 // <linux/futex.h>
 inline constexpr int kFutexWait = 0;
 inline constexpr int kFutexWake = 1;

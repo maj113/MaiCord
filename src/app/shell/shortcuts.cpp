@@ -27,6 +27,7 @@
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
@@ -79,9 +80,9 @@ bool chord_down(ShortcutChord chord, u32* held) noexcept {
     if (!chord.key || !(GetAsyncKeyState(chord.key) & 0x8000))
         return false;
     if (*held == kModifiersUnread)
-        *held = ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? shortcut_ctrl : 0) |
-                ((GetAsyncKeyState(VK_MENU) & 0x8000) ? shortcut_alt : 0) |
-                ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? shortcut_shift : 0);
+        *held = ((GetAsyncKeyState(key::ctrl) & 0x8000) ? shortcut_ctrl : 0) |
+                ((GetAsyncKeyState(key::alt) & 0x8000) ? shortcut_alt : 0) |
+                ((GetAsyncKeyState(key::shift) & 0x8000) ? shortcut_shift : 0);
     return *held == chord.modifiers;
 }
 
@@ -361,13 +362,13 @@ bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeat
     }
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return true;
-    if (kind == UiInputKind::system_key_down && code == VK_F4)
+    if (kind == UiInputKind::system_key_down && code == key::f4)
         return false;
     const auto chord = shortcut_chord_from_keyboard(code);
-    if ((code == VK_ESCAPE && !chord.modifiers) || shortcut_matches(ShortcutAction::shortcuts_help, chord)) {
+    if ((code == key::escape && !chord.modifiers) || shortcut_matches(ShortcutAction::shortcuts_help, chord)) {
         if (!repeated) {
             overlay.held_key = code;
-            if (code == VK_ESCAPE && overlay.query_bytes) {
+            if (code == key::escape && overlay.query_bytes) {
                 overlay.query_bytes = 0; // Escape clears the query first.
                 refresh();
             } else
@@ -377,16 +378,16 @@ bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeat
     }
     float delta = 0;
     switch (code) {
-    case VK_BACK:
+    case key::backspace:
         if (pop_query())
             refresh();
         return true;
-    case VK_UP: delta = -40; break;
-    case VK_DOWN: delta = 40; break;
-    case VK_PRIOR: delta = -ui_rect_height(overlay.scene.body) * .8f; break;
-    case VK_NEXT: delta = ui_rect_height(overlay.scene.body) * .8f; break;
-    case VK_HOME: delta = -overlay.scene.content_height; break;
-    case VK_END: delta = overlay.scene.content_height; break;
+    case key::up: delta = -40; break;
+    case key::down: delta = 40; break;
+    case key::page_up: delta = -ui_rect_height(overlay.scene.body) * .8f; break;
+    case key::page_down: delta = ui_rect_height(overlay.scene.body) * .8f; break;
+    case key::home: delta = -overlay.scene.content_height; break;
+    case key::end: delta = overlay.scene.content_height; break;
     default: return true;
     }
     if (ui_shortcuts_scene_scroll(&overlay.scene, delta))

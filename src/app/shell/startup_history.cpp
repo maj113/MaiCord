@@ -35,7 +35,7 @@ constexpr u64 kStartupHistoryRequestId = 1;
 void release_body() noexcept {
     if (g_startup.body) {
         secure_clear_bytes(g_startup.body, g_startup.body_bytes);
-        VirtualFree(g_startup.body, 0, MEM_RELEASE);
+        pages_release(g_startup.body);
     }
     g_startup.body = nullptr;
     g_startup.body_bytes = 0;

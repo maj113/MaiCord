@@ -16,6 +16,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::forward_runtime_test {
 using namespace app_detail;
@@ -48,9 +49,9 @@ void check(bool value, const char* label) noexcept {
 }
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
     BYTE clean[256]{};
-    clean[VK_CONTROL] = control ? 0x80 : 0;
-    clean[VK_SHIFT] = shift ? 0x80 : 0;
-    clean[VK_MENU] = alt ? 0x80 : 0;
+    clean[key::ctrl] = control ? 0x80 : 0;
+    clean[key::shift] = shift ? 0x80 : 0;
+    clean[key::alt] = alt ? 0x80 : 0;
     check(SetKeyboardState(clean) != FALSE, "Forward runtime keyboard state");
 }
 bool channel(u64 id, Utf8View name) noexcept {
@@ -156,10 +157,10 @@ void run() noexcept {
         return;
     modifiers(false, false, true);
     underlying_input = 0;
-    check(route_application_input(UiInputKind::key_down, VK_ESCAPE) &&
+    check(route_application_input(UiInputKind::key_down, key::escape) &&
               !application_message_forward_active() && !scoped_shortcuts && !underlying_input &&
-              route_application_input(UiInputKind::key_down, VK_ESCAPE, true) &&
-              route_application_input(UiInputKind::key_up, VK_ESCAPE) && !scoped_shortcuts,
+              route_application_input(UiInputKind::key_down, key::escape, true) &&
+              route_application_input(UiInputKind::key_up, key::escape) && !scoped_shortcuts,
           "Scoped input: actual Forward modal closes on Shift Escape without admitting read work");
     modifiers();
     check(application_message_forward_open(500) && application_message_forward_active(),
@@ -177,10 +178,10 @@ void run() noexcept {
     check(application_message_forward_synchronize() && q->controller.candidates.revision == rebuilds &&
               q->scene.accepted == accepted_bank,
           "Forward runtime unchanged query avoids scans and result reallocations");
-    key(VK_RETURN);
+    key(key::enter);
     check(q->controller.destination_count == 1 && !ui.message_composer_controller.request_count,
           "Forward runtime Enter selects a destination without sending");
-    key(VK_TAB);
+    key(key::tab);
     const auto caption_target = application_message_forward_edit_target();
     check(application_message_forward_caption_focused() && !text_input_ready(stale_edit) &&
               edit(utf8_literal("Caption")),
@@ -190,11 +191,11 @@ void run() noexcept {
     check(!underlying_input &&
               utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
           "Forward runtime modal never mutates the underlying draft");
-    key(VK_RETURN, true);
+    key(key::enter, true);
     check(q->controller.committed && ui.message_composer_controller.request_count == 1 &&
               !text_input_ready(caption_target) && !application_message_forward_edit_model(),
           "Forward runtime explicit send freezes and queues the isolated request");
-    key(VK_RETURN, true);
+    key(key::enter, true);
     check(ui.message_composer_controller.request_count == 1,
           "Forward runtime duplicate send cannot duplicate admission");
     MessageComposerSubmit submit{};
@@ -227,7 +228,7 @@ void run() noexcept {
               q->controller.destinations[0].state == MessageForwardDestinationState::failed &&
               q == allocation,
           "Forward runtime failed progress reopens for explicit retry without allocation");
-    key(VK_RETURN, true);
+    key(key::enter, true);
     check(q->controller.destinations[0].nonce == nonce &&
               q->controller.destinations[0].state == MessageForwardDestinationState::queued &&
               ui.message_composer_controller.request_count == 1,
@@ -265,8 +266,8 @@ void run() noexcept {
     check(application_message_forward_open(500) && !q->controller.committed &&
               !q->controller.destination_count && q == allocation && edit(utf8_literal("general")),
           "Forward runtime completed source can be forwarded again in retained storage");
-    key(VK_RETURN);
-    key(VK_RETURN, true);
+    key(key::enter);
+    key(key::enter, true);
     check(q->controller.committed && ui.message_composer_controller.request_count == 1,
           "Forward runtime new explicit forward after completion receives its own request");
     const auto cancel_bounds = q->scene.cancel_rectangle;
@@ -279,8 +280,8 @@ void run() noexcept {
           "Forward runtime Cancel remaining explicitly discards unsent work");
     check(application_message_forward_open(500) && edit(utf8_literal("general")),
           "Forward runtime explicit cancellation unlocks a fresh forward");
-    key(VK_RETURN);
-    key(VK_RETURN, true);
+    key(key::enter);
+    key(key::enter, true);
     const auto hit = q->scene.panel;
     const LPARAM point = MAKELPARAM(static_cast<i16>(hit.left + 5), static_cast<i16>(hit.top + 5));
     application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);

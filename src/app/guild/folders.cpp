@@ -60,16 +60,16 @@ ApplicationGuildFolders* owner() noexcept {
     if (g_folders->ui != g_app.account_ui || g_folders->account_serial != g_app.plugin_account_scope_serial) {
         // Decommit and recommit instead of clearing: the owner reads as zero
         // again without making its untouched pages resident.
-        if (!VirtualFree(g_folders, sizeof(ApplicationGuildFolders), MEM_DECOMMIT)) {
+        if (!pages_decommit(g_folders, sizeof(ApplicationGuildFolders))) {
             clear_bytes(g_folders, sizeof(*g_folders));
-        } else if (VirtualAlloc(g_folders, sizeof(ApplicationGuildFolders), MEM_COMMIT, PAGE_READWRITE) !=
+        } else if (pages_commit_at(g_folders, sizeof(ApplicationGuildFolders)) !=
                    g_folders) {
             // The rail may still point at the old layout; unbind it before releasing.
             auto& view = g_app.account_ui->navigation_view;
             view.guild_folders = nullptr;
             view.expanded_folders = nullptr;
             view.expanded_folder_count = 0;
-            VirtualFree(g_folders, 0, MEM_RELEASE);
+            pages_release(g_folders);
             g_folders = nullptr;
             return nullptr;
         }
@@ -401,7 +401,7 @@ void application_guild_folders_release() noexcept {
         g_app.account_ui->navigation_view.expanded_folders = nullptr;
         g_app.account_ui->navigation_view.expanded_folder_count = 0;
     }
-    VirtualFree(g_folders, 0, MEM_RELEASE);
+    pages_release(g_folders);
     g_folders = nullptr;
 }
 

@@ -119,6 +119,6 @@ void run() noexcept {
 }
 } // namespace
 } // namespace maicord
-extern "C" __declspec(noreturn) void WINAPI maicord_dash_manifest_entry() noexcept {
-    maicord::run(); ExitProcess(maicord::failures ? 1 : 0);
+MAICORD_TEST_ENTRY(maicord_dash_manifest_entry) {
+    maicord::run(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

@@ -58,7 +58,7 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, ID3D11ShaderResourceView**
     GlyphOutline outline{};
     if (!commands || !glyph_outline_initialize(&outline, Slice<GlyphPathCommand>{commands, kRendererPathCapacity})) {
         if (commands)
-            VirtualFree(commands, 0, MEM_RELEASE);
+            pages_release(commands);
         glyph_atlas_gpu_release(&gpu);
         return false;
     }
@@ -121,7 +121,7 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, ID3D11ShaderResourceView**
         ok = batch.finish() && ok;
     }
     native_glyph_outlines_release(&outlines);
-    VirtualFree(commands, 0, MEM_RELEASE);
+    pages_release(commands);
     if (ok && gpu.texture_view) {
         gpu.texture_view->AddRef();
         *view = gpu.texture_view;

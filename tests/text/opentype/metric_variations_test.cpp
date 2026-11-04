@@ -2,6 +2,8 @@
 #include "maicord/text/fonts/axes.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/metric_variations_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
@@ -34,9 +36,9 @@ bool boundaries(const SfntFace& face) noexcept {
         SfntHvar h{};SfntMvar m{};u32 full=0,used=0;const auto status=kind?sfnt_mvar_open(table,&m,1000000,&full):sfnt_hvar_open(table,&h,1000000,&full);if(status!=SfntStatus::ok)return false;
         for(u32 work=0;work<=full;++work){const auto s=kind?sfnt_mvar_open(table,&m,work,&used):sfnt_hvar_open(table,&h,work,&used);++budgets;if(used>work || s!=(work<full?SfntStatus::resource_limit:SfntStatus::ok))return false;}
         SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;if(table.count>page)return false;
-        auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
-        for(u32 size=0;size<=table.count;++size){auto* start=memory+page-size;if(size)copy_bytes(start,table.data,size);const auto s=kind?sfnt_mvar_open({start,size},&m):sfnt_hvar_open({start,size},&h);++guards;if(size==table.count && s!=SfntStatus::ok){VirtualFree(memory,0,MEM_RELEASE);return false;}}
-        VirtualFree(memory,0,MEM_RELEASE);
+        auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
+        for(u32 size=0;size<=table.count;++size){auto* start=memory+page-size;if(size)copy_bytes(start,table.data,size);const auto s=kind?sfnt_mvar_open({start,size},&m):sfnt_hvar_open({start,size},&h);++guards;if(size==table.count && s!=SfntStatus::ok){pages_release(memory);return false;}}
+        pages_release(memory);
     }return true;
 }
 bool raw(const SfntFace& face,u32 mode) noexcept {
@@ -97,4 +99,4 @@ int file(const wchar_t* path) noexcept {
 int run() noexcept {const wchar_t* command=GetCommandLineW();wchar_t path[32768];if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command){if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command)return 2;return file(path);}
     const bool ok=corpus() && invalid();print(utf8_literal("fonts="));number(fonts);print(utf8_literal("\ncases="));number(cases);print(utf8_literal("\nadvances="));number(advances_checked);print(utf8_literal("\ndecorations="));number(decorations_checked);print(utf8_literal("\nraw_deltas="));number(raw_checks);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\ninvalid="));number(malformed);print(ok?utf8_literal("\nPASS native metric variations\n"):utf8_literal("\nFAIL native metric variations\n"));return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_metric_variations_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_metric_variations_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

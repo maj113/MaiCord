@@ -9,6 +9,7 @@
 #include "../shell/input.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "account_access.hpp"
 
 namespace maicord::app_detail {
@@ -387,26 +388,26 @@ bool dialog_key(UiInputKind kind, u32 key, bool repeated) noexcept {
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return true;
     const bool shift = application_shift_down();
-    if (key == VK_ESCAPE && !repeated) {
+    if (key == key::escape && !repeated) {
         close_dialog();
         repaint();
         return true;
     }
-    if (key == VK_RETURN && !repeated) {
+    if (key == key::enter && !repeated) {
         apply_dialog();
         refresh_dialog();
         return true;
     }
-    if (p.dialog_kind == Dialog::crop && (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)) {
+    if (p.dialog_kind == Dialog::crop && (key == key::left || key == key::right || key == key::up || key == key::down)) {
         // As in the official client: 4 DIP per press, 40 with Shift.
         const float step = shift ? kImageCropFastKeyStep : kImageCropKeyStep;
-        image_crop_pan(&p.crop, key == VK_LEFT ? -step : key == VK_RIGHT ? step : 0,
-                       key == VK_UP ? -step : key == VK_DOWN ? step : 0);
+        image_crop_pan(&p.crop, key == key::left ? -step : key == key::right ? step : 0,
+                       key == key::up ? -step : key == key::down ? step : 0);
         refresh_dialog();
         return true;
     }
-    if (p.dialog_kind != Dialog::crop && p.item_count && (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)) {
-        const i32 move = key == VK_LEFT ? -1 : key == VK_RIGHT ? 1 : key == VK_UP ? -3 : 3;
+    if (p.dialog_kind != Dialog::crop && p.item_count && (key == key::left || key == key::right || key == key::up || key == key::down)) {
+        const i32 move = key == key::left ? -1 : key == key::right ? 1 : key == key::up ? -3 : 3;
         const i32 next = static_cast<i32>(p.item_selected) + move;
         if (next >= 0 && next < static_cast<i32>(p.item_count))
             dialog_action(UiProfileDialogAction::item, static_cast<u32>(next));

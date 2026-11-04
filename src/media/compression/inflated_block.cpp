@@ -11,7 +11,7 @@ namespace {
 const u8* inflate_once(InflatedBlock& block, const u8* packed, u32 packed_bytes, u8* destination, u32 bytes,
                        void (*publish)(const u8* data) noexcept) noexcept {
     for (;;) {
-        const long state = block.state;
+        const Atomic32 state = block.state;
         if (state == 2)
             return block.data;
         if (state == 3)
@@ -28,7 +28,7 @@ const u8* inflate_once(InflatedBlock& block, const u8* packed, u32 packed_bytes,
                     publish(data);
                 block.data = data;
             } else if (data && !destination) {
-                VirtualFree(data, 0, MEM_RELEASE);
+                pages_release(data, bytes);
             }
             block.state = ok ? 2 : 3;
             return block.data;

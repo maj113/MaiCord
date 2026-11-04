@@ -106,7 +106,7 @@ bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> f
     // push copies into the decoder queue; the worker is the only creator and
     // destroyer, so the decoder outlives this shared section.
     const bool pushed = current && gpu_stream_decoder_push(stream->decoder, frame, rtp_timestamp, intact);
-    ID3D11Device* device = decoders->device;
+    GpuDevice* device = decoders->device;
     if (!current && device) device->AddRef();
     ReleaseSRWLockShared(decoders->lock.native());
     if (current) return pushed;
@@ -179,7 +179,7 @@ void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
     decoders->frame_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
 }
 
-void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept {
+void video_stream_decoders_set_device(VideoStreamDecoders* decoders, GpuDevice* device) noexcept {
     if (!decoders) return;
     const u32 codecs = device ? gpu_stream_decoder_codecs(device) : 0;
     u32 bits = 0;
@@ -188,7 +188,7 @@ void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Devic
     if (codecs & gpu_stream_codec_bit(GpuStreamCodec::av1)) bits |= voice_video_codec_bit(VoiceVideoCodec::av1);
     if (device) device->AddRef();
     AcquireSRWLockExclusive(decoders->lock.native());
-    ID3D11Device* previous = decoders->device;
+    GpuDevice* previous = decoders->device;
     decoders->device = device;
     InterlockedExchange(&decoders->decodable, static_cast<LONG>(bits));
     ReleaseSRWLockExclusive(decoders->lock.native());
@@ -230,7 +230,7 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i)
         if (decoders->streams[i].decoder) detached[i] = detach(&decoders->streams[i]);
     reset_value(&decoders->keyframes);
-    ID3D11Device* device = decoders->device;
+    GpuDevice* device = decoders->device;
     decoders->device = nullptr;
     InterlockedExchange(&decoders->decodable, 0);
     ReleaseSRWLockExclusive(decoders->lock.native());

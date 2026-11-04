@@ -207,7 +207,7 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
         !renderer_commit_typography(&g_app.renderer, &fonts)) {
         renderer_discard_typography(&fonts);
         if (allocated)
-            VirtualFree(destination, 0, MEM_RELEASE);
+            pages_release(destination);
         return false;
     }
     const bool typography_changed = previous_typography != renderer_typography_revision(g_app.renderer);

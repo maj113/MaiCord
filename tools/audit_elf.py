@@ -26,8 +26,10 @@ EXPECTED_NEEDED = ("libc.so.6", "libdl.so.2", "libpthread.so.0")
 # The imports of include/maicord/sys/linux/libc.hpp.
 ALLOWED_IMPORTS = {
     "dlopen", "dlsym", "dlclose", "dlerror",
-    "pthread_create", "pthread_join", "pthread_detach",
+    "pthread_create", "pthread_join", "pthread_detach", "pthread_attr_init", "pthread_attr_setstacksize",
+    "pthread_attr_destroy",
     "clock_gettime",
+    "malloc", "calloc", "free",
 }
 MAXIMUM_GLIBC = (2, 17)
 FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id", ".rela.dyn.text")
@@ -131,11 +133,16 @@ def audit(path, needed, maximum_data):
         check(name not in FORBIDDEN_SECTIONS, "forbidden section %s (unwind data or build id)" % name)
         check(not name.startswith(".debug"), "debug section %s" % name)
 
-    # Imports: undefined dynamic symbols, each bound to a GLIBC_ version node of an allowed library.
-    check(DT_VERNEED in tags and DT_VERSYM in tags, "the imports carry no symbol versions")
+    # Imports: undefined dynamic symbols, each bound to a GLIBC_ version node of an allowed library. An image that
+    # calls nothing of libc has none, and then no version information either.
+    symbol_table = next(section for section in image.sections if section[1] == SHT_DYNSYM)
+    has_imports = any(
+        struct.unpack_from("<H", data, symbol_table[4] + index * 24 + 6)[0] == 0
+        for index in range(1, symbol_table[5] // 24))
+    check(not has_imports or (DT_VERNEED in tags and DT_VERSYM in tags), "the imports carry no symbol versions")
     versions = {}
-    position = image.offset_of(tags[DT_VERNEED])
-    for _ in range(tags[DT_VERNEEDNUM]):
+    position = image.offset_of(tags[DT_VERNEED]) if DT_VERNEED in tags else 0
+    for _ in range(tags.get(DT_VERNEEDNUM, 0)):
         _, auxiliaries, file_name, aux_offset, next_offset = struct.unpack_from("<HHIII", data, position)
         library = c_string(data, strings + file_name)
         check(library in needed, "versions are required from %s, which is not a needed library" % library)
@@ -149,8 +156,7 @@ def audit(path, needed, maximum_data):
                 path, version, library, MAXIMUM_GLIBC[0], MAXIMUM_GLIBC[1]))
             aux += next_aux
         position += next_offset
-    symbol_table = next(section for section in image.sections if section[1] == SHT_DYNSYM)
-    version_table = image.offset_of(tags[DT_VERSYM])
+    version_table = image.offset_of(tags[DT_VERSYM]) if DT_VERSYM in tags else 0
     imported = []
     for index in range(symbol_table[5] // 24):
         name, info, _, section, _, _ = struct.unpack_from("<IBBHQQ", data, symbol_table[4] + index * 24)

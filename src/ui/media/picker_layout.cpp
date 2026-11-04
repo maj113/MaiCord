@@ -322,7 +322,7 @@ bool layout_tiles(UiMediaPickerScene& scene) noexcept {
         if (!next)
             return false;
         if (scene.tiles)
-            VirtualFree(scene.tiles, 0, MEM_RELEASE);
+            pages_release(scene.tiles);
         scene.tiles = next;
         scene.tile_capacity = static_cast<u32>(bytes / sizeof(UiMediaPickerTile));
         scene.tile_count = 0;
@@ -648,7 +648,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
             commit_pages(bytes));
         if (next) {
             if (scene.prior)
-                VirtualFree(scene.prior, 0, MEM_RELEASE);
+                pages_release(scene.prior);
             scene.prior = next;
             scene.prior_capacity = static_cast<u32>(bytes / sizeof(UiMediaPickerCell));
         } else {

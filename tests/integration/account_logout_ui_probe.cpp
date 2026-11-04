@@ -32,6 +32,7 @@
 #include "../../src/app/account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/app/gateway/client.hpp"
@@ -436,10 +437,10 @@ bool menu(bool keyboard) noexcept {
         if (!state.valid || !ui_widget_manager_focus(&g_app.shell_scene.widgets, widget))
             return false;
         g_app.context_focus = &g_app.shell_scene.widgets;
-        if (!application_account_menu_key(VK_RETURN))
+        if (!application_account_menu_key(key::enter))
             return false;
         if (!ui_input_consume_key_tail(&g_app.composer_menu_held_key,
-                                       {UiInputKind::key_up, VK_RETURN, false}))
+                                       {UiInputKind::key_up, key::enter, false}))
             return false;
     } else {
         auto avatar = footer->rectangle;
@@ -486,8 +487,8 @@ bool locked() noexcept {
         return false;
     const auto posts = fixture->posts;
     LRESULT result{};
-    if (!key(VK_ESCAPE) || !up(VK_ESCAPE) || !key(VK_RETURN) || !key(VK_RETURN, true) || !up(VK_RETURN) ||
-        !key(VK_SPACE) || !up(VK_SPACE) || !click(fixture->old_cancel) || !click(fixture->old_accept) ||
+    if (!key(key::escape) || !up(key::escape) || !key(key::enter) || !key(key::enter, true) || !up(key::enter) ||
+        !key(key::space) || !up(key::space) || !click(fixture->old_cancel) || !click(fixture->old_accept) ||
         !application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) ||
         !application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) ||
         !application_text_form_window_message(WM_KILLFOCUS, 0, 0, &result) ||
@@ -891,7 +892,7 @@ bool scenarios() noexcept {
         return false;
     if (!require(launch_from_menu() && capture(L"account-logout-confirm-dark96.bmp"), 2))
         return false;
-    if (!require(key(VK_RETURN) && up(VK_RETURN) && !g_app.text_form && !f.posts &&
+    if (!require(key(key::enter) && up(key::enter) && !g_app.text_form && !f.posts &&
                      !account_credential_forget_probe(f.paths).pending &&
                      capture(L"account-logout-cancelled-dark96.bmp"),
                  3))
@@ -924,7 +925,7 @@ bool scenarios() noexcept {
     f.fail_stop = false;
     f.blocked_file = CreateFileW(f.paths.profile, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                  FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (!require(f.blocked_file != INVALID_HANDLE_VALUE && retry(VK_RETURN) && wait_stop() &&
+    if (!require(f.blocked_file != INVALID_HANDLE_VALUE && retry(key::enter) && wait_stop() &&
                      f.stop_attempts == 2 && f.posts == 1 && finish_stop() && g_app.text_form &&
                      g_app.text_form->can_accept && account_credential_forget_probe(f.paths).pending &&
                      resize(960, 900, 144, kLightTheme) &&
@@ -933,7 +934,7 @@ bool scenarios() noexcept {
         return false;
     CloseHandle(f.blocked_file);
     f.blocked_file = nullptr;
-    if (!require(retry(VK_SPACE) && !g_app.text_form && !g_app.account_ui && !f.unconfirmed &&
+    if (!require(retry(key::space) && !g_app.text_form && !g_app.account_ui && !f.unconfirmed &&
                      !application_account_logout_blocked() && credentials_absent() && f.posts == 1 &&
                      f.stop_attempts == 2 && capture(L"account-logout-signed-out-confirmed-light144.bmp"),
                  9))
@@ -965,7 +966,7 @@ bool scenarios() noexcept {
                      capture(L"account-logout-startup-recovery-light144.bmp") && warm(2),
                  13))
         return false;
-    if (!require(retry(VK_RETURN) && !g_app.text_form && !g_app.account_ui && !f.posts &&
+    if (!require(retry(key::enter) && !g_app.text_form && !g_app.account_ui && !f.posts &&
                      !application_account_logout_blocked() && credentials_absent() &&
                      capture(L"account-logout-startup-complete-light144.bmp"),
                  14))

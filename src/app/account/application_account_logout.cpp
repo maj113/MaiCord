@@ -452,6 +452,6 @@ void application_account_logout_release() noexcept {
         return;
     application_text_form_cancel_owner(form_valid);
     g_app.account_logout = nullptr;
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
 }
 } // namespace maicord::app_detail

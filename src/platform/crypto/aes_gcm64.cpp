@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
 
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
@@ -94,7 +94,7 @@ inline __m128i load_nonce(const u8* nonce) noexcept {
 }
 inline __m128i counter_vector(__m128i nonce, u32 counter) noexcept {
     return _mm_or_si128(nonce,
-                        _mm_slli_si128(_mm_cvtsi32_si128(static_cast<i32>(_byteswap_ulong(counter))), 12));
+                        _mm_slli_si128(_mm_cvtsi32_si128(static_cast<i32>(byte_swap(counter))), 12));
 }
 inline void xor_stream(const u8* input, u8* output, const u8* stream, u32 bytes) noexcept {
     u32 i = 0;

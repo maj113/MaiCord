@@ -87,7 +87,7 @@ void prepare_icon(Identity& i) noexcept {
         if(file!=INVALID_HANDLE_VALUE) CloseHandle(file);
         if(!written) DeleteFileW(i.icon);
     }
-    VirtualFree(memory,0,MEM_RELEASE);
+    pages_release(memory);
     if(written) i.config.icon_path={i.icon,i.icon_units};
 }
 // Enrolls or repairs the registry identity. COM is not needed: the identity
@@ -246,7 +246,7 @@ Display* ensure_display(ApplicationNotifications& n) noexcept {
     if(!display) return nullptr;
     if(!desktop_notification_queue_initialize(&display->queue,{display->rows,kDesktopNotificationQueueRows},
         {display->bytes,kDesktopNotificationQueueBytes},{display->scratch,kDesktopNotificationQueueItemBytes})) {
-        VirtualFree(display,0,MEM_RELEASE); return nullptr;
+        pages_release(display); return nullptr;
     }
     desktop_notification_queue_reset(&display->queue,n.profile,n.generation);
     n.display=display; return display;
@@ -257,8 +257,8 @@ void purge_display(ApplicationNotifications& n) noexcept {
 void release_retention(ApplicationNotifications& n) noexcept {
     auto* rows=n.retention.rows.data; auto* index=n.retention.index.data;
     reset_value(&n.retention);
-    if(rows) VirtualFree(rows,0,MEM_RELEASE);
-    if(index) VirtualFree(index,0,MEM_RELEASE);
+    if(rows) pages_release(rows);
+    if(index) pages_release(index);
 }
 bool retention_unavailable(ApplicationNotifications& n) noexcept {
     n.status=utf8_literal("Notifications are unavailable right now.");
@@ -290,12 +290,12 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
     auto* index=rows && allocate_index?commit_pages<u32>(static_cast<SIZE_T>(index_bytes)):nullptr;
     auto* old_rows=n.retention.rows.data; auto* old_index=n.retention.index.data;
     if(!rows || !index || notification_retention_rebind(&n.retention,{rows,capacity},{index,slots})!=NotificationRetentionError::none) {
-        if(rows) VirtualFree(rows,0,MEM_RELEASE);
-        if(index) VirtualFree(index,0,MEM_RELEASE);
+        if(rows) pages_release(rows);
+        if(index) pages_release(index);
         return retention_unavailable(n);
     }
-    if(old_rows) VirtualFree(old_rows,0,MEM_RELEASE);
-    if(old_index) VirtualFree(old_index,0,MEM_RELEASE);
+    if(old_rows) pages_release(old_rows);
+    if(old_index) pages_release(old_index);
     return true;
 }
 void post_continuation(Application& a,ApplicationNotifications& n) noexcept {
@@ -328,10 +328,10 @@ ApplicationNotifications* ensure(Application* a) noexcept {
                   (!o || stable_storage_reserve(&owner.overrides,o)) &&
                   (!t || stable_storage_reserve(&owner.threads,t));
           },n)) {
-        release_storage(*n); VirtualFree(n,0,MEM_RELEASE); return nullptr;
+        release_storage(*n); pages_release(n); return nullptr;
     }
     if(!notification_retention_initialize(&n->retention,{},{})) {
-        release_storage(*n); VirtualFree(n,0,MEM_RELEASE); return nullptr;
+        release_storage(*n); pages_release(n); return nullptr;
     }
     n->audio_epoch=1; n->audio_preference=a->preferences.message_sounds_enabled;
     n->current_pack=a->preferences.soundpack;
@@ -341,7 +341,7 @@ ApplicationNotifications* ensure(Application* a) noexcept {
     const NotificationAudioConfig audio_config{notification_sound_asset_resolve,&n->sound_assets,
         a->window,a->window?kApplicationNotificationMessage:0,1,n->audio_preference,notification_sound_asset_gain};
     if(!notification_audio_initialize(&n->audio,audio_config).ok()) {
-        release_storage(*n); VirtualFree(n,0,MEM_RELEASE); return nullptr;
+        release_storage(*n); pages_release(n); return nullptr;
     }
     notification_sound_throttle_generation(&n->sound_throttle,n->audio_epoch);
     n->status=utf8_literal("Desktop notifications aren't set up yet. Select Set up to turn them on.");
@@ -472,7 +472,7 @@ bool application_notifications_initialize(Application* a) noexcept {
         checked=enroll(*identity);
         if(!checked.ok()) log_u64(LogLevel::warning,"notifications","identity_repair_error",checked.native_error);
     }
-    VirtualFree(identity,0,MEM_RELEASE);
+    pages_release(identity);
     if(!checked.ok()) return true;
     auto* n=ensure(a); if(!n) return false;
     const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,a->window,kApplicationNotificationMessage,true});
@@ -517,7 +517,7 @@ bool application_notifications_setup(Application* a) noexcept {
     // Creates an absent identity and repairs an owned one; never claims a foreign key.
     if(checked.error==NotificationIdentityError::absent || checked.error==NotificationIdentityError::stale ||
        (checked.ok() && !identity->config.icon_path.count)) checked=enroll(*identity);
-    VirtualFree(identity,0,MEM_RELEASE);
+    pages_release(identity);
     if(!checked.ok()) {
         switch(checked.error) {
         case NotificationIdentityError::invalid_input:
@@ -808,8 +808,8 @@ void application_notifications_release(Application* a) noexcept {
     }
     notification_sound_assets_release(&n.sound_assets);
     desktop_notifications_release(&n.native); release_storage(n); release_retention(n);
-    if(n.display) VirtualFree(n.display,0,MEM_RELEASE);
-    VirtualFree(a->notifications,0,MEM_RELEASE); a->notifications=nullptr;
+    if(n.display) pages_release(n.display);
+    pages_release(a->notifications); a->notifications=nullptr;
 }
 void application_notifications_prepare_shutdown(Application* a) noexcept {
     // Normal process shutdown retains OS history for later cold activation.

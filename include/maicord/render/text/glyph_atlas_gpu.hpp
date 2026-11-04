@@ -3,27 +3,20 @@
 #include "maicord/render/text/glyph_raster.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
-
-struct ID3D11Buffer;
-struct ID3D11ComputeShader;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11ShaderResourceView;
-struct ID3D11Texture2D;
-struct ID3D11UnorderedAccessView;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
 struct GlyphAtlasAllocation;
 
 struct GlyphAtlasGpu {
-    ID3D11Texture2D* texture;
-    ID3D11ShaderResourceView* texture_view;
-    ID3D11UnorderedAccessView* texture_uav;
-    ID3D11Buffer* command_buffer;
-    ID3D11ShaderResourceView* command_view;
-    ID3D11ComputeShader* raster_shader;
-    ID3D11ComputeShader* culled_shader; // Unstroked text; null if its creation failed.
+    GpuTexture* texture;
+    GpuSrv* texture_view;
+    GpuUav* texture_uav;
+    GpuBuffer* command_buffer;
+    GpuSrv* command_view;
+    GpuComputeShader* raster_shader;
+    GpuComputeShader* culled_shader; // Unstroked text; null if its creation failed.
     u64 dispatched_pixels;
     u64 dispatched_commands;
     u32 raster_count;
@@ -45,7 +38,7 @@ enum class GlyphAtlasGpuError : u8 {
 };
 
 struct GlyphAtlasGpuResult {
-    HRESULT native_error;
+    GpuStatus native_error;
     GlyphAtlasGpuError error;
 
     constexpr bool ok() const noexcept {
@@ -67,14 +60,14 @@ static_assert(glyph_raster_header_bytes+128*sizeof(GlyphPathCommand)<=4096);
 constexpr u32 glyph_raster_culling_extent=64,glyph_raster_culling_commands=32;
 // Finish before atlas reads; canceled jobs require caller cache invalidation.
 struct GlyphRasterBatch {
-    GlyphAtlasGpu* owner;ID3D11DeviceContext* context;
+    GlyphAtlasGpu* owner;GpuContext* context;
     u8* mapped=nullptr;
     u32 jobs[glyph_raster_batch_limit][7];
     u32 count=0,cursor=0,groups_x=0,groups_y=0,peak_commands=0;
     // `large`: some job reaches glyph_raster_culling_extent. `stroked`: some job strokes; the
     // culling shader serves only unstroked text, whose output the reference probe pins exactly.
     bool failed=false,large=false,stroked=false;
-    GlyphRasterBatch(GlyphAtlasGpu* gpu,ID3D11DeviceContext* value) noexcept:owner(gpu),context(value){}
+    GlyphRasterBatch(GlyphAtlasGpu* gpu,GpuContext* value) noexcept:owner(gpu),context(value){}
     GlyphRasterBatch(const GlyphRasterBatch&)=delete;
     GlyphRasterBatch& operator=(const GlyphRasterBatch&)=delete;
     ~GlyphRasterBatch() noexcept {cancel();}
@@ -89,7 +82,7 @@ struct GlyphRasterBatch {
     bool pending() const noexcept {return count||mapped||failed;}
 };
 
-GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device* device,
+GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, GpuDevice* device,
                                                u16 width, u16 height,
                                                u32 command_capacity) noexcept;
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept;
@@ -97,8 +90,8 @@ void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept;
 // resource and unordered access views) `height` rows tall: copies the rows
 // below min(old, new) and `moves` from the old texture, then releases the old
 // resources. Unchanged on failure.
-HRESULT glyph_atlas_texture_resize(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11Texture2D** texture,
-                                   ID3D11ShaderResourceView** view, ID3D11UnorderedAccessView** uav, u16 height,
+GpuStatus glyph_atlas_texture_resize(GpuDevice* device, GpuContext* context, GpuTexture** texture,
+                                   GpuSrv** view, GpuUav** uav, u16 height,
                                    ConstSlice<GlyphAtlasRowMove> moves) noexcept;
 
 } // namespace maicord

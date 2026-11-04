@@ -136,7 +136,7 @@ bool voice_send_open(VoiceSend* send) noexcept {
         return false;
     auto* shared = reinterpret_cast<VoiceSendShared*>(block);
     if (!opus_encoder_initialize(&shared->encoder, {block + kEncoderOffset, encoder_bytes}, 1).ok()) {
-        VirtualFree(block, 0, MEM_RELEASE);
+        pages_release(block);
         return false;
     }
     send->shared = shared;
@@ -147,7 +147,7 @@ void voice_send_close(VoiceSend* send) noexcept {
     if (!send || !send->shared)
         return;
     opus_encoder_release(&send->shared->encoder);
-    VirtualFree(send->shared, 0, MEM_RELEASE);
+    pages_release(send->shared);
     send->shared = nullptr;
     InterlockedExchange(&send->cells.level, 0);
     InterlockedExchange(&send->cells.transmitting, 0);

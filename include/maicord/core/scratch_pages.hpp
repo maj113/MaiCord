@@ -5,7 +5,7 @@
 namespace maicord {
 
 // Private zeroed pages, committed: one out-of-line call instead of VirtualAlloc's four arguments at every site. Null
-// when the system refuses. Free with pages_release(pointer, bytes) (on Windows VirtualFree(pointer, 0, MEM_RELEASE)).
+// when the system refuses. Free with pages_release(pointer, bytes) (on Windows pages_release(pointer)).
 __declspec(noinline) inline void* commit_pages(usize bytes) noexcept {
     return pages_allocate(bytes);
 }

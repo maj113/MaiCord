@@ -31,6 +31,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 #include "../chat/messages/history_decode.hpp"
 
@@ -667,7 +668,7 @@ void application_profile_release() noexcept {
         message_composer_release(&g_app.profile->message);
         message_composer_release(&g_app.profile->note);
         profile_scene_release(&g_app.profile->scene);
-        VirtualFree(g_app.profile, 0, MEM_RELEASE);
+        pages_release(g_app.profile);
         g_app.profile = nullptr;
     }
 }
@@ -967,21 +968,21 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
     if (!p || !p->scene.active)
         return false;
     auto& s = p->scene;
-    if (s.note_editing && p->note.focused && (key == VK_RETURN || key == VK_ESCAPE)) {
+    if (s.note_editing && p->note.focused && (key == key::enter || key == key::escape)) {
         if (down && !repeated && !application_composer_text_input_composing()) {
             end_note(*p);
             application_profile_refresh_message();
         }
         return true;
     }
-    if (s.edit.active && edit_model(*p).focused && key != VK_TAB && key != VK_ESCAPE) {
+    if (s.edit.active && edit_model(*p).focused && key != key::tab && key != key::escape) {
         if (!down || (p->message_pending && !s.note_editing))
             return true;
         auto* edit = &edit_model(*p);
         const bool control = application_command_down();
         const bool shift = application_shift_down();
         MessageComposerResult result = MessageComposerResult::unchanged;
-        if (key == VK_RETURN) {
+        if (key == key::enter) {
             if (application_composer_text_input_composing())
                 return true;
             if (!repeated &&
@@ -1018,9 +1019,9 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
             application_profile_refresh_message();
         return true;
     }
-    if (key == VK_RETURN || key == VK_SPACE) {
+    if (key == key::enter || key == key::space) {
         const auto result = ui_button_keyboard_key(
-            &s.keyboard, &s.widgets, key == VK_SPACE ? UiButtonKey::space : UiButtonKey::enter, down,
+            &s.keyboard, &s.widgets, key == key::space ? UiButtonKey::space : UiButtonKey::enter, down,
             repeated);
         if (result.activate)
             activate(profile_scene_action(s, result.target), result.target);
@@ -1029,11 +1030,11 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
     }
     if (!down || repeated)
         return true;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         application_profile_close();
         return true;
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         s.focus_visible = true;
         ui_widget_manager_focus(&s.widgets,
                                 ui_widget_manager_next_focus(s.widgets, s.widgets.focused,
@@ -1041,9 +1042,9 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         edit_model(*p).focused = s.edit.active && s.widgets.focused.slot == s.message_field.slot &&
                              s.widgets.focused.generation == s.message_field.generation;
         application_profile_refresh_message();
-    } else if (key == VK_DOWN || key == VK_UP) {
+    } else if (key == key::down || key == key::up) {
         queue_profile_scroll(false,
-                             key == VK_DOWN ? -WHEEL_DELTA : WHEEL_DELTA);
+                             key == key::down ? -WHEEL_DELTA : WHEEL_DELTA);
         repaint(true);
     }
     return true;

@@ -641,7 +641,7 @@ ApplicationSettings* ensure() noexcept {
     if (!settings)
         return nullptr;
     if (!ui_page_registry_initialize(&settings->registry, {settings->pages, kSettingsPageCapacity})) {
-        VirtualFree(settings, 0, MEM_RELEASE);
+        pages_release(settings);
         return nullptr;
     }
     const auto& schema = settings_catalog();
@@ -652,7 +652,7 @@ ApplicationSettings* ensure() noexcept {
         settings->content[i].host = settings->content[i].wide = store;
         if (!ui_page_registry_register(&settings->registry, {{kNativeSettingsOwner, i + 1}, label, &settings->content[i]})
                  .ok()) {
-            VirtualFree(settings, 0, MEM_RELEASE);
+            pages_release(settings);
             return nullptr;
         }
     }

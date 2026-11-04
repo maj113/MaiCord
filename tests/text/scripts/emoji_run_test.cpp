@@ -1,6 +1,8 @@
 #include "maicord/text/scripts/emoji_run.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/emoji_run_fixture.inc"
 #include "emoji_test_support.inc"
@@ -88,5 +90,5 @@ bool run() noexcept {
 extern "C" void maicord_emoji_run_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run());
     print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nrejected_fonts=");number(rejected_fonts);print("\nnominal_runs=");number(nominal_runs);print("\nproof_fallbacks=");number(proof_fallbacks);
-    print(ok?"\nPASS native emoji frontend\n":"\nFAIL native emoji frontend\n");ExitProcess(ok?0u:1u);
+    print(ok?"\nPASS native emoji frontend\n":"\nFAIL native emoji frontend\n");::maicord::test_process_exit(ok?0u:1u);
 }

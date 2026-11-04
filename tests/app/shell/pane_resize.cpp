@@ -6,6 +6,7 @@
 #include "maicord/core/module.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 namespace maicord::app_detail {
 namespace { u32 layouts, text_updates; bool fail_layout; }
 bool synchronize_shell_layout() noexcept { ++layouts; return !fail_layout; }
@@ -127,12 +128,12 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     fail_layout = false;
     check(apply_pending_pane_layout() && !g_app.pane_layout_pending, "pane layout retries after failure");
     g_app.renderer.dpi = 0; g_app.channel_pane_width = g_app.member_pane_width = 0; g_app.member_pane_visible = false; g_app.frame_pending = false;
-    bool visible = keyboard_focus_after_message(false, WM_KEYDOWN, VK_TAB, false);
+    bool visible = keyboard_focus_after_message(false, WM_KEYDOWN, key::tab, false);
     check(visible && keyboard_focus_after_message(visible, WM_MOUSEMOVE, 0, false), "keyboard focus survives pointer hover");
     visible = keyboard_focus_after_message(visible, WM_LBUTTONDOWN, 0, false);
     check(!visible && !keyboard_focus_after_message(visible, WM_CHAR, 'a', false), "click and ordinary typing show no focus outline");
-    check(keyboard_focus_after_message(visible, WM_KEYDOWN, VK_DOWN, false) &&
-        keyboard_focus_after_message(visible, WM_SYSKEYDOWN, VK_F10, true) &&
+    check(keyboard_focus_after_message(visible, WM_KEYDOWN, key::down, false) &&
+        keyboard_focus_after_message(visible, WM_SYSKEYDOWN, key::f10, true) &&
         !keyboard_focus_after_message(true, WM_RBUTTONDOWN, 0, false), "keyboard navigation restores focus and context click hides it");
 }
 }

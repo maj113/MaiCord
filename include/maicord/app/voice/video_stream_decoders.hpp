@@ -3,8 +3,7 @@
 #include "maicord/media/video/gpu_video_frame.hpp"
 
 #include "maicord/core/win32_records.hpp"
-
-struct ID3D11Device;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -42,7 +41,7 @@ struct VideoStreamDecoders {
         bool keyframe;
     };
     SrwLock lock;
-    ID3D11Device* device; // Referenced; null until the renderer provides one.
+    GpuDevice* device; // Referenced; null until the renderer provides one.
     VideoKeyframeRequester keyframes;
     volatile LONG decodable; // voice_video_codec_bit set of the device's hardware decoders.
     // Auto-reset event set after any stream publishes a new picture, so the UI
@@ -58,7 +57,7 @@ struct VideoStreamDecoders {
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept;
 // Any thread. The renderer's multithread-protected device; probes its decoders.
 // Streams created later decode on it (existing streams keep theirs until they end).
-void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept;
+void video_stream_decoders_set_device(VideoStreamDecoders* decoders, GpuDevice* device) noexcept;
 // Any thread. Decode threads forward keyframe requests here; {} disables.
 void video_stream_decoders_set_requester(VideoStreamDecoders* decoders, VideoKeyframeRequester requester) noexcept;
 // push_frame/end_stream run on the voice worker; decodable on any thread.

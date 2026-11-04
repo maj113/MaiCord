@@ -58,11 +58,11 @@ void loop_stop(StorePreviews* p) noexcept {
     if (loop->taken)
         application_catalog_asset_release(&loop->asset);
     if (loop->scanlines)
-        VirtualFree(loop->scanlines, 0, MEM_RELEASE);
+        pages_release(loop->scanlines);
     if (loop->workspace)
-        VirtualFree(loop->workspace, 0, MEM_RELEASE);
+        pages_release(loop->workspace);
     deflate_workspace_free(loop->inflate);
-    VirtualFree(loop, 0, MEM_RELEASE);
+    pages_release(loop);
 }
 
 StorePreviewEntry* find(StorePreviews* p, const MediaAssetKey& key) noexcept {

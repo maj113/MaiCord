@@ -55,7 +55,7 @@ HRESULT make_noise(ID3D11Device* device, ID3D11ShaderResourceView** view) noexce
         pixels[i] = pcg(i);
     const HRESULT result =
         make_view(device, kNoiseExtent, kNoiseExtent, DXGI_FORMAT_R8G8B8A8_UNORM, pixels, kNoiseExtent * 4, view);
-    VirtualFree(pixels, 0, MEM_RELEASE);
+    pages_release(pixels);
     return result;
 }
 

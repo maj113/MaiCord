@@ -49,7 +49,7 @@ const Backend& backend(const GpuStream& stream) noexcept {
 
 void release_buffer(GpuStreamInput* input) noexcept {
     if (input->data)
-        VirtualFree(input->data, 0, MEM_RELEASE);
+        pages_release(input->data);
     reset_value(input);
 }
 
@@ -61,7 +61,7 @@ bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
     if (!data)
         return false;
     if (input->data)
-        VirtualFree(input->data, 0, MEM_RELEASE);
+        pages_release(input->data);
     input->data = data;
     input->capacity = capacity;
     return true;
@@ -526,7 +526,7 @@ void gpu_stream_decoder_destroy(GpuStreamDecoder* stream) noexcept {
     for (auto& input : stream->queue)
         release_buffer(&input);
     release_buffer(&stream->work);
-    VirtualFree(stream, 0, MEM_RELEASE);
+    pages_release(stream);
 }
 
 } // namespace maicord

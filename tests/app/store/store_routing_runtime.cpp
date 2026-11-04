@@ -23,6 +23,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 #include <limits.h>
 
@@ -218,7 +219,7 @@ void wheel(float x, float y, i32 delta) noexcept {
                  MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y)));
     application_settings_synchronize();
 }
-bool key(u32 code) noexcept {
+bool press_key(u32 code) noexcept {
     const bool down = application_settings_input(UiInputKind::key_down, code, false);
     application_settings_input(UiInputKind::key_up, code, false);
     application_settings_synchronize();
@@ -691,7 +692,7 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
         check(open_store(page) && click_target(close_target) && !application_settings_active() &&
                   !application_store_active(),
               "store routing: the close button closes Settings from a store page");
-        check(open_store(page) && key(VK_ESCAPE) && !application_settings_active(),
+        check(open_store(page) && press_key(key::escape) && !application_settings_active(),
               "store routing: Escape closes Settings from a store page");
         // The sort menu: a pointer choice picks its row; a click outside dismisses it and the next click acts.
         check(open_store(page) && click_store(store_action(StoreAct::sort)) && g_app.popup_scene.active &&
@@ -712,7 +713,7 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
         check(click_target(appearance) && selected(page) && store() && store()->dialog_open,
               "store routing: the open dialog keeps the page under it");
         // The link field has the focus: the first Escape leaves it, the second closes the dialog.
-        check(key(VK_ESCAPE) && store() && store()->dialog_open && key(VK_ESCAPE) && store() && !store()->dialog_open &&
+        check(press_key(key::escape) && store() && store()->dialog_open && press_key(key::escape) && store() && !store()->dialog_open &&
                   application_settings_active(),
               "store routing: Escape leaves the link field, then closes the dialog and keeps Settings");
         check(click_target(appearance) && selected(kAppearancePage) && click_target(close_target) &&

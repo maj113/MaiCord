@@ -13,6 +13,7 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -243,17 +244,17 @@ bool handle_message_key(WPARAM key) noexcept {
                          : viewport;
     const u64 bounded_page = minimum(page, static_cast<u64>(~0ull >> 1));
     switch (key) {
-    case VK_UP:
+    case key::up:
         return scroll_message_view_by(-static_cast<i64>(g_app.message_view.timeline.default_item_units));
-    case VK_DOWN:
+    case key::down:
         return scroll_message_view_by(static_cast<i64>(g_app.message_view.timeline.default_item_units));
-    case VK_PRIOR:
+    case key::page_up:
         return scroll_message_view_by(-static_cast<i64>(bounded_page));
-    case VK_NEXT:
+    case key::page_down:
         return scroll_message_view_by(static_cast<i64>(bounded_page));
-    case VK_HOME:
+    case key::home:
         return scroll_message_view_to(false);
-    case VK_END:
+    case key::end:
         return scroll_message_view_to(true);
     default:
         return false;

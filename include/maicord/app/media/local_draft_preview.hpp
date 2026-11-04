@@ -3,8 +3,7 @@
 #include "maicord/media/video/encoded_video_limits.hpp"
 #include "maicord/platform/desktop/file_identity.hpp"
 #include "maicord/platform/desktop/upload_source.hpp"
-
-struct ID3D11Device;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 enum class AccountLocalPreviewOperation : u8 {
@@ -32,7 +31,7 @@ struct AccountMediaLocalPreviewRequest {
     // Composer MP4/MOV posters decode their first frame on this device. It is
     // borrowed from the host and must outlive account stop; null leaves video
     // tiles on their file icon. Image previews ignore it.
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
     // Uploaded carries an exact worker lease. Request and retire require zero.
     u64 lease_serial;
 };

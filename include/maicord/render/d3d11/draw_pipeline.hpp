@@ -3,16 +3,7 @@
 #include "maicord/core/base.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/core/win32_types.hpp"
-
-struct ID3D11BlendState;
-struct ID3D11Buffer;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11InputLayout;
-struct ID3D11PixelShader;
-struct ID3D11RasterizerState;
-struct ID3D11SamplerState;
-struct ID3D11VertexShader;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -55,7 +46,7 @@ enum class D3D11DrawPipelineError : u8 {
 };
 
 struct D3D11DrawPipelineResult {
-    HRESULT native_error;
+    GpuStatus native_error;
     D3D11DrawPipelineError error;
 
     constexpr bool ok() const noexcept {
@@ -75,26 +66,26 @@ struct D3D11DrawPipelineConfig {
 // Owns immutable draw state and the three dynamic instance streams. The
 // renderer retains only logical commands, atlases and upload-generation state.
 struct D3D11DrawPipelineOwner {
-    ID3D11VertexShader* ui_vertex_shader;
-    ID3D11PixelShader* ui_pixel_shader;
-    ID3D11InputLayout* ui_input_layout;
-    ID3D11Buffer* ui_instance_buffer;
-    ID3D11Buffer* ui_frame_buffer;
-    ID3D11RasterizerState* ui_rasterizer_state;
-    ID3D11BlendState* ui_blend_state;
-    ID3D11VertexShader* glyph_vertex_shader;
-    ID3D11PixelShader* glyph_pixel_shader;
-    ID3D11PixelShader* media_pixel_shader;
-    ID3D11VertexShader* media_vertex_shader;
-    ID3D11InputLayout* media_input_layout;
-    ID3D11InputLayout* glyph_input_layout;
-    ID3D11Buffer* glyph_instance_buffer;
-    ID3D11Buffer* media_instance_buffer;
-    ID3D11SamplerState* glyph_sampler;
+    GpuVertexShader* ui_vertex_shader;
+    GpuPixelShader* ui_pixel_shader;
+    GpuInputLayout* ui_input_layout;
+    GpuBuffer* ui_instance_buffer;
+    GpuBuffer* ui_frame_buffer;
+    GpuRaster* ui_rasterizer_state;
+    GpuBlend* ui_blend_state;
+    GpuVertexShader* glyph_vertex_shader;
+    GpuPixelShader* glyph_pixel_shader;
+    GpuPixelShader* media_pixel_shader;
+    GpuVertexShader* media_vertex_shader;
+    GpuInputLayout* media_input_layout;
+    GpuInputLayout* glyph_input_layout;
+    GpuBuffer* glyph_instance_buffer;
+    GpuBuffer* media_instance_buffer;
+    GpuSampler* glyph_sampler;
     u32 glyph_instance_capacity;
     u32 glyph_instance_end;
     u32 ui_instance_capacity;
-    ID3D11Buffer* background_buffer;
+    GpuBuffer* background_buffer;
     D3D11BackgroundConstants background_constants;
     BackgroundTheme background_source;
     u32 background_updates;
@@ -113,7 +104,7 @@ static_assert(sizeof(D3D11DrawPipelineOwner) == 288);
 
 // Creates the shaders, states and buffers without touching a context, so any
 // thread may build them (startup does so beside swap-chain creation).
-D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* staged, ID3D11Device* device,
+D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* staged, GpuDevice* device,
                                                    const D3D11DrawPipelineConfig& config) noexcept;
 // Drivers finish a graphics pipeline (shaders with input layout, blend,
 // rasterizer and target format) on its first draw. Drawing each of the three
@@ -121,40 +112,40 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* stage
 // first presented frame. Runs on the immediate-context thread, which may be a
 // startup worker; leaves the viewport on the scratch target, so the caller
 // sets the frame transform afterwards.
-void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, ID3D11Device* device, ID3D11DeviceContext* context,
+void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, GpuDevice* device, GpuContext* context,
                               const D3D11DrawPipelineConfig& config) noexcept;
 // Moves created objects into the owner, releasing what it held.
 void d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner, D3D11DrawPipelineOwner* staged) noexcept;
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPipelineOwner* owner,
-                                                                    ID3D11Device* device, u32 stride,
+                                                                    GpuDevice* device, u32 stride,
                                                                     u32 capacity) noexcept;
 // Grow only for real paint demand. Failure retains the existing buffer/capacity.
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipelineOwner* owner,
-                                                                 ID3D11Device* device, u32 stride,
+                                                                 GpuDevice* device, u32 stride,
                                                                  u32 required_count) noexcept;
 // The viewport starts origin_y pixels down the target (below a window caption).
-bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                           u32 width, u32 height, u32 dpi, u32 origin_y = 0) noexcept;
 // Update only the existing shared frame buffer, without uploading instances or
 // changing the viewport. Invalid opacity becomes identity; the caller restores
 // identity before drawing other groups. update_transform also restores it.
-bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                         u32 width, u32 height, u32 dpi, float opacity) noexcept;
 // Opacity plus a uniform scale about a DIP origin, folded into the existing
 // frame transform. Scale 1 is identical to update_opacity.
-bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                       u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
                                       float origin_y) noexcept;
 // The caption band's frame: `height` pixels at the target's top over a
 // `content_height` content. Caption DIPs map to the band; `content_space`
 // maps content DIPs -caption..0 there instead (the background effect pass).
-bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                         u32 width, u32 height, u32 content_height, u32 dpi,
                                         bool content_space) noexcept;
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept;
 // Lazy GPU storage; inactive configurations do not allocate. Copied validated
 // constants update only when the configuration changes.
-bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner*, ID3D11Device*, ID3D11DeviceContext*,
+bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner*, GpuDevice*, GpuContext*,
                                            const Theme&) noexcept;
 
 } // namespace maicord

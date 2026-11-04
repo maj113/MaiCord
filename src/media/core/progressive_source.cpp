@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 // Block bookkeeping around network chunks: compiled for size.
@@ -62,7 +63,7 @@ bool decommit(ProgressiveSource* s, u32 b) noexcept {
              block_end(*s, b) > reader.metadata_first) ||
             (reader.seek_metadata_bytes && u64{b} * kBlock < reader.seek_metadata_first + reader.seek_metadata_bytes &&
              block_end(*s, b) > reader.seek_metadata_first)) return false;
-    VirtualFree(s->base + u64{b} * kBlock, kBlock, MEM_DECOMMIT);
+    pages_decommit(s->base + u64{b} * kBlock, kBlock);
     set_bit(s->present, b, false);
     --s->resident_blocks;
     ++s->generation;
@@ -96,7 +97,7 @@ bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes, bool a
         return false;
     reset_value(s);
     const u32 blocks = (total_bytes + kBlock - 1) / kBlock;
-    s->base = static_cast<u8*>(VirtualAlloc(nullptr, u64{blocks} * kBlock, MEM_RESERVE, PAGE_READWRITE));
+    s->base = static_cast<u8*>(pages_reserve(u64{blocks} * kBlock));
     if (!s->base)
         return false;
     s->total_bytes = total_bytes;
@@ -110,7 +111,7 @@ void progressive_source_release(ProgressiveSource* s) noexcept {
     if (!s)
         return;
     if (s->base)
-        VirtualFree(s->base, 0, MEM_RELEASE);
+        pages_release(s->base, u64{s->block_count} * kBlock);
     reset_value(s);
 }
 ConstSlice<u8> progressive_source_bytes(const ProgressiveSource& s) noexcept {
@@ -126,7 +127,7 @@ bool progressive_source_write(ProgressiveSource* s, u64 offset, ConstSlice<u8> b
             continue;
         // The final block may contain only a tiny clip or file tail. Windows
         // rounds this extent to pages; keep the unused reservation uncommitted.
-        if (!VirtualAlloc(s->base + first, last - first, MEM_COMMIT, PAGE_READWRITE))
+        if (!pages_commit_at(s->base + first, last - first))
             return false;
         copy_bytes(s->base + first, bytes.data + (first - offset), static_cast<u32>(last - first));
         set_bit(s->present, b, true);

@@ -1,6 +1,7 @@
 #include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -86,7 +87,7 @@ void retire_buffer(TlsStream* stream, Slice<u8> bytes) noexcept {
     if (!bytes.data)
         return;
     const PageRange pages = stream->buffers.release_pages ? interior_pages(bytes) : PageRange{nullptr, 0};
-    if (pages.bytes == 0 || !VirtualFree(pages.first, pages.bytes, MEM_DECOMMIT)) {
+    if (pages.bytes == 0 || !pages_decommit(pages.first, pages.bytes)) {
         wipe(bytes);
         return;
     }
@@ -98,7 +99,7 @@ void retire_buffer(TlsStream* stream, Slice<u8> bytes) noexcept {
 
 bool commit_buffer(Slice<u8> bytes) noexcept {
     const PageRange pages = interior_pages(bytes);
-    return pages.bytes == 0 || VirtualAlloc(pages.first, pages.bytes, MEM_COMMIT, PAGE_READWRITE) != nullptr;
+    return pages.bytes == 0 || pages_commit_at(pages.first, pages.bytes) != nullptr;
 }
 
 TlsStreamEvent event(TlsStreamEventKind kind) noexcept {
@@ -111,7 +112,7 @@ TlsStreamEvent invalid_event() noexcept {
 }
 
 TlsStreamEvent failure(TlsStream* stream, TlsStreamError error, u32 native_error = 0,
-                       SECURITY_STATUS tls_status = SEC_E_OK) noexcept {
+                       i32 tls_status = kTlsStatusOk) noexcept {
     stream->state = TlsStreamState::failed;
     stream->tls_status = tls_status;
     return TlsStreamEvent{native_error, TlsStreamEventKind::failed, error};

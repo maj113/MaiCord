@@ -6,8 +6,7 @@
 #include <stddef.h>
 
 #include "maicord/core/win32_types.hpp"
-
-struct ID3D11Device;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 using RestTraceFunction = void (*)(const char* record) noexcept;
@@ -582,7 +581,7 @@ struct AccountModuleApi {
     bool(WINAPI* voice_video_wanted)(void*, u64 user_id, bool wanted) noexcept;
     // The renderer's multithread-protected D3D11 device for call video decode
     // (null detaches it for streams that start later). The module referenced it.
-    bool(WINAPI* voice_video_device)(void*, ID3D11Device*) noexcept;
+    bool(WINAPI* voice_video_device)(void*, GpuDevice*) noexcept;
     // Latest decoded picture of a remote video SSRC (voice_video_snapshot users[].ssrc).
     // On success the texture and each non-null shader view hold one reference.
     // The picture is a decoder slice kept intact until the next call for this

@@ -1,4 +1,5 @@
 #include "accessibility_internal.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../guild/community.hpp"
 #include "../shell/content_point.hpp"
@@ -36,7 +37,7 @@ constexpr usize kTextOffset = kSlotOffset + sizeof(u32) * kSlotCapacity;
 constexpr usize kStorageBytes = kTextOffset + kTextCapacity;
 
 bool commit_range(u8* base, usize offset, usize bytes) noexcept {
-    if (!bytes || VirtualAlloc(base + offset, bytes, MEM_COMMIT, PAGE_READWRITE))
+    if (!bytes || pages_commit_at(base + offset, bytes))
         return true;
     log_write(LogLevel::warning, "accessibility", "storage_commit_failed");
     return false;
@@ -78,7 +79,7 @@ namespace accessibility_detail {
 bool ensure_storage() noexcept {
     if (g_access.storage)
         return true;
-    auto* base = static_cast<u8*>(VirtualAlloc(nullptr, kStorageBytes, MEM_RESERVE, PAGE_READWRITE));
+    auto* base = static_cast<u8*>(pages_reserve(kStorageBytes));
     if (!base)
         return false;
     auto* observations = reinterpret_cast<UiAccessObservation*>(base);
@@ -94,7 +95,7 @@ bool ensure_storage() noexcept {
                                    {slots, kInitialSlotCapacity}, {keys, kKeyIndexCapacity}) ||
         !ui_access_event_state_initialize(&g_access.events, {observations, kObservationCapacity},
                                           {observations + kObservationCapacity, kObservationCapacity})) {
-        VirtualFree(base, 0, MEM_RELEASE);
+        pages_release(base);
         return false;
     }
     g_access.storage = base;

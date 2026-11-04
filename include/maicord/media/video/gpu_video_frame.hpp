@@ -1,9 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-
-struct ID3D11Texture2D;
-struct ID3D11ShaderResourceView;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -12,7 +10,7 @@ namespace maicord {
 // Both producers use the same multithread-protected D3D11 immediate context,
 // so GPU command ordering protects the pixels without a CPU wait or readback.
 struct GpuVideoFrame {
-    ID3D11Texture2D* texture;
+    GpuTexture* texture;
     u32 subresource;
     u32 crop_x;
     u32 crop_y;
@@ -26,8 +24,8 @@ struct GpuVideoFrame {
     u8 reserved;
     // Borrowed R8/R8G8 plane views the renderer converts from: Texture2DArray
     // views of exactly `subresource`, valid together for the frame's lifetime.
-    ID3D11ShaderResourceView* luma = nullptr;
-    ID3D11ShaderResourceView* chroma = nullptr;
+    GpuSrv* luma = nullptr;
+    GpuSrv* chroma = nullptr;
 };
 
 static_assert(sizeof(GpuVideoFrame) == 48);

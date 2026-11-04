@@ -22,6 +22,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationPinnedMessages {
@@ -307,7 +308,7 @@ void application_pinned_messages_release() noexcept {
     application_pinned_messages_close();
     if (g_app.pinned_messages) {
         ui_pinned_messages_scene_release(&g_app.pinned_messages->scene);
-        VirtualFree(g_app.pinned_messages, 0, MEM_RELEASE);
+        pages_release(g_app.pinned_messages);
         g_app.pinned_messages = nullptr;
     }
 }
@@ -593,10 +594,10 @@ bool application_pinned_messages_input(UiInputKind kind, u32 code, bool repeated
         return (kind == UiInputKind::character || kind == UiInputKind::system_character) &&
             g_app.context_focus == &value->scene.widgets;
     if (shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(code))) { application_pinned_messages_close(); return false; }
-    if (code == VK_ESCAPE) { value->held_key = code; application_pinned_messages_close(); repaint(); return true; }
+    if (code == key::escape) { value->held_key = code; application_pinned_messages_close(); repaint(); return true; }
     if (application_control_down() || application_alt_down()) return false;
     if (g_app.context_focus != &value->scene.widgets) return false;
-    if (code == VK_RETURN || code == VK_SPACE) {
+    if (code == key::enter || code == key::space) {
         if (!repeated) { value->held_key = code; activate(ui_pinned_messages_scene_focused_target(value->scene)); }
         return true;
     }
@@ -606,13 +607,13 @@ bool application_pinned_messages_input(UiInputKind kind, u32 code, bool repeated
         return true;
     }
     UiPinnedMessagesFocusMove move{};
-    if (code == VK_TAB) move = application_shift_down() ? UiPinnedMessagesFocusMove::previous : UiPinnedMessagesFocusMove::next;
-    else if (code == VK_DOWN || code == VK_RIGHT) move = UiPinnedMessagesFocusMove::next;
-    else if (code == VK_UP || code == VK_LEFT) move = UiPinnedMessagesFocusMove::previous;
-    else if (code == VK_HOME) move = UiPinnedMessagesFocusMove::first;
-    else if (code == VK_END) move = UiPinnedMessagesFocusMove::last;
-    else if (code == VK_PRIOR) move = UiPinnedMessagesFocusMove::page_previous;
-    else if (code == VK_NEXT) move = UiPinnedMessagesFocusMove::page_next;
+    if (code == key::tab) move = application_shift_down() ? UiPinnedMessagesFocusMove::previous : UiPinnedMessagesFocusMove::next;
+    else if (code == key::down || code == key::right) move = UiPinnedMessagesFocusMove::next;
+    else if (code == key::up || code == key::left) move = UiPinnedMessagesFocusMove::previous;
+    else if (code == key::home) move = UiPinnedMessagesFocusMove::first;
+    else if (code == key::end) move = UiPinnedMessagesFocusMove::last;
+    else if (code == key::page_up) move = UiPinnedMessagesFocusMove::page_previous;
+    else if (code == key::page_down) move = UiPinnedMessagesFocusMove::page_next;
     else return value->scene.overlay;
     ui_pinned_messages_scene_move_focus(&value->scene, move);
     application_request_frame();

@@ -174,7 +174,7 @@ void recompute_events() noexcept {
     for (const auto& subscriber : subscribers(PluginHook::events)) interest |= subscriber.filter;
     g_interest = interest & MC_EVENT_KINDS;
     if (!interest && g_ring) {
-        VirtualFree(g_ring, 0, MEM_RELEASE);
+        pages_release(g_ring);
         g_ring = nullptr;
         g_head = 0;
     }

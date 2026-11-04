@@ -22,6 +22,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
 namespace maicord::app_detail {
 namespace {
@@ -273,7 +274,7 @@ bool copy_image() noexcept {
                       renderer_read_media_rgba(&g_app.renderer, viewer.fallback, {pixels, capacity}, &width, &height);
     const bool copied =
         read && clipboard_write_image(g_app.window, pixels, width, height, width * 4, current_url());
-    VirtualFree(pixels, 0, MEM_RELEASE);
+    pages_release(pixels);
     application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
     if (copied) {
         auto& scene = g_app.image_viewer.scene;
@@ -478,7 +479,7 @@ void application_image_viewer_close() noexcept {
     }
     const bool capture = scene.dragging || scene.widgets.captured.generation;
     g_app.image_viewer.pointer_tail = g_app.image_viewer.pointer_tail || capture;
-    if (scene.keyboard.pressed.manager && !g_app.image_viewer.held_key) g_app.image_viewer.held_key = VK_SPACE;
+    if (scene.keyboard.pressed.manager && !g_app.image_viewer.held_key) g_app.image_viewer.held_key = key::space;
     scene.dragging = false;
     ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {});
     ui_button_keyboard_cancel(&scene.keyboard);
@@ -930,7 +931,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
     if (viewer.closing)
         return (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN ||
                message == WM_KEYUP || message == WM_CHAR;
-    if ((message == WM_KEYDOWN || message == WM_KEYUP) && wparam == VK_CONTROL) {
+    if ((message == WM_KEYDOWN || message == WM_KEYUP) && wparam == key::ctrl) {
         UiPoint cursor{};
         if (application_pointer_dip(&cursor))
             application_image_zoom_viewer_pointer(cursor, over_image(scene, cursor), g_app.image_zoom.held);
@@ -1035,19 +1036,19 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
                                                   application_alt_down()};
         UiImageViewerKey key = UiImageViewerKey::other;
         switch (wparam) {
-        case VK_ESCAPE: key = UiImageViewerKey::escape; break;
-        case VK_TAB: key = UiImageViewerKey::tab; break;
-        case VK_RETURN: key = UiImageViewerKey::enter; break;
-        case VK_SPACE: key = UiImageViewerKey::space; break;
-        case VK_LEFT: key = UiImageViewerKey::left; break;
-        case VK_RIGHT: key = UiImageViewerKey::right; break;
-        case VK_UP: key = UiImageViewerKey::up; break;
-        case VK_DOWN: key = UiImageViewerKey::down; break;
-        case VK_HOME: key = UiImageViewerKey::home; break;
-        case VK_ADD: case VK_OEM_PLUS: key = UiImageViewerKey::plus; break;
-        case VK_SUBTRACT: case VK_OEM_MINUS: key = UiImageViewerKey::minus; break;
-        case '0': case VK_NUMPAD0: key = UiImageViewerKey::zero; break;
-        case '1': case VK_NUMPAD1: key = UiImageViewerKey::one; break;
+        case key::escape: key = UiImageViewerKey::escape; break;
+        case key::tab: key = UiImageViewerKey::tab; break;
+        case key::enter: key = UiImageViewerKey::enter; break;
+        case key::space: key = UiImageViewerKey::space; break;
+        case key::left: key = UiImageViewerKey::left; break;
+        case key::right: key = UiImageViewerKey::right; break;
+        case key::up: key = UiImageViewerKey::up; break;
+        case key::down: key = UiImageViewerKey::down; break;
+        case key::home: key = UiImageViewerKey::home; break;
+        case key::add: case key::equals: key = UiImageViewerKey::plus; break;
+        case key::subtract: case key::minus: key = UiImageViewerKey::minus; break;
+        case '0': case key::numpad0: key = UiImageViewerKey::zero; break;
+        case '1': case key::numpad1: key = UiImageViewerKey::one; break;
         case 'F': key = UiImageViewerKey::f; break;
         case 'S': key = UiImageViewerKey::s; break;
         case 'C': key = UiImageViewerKey::c; break;
@@ -1057,7 +1058,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         // Keys that close or act stay swallowed until released, so their
         // key-up and character never reach the surface underneath.
         if (command == UiImageViewerCommand::dismiss || command == UiImageViewerCommand::save ||
-            command == UiImageViewerCommand::copy || wparam == VK_RETURN)
+            command == UiImageViewerCommand::copy || wparam == key::enter)
             held = static_cast<u32>(wparam);
         switch (command) {
         case UiImageViewerCommand::dismiss:
@@ -1096,7 +1097,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         case UiImageViewerCommand::activate: {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets,
-                                       wparam == VK_RETURN ? UiButtonKey::enter : UiButtonKey::space, true, repeat);
+                                       wparam == key::enter ? UiButtonKey::enter : UiButtonKey::space, true, repeat);
             if (button.activate)
                 activate(scene.widgets.storage[button.target.slot].id - 10);
             break;
@@ -1112,7 +1113,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         return true;
     }
     case WM_KEYUP:
-        if (wparam == VK_SPACE && !video) {
+        if (wparam == key::space && !video) {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets, UiButtonKey::space, false);
             if (button.activate)

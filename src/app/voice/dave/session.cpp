@@ -4,6 +4,7 @@
 #include "../mls/wire.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -111,7 +112,7 @@ bool commit_block(DaveSession& session, DaveArenaBlock which, u32 wanted) noexce
     const u32 rounded = page_align(wanted), logical = minimum(rounded, maximum_bytes);
     if (logical <= session.committed[index])
         return true;
-    if (!VirtualAlloc(block_data(session, which), rounded, MEM_COMMIT, PAGE_READWRITE))
+    if (!pages_commit_at(block_data(session, which), rounded))
         return false;
     session.committed[index] = logical;
     return true;
@@ -339,7 +340,7 @@ MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_u
         !call_generation || protocol_version > kDaveProtocolVersion)
         return MlsStatus::invalid_argument;
     reset_value(session);
-    session->arena = static_cast<u8*>(VirtualAlloc(nullptr, kLayout.total, MEM_RESERVE, PAGE_NOACCESS));
+    session->arena = static_cast<u8*>(pages_reserve_no_access(kLayout.total));
     if (!session->arena)
         return MlsStatus::buffer_too_small;
     session->initialized = true;
@@ -377,7 +378,7 @@ void dave_session_release(DaveSession* session) noexcept {
         for (u32 i = 0; i != kDaveArenaBlocks; ++i)
             if (session->committed[i])
                 secure_clear_bytes(session->arena + kLayout.offsets[i], session->committed[i]);
-        VirtualFree(session->arena, 0, MEM_RELEASE);
+        pages_release(session->arena, kLayout.total);
     }
     dave_frame_sealer_release(&session->sealer);
     dave_key_package_release(&session->package);

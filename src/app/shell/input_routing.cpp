@@ -38,6 +38,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -75,7 +76,7 @@ UiInputDisposition login_input(void*, const UiInputEvent& event) noexcept {
     if (!g_app.renderer_ready)
         return UiInputDisposition::ignored;
     // Esc leaves Add an account, or returns to a saved account.
-    if (event.kind == UiInputKind::key_down && event.code == VK_ESCAPE && !event.repeated &&
+    if (event.kind == UiInputKind::key_down && event.code == key::escape && !event.repeated &&
         application_account_switch_login_escape())
         return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down)
@@ -99,12 +100,12 @@ UiInputDisposition popup_input(void*, const UiInputEvent& event) noexcept {
     // toggle). Holding Enter/Space must not repeat that action.
     if ((event.kind == UiInputKind::key_down || event.kind == UiInputKind::system_key_down) &&
         event.repeated &&
-        (event.code == VK_RETURN ||
-         (event.code == VK_SPACE && g_app.popup_scene.kind != PopupKind::autocomplete)))
+        (event.code == key::enter ||
+         (event.code == key::space && g_app.popup_scene.kind != PopupKind::autocomplete)))
         return UiInputDisposition::handled;
     if (g_app.popup_scene.kind == PopupKind::autocomplete &&
         (event.kind == UiInputKind::key_down || event.kind == UiInputKind::system_key_down) &&
-        (event.code == VK_UP || event.code == VK_DOWN) &&
+        (event.code == key::up || event.code == key::down) &&
         navigation_shortcut(event.code, application_control_down(), application_alt_down(),
                             application_shift_down())
                 .mode != NavigationMode::none)
@@ -139,7 +140,7 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
         return UiInputDisposition::handled;
     if (application_friends_requests_active())
         return disposition(application_friends_input(event.kind, event.code, event.repeated));
-    const ShortcutAction shortcut = event.kind == UiInputKind::key_down && event.code == VK_ESCAPE
+    const ShortcutAction shortcut = event.kind == UiInputKind::key_down && event.code == key::escape
                                         ? application_shortcut_action(event.code)
                                         : ShortcutAction::none;
     if (event.kind == UiInputKind::key_down && !event.repeated && shortcut == ShortcutAction::mark_server_read &&
@@ -149,7 +150,7 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
     }
     // Modal layers have first refusal above. Keep an editor's Escape semantics,
     // then let an unobscured pending link retire before ordinary pane focus.
-    if (event.kind == UiInputKind::key_down && event.code == VK_ESCAPE && !event.repeated &&
+    if (event.kind == UiInputKind::key_down && event.code == key::escape && !event.repeated &&
         no_edit_or_reply() && application_message_navigation_cancel()) {
         navigation_held_key = event.code;
         return UiInputDisposition::handled;
@@ -177,9 +178,9 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
         handle_thread_header_key(event.code, event.kind == UiInputKind::key_down, event.repeated))
         return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down && event.repeated &&
-        (event.code == VK_RETURN || event.code == VK_SPACE))
+        (event.code == key::enter || event.code == key::space))
         return UiInputDisposition::handled;
-    if (event.kind == UiInputKind::key_down && (event.code == VK_RETURN || event.code == VK_SPACE) &&
+    if (event.kind == UiInputKind::key_down && (event.code == key::enter || event.code == key::space) &&
         !application_control_down() && !application_alt_down() &&
         application_received_attachment_activate_focused())
         return UiInputDisposition::handled;
@@ -234,7 +235,7 @@ UiInputDisposition profile_input(void*, const UiInputEvent& event) noexcept {
 
 bool route_application_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     // Observation only: Shift expands or collapses an open hover bar.
-    if (code == VK_SHIFT && !repeated && (kind == UiInputKind::key_down || kind == UiInputKind::key_up))
+    if (code == key::shift && !repeated && (kind == UiInputKind::key_down || kind == UiInputKind::key_up))
         application_message_action_bar_modifiers_changed();
     // Cancellation may remove the navigation owner before key release. Retain
     // its tail so a held Escape cannot dismiss the next foreground surface.
@@ -271,7 +272,7 @@ bool route_application_input(UiInputKind kind, u32 code, bool repeated) noexcept
         return true;
     if (ui_input_consume_key_tail(&g_app.composer_menu_held_key, {kind, code, repeated}))
         return true;
-    if ((kind == UiInputKind::key_down || kind == UiInputKind::system_key_down) && code != VK_SPACE)
+    if ((kind == UiInputKind::key_down || kind == UiInputKind::system_key_down) && code != key::space)
         ui_button_keyboard_cancel(&g_app.button_keyboard);
     const AppPopupInput popup = !g_app.popup_scene.active ? AppPopupInput::none
                                 : g_app.popup_scene.kind == PopupKind::autocomplete

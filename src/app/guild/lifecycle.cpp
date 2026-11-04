@@ -31,6 +31,7 @@
 #include "../account/account_access.hpp"
 #include "../plugins/pipeline_host.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
@@ -262,7 +263,7 @@ void queue(Op op) noexcept {
 void release_icon() noexcept {
     if (owner->icon.data) {
         secure_clear_bytes(owner->icon.data, owner->icon.bytes);
-        VirtualFree(owner->icon.data, 0, MEM_RELEASE);
+        pages_release(owner->icon.data);
     }
     reset_value(&owner->icon);
 }
@@ -277,7 +278,7 @@ bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
         *error = application_guild_image_error_text(GuildImageProfile::icon, picked.info.error, path, total,
                                                     {owner->size_error, sizeof(owner->size_error)});
         secure_clear_bytes(data, total);
-        VirtualFree(data, 0, MEM_RELEASE);
+        pages_release(data);
         return false;
     }
     release_icon();

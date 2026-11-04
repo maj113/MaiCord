@@ -59,7 +59,7 @@ bool text_edit_enable_history(TextEditHistoryState* edit, u32 byte_budget) noexc
         byte_budget > 1024 * 1024 || edit->storage.capacity > byte_budget / 2) return false;
     auto* history = static_cast<TextEditHistory*>(commit_pages(sizeof(TextEditHistory)));
     if (!history) return false;
-    if (!secure_buffer_initialize(&history->payload, byte_budget).ok()) { VirtualFree(history, 0, MEM_RELEASE); return false; }
+    if (!secure_buffer_initialize(&history->payload, byte_budget).ok()) { pages_release(history, sizeof(TextEditHistory)); return false; }
     edit->history = history;
     return true;
 }
@@ -80,7 +80,7 @@ void text_edit_history_release(TextEditHistoryState* edit) noexcept {
     secure_buffer_release(&history->payload);
     secure_buffer_release(&history->group);
     secure_clear_bytes(history, sizeof(*history));
-    VirtualFree(history, 0, MEM_RELEASE);
+    pages_release(history, sizeof(*history));
 }
 void text_edit_history_begin(TextEditHistoryState* edit, u32 start, u32 removed, u32 inserted, u32 anchor, u32 caret,
     TextEditHistoryInput input, u64 time_ms) noexcept {

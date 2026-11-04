@@ -53,7 +53,7 @@ bool starts_access_unit(VideoRtpCodec codec, ConstSlice<u8> payload) noexcept {
 }
 void release_window(VideoRtpStream* stream) noexcept {
     if (stream->slots)
-        VirtualFree(stream->slots, 0, MEM_RELEASE);
+        pages_release(stream->slots);
     reset_value(stream);
 }
 // Loss breaks the reference chain until the next keyframe.
@@ -365,7 +365,7 @@ bool grow(VideoRtpStream& stream, u32 slots) noexcept {
         slot_at(next, sequence) = slot;
         copy_bytes(payload_at(next, sequence), payload_at(stream, sequence), slot.bytes);
     }
-    VirtualFree(stream.slots, 0, MEM_RELEASE);
+    pages_release(stream.slots);
     stream = next;
     return true;
 }
@@ -502,7 +502,7 @@ void video_rtp_release(VideoRtpReceiver* receiver) noexcept {
     for (auto& stream : receiver->streams)
         release_window(&stream);
     if (receiver->frame)
-        VirtualFree(receiver->frame, 0, MEM_RELEASE);
+        pages_release(receiver->frame);
     reset_value(receiver);
 }
 

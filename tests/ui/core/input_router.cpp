@@ -1,6 +1,7 @@
 #include "maicord/app/shell/input_layers.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
@@ -46,15 +47,15 @@ UiInputDisposition profile(void* opaque, const UiInputEvent&) noexcept {
 } // namespace
 
 void test_input_router(void (*check)(bool, const char*) noexcept) noexcept {
-    u32 held = VK_RETURN;
+    u32 held = key::enter;
     check(ui_input_consume_key_tail(&held, {UiInputKind::character, '\r'}) &&
         ui_input_consume_key_tail(&held, {UiInputKind::character, '\n'}) &&
-        ui_input_consume_key_tail(&held, {UiInputKind::key_down, VK_RETURN, true}) &&
+        ui_input_consume_key_tail(&held, {UiInputKind::key_down, key::enter, true}) &&
         !ui_input_consume_key_tail(&held, {UiInputKind::character, 'a'}) &&
-        ui_input_consume_key_tail(&held, {UiInputKind::key_up, VK_RETURN}) && !held,
+        ui_input_consume_key_tail(&held, {UiInputKind::key_up, key::enter}) && !held,
         "overlay activation tail cannot type or submit into newly exposed content");
-    held = VK_SPACE;
-    check(!ui_input_consume_key_tail(&held, {UiInputKind::key_down, VK_SPACE, false}) && !held,
+    held = key::space;
+    check(!ui_input_consume_key_tail(&held, {UiInputKind::key_down, key::space, false}) && !held,
         "fresh key press recovers an overlay guard after a lost release");
     RoutingFixture fixture{};
     char text[128]{};
@@ -92,7 +93,7 @@ void test_input_router(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.responses[2] = UiInputDisposition::ignored;
     frame = app_input_layers({AppPopupInput::autocomplete, false, false, true}, handlers);
     check(route(UiInputKind::character, 'p').layer_id == static_cast<u32>(AppInputLayerId::profile) &&
-          route(UiInputKind::key_down, VK_DELETE).consumed() &&
+          route(UiInputKind::key_down, key::del).consumed() &&
           route(UiInputKind::primary_double_click).consumed() && fixture.calls[3] == content_calls &&
           fixture.calls[4] == 3 && fixture.composer.bytes == 1,
           "profile owns unhandled autocomplete input instead of underlying composer");

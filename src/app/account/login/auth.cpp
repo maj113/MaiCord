@@ -8,6 +8,7 @@
 #include "maicord/platform/desktop/webauthn.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 #include "maicord/app/account/login/remote_auth_handshake.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace auth_detail {
@@ -1153,19 +1154,19 @@ bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
     if (!g_app.login.visible) {
         return false;
     }
-    if (repeated && (key == VK_RETURN || key == VK_SPACE))
+    if (repeated && (key == key::enter || key == key::space))
         return true;
     if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
-    if (key == VK_CAPITAL) {
+    if (key == key::caps_lock) {
         // The Caps Lock hint follows the toggle state while typing a password.
         if (!application_refresh_login_view()) log_write(LogLevel::error, "ui", "login_caps_refresh_failed");
         return false;
     }
-    if (key == VK_ESCAPE && back_available())
+    if (key == key::escape && back_available())
         return application_login_cancel_blocked();
     const bool shift = application_shift_down();
     const bool control = application_command_down();
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         const LoginControl next = login_scene_move_focus(&g_app.login_scene, shift);
         if (next == LoginControl::none) {
             return false;
@@ -1173,8 +1174,8 @@ bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
         g_app.login.focus = next;
         return application_refresh_login_view();
     }
-    if (key == VK_RETURN || key == VK_SPACE) {
-        if (key == VK_SPACE)
+    if (key == key::enter || key == key::space) {
+        if (key == key::space)
             return g_app.login.focus == LoginControl::login || g_app.login.focus == LoginControl::password || g_app.login.focus == LoginControl::phone_code
                 ? false : activate_login_control(g_app.login.focus);
         if (login_requires_back(g_app.login.status, g_app.login.remote_status))
@@ -1193,7 +1194,7 @@ bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
     }
     SecureEdit* edit = application_active_login_edit();
     if (!edit) {
-        return key == VK_ESCAPE;
+        return key == key::escape;
     }
     if (control && key == 'V') {
         return application_login_paste();
@@ -1207,22 +1208,22 @@ bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
         result = phone ? application_phone_select_all(edit) : secure_edit_select_all(edit);
     } else {
         switch (key) {
-        case VK_BACK:
+        case key::backspace:
             result = phone ? application_phone_backspace(edit) : secure_edit_backspace(edit);
             break;
-        case VK_DELETE:
+        case key::del:
             result = phone ? application_phone_delete_forward(edit) : secure_edit_delete_forward(edit);
             break;
-        case VK_LEFT:
+        case key::left:
             result = move(SecureEditMove::previous);
             break;
-        case VK_RIGHT:
+        case key::right:
             result = move(SecureEditMove::next);
             break;
-        case VK_HOME:
+        case key::home:
             result = move(SecureEditMove::home);
             break;
-        case VK_END:
+        case key::end:
             result = move(SecureEditMove::end);
             break;
         default:

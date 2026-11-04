@@ -9,6 +9,7 @@
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -1672,7 +1673,7 @@ void test_network_worker() noexcept {
                "network_worker_join");
         // A failed join leaves worker/context owned by the live thread. Do not
         // unwind this stack fixture and turn a reported timeout into a UAF.
-        if (!joined.ok()) ExitProcess(1);
+        if (!joined.ok()) test_process_exit(1);
     }
     CloseHandle(context.deadline_event);
 }
@@ -1747,7 +1748,7 @@ void test_network_worker_cancel_drain() noexcept {
                "network_worker_cancel_completion_drained");
         // Preserve the timeout failure, but never return stack storage still
         // reachable by a resolver completion or the worker callback.
-        if (!joined.ok()) ExitProcess(1);
+        if (!joined.ok()) test_process_exit(1);
     }
     CloseHandle(context.started_event);
 }
@@ -1913,7 +1914,7 @@ DWORD WINAPI tls_credential_thread(void* parameter) noexcept {
     auto* result = static_cast<TlsCredentialThread*>(parameter);
     TlsClient client{};
     result->ok = tls_client_initialize(&client, L"discord.com").ok() && client.credentials_valid;
-    result->credentials = client.credentials;
+    result->credentials = client.native.credentials;
     tls_client_release(&client);
     return 0;
 }
@@ -1926,13 +1927,13 @@ void test_tls_client_shared_credential() noexcept {
     TlsClient first{}, second{};
     const bool both = tls_client_initialize(&first, L"discord.com").ok() &&
                       tls_client_initialize(&second, L"cdn.discordapp.com").ok();
-    expect(both && first.credentials.lower == second.credentials.lower &&
-               first.credentials.upper == second.credentials.upper && first.credentials_valid,
+    expect(both && first.native.credentials.lower == second.native.credentials.lower &&
+               first.native.credentials.upper == second.native.credentials.upper && first.credentials_valid,
            "tls_clients_share_one_credential");
     if (!both) {
         return;
     }
-    const TlsSecurityHandle shared = first.credentials;
+    const TlsSecurityHandle shared = first.native.credentials;
     tls_client_release(&first);
     const auto hello = tls_client_handshake(&second, ConstSlice<u8>{nullptr, 0},
                                             Slice<u8>{g_tls_token, second.maximum_token_bytes});

@@ -241,7 +241,7 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
         video_rtp_release(&sink->rtp);
     if (sink->buffer) {
         secure_clear_bytes(sink->buffer, kBufferBytes);
-        VirtualFree(sink->buffer, 0, MEM_RELEASE);
+        pages_release(sink->buffer);
     }
     sink->buffer = nullptr;
     for (auto& pending : sink->pending_keyframes)

@@ -37,6 +37,7 @@
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/sys/simd.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
@@ -277,8 +278,8 @@ bool binding_capacity(NativeTextContext& owner) noexcept {
     const u32 count=minimum(owner.store.slots.count+capacity,maximum_bindings);
     // Stable addresses preserve retained span pointers and borrowed plan data.
     // Reserve once; only commit the prefix needed by actual font bindings.
-    if(!VirtualAlloc(owner.store.slots.data,sizeof(NativeRunPlanSlot)*count,MEM_COMMIT,PAGE_READWRITE)||
-       !VirtualAlloc(owner.bindings,sizeof(Binding)*count,MEM_COMMIT,PAGE_READWRITE))return false;
+    if(!pages_commit_at(owner.store.slots.data, sizeof(NativeRunPlanSlot)*count)||
+       !pages_commit_at(owner.bindings, sizeof(Binding)*count))return false;
     owner.store.slots.count=count;return true;
 }
 Binding* binding(NativeTextContext& owner,const NativeFormat* format,u32 font_flags=0) noexcept {
@@ -395,7 +396,7 @@ bool prepare_script_profile(NativeTextContext& owner,Binding& selected,u16 scrip
     if(script!=arabic_script)return !script||alphabetic_profile(owner,selected,script,independent)!=nullptr;
     if(selected.font_flags==emoji_font_flag)return false;
     if(!owner.arabic_store.slots.count){
-        if(!VirtualAlloc(owner.arabic_store.slots.data,arabic_region_bytes,MEM_COMMIT,PAGE_READWRITE))return false;
+        if(!pages_commit_at(owner.arabic_store.slots.data, arabic_region_bytes))return false;
         owner.arabic_store.slots.count=capacity;
     }
     if(!(selected.key&binding_profile)){owner.last_valid=false;owner.prefer_multiline=false;selected.key|=binding_profile;
@@ -573,15 +574,15 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
 }
 bool native_text_context_initialize(NativeTextContext** output,NativeFontSession* fonts) noexcept {
     if(!output)return false;*output=nullptr;if(!fonts)return false;
-    auto* reserved=static_cast<u8*>(VirtualAlloc(nullptr,context_reserved_bytes,MEM_RESERVE,PAGE_READWRITE));if(!reserved)return false;
-    if(!VirtualAlloc(reserved,sizeof(NativeTextContext),MEM_COMMIT,PAGE_READWRITE)){VirtualFree(reserved,0,MEM_RELEASE);return false;}
+    auto* reserved=static_cast<u8*>(pages_reserve(context_reserved_bytes));if(!reserved)return false;
+    if(!pages_commit_at(reserved, sizeof(NativeTextContext))){pages_release(reserved);return false;}
     auto* owner=reinterpret_cast<NativeTextContext*>(reserved);reset_value(owner);owner->backing=owner;
     // Binding prefixes share the owner's final page; neither array ever moves.
     owner->bindings=reinterpret_cast<Binding*>(reserved+sizeof(NativeTextContext));
     owner->store={native_font_session_instances(fonts),{reinterpret_cast<NativeRunPlanSlot*>(reserved+binding_region_bytes),0}};
     owner->arabic_store={&owner->store,{reinterpret_cast<NativeArabicPlanSlot*>(reserved+binding_region_bytes+plan_region_bytes),0}};
     if(!arena_initialize(&owner->scratch,32*1024*1024,0,4096)||!native_text_catalogs_initialize(&owner->catalogs)||!native_font_session_retain(fonts)){
-        native_text_catalogs_release(&owner->catalogs);arena_release(&owner->scratch);VirtualFree(owner,0,MEM_RELEASE);return false;}
+        native_text_catalogs_release(&owner->catalogs);arena_release(&owner->scratch);pages_release(owner);return false;}
     owner->fonts=fonts;*output=owner;return true;
 }
 bool native_text_candidate_take_output_failure(const TextSystem& system) noexcept {
@@ -649,8 +650,8 @@ void release_context_contents(NativeTextContext* o) noexcept {
 }
 void native_text_context_release(NativeTextContext** pointer) noexcept {
     if(!pointer||!*pointer)return;auto* o=*pointer;auto* backing=o->backing;
-    release_context_contents(o);if(backing!=o)VirtualFree(backing,0,MEM_RELEASE);
-    VirtualFree(o,0,MEM_RELEASE);*pointer=nullptr;
+    release_context_contents(o);if(backing!=o)pages_release(backing);
+    pages_release(o);*pointer=nullptr;
 }
 #include "native_text_recovery.inc"
 #include "native_text_styled.inc"

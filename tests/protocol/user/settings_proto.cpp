@@ -2,8 +2,9 @@
 #include "maicord/protocol/user/account_settings.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -138,7 +139,7 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
           "user settings: GET/PATCH response envelope decodes settings and out_of_date");
 
     auto* store = static_cast<UserSettingsStore*>(
-        VirtualAlloc(nullptr, sizeof(UserSettingsStore), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        pages_allocate(sizeof(UserSettingsStore)));
     if (!store) {
         check(false, "user settings: store allocation");
         return;
@@ -230,7 +231,7 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
     pinned = true;
     check(user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pinned) && !required && !pinned,
           "user settings: live edits send no required_data_version");
-    VirtualFree(store, 0, MEM_RELEASE);
+    pages_release(store);
 }
 
 // Per-server privacy lists: privacy.restricted_guild_ids (3) and friends are
@@ -293,7 +294,7 @@ void test_user_settings_guild_lists(void (*check)(bool, const char*) noexcept) n
           "user settings: re-adding a listed ID keeps its place; ID zero is refused");
 
     auto* store = static_cast<UserSettingsStore*>(
-        VirtualAlloc(nullptr, sizeof(UserSettingsStore), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        pages_allocate(sizeof(UserSettingsStore)));
     if (!store) {
         check(false, "user settings: list store allocation");
         return;
@@ -349,7 +350,7 @@ void test_user_settings_guild_lists(void (*check)(bool, const char*) noexcept) n
     check(user_settings_store_apply(store, {update, sizeof(update)}, true) &&
               user_settings_store_contains(*store, restricted, d) && !user_settings_store_contains(*store, restricted, a),
           "user settings: a gateway update replaces the lists live");
-    VirtualFree(store, 0, MEM_RELEASE);
+    pages_release(store);
 }
 
 void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexcept {
@@ -485,7 +486,7 @@ void check(bool success, const char* name) noexcept {
 }
 } // namespace
 
-extern "C" __declspec(noreturn) void WINAPI maicord_user_settings_tests_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_user_settings_tests_entry) {
     maicord::test_user_settings_proto(check);
     maicord::test_user_settings_guild_lists(check);
     maicord::test_account_settings_rest(check);

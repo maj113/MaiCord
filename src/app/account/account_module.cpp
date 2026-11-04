@@ -161,7 +161,7 @@ __declspec(noinline) void discard_runtime(AccountModuleRuntime* runtime, Account
     if (profile)
         account_profile_release(profile);
     SecureZeroMemory(runtime, sizeof(*runtime));
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
 }
 
 AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const wchar_t* session_path,
@@ -455,7 +455,7 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
         if (result.submit_error != HttpsFileDownloadError::none &&
             https_file_download_release(&owner->transfer, 0)) {
             runtime->download = nullptr;
-            VirtualFree(owner, 0, MEM_RELEASE);
+            pages_release(owner);
             result.released = true;
             return result;
         }
@@ -472,7 +472,7 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
             result.released = https_file_download_release(&owner->transfer, 0);
             if (result.released) {
                 runtime->download = nullptr;
-                VirtualFree(owner, 0, MEM_RELEASE);
+                pages_release(owner);
                 return result;
             }
         } else if (operation != AccountDownloadOperation::status) {

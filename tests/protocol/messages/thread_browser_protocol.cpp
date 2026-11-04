@@ -326,7 +326,7 @@ void run() noexcept {
 } // namespace thread_browser_test
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_thread_browser_protocol_test_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_thread_browser_protocol_test_entry) {
     maicord::thread_browser_test::run();
     maicord::test_exit(maicord::thread_browser_test::failures, "thread browser protocol");
 }

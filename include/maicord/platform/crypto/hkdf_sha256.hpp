@@ -19,7 +19,7 @@ struct KdfResult {
     }
 };
 // Shared by a single worker, not per sender/key. No copying or concurrent use.
-// One locked CNG object buffer is reused, then erased after every operation;
+// One locked hash-object buffer is reused, then erased after every operation;
 // no secret or live hash handle survives an operation. Initialize/release once.
 struct KdfSha256Workspace {
     SecureBuffer storage;

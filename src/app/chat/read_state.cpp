@@ -281,7 +281,7 @@ ApplicationReadState* ensure_owner() noexcept {
         stable_storage_release(&owner->token);
         stable_storage_release(&owner->actions);
         stable_storage_release(&owner->echoes);
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         return nullptr;
     }
     owner->user_id = g_app.account_ui->chat_state.self_user_id;
@@ -902,7 +902,7 @@ void application_read_state_release(Application& application) noexcept {
     stable_storage_release(&application.read_state->token);
     stable_storage_release(&application.read_state->actions);
     stable_storage_release(&application.read_state->echoes);
-    VirtualFree(application.read_state, 0, MEM_RELEASE);
+    pages_release(application.read_state);
     application.read_state = nullptr;
     application.read_last_activity_ms = 0;
 }

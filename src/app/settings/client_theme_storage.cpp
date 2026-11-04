@@ -10,6 +10,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
@@ -119,7 +120,7 @@ ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const 
         result = failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     CloseHandle(file);
     if (workspace && !result.ok()) {
-        VirtualFree(workspace, 0, MEM_RELEASE);
+        pages_release(workspace);
         workspace = nullptr;
     }
     *output = workspace;
@@ -201,7 +202,7 @@ ClientThemeStorageResult export_document(const wchar_t* directory, const ClientT
                           ClientThemeDocumentError::none
                       ? install_file(directory, length, leaf, units, {reinterpret_cast<const u8*>(text), bytes})
                       : failure(ClientThemeStorageError::document);
-    VirtualFree(text, 0, MEM_RELEASE);
+    pages_release(text);
     return result;
 }
 ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& expected,
@@ -227,7 +228,7 @@ ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& ex
         *output = candidate;
         result.unsupported_fields = parsed.unsupported_fields;
     }
-    VirtualFree(workspace, 0, MEM_RELEASE);
+    pages_release(workspace);
     return result;
 }
 } // namespace
@@ -375,7 +376,7 @@ ClientThemeStorageResult client_theme_storage_load_file(const wchar_t* path,
         return result;
     result = client_theme_storage_decode({workspace->record, bytes},
                                          {workspace->structurals, kClientThemeImportMaximumBytes}, output);
-    VirtualFree(workspace, 0, MEM_RELEASE);
+    pages_release(workspace);
     return result;
 }
 ClientThemeStorageResult client_theme_storage_save_file(
@@ -390,7 +391,7 @@ ClientThemeStorageResult client_theme_storage_save_file(
     auto result = client_theme_storage_encode(snapshot, {record, kClientThemeStorageMaximumBytes}, &bytes);
     if (result.ok())
         result = write_result(file_persistence_write_atomic(path, length, {record, bytes}));
-    VirtualFree(record, 0, MEM_RELEASE);
+    pages_release(record);
     return result;
 }
 ClientThemeStorageResult client_theme_storage_user_path(const Slice<wchar_t>& output,
@@ -564,7 +565,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
     }
     if (result.ok())
         copy_bytes(output, &catalog, sizeof(catalog));
-    VirtualFree(memory, 0, MEM_RELEASE);
+    pages_release(memory);
     return result;
 }
 
@@ -597,7 +598,7 @@ void release_io(ClientThemeIo* io) noexcept {
         CloseHandle(io->thread);
     if (io->completion_event)
         CloseHandle(io->completion_event);
-    HeapFree(process_heap(), 0, io);
+    heap_free(io);
 }
 DWORD WINAPI io_work(void* opaque) noexcept {
     auto* io = static_cast<ClientThemeIo*>(opaque);
@@ -693,7 +694,7 @@ bool client_theme_io_create(ClientThemeIo** output, const wchar_t* path) noexcep
     if (path && !path_length(path, &length))
         return reject(ERROR_BAD_PATHNAME);
     auto* io =
-        static_cast<ClientThemeIo*>(HeapAlloc(process_heap(), HEAP_ZERO_MEMORY, sizeof(ClientThemeIo)));
+        static_cast<ClientThemeIo*>(heap_allocate(sizeof(ClientThemeIo), true));
     if (!io)
         return reject(ERROR_NOT_ENOUGH_MEMORY);
     io->explicit_path = path != nullptr;

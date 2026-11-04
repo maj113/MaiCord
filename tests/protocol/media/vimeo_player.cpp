@@ -107,6 +107,6 @@ void run() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_vimeo_player_entry() noexcept {
-    maicord::run(); ExitProcess(maicord::failures ? 1 : 0);
+MAICORD_TEST_ENTRY(maicord_vimeo_player_entry) {
+    maicord::run(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

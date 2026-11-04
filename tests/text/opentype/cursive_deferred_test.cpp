@@ -2,6 +2,8 @@
 #include "maicord/text/opentype/gpos_program.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 constexpr u32 capacity=4096;
 SfntGsubGlyph glyphs[capacity];double nominal[capacity];u8 flags[capacity];
@@ -63,13 +65,12 @@ bool program() noexcept {
     return true;
 }
 bool guarded() noexcept {
-    constexpr u32 n=63;reset(n);SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,4*page,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    bool ok=VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+3*page,page,PAGE_NOACCESS,&old)!=0;
+    constexpr u32 n=63;reset(n);SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(4*page));if(!memory)return false;bool ok=pages_protect(memory+page, page, PageAccess::none)!=0 && pages_protect(memory+3*page, page, PageAccess::none)!=0;
     if(ok){auto* state=reinterpret_cast<SfntPosition*>(memory+page-n*sizeof(SfntPosition));auto* nodes=reinterpret_cast<SfntCursiveChainNode*>(memory+3*page-n*sizeof(SfntCursiveChainNode));copy_bytes(state,eager,n*sizeof(SfntPosition));copy_bytes(nodes,eager_nodes,n*sizeof(SfntCursiveChainNode));SfntCursiveDeferred pending{};
         for(u32 i=0;i+1<n && ok;++i){SfntCursiveExecution r{};ok=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,false,{}, {nodes,n},&r,1000000,&pending)==SfntStatus::ok;}
         SfntCursiveExecution r{};if(ok)ok=sfnt_position_cursive_flush({state,n},{nodes,n},&pending,&r)==SfntStatus::ok;
         for(u32 i=0;i<n && ok;++i)ok=state[i].ascender_offset==-70.0*(n-1-i);++guards;}
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 volatile u64 benchmark_witness=0;
 bool benchmark() noexcept {
@@ -92,4 +93,4 @@ int run() noexcept {
     print(utf8_literal("comparisons="));number(comparisons);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nlong_eager_work="));number(long_eager_work);print(utf8_literal("\nlong_deferred_work="));number(long_deferred_work);print(utf8_literal("\nprogram_work="));number(program_work);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nPASS deferred cursive\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_cursive_deferred_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_cursive_deferred_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

@@ -42,6 +42,27 @@ MAICORD_TEST_ENTRY(maicord_tests_entry) {
     maicord::test_stable_storage();
     maicord::test_utf8();
     maicord::test_json_scan();
+    maicord::test_deflate_matches(maicord::expect);
+    maicord::test_png_crc(maicord::expect);
+    maicord::test_image_decode_corpus(maicord::expect);
+    maicord::test_message_rich_index(maicord::expect);
+    maicord::test_command_argument_editing(maicord::expect);
+    maicord::test_attachment_upload(maicord::expect);
+    maicord::test_profile_decode_scratch(maicord::expect);
+    maicord::test_zlib_deflate();
+    maicord::test_jpeg_baseline();
+    maicord::test_webp_lossless();
+    maicord::test_webp_alpha();
+    maicord::test_vp8_bool_reader();
+    maicord::test_vp8_keyframe_header();
+    maicord::test_vp8_keyframe_control();
+    maicord::test_lossy_webp_keyframe_decode();
+    maicord::test_animated_webp_lossless();
+    maicord::test_animated_webp_mixed_codecs();
+    maicord::test_animated_webp_opaque_alpha_hint();
+    maicord::test_apng_decode();
+    maicord::test_gif_decode();
+    maicord::test_png_decode();
 
     if (maicord::g_failures == 0) {
         maicord::test_write_text("PASS maicord_core\n");

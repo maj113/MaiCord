@@ -15,7 +15,7 @@ bool run() noexcept {
     AesGcmKey aes{};
     XChaChaKey cng{}, portable{};
     if (!aes_gcm_initialize(&aes, {secret, 32}).ok() ||
-        !xchacha_initialize(&cng, {secret, 32}, XChaChaBackend::cng).ok() ||
+        !xchacha_initialize(&cng, {secret, 32}, XChaChaBackend::native).ok() ||
         !xchacha_initialize(&portable, {secret, 32}, XChaChaBackend::portable).ok()) {
         aes_gcm_release(&aes);
         xchacha_release(&cng);

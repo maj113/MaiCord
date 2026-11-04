@@ -21,6 +21,7 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -78,7 +79,7 @@ bool open_now() noexcept {
 }
 void free_bank(Bank** bank) noexcept {
     if (*bank)
-        VirtualFree(*bank, 0, MEM_RELEASE);
+        pages_release(*bank);
     *bank = nullptr;
 }
 bool ensure() noexcept {
@@ -382,7 +383,7 @@ Bank* decode_bank(MediaCatalogOperation operation, Utf8View body) noexcept {
                 free_bank(&bank);
         }
     }
-    VirtualFree(scratch, 0, MEM_RELEASE);
+    pages_release(scratch);
     return bank;
 }
 } // namespace
@@ -462,12 +463,12 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
     auto& c = *g_card;
     switch (message) {
     case WM_KEYDOWN:
-        if (wparam == VK_ESCAPE) {
+        if (wparam == key::escape) {
             application_expression_card_close();
             return true;
         }
         // The popout focuses its button: Enter and Space press it.
-        if ((wparam == VK_RETURN || wparam == VK_SPACE) && c.view_pack) {
+        if ((wparam == key::enter || wparam == key::space) && c.view_pack) {
             activate(UiExpressionCardControl::button);
             return true;
         }
@@ -700,7 +701,7 @@ void application_expression_card_release() noexcept {
         g_app.renderer.expression_card_scene = nullptr;
     free_bank(&g_card->packs);
     free_bank(&g_card->retired);
-    VirtualFree(g_card, 0, MEM_RELEASE);
+    pages_release(g_card);
     g_card = nullptr;
 }
 } // namespace maicord::app_detail

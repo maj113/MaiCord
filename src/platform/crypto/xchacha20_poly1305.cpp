@@ -3,7 +3,11 @@
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
 
+#if defined(_WIN32)
 #include "maicord/sys/crypto.hpp"
+#else
+#include "maicord/core/win32_kernel.hpp"
+#endif
 
 namespace maicord {
 namespace {
@@ -242,6 +246,7 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
         SecureZeroMemory(subkey, 32);
         return result;
     }
+#if defined(_WIN32)
     BCRYPT_KEY_HANDLE handle = nullptr;
     const NTSTATUS status = BCryptGenerateSymmetricKey(BCRYPT_CHACHA20_POLY1305_ALG_HANDLE, &handle,
                                                        key.storage.data, key.object_bytes, subkey, 32, 0);
@@ -256,6 +261,13 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
         BCryptDestroyKey(handle);
     SecureZeroMemory(key.storage.data, key.object_bytes);
     return result;
+#else
+    // OpenSSL builds its key schedule per call in its own heap; the subkey here is the only copy of ours.
+    const auto result =
+        aead_openssl_chacha_crypt(subkey, {ietf_nonce, 12}, aad, input, output, const_cast<u8*>(tag.data), encrypt);
+    SecureZeroMemory(subkey, 32);
+    return result;
+#endif
 }
 } // namespace
 
@@ -264,6 +276,7 @@ AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret, XChaChaBac
         !byte_range_valid(secret) ||
         byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
+#if defined(_WIN32)
     ULONG bytes = 0, returned = 0;
     if (backend != XChaChaBackend::portable) {
         const NTSTATUS status =
@@ -278,9 +291,21 @@ AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret, XChaChaBac
         } else {
             if (status < 0 || returned != sizeof(bytes) || !bytes || bytes > ~u32{0} - 64)
                 return aead_result(AeadError::platform_failure, 0, status);
-            backend = XChaChaBackend::cng;
+            backend = XChaChaBackend::native;
         }
     }
+#else
+    // OpenSSL needs no object storage of ours: the key lives in the storage only as its two 32-byte keys.
+    const u32 bytes = 0;
+    if (backend != XChaChaBackend::portable) {
+        if (aead_openssl_available())
+            backend = XChaChaBackend::native;
+        else if (backend == XChaChaBackend::automatic)
+            backend = XChaChaBackend::portable;
+        else
+            return aead_result(AeadError::platform_failure);
+    }
+#endif
     const auto allocated = secure_buffer_initialize(&key->storage, bytes + 64);
     if (!allocated.ok())
         return aead_result(AeadError::storage, 0, static_cast<i32>(allocated.native_error));

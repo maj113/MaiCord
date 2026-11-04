@@ -7,6 +7,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord {
@@ -64,7 +65,7 @@ DWORD WINAPI draft_writer_main(void* context) noexcept {
 
 DraftWriter* draft_writer() noexcept {
     if (g_writer || g_writer_failed) return g_writer;
-    auto* writer = static_cast<DraftWriter*>(HeapAlloc(process_heap(), HEAP_ZERO_MEMORY, sizeof(DraftWriter)));
+    auto* writer = static_cast<DraftWriter*>(heap_allocate(sizeof(DraftWriter), true));
     if (writer) {
         writer->work_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         writer->done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -74,7 +75,7 @@ DraftWriter* draft_writer() noexcept {
         if (!writer->thread) {
             if (writer->done_event) CloseHandle(writer->done_event);
             if (writer->work_event) CloseHandle(writer->work_event);
-            HeapFree(process_heap(), 0, writer);
+            heap_free(writer);
             writer = nullptr;
         }
     }

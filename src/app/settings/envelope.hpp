@@ -10,7 +10,7 @@ namespace maicord::app_detail {
 inline void dispose(void* data, u32 bytes) noexcept {
     if (data) {
         secure_clear_bytes(data, bytes);
-        VirtualFree(data, 0, MEM_RELEASE);
+        pages_release(data);
     }
 }
 

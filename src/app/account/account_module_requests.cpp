@@ -10,6 +10,7 @@
 #include "maicord/app/guild/account_guild_assets.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/protocol/messages/typing.hpp"
 
 namespace maicord {
@@ -196,7 +197,7 @@ bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoS
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_video_snapshot(gateway, output);
 }
-bool WINAPI module_voice_video_device(void* instance, ID3D11Device* device) noexcept {
+bool WINAPI module_voice_video_device(void* instance, GpuDevice* device) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime)
         return false;
@@ -468,7 +469,7 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
         if (!https_file_download_release(&runtime->download->transfer, timeout_ms)) {
             return stop_failure(runtime, AccountModuleError::download);
         }
-        VirtualFree(runtime->download, 0, MEM_RELEASE);
+        pages_release(runtime->download);
         runtime->download = nullptr;
     }
     if (!https_file_upload_release(&runtime->upload, timeout_ms)) {
@@ -511,7 +512,7 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     status.session_error = static_cast<u8>(runtime->session_error);
     video_stream_decoders_release(&runtime->video);
     SecureZeroMemory(runtime, sizeof(*runtime));
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     *instance = nullptr;
     return status;
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/virtual_memory.hpp"
 #include "account_login_handoff.hpp"
 
 // Profile staging, the pump and the stop of the TU-local login owner (see account_login_handoff.hpp).
@@ -298,7 +299,7 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
                                     ordinary_limited ? runtime->coordinator.state.retry_at_ms : 0);
     account_profile_promotion_release(&runtime->promotion);
     secure_clear_bytes(runtime, sizeof(*runtime));
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     *instance = nullptr;
     AccountLoginStatus status{};
     status.phase = AccountLoginPhase::stopped;

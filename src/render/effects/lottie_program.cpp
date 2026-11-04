@@ -1291,7 +1291,7 @@ struct ScannedJson {
     u32* index = nullptr;
     ~ScannedJson() noexcept {
         if (index)
-            VirtualFree(index, 0, MEM_RELEASE);
+            pages_release(index);
     }
     bool read(ConstSlice<u8> encoded) noexcept {
         index = commit_pages<u32>(encoded.count * sizeof(u32));
@@ -1345,7 +1345,7 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
                 doc->get_leaf(i).geometry->Release();
             if (doc->factory)
                 doc->factory->Release();
-            VirtualFree(block, 0, MEM_RELEASE);
+            pages_release(block);
         }
     } release{doc, block};
     const auto text = json.input;

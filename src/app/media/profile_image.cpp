@@ -40,7 +40,7 @@ struct Block {
     }
     void reset() noexcept {
         if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
+            pages_release(data);
         data = nullptr;
         bytes = 0;
     }

@@ -1,5 +1,7 @@
 #include "maicord/text/opentype/context.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 #include "glyph_view_check.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -48,13 +50,13 @@ bool units() noexcept {
     return sfnt_context_open({extra,f.size+2},SfntContextKind::sequence,10,3,{coverage,16},{classes,3},&c)==SfntStatus::ok && sfnt_context_match_view(c,gdef,filter,sfnt_glyph_view({input,11}),4,7,{positions,4},&result)==SfntStatus::ok && !result.matched;
 }
 bool guards() noexcept {
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     SfntCoverage coverages[128];SfntClassDef classes[3];u32 positions[16];SfntGsubGlyph glyphs[11],reverse_glyphs[9];const u16 ids[]{2,9,1,9,3,9,4,9,5,9,6},reverse_ids[]{2,9,1,9,3,9,5,9,6};for(u32 i=0;i<11;++i)glyphs[i]={ids[i],ids[i]==9 || ids[i]==3?SfntGlyphClass::mark:SfntGlyphClass::base,0};for(u32 i=0;i<9;++i)reverse_glyphs[i]={reverse_ids[i],reverse_ids[i]==9 || reverse_ids[i]==3?SfntGlyphClass::mark:SfntGlyphClass::base,0};SfntLookupFilter filter{{},8};u32 random=0x825ceb77;
     for(u32 i=0;i<20000;++i){const auto& f=context_fixtures[i%7];random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i<1024?minimum(i/7,f.size):random%(f.size+1);u8* b=mem+page-size;for(u32 j=0;j<size;++j)b[j]=f.data[j];if(i>=1024 && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
         if(f.mode==2){u32 count=0;const auto need=sfnt_gsub_reverse_requirements({b,size},&count);observe(need);if(need!=SfntStatus::ok || count>128)continue;SfntReverseSubstitution r{};const auto s=sfnt_gsub_reverse_open({b,size},10,{coverages,128},&r,1000);observe(s);if(s==SfntStatus::ok){SfntGsubMatch m{};observe(sfnt_gsub_reverse_match_view(r,{},filter,sfnt_glyph_view({reverse_glyphs,9}),4,&m,100));observations=observations+m.single;}continue;}
         const auto kind=static_cast<SfntContextKind>(f.mode);SfntContextRequirements req{};const auto need=sfnt_context_requirements({b,size},kind,&req);observe(need);if(need!=SfntStatus::ok || req.coverages>128 || req.classes>3)continue;SfntContext c{};const auto s=sfnt_context_open({b,size},kind,10,3,{coverages,128},{classes,3},&c,1000);observe(s);if(s==SfntStatus::ok){SfntContextMatch m{};observe(sfnt_context_match_view(c,{},filter,sfnt_glyph_view({glyphs,11}),4,7,{positions,16},&m,100));if(m.matched)for(u32 j=0;j<m.actions.count/4;++j){SfntSequenceAction action{};observe(sfnt_context_action(m,j,&action));observations=observations+action.sequence_index+action.lookup_index;}}
     }
-    VirtualFree(mem,0,MEM_RELEASE);return true;
+    pages_release(mem);return true;
 }
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
@@ -98,4 +100,4 @@ int run() noexcept {
     print(utf8_literal("PASS native contextual matching\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_context_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_context_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

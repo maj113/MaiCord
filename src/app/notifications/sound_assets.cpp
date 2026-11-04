@@ -30,13 +30,12 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
         void* pcm=commit_pages(bytes);
         if(!pcm) return false;
         DeflateWorkspace* workspace=deflate_workspace_allocate();
-        if(!workspace) {VirtualFree(pcm,0,MEM_RELEASE);return false;}
+        if(!workspace) {pages_release(pcm);return false;}
         const auto result=notification_pcm_unpack({data+16,count-16},{frames,data[5],data[6]},
             {static_cast<u8*>(pcm),bytes},workspace);
         deflate_workspace_free(workspace);
-        if(!result.ok()) {VirtualFree(pcm,0,MEM_RELEASE);bank->failed_mask|=1u<<index;return false;}
-        DWORD old{};
-        if(!VirtualProtect(pcm,bytes,PAGE_READONLY,&old)) {VirtualFree(pcm,0,MEM_RELEASE);return false;}
+        if(!result.ok()) {pages_release(pcm);bank->failed_mask|=1u<<index;return false;}
+        if(!pages_protect(pcm,bytes,PageAccess::read)) {pages_release(pcm);return false;}
         bank->pcm[index]=pcm;bank->frames[index]=frames;bank->rates[index]=rate;
     }
     // Give Bluetooth endpoints 100 ms to start and drain short alerts.
@@ -57,7 +56,7 @@ void notification_sound_assets_volume(NotificationSoundAssetBank* bank,u32 perce
 }
 void notification_sound_assets_release(NotificationSoundAssetBank* bank) noexcept {
     if(!bank) return;
-    for(auto& pcm:bank->pcm) {if(pcm)VirtualFree(pcm,0,MEM_RELEASE);pcm=nullptr;}
+    for(auto& pcm:bank->pcm) {if(pcm)pages_release(pcm);pcm=nullptr;}
     for(u32 i=0;i<kNotificationSoundAssetCount;++i){bank->frames[i]=0;bank->rates[i]=0;}
     bank->failed_mask=0;
 }

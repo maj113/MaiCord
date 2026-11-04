@@ -16,6 +16,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::profile_runtime_test {
 using namespace app_detail;
@@ -118,8 +119,8 @@ bool retry() noexcept {
         const auto& part = scene.parts[i];
         if (part.action == ProfileAction::retry)
             return ui_widget_manager_focus(&scene.widgets, part.widget) &&
-                   application_profile_key(VK_RETURN, true, false) &&
-                   application_profile_key(VK_RETURN, false, false);
+                   application_profile_key(key::enter, true, false) &&
+                   application_profile_key(key::enter, false, false);
     }
     return false;
 }

@@ -555,10 +555,10 @@ u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
         for (u32 i = 0; i < kSelfStatusSettingsMaximumGroupBytes; ++i)
             if (!runtime->self_status_group[i])
                 ++wiped;
-        VirtualFree(runtime->self_status_group, 0, MEM_RELEASE);
+        pages_release(runtime->self_status_group);
     }
     SecureZeroMemory(runtime, kGatewayUserClientRuntimeBytes);
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     reset_value(client);
     self_status_test_submit = nullptr;
     return wiped;

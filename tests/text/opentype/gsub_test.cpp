@@ -1,5 +1,7 @@
 #include "maicord/text/opentype/gsub_execute.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 #include "glyph_view_check.hpp"
 #include "../../support/text_test_support.hpp"
@@ -93,13 +95,13 @@ bool prefix_units() noexcept {
     return true;
 }
 bool guards() noexcept {
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     u8 seeds[3][80]{};const u16 single[]{2,10,2,2,3,1,2,1,4},sequence[]{1,8,1,14,1,1,1,3,2,3,4};
     const u32 sizes[]{words(seeds[0],{single,9}),words(seeds[1],{sequence,11}),ligature_fixture(seeds[2])};u32 random=0xf3629ee3;SfntGsubGlyph input[]{{1,SfntGlyphClass::base,0},{4,SfntGlyphClass::mark,0},{2,SfntGlyphClass::base,0},{3,SfntGlyphClass::base,0}};u32 positions[4];SfntLookupFilter filter{{},8};
     for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 seed=i%3,total=sizes[seed],size=i<123?minimum(i/3,total):random%(total+1);u8* b=mem+page-size;for(u32 j=0;j<size;++j)b[j]=seeds[seed][j];if(i>=123 && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
         for(u16 type=1;type<=4;++type){SfntGsubSubtable sub{};const auto status=sfnt_gsub_subtable_open({b,size},type,8,&sub,1000);observe(status);if(status==SfntStatus::ok){SfntGsubMatch result{};observe(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,random%4,{positions,4},&result,100));if(result.matched)for(u16 k=0;k<result.output_count;++k){u16 glyph=0;observe(sfnt_gsub_replacement(result,k,&glyph));observations=observations+glyph;}}}
     }
-    VirtualFree(mem,0,MEM_RELEASE);return true;
+    pages_release(mem);return true;
 }
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
@@ -150,4 +152,4 @@ int run() noexcept {
     print(utf8_literal("PASS native GSUB basic matching\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gsub_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gsub_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

@@ -2,13 +2,7 @@
 #include "maicord/render/effects/background_fx_data.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/core/win32_types.hpp"
-
-struct ID3D11BlendState;
-struct ID3D11Buffer;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11PixelShader;
-struct ID3D11VertexShader;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 struct Theme;
@@ -20,10 +14,10 @@ inline constexpr u32 kD3D11BackgroundFxCanvases = 32;
 // VS b2. Package effects have their own pass (effect_renderer.hpp). Everything is created lazily on the
 // first effect frame.
 struct D3D11BackgroundFxOwner {
-    ID3D11VertexShader* vertex_shader;
-    ID3D11PixelShader* builtin_shader;
-    ID3D11Buffer* constant_buffer;
-    ID3D11BlendState* blend_state;
+    GpuVertexShader* vertex_shader;
+    GpuPixelShader* builtin_shader;
+    GpuBuffer* constant_buffer;
+    GpuBlend* blend_state;
     float frame_pixel_scale; // the frame's DPI scale
     bool failed;             // resources could not be created; effects stay off
     // Per frame.
@@ -38,13 +32,13 @@ struct D3D11BackgroundFxOwner {
 
 // Picks the frame's built-in effect (or none): `suppressed` when a package effect replaces it. False only on a
 // device failure.
-bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner*, ID3D11Device*, ID3D11DeviceContext*, const Theme&,
+bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner*, GpuDevice*, GpuContext*, const Theme&,
                                      float phase_seconds, u32 width, u32 height, u32 dpi, bool suppressed) noexcept;
 // Draws the effect over one canvas (DIP rectangle, paint quad index) under the bound scissor, layer transform,
 // strip topology and input layout, which it leaves alone. True when it drew: it bound its shaders, pixel
 // constant slot 0 and blend state, which the caller binds again (VS b2 is bound once per frame). Skips
 // canvases already drawn this frame.
-bool d3d11_background_fx_draw(D3D11BackgroundFxOwner*, ID3D11DeviceContext*, UiRect canvas,
+bool d3d11_background_fx_draw(D3D11BackgroundFxOwner*, GpuContext*, UiRect canvas,
                               u32 quad_index) noexcept;
 void d3d11_background_fx_release(D3D11BackgroundFxOwner*) noexcept;
 

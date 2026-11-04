@@ -580,7 +580,7 @@ void release_decompression(RestClientRuntime* runtime) noexcept {
     if (runtime->decompression) {
         secure_clear_bytes(runtime->decompression, runtime->decompression_capacity);
         if (runtime->decompression != runtime->handshake_output)
-            VirtualFree(runtime->decompression, 0, MEM_RELEASE);
+            pages_release(runtime->decompression);
     }
     runtime->decompression = nullptr;
     runtime->decompression_capacity = 0;
@@ -591,7 +591,7 @@ void release_decompression(RestClientRuntime* runtime) noexcept {
 void release_extended_body(RestClientRuntime* runtime) noexcept {
     if (!runtime->extended_body) return;
     secure_clear_bytes(runtime->extended_body, runtime->extended_body_bytes);
-    VirtualFree(runtime->extended_body, 0, MEM_RELEASE);
+    pages_release(runtime->extended_body);
     runtime->extended_body = nullptr;
     runtime->extended_body_bytes = 0;
     runtime->request_body = runtime->response_body = runtime->default_body;

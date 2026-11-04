@@ -21,6 +21,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -279,7 +280,7 @@ bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 vo
 void drop_head() noexcept {
     auto& slot = board.queue[board.head];
     if (slot.file)
-        VirtualFree(slot.file, 0, MEM_RELEASE);
+        pages_release(slot.file);
     reset_value(&slot);
     board.head = (board.head + 1) % kQueueCapacity;
     --board.count;
@@ -300,7 +301,7 @@ bool enqueue(SoundboardRequest request, ConstSlice<u8> file = {}) noexcept {
     }
     if (!soundboard_request_valid(request)) {
         if (slot.file)
-            VirtualFree(slot.file, 0, MEM_RELEASE);
+            pages_release(slot.file);
         reset_value(&slot);
         return false;
     }
@@ -650,17 +651,17 @@ bool application_soundboard_menu_activate(u32 action, bool preview) noexcept {
 }
 
 bool application_soundboard_menu_key(u32 key) noexcept {
-    if (!picker_open() || (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000))
+    if (!picker_open() || (GetKeyState(key::ctrl) & 0x8000) || (GetKeyState(key::alt) & 0x8000))
         return false;
     auto& p = board.picker;
     char typed = 0;
     if (key >= 'A' && key <= 'Z')
-        typed = static_cast<char>((GetKeyState(VK_SHIFT) & 0x8000) ? key : key + 32);
-    else if (key >= '0' && key <= '9' && !(GetKeyState(VK_SHIFT) & 0x8000))
+        typed = static_cast<char>((GetKeyState(key::shift) & 0x8000) ? key : key + 32);
+    else if (key >= '0' && key <= '9' && !(GetKeyState(key::shift) & 0x8000))
         typed = static_cast<char>(key);
-    else if (key == VK_SPACE && p.query_bytes)
+    else if (key == key::space && p.query_bytes)
         typed = ' ';
-    else if (key == VK_BACK) {
+    else if (key == key::backspace) {
         if (!p.query_bytes)
             return true;
         --p.query_bytes;

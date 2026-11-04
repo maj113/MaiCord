@@ -1,6 +1,8 @@
 #include "maicord/text/fonts/match.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/font_matching_fixture.inc"
 u32 checks=0,cases=0,groups=0;
@@ -24,12 +26,11 @@ bool guards() noexcept {
     const NativeFontProperties invalid[]{{0,5,0},{1001,5,0},{400,0,0},{400,10,0},{400,5,3}};
     for(auto bad:invalid)CHECK(!native_font_properties_valid(bad));
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
-    CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
+    struct Cleanup{u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};CHECK(pages_protect(memory+page, page, PageAccess::none)&&pages_protect(memory+page*3, page, PageAccess::none));
     auto* input=reinterpret_cast<NativeFontProperties*>(memory+page-12);input[0]=normal;input[1]={700,5,0};input[2]=normal;
     NativeFontMatch output{};
-    CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old));
+    CHECK(pages_protect(memory, page, PageAccess::read));
     output=native_font_match({input,3},normal);CHECK(output.index==0&&!output.simulations);
     output=native_font_match({input,3},{700,5,0});CHECK(output.index==1&&!output.simulations);
     output=native_font_match({input,1},{700,5,2});CHECK(output.index==0&&output.simulations==3&&output.properties.weight==700&&output.properties.style==1);
@@ -38,6 +39,6 @@ bool guards() noexcept {
     return true;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_match_entry() noexcept {
-    using namespace maicord;const bool success=corpus()&&guards();print("groups=");number(groups);print(" cases=");number(cases);print(" checks=");number(checks);print(success?"\nPASS native font matching\n":"\nFAIL native font matching\n");ExitProcess(success?0:1);
+MAICORD_TEST_ENTRY(maicord_font_match_entry) {
+    using namespace maicord;const bool success=corpus()&&guards();print("groups=");number(groups);print(" cases=");number(cases);print(" checks=");number(checks);print(success?"\nPASS native font matching\n":"\nFAIL native font matching\n");::maicord::test_process_exit(success?0:1);
 }

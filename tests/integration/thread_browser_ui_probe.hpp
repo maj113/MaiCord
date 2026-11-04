@@ -7,6 +7,7 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure, HWND window,
@@ -236,8 +237,8 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         thread_browser_ui_adapter_pointer({}, false) && application_thread_browser_active(), 7)) return false;
     if (!require(ui_thread_browser_scene_focus(scene, {UiThreadBrowserAction::open_thread,
             kThreadBrowserProbeFirstArchived + 24, scene->source_publication}) &&
-        thread_browser_ui_adapter_key(VK_TAB) && ui_thread_browser_scene_focused_target(*scene).action == UiThreadBrowserAction::next &&
-        thread_browser_ui_adapter_key(VK_SPACE) && thread_browser_ui_adapter_submit(98002) &&
+        thread_browser_ui_adapter_key(key::tab) && ui_thread_browser_scene_focused_target(*scene).action == UiThreadBrowserAction::next &&
+        thread_browser_ui_adapter_key(key::space) && thread_browser_ui_adapter_submit(98002) &&
         thread_browser_ui_adapter_flight(&flight, &flight_id) && flight.offset == 25 &&
         thread_browser_ui_adapter_response(500) && show(L"thread-browser-retry.bmp") &&
         thread_browser_ui_adapter_action(UiThreadBrowserAction::retry) && thread_browser_ui_adapter_submit(98003) &&
@@ -262,7 +263,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         thread_browser_ui_adapter_response(200, page) && context.project() && scene->view->total == 100 &&
         scene->count == 25 && scene->view->tab == UiThreadBrowserTab::search, 10)) return false;
     const u32 search_submissions = thread_browser_ui_adapter_submissions();
-    if (!require(thread_browser_ui_adapter_key(VK_TAB) && thread_browser_ui_adapter_action(UiThreadBrowserAction::next) &&
+    if (!require(thread_browser_ui_adapter_key(key::tab) && thread_browser_ui_adapter_action(UiThreadBrowserAction::next) &&
         thread_browser_ui_adapter_action(UiThreadBrowserAction::next) && thread_browser_ui_adapter_action(UiThreadBrowserAction::next) &&
         context.project() && scene->view->page_index == 3 && scene->view->rows[0].thread_id == kThreadBrowserProbeFirstSearch + 75 &&
         !scene->view->has_next && thread_browser_ui_adapter_submissions() == search_submissions, 11)) return false;

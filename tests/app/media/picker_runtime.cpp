@@ -12,6 +12,7 @@
 #include "../../../src/app/shell/surface_motion.cpp"
 #undef MAICORD_SURFACE_MOTION_CONTROLLER_TEST
 #include "maicord/ui/media/picker_presentation.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::app_detail {
@@ -545,9 +546,9 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
               inline_heading(p.scene, utf8_literal("Gif content matching dap"), 21),
           "inline results: 150 DIP tiles under \"Gif content matching **dap**\", the first result selected");
     bool handled = false;
-    check(application_media_picker_inline_key(VK_DOWN, &handled) && handled && p.scene.selected_index == 1 &&
-              application_media_picker_inline_key(VK_UP, &handled) &&
-              application_media_picker_inline_key(VK_UP, &handled) && p.scene.selected_index == 2 &&
+    check(application_media_picker_inline_key(key::down, &handled) && handled && p.scene.selected_index == 1 &&
+              application_media_picker_inline_key(key::up, &handled) &&
+              application_media_picker_inline_key(key::up, &handled) && p.scene.selected_index == 2 &&
               p.scene.scroll_dips > 0,
           "inline results: Up/Down step and wrap through the strip, scrolling the selected tile into view");
     check(application_media_picker_inline_key('A', &handled) && !handled,
@@ -563,7 +564,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
                                                      {request_text, sizeof(request_text)}),
           "inline results: the durable send queue starts empty");
     const auto requests = controller.request_count;
-    check(application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+    check(application_media_picker_inline_key(key::enter, &handled) && handled &&
               controller.request_count == requests + 1,
           "inline results: Enter sends the selected GIF");
     check(builtin_uses == 1 && !builtin_replacement_bytes && !p.active && !p.inline_mode &&
@@ -590,7 +591,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
               application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready && !p.wanted &&
               account.submissions == submissions + 1,
           "inline results: each query keeps its own results; returning to either asks nothing");
-    check(open_strip() && application_media_picker_inline_key(VK_TAB, &handled) && handled &&
+    check(open_strip() && application_media_picker_inline_key(key::tab, &handled) && handled &&
               controller.request_count == requests + 1 && builtin_uses == 2 &&
               utf8_equal({builtin_replacement, builtin_replacement_bytes}, utf8_literal("https://klipy.com/gifs/a")),
           "inline results: Tab inserts the GIF's link in place of the draft (the client's INSERT)");
@@ -708,7 +709,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "inline results: no match shows nothing (pack sticker tags are not searched)");
     const auto sticker_requests = controller.request_count;
     check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
-              application_media_picker_synchronize() && application_media_picker_inline_key(VK_TAB, &handled) &&
+              application_media_picker_synchronize() && application_media_picker_inline_key(key::tab, &handled) &&
               handled && controller.request_count == sticker_requests + 1 && builtin_uses == 4 &&
               !builtin_replacement_bytes && !p.active,
           "inline results: Enter or Tab sends the selected sticker");
@@ -734,7 +735,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     };
     const u32 uses = builtin_uses, refused = refusals;
     check(fresh_queue() && strip(utf8_literal("enter")) && p.phase == UiMediaPickerPhase::loading &&
-              application_media_picker_inline_key(VK_RETURN, &handled) && handled && p.enter_pending && p.active &&
+              application_media_picker_inline_key(key::enter, &handled) && handled && p.enter_pending && p.active &&
               !controller.request_count && builtin_uses == uses,
           "inline results: Enter while the results load waits for them and sends nothing yet");
     check(send_pending(601) && response(601, strip_body) && controller.request_count == 1 &&
@@ -742,18 +743,18 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
               !p.enter_pending && refusals == refused,
           "inline results: the first result sends as the waited-for results arrive");
     check(fresh_queue() && strip(utf8_literal("entry")) &&
-              application_media_picker_inline_key(VK_RETURN, &handled) && p.enter_pending &&
+              application_media_picker_inline_key(key::enter, &handled) && p.enter_pending &&
               strip(utf8_literal("entrx")) && !p.enter_pending && p.phase == UiMediaPickerPhase::loading &&
               send_pending(602) && response(602, strip_body) && p.phase == UiMediaPickerPhase::ready && p.active &&
               !controller.request_count && builtin_uses == uses + 1 && refusals == refused,
           "inline results: editing the query cancels the wait, so the new results wait for another Enter");
-    check(fresh_queue() && application_media_picker_inline_key(VK_DOWN, &handled) && handled &&
-              p.scene.selected_index == 1 && application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+    check(fresh_queue() && application_media_picker_inline_key(key::down, &handled) && handled &&
+              p.scene.selected_index == 1 && application_media_picker_inline_key(key::enter, &handled) && handled &&
               controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/b")) && !p.active,
           "inline results: Enter sends the highlighted result rather than the first");
     check(fresh_queue() && strip(utf8_literal("entrx")) && application_media_picker_synchronize() &&
               p.phase == UiMediaPickerPhase::ready && p.scene.selected_index == 0 &&
-              application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+              application_media_picker_inline_key(key::enter, &handled) && handled &&
               controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/a")) && !p.active,
           "inline results: Enter on shown results sends the first one without choosing it");
     float second_x = 0, second_y = 0;
@@ -767,26 +768,26 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     }
     check(results_back && second_x > 0 &&
               application_media_picker_window_message(WM_MOUSEMOVE, 0, pointer(second_x, second_y)) &&
-              p.scene.selected_index == ~u32{0} && application_media_picker_inline_key(VK_RETURN, &handled) &&
+              p.scene.selected_index == ~u32{0} && application_media_picker_inline_key(key::enter, &handled) &&
               handled && controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/b")) &&
               !p.active,
           "inline results: Enter sends the result under the pointer when the keyboard selection was dropped");
     const u32 sent = builtin_uses;
-    check(fresh_queue() && strip(utf8_literal("nothing")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+    check(fresh_queue() && strip(utf8_literal("nothing")) && application_media_picker_inline_key(key::enter, &handled) &&
               handled && p.enter_pending && send_pending(603) && response(603, utf8_literal("[]")) &&
               refusals == refused + 1 && !p.enter_pending && !controller.request_count && builtin_uses == sent,
           "inline results: a wait that ends without results refuses the command and sends nothing");
-    check(application_media_picker_inline_key(VK_RETURN, &handled) && !handled &&
+    check(application_media_picker_inline_key(key::enter, &handled) && !handled &&
               utf8_equal(application_media_picker_inline_message(),
                          utf8_literal("No results found. Try a different search.")),
           "inline results: Enter on a search with no results is left to the command to refuse, saying so");
-    check(strip(utf8_literal("broken")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+    check(strip(utf8_literal("broken")) && application_media_picker_inline_key(key::enter, &handled) &&
               p.enter_pending && send_pending(604) && response(604, {}, 500) && p.phase == UiMediaPickerPhase::failed &&
               refusals == refused + 2 && !p.enter_pending &&
               utf8_equal(application_media_picker_inline_message(),
                          utf8_literal("Couldn't load results. Edit your search to try again.")),
           "inline results: a search that fails while Enter waits refuses the command with the failure");
-    check(strip(utf8_literal("closing")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+    check(strip(utf8_literal("closing")) && application_media_picker_inline_key(key::enter, &handled) &&
               p.enter_pending && (application_media_picker_inline_close(), !p.enter_pending && !p.active) &&
               refusals == refused + 2 && builtin_uses == sent,
           "inline results: closing the results cancels the wait");
@@ -1375,14 +1376,14 @@ void run() noexcept {
     u8 keyboard[256]{}, shifted_keyboard[256]{};
     const bool keyboard_ready = GetKeyboardState(keyboard) != FALSE;
     CopyMemory(shifted_keyboard, keyboard, sizeof(keyboard));
-    shifted_keyboard[VK_SHIFT] = 0x80;
+    shifted_keyboard[key::shift] = 0x80;
     check(keyboard_ready && SetKeyboardState(shifted_keyboard) &&
-              application_media_picker_input(UiInputKind::key_down, VK_TAB, false) && !p.focused &&
+              application_media_picker_input(UiInputKind::key_down, key::tab, false) && !p.focused &&
               focused_target(p).action == UiMediaPickerAction::tab &&
               focused_target(p).tab == UiMediaPickerKind::emoji,
           "common picker: Shift+Tab returns from the single search edit to the shared tab strip");
     SetKeyboardState(keyboard);
-    application_media_picker_input(UiInputKind::key_up, VK_TAB, false);
+    application_media_picker_input(UiInputKind::key_up, key::tab, false);
     const auto category_bar = ui_media_picker_scene_scrollbar(p.scene, true);
     if (category_bar.visible) {
         const auto point =
@@ -1546,7 +1547,7 @@ void run() noexcept {
     u8 react_keyboard[256]{}, shift_keyboard[256]{};
     GetKeyboardState(react_keyboard);
     CopyMemory(shift_keyboard, react_keyboard, sizeof(react_keyboard));
-    shift_keyboard[VK_SHIFT] = 0x80;
+    shift_keyboard[key::shift] = 0x80;
     check(message_store_upsert(&g_app.message_view.store,
                                {9100, 70, 5, 2000, 0, utf8_literal("React to this"), 0})
               .ok(),

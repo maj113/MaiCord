@@ -5,7 +5,7 @@
 #include "../image/png_common.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_process.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
@@ -233,7 +233,7 @@ void build_fixed_tables(DeflateTables* tables) noexcept {
 }
 
 DeflateTables g_fixed_tables;
-volatile long g_fixed_state;
+volatile LONG g_fixed_state;
 
 // Built once on first use; a thread racing the builder uses its own tables.
 const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
@@ -810,12 +810,12 @@ bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* err
 } // namespace
 
 DeflateWorkspace* deflate_workspace_allocate() noexcept {
-    return static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace)));
+    return static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace)));
 }
 
 void deflate_workspace_free(DeflateWorkspace* workspace) noexcept {
     if (workspace)
-        HeapFree(process_heap(), 0, workspace);
+        heap_free(workspace);
 }
 
 ZlibInflateResult zlib_inflate(ConstSlice<DeflateInputSpan> input, Slice<u8> output,

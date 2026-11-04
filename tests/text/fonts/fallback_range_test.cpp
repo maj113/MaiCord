@@ -1,5 +1,7 @@
 #include "maicord/text/fonts/fallback_range.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0,classes=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -55,11 +57,11 @@ bool guards() noexcept {
     mock={0,0,0,false};CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&result.choice.font==1&&mock.probes==1);
     const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_range({invalid,3},select,coverage,&mock,&result)==SfntStatus::invalid_input);
     const u32 invalid_scalars[]{0xd800,0xdfff,0x110000,0xffffffffu};for(u32 cp:invalid_scalars)CHECK(native_font_fallback_class(cp)==native_fallback_invalid);
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup {u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
+    struct Cleanup {u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};
     char* text=reinterpret_cast<char*>(memory+page-5);copy_bytes(text,"b\xe2\x80\x8d" "a",5);auto* guarded=reinterpret_cast<NativeFallbackRangeResult*>(memory+page*3)-1;
     auto* canary=reinterpret_cast<u32*>(guarded)-1;*canary=0x197ac05d;
-    CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old)&&VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
+    CHECK(pages_protect(memory, page, PageAccess::read)&&pages_protect(memory+page, page, PageAccess::none)&&pages_protect(memory+page*3, page, PageAccess::none));
     mock={};CHECK(native_font_fallback_range({text,5},select,coverage,&mock,guarded)==SfntStatus::ok&&guarded->bytes==5&&*canary==0x197ac05d);
     RoutingMock routed{};CHECK(native_font_fallback_routed_range({text,5},route_index,font_index,routed_coverage,&routed,guarded)==SfntStatus::ok&&guarded->bytes==5&&*canary==0x197ac05d);
     MapMock mapped{};CHECK(native_font_fallback_map({text,5},map_base,map_route,map_fallback,map_cover,&mapped,guarded)==SfntStatus::ok&&guarded->bytes==4&&*canary==0x197ac05d);
@@ -75,5 +77,5 @@ bool fixture(const wchar_t* path) noexcept {
 bool argument(const wchar_t** command,wchar_t* out) noexcept {const wchar_t* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;
     while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(n==32767)return false;out[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}out[n]=0;*command=p;return n!=0;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_fallback_range_entry() noexcept {using namespace maicord;bool ok=guards();const wchar_t* command=GetCommandLineW();wchar_t path[32768];
-    if(ok&&argument(&command,path)&&argument(&command,path))ok=fixture(path);print(ok?"PASS native fallback ranges classes=":"FAIL native fallback ranges classes=");number(classes);print(" checks=");number(checks);print("\n");ExitProcess(ok?0:1);}
+MAICORD_TEST_ENTRY(maicord_font_fallback_range_entry) {using namespace maicord;bool ok=guards();const wchar_t* command=GetCommandLineW();wchar_t path[32768];
+    if(ok&&argument(&command,path)&&argument(&command,path))ok=fixture(path);print(ok?"PASS native fallback ranges classes=":"FAIL native fallback ranges classes=");number(classes);print(" checks=");number(checks);print("\n");::maicord::test_process_exit(ok?0:1);}

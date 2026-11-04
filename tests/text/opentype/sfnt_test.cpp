@@ -1,6 +1,8 @@
 #include "maicord/text/opentype/sfnt.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 bool truetype_outline_tests() noexcept;
@@ -210,10 +212,10 @@ bool truncation_and_guard_cases() noexcept {
     fixture(12, 28);
     // Every truncated prefix ends immediately before an inaccessible page.
     // Valid directories can still reference a semantically truncated cmap.
-    u8* memory = static_cast<u8*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
+    u8* memory = static_cast<u8*>(pages_reserve_no_access(8192));
     if (!memory) return false;
-    if (!VirtualAlloc(memory, 4096, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(memory, 0, MEM_RELEASE); return false;
+    if (!pages_commit_at(memory, 4096)) {
+        pages_release(memory); return false;
     }
     bool ok = true;
     for (u32 size = 0; size <= 400; ++size) {
@@ -230,7 +232,7 @@ bool truncation_and_guard_cases() noexcept {
             sfnt_horizontal_metrics_open(face, &metrics);
         }
     }
-    VirtualFree(memory, 0, MEM_RELEASE);
+    pages_release(memory);
     return ok;
 }
 
@@ -238,10 +240,10 @@ bool packed_cmap_guard_cases() noexcept {
     // Relocate complete valid fonts to every byte alignment, including an
     // exact guard-page boundary. Expected mappings come from the fixture's
     // arithmetic definition, independently of the cmap search implementation.
-    auto* memory = static_cast<u8*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
+    auto* memory = static_cast<u8*>(pages_reserve_no_access(8192));
     if (!memory) return false;
-    if (!VirtualAlloc(memory, 4096, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(memory, 0, MEM_RELEASE); return false;
+    if (!pages_commit_at(memory, 4096)) {
+        pages_release(memory); return false;
     }
     bool okay = true;
     const u16 formats[]{4, 12, 13};
@@ -282,15 +284,15 @@ bool packed_cmap_guard_cases() noexcept {
             if (!mapping(cmap, 0xffff, 0) || !mapping(cmap, 0x10ffff, 0)) okay = false;
         }
     }
-    VirtualFree(memory, 0, MEM_RELEASE);
+    pages_release(memory);
     return okay;
 }
 
 bool group_range_boundaries() noexcept {
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,8192,MEM_RESERVE,PAGE_NOACCESS));
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(8192));
     if(!memory)return false;
-    struct Release {void* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{memory};
-    if(!VirtualAlloc(memory,4096,MEM_COMMIT,PAGE_READWRITE))return false;
+    struct Release {void* p;~Release() noexcept {pages_release(p);}} release{memory};
+    if(!pages_commit_at(memory, 4096))return false;
     constexpr u32 values[]{0,1,2,16,31,32,65534,65535,0x10ffff,0x110000,0x7fffffff,0x80000000,0xffffffff};
     constexpr u16 glyph_counts[]{1,32,65535};
     constexpr u32 counts[]{2,4,5};
@@ -335,10 +337,10 @@ bool malformed_cmap_cases() noexcept {
 bool mutation_guard_cases() noexcept {
     // Deterministic structural mutations with a guard immediately after the
     // declared input, including mutated offsets, counts, lengths and formats.
-    u8* memory = static_cast<u8*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
+    u8* memory = static_cast<u8*>(pages_reserve_no_access(8192));
     if (!memory) return false;
-    if (!VirtualAlloc(memory, 4096, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(memory, 0, MEM_RELEASE); return false;
+    if (!pages_commit_at(memory, 4096)) {
+        pages_release(memory); return false;
     }
     u32 random = 0x719a8831;
     for (u32 iteration = 0; iteration < 20000; ++iteration) {
@@ -363,7 +365,7 @@ bool mutation_guard_cases() noexcept {
             sfnt_horizontal_metrics(metrics, static_cast<u16>(random), &glyph);
         }
     }
-    VirtualFree(memory, 0, MEM_RELEASE);
+    pages_release(memory);
     return true;
 }
 
@@ -391,6 +393,6 @@ int run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_font_tests_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run()));
+MAICORD_TEST_ENTRY(maicord_font_tests_entry) {
+    ::maicord::test_process_exit(static_cast<UINT>(maicord::run()));
 }

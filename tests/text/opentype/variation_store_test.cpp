@@ -2,6 +2,7 @@
 #include "../../../src/text/opentype/variation_delta.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -191,8 +192,8 @@ bool stop_order_cases() noexcept {
     return true;
 }
 bool guards() noexcept {
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,8192,MEM_RESERVE,PAGE_NOACCESS));if(!memory)return false;
-    if(!VirtualAlloc(memory,4096,MEM_COMMIT,PAGE_READWRITE)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(8192));if(!memory)return false;
+    if(!pages_commit_at(memory, 4096)){pages_release(memory);return false;}
     u32 random=0x1a71a719;bool ok=true;
     for(u32 i=0;i<20000 && ok;++i) {
         fixture();random^=random<<13;random^=random>>17;random^=random<<5;
@@ -213,7 +214,7 @@ bool guards() noexcept {
         }
         VariationIndexMap map{};if(variation_index_map_open({input,length},0,&map,1024)==SfntStatus::ok){u32 index=0;variation_index_map_get(map,random,&index);}
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 }
 bool variation_store_tests() noexcept {return stores() && block_reuse() && maps() && precision_modes() && resolver() && stop_order_cases() && guards();}

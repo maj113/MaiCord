@@ -5,17 +5,33 @@
 # import table and the delay-load helper).
 maicord_test_bundle(MaiCordCoreUnitTests LIBS maicord_core)
 
-# The core tests of tests/core_test_cases.inc that need nothing outside core, run in one process in that order
-# (tests/support/test_main_linux.cpp).
+# The core tests of tests/core_test_cases.inc that need nothing outside core and the portable libraries, run in one
+# process in that order (tests/support/test_main_linux.cpp).
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
     SOURCES tests/support/test_main_linux.cpp tests/core/core_runtime.cpp tests/core/json_scan.cpp
         tests/core/clock.cpp tests/core/json_reader_visit.cpp tests/core/json_string_decode.cpp
         tests/core/mailbox_release_race.cpp tests/core/mailbox_acquire_release.cpp
-    LIBS maicord_core
+        tests/media/compression/deflate_matches.cpp tests/media/image/png_crc.cpp
+        tests/media/image/image_decode_corpus.cpp tests/protocol/gateway/message_rich_index.cpp
+        tests/protocol/messages/command_argument_editing.cpp tests/protocol/media/attachment_upload.cpp
+        tests/protocol/user/profile_decode_scratch.cpp tests/media/compression/deflate_differential.cpp
+        tests/media/compression/deflate_reference.cpp tests/media/image/core_codecs.cpp tests/support/media_fixture.cpp
+        tests/support/media_fixture_encoders.cpp
+    LIBS maicord_core maicord_compression maicord_protocol maicord_media_core maicord_media_codec maicord_model
     TEST maicord_core)
 
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/core/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
+maicord_test(MaiCordGpuTypesTests ENTRY maicord_gpu_types_entry SOURCES tests/gpu/gpu_types.cpp
+    BUNDLE MaiCordCoreUnitTests TEST maicord_gpu_types)
+maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
+    SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
+maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wait.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_wait)
+maicord_test(MaiCordOsThreadTests ENTRY maicord_os_thread_entry SOURCES tests/os/thread.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_thread)
+maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 
 # The runtime: process entry state, the pinned libc imports, the library search and the XDG data path.
 maicord_test(MaiCordLinuxRuntimeTests ENTRY maicord_linux_runtime_entry SOURCES tests/core/linux_runtime.cpp
@@ -34,3 +50,42 @@ maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
 maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
     ENV XDG_DATA_HOME=relative/data HOME=/maicord-home-test
     TEST maicord_linux_data_path_relative_xdg --data-path-relative-xdg)
+
+# The platform crypto over the system OpenSSL: the vectors shared with the Windows suite (AES-GCM, AES-GCM with a
+# 64-bit tag, XChaCha20-Poly1305, P-256) and the ones of the parts the Linux backend adds (HKDF/HMAC/SHA-256, the
+# random bytes, the incremental hash, the remote-auth RSA key), in one process.
+maicord_test(MaiCordCryptoTests ENTRY maicord_crypto_tests_entry
+    SOURCES tests/platform/crypto/crypto_tests_linux.cpp tests/platform/crypto/aes_gcm.cpp
+        tests/platform/crypto/aes_gcm64.cpp tests/platform/crypto/xchacha20_poly1305.cpp
+        tests/platform/crypto/p256.cpp tests/platform/crypto/kdf_sha256.cpp tests/platform/crypto/random.cpp
+        tests/platform/crypto/hash_stream.cpp tests/platform/crypto/remote_auth_crypto_linux.cpp
+    LIBS maicord_crypto maicord_core
+    TIMEOUT 20 TEST maicord_crypto)
+
+# The secure buffer and the user-bound blobs under the key file of the private data directory; then the same calls
+# with a data directory that cannot hold the key (a path under /proc, and no home at all).
+maicord_test(MaiCordSecureBufferTests ENTRY maicord_secure_buffer_entry
+    SOURCES tests/platform/crypto/secure_buffer_linux.cpp
+    LIBS maicord_crypto maicord_core
+    TIMEOUT 10 TEST maicord_secure_buffer)
+maicord_add_tests(MaiCordSecureBufferTests TIMEOUT 10
+    ENV XDG_DATA_HOME=/proc
+    TEST maicord_secure_buffer_unwritable --unavailable)
+maicord_add_tests(MaiCordSecureBufferTests TIMEOUT 10
+    ENV --unset=XDG_DATA_HOME --unset=HOME
+    TEST maicord_secure_buffer_no_home --unavailable)
+
+# The TLS client over the system OpenSSL: its cases that need no network, and the loopback sessions against local
+# `openssl s_server` processes that tests/platform/net/tls_smoke.sh starts (skipped, status 77, without the command).
+maicord_test(MaiCordTlsClientTests ENTRY maicord_tls_client_entry
+    SOURCES tests/platform/net/tls_client_linux.cpp
+    LIBS maicord_crypto maicord_core
+    TIMEOUT 10 TEST maicord_tls_client)
+add_test(NAME maicord_tls_smoke
+    COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/platform/net/tls_smoke.sh" "$<TARGET_FILE:MaiCordTlsClientTests>"
+        "${CMAKE_BINARY_DIR}/tls-smoke")
+set_tests_properties(maicord_tls_smoke PROPERTIES TIMEOUT 20 SKIP_RETURN_CODE 77)
+
+include(cmake/linux_test_registry_libraries.cmake)
+include(cmake/linux_gpu_tests.cmake)
+include(cmake/linux_window_tests.cmake)

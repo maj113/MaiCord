@@ -1,4 +1,5 @@
 #include "account_media_worker_internal.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 
 namespace maicord {
@@ -577,7 +578,7 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
         }
     }
     for (const auto& lane : worker->lanes) {
-        if (lane.collection_titles) VirtualFree(lane.collection_titles,0,MEM_RELEASE);
+        if (lane.collection_titles) pages_release(lane.collection_titles);
         if (lane.thread)
             CloseHandle(lane.thread);
         CloseHandle(lane.command_event);

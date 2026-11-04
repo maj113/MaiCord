@@ -342,7 +342,7 @@ void changed(ApplicationDownloads& q) noexcept {
 void release_path(DownloadJob& j) noexcept {
     if (j.path) {
         SecureZeroMemory(j.path, (j.path_units + 1) * sizeof(wchar_t));
-        VirtualFree(j.path, 0, MEM_RELEASE);
+        pages_release(j.path);
     }
     j.path = nullptr;
     j.path_units = 0;
@@ -1266,7 +1266,7 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
                                         {pixels, capacity}, &width, &height);
     const bool copied = read && clipboard_write_image(g_app.window, pixels, width, height, width * 4,
                                                       {source.url, source.url_bytes});
-    VirtualFree(pixels, 0, MEM_RELEASE);
+    pages_release(pixels);
     application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
     if (!copied)
         log_write(LogLevel::warning, "downloads",

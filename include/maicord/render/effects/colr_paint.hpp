@@ -3,19 +3,20 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/render/effects/colr_program.hpp"
 #include "maicord/render/text/glyph_atlas_gpu.hpp"
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
 struct ColrPaintGpu {
-    ID3D11Texture2D* texture;
-    ID3D11ShaderResourceView* view;
-    ID3D11UnorderedAccessView* uav;
-    ID3D11Buffer* program;
-    ID3D11ShaderResourceView* program_view;
-    ID3D11Buffer* constants;
-    ID3D11ComputeShader* shader;
-    ID3D11ComputeShader* wide_shader;
-    ID3D11ComputeShader* layers_shader;
+    GpuTexture* texture;
+    GpuSrv* view;
+    GpuUav* uav;
+    GpuBuffer* program;
+    GpuSrv* program_view;
+    GpuBuffer* constants;
+    GpuComputeShader* shader;
+    GpuComputeShader* wide_shader;
+    GpuComputeShader* layers_shader;
     u32 capacity, dispatches, upload_cursor;
     u32 spatial_jobs;
     u16 width, height; // The owned atlas texture.
@@ -40,13 +41,13 @@ inline constexpr u32 kColrPaintBatchJobs = 64;
 // upload buffer changes, a job overlaps a queued one, or at flush/reset;
 // reset also unbinds the compute resources.
 struct ColrPaintBatch {
-    ID3D11DeviceContext* context;
+    GpuContext* context;
     ColrPaintGpu* gpu=nullptr;
-    ID3D11ComputeShader* shader=nullptr;
+    GpuComputeShader* shader=nullptr;
     u32 pending=0;
     bool bound=false;
     ColrPaintJob jobs[kColrPaintBatchJobs];
-    explicit ColrPaintBatch(ID3D11DeviceContext* value) noexcept : context(value) {}
+    explicit ColrPaintBatch(GpuContext* value) noexcept : context(value) {}
     ColrPaintBatch(const ColrPaintBatch&)=delete;
     ColrPaintBatch& operator=(const ColrPaintBatch&)=delete;
     ~ColrPaintBatch() noexcept {reset();}
@@ -56,16 +57,16 @@ struct ColrPaintBatch {
     void reset() noexcept;
 };
 
-bool colr_paint_rasterize(ColrPaintGpu* gpu, ID3D11DeviceContext* context, const ColrPaintProgram& program,
+bool colr_paint_rasterize(ColrPaintGpu* gpu, GpuContext* context, const ColrPaintProgram& program,
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation,
                           float pixels_per_em, u16 atlas_width, u16 atlas_height, u16 padding,
                           ColrPaintBatch* batch=nullptr) noexcept;
 void colr_paint_gpu_release(ColrPaintGpu* gpu) noexcept;
 // Bakes immediately into a caller-provided RGBA UAV; the program, shader and
 // upload buffers are shared with color text. The renderer's owned target remains unchanged.
-bool colr_paint_rasterize_target(ColrPaintGpu* gpu, ID3D11DeviceContext* context,
+bool colr_paint_rasterize_target(ColrPaintGpu* gpu, GpuContext* context,
     const ColrPaintProgram& program, const GlyphRasterBounds& bounds,
     const GlyphAtlasAllocation& allocation, float pixels_per_unit,
-    u16 target_width, u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept;
+    u16 target_width, u16 target_height, u16 padding, GpuUav* target) noexcept;
 
 } // namespace maicord

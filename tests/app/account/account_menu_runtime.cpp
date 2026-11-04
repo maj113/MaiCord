@@ -12,6 +12,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::account_menu_runtime_test {
@@ -42,7 +43,7 @@ struct KeyboardFixture {
         BYTE keys[256]{};
         BYTE observed[256]{};
         if (control)
-            keys[VK_CONTROL] = keys[VK_LCONTROL] = 0x80;
+            keys[key::ctrl] = keys[key::left_ctrl] = 0x80;
         return captured && SetKeyboardState(keys) && GetKeyboardState(observed) &&
                bytes_equal(keys, observed, sizeof(keys));
     }
@@ -92,16 +93,16 @@ void run() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, footer);
-    check(keyboard.apply(true) && (GetKeyState(VK_CONTROL) & 0x8000) &&
-              !application_account_menu_key(VK_RETURN) && !g_app.popup_scene.active,
+    check(keyboard.apply(true) && (GetKeyState(key::ctrl) & 0x8000) &&
+              !application_account_menu_key(key::enter) && !g_app.popup_scene.active,
           "account menu runtime: explicit Ctrl guard never opens a footer menu");
-    check(keyboard.apply() && application_account_menu_key(VK_RETURN) && g_app.popup_scene.active &&
-              g_app.composer_menu_held_key == VK_RETURN,
+    check(keyboard.apply() && application_account_menu_key(key::enter) && g_app.popup_scene.active &&
+              g_app.composer_menu_held_key == key::enter,
           "account menu runtime: current keyboard footer opens menu once and retains opening key tail");
     check(ui_input_consume_key_tail(&g_app.composer_menu_held_key,
-                                    {UiInputKind::key_down, VK_RETURN, true}) &&
+                                    {UiInputKind::key_down, key::enter, true}) &&
               ui_input_consume_key_tail(&g_app.composer_menu_held_key, {UiInputKind::character, '\r'}) &&
-              ui_input_consume_key_tail(&g_app.composer_menu_held_key, {UiInputKind::key_up, VK_RETURN}) &&
+              ui_input_consume_key_tail(&g_app.composer_menu_held_key, {UiInputKind::key_up, key::enter}) &&
               !g_app.composer_menu_held_key && g_app.popup_scene.active && !views && !edits,
           "account menu runtime: held Return and translated character cannot activate newly opened profile "
           "row");

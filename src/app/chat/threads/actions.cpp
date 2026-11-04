@@ -152,7 +152,7 @@ void invalidate_uncertain_membership(const Flight& flight) noexcept {
                                                        flight.source.self_user_id, false, false);
 }
 void free_owner() noexcept {
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
     owner = nullptr;
 }
 Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* output) noexcept {

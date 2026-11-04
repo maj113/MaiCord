@@ -6,6 +6,9 @@ namespace maicord {
 void test_aes_gcm(void (*check)(bool, const char*) noexcept) noexcept;
 void test_aes_gcm64(void (*check)(bool, const char*) noexcept) noexcept;
 void test_xchacha20_poly1305(void (*check)(bool, const char*) noexcept) noexcept;
+void test_kdf_sha256(void (*check)(bool, const char*) noexcept) noexcept;
+void test_secure_random(void (*check)(bool, const char*) noexcept) noexcept;
+void test_hash_stream(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_packet_crypto(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_protocol_selection(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_udp_media(void (*check)(bool, const char*) noexcept) noexcept;
@@ -72,6 +75,9 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept
     maicord::test_aes_gcm(maicord::check);
     maicord::test_aes_gcm64(maicord::check);
     maicord::test_xchacha20_poly1305(maicord::check);
+    maicord::test_kdf_sha256(maicord::check);
+    maicord::test_secure_random(maicord::check);
+    maicord::test_hash_stream(maicord::check);
     maicord::test_voice_packet_crypto(maicord::check);
     maicord::test_voice_protocol_selection(maicord::check);
     maicord::test_voice_udp_media(maicord::check);

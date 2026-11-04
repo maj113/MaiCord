@@ -10,6 +10,7 @@
 #include "application_search_measurement.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::search_runtime_test {
 
@@ -111,9 +112,9 @@ RestClientSubmitResult WINAPI acknowledge(void*, u64, u64, ConstSlice<u8>, u64) 
 
 bool modifiers(bool control, bool shift, bool alt) noexcept {
     BYTE keyboard[256]{};
-    keyboard[VK_CONTROL] = keyboard[VK_LCONTROL] = control ? 0x80 : 0;
-    keyboard[VK_SHIFT] = keyboard[VK_LSHIFT] = shift ? 0x80 : 0;
-    keyboard[VK_MENU] = keyboard[VK_LMENU] = alt ? 0x80 : 0;
+    keyboard[key::ctrl] = keyboard[key::left_ctrl] = control ? 0x80 : 0;
+    keyboard[key::shift] = keyboard[key::left_shift] = shift ? 0x80 : 0;
+    keyboard[key::alt] = keyboard[key::left_alt] = alt ? 0x80 : 0;
     return SetKeyboardState(keyboard) != FALSE;
 }
 
@@ -142,7 +143,7 @@ bool type(Utf8View text) noexcept {
 }
 
 bool query(Utf8View text) noexcept {
-    return open(true) && type(text) && key(VK_RETURN);
+    return open(true) && type(text) && key(key::enter);
 }
 
 LPARAM point(UiRect bounds) noexcept {
@@ -321,7 +322,7 @@ void run() noexcept {
               !application_search_pending(1) && application_search_read_blocked() &&
               message_composer_text(g_app.search->edit).bytes > 5,
           "search runtime: actual CtrlF prefill and typing never submit per keystroke");
-    check(key(VK_RETURN) && application_search_pending(1) && account.submissions == 0 &&
+    check(key(key::enter) && application_search_pending(1) && account.submissions == 0 &&
               application_search_edit_focused(),
           "search runtime: successful Enter keeps native query ownership before request submission");
     const auto committed_query = g_app.search->controller.query;
@@ -380,7 +381,7 @@ void run() noexcept {
             utf8_equal(g_app.search->content.status,
                        utf8_literal("Press Enter to update results.")),
         "search runtime: ready-result draft typing keeps the owned bank and committed query without REST");
-    check(g_app.search->suggestions && key(VK_ESCAPE) && !g_app.search->suggestions &&
+    check(g_app.search->suggestions && key(key::escape) && !g_app.search->suggestions &&
               g_app.search->panel && g_app.search->bank == ready_bank &&
               account.submissions == submissions_before_refinement,
           "search runtime: Escape dismisses query suggestions without closing retained results or "
@@ -556,19 +557,19 @@ void run() noexcept {
     check(!g_app.search->dragging && !application_search_edit_focused() &&
               !application_search_edit_next_wake(),
           "search runtime: capture and native focus loss retire editor drag and caret deadlines");
-    check(open(true) && key(VK_TAB) && !g_app.search->focused &&
+    check(open(true) && key(key::tab) && !g_app.search->focused &&
               g_app.context_focus == &g_app.search->scene.widgets &&
               g_app.search->scene.targets[g_app.search->scene.widgets.focused.slot].action ==
                   UiSearchAction::filter_from &&
-              key(VK_RETURN) &&
+              key(key::enter) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("from:")) &&
               g_app.search->suggestions && !application_search_pending(1),
           "search runtime: Tab and Enter activate a suggested prefix without submitting the query");
-    check(open(true) && type(utf8_literal("bounded")) && key(VK_ESCAPE) && click(UiSearchAction::sort) &&
-              !g_app.search->focused && g_app.search->sort_menu && key(VK_TAB) &&
+    check(open(true) && type(utf8_literal("bounded")) && key(key::escape) && click(UiSearchAction::sort) &&
+              !g_app.search->focused && g_app.search->sort_menu && key(key::tab) &&
               g_app.search->scene.targets[g_app.search->scene.widgets.focused.slot].action ==
                   UiSearchAction::oldest &&
-              key(VK_RETURN) && !g_app.search->sort_menu &&
+              key(key::enter) && !g_app.search->sort_menu &&
               g_app.search->controller.query.sort == MessageSearchSort::oldest &&
               application_search_pending(1),
           "search runtime: checked Sort owns keyboard choices and Enter commits the selected order");
@@ -595,7 +596,7 @@ void run() noexcept {
             application_search_window_message(WM_LBUTTONUP, 0, point(dismiss_bounds)) &&
             g_app.search->bank == dismissed_bank && navigations == navigations_before_dismiss,
         "search runtime: a covered result-pane click dismisses suggestions without background activation");
-    check(open(true) && key(VK_ESCAPE) && !g_app.search->suggestions && key(VK_ESCAPE) &&
+    check(open(true) && key(key::escape) && !g_app.search->suggestions && key(key::escape) &&
               !application_search_input(UiInputKind::character, 'x', false) &&
               !application_search_active() && repaints != 0,
           "search runtime: Escape key tail is consumed and closed search cannot capture later typing");

@@ -7,6 +7,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
@@ -17,21 +18,21 @@ using S = ShortcutScope;
 constexpr u8 C = shortcut_ctrl, L = shortcut_alt, H = shortcut_shift;
 
 static constexpr ShortcutDefinition kDefinitions[]{
-    {A::server_previous, G::navigation, S::global, utf8_literal("Navigate between servers"), {{VK_UP, C | L}, {}}},
-    {A::server_next, G::navigation, S::global, utf8_literal("Navigate between servers"), {{VK_DOWN, C | L}, {}}},
-    {A::channel_previous, G::navigation, S::global, utf8_literal("Navigate between channels"), {{VK_UP, L}, {}}},
-    {A::channel_next, G::navigation, S::global, utf8_literal("Navigate between channels"), {{VK_DOWN, L}, {}}},
+    {A::server_previous, G::navigation, S::global, utf8_literal("Navigate between servers"), {{key::up, C | L}, {}}},
+    {A::server_next, G::navigation, S::global, utf8_literal("Navigate between servers"), {{key::down, C | L}, {}}},
+    {A::channel_previous, G::navigation, S::global, utf8_literal("Navigate between channels"), {{key::up, L}, {}}},
+    {A::channel_next, G::navigation, S::global, utf8_literal("Navigate between channels"), {{key::down, L}, {}}},
     {A::unread_previous, G::navigation, S::global, utf8_literal("Navigate between unread channels"),
-     {{VK_UP, L | H}, {}}},
+     {{key::up, L | H}, {}}},
     {A::unread_next, G::navigation, S::global, utf8_literal("Navigate between unread channels"),
-     {{VK_DOWN, L | H}, {}}},
+     {{key::down, L | H}, {}}},
     {A::mention_previous, G::navigation, S::global, utf8_literal("Navigate between unread mentions"),
-     {{VK_UP, C | L | H}, {}}},
+     {{key::up, C | L | H}, {}}},
     {A::mention_next, G::navigation, S::global, utf8_literal("Navigate between unread mentions"),
-     {{VK_DOWN, C | L | H}, {}}},
+     {{key::down, C | L | H}, {}}},
     {A::quick_switcher, G::navigation, S::global, utf8_literal("Toggle quick switcher"), {{'K', C}, {}}},
-    {A::mark_server_read, G::chat, S::content, utf8_literal("Mark server read"), {{VK_ESCAPE, H}, {}}},
-    {A::mark_channel_read, G::chat, S::content, utf8_literal("Mark channel read"), {{VK_ESCAPE, 0}, {}}},
+    {A::mark_server_read, G::chat, S::content, utf8_literal("Mark server read"), {{key::escape, H}, {}}},
+    {A::mark_channel_read, G::chat, S::content, utf8_literal("Mark channel read"), {{key::escape, 0}, {}}},
     {A::toggle_pins, G::chat, S::global, utf8_literal("Toggle pinned messages"), {{'P', C}, {}}},
     {A::toggle_inbox, G::chat, S::global, utf8_literal("Toggle inbox"), {{'I', C}, {}}},
     {A::toggle_members, G::chat, S::global, utf8_literal("Toggle member list"), {{'U', C}, {}}},
@@ -39,17 +40,17 @@ static constexpr ShortcutDefinition kDefinitions[]{
     {A::gif_picker, G::chat, S::global, utf8_literal("Toggle GIF picker"), {{'G', C}, {}}},
     {A::sticker_picker, G::chat, S::global, utf8_literal("Toggle sticker picker"), {{'S', C}, {}}},
     {A::upload_file, G::chat, S::global, utf8_literal("Upload a file"), {{'U', C | H}, {}}},
-    {A::edit_last_message, G::chat, S::empty_composer, utf8_literal("Edit your last message"), {{VK_UP, 0}, {}}},
+    {A::edit_last_message, G::chat, S::empty_composer, utf8_literal("Edit your last message"), {{key::up, 0}, {}}},
     {A::message_reply, G::messages, S::message, utf8_literal("Reply"), {{'R', 0}, {}}},
     {A::message_edit, G::messages, S::message, utf8_literal("Edit message"), {{'E', 0}, {}}},
     {A::message_forward, G::messages, S::message, utf8_literal("Forward message"), {{'F', 0}, {}}},
-    {A::message_react, G::messages, S::message, utf8_literal("Add reaction"), {{VK_OEM_PLUS, 0}, {VK_ADD, 0}}},
+    {A::message_react, G::messages, S::message, utf8_literal("Add reaction"), {{key::equals, 0}, {key::add, 0}}},
     {A::save_attachment, G::messages, S::message, utf8_literal("Save attachment"), {{'S', C}, {}}},
     {A::toggle_mute, G::voice, S::global, utf8_literal("Toggle mute"), {{'M', C | H}, {}}},
     {A::toggle_deafen, G::voice, S::global, utf8_literal("Toggle deafen"), {{'D', C | H}, {}}},
     {A::search, G::misc, S::global, utf8_literal("Search"), {{'F', C}, {'F', C | H}}},
-    {A::shortcuts_help, G::misc, S::global, utf8_literal("Show keyboard shortcuts"), {{VK_OEM_2, C}, {}}},
-    {A::open_settings, G::misc, S::global, utf8_literal("Open user settings"), {{VK_OEM_COMMA, C}, {}}},
+    {A::shortcuts_help, G::misc, S::global, utf8_literal("Show keyboard shortcuts"), {{key::slash, C}, {}}},
+    {A::open_settings, G::misc, S::global, utf8_literal("Open user settings"), {{key::comma, C}, {}}},
     {A::downloads, G::misc, S::global, utf8_literal("Show downloads"), {{'J', C}, {}}},
 };
 constexpr u32 kDefinitionCount = sizeof(kDefinitions) / sizeof(kDefinitions[0]);
@@ -101,59 +102,59 @@ u32 put_decimal(Slice<char> output, u32 at, u32 value) noexcept {
 }
 Utf8View named_key(u8 key) noexcept {
     switch (key) {
-    case VK_UP: return utf8_literal("\xE2\x86\x91");
-    case VK_DOWN: return utf8_literal("\xE2\x86\x93");
-    case VK_LEFT: return utf8_literal("\xE2\x86\x90");
-    case VK_RIGHT: return utf8_literal("\xE2\x86\x92");
-    case VK_ESCAPE: return utf8_literal("Esc");
-    case VK_RETURN: return utf8_literal("Enter");
-    case VK_TAB: return utf8_literal("Tab");
-    case VK_SPACE: return utf8_literal("Space");
-    case VK_BACK: return utf8_literal("Backspace");
-    case VK_DELETE: return utf8_literal("Delete");
-    case VK_INSERT: return utf8_literal("Insert");
-    case VK_HOME: return utf8_literal("Home");
-    case VK_END: return utf8_literal("End");
-    case VK_PRIOR: return utf8_literal("Page Up");
-    case VK_NEXT: return utf8_literal("Page Down");
-    case VK_PAUSE: return utf8_literal("Pause");
-    case VK_SCROLL: return utf8_literal("Scroll Lock");
-    case VK_CAPITAL: return utf8_literal("Caps Lock");
-    case VK_NUMLOCK: return utf8_literal("Num Lock");
-    case VK_SNAPSHOT: return utf8_literal("Print Screen");
-    case VK_APPS: return utf8_literal("Menu");
-    case VK_MULTIPLY: return utf8_literal("Num *");
-    case VK_ADD: return utf8_literal("Num +");
-    case VK_SUBTRACT: return utf8_literal("Num -");
-    case VK_DECIMAL: return utf8_literal("Num .");
-    case VK_DIVIDE: return utf8_literal("Num /");
-    case VK_OEM_1: return utf8_literal(";");
-    case VK_OEM_PLUS: return utf8_literal("+");
-    case VK_OEM_COMMA: return utf8_literal(",");
-    case VK_OEM_MINUS: return utf8_literal("-");
-    case VK_OEM_PERIOD: return utf8_literal(".");
-    case VK_OEM_2: return utf8_literal("/");
-    case VK_OEM_3: return utf8_literal("`");
-    case VK_OEM_4: return utf8_literal("[");
-    case VK_OEM_5: return utf8_literal("\\");
-    case VK_OEM_6: return utf8_literal("]");
-    case VK_OEM_7: return utf8_literal("'");
-    case VK_SHIFT: return utf8_literal("Shift");
-    case VK_LSHIFT: return utf8_literal("Left Shift");
-    case VK_RSHIFT: return utf8_literal("Right Shift");
-    case VK_CONTROL: return utf8_literal("Ctrl");
-    case VK_LCONTROL: return utf8_literal("Left Ctrl");
-    case VK_RCONTROL: return utf8_literal("Right Ctrl");
-    case VK_MENU: return utf8_literal("Alt");
-    case VK_LMENU: return utf8_literal("Left Alt");
-    case VK_RMENU: return utf8_literal("Right Alt");
-    case VK_LWIN: return utf8_literal("Left Windows");
-    case VK_RWIN: return utf8_literal("Right Windows");
-    case VK_LBUTTON: return utf8_literal("Left mouse");
-    case VK_RBUTTON: return utf8_literal("Right mouse");
-    case VK_MBUTTON: return utf8_literal("Middle mouse");
-    case VK_XBUTTON1: return utf8_literal("Mouse 4");
-    case VK_XBUTTON2: return utf8_literal("Mouse 5");
+    case key::up: return utf8_literal("\xE2\x86\x91");
+    case key::down: return utf8_literal("\xE2\x86\x93");
+    case key::left: return utf8_literal("\xE2\x86\x90");
+    case key::right: return utf8_literal("\xE2\x86\x92");
+    case key::escape: return utf8_literal("Esc");
+    case key::enter: return utf8_literal("Enter");
+    case key::tab: return utf8_literal("Tab");
+    case key::space: return utf8_literal("Space");
+    case key::backspace: return utf8_literal("Backspace");
+    case key::del: return utf8_literal("Delete");
+    case key::insert: return utf8_literal("Insert");
+    case key::home: return utf8_literal("Home");
+    case key::end: return utf8_literal("End");
+    case key::page_up: return utf8_literal("Page Up");
+    case key::page_down: return utf8_literal("Page Down");
+    case key::pause: return utf8_literal("Pause");
+    case key::scroll_lock: return utf8_literal("Scroll Lock");
+    case key::caps_lock: return utf8_literal("Caps Lock");
+    case key::num_lock: return utf8_literal("Num Lock");
+    case key::print_screen: return utf8_literal("Print Screen");
+    case key::menu: return utf8_literal("Menu");
+    case key::multiply: return utf8_literal("Num *");
+    case key::add: return utf8_literal("Num +");
+    case key::subtract: return utf8_literal("Num -");
+    case key::decimal: return utf8_literal("Num .");
+    case key::divide: return utf8_literal("Num /");
+    case key::semicolon: return utf8_literal(";");
+    case key::equals: return utf8_literal("+");
+    case key::comma: return utf8_literal(",");
+    case key::minus: return utf8_literal("-");
+    case key::period: return utf8_literal(".");
+    case key::slash: return utf8_literal("/");
+    case key::grave: return utf8_literal("`");
+    case key::left_bracket: return utf8_literal("[");
+    case key::backslash: return utf8_literal("\\");
+    case key::right_bracket: return utf8_literal("]");
+    case key::quote: return utf8_literal("'");
+    case key::shift: return utf8_literal("Shift");
+    case key::left_shift: return utf8_literal("Left Shift");
+    case key::right_shift: return utf8_literal("Right Shift");
+    case key::ctrl: return utf8_literal("Ctrl");
+    case key::left_ctrl: return utf8_literal("Left Ctrl");
+    case key::right_ctrl: return utf8_literal("Right Ctrl");
+    case key::alt: return utf8_literal("Alt");
+    case key::left_alt: return utf8_literal("Left Alt");
+    case key::right_alt: return utf8_literal("Right Alt");
+    case key::left_super: return utf8_literal("Left Windows");
+    case key::right_super: return utf8_literal("Right Windows");
+    case key::lbutton: return utf8_literal("Left mouse");
+    case key::rbutton: return utf8_literal("Right mouse");
+    case key::mbutton: return utf8_literal("Middle mouse");
+    case key::xbutton1: return utf8_literal("Mouse 4");
+    case key::xbutton2: return utf8_literal("Mouse 5");
     default: return {};
     }
 }
@@ -206,20 +207,20 @@ u64 checksum(const ConstSlice<u8>& record) noexcept {
     return hash64_bytes(hash, record.data + kCustomKeybindsHeaderBytes, record.count - kCustomKeybindsHeaderBytes);
 }
 bool standalone_key(u8 key) noexcept {
-    return (key >= VK_F1 && key <= VK_F24) || key == VK_PAUSE || key == VK_SCROLL;
+    return (key >= key::f1 && key <= key::f24) || key == key::pause || key == key::scroll_lock;
 }
 // Chords every text field or Windows itself relies on; a global keybind there
 // would break typing or system commands.
 bool system_chord(ShortcutChord chord) noexcept {
     const u8 key = chord.key, modifiers = chord.modifiers;
     const bool alt = (modifiers & shortcut_alt) != 0, ctrl = (modifiers & shortcut_ctrl) != 0;
-    if (alt && !ctrl && (key == VK_F4 || key == VK_TAB || key == VK_SPACE || key == VK_ESCAPE))
+    if (alt && !ctrl && (key == key::f4 || key == key::tab || key == key::space || key == key::escape))
         return true;
     if (ctrl && !alt && (key == 'A' || key == 'C' || key == 'V' || key == 'X' || key == 'Z' || key == 'Y'))
         return true;
-    const bool editing = key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_HOME ||
-                         key == VK_END || key == VK_PRIOR || key == VK_NEXT || key == VK_BACK || key == VK_DELETE ||
-                         key == VK_INSERT || key == VK_TAB || key == VK_RETURN || key == VK_ESCAPE || key == VK_SPACE;
+    const bool editing = key == key::left || key == key::right || key == key::up || key == key::down || key == key::home ||
+                         key == key::end || key == key::page_up || key == key::page_down || key == key::backspace || key == key::del ||
+                         key == key::insert || key == key::tab || key == key::enter || key == key::escape || key == key::space;
     return editing && !alt;
 }
 bool user_path(wchar_t* path, bool create) noexcept {
@@ -228,9 +229,9 @@ bool user_path(wchar_t* path, bool create) noexcept {
 } // namespace
 
 ShortcutChord shortcut_chord_from_keyboard(u32 key) noexcept {
-    const u8 modifiers = static_cast<u8>(((GetKeyState(VK_CONTROL) & 0x8000) ? shortcut_ctrl : 0) |
-                                         ((GetKeyState(VK_MENU) & 0x8000) ? shortcut_alt : 0) |
-                                         ((GetKeyState(VK_SHIFT) & 0x8000) ? shortcut_shift : 0));
+    const u8 modifiers = static_cast<u8>(((GetKeyState(key::ctrl) & 0x8000) ? shortcut_ctrl : 0) |
+                                         ((GetKeyState(key::alt) & 0x8000) ? shortcut_alt : 0) |
+                                         ((GetKeyState(key::shift) & 0x8000) ? shortcut_shift : 0));
     return {key <= 0xff ? static_cast<u8>(key) : u8{0}, modifiers};
 }
 
@@ -294,10 +295,10 @@ u32 shortcut_key_label(u8 key, const Slice<char>& output) noexcept {
         return 0;
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))
         return put_char(output, 0, static_cast<char>(key));
-    if (key >= VK_F1 && key <= VK_F24)
-        return put_decimal(output, put_char(output, 0, 'F'), key - VK_F1 + 1u);
-    if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9)
-        return put_char(output, put(output, 0, utf8_literal("Num ")), static_cast<char>('0' + key - VK_NUMPAD0));
+    if (key >= key::f1 && key <= key::f24)
+        return put_decimal(output, put_char(output, 0, 'F'), key - key::f1 + 1u);
+    if (key >= key::numpad0 && key <= key::numpad9)
+        return put_char(output, put(output, 0, utf8_literal("Num ")), static_cast<char>('0' + key - key::numpad0));
     const Utf8View name = named_key(key);
     if (name.bytes)
         return put(output, 0, name);
@@ -367,9 +368,9 @@ void shortcut_recorder_start(ShortcutRecorder* recorder, ShortcutRecordMode mode
         *recorder = {mode, true};
 }
 bool shortcut_key_is_modifier(u32 key) noexcept {
-    return key == VK_SHIFT || key == VK_CONTROL || key == VK_MENU || key == VK_LSHIFT || key == VK_RSHIFT ||
-           key == VK_LCONTROL || key == VK_RCONTROL || key == VK_LMENU || key == VK_RMENU || key == VK_LWIN ||
-           key == VK_RWIN;
+    return key == key::shift || key == key::ctrl || key == key::alt || key == key::left_shift || key == key::right_shift ||
+           key == key::left_ctrl || key == key::right_ctrl || key == key::left_alt || key == key::right_alt || key == key::left_super ||
+           key == key::right_super;
 }
 ShortcutRecordStep shortcut_recorder_input(ShortcutRecorder* recorder, bool down, u32 key, u8 modifiers,
                                            ShortcutChord* recorded) noexcept {
@@ -378,11 +379,11 @@ ShortcutRecordStep shortcut_recorder_input(ShortcutRecorder* recorder, bool down
     if (!down || !key || key > 0xfe)
         return ShortcutRecordStep::pending;
     modifiers &= shortcut_modifier_mask;
-    if (!modifiers && key == VK_ESCAPE) {
+    if (!modifiers && key == key::escape) {
         recorder->active = false;
         return ShortcutRecordStep::cancelled;
     }
-    if (!modifiers && (key == VK_BACK || key == VK_DELETE)) {
+    if (!modifiers && (key == key::backspace || key == key::del)) {
         recorder->active = false;
         return ShortcutRecordStep::cleared;
     }
@@ -419,7 +420,7 @@ CustomKeybindError custom_keybind_check(const CustomKeybinds& keybinds, CustomKe
         return CustomKeybindError::invalid;
     const auto chord = keybind.chord;
     if (!chord.key || chord.key == 0xff || (chord.modifiers & ~shortcut_modifier_mask) ||
-        shortcut_key_is_modifier(chord.key) || chord.key < VK_BACK)
+        shortcut_key_is_modifier(chord.key) || chord.key < key::backspace)
         return CustomKeybindError::invalid;
     if (!(chord.modifiers & (shortcut_ctrl | shortcut_alt)) && !standalone_key(chord.key))
         return CustomKeybindError::needs_modifier;

@@ -150,7 +150,7 @@ u8* reserve(u64 bytes) noexcept {
                ? commit_pages<u8>(static_cast<SIZE_T>(bytes))
                : nullptr;
 }
-void unreserve(void* memory) noexcept { if (memory) VirtualFree(memory, 0, MEM_RELEASE); }
+void unreserve(void* memory) noexcept { if (memory) pages_release(memory); }
 struct Channel { u32 mask, shift, bits; };
 Channel channel(u32 mask) noexcept {
     Channel c{mask, 0, 0};

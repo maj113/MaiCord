@@ -183,7 +183,7 @@ void free_runtime(Runtime* r) noexcept {
     for (HANDLE handle : handles)
         if (handle)
             CloseHandle(handle);
-    VirtualFree(r, 0, MEM_RELEASE);
+    pages_release(r);
 }
 } // namespace
 

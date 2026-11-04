@@ -3,6 +3,11 @@
 // kernel32: memory, files, synchronization, threads, modules, time and strings, declared as the SDK declares them; see
 // maicord/sys/sdk.hpp.
 
+#if !defined(_WIN32)
+// Linux keeps the part of this vocabulary that portable code uses (D17) in its own header.
+#include "maicord/os/linux/kernel.hpp"
+#else
+
 #include "maicord/sys/sdk.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/sys/intrin.hpp"
@@ -129,6 +134,7 @@
 
 // <synchapi.h>
 #define SRWLOCK_INIT RTL_SRWLOCK_INIT
+#define CREATE_WAITABLE_TIMER_MANUAL_RESET 0x00000001
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 
 // <memoryapi.h>
@@ -712,3 +718,5 @@ struct Win32MemoryInformation {
 };
 
 } // namespace maicord
+
+#endif // _WIN32

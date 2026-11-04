@@ -225,7 +225,7 @@ bool prepare_banner() noexcept {
     GuildImageInfo info{};
     if (!application_guild_image_probe(GuildImageProfile::banner, {p.banner.data, p.banner.bytes}, &info,
                                        {uri, bytes})) {
-        VirtualFree(uri, 0, MEM_RELEASE);
+        pages_release(uri);
         return false;
     }
     p.banner_uri = uri;
@@ -245,7 +245,7 @@ bool prepare_splash() noexcept {
     if (!uri)
         return false;
     if (guild_image_write_data_uri(kind, {p.splash.data, p.splash.bytes}, {uri, bytes}) != bytes) {
-        VirtualFree(uri, 0, MEM_RELEASE);
+        pages_release(uri);
         return false;
     }
     p.splash_uri = uri;
@@ -258,7 +258,7 @@ bool prepare_splash() noexcept {
 void release_uri(u8** uri, u32* bytes) noexcept {
     if (*uri) {
         secure_clear_bytes(*uri, *bytes);
-        VirtualFree(*uri, 0, MEM_RELEASE);
+        pages_release(*uri);
     }
     *uri = nullptr;
     *bytes = 0;

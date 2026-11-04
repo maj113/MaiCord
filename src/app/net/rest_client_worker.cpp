@@ -370,7 +370,7 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
         secure_clear_bytes(runtime->record_output + kRecordOutputBytes,
                            static_cast<u32>(runtime->handshake_output - runtime->record_output - kRecordOutputBytes));
     }
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     client->runtime = nullptr;
 }
 

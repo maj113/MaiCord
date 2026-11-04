@@ -7,11 +7,7 @@
 #include "maicord/ui/text/text.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
-
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11ShaderResourceView;
-struct ID3D11UnorderedAccessView;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -87,7 +83,7 @@ enum class D3D11GlyphTextInitializeError : u8 {
 };
 
 struct D3D11GlyphTextInitializeResult {
-    HRESULT native_error;
+    GpuStatus native_error;
     D3D11GlyphTextInitializeError error;
 
     constexpr bool ok() const noexcept {
@@ -131,35 +127,35 @@ struct D3D11GlyphTextAppendRequest {
 // thread created on `device` with kRendererPathCapacity commands, is moved into
 // the owner (and left empty) instead of creating a second one; otherwise it is
 // left untouched for its creator to release.
-D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, ID3D11Device* device,
-                                                           ID3D11DeviceContext* context, u32 dpi,
+D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, GpuDevice* device,
+                                                           GpuContext* context, u32 dpi,
                                                            GlyphAtlasGpu* prestarted_atlas = nullptr) noexcept;
-bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u32 dpi,
+bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* context, u32 dpi,
                                     bool reset_atlas) noexcept;
-bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              const D3D11GlyphTextAppendRequest& request) noexcept;
 bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origin_x, float origin_y,
                                    const Color& color, GlyphQuad* output, u32 capacity,
                                    u32* count) noexcept;
-ID3D11ShaderResourceView* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept;
+GpuSrv* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept;
 struct ColrPaintProgram;
 // Programs compiled by the account module's media worker (Lottie stickers at
 // 128 px, regional flags at 64 px), rasterized on the owning render thread.
-bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, GpuContext* context,
     const ColrPaintProgram& program,const GlyphAtlasAllocation& allocation,u16 target_width,
-    u16 target_height,u16 padding,ID3D11UnorderedAccessView* target) noexcept;
-bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+    u16 target_height,u16 padding,GpuUav* target) noexcept;
+bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, GpuContext* context,
     const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation, u16 target_width,
-    u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept;
+    u16 target_height, u16 padding, GpuUav* target) noexcept;
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept;
 // After a device loss: new atlas textures on `device` at the allocator's height, and an empty allocator. The
 // caller rebuilds the retained text.
-bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, ID3D11Device* device) noexcept;
+bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, GpuDevice* device) noexcept;
 // Idle trim: the earliest deadline (0: none), and the trim itself, true when the
 // texture size or placement changed, so every retained quad is stale and the
 // caller must rebuild text.
 u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept;
-bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u64 now_ms) noexcept;
+bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 now_ms) noexcept;
 // True once after a trim changed the atlas: retained quads are stale.
 bool d3d11_glyph_text_take_stale(D3D11GlyphTextOwner* owner) noexcept;
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept;

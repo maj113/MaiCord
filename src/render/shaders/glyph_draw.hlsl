@@ -8,10 +8,40 @@ struct TextEffectMaterial {
     float left, width, kind, count;
     float animate; float3 reserved;
 };
+#if defined(__spirv__)
+// std140 aligns a float3 to 16 bytes, but the host packs `reserved` right after `animate`. The buffer's copy of
+// a material names the three scalars and TEXT_EFFECT rebuilds the struct above from it.
+struct TextEffectStorage {
+    float4 colors[8];
+    float left, width, kind, count;
+    float animate, reserved_x, reserved_y, reserved_z;
+};
+#endif
 cbuffer TextEffects : register(b1) {
     float effect_seconds, effect_scale; float2 effect_reserved;
+#if defined(__spirv__)
+    TextEffectStorage effects[128];
+#else
     TextEffectMaterial effects[128];
+#endif
 };
+#if defined(__spirv__)
+TextEffectMaterial text_effect(uint index) {
+    const TextEffectStorage stored = effects[index];
+    TextEffectMaterial material;
+    material.colors = stored.colors;
+    material.left = stored.left;
+    material.width = stored.width;
+    material.kind = stored.kind;
+    material.count = stored.count;
+    material.animate = stored.animate;
+    material.reserved = float3(stored.reserved_x, stored.reserved_y, stored.reserved_z);
+    return material;
+}
+#define TEXT_EFFECT(index) text_effect(index)
+#else
+#define TEXT_EFFECT(index) effects[index]
+#endif
 
 struct GlyphVertexInput {
     float4 rectangle : RECT;
@@ -98,7 +128,7 @@ GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_Verte
     output.texture_bounds=input.texture_rectangle;
     output.glyph_parameters=0;
     if(input.color.r<0 && input.texture_rectangle.x>=0 && !color_glyph) {
-        const TextEffectMaterial effect=effects[min(127u,(uint)(-input.color.r-1))];
+        const TextEffectMaterial effect=TEXT_EFFECT(min(127u,(uint)(-input.color.r-1)));
         if(effect.kind==3) {
             output.glyph_parameters.xy=(uv.zw-uv.xy)/max(rectangle.zw-rectangle.xy,float2(.001,.001));
             float radius=4+.12*effect.reserved.y;
@@ -108,7 +138,7 @@ GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_Verte
     }
     float2 position=lerp(rectangle.xy,rectangle.zw,corner);
     if(input.color.r<0 && !color_glyph) {
-        const TextEffectMaterial effect=effects[min(127u,(uint)(-input.color.r-1))];
+        const TextEffectMaterial effect=TEXT_EFFECT(min(127u,(uint)(-input.color.r-1)));
         const bool neon=effect.kind==3 && input.texture_rectangle.x>=0;
         if(neon || input.color.b<0 || effect.kind==4) {
             float3 move=0;
@@ -175,7 +205,7 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
     float3 color=input.color.rgb;
     if(input.color.r<0) {
         // Published materials have palette counts in [1,8] and widths >= 1.
-        const TextEffectMaterial effect=effects[min(127u,(uint)(-input.color.r-1))];
+        const TextEffectMaterial effect=TEXT_EFFECT(min(127u,(uint)(-input.color.r-1)));
         if(effect.kind==3 && input.texture_bounds.x>=0) {
             const float2 directions[8]={float2(1,0),float2(-1,0),float2(0,1),float2(0,-1),
                 float2(.707,.707),float2(-.707,.707),float2(.707,-.707),float2(-.707,-.707)};

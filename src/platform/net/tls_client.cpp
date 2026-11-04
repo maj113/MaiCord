@@ -10,13 +10,15 @@ namespace {
 
 static_assert(sizeof(TlsSecurityHandle) == sizeof(SecHandle) && alignof(TlsSecurityHandle) == alignof(SecHandle));
 static_assert(sizeof(TlsStreamSizes) == sizeof(SecPkgContext_StreamSizes));
+static_assert(sizeof(TlsNative) == 2 * sizeof(SecHandle) && offsetof(TlsNative, context) == sizeof(SecHandle) &&
+              offsetof(TlsClient, stream_sizes) == sizeof(TlsNative));
 
 CredHandle* credentials(TlsClient* client) noexcept {
-    return reinterpret_cast<CredHandle*>(&client->credentials);
+    return reinterpret_cast<CredHandle*>(&client->native.credentials);
 }
 
 CtxtHandle* context(TlsClient* client) noexcept {
-    return reinterpret_cast<CtxtHandle*>(&client->context);
+    return reinterpret_cast<CtxtHandle*>(&client->native.context);
 }
 
 TlsResult result(TlsError error, SECURITY_STATUS status) noexcept {

@@ -16,6 +16,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 
 namespace maicord::app_detail {
@@ -211,8 +212,8 @@ UiWidgetManager* page_pane(u32 pane, bool reverse) noexcept {
 } // namespace
 
 bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
-    const auto logical = key == VK_RETURN ? UiButtonKey::enter : key == VK_SPACE ? UiButtonKey::space
-        : key == VK_ESCAPE ? UiButtonKey::escape : UiButtonKey::other;
+    const auto logical = key == key::enter ? UiButtonKey::enter : key == key::space ? UiButtonKey::space
+        : key == key::escape ? UiButtonKey::escape : UiButtonKey::other;
     if (logical == UiButtonKey::other) return false;
     const bool focused = g_app.context_focus == &g_app.shell_scene.widgets &&
         ui_thread_header_widget_target(g_app.thread_header, g_app.shell_scene.widgets.focused).thread_id;
@@ -245,20 +246,20 @@ bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
 }
 
 bool handle_content_focus_key(u32 key) noexcept {
-    if (key != VK_TAB && key != VK_F6 && key != VK_ESCAPE && key != VK_RETURN && key != VK_SPACE && key != VK_UP && key != VK_DOWN &&
-        key != VK_HOME && key != VK_END && key != VK_PRIOR && key != VK_NEXT) return false;
+    if (key != key::tab && key != key::f6 && key != key::escape && key != key::enter && key != key::space && key != key::up && key != key::down &&
+        key != key::home && key != key::end && key != key::page_up && key != key::page_down) return false;
     if (!g_app.account_ui || g_app.login.visible || g_app.reaction_viewer.active ||
         application_control_down() || application_alt_down()) return false;
     const bool reverse = application_shift_down();
     const u32 pane = current_pane();
-    if (pane == thread_header && (key == VK_RETURN || key == VK_SPACE))
+    if (pane == thread_header && (key == key::enter || key == key::space))
         return handle_thread_header_key(key, true, false);
-    if (key == VK_SPACE) {
+    if (key == key::space) {
         const auto* widget = g_app.context_focus == &g_app.shell_scene.widgets ?
             ui_widget_manager_resolve(g_app.shell_scene.widgets, g_app.shell_scene.widgets.focused) : nullptr;
         return channel_header_button(widget) && activate_focused_navigation();
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         // With a slash command selected, Tab moves between its option chips.
         if (pane == composer &&
             message_composer_scene_focused_control(g_app.message_composer_scene) == MessageComposerControl::edit &&
@@ -267,7 +268,7 @@ bool handle_content_focus_key(u32 key) noexcept {
         move_tab_focus(pane, reverse);
         return true;
     }
-    if (key == VK_F6) {
+    if (key == key::f6) {
         if (g_app.popup_scene.active && !dismiss_popup()) return true;
         u32 candidate = pane;
         for (u32 i = 0; i < pane_count; ++i) {
@@ -280,17 +281,17 @@ bool handle_content_focus_key(u32 key) noexcept {
         }
         return true;
     }
-    if (pane == composer && key == VK_ESCAPE &&
+    if (pane == composer && key == key::escape &&
         message_composer_scene_focused_control(g_app.message_composer_scene) != MessageComposerControl::edit) {
         finish_or_log(focus_pane(composer, UiListMove::restore, true));
         return true;
     }
     if (pane == composer || pane == kUiListNoSelection || reverse) return false;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         finish_or_log(focus_pane(composer, UiListMove::restore, true));
         return true;
     }
-    if (key == VK_RETURN) {
+    if (key == key::enter) {
         if (pane == guilds || pane == channels) return activate_focused_navigation();
         if(pane==members){UiRect anchor{};ui_widget_manager_context_anchor(g_app.member_list_scene.widgets,&anchor);
             return application_profile_open(g_app.member_list_scene.focused_user_id,anchor,ProfileAnchor::member);}
@@ -301,16 +302,16 @@ bool handle_content_focus_key(u32 key) noexcept {
     // finish_focus, which retires running curves).
     const float rail_before = g_app.guild_rail_scene.scroll_dips;
     switch (key) {
-    case VK_UP: move = UiListMove::previous; break;
-    case VK_DOWN: move = UiListMove::next; break;
-    case VK_HOME: move = UiListMove::first; break;
-    case VK_END: move = UiListMove::last; break;
-    case VK_PRIOR:
-    case VK_NEXT:
-        finish_or_log(page_pane(pane, key == VK_PRIOR));
+    case key::up: move = UiListMove::previous; break;
+    case key::down: move = UiListMove::next; break;
+    case key::home: move = UiListMove::first; break;
+    case key::end: move = UiListMove::last; break;
+    case key::page_up:
+    case key::page_down:
+        finish_or_log(page_pane(pane, key == key::page_up));
         if (pane == guilds && !animate_guild_rail_scroll_from(rail_before))
             log_write(LogLevel::warning, "ui", "guild_rail_scroll_animation_failed");
-        if (pane == messages && key == VK_PRIOR) request_older_history_if_near_start();
+        if (pane == messages && key == key::page_up) request_older_history_if_near_start();
         return true;
     default: return false;
     }

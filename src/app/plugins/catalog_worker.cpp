@@ -41,7 +41,7 @@ struct Worker {
 Worker* g_worker;
 
 void release(void* memory) noexcept {
-    if (memory) VirtualFree(memory, 0, MEM_RELEASE);
+    if (memory) pages_release(memory);
 }
 u64 now_unix(const Worker& w) noexcept { return w.clock_unix ? w.clock_unix() : clock_unix_milliseconds() / 1000; }
 ConstSlice<wchar_t> base(const Worker& w) noexcept { return {w.base, w.base_characters}; }

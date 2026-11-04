@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
@@ -216,7 +217,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         const LONG remaining = InterlockedDecrement(&references);
         if (remaining == 0) {
             this->~SecureTextStoreImplementation();
-            HeapFree(process_heap(), 0, this);
+            heap_free(this);
         }
         return static_cast<ULONG>(remaining);
     }
@@ -1419,7 +1420,7 @@ bool secure_text_store_initialize(SecureTextStore* store, SecureTextStoreConfig 
     if (store->implementation || !config.window) {
         return false;
     }
-    void* memory = HeapAlloc(process_heap(), 0, sizeof(SecureTextStoreImplementation));
+    void* memory = heap_allocate(sizeof(SecureTextStoreImplementation));
     if (!memory) {
         return false;
     }

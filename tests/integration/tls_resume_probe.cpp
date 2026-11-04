@@ -61,7 +61,7 @@ bool connect_once(const wchar_t* host, Sample* sample) noexcept {
     const i64 end = clock_now();
     sample->handshake_microseconds = clock_microseconds(clock, handshake_begin, end);
     sample->connect_microseconds = clock_microseconds(clock, begin, end);
-    CtxtHandle* const context = reinterpret_cast<CtxtHandle*>(&g_stream.tls.context);
+    CtxtHandle* const context = reinterpret_cast<CtxtHandle*>(&g_stream.tls.native.context);
     SecPkgContext_SessionInfo session{};
     SecPkgContext_ConnectionInfo connection{};
     if (QueryContextAttributesW(context, SECPKG_ATTR_SESSION_INFO, &session) != SEC_E_OK ||

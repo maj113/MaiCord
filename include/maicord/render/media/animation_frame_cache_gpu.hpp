@@ -2,11 +2,7 @@
 
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/render/media/animation_frame_cache.hpp"
-
-struct ID3D11Device;
-struct ID3D11DeviceContext1;
-struct ID3D11ShaderResourceView;
-struct ID3D11Texture2D;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -38,8 +34,8 @@ struct AnimationFrameCacheGpuStorage {
 
 struct AnimationFrameCacheGpu {
     AnimationFrameCache cache;
-    ID3D11Texture2D* texture;
-    ID3D11ShaderResourceView* texture_view;
+    GpuTexture* texture;
+    GpuSrv* texture_view;
     AnimationFrameCacheGpuStorage storage;
     GlyphAtlasRow rows[kAnimationFrameCacheGpuRowCapacity];
     u64 captures;
@@ -82,9 +78,9 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept;
 void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept;
 void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noexcept;
 bool animation_frame_cache_gpu_capture(
-    AnimationFrameCacheGpu* gpu, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAtlas* media_atlas,
-    ID3D11Texture2D* media_texture,
+    AnimationFrameCacheGpu* gpu, GpuDevice* device,
+    GpuContext1* context, MediaAtlas* media_atlas,
+    GpuTexture* media_texture,
     const AnimationFrameCacheDescriptor& descriptor,
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_restore(
@@ -92,8 +88,8 @@ bool animation_frame_cache_gpu_restore(
     const AnimationFrameCacheKey& key, AnimationFrameCacheResult* result,
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_materialize(
-    AnimationFrameCacheGpu* gpu, ID3D11DeviceContext1* context,
-    MediaAtlas* media_atlas, ID3D11Texture2D* media_texture,
+    AnimationFrameCacheGpu* gpu, GpuContext1* context,
+    MediaAtlas* media_atlas, GpuTexture* media_texture,
     MediaAssetKey key) noexcept;
 bool animation_frame_cache_gpu_resolve(
     AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,

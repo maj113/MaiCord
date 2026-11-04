@@ -71,7 +71,7 @@ void destroy(ApplicationScopedRead* o) noexcept {
     stable_storage_release(&o->candidates);
     stable_storage_release(&o->jobs);
     stable_storage_release(&o->flight);
-    VirtualFree(o, 0, MEM_RELEASE);
+    pages_release(o);
     if (g_app.scoped_read == o)
         g_app.scoped_read = nullptr;
 }

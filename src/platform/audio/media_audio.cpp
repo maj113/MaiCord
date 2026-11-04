@@ -259,7 +259,7 @@ DWORD WINAPI worker(void* pointer) noexcept {
 MediaAudioResult free_runtime(MediaAudio& owner) noexcept {
     auto& r=*static_cast<Runtime*>(owner.runtime);HANDLE* handles[]{&r.thread,&r.command,&r.stop,&r.render};
     for(auto* handle:handles)if(*handle){if(!CloseHandle(*handle))return fail(Error::release,GetLastError());*handle=nullptr;}
-    if(!VirtualFree(&r,0,MEM_RELEASE))return fail(Error::release,GetLastError());owner.runtime=nullptr;return {};
+    if(!pages_release(&r))return fail(Error::release,GetLastError());owner.runtime=nullptr;return {};
 }
 MediaAudioResult launch(MediaAudio& owner) noexcept {
     auto* r=commit_pages<Runtime>();if(!r)return fail(Error::memory,GetLastError());

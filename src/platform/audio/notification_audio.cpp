@@ -327,7 +327,7 @@ DWORD WINAPI worker_main(void* pointer) noexcept {
     r.status.worker_exited=true;notify_locked(r);ReleaseSRWLockExclusive(&r.lock);return 0;
 }
 void free_runtime(Runtime* r) noexcept {
-    if(r->thread)CloseHandle(r->thread);if(r->command)CloseHandle(r->command);if(r->stop)CloseHandle(r->stop);if(r->render)CloseHandle(r->render);VirtualFree(r,0,MEM_RELEASE);
+    if(r->thread)CloseHandle(r->thread);if(r->command)CloseHandle(r->command);if(r->stop)CloseHandle(r->stop);if(r->render)CloseHandle(r->render);pages_release(r);
 }
 NotificationAudioResult launch(NotificationAudio& owner) noexcept {
     auto* r=commit_pages<Runtime>();

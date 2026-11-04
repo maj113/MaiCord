@@ -7,6 +7,7 @@
 #include "../chat/composer/text_input.hpp"
 #include "../shell/content_input.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord::app_detail {
@@ -758,12 +759,12 @@ void application_guild_community_release() noexcept {
     if (background) {
         application_cancel_request(&AccountModuleApi::guild_community, background->request_id);
         SecureZeroMemory(background, sizeof(Background));
-        VirtualFree(background, 0, MEM_RELEASE);
+        pages_release(background);
         background = nullptr;
     }
     if (events) {
         message_scene_bind_scheduled_events(&g_app.message_scene, nullptr);
-        VirtualFree(events, 0, MEM_RELEASE);
+        pages_release(events);
         events = nullptr;
     }
     published_events_revision = 0;

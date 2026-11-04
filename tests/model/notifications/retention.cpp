@@ -1,7 +1,7 @@
 #include "maicord/model/notifications/retention.hpp"
+#include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -146,6 +146,6 @@ u32 failures;
 void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_notification_retention_tests_entry() noexcept {
-    maicord::test_notification_retention(maicord::notification_retention_entry::check);ExitProcess(maicord::notification_retention_entry::failures?1:0);
+MAICORD_TEST_ENTRY(maicord_notification_retention_tests_entry) {
+    maicord::test_notification_retention(maicord::notification_retention_entry::check);::maicord::test_process_exit(maicord::notification_retention_entry::failures?1:0);
 }

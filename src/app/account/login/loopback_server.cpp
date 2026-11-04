@@ -1,6 +1,7 @@
 #include "loopback_server.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_process.hpp"
 
 namespace maicord {
@@ -165,7 +166,7 @@ void loopback_destroy(LoopbackServer* server, u32 owner_bytes) noexcept {
     if (server->wake_event) CloseHandle(server->wake_event);
     if (server->stop_event) CloseHandle(server->stop_event);
     secure_buffer_release(&server->storage);
-    SecureZeroMemory(server, owner_bytes); VirtualFree(server, 0, MEM_RELEASE);
+    SecureZeroMemory(server, owner_bytes); pages_release(server);
 }
 bool loopback_external_output(const LoopbackServer* server, const void* handle, u32 handle_bytes, u32 owner_bytes,
                               const SecureBuffer* output) noexcept {

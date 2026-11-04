@@ -1,6 +1,10 @@
-// data_path.hpp on Linux: the per-user data directory is $XDG_DATA_HOME/MaiCord, or $HOME/.local/share/MaiCord when
+// data_path.hpp on Linux: the per-user data directory is $XDG_DATA_HOME/maicord, or $HOME/.local/share/maicord when
 // XDG_DATA_HOME is unset or not absolute (the XDG base directory rule). Paths stay UTF-16 wchar_t strings (see
 // maicord/sys/linux/path.hpp): the separator written is '/', and a relative path may use either separator.
+//
+// D19 also names a cache directory ($XDG_CACHE_HOME/maicord) and a state and log directory
+// ($XDG_STATE_HOME/maicord). They are not split from the data directory yet: until what is re-creatable has been
+// classified, everything lives here, as on Windows everything lives under %LOCALAPPDATA%\MaiCord.
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/linux/calls.hpp"
@@ -98,7 +102,7 @@ u32 data_path_build(const wchar_t* root, wchar_t* output, u32 capacity, const wc
         return 0;
     copy_bytes(output, root, length * static_cast<u32>(sizeof(wchar_t)));
     output[length] = 0;
-    if (!wide_append(output, capacity, &length, L"/MaiCord"))
+    if (!wide_append(output, capacity, &length, L"/maicord"))
         return 0;
     if (relative && relative[0]) {
         const u32 base = length;

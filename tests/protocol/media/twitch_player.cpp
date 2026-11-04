@@ -254,6 +254,6 @@ void live() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_twitch_player_entry() noexcept {
-    maicord::run(); maicord::vod(); maicord::live(); ExitProcess(maicord::failures ? 1 : 0);
+MAICORD_TEST_ENTRY(maicord_twitch_player_entry) {
+    maicord::run(); maicord::vod(); maicord::live(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

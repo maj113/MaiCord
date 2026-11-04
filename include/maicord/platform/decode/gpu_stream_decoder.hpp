@@ -3,8 +3,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/core/win32_types.hpp"
-
-struct ID3D11Device;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -57,7 +56,7 @@ inline constexpr u32 kGpuStreamMaximumFrameBytes = 16u * 1024u * 1024u;
 inline constexpr u32 kGpuStreamIdleReleaseMs = 5'000;
 
 struct GpuStreamDecoderOptions {
-    ID3D11Device* device; // Multithread-protected; its immediate context is shared.
+    GpuDevice* device; // Multithread-protected; its immediate context is shared.
     u32 ssrc;
     GpuStreamSink sink;
     GpuStreamCodec codec;
@@ -77,7 +76,7 @@ struct GpuStreamDecoder;
 // gpu_stream_codec_bit set of the codecs the device decodes in hardware with
 // the DXVA bitstream format used here (short slices; AV1 tiles) and
 // shader-readable NV12 output (what create can use).
-u32 gpu_stream_decoder_codecs(ID3D11Device* device) noexcept;
+u32 gpu_stream_decoder_codecs(GpuDevice* device) noexcept;
 // Creates the queue and thread only; DXVA objects are created at the first
 // decodable keyframe and recreated when a keyframe changes geometry or DPB needs.
 GpuStreamDecoder* gpu_stream_decoder_create(const GpuStreamDecoderOptions& options) noexcept;

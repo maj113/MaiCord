@@ -4,6 +4,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "../../../src/text/opentype/cff_internal.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -282,9 +283,9 @@ bool oblique_corpus() noexcept {
     return reader.at==sizeof(cff_oblique_fixture)&&glyphs==704&&inexact==185;
 }
 bool guarded_inputs() noexcept {
-    u8* memory=static_cast<u8*>(VirtualAlloc(nullptr,8192,MEM_RESERVE,PAGE_NOACCESS));
+    u8* memory=static_cast<u8*>(pages_reserve_no_access(8192));
     if(!memory) return false;
-    if(!VirtualAlloc(memory,4096,MEM_COMMIT,PAGE_READWRITE)) { VirtualFree(memory,0,MEM_RELEASE); return false; }
+    if(!pages_commit_at(memory, 4096)) { pages_release(memory); return false; }
     const u8 program[]{139,139,21,149,159,169,179,189,199,8,14};
     u32 random=0x0cf11779; bool ok=true;
     for(u32 iteration=0;iteration<20000 && ok;++iteration) {
@@ -307,7 +308,7 @@ bool guarded_inputs() noexcept {
                 (!out.count && !out.has_bounds && out.rejected && !metrics.has_bounds && !metrics.advance_x));
         }
     }
-    VirtualFree(memory,0,MEM_RELEASE); return ok;
+    pages_release(memory); return ok;
 }
 
 } // namespace

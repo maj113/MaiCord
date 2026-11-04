@@ -4,6 +4,8 @@
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/gvar_outline_fixture.inc"
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool word(u32* v) noexcept {if(bytes.count-at<4)return false;*v=byte_load_le32(bytes.data+at);at+=4;return true;}bool take(u32 n,ConstSlice<u8>* v) noexcept {if(n>bytes.count-at)return false;*v={bytes.data+at,n};at+=n;return true;}};
@@ -13,7 +15,7 @@ u64 fonts=0,outlines=0,command_checks=0,bound_checks=0,budgets=0,guards=0,invali
 bool fail(u32 f,u32 glyph,u32 code) noexcept {print(utf8_literal("FAIL font="));number(f);print(utf8_literal(" glyph="));number(glyph);print(utf8_literal(" code="));number(code);print(utf8_literal("\n"));return false;}
 bool guard_table(ConstSlice<u8> table,u16 axis_count,u16 glyph_count,const SfntTrueType& font) noexcept {
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;if(table.count>page)return false;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
     const SfntOutlinePoint source[]{{10,20,1,{}},{31,20,1,{}},{80,70,1,{}},{80,120,1,{}},{50,180,1,{}},{-20,130,1,{}},{-20,70,1,{}},{-1,30,1,{}}};const u32 contour=7;const double coord=.5;
     u32 random=0x7138491;for(u32 i=0;i<table.count+2048;++i){const u32 size=i<table.count?i:table.count;auto* p=memory+page-size;if(size)copy_bytes(p,table.data,size);
         if(i>=table.count){random^=random<<13;random^=random>>17;random^=random<<5;p[random%size]^=static_cast<u8>((random>>16)|1);}
@@ -23,7 +25,7 @@ bool guard_table(ConstSlice<u8> table,u16 axis_count,u16 glyph_count,const SfntT
                 sfnt_gvar_deltas(instance,2,{nullptr,1},{},true,{{shared_points,512},{private_points,512},{dx,512},{dy,512}},{deltas,1024},4096);
                 u16 advance=0;sfnt_gvar_design_advance(font,instance,0,&advance,4096);sfnt_gvar_design_advance(font,instance,2,&advance,4096);
             }}++guards;
-    }VirtualFree(memory,0,MEM_RELEASE);return true;
+    }pages_release(memory);return true;
 }
 bool corpus() noexcept {
     Reader reader{{gvar_outline_fixture,sizeof(gvar_outline_fixture)},8};u32 count=0;if(!bytes_equal(reader.bytes.data,"MCGVAR1\0",8) || !reader.word(&count))return false;
@@ -65,4 +67,4 @@ bool corpus() noexcept {
 #include "gvar_metrics_units.inc"
 int run() noexcept {const bool ok=gvar_metrics_units()&&gvar_metrics_guards()&&corpus();print(utf8_literal("fonts="));number(fonts);print(utf8_literal("\noutlines="));number(outlines);print(utf8_literal("\ncommands="));number(command_checks);print(utf8_literal("\nbounds="));number(bound_checks);print(utf8_literal("\ngeometry_instances="));number(geometry_checks);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\ninvalid="));number(invalid);print(ok?utf8_literal("\nPASS native gvar outlines\n"):utf8_literal("\nFAIL native gvar outlines\n"));return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gvar_outline_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gvar_outline_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

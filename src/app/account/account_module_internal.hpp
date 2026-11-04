@@ -238,7 +238,7 @@ bool WINAPI module_profile_image(void* instance, ProfileImageRequest* request) n
 bool WINAPI module_voice_request(void* instance, const GatewayVoiceStateUpdate* state) noexcept;
 bool WINAPI module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept;
 bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept;
-bool WINAPI module_voice_video_device(void* instance, ID3D11Device* device) noexcept;
+bool WINAPI module_voice_video_device(void* instance, GpuDevice* device) noexcept;
 bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame* output) noexcept;
 HANDLE WINAPI module_voice_video_notification(void* instance) noexcept;
 bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept;

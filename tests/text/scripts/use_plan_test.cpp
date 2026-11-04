@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/use_plan.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/devanagari_plan_fixture.inc"
 // One schedule contract suite runs against the Sinhala, Myanmar and Tibetan
@@ -66,13 +67,13 @@ bool units() noexcept {
         CHECK(lookup_plan(layout,variations,false,{scratch,8},{steps,32},&result)==SfntStatus::malformed&&untouched(steps));
         // Exact-size caller buffers end immediately before inaccessible pages.
         Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-        auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-        const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+        auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+        const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
         bool guarded=false;
         if(committed){auto* roots=reinterpret_cast<SfntLookupStep*>(memory+page*3-full.lookup_count*sizeof(SfntLookupStep));
             guarded=lookup_plan(layout,{},false,{memory+page-layout.lookup_count,layout.lookup_count},{roots,full.lookup_count},&result)==SfntStatus::ok&&
                 result.lookup_count==full.lookup_count&&bytes_equal(saved,roots,full.lookup_count*sizeof(SfntLookupStep));}
-        CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&guarded);
+        CHECK(pages_release(memory));CHECK(committed&&guarded);
         const u32 alternatives[]{myanmar?sfnt_tag('m','y','m','r'):tibetan?sfnt_tag('l','a','t','n'):sfnt_tag('D','F','L','T'),sfnt_tag('d','e','v','2')};for(u32 tag:alternatives){
             byte_store_be32(bytes+tag_at,tag);
             CHECK(lookup_plan(layout,{},false,{scratch,8},{steps,32},&result)==SfntStatus::ok&&!result.language_found&&!result.lookup_count&&untouched(steps));
@@ -129,4 +130,4 @@ int run() noexcept {
     return units()?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_use_plan_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_use_plan_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

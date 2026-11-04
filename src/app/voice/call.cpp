@@ -28,6 +28,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord::app_detail {
@@ -512,10 +513,10 @@ bool editing_key(u32 key) noexcept {
     if (alt)
         return false;
     if (control)
-        return key == 'V' || key == 'Z' || key == 'Y' || key == VK_BACK || key == VK_DELETE;
+        return key == 'V' || key == 'Z' || key == 'Y' || key == key::backspace || key == key::del;
     switch (key) {
-    case VK_RETURN: case VK_BACK: case VK_DELETE: case VK_SPACE: case VK_TAB: case VK_UP: case VK_DOWN:
-    case VK_LEFT: case VK_RIGHT: case VK_PRIOR: case VK_NEXT: case VK_HOME: case VK_END:
+    case key::enter: case key::backspace: case key::del: case key::space: case key::tab: case key::up: case key::down:
+    case key::left: case key::right: case key::page_up: case key::page_down: case key::home: case key::end:
         return true;
     default:
         return false;
@@ -750,7 +751,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     case WM_KEYDOWN:
     case WM_KEYUP: {
         const u32 key = static_cast<u32>(wparam);
-        if (key == VK_ESCAPE && message == WM_KEYDOWN && !application_control_down() && !application_shift_down() &&
+        if (key == key::escape && message == WM_KEYDOWN && !application_control_down() && !application_shift_down() &&
             !application_alt_down()) {
             if (view.fullscreen) {
                 set_fullscreen(false);

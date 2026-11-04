@@ -289,7 +289,7 @@ bool publish_polls(ApplicationSearch& s, SearchBank& bank, u32 message_count) no
     }
     const auto result =
         message_poll_store_apply_page(&g_app.account_ui->message_poll_store, {inputs, count});
-    VirtualFree(publication, 0, MEM_RELEASE);
+    pages_release(publication);
     return result.error == MessagePollStoreError::none;
 }
 MessageSearchRichScratch decode_scratch(SearchDecodeScratch& s) noexcept {

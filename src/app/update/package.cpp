@@ -1,5 +1,6 @@
 #include "maicord/app/update/package.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "maicord/core/win32_image.hpp"
 
@@ -14,7 +15,7 @@ struct Reader {
     u64 bytes;
     u8 buffer[kUpdatePackageReadBufferBytes];
     UpdatePackageResult status{};
-    BCRYPT_HASH_HANDLE hash = nullptr;
+    HashStream hash = nullptr;
     // File position after the last read of `file`; kUnknownCursor until a seek or after any failure.
     static constexpr u64 kUnknownCursor = ~u64{0};
     u64 cursor = kUnknownCursor;
@@ -41,13 +42,13 @@ struct Reader {
         return true;
     }
     bool begin_hash() noexcept {
-        const NTSTATUS native = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0);
+        const NTSTATUS native = hash_stream_begin(&hash, HashAlgorithm::sha256);
         return native >= 0 || fail(UpdatePackageError::hash, 0, native);
     }
     bool finish_hash(u8* digest) noexcept {
-        NTSTATUS native = BCryptFinishHash(hash, digest, 32, 0);
+        NTSTATUS native = hash_stream_finish(hash, digest, 32);
         if (native < 0) return fail(UpdatePackageError::hash, 0, native);
-        native = BCryptDestroyHash(hash);
+        native = hash_stream_destroy(hash);
         if (native < 0) return fail(UpdatePackageError::hash, 0, native);
         hash = nullptr; return true;
     }
@@ -57,7 +58,7 @@ struct Reader {
         while (count) {
             const u32 chunk = static_cast<u32>(minimum<u64>(count, sizeof(buffer)));
             if (!read(offset, buffer, chunk)) return false;
-            const NTSTATUS native = BCryptHashData(hash, buffer, chunk, 0);
+            const NTSTATUS native = hash_stream_update(hash, buffer, chunk);
             if (native < 0) return fail(UpdatePackageError::hash, 0, native);
             // Chain the published IEEE CRC over the same bounded read chunks.
             if (crc) check = static_cast<u32>(RtlComputeCrc32(check, buffer, chunk));
@@ -201,7 +202,7 @@ bool readback(HANDLE file, u64 bytes, const u8* sha256, Reader& reader) noexcept
 // Deletes a partial output through the handles still owned (either one names
 // the same file) and closes them.
 UpdatePackageResult finish(Reader& reader, HANDLE* files, u32 count) noexcept {
-    if (reader.hash) { BCryptDestroyHash(reader.hash); reader.hash = nullptr; }
+    if (reader.hash) { hash_stream_destroy(reader.hash); reader.hash = nullptr; }
     bool disposed = false;
     for (u32 i = 0; i < count; ++i) if (owner(files[i])) {
         FILE_DISPOSITION_INFO disposition{TRUE};

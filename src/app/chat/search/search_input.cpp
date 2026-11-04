@@ -7,6 +7,7 @@
 #include "../composer/text_edit_keys.hpp"
 #include "maicord/ui/text/clipboard.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -81,30 +82,30 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     if (kind != UiInputKind::key_down)
         return false;
     if (s->focused && !raw && !alt && !shift && application_composer_text_input_composing() &&
-        (key == VK_UP || key == VK_DOWN || key == VK_RETURN || key == VK_TAB))
+        (key == key::up || key == key::down || key == key::enter || key == key::tab))
         return true;
     if (s->focused && !raw && !alt && !shift && s->suggestions && s->choices &&
         s->choices->filter.kind != UiSearchFilterKind::none) {
         const bool current_choices = choices_current(s);
         if (current_choices) {
-            if (key == VK_UP || key == VK_DOWN) {
-                choice_move(*s, key == VK_UP);
+            if (key == key::up || key == key::down) {
+                choice_move(*s, key == key::up);
                 return true;
             }
-            if ((key == VK_RETURN || key == VK_TAB) &&
+            if ((key == key::enter || key == key::tab) &&
                 s->choices->source.selected < s->choices->source.rows.count) {
                 s->held_key = key;
                 choice_accept(*s, s->choices->source.revision, s->choices->source.selected);
                 return true;
             }
-            if (key == VK_TAB) {
+            if (key == key::tab) {
                 // An empty/unselected chooser has no completion to accept.
                 // Dismiss it before the ordinary editor-to-control focus move.
                 s->suggestions = false;
                 repaint();
             }
         }
-        if (!current_choices && (key == VK_UP || key == VK_DOWN || key == VK_RETURN || key == VK_TAB))
+        if (!current_choices && (key == key::up || key == key::down || key == key::enter || key == key::tab))
             return true;
     }
     if (control && key == 'S' && rich_focused) {
@@ -117,7 +118,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         s->held_key = key;
         return true;
     }
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         s->held_key = key;
         if (s->filters || s->suggestions || s->sort_menu) {
             menus_close(*s);
@@ -126,7 +127,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
             activate(*s, {UiSearchAction::close, 0, 0});
         return true;
     }
-    if (key == VK_RETURN) {
+    if (key == key::enter) {
         s->held_key = key;
         if (s->focused)
             commit(*s);
@@ -134,12 +135,12 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
             activate_focused();
         return true;
     }
-    if (key == VK_SPACE && !s->focused) {
+    if (key == key::space && !s->focused) {
         s->held_key = key;
         activate_focused();
         return true;
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         if (shift && s->focused && s->choices && s->suggestions &&
             s->choices->filter.kind != UiSearchFilterKind::none) {
             s->suggestions = false;
@@ -199,13 +200,13 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         repaint();
         return true;
     }
-    if (!s->focused && (key == VK_LEFT || key == VK_RIGHT)) {
+    if (!s->focused && (key == key::left || key == key::right)) {
         const auto h = s->scene.widgets.focused;
         if (h.generation && h.slot < s->scene.storage.widgets.count &&
             s->scene.targets[h.slot].action == UiSearchAction::tab) {
             auto target = s->scene.targets[h.slot];
             target.source_index =
-                (target.source_index + (key == VK_LEFT ? kMessageSearchTabCount - 1 : 1)) %
+                (target.source_index + (key == key::left ? kMessageSearchTabCount - 1 : 1)) %
                 kMessageSearchTabCount;
             activate(*s, target);
         }
@@ -215,7 +216,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         return true;
     const u32 revision = s->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (key == VK_BACK) {
+    if (key == key::backspace) {
         s->held_key = key;
         // Backspace in the empty field removes the scope chip, as with
         // other chip inputs; a held key never reaches past the query.

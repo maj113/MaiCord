@@ -5,6 +5,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -118,7 +120,7 @@ bool random_cases() noexcept {
 }
 bool long_cases() noexcept {
     constexpr u32 depth=10000,count=depth*2+1;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,count*20u,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;
+    auto* memory=static_cast<u8*>(pages_allocate(count*20u));if(!memory)return false;
     auto* items=reinterpret_cast<UnicodeBidiCell*>(memory);auto* order=reinterpret_cast<u32*>(memory+count*16u);
     bool ok=true;UnicodeBidiParagraph paragraph{};
     for(u32 mode=0;mode<2 && ok;++mode) {
@@ -167,7 +169,7 @@ bool long_cases() noexcept {
             items[i].original!=(i<depth?B::fsi:i==depth?B::r:B::pdi)){ok=false;break;}
         if(ok)ok=unicode_bidi_resolve({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph)==UnicodeBidiStatus::ok && items[depth].level==125;
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 struct Reader {
     const u8* bytes;u32 size,at;
@@ -228,4 +230,4 @@ int run() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_bidi_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_bidi_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

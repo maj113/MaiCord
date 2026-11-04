@@ -4,6 +4,7 @@
 #include "maicord/app/account/account_profile.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -103,7 +104,7 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters, const Co
 __declspec(noinline) void file_persistence_secure_release(u8* bytes, u32 count) noexcept {
     if (bytes) {
         secure_clear_bytes(bytes, count);
-        VirtualFree(bytes, 0, MEM_RELEASE);
+        pages_release(bytes);
     }
 }
 

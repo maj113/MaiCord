@@ -2143,7 +2143,7 @@ void d3d11_renderer_shell_segment_release(RendererShellSegment* segment) noexcep
 
 void d3d11_renderer_layout_release(D3D11Renderer* renderer) noexcept {
     if (renderer->layout_scratch)
-        VirtualFree(renderer->layout_scratch, 0, MEM_RELEASE);
+        pages_release(renderer->layout_scratch);
     renderer->layout_scratch = nullptr;
 }
 

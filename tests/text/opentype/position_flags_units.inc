@@ -17,10 +17,9 @@ bool position_flag_units() noexcept {
     records[4].source=4;if(sfnt_position_flags_from_clusters(clusters,view,{flags,5})!=SfntStatus::invalid_input)return false;records[4].source=3;
     records[4].glyph.glyph_class=static_cast<SfntGlyphClass>(5);if(sfnt_position_flags_from_clusters(clusters,view,{flags,5})!=SfntStatus::invalid_input)return false;records[4].glyph.glyph_class=SfntGlyphClass::mark;
     SfntClusterMap empty{};if(sfnt_cluster_map_open(0,{}, {},&empty)!=SfntStatus::ok || sfnt_position_flags_from_clusters(empty,{nullptr,nullptr,0,0,sizeof(SfntComponentGlyph)},{})!=SfntStatus::ok)return false;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    for(u32 i=1;i<6;i+=2)if(!VirtualProtect(memory+page*i,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*6));if(!memory)return false;for(u32 i=1;i<6;i+=2)if(!pages_protect(memory+page*i, page, PageAccess::none)){pages_release(memory);return false;}
     auto* guarded_records=reinterpret_cast<SfntComponentGlyph*>(memory+page-sizeof(records));auto* guarded_policy=memory+page*3-5;auto* guarded_flags=memory+page*5-5;
     copy_bytes(guarded_records,records,sizeof(records));copy_bytes(guarded_policy,policy,5);const SfntGlyphView guarded{&guarded_records[0].glyph,nullptr,5,0,sizeof(SfntComponentGlyph)};
     const bool ok=sfnt_position_flags_from_clusters(clusters,guarded,{guarded_flags,5})==SfntStatus::ok && bytes_equal(guarded_flags,wanted,5) && sfnt_position_flags_from_clusters(clusters,guarded,{guarded_flags,5},{guarded_policy,5})==SfntStatus::ok && bytes_equal(guarded_flags,overridden,5);
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }

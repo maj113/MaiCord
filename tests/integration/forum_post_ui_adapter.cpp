@@ -19,6 +19,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
+#include "maicord/platform/window/key.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -277,8 +278,8 @@ bool forum_post_ui_adapter_input(UiInputKind kind, u32 code, bool repeated, bool
             BYTE prior[256]{}, keys[256]{};
             if (!GetKeyboardState(prior))
                 return false;
-            keys[VK_CONTROL] = value.control ? 0x80 : 0;
-            keys[VK_SHIFT] = value.shift ? 0x80 : 0;
+            keys[key::ctrl] = value.control ? 0x80 : 0;
+            keys[key::shift] = value.shift ? 0x80 : 0;
             if (!SetKeyboardState(keys))
                 return false;
             const bool child = application_text_form_forum_child(application_forum_post_view().ticket);
@@ -324,9 +325,9 @@ bool forum_post_ui_adapter_pointer_down(ForumPostTarget target) noexcept {
                 bool revealed = false;
                 for (u32 step = 0; step < kForumPostTagCapacity + 7 + kUiAttachmentDraftMaximum * 4;
                      ++step) {
-                    if (!application_forum_form_input(UiInputKind::key_down, VK_TAB, false))
+                    if (!application_forum_form_input(UiInputKind::key_down, key::tab, false))
                         return false;
-                    application_forum_form_input(UiInputKind::key_up, VK_TAB, false);
+                    application_forum_form_input(UiInputKind::key_up, key::tab, false);
                     const auto focused = forum_post_focused(*scene);
                     if (focused.element == target.element && focused.tag == target.tag &&
                         focused.attachment_id == target.attachment_id &&
@@ -667,11 +668,11 @@ bool forum_post_ui_adapter_drop_files() noexcept {
 }
 bool forum_post_ui_adapter_escape_tails() noexcept {
     return call(+[](void*) noexcept {
-        return application_forum_form_input(UiInputKind::key_down, VK_ESCAPE, false) &&
+        return application_forum_form_input(UiInputKind::key_down, key::escape, false) &&
                !application_forum_form_active() &&
-               application_forum_form_input(UiInputKind::key_down, VK_ESCAPE, true) &&
-               application_forum_form_input(UiInputKind::character, VK_ESCAPE, false) &&
-               application_forum_form_input(UiInputKind::key_up, VK_ESCAPE, false) &&
+               application_forum_form_input(UiInputKind::key_down, key::escape, true) &&
+               application_forum_form_input(UiInputKind::character, key::escape, false) &&
+               application_forum_form_input(UiInputKind::key_up, key::escape, false) &&
                !application_forum_form_input(UiInputKind::character, 'x', false);
     });
 }
@@ -698,7 +699,7 @@ bool forum_post_ui_adapter_tsf_paste_composition() noexcept {
                      first == S_OK;
         const u32 submissions = forum_adapter->submissions;
         valid = valid && field.composition.active &&
-                forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+                forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                 forum_adapter->submissions == submissions &&
                 application_forum_post_view().phase == ApplicationForumPostPhase::editing;
         if (advised && sink.phase == 1)
@@ -991,7 +992,7 @@ bool forum_media_ui_adapter_paste_file() noexcept {
         BYTE prior[256]{}, keys[256]{}, restored[256]{};
         if (!GetKeyboardState(prior))
             return failure(8);
-        keys[VK_CONTROL] = 0x80;
+        keys[key::ctrl] = 0x80;
         u32 stage = 9;
         bool ok = SetKeyboardState(keys) != FALSE;
         if (ok) {

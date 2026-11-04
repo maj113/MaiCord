@@ -7,6 +7,7 @@
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 namespace maicord::poll_app_test {
 u64 now = 1000, unix_now = 1000;
@@ -765,10 +766,10 @@ void run() noexcept {
               owner->widgets.layout.revision == warm_layout && owner->revision == warm_revision &&
               submissions == warm_submissions,
           "poll app: unchanged inspector synchronizations add no layout/measurement/frame/request work");
-    check(application_poll_input(UiInputKind::key_down, VK_ESCAPE, false) &&
+    check(application_poll_input(UiInputKind::key_down, key::escape, false) &&
               !application_poll_voters_active() &&
-              application_poll_consume_key_tail(UiInputKind::character, VK_ESCAPE, false) &&
-              application_poll_consume_key_tail(UiInputKind::key_up, VK_ESCAPE, false),
+              application_poll_consume_key_tail(UiInputKind::character, key::escape, false) &&
+              application_poll_consume_key_tail(UiInputKind::key_up, key::escape, false),
           "poll app: closing inspector consumes exact Escape tail before underlying content");
     const u32 cached_submissions = submissions;
     check(application_poll_voters(7) && !application_poll_pending(now) && submissions == cached_submissions &&

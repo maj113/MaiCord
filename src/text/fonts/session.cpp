@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/fonts/run.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {constexpr u32 maximum_slots=1024,step=8,initial_slots=64;}
@@ -23,7 +24,7 @@ bool extend_files(NativeFontSession& session) noexcept {
     const usize page=session.faces.commit_step;
     const usize required=(file_header_bytes+count*sizeof(NativeFontFileSlot)+page-1)&~(page-1);
     if(required>session.header_committed){auto* next=reinterpret_cast<u8*>(&session)+session.header_committed;
-        if(VirtualAlloc(next,required-session.header_committed,MEM_COMMIT,PAGE_READWRITE)!=next)return false;
+        if(pages_commit_at(next,required-session.header_committed)!=next)return false;
         session.header_committed=required;}
     slots.data=session.file_slots;slots.count=count;return true;
 }
@@ -45,14 +46,19 @@ void peak(NativeFontSession& session) noexcept {
 }
 bool native_font_session_create(NativeFontSession** output) noexcept {
     if(!output)return false;*output=nullptr;
+#if defined(_WIN32)
+    // The SYSTEM_INFO stays in this frame (pages_page_size() would end its lifetime at once and change the frame).
     Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;
+#else
+    const usize page=pages_page_size();
+#endif
     if(!page||(page&(page-1)))return false;
     const auto rounded=[&](usize bytes) noexcept {return (bytes+page-1)&~(page-1);};
     const usize files=rounded(sizeof(NativeFontSession)),faces=rounded(maximum_slots*sizeof(NativeFontFaceSlot)),
         instances=rounded(maximum_slots*sizeof(NativeFontInstanceSlot)),runs=rounded(maximum_slots*sizeof(NativeFontRunSlot));
-    auto* session=static_cast<NativeFontSession*>(VirtualAlloc(nullptr,files+faces+instances+runs,MEM_RESERVE,PAGE_READWRITE));if(!session)return false;
+    auto* session=static_cast<NativeFontSession*>(pages_reserve(files+faces+instances+runs));if(!session)return false;
     const usize committed=(initial_owner_bytes+page-1)&~(page-1);
-    if(VirtualAlloc(session,committed,MEM_COMMIT,PAGE_READWRITE)!=session){VirtualFree(session,0,MEM_RELEASE);return false;}
+    if(pages_commit_at(session,committed)!=session){pages_release(session,files+faces+instances+runs);return false;}
     // Fresh commitment is zero initialized, including inactive file records.
     session->references=1;session->store.fonts=&session->fonts;session->run_store.session=session;session->header_committed=committed;
     // These arenas are slices of the owner's reservation. Only the owner frees
@@ -67,7 +73,7 @@ bool native_font_session_retain(NativeFontSession* session) noexcept {if(!sessio
 bool native_font_session_release(NativeFontSession** pointer) noexcept {
     if(!pointer||!*pointer)return false;auto* session=*pointer;
     if(session->references==1){const auto stats=native_font_session_stats(session);if(stats.live.faces||stats.instances)return false;
-        VirtualFree(session,0,MEM_RELEASE);}
+        pages_release(session,static_cast<usize>(session->runs.base-reinterpret_cast<u8*>(session))+session->runs.reserved);}
     else --session->references;*pointer=nullptr;return true;
 }
 NativeFontStore* native_font_session_fonts(NativeFontSession* session) noexcept {return session?&session->fonts:nullptr;}

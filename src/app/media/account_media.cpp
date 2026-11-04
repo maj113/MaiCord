@@ -8,6 +8,7 @@
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/media/image/regional_flag_svg.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -25,14 +26,14 @@ bool collection_text_reserve(CollectionText& text, u32 required) noexcept {
     auto* data = static_cast<char*>(commit_pages(capacity));
     if (!data) return false;
     copy_bytes(data, text.data, text.bytes);
-    if (text.data) VirtualFree(text.data, 0, MEM_RELEASE);
+    if (text.data) pages_release(text.data);
     text.data = data; text.capacity = capacity; return true;
 }
 
 void release_collection(AccountMediaCollection* collection) noexcept {
     if (!collection) return;
-    if (collection->titles.data) VirtualFree(collection->titles.data, 0, MEM_RELEASE);
-    VirtualFree(collection, 0, MEM_RELEASE);
+    if (collection->titles.data) pages_release(collection->titles.data);
+    pages_release(collection);
 }
 
 } // namespace account_media_detail
@@ -350,7 +351,7 @@ bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEnco
         copy_bytes(source.transient_allocation, source.bytes.data, source.bytes.count);
         source.bytes = {static_cast<const u8*>(source.transient_allocation), source.bytes.count};
         if (!encoded_audio_rebind(&source.metadata, source.bytes)) {
-            VirtualFree(source.transient_allocation, 0, MEM_RELEASE);
+            pages_release(source.transient_allocation);
             if (decoded->lease.acquired)
                 encoded_media_cache_release(media->pipeline.cache, &decoded->lease);
             return false;
@@ -389,7 +390,7 @@ template <typename Workspace, typename Bind> bool ensure_workspace(Workspace*& s
     slot = static_cast<Workspace*>(allocation);
     if (bind(slot))
         return true;
-    VirtualFree(allocation, 0, MEM_RELEASE);
+    pages_release(allocation);
     slot = nullptr;
     return false;
 }
@@ -414,12 +415,12 @@ static_assert(is_trivially_default_constructible_v<LossyWebpWorkspace>);
 // reservation, and commit the larger extent only when JPEG first needs it.
 void* allocate_image_workspace(void* existing, usize bytes) noexcept {
     if (existing)
-        return VirtualAlloc(existing, bytes, MEM_COMMIT, PAGE_READWRITE);
+        return pages_commit_at(existing, bytes);
     if (bytes == sizeof(JpegWorkspace))
         return commit_pages(bytes);
-    void* allocation = VirtualAlloc(nullptr, sizeof(JpegWorkspace), MEM_RESERVE, PAGE_READWRITE);
-    if (allocation && !VirtualAlloc(allocation, bytes, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(allocation, 0, MEM_RELEASE);
+    void* allocation = pages_reserve(sizeof(JpegWorkspace));
+    if (allocation && !pages_commit_at(allocation, bytes)) {
+        pages_release(allocation);
         return nullptr;
     }
     return allocation;
@@ -489,7 +490,7 @@ bool ensure_animated_webp_workspace(AccountMedia* media) noexcept {
     media->animated_webp_workspace->grow_frames = grow_animated_webp_frames;
     if (!cdn_media_pipeline_bind_animated_webp_workspace(&media->pipeline,
                                                          media->animated_webp_workspace)) {
-        VirtualFree(allocation, 0, MEM_RELEASE);
+        pages_release(allocation);
         media->animated_webp_workspace = nullptr;
         return false;
     }
@@ -646,15 +647,15 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
     media->pipeline.scanline_storage = replacement;
     media->pipeline.scanline_capacity = capacity;
     if (previous) {
-        VirtualFree(previous, 0, MEM_RELEASE);
+        pages_release(previous);
     } else if (media->allocation) {
         if (media->owns_cache) {
             static_assert((kOwnedAllocationBytes - kScanlineStorageBytes) % 4096u == 0);
             static_assert(kScanlineStorageBytes % 4096u == 0);
             auto* unused =
                 static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
-            VirtualFree(unused, kScanlineStorageBytes, MEM_DECOMMIT);
-        } else if (VirtualFree(media->allocation, 0, MEM_RELEASE)) {
+            pages_decommit(unused, kScanlineStorageBytes);
+        } else if (pages_release(media->allocation)) {
             media->allocation = nullptr;
         }
     }
@@ -665,7 +666,7 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
 u8* base_scanlines(AccountMedia* media) noexcept {
     if (media->owns_cache) {
         auto* base = static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
-        return VirtualAlloc(base, kScanlineStorageBytes, MEM_COMMIT, PAGE_READWRITE) ? base : nullptr;
+        return pages_commit_at(base, kScanlineStorageBytes) ? base : nullptr;
     }
     if (!media->allocation)
         media->allocation = commit_pages(kScanlineStorageBytes);
@@ -697,7 +698,7 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
                 Slice<u16>{page_owners, kAccountMediaCachePageCapacity},
                 Slice<u8>{encoded_storage, kCacheStorageBytes},
                 Slice<u32>{index_buckets, kAccountMediaCacheIndexCapacity})) {
-            VirtualFree(media->allocation, 0, MEM_RELEASE);
+            pages_release(media->allocation);
             SecureZeroMemory(media, sizeof(*media));
             return result(AccountMediaRequestState::failed, AccountMediaError::cache);
         }
@@ -706,7 +707,7 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
     }
     if (!cdn_media_pipeline_initialize(&media->pipeline, cache,
                                        Slice<u8>{scanlines, kScanlineStorageBytes})) {
-        VirtualFree(media->allocation, 0, MEM_RELEASE);
+        pages_release(media->allocation);
         SecureZeroMemory(media, sizeof(*media));
         return result(AccountMediaRequestState::failed, AccountMediaError::cache);
     }
@@ -862,7 +863,7 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
     u8* base = base_scanlines(media);
     if (!base)
         return false;
-    VirtualFree(media->expanded_scanlines, 0, MEM_RELEASE);
+    pages_release(media->expanded_scanlines);
     media->expanded_scanlines = nullptr;
     media->pipeline.scanline_storage = base;
     media->pipeline.scanline_capacity = kScanlineStorageBytes;
@@ -944,7 +945,7 @@ void account_media_release_audio_source(AccountMedia* media) noexcept {
     if (media->audio_source.lease.acquired)
         encoded_media_cache_release(media->pipeline.cache, &media->audio_source.lease);
     if (media->audio_source.transient_allocation)
-        VirtualFree(media->audio_source.transient_allocation, 0, MEM_RELEASE);
+        pages_release(media->audio_source.transient_allocation);
     reset_value(&media->audio_source);
 }
 
@@ -1315,39 +1316,39 @@ bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
     account_media_release_audio_source(media);
     if (media->collection) { release_collection(media->collection); media->collection = nullptr; }
     if (media->allocation) {
-        VirtualFree(media->allocation, 0, MEM_RELEASE);
+        pages_release(media->allocation);
     }
     if (media->lottie_workspace) {
         arena_release(&static_cast<ColrPaintProgram*>(media->lottie_workspace)->storage);
-        VirtualFree(media->lottie_workspace, 0, MEM_RELEASE);
+        pages_release(media->lottie_workspace);
     }
     if (media->expanded_scanlines)
-        VirtualFree(media->expanded_scanlines, 0, MEM_RELEASE);
+        pages_release(media->expanded_scanlines);
     if (media->webp_workspace) {
-        VirtualFree(media->webp_workspace, 0, MEM_RELEASE);
+        pages_release(media->webp_workspace);
     }
     if (media->lossy_webp_workspace) {
-        VirtualFree(media->lossy_webp_workspace, 0, MEM_RELEASE);
+        pages_release(media->lossy_webp_workspace);
     }
     if (media->animated_webp_workspace) {
         arena_release(
             &reinterpret_cast<AccountAnimatedWebpWorkspace*>(media->animated_webp_workspace)->frame_arena);
-        VirtualFree(media->animated_webp_workspace, 0, MEM_RELEASE);
+        pages_release(media->animated_webp_workspace);
     }
     if (media->apng_workspace) {
-        VirtualFree(media->apng_workspace, 0, MEM_RELEASE);
+        pages_release(media->apng_workspace);
     }
     if (media->gif_workspace) {
-        VirtualFree(media->gif_workspace, 0, MEM_RELEASE);
+        pages_release(media->gif_workspace);
     }
     if (media->jpeg_workspace &&
         static_cast<void*>(media->jpeg_workspace) != media->lossy_webp_workspace) {
-        VirtualFree(media->jpeg_workspace, 0, MEM_RELEASE);
+        pages_release(media->jpeg_workspace);
     }
     account_media_release_video(media);
     if (media->provider_resolver) {
         embed_resolver_release(media->provider_resolver);
-        VirtualFree(media->provider_resolver, 0, MEM_RELEASE);
+        pages_release(media->provider_resolver);
     }
     SecureZeroMemory(media, sizeof(*media));
     return true;
@@ -1360,12 +1361,12 @@ void account_media_release_video(AccountMedia* media) noexcept {
         mp4_decoder_release(media->mp4_decoder);
     if (media->progressive) {
         progressive_video_fetch_release(media->progressive);
-        VirtualFree(media->progressive, 0, MEM_RELEASE);
+        pages_release(media->progressive);
         media->progressive = nullptr;
     }
     if (media->progressive_audio) {
         progressive_video_fetch_release(media->progressive_audio);
-        VirtualFree(media->progressive_audio, 0, MEM_RELEASE); media->progressive_audio = nullptr;
+        pages_release(media->progressive_audio); media->progressive_audio = nullptr;
     }
 }
 

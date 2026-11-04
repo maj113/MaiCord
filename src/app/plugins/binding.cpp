@@ -391,8 +391,8 @@ u32 reserve_text(PluginBinding& binding, u32 cursor) noexcept {
 
 void destroy(PluginBinding* binding) noexcept {
     kv_close(&binding->store);
-    if (binding->data) VirtualFree(binding->data, 0, MEM_RELEASE);
-    VirtualFree(binding, 0, MEM_RELEASE);
+    if (binding->data) pages_release(binding->data);
+    pages_release(binding);
 }
 
 bool allocate_data(PluginBinding& binding) noexcept {
@@ -421,7 +421,7 @@ PluginEnableResult enable_failed(PluginEnableError error, PluginLoadResult load 
 using Carry = decltype(PluginRuntime::carry);
 
 void release_carry(PluginRuntime& runtime) noexcept {
-    if (runtime.carry.state) VirtualFree(runtime.carry.state, 0, MEM_RELEASE);
+    if (runtime.carry.state) pages_release(runtime.carry.state);
     runtime.carry = {};
 }
 
@@ -430,7 +430,7 @@ struct CarryHold {
     Carry carry;
     explicit CarryHold(PluginRuntime* runtime) noexcept : carry(runtime->carry) { runtime->carry = {}; }
     ~CarryHold() {
-        if (carry.state) VirtualFree(carry.state, 0, MEM_RELEASE);
+        if (carry.state) pages_release(carry.state);
     }
 };
 
@@ -660,7 +660,7 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     const PluginLoadResult loaded = plugin_image_load(&binding->image, runtime->directory, leaf, approved_permissions, sha256);
     if (!loaded.ok()) {
         // A DLL that could not be freed stays owned by the image, so the record is kept for it.
-        if (!binding->image.module) VirtualFree(binding, 0, MEM_RELEASE);
+        if (!binding->image.module) pages_release(binding);
         return enable_failed(loaded.error == PluginLoadError::release ? PluginEnableError::release
                                                                        : PluginEnableError::load, loaded);
     }
@@ -673,7 +673,7 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     for (u32 i = 0; i < runtime->binding_count; ++i) {
         if (runtime->bindings[i]->owner_id != binding->owner_id) continue;
         const bool freed = plugin_image_unload(&binding->image).ok();
-        if (freed) VirtualFree(binding, 0, MEM_RELEASE);
+        if (freed) pages_release(binding);
         return enable_failed(freed ? PluginEnableError::duplicate_owner : PluginEnableError::release);
     }
     plugin_call_ledger_forget(runtime->ledger, binding->owner_id);

@@ -222,7 +222,7 @@ void free_storage() noexcept {
     if (!form || !form->storage) return;
     for (u32 i = 0; i < MC_SETTING_MAX; ++i)
         if (form->models[i].text) message_composer_release(&form->models[i]);
-    VirtualFree(form->storage, 0, MEM_RELEASE);
+    pages_release(form->storage);
     form->storage = nullptr;
 }
 

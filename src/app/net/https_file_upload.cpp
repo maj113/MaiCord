@@ -212,7 +212,7 @@ void destroy(HttpsFileUpload* upload) noexcept {
     if (upload->runtime) {
         upload_source_release(static_cast<Runtime*>(upload->runtime)->content);
         SecureZeroMemory(upload->runtime, sizeof(Runtime));
-        VirtualFree(upload->runtime, 0, MEM_RELEASE);
+        pages_release(upload->runtime);
     }
     reset_value(upload);
 }

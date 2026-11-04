@@ -29,7 +29,7 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
                    true});
         secure_clear_bytes(body, written.bytes);
     }
-    VirtualFree(body, 0, MEM_RELEASE);
+    pages_release(body);
     return result;
 }
 } // namespace maicord

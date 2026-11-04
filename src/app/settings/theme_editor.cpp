@@ -19,6 +19,7 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationThemeEditor {
@@ -353,7 +354,7 @@ bool application_theme_editor_open() noexcept {
     if (!ui_theme_editor_update(&e->scene, draft, 0, application_viewport_dips(), &style,
                                 g_app.preferences.effect_profiles)) {
         ui_theme_editor_release(&e->scene);
-        VirtualFree(e, 0, MEM_RELEASE);
+        pages_release(e);
         return false;
     }
     e->scene.light_mode = document ? document->base == ClientThemeBase::light
@@ -404,7 +405,7 @@ void application_theme_editor_close(bool save) noexcept {
     renderer_bind_theme_editor_scene(&g_app.renderer, nullptr);
     g_app.theme_editor = nullptr;
     ui_theme_editor_release(&e->scene);
-    VirtualFree(e, 0, MEM_RELEASE);
+    pages_release(e);
     if (restore_owner && g_app.settings && application_settings_active())
         g_app.context_focus = focus;
     else if (g_app.context_focus == editor_focus)
@@ -504,18 +505,18 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
     if (kind != UiInputKind::key_down)
         return kind == UiInputKind::character || kind == UiInputKind::system_key_down ||
                kind == UiInputKind::key_up;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         e->held_key = key;
         application_theme_editor_close(false);
         return true;
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         ui_theme_editor_move_focus(&e->scene, application_shift_down());
         application_request_frame();
         return true;
     }
     const auto element = focused(e->scene);
-    if (key == VK_RETURN || key == VK_SPACE) {
+    if (key == key::enter || key == key::space) {
         if (!repeated) {
             e->held_key = key;
             action(*e, element);
@@ -523,8 +524,8 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
         return true;
     }
     BackgroundTheme next{};
-    if (range(element) && (key == VK_HOME || key == VK_END || key == VK_LEFT || key == VK_RIGHT ||
-                           key == VK_UP || key == VK_DOWN))
+    if (range(element) && (key == key::home || key == key::end || key == key::left || key == key::right ||
+                           key == key::up || key == key::down))
         begin_gesture(*e);
     if (ui_theme_editor_key(&e->scene, element, key, &next)) {
         e->range_key = key;

@@ -16,6 +16,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -252,7 +253,7 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         return true;
     }
     case WM_KEYDOWN:
-        if (wparam == VK_ESCAPE && navigation_drag_dragging(g_drag.drag)) {
+        if (wparam == key::escape && navigation_drag_dragging(g_drag.drag)) {
             application_navigation_drag_cancel();
             return true;
         }

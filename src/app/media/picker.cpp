@@ -5,6 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "../chat/composer/commands.hpp"
 
 namespace maicord::app_detail {
@@ -18,7 +19,7 @@ ApplicationMediaPicker* ensure_owner() noexcept {
     if (!p)
         return nullptr;
     if (!message_composer_initialize(&p->edit, {p->query, sizeof(p->query)})) {
-        VirtualFree(p, 0, MEM_RELEASE);
+        pages_release(p);
         return nullptr;
     }
     p->scope = ++g_app.media_picker_scope_serial;
@@ -46,7 +47,7 @@ void rebind(ApplicationMediaPicker& p) noexcept {
     // The session's category and /gif caches belong to its account.
     if (p.account_id != g_app.account_ui->chat_state.self_user_id) {
         if (p.categories)
-            VirtualFree(p.categories, 0, MEM_RELEASE);
+            pages_release(p.categories);
         p.categories = nullptr;
         inline_cache_clear(p);
     }
@@ -57,7 +58,7 @@ void rebind(ApplicationMediaPicker& p) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, p.channel_id);
     p.guild_id = channel ? channel->guild_id : 0;
     if (p.guild)
-        VirtualFree(p.guild, 0, MEM_RELEASE);
+        pages_release(p.guild);
     p.guild = nullptr;
     p.sticker_guild_done = false;
     p.section_count = p.filtered_count = p.source.count = 0;
@@ -213,30 +214,30 @@ bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
     if (!p || !p->inline_mode)
         return true;
     // Enter before the results arrive waits for them (inline_enter_resume).
-    if (key == VK_RETURN && p->phase == UiMediaPickerPhase::loading && shown(p)) {
+    if (key == key::enter && p->phase == UiMediaPickerPhase::loading && shown(p)) {
         *handled = p->enter_pending = true;
         return true;
     }
     // Results that arrived since the last frame show their scene first.
-    if (key == VK_RETURN && p->phase == UiMediaPickerPhase::ready && p->source.count && shown(p) &&
+    if (key == key::enter && p->phase == UiMediaPickerPhase::ready && p->source.count && shown(p) &&
         !ui_media_picker_scene_current(p->scene) && !application_media_picker_synchronize())
         return false;
     if (!shown(p) || !ui_media_picker_scene_current(p->scene) || p->phase != UiMediaPickerPhase::ready)
         return true;
-    if (key == VK_UP || key == VK_DOWN) {
+    if (key == key::up || key == key::down) {
         *handled = true;
-        ui_media_picker_scene_step_selection(&p->scene, key == VK_UP ? -1 : 1);
+        ui_media_picker_scene_step_selection(&p->scene, key == key::up ? -1 : 1);
         return repaint();
     }
-    if (key != VK_RETURN && key != VK_TAB)
+    if (key != key::enter && key != key::tab)
         return true;
     // Enter sends the selected result, else the hovered one, else the first;
     // Tab inserts a GIF's link and keeps its composer meaning without a selection.
-    const auto target = key == VK_RETURN ? inline_enter_target(*p) : ui_media_picker_scene_selected_target(p->scene);
+    const auto target = key == key::enter ? inline_enter_target(*p) : ui_media_picker_scene_selected_target(p->scene);
     if (target.action != UiMediaPickerAction::item)
         return true;
     *handled = true;
-    return activate(*p, target, key == VK_TAB);
+    return activate(*p, target, key == key::tab);
 }
 Utf8View application_media_picker_inline_message() noexcept {
     const auto* p = g_app.media_picker;
@@ -369,12 +370,12 @@ void application_media_picker_release() noexcept {
     CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs};
     for (auto* bank : banks)
         if (bank)
-            VirtualFree(bank, 0, MEM_RELEASE);
+            pages_release(bank);
     if (p->filtered)
-        VirtualFree(p->filtered, 0, MEM_RELEASE);
+        pages_release(p->filtered);
     if (p->saved_preview_mask)
-        VirtualFree(p->saved_preview_mask, 0, MEM_RELEASE);
-    VirtualFree(p, 0, MEM_RELEASE);
+        pages_release(p->saved_preview_mask);
+    pages_release(p);
     sticker_store_clear();
 }
 void application_media_picker_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
@@ -685,7 +686,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                         operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32,
                         {candidate->items, measured.item_count}, {candidate->text, measured.text_bytes});
                     if (!decoded.ok()) {
-                        VirtualFree(candidate, 0, MEM_RELEASE);
+                        pages_release(candidate);
                         candidate = nullptr;
                     } else {
                         candidate->count = decoded.item_count;
@@ -700,7 +701,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                                 candidate->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
                         if (stickers &&
                             !sticker_previews(candidate, candidate->text + measured.text_bytes, preview_bytes)) {
-                            VirtualFree(candidate, 0, MEM_RELEASE);
+                            pages_release(candidate);
                             candidate = nullptr;
                         } else {
                             candidate->text_bytes = decoded.text_bytes + preview_bytes;
@@ -712,7 +713,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                     }
                 }
             }
-            VirtualFree(scratch, 0, MEM_RELEASE);
+            pages_release(scratch);
         }
     }
     if (candidate) {

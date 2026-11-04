@@ -24,14 +24,13 @@ bool utf8_run_units(SfntShapeStorage storage) noexcept {
     }
     if(call({text,bytes},storage,{1000000,100000,0})!=SfntStatus::resource_limit || result.glyph_count || result.source_units)return failed(__LINE__);
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return failed(__LINE__);DWORD old=0;
-    if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return failed(__LINE__);}
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return failed(__LINE__);if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return failed(__LINE__);}
     const u8 invalid[][4]{{0xc0,0xaf,0,0},{0xed,0xa0,0x80,0},{0xf4,0x90,0x80,0x80},{0xf0,0x9f,0x92,0}};const u32 lengths[]{2,3,4,3};bool ok=true;
-    for(u32 i=0;i<5 && ok;++i){if(!VirtualProtect(memory,page,PAGE_READWRITE,&old)){ok=false;break;}const u32 length=i<4?lengths[i]:bytes;const void* source=i<4?static_cast<const void*>(invalid[i]):static_cast<const void*>(text);
-        copy_bytes(memory+page-length,source,length);if(!VirtualProtect(memory,page,PAGE_READONLY,&old)){ok=false;break;}
+    for(u32 i=0;i<5 && ok;++i){if(!pages_protect(memory, page, PageAccess::read_write)){ok=false;break;}const u32 length=i<4?lengths[i]:bytes;const void* source=i<4?static_cast<const void*>(invalid[i]):static_cast<const void*>(text);
+        copy_bytes(memory+page-length,source,length);if(!pages_protect(memory, page, PageAccess::read)){ok=false;break;}
         const auto status=call({reinterpret_cast<const char*>(memory+page-length),length},storage);
         ok=i<4?(status==SfntStatus::invalid_input && !result.glyph_count && !result.source_units):(status==SfntStatus::ok && result.source_units==3 && result.glyph_count==2);
         ok=ok&&bytes_equal(memory+page-length,source,length);
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }

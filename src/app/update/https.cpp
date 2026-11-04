@@ -81,7 +81,7 @@ E handshake(UpdateHttpsTransport* t) noexcept {
         if (step.produced && !send_all(t, t->token, step.produced)) return socket_failure(t, E::send);
         if (step.consumed) drop(t->encrypted, &t->encrypted_bytes, step.consumed);
         if (step.state == TlsHandshakeState::complete || step.state == TlsHandshakeState::complete_and_send) return E::none;
-        if (step.native_status == SEC_E_INCOMPLETE_MESSAGE || !t->encrypted_bytes) {
+        if (step.native_status == kTlsStatusIncomplete || !t->encrypted_bytes) {
             const int got = receive_more(t);
             if (got <= 0) return got ? socket_failure(t, E::receive) : fail(t, E::receive, 0);
         }

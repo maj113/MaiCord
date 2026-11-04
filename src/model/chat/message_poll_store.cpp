@@ -64,7 +64,7 @@ bool ensure_storage(MessagePollStore& store, u32 required) noexcept {
             !arena_initialize(storage->text_banks, store.text_capacity, 0, 4096)) {
             stable_storage_release(&storage->records);
             arena_release(storage->text_banks);
-            VirtualFree(storage, 0, MEM_RELEASE);
+            pages_release(storage, sizeof(MessagePollOwnedStorage));
             return false;
         }
         store.owned = storage;
@@ -170,7 +170,7 @@ void message_poll_store_release(MessagePollStore* store) noexcept {
         stable_storage_release(&store->owned->records);
         for (auto& bank : store->owned->text_banks)
             arena_release(&bank);
-        VirtualFree(store->owned, 0, MEM_RELEASE);
+        pages_release(store->owned, sizeof(MessagePollOwnedStorage));
     }
     reset_value(store);
 }

@@ -25,7 +25,7 @@ struct P256Result {
         return error == P256Error::none;
     }
 };
-// CNG holds the key material; no borrowed input buffers are kept after import.
+// The system crypto library holds the key material; no borrowed input buffers are kept after import.
 // Zero-initialize before use, use from one worker only, and do not copy. Never overwrite a live key:
 // prepare a separate candidate key and swap it in at the application level.
 struct P256Key {
@@ -37,14 +37,14 @@ void p256_release(P256Key* key) noexcept;
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept;
 P256Result p256_import_public(P256Key* key, P256Kind kind, ConstSlice<u8> public_key) noexcept;
 // Scalar is 32 big-endian bytes in [1,n). The optional public point is
-// 65-byte SEC1 uncompressed and must match the scalar. When omitted, CNG
-// computes it during import; there is no custom scalar arithmetic or lookup table.
+// 65-byte SEC1 uncompressed and must match the scalar. When omitted, the system
+// crypto library computes it during import; there is no custom scalar arithmetic or lookup table.
 P256Result p256_import_private(P256Key* key, P256Kind kind, ConstSlice<u8> scalar,
                                ConstSlice<u8> public_key = {}) noexcept;
 P256Result p256_export_public(const P256Key& key, Slice<u8> output) noexcept;
 P256Result p256_export_private(const P256Key& key, Slice<u8> output) noexcept;
-// Raw shared secret is returned in network big-endian order, not CNG's little
-// endian representation. This is the DH primitive; HPKE's KDF is separate.
+// Raw shared secret is returned in network big-endian order (CNG's raw secret is little
+// endian and is reversed). This is the DH primitive; HPKE's KDF is separate.
 P256Result p256_ecdh(const P256Key& private_key, const P256Key& peer, Slice<u8> output) noexcept;
 // Digest must be 32 bytes (SHA-256). Signature is 64-byte IEEE P1363 r||s,
 // not MLS's DER encoding; the protocol layer does the framing/DER conversion.

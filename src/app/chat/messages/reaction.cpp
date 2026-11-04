@@ -268,7 +268,7 @@ void release_owner() noexcept {
     if (!owner)
         return;
     stable_storage_release(&owner->storage);
-    VirtualFree(owner, 0, MEM_RELEASE);
+    pages_release(owner);
     owner = nullptr;
     reset_value(&g_app.message_reaction);
 }
@@ -284,7 +284,7 @@ bool ensure_owner(MessageReactionActor current) noexcept {
         !message_reaction_controller_initialize(
             &next->controller, {stable_storage_data<MessageReactionIntent>(next->storage), 1}, current)) {
         stable_storage_release(&next->storage);
-        VirtualFree(next, 0, MEM_RELEASE);
+        pages_release(next);
         return false;
     }
     next->resident_channel = g_app.account_ui->active_channel_id;

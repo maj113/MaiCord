@@ -26,13 +26,13 @@ struct Content {
 void CALLBACK cleanup(PTP_CALLBACK_INSTANCE, void* opaque, PTP_WORK work) noexcept {
     auto* source = static_cast<Content*>(opaque);
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (source->owned) VirtualFree(source->owned, 0, MEM_RELEASE);
+    if (source->owned) pages_release(source->owned);
     else if (source->memory) GlobalUnlock(source->medium.hGlobal);
     if (source->medium.tymed) ReleaseStgMedium(&source->medium);
     if (SUCCEEDED(initialized)) CoUninitialize();
     CoDecrementMTAUsage(source->apartment);
     CloseThreadpoolWork(work);
-    VirtualFree(source, 0, MEM_RELEASE);
+    pages_release(source);
 }
 void retain(void* opaque) noexcept { InterlockedIncrement(&static_cast<Content*>(opaque)->references); }
 void release(void* opaque) noexcept {
@@ -113,7 +113,7 @@ Content* content_create(DWORD* error) noexcept {
     content->cleanup = CreateThreadpoolWork(cleanup, content, nullptr);
     if (!content->cleanup || FAILED(CoIncrementMTAUsage(&content->apartment))) {
         if (content->cleanup) CloseThreadpoolWork(content->cleanup);
-        VirtualFree(content, 0, MEM_RELEASE); return nullptr;
+        pages_release(content); return nullptr;
     }
     content->references = 1;
     return content;
@@ -169,7 +169,7 @@ DWORD visit_files(IDataObject* object, u32 maximum, ClipboardAttachmentVisitor v
         if (!units || units >= 32768 || !visitor(context, {path, units}, {}, {})) error = ERROR_INVALID_DATA;
         else ++*count;
     }
-    if (path) VirtualFree(path, 0, MEM_RELEASE);
+    if (path) pages_release(path);
     ReleaseStgMedium(&metadata); return error;
 }
 DWORD visit_virtual_files(IDataObject* object, CLIPFORMAT descriptors, u32 maximum, u64 limit,
@@ -235,7 +235,7 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
             auto* next = commit_pages<u8>(static_cast<SIZE_T>(grown));
             if (!next) { error = ERROR_NOT_ENOUGH_MEMORY; break; }
             copy_bytes(next, buffer, static_cast<u32>(used));
-            VirtualFree(buffer, 0, MEM_RELEASE); buffer = next; capacity = grown;
+            pages_release(buffer); buffer = next; capacity = grown;
         }
         ULONG read = 0;
         const HRESULT result = stream->Read(buffer + used, static_cast<ULONG>(minimum<u64>(capacity - used, 1u << 24)), &read);
@@ -260,7 +260,7 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
                 const u64 committed = (capacity + page - 1) / page * page;
                 // The stream buffer already owns the PNG. Drop unused tail
                 // pages before transfer so retained commitment matches a copy.
-                if (keep < committed && !VirtualFree(buffer + keep, committed - keep, MEM_DECOMMIT)) {
+                if (keep < committed && !pages_decommit(buffer + keep, committed - keep)) {
                     // A failed trim uses the original copy and cleanup path.
                     error = clipboard_paste_png(kind, {buffer, static_cast<u32>(used)}, limit, png);
                 } else {
@@ -269,7 +269,7 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
             }
         }
     }
-    if (buffer) VirtualFree(buffer, 0, MEM_RELEASE);
+    if (buffer) pages_release(buffer);
     return error;
 }
 DWORD image_from_object(IDataObject* object, CLIPFORMAT format, ClipboardPasteKind kind, u64 limit, ClipboardPng* png) noexcept {

@@ -90,6 +90,6 @@ int run() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_unicode_tests_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run()));
+MAICORD_TEST_ENTRY(maicord_unicode_tests_entry) {
+    ::maicord::test_process_exit(static_cast<UINT>(maicord::run()));
 }

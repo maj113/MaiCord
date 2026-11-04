@@ -3,6 +3,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/nominal_participation_fixture.inc"
 u64 font_checks=0,glyph_checks=0,budget_checks=0,guards=0,lazy_built=0,lazy_skipped=0;
@@ -16,8 +18,7 @@ bool boundaries() noexcept {
     const u16 ranges[][3]{{0,0,0},{63,130,1},{511,512,69},{65534,65535,71}};
     for(u32 i=0;i<4;++i)for(u32 j=0;j<3;++j)put(raw,48+i*6+j*2,ranges[i][j]);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;if(page!=4096)return false;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    bool ok=VirtualProtect(memory+page*2,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*4,page,PAGE_NOACCESS,&old)!=0;
+    auto* memory=static_cast<u8*>(pages_allocate(page*6));if(!memory)return false;bool ok=pages_protect(memory+page*2, page, PageAccess::none)!=0 && pages_protect(memory+page*4, page, PageAccess::none)!=0;
     auto* bitmap=reinterpret_cast<u64*>(memory);auto* scratch=reinterpret_cast<u64*>(memory+page*4-16);SfntLayout layout{};SfntNominalParticipationResult result{};
     ok=ok && sfnt_layout_open({raw,sizeof(raw)},SfntLayoutKind::substitution,&layout)==SfntStatus::ok && sfnt_nominal_participation_add(layout,65536,{bitmap,1024},{scratch,2},&result)==SfntStatus::ok;++guards;
     if(ok)for(u32 glyph=0;glyph<65536;++glyph){const bool expected=glyph==0 || (glyph>=63 && glyph<=130) || (glyph>=511 && glyph<=512) || glyph>=65534;if(((bitmap[glyph/64]>>(glyph%64))&1)!=(expected?1u:0u)){ok=false;break;}++glyph_checks;}
@@ -37,12 +38,11 @@ bool boundaries() noexcept {
     u32 random=0x94375b21;for(u32 i=0;i<3000 && ok;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i<=sizeof(raw)?i:random%(sizeof(raw)+1);auto* bytes=memory+page*2-size;copy_bytes(bytes,raw,size);if(i>sizeof(raw) && size)bytes[(random>>8)%size]^=static_cast<u8>(random>>16);
         if(sfnt_layout_open({bytes,size},SfntLayoutKind::substitution,&layout)==SfntStatus::ok){u64 output[1024]{},temp[2048]{};sfnt_nominal_participation_add(layout,65536,{output,1024},{temp,2048},&result,10000);if(result.operations>10000)ok=false;}++guards;
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 bool corpus() noexcept {
     ConstSlice<u8> all{participation_fixture,sizeof(participation_fixture)};if(all.count<12 || !bytes_equal(all.data,"MCNOM01\0",8))return false;const u32 count=byte_load_le32(all.data+8);u32 at=12;
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    bool ok=VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*5,page,PAGE_NOACCESS,&old)!=0;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*6));if(!memory)return false;bool ok=pages_protect(memory+page, page, PageAccess::none)!=0 && pages_protect(memory+page*3, page, PageAccess::none)!=0 && pages_protect(memory+page*5, page, PageAccess::none)!=0;
     for(u32 i=0;i<count && ok;++i){if(all.count-at<20){ok=false;break;}const u32 size=byte_load_le32(all.data+at),kind=byte_load_le32(all.data+at+4),limit=byte_load_le32(all.data+at+8);u64 expected=0;copy_bytes(&expected,all.data+at+12,8);at+=20;if(size>all.count-at || kind>1 || !limit || limit>64){ok=false;break;}
         SfntFace face{};SfntLayout layout{};ConstSlice<u8> table{};ok=sfnt_open({all.data+at,size},0,&face)==SfntStatus::ok && sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&table)==SfntStatus::ok && sfnt_layout_open(table,static_cast<SfntLayoutKind>(kind),&layout)==SfntStatus::ok;at+=size;if(!ok)break;
         const u32 words=(layout.feature_count+63u)/64+(layout.lookup_count+63u)/64;auto* bitmap=reinterpret_cast<u64*>(memory+page-8);auto* scratch=reinterpret_cast<u64*>(memory+page*3-words*8);auto* sources=reinterpret_cast<u64*>(memory+page*5-8);*bitmap=0;SfntNominalParticipationResult result{};
@@ -75,7 +75,7 @@ bool corpus() noexcept {
         *bitmap=retained;ok=ok && sfnt_nominal_participation_add(layout,limit,{bitmap,1},{scratch,words-1},&result)==SfntStatus::output_too_small && *bitmap==retained;
         ok=ok && sfnt_nominal_participation_add(layout,limit,{bitmap,0},{scratch,words},&result)==SfntStatus::output_too_small && *bitmap==retained;
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok && at==all.count && lazy_built && lazy_skipped;
+    pages_release(memory);return ok && at==all.count && lazy_built && lazy_skipped;
 }
 int font_bitmap(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger len{};
@@ -95,4 +95,4 @@ int run() noexcept {
     const bool boundary_ok=boundaries();if(!boundary_ok)print(utf8_literal("FAIL participation boundaries\n"));const bool ok=boundary_ok && corpus();print(utf8_literal("fonts="));number(font_checks);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nlazy_built="));number(lazy_built);print(utf8_literal("\nlazy_skipped="));number(lazy_skipped);print(ok?utf8_literal("\nPASS native nominal participation\n"):utf8_literal("\nFAIL native nominal participation\n"));return ok?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_nominal_participation_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_nominal_participation_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

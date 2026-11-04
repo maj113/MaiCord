@@ -3,9 +3,7 @@
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/media/account_video_playback.hpp"
 #include "maicord/core/win32_records.hpp"
-
-struct ID3D11DeviceContext4;
-struct ID3D11Fence;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -43,7 +41,7 @@ enum class AccountMediaWorkerPhase : u8 {
 };
 
 struct AccountMediaWorkItem {
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
     MediaAssetKey key;
     u64 monotonic_now_ms;
     u64 unix_now_seconds;
@@ -89,8 +87,8 @@ struct AccountMediaWorkerLane {
     // The UI holds this lock through fence registration. The worker takes
     // cleanup ownership only after the registration call returns.
     SrwLock poster_lock;
-    ID3D11DeviceContext4* poster_context;
-    ID3D11Fence* poster_fence;
+    GpuContext4* poster_context;
+    GpuFence* poster_fence;
     volatile LONG phase;
     u32 thread_id;
     u32 index;
@@ -136,7 +134,7 @@ struct AccountMediaWorker {
     u64 next_lease_serial;
     u32 poster_present_mask;
     volatile LONG poster_admission_waiter;
-    ID3D11Device* poster_disabled_device;
+    GpuDevice* poster_disabled_device;
     bool initialized;
     u8 reserved[3];
     // Clock tick (low 32 bits) at which stop_event was last seen clear; see account_media_worker_stop_requested.

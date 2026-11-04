@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 struct ArabicMaskCase {ConstSlice<u8> gsub,gdef;ConstSlice<u32> scalars;ConstSlice<u16> expected;u8 mask;};
@@ -39,4 +40,4 @@ bool vectors() noexcept {
 }
 int run() noexcept {if(!vectors())return 1;print(utf8_literal("PASS native Arabic form eligibility and GSUB execution\n"));return 0;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_arabic_mask_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_arabic_mask_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

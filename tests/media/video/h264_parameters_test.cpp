@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "../../../src/media/video/h264_bits.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 int h264_state_tests() noexcept;
@@ -149,10 +151,9 @@ int slice_tests() noexcept {
     H264Slice wanted{};
     wanted.pps_id = 7; wanted.frame_num = 3; wanted.poc_lsb = 6; wanted.delta_bottom = -2;
     wanted.delta_poc0 = -3; wanted.delta_poc1 = 2; wanted.all_same_type = true;
-    auto* pages = static_cast<u8*>(VirtualAlloc(nullptr, 8'192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* pages = static_cast<u8*>(pages_allocate(8'192));
     if (!pages) return 30;
-    DWORD old = 0;
-    if (!VirtualProtect(pages + 4'096, 4'096, PAGE_NOACCESS, &old)) { VirtualFree(pages, 0, MEM_RELEASE); return 31; }
+    if (!pages_protect(pages + 4'096, 4'096, PageAccess::none)) { pages_release(pages); return 31; }
     bool ok = true;
     for (u32 mode = 0; mode < 72; ++mode) {
         wanted.type = static_cast<H264SliceType>(mode % 3);
@@ -193,7 +194,7 @@ int slice_tests() noexcept {
             else ok = ok && result.marking_count <= 32 && result.references_l0 <= 16 && result.references_l1 <= 16;
         }
     }
-    VirtualFree(pages, 0, MEM_RELEASE);
+    pages_release(pages);
     if (!ok) return 32;
     wanted = {}; wanted.type = H264SliceType::i; wanted.reference = 3; wanted.idr = true;
     wanted.idr_id = 65'535; wanted.discard_prior = true; wanted.long_term = true;
@@ -326,10 +327,9 @@ int configuration_tests() noexcept {
     avcc[count++] = static_cast<u8>(picture.count >> 8u);
     avcc[count++] = static_cast<u8>(picture.count);
     copy_bytes(avcc + count, picture.bytes, picture.count); count += picture.count;
-    auto* pages = static_cast<u8*>(VirtualAlloc(nullptr, 8'192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* pages = static_cast<u8*>(pages_allocate(8'192));
     if (!pages) return 37;
-    DWORD old = 0;
-    if (!VirtualProtect(pages + 4'096, 4'096, PAGE_NOACCESS, &old)) { VirtualFree(pages, 0, MEM_RELEASE); return 37; }
+    if (!pages_protect(pages + 4'096, 4'096, PageAccess::none)) { pages_release(pages); return 37; }
     bool ok = true;
     for (u32 bytes = 0; bytes <= count; ++bytes) {
         u8* input = pages + 4'096 - bytes; copy_bytes(input, avcc, bytes);
@@ -342,7 +342,7 @@ int configuration_tests() noexcept {
         else ok = ok && error != H264Error::none && bytes_equal(&sps, &saved_sps, sizeof(sps)) &&
             bytes_equal(&pps, &saved_pps, sizeof(pps));
     }
-    VirtualFree(pages, 0, MEM_RELEASE);
+    pages_release(pages);
     if (!ok) return 38;
     H264Sps sps{}; H264Pps pps{};
     if (h264_select_parameters({avcc, count}, 8, &sps, &pps) != H264Error::malformed) return 39;
@@ -482,10 +482,9 @@ int run() noexcept {
     // Every truncated SPS/PPS leaves caller state unchanged, with the source
     // ending directly at an inaccessible page (no implicit decoder padding).
     make_pps(&pps_nal, true, true);
-    auto* pages = static_cast<u8*>(VirtualAlloc(nullptr, 8'192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* pages = static_cast<u8*>(pages_allocate(8'192));
     if (!pages) return 16;
-    DWORD old = 0;
-    if (!VirtualProtect(pages + 4'096, 4'096, PAGE_NOACCESS, &old)) { VirtualFree(pages, 0, MEM_RELEASE); return 17; }
+    if (!pages_protect(pages + 4'096, 4'096, PageAccess::none)) { pages_release(pages); return 17; }
     bool guarded_ok = true;
     const H264Sps saved = sps;
     for (u32 count = 0; count < nal.count; ++count) {
@@ -526,7 +525,7 @@ int run() noexcept {
         } else guarded_ok = guarded_ok && bytes_equal(&saved_pps, &result, sizeof(result));
         if (i == pps_nal.count * 8u) guarded_ok = guarded_ok && error == H264Error::none;
     }
-    VirtualFree(pages, 0, MEM_RELEASE);
+    pages_release(pages);
     if (!guarded_ok) return 18;
     make_sps(&nal, false, false, false, 0, false, true, 5, 4);
     if (h264_parse_sps(nal.view(), &sps) != H264Error::malformed) return 19;
@@ -560,7 +559,7 @@ int run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_h264_tests_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_h264_tests_entry) {
     int status = maicord::run();
     if (!status) status = maicord::slice_tests();
     if (!status) status = maicord::configuration_tests();
@@ -575,5 +574,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_h264_tests_entry() noexcept 
         DWORD written = 0;
         WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, sizeof(text) - 1, &written, nullptr);
     }
-    ExitProcess(static_cast<UINT>(status));
+    ::maicord::test_process_exit(static_cast<UINT>(status));
 }

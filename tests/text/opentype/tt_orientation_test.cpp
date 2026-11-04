@@ -1,6 +1,7 @@
 #include "maicord/text/opentype/tt_orientation.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/orientation_fixture.inc"
 // Points sit at marked[2..n+2) between sentinels; ends are absolute indices there.
@@ -36,4 +37,4 @@ bool invalid() noexcept {
 }
 int run() noexcept {return corpus()?(invalid()?0:2):1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_tt_orientation_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_tt_orientation_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

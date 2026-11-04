@@ -164,7 +164,7 @@ struct AccountMediaUrlRequest {
     u16 proxy_width;
     u16 proxy_height;
     CdnImageType image_type;
-    ID3D11Device* video_device;
+    GpuDevice* video_device;
     u64 catalog_scope;
     u32 catalog_generation;
     bool progressive = false;

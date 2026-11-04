@@ -6,6 +6,7 @@
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "account_access.hpp"
 
 namespace maicord::app_detail {
@@ -170,7 +171,7 @@ namespace {
 void release_uri(Picked& picked) noexcept {
     if (picked.uri) {
         SecureZeroMemory(picked.uri, picked.uri_bytes);
-        VirtualFree(picked.uri, 0, MEM_RELEASE);
+        pages_release(picked.uri);
     }
     picked.uri = nullptr;
     picked.uri_bytes = 0;
@@ -196,7 +197,7 @@ void release_picked(Picked& picked) noexcept {
     release_uri(picked);
     if (picked.data) {
         SecureZeroMemory(picked.data, picked.bytes);
-        VirtualFree(picked.data, 0, MEM_RELEASE);
+        pages_release(picked.data);
     }
     // Paths are long; clear only the header fields and the used path prefix.
     clear_bytes(picked.path, picked.path_units * static_cast<u32>(sizeof(wchar_t)));

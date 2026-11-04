@@ -15,7 +15,7 @@ constexpr usize align_up(usize value, usize alignment) noexcept {
 }
 void release(void* block) noexcept {
     if (block)
-        VirtualFree(block, 0, MEM_RELEASE);
+        pages_release(block);
 }
 SoundboardClip* allocate_clip(u64 sound_id, u32 frames) noexcept {
     if (!frames || frames > kSoundboardClipMaximumFrames)
@@ -267,7 +267,7 @@ void soundboard_clip_retain(SoundboardClip* clip) noexcept {
 
 void soundboard_clip_release(SoundboardClip* clip) noexcept {
     if (clip && InterlockedDecrement(&clip->references) == 0)
-        VirtualFree(clip, 0, MEM_RELEASE);
+        pages_release(clip);
 }
 
 void soundboard_cache_initialize(SoundboardCache* cache, u32 budget_bytes) noexcept {

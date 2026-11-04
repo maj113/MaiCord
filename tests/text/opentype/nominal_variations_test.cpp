@@ -8,6 +8,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/nominal_variations_fixture.inc"
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool word(u32* v) noexcept {if(bytes.count-at<4)return false;*v=byte_load_le32(bytes.data+at);at+=4;return true;}bool take(u32 n,ConstSlice<u8>* v) noexcept {if(n>bytes.count-at)return false;*v={bytes.data+at,n};at+=n;return true;}};
@@ -49,4 +50,4 @@ bool run_corpus() noexcept {
 }
 int run() noexcept {const bool ok=run_corpus();print(utf8_literal("cases="));number(cases);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nplacement_checks="));number(placement_checks);print(utf8_literal("\nlayout_checks="));number(layout_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(ok?utf8_literal("\nPASS native nominal variations\n"):utf8_literal("\nFAIL native nominal variations\n"));return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_nominal_variations_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_nominal_variations_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

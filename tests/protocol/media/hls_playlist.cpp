@@ -257,6 +257,6 @@ void relative_uris() noexcept {
 }
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_hls_playlist_entry() noexcept {
-    maicord::run(); maicord::master(); maicord::sliding(); maicord::relative_uris(); ExitProcess(maicord::failures ? 1 : 0);
+MAICORD_TEST_ENTRY(maicord_hls_playlist_entry) {
+    maicord::run(); maicord::master(); maicord::sliding(); maicord::relative_uris(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

@@ -23,6 +23,7 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -313,7 +314,7 @@ bool application_guild_card_window_message(UINT message, WPARAM wparam, LPARAM l
     auto& c = *g_card;
     switch (message) {
     case WM_KEYDOWN:
-        if (wparam != VK_ESCAPE)
+        if (wparam != key::escape)
             return false;
         application_guild_card_close();
         return true;
@@ -497,7 +498,7 @@ void application_guild_card_release() noexcept {
         return;
     if (g_app.renderer.guild_card_scene == &g_card->scene)
         g_app.renderer.guild_card_scene = nullptr;
-    VirtualFree(g_card, 0, MEM_RELEASE);
+    pages_release(g_card);
     g_card = nullptr;
 }
 } // namespace maicord::app_detail

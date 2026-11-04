@@ -69,8 +69,8 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
 bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;
     if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(commit_pages(sizeof(NativeGlyphOutlines)));if(!o)return false;
-        if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){VirtualFree(o,0,MEM_RELEASE);return false;}
-        if(!native_font_session_retain(fonts)){arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);return false;}
+        if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){pages_release(o);return false;}
+        if(!native_font_session_retain(fonts)){arena_release(&o->scratch);pages_release(o);return false;}
         o->fonts=fonts;*pointer=o;}
     auto& o=**pointer;if(fonts!=o.fonts)return false;const u32 index=face_id-1;if(!o.bindings[index].slot&&!bind(o,index,run))return false;
     return true;
@@ -119,7 +119,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
         auto* color=static_cast<NativeColorState*>(commit_pages(sizeof(NativeColorState)));
         if(!color)return failed(o,21,GetLastError());
         if(!arena_initialize(&color->scalars,1024*1024,0,4096)||!arena_initialize(&color->stops,2*1024*1024,0,4096)){
-            arena_release(&color->scalars);arena_release(&color->stops);VirtualFree(color,0,MEM_RELEASE);return failed(o,22,0);}
+            arena_release(&color->scalars);arena_release(&color->stops);pages_release(color);return failed(o,22,0);}
         o.color=color;
     }
     auto& c=*o.color;const auto& geometry=*instance->geometry.font;
@@ -175,10 +175,10 @@ void native_glyph_outlines_release(NativeGlyphOutlines** pointer) noexcept {
     if(!pointer||!*pointer)return;auto* o=*pointer;
     log_u64(LogLevel::info,"render","native_outline_decodes",o->decodes);log_u64(LogLevel::info,"render","native_outline_failures",o->failures);
     if(o->color){auto* c=o->color;log_u64(LogLevel::info,"render","native_colr_builds",c->builds);
-        if(c->outlines)VirtualFree(c->outlines,0,MEM_RELEASE);
-        arena_release(&c->scalars);arena_release(&c->stops);VirtualFree(c,0,MEM_RELEASE);}
+        if(c->outlines)pages_release(c->outlines);
+        arena_release(&c->scalars);arena_release(&c->stops);pages_release(c);}
     for(auto h:o->bindings)if(h.slot)native_font_instance_release(native_font_session_instances(o->fonts),h);
     if(!native_font_session_release(&o->fonts))log_write(LogLevel::error,"render","native_outline_session_has_live_handles");
-    arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);*pointer=nullptr;
+    arena_release(&o->scratch);pages_release(o);*pointer=nullptr;
 }
 } // namespace maicord

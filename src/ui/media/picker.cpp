@@ -4,6 +4,7 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/sys/simd.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -154,9 +155,9 @@ void ui_media_picker_scene_release(UiMediaPickerScene* scene) noexcept {
     ui_media_picker_scene_close(scene);
     ui_fixed_widget_storage_release(&scene->storage);
     if (scene->tiles)
-        VirtualFree(scene->tiles, 0, MEM_RELEASE);
+        pages_release(scene->tiles);
     if (scene->prior)
-        VirtualFree(scene->prior, 0, MEM_RELEASE);
+        pages_release(scene->prior);
     // Generations keep counting so stale targets from before stay fenced.
     const u32 generation = scene->generation;
     reset_value(scene);

@@ -1,6 +1,8 @@
 #include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/gpos_attachment_fixture.inc"
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
@@ -121,7 +123,7 @@ bool units_guards() noexcept {
     SfntGposAttachment pair_storage[2];SfntGposExecutableLookup pair{};
     if(gpos_prepare_one(layout,8,{},5,{},{pair_storage,2},&pair)!=SfntStatus::ok || pair.tables.attachment.count!=2 || pair.filter.flags!=1)return false;
     if(gpos_prepare_one(layout,8,{},5,{},{pair_storage,1},&pair)!=SfntStatus::output_too_small || pair.type)return false;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     u32 random=0x879bad32;bool ok=true;
     for(u32 i=0;i<10000;++i){const auto original=originals[i%4];if(original.count>page){ok=false;break;}random^=random<<13;random^=random>>17;random^=random<<5;const u32 length=i<4?original.count:random%(original.count+1);u8* data=mem+page-length;copy_bytes(data,original.data,length);if(i>=4 && length)data[(random>>8)%length]^=static_cast<u8>(random>>16);
         SfntGposAttachment sub{};auto status=sfnt_gpos_attachment_open({data,length},types[i%4],5,&sub,1000);observations=observations+static_cast<u32>(status)+1;
@@ -135,7 +137,7 @@ bool units_guards() noexcept {
                     if(a.table.data){SfntAnchorValue v{};status=sfnt_anchor_read(a,&v);observations=observations+static_cast<u32>(status)+static_cast<u16>(v.x);}}}
         }
     }
-    VirtualFree(mem,0,MEM_RELEASE);return ok;
+    pages_release(mem);return ok;
 }
 bool file_corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
@@ -149,4 +151,4 @@ int run() noexcept {
     print(utf8_literal("glyph_queries="));number(glyph_queries);print(utf8_literal("\nanchor_checks="));number(anchor_checks);print(utf8_literal("\nnull_anchors="));number(null_anchors);print(utf8_literal("\ndevice_samples="));number(device_samples);print(utf8_literal("\ntarget_rows="));number(target_rows);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_observations="));number(observations);print(utf8_literal("\n"));print(ok?utf8_literal("PASS native GPOS attachment data\n"):utf8_literal("FAIL native GPOS attachment data\n"));return ok?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gpos_attachment_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gpos_attachment_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

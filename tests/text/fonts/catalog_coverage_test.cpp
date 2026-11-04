@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
 u32 checks=0;bool cleanup_ok=true;
@@ -117,8 +118,8 @@ bool run() noexcept {
     CHECK(native_font_coverage_release(&cache));return true;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_catalog_coverage_entry() noexcept {using namespace maicord;
+MAICORD_TEST_ENTRY(maicord_font_catalog_coverage_entry) {using namespace maicord;
     DWORD before=0,after=0;const bool got=GetProcessHandleCount(GetCurrentProcess(),&before)!=0;bool okay=run();
     okay=GetProcessHandleCount(GetCurrentProcess(),&after)&&got&&before==after&&cleanup_ok&&okay;
-    print(okay?"PASS native catalog coverage checks=":"FAIL native catalog coverage checks=");number(checks);print("\n");ExitProcess(okay?0:1);
+    print(okay?"PASS native catalog coverage checks=":"FAIL native catalog coverage checks=");number(checks);print("\n");::maicord::test_process_exit(okay?0:1);
 }

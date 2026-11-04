@@ -4,6 +4,7 @@
 #include "maicord/media/compression/zstd.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -362,10 +363,9 @@ bool malformed_input() noexcept {
 }
 
 bool run() noexcept {
-    guarded = static_cast<u8*>(VirtualAlloc(nullptr, kGuardedBytes + kPage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    storage = static_cast<u8*>(VirtualAlloc(nullptr, kStorageReserve, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    DWORD old = 0;
-    CHECK(guarded && storage && VirtualProtect(guarded + kGuardedBytes, kPage, PAGE_NOACCESS, &old));
+    guarded = static_cast<u8*>(pages_allocate(kGuardedBytes + kPage));
+    storage = static_cast<u8*>(pages_allocate(kStorageReserve));
+    CHECK(guarded && storage && pages_protect(guarded + kGuardedBytes, kPage, PageAccess::none));
     CHECK(reference_streams());
     CHECK(handmade_blocks());
     CHECK(malformed_input());
@@ -375,11 +375,11 @@ bool run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_zstd_stream_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_zstd_stream_entry) {
     using namespace maicord;
     const bool ok = run();
     test_write_text("checks=");
     test_write_u64(checks);
     test_write_text(ok ? " PASS zstd-stream decoding\n" : " FAIL zstd-stream decoding\n");
-    ExitProcess(ok ? 0 : 1);
+    ::maicord::test_process_exit(ok ? 0 : 1);
 }

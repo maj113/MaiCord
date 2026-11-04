@@ -192,7 +192,7 @@ void shaped_text_cache_destroy(ShapedTextCache** cache) noexcept {
     if (!cache || !*cache)
         return;
     shaped_text_cache_clear(*cache);
-    VirtualFree(*cache, 0, MEM_RELEASE);
+    pages_release(*cache);
     *cache = nullptr;
 }
 

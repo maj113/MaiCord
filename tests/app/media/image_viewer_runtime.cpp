@@ -10,6 +10,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord::image_viewer_runtime_test {
@@ -410,20 +411,20 @@ void run() noexcept {
             !application_image_viewer_key_current(media_asset_attachment(902, MediaAttachmentFormat::png, MediaResolutionTier::px2048)),
             "Search viewer prefetches only its bounded neighbour with exact content scope");
         activate(ui_image_viewer_zoom_in);
-        application_image_viewer_message(WM_KEYDOWN, VK_RIGHT, 0);
+        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
         check(viewer.item_index == 0 && viewer.scene.zoom > 1,
             "Search viewer arrows pan a zoomed image instead of browsing");
         activate(ui_image_viewer_fit);
-        application_image_viewer_message(WM_KEYDOWN, VK_RIGHT, 0);
+        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
         check(viewer.item_index == 1 && application_image_viewer_synchronize() && !viewer.attachment_id &&
             !viewer.scene.can_save && viewer.scene.zoom == 1 && viewer.scene.pixels.width == 320 &&
             viewer.scene.pixels.height == 240 && media_asset_key_equal(viewer.key, viewer.items[1].key) &&
             ui_rect_has_area(ui_image_viewer_button(viewer.scene, ui_image_viewer_previous)),
             "Search viewer Right browses to embed media with its own size, reset zoom and no attachment Save");
-        application_image_viewer_message(WM_KEYDOWN, VK_RIGHT, 0);
+        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
         check(viewer.item_index == 0 && viewer.attachment_id == 901 && application_image_viewer_synchronize() &&
             viewer.scene.can_save, "Search viewer Right wraps to the first item and restores its Save authority");
-        application_image_viewer_message(WM_KEYDOWN, VK_LEFT, 0);
+        application_image_viewer_message(WM_KEYDOWN, key::left, 0);
         check(viewer.item_index == 1, "Search viewer Left wraps backwards");
         activate(ui_image_viewer_previous);
         check(viewer.item_index == 0 && viewer.attachment_id == 901, "Search viewer chevrons browse the gallery");
@@ -466,9 +467,9 @@ void run() noexcept {
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
         "Search viewer keyboard-retirement fixture opens");
     ui_widget_manager_focus(&g_app.image_viewer.scene.widgets, g_app.image_viewer.scene.buttons[4]);
-    application_image_viewer_message(WM_KEYDOWN, VK_SPACE, 0); panel = false;
-    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && g_app.image_viewer.held_key == VK_SPACE &&
-        application_image_viewer_message(WM_CHAR, VK_SPACE, 0) && application_image_viewer_message(WM_KEYUP, VK_SPACE, 0) &&
+    application_image_viewer_message(WM_KEYDOWN, key::space, 0); panel = false;
+    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && g_app.image_viewer.held_key == key::space &&
+        application_image_viewer_message(WM_CHAR, key::space, 0) && application_image_viewer_message(WM_KEYUP, key::space, 0) &&
         !g_app.image_viewer.held_key && saves == before_embed,
         "Search viewer cancelled Space press consumes closing text and key tails without activating Save");
     for (u32 fence = 0; fence < 5; ++fence) {
@@ -629,7 +630,7 @@ void run() noexcept {
     {
         BYTE saved_keys[256]{}, ctrl_keys[256]{};
         const bool keys_saved = GetKeyboardState(saved_keys) != FALSE;
-        ctrl_keys[VK_CONTROL] = ctrl_keys[VK_LCONTROL] = 0x80;
+        ctrl_keys[key::ctrl] = ctrl_keys[key::left_ctrl] = 0x80;
         UiPoint over{};
         auto& chat_zoom = g_app.image_zoom;
         g_app.preferences.image_zoom = true;

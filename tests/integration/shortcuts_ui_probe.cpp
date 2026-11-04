@@ -5,6 +5,7 @@
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
@@ -81,7 +82,7 @@ u32 project_page(bool draft) noexcept {
     add({0, utf8_literal("Custom keybinds"),
          utf8_literal("Voice keybinds also work while MaiCord is in the background during a call."),
          UiSettingsControlKind::category, true});
-    chord_chip(n, 0, {VK_F8, 0});
+    chord_chip(n, 0, {key::f8, 0});
     add({0, kActions[0], {}, UiSettingsControlKind::action, true, false, {page.chip_views[n], 1}, 0, utf8_literal("Delete")},
         UiSettingsVariant::critical);
     chord_chip(n, 0, {'M', shortcut_ctrl | shortcut_alt});

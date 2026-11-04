@@ -7,6 +7,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 
@@ -175,7 +176,7 @@ bool thread_browser_ui_adapter_key(u32 code, bool shift, bool repeated) noexcept
     if (!browser_adapter) return false;
     BYTE prior[256]{}, keys[256]{};
     if (!GetKeyboardState(prior)) return false;
-    keys[VK_SHIFT] = shift ? 0x80 : 0;
+    keys[key::shift] = shift ? 0x80 : 0;
     if (!SetKeyboardState(keys)) return false;
     const bool accepted = application_thread_browser_input(UiInputKind::key_down, code, repeated);
     application_thread_browser_input(UiInputKind::key_up, code, false);

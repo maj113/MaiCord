@@ -55,7 +55,7 @@ void application_dev_console_enable(bool on) noexcept {
     if (g.enabled == on) return;
     g.enabled = on;
     if (!on) {
-        if (g.lines) VirtualFree(g.lines, 0, MEM_RELEASE);
+        if (g.lines) pages_release(g.lines);
         g = {};
     }
     ++g.revision;

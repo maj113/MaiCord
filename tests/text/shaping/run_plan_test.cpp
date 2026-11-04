@@ -11,6 +11,8 @@
 #include "../../../src/text/shaping/script_paragraph.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/lookup_plan_fixture.inc"
 #include "../../generated/font_metrics_fixture.inc"
@@ -113,12 +115,12 @@ bool ascii_shared_case(NativeRunPlanHandle handle,Utf8View text,bool independent
 bool ascii_shared_guards(NativeRunPlanHandle handle) noexcept {
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
     const u32 record_bytes=sizeof(ascii_buffers.records),rounded=(record_bytes+page-1)/page*page;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,rounded+page*3,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup {u8* memory;~Cleanup() noexcept {VirtualFree(memory,0,MEM_RELEASE);}} cleanup{memory};
-    DWORD old=0;CHECK(VirtualProtect(memory+rounded,page,PAGE_NOACCESS,&old));
-    CHECK(VirtualProtect(memory+rounded+page*2,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(rounded+page*3));CHECK(memory);
+    struct Cleanup {u8* memory;~Cleanup() noexcept {pages_release(memory);}} cleanup{memory};
+    CHECK(pages_protect(memory+rounded, page, PageAccess::none));
+    CHECK(pages_protect(memory+rounded+page*2, page, PageAccess::none));
     auto* input=reinterpret_cast<char*>(memory+rounded+page*2-256);for(u32 i=0;i<256;++i)input[i]='a';
-    CHECK(VirtualProtect(memory+rounded+page,page,PAGE_READONLY,&old));
+    CHECK(pages_protect(memory+rounded+page, page, PageAccess::read));
     auto shared=ascii_buffers.shared();shared.shaping.glyphs={reinterpret_cast<SfntComponentGlyph*>(memory+rounded-record_bytes),1024};
     shared.glyphs={reinterpret_cast<u16*>(shared.shaping.glyphs.data),1024};
     const u32 lengths[]{7,9,65,256};
@@ -206,9 +208,9 @@ bool metric_corpus() noexcept {
 }
 bool metric_guards() noexcept {
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup {u8* memory;~Cleanup() noexcept {VirtualFree(memory,0,MEM_RELEASE);}} cleanup{memory};
-    DWORD old=0;CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));CHECK(memory);
+    struct Cleanup {u8* memory;~Cleanup() noexcept {pages_release(memory);}} cleanup{memory};
+    CHECK(pages_protect(memory+page, page, PageAccess::none));
     for(u32 table=0;table<2;++table){const u32 needed=table?12:78;
         for(u32 length=0;length<=needed;++length){u8 directory[32]{};
             byte_store_be32(directory,sfnt_tag('O','S','/','2'));byte_store_be32(directory+16,sfnt_tag('p','o','s','t'));
@@ -267,12 +269,12 @@ bool run() noexcept {
     wchar_t folder[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));return corpus()&&metric_corpus()&&metric_guards()&&line_corpus()&&lookup_bound_guards()&&paragraph_cases()&&ordered_paragraph_cases()&&latin_boundary_cases()&&styled_paragraph_cases();
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_run_plan_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_run_plan_entry) {
     using namespace maicord;bool ok=run();
     for(u32 i=0;i<2;++i)while(plans[i].references)native_run_plan_release(&store,{i+1,plans[i].generation});
     for(u32 i=0;i<2;++i)while(instances[i].references)native_font_instance_release(&instance_store,{i+1,instances[i].generation});
     for(u32 i=0;i<2;++i)while(faces[i].references)native_font_release(&font_store,{i+1,faces[i].generation});
     arena_release(&scratch);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
     print("fonts=");number(fonts);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\nstate_bytes_sum=");number(state_bytes);print("\nslot_bytes=");number(sizeof(NativeRunPlanSlot));
-    print(ok?"\nPASS native run plans\n":"\nFAIL native run plans\n");flush();ExitProcess(ok&&print_ok?0:1);
+    print(ok?"\nPASS native run plans\n":"\nFAIL native run plans\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);
 }

@@ -47,9 +47,9 @@ bool gvar_horizontal_prefix_cases() noexcept {
         {{bad_point,3},true,SfntStatus::malformed,0},{{right,3},true,SfntStatus::truncated,0},
         {{right,5},true,SfntStatus::ok,630},{{duplicate,7},true,SfntStatus::ok,630}};
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;
-    struct Release {void* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{memory};
-    DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old))return false;
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;
+    struct Release {void* p;~Release() noexcept {pages_release(p);}} release{memory};
+    if(!pages_protect(memory+page, page, PageAccess::none))return false;
     const u8 loca[4]{},metrics[]{2,88,0,0};SfntTrueType font{};
     font.loca={loca,4};font.loca_stride=2;font.metrics.table={metrics,4};font.metrics.glyph_count=font.metrics.long_metrics=1;
     for(u32 i=0;i<sizeof(cases)/sizeof(*cases);++i){const auto& test=cases[i];const u32 size=38+test.data.count;

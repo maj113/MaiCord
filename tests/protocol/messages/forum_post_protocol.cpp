@@ -1,8 +1,9 @@
 #include "maicord/protocol/messages/forum_post.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord::forum_post_test {
 u32 failures;
@@ -101,15 +102,14 @@ void run_media() noexcept {
     ForumPostRequest create{10,   40, utf8_literal("Files"),      {}, {100},
                             1440, 1,  ForumPostOperation::create, {}};
     create.attachments = {files, 2};
-    auto* body = static_cast<u8*>(VirtualAlloc(nullptr, 65536, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* banks = static_cast<ForumPostMediaSnapshot*>(VirtualAlloc(
-        nullptr, sizeof(ForumPostMediaSnapshot) * 3, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* body = static_cast<u8*>(pages_allocate(65536));
+    auto* banks = static_cast<ForumPostMediaSnapshot*>(pages_allocate(sizeof(ForumPostMediaSnapshot) * 3));
     check(body && banks, "forum media: demand-backed fixture banks available");
     if (!body || !banks) {
         if (body)
-            VirtualFree(body, 0, MEM_RELEASE);
+            pages_release(body);
         if (banks)
-            VirtualFree(banks, 0, MEM_RELEASE);
+            pages_release(banks);
         return;
     }
     auto& temporary = banks[0];
@@ -339,9 +339,9 @@ void run_media() noexcept {
               forum_post_selection_valid(parent, {tag, 1}, false),
           "forum media: type16 fresh metadata uses existing tag authority");
     secure_clear_bytes(body, 65536);
-    VirtualFree(body, 0, MEM_RELEASE);
+    pages_release(body);
     secure_clear_bytes(banks, sizeof(ForumPostMediaSnapshot) * 3);
-    VirtualFree(banks, 0, MEM_RELEASE);
+    pages_release(banks);
 }
 void run() noexcept {
     run_media();
@@ -703,7 +703,7 @@ void run() noexcept {
           "forum post: response exceeds immutable 256KiB bound before parse");
 }
 } // namespace maicord::forum_post_test
-extern "C" __declspec(noreturn) void WINAPI maicord_forum_post_protocol_test_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_forum_post_protocol_test_entry) {
     maicord::forum_post_test::run();
-    ExitProcess(maicord::forum_post_test::failures ? 1 : 0);
+    ::maicord::test_process_exit(maicord::forum_post_test::failures ? 1 : 0);
 }

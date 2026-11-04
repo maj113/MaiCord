@@ -4,6 +4,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 namespace maicord {
 inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
@@ -168,11 +169,11 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         !require(thread_creation_ui_adapter_menu() && show(L"thread-creation-menu.bmp"), 3)) return false;
     reply_draft_ui_adapter_close_menu();
     if (!require(thread_creation_ui_adapter_open() && geometry(), 4) ||
-        !require(thread_creation_ui_adapter_input(UiInputKind::key_down, VK_RETURN) &&
+        !require(thread_creation_ui_adapter_input(UiInputKind::key_down, key::enter) &&
             application_thread_creation_view().error && !thread_creation_ui_adapter_submissions() &&
             show(L"thread-creation-empty-validation.bmp"), 5) ||
         !require(type() && show(L"thread-creation-unicode.bmp"), 6) ||
-        !require(thread_creation_ui_adapter_input(UiInputKind::key_down, VK_RETURN) &&
+        !require(thread_creation_ui_adapter_input(UiInputKind::key_down, key::enter) &&
             thread_creation_ui_adapter_submit(81001) && thread_creation_ui_adapter_synchronize(), 7)) return false;
     ThreadCreationRequest flight{}; u64 id{};
     if (!require(thread_creation_ui_adapter_flight(&flight, &id) && id == 81001 &&
@@ -204,7 +205,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
     if (!require(begin() && resize(960, 900, 144) && thread_creation_ui_adapter_open() && type(), 14)) return false;
     context.theme = kLightTheme;
     if (!require(show(L"thread-creation-narrow-light-144.bmp") && geometry() &&
-        thread_creation_ui_adapter_input(UiInputKind::key_down, VK_TAB) && warm(3) &&
+        thread_creation_ui_adapter_input(UiInputKind::key_down, key::tab) && warm(3) &&
         thread_creation_ui_adapter_pointer(TextFormElement::accept) && thread_creation_ui_adapter_submit(81006), 15)) return false;
     const auto success = utf8_literal(R"({"id":"97200","guild_id":"97000","parent_id":"97100","type":11,"name":"Release 日本語 🚀","thread_metadata":{"archived":false,"locked":false,"archive_timestamp":"2026-10-05T12:00:00.000Z","auto_archive_duration":4320},"member":{"id":"97200","user_id":"97005","join_timestamp":"2026-10-05T12:00:00.000Z","flags":0}})");
     if (!require(thread_creation_ui_adapter_response(201, success) && !thread_creation_ui_adapter_form() &&
@@ -215,10 +216,10 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
     for (u8 reason = 0; reason < 4; ++reason) {
         context.ready = false; thread_creation_ui_adapter_end();
         if (!require(begin() && thread_creation_ui_adapter_open() && type() &&
-            thread_creation_ui_adapter_input(UiInputKind::key_down, VK_RETURN) && thread_creation_ui_adapter_submit(82000 + reason), 20 + reason)) return false;
+            thread_creation_ui_adapter_input(UiInputKind::key_down, key::enter) && thread_creation_ui_adapter_submit(82000 + reason), 20 + reason)) return false;
         const auto retired = application_thread_creation_view().ticket;
         if (reason == 1 && !require(thread_creation_ui_adapter_pointer_down(TextFormElement::cancel), 41)) return false;
-        const bool withdrawn = reason == 3 ? thread_creation_ui_adapter_input(UiInputKind::key_down, VK_ESCAPE) :
+        const bool withdrawn = reason == 3 ? thread_creation_ui_adapter_input(UiInputKind::key_down, key::escape) :
             thread_creation_ui_adapter_retire(reason);
         if (!require(withdrawn && !thread_creation_ui_adapter_form() &&
             thread_creation_ui_adapter_cancellations() == 1 && !application_thread_creation_current(retired) &&
@@ -227,7 +228,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             reply_draft_ui_adapter_state()->selected_channel_id == kReplyDraftProbeChannelA, 30 + reason)) return false;
         if (reason == 1 && !require(thread_creation_ui_adapter_open() && thread_creation_ui_adapter_pointer_up() &&
             thread_creation_ui_adapter_form() && thread_creation_ui_adapter_submissions() == 1 &&
-            thread_creation_ui_adapter_input(UiInputKind::key_down, VK_ESCAPE), 42)) return false;
+            thread_creation_ui_adapter_input(UiInputKind::key_down, key::escape), 42)) return false;
     }
     log_write(LogLevel::info, "probe", "thread_creation_actual_host_decoder_form_native_input_exact_receipts_passed");
     log_write(LogLevel::info, "probe", "thread_creation_fixture_boundaries_typed_offline_transport_menu_controller_direct_host_activation_core_navigation_stub");

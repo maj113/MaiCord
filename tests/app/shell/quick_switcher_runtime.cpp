@@ -28,6 +28,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::quick_switcher_runtime_test {
 using namespace app_detail;
@@ -64,9 +65,9 @@ void check(bool value, const char* label) noexcept {
 }
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
     BYTE clean[256]{};
-    clean[VK_CONTROL] = control ? 0x80 : 0;
-    clean[VK_SHIFT] = shift ? 0x80 : 0;
-    clean[VK_MENU] = alt ? 0x80 : 0;
+    clean[key::ctrl] = control ? 0x80 : 0;
+    clean[key::shift] = shift ? 0x80 : 0;
+    clean[key::alt] = alt ? 0x80 : 0;
     check(SetKeyboardState(clean) != FALSE, "Quick runtime: controlled native modifiers");
 }
 bool channel(u64 id, Utf8View name, u8 type = 0, u64 guild = 10) noexcept {
@@ -126,25 +127,25 @@ void picker() noexcept {
           "Picker: new message lists every friend by name with nine places");
     if (!opened)
         return;
-    key(VK_RETURN);
+    key(key::enter);
     check(checked_count() == 1 && scene->content->checked[0] == 4 && scene->content->can_confirm &&
               utf8_equal(scene->content->action, utf8_literal("Create DM")) && application_quick_switcher_active(),
           "Picker: Enter toggles the highlighted friend and keeps the picker open");
-    key(VK_DOWN);
-    key(VK_RETURN);
+    key(key::down);
+    key(key::enter);
     check(checked_count() == 2 && utf8_equal(scene->content->action, utf8_literal("Create group DM")) &&
               utf8_equal(scene->content->status, utf8_literal("2 selected")) &&
               utf8_equal(scene->content->hint, utf8_literal("You can add 7 more friends.")),
           "Picker: a second friend turns the action into a group DM");
-    key(VK_RETURN);
+    key(key::enter);
     check(checked_count() == 1 && utf8_equal(scene->content->action, utf8_literal("Create DM")),
           "Picker: toggling again removes the friend");
     check(query(utf8_literal("bob")) && scene->accepted_count == 1, "Picker: search narrows friends");
-    key(VK_RETURN);
+    key(key::enter);
     check(checked_count() == 2 && !application_quick_switcher_edit_model()->bytes && scene->accepted_count == 2,
           "Picker: choosing a searched friend clears the search");
     const u32 creates = group_creates;
-    key(VK_RETURN, true);
+    key(key::enter, true);
     check(group_creates == creates + 1 && group_count == 2 && group_people[0] == 4 && group_people[1] == 5 &&
               !application_quick_switcher_active(),
           "Picker: Ctrl Enter creates the group from every chosen friend");
@@ -153,19 +154,19 @@ void picker() noexcept {
               utf8_equal(scene->accepted[0].detail, utf8_literal("Already in the group")) && scene->accepted[1].enabled &&
               utf8_equal(scene->content->hint, utf8_literal("You can add 8 more friends.")),
           "Picker: current DM members are shown but cannot be chosen");
-    key(VK_RETURN);
+    key(key::enter);
     const u32 adds = group_adds;
     check(checked_count() == 1 && scene->content->checked[0] == 5 &&
               utf8_equal(scene->content->action, utf8_literal("Create group DM")),
           "Picker: adding to a DM starts a group");
-    key(VK_RETURN, true);
+    key(key::enter, true);
     check(group_adds == adds + 1 && group_channel == 201 && group_count == 1 && group_people[0] == 5,
           "Picker: confirmation adds the chosen friend to the conversation");
     const bool group = application_quick_switcher_open_picker(202) && (scene = g_app.renderer.quick_switcher_scene);
     check(group && utf8_equal(scene->content->hint, utf8_literal("You can add 1 more friend.")), "Picker: one place left");
-    key(VK_RETURN);
-    key(VK_DOWN);
-    key(VK_RETURN);
+    key(key::enter);
+    key(key::down);
+    key(key::enter);
     check(checked_count() == 1 && scene->content->checked[0] == 4 &&
               utf8_equal(scene->content->hint, utf8_literal("Groups are limited to 10 members.")) &&
               utf8_equal(scene->content->action, utf8_literal("Add")),
@@ -248,10 +249,10 @@ void run() noexcept {
         return;
     modifiers(false, false, true);
     underlying_input = 0;
-    check(route_application_input(UiInputKind::key_down, VK_ESCAPE) &&
+    check(route_application_input(UiInputKind::key_down, key::escape) &&
               !application_quick_switcher_active() && !scoped_shortcuts && !underlying_input &&
-              route_application_input(UiInputKind::key_down, VK_ESCAPE, true) &&
-              route_application_input(UiInputKind::key_up, VK_ESCAPE) && !scoped_shortcuts,
+              route_application_input(UiInputKind::key_down, key::escape, true) &&
+              route_application_input(UiInputKind::key_up, key::escape) && !scoped_shortcuts,
           "Scoped input: actual Quick switcher closes on Shift Escape without admitting read work");
     modifiers();
     check(open_key() && application_quick_switcher_active(),
@@ -267,8 +268,8 @@ void run() noexcept {
     underlying_input = 0;
     check(route_application_input(UiInputKind::character, 'x') &&
               utf8_equal(message_composer_text(*application_quick_switcher_edit_model()), utf8_literal("x")) &&
-              route_application_input(UiInputKind::key_down, VK_F6) &&
-              route_application_input(UiInputKind::key_up, VK_F6) &&
+              route_application_input(UiInputKind::key_down, key::f6) &&
+              route_application_input(UiInputKind::key_up, key::f6) &&
               route_application_input(UiInputKind::system_character, 'q') && !underlying_input &&
               utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
           "Quick runtime: modal query and unhandled keys cannot edit underlying composer");
@@ -291,21 +292,21 @@ void run() noexcept {
     general->actions = 0;
     ++state.permission_mutations;
     const u32 before_routes = channel_routes;
-    check(route_application_input(UiInputKind::key_down, VK_RETURN) && channel_routes == before_routes,
+    check(route_application_input(UiInputKind::key_down, key::enter) && channel_routes == before_routes,
           "Quick runtime: live permission retirement fences captured selected channel");
-    route_application_input(UiInputKind::key_up, VK_RETURN);
+    route_application_input(UiInputKind::key_up, key::enter);
     general->actions = channel_action_view | channel_action_read_history;
     ++state.permission_mutations;
     if (!application_quick_switcher_active())
         open_key();
-    check(query(utf8_literal("#general")) && route_application_input(UiInputKind::key_down, VK_RETURN) &&
+    check(query(utf8_literal("#general")) && route_application_input(UiInputKind::key_down, key::enter) &&
               routed_channel == 101 && channel_routes == before_routes + 1 &&
               !application_quick_switcher_active() && !text_input_ready(stale_document),
           "Quick runtime: accepted channel uses existing route and retires native document");
     underlying_input = 0;
-    check(route_application_input(UiInputKind::character, VK_RETURN) &&
-              route_application_input(UiInputKind::key_down, VK_RETURN, true) &&
-              route_application_input(UiInputKind::key_up, VK_RETURN) && !underlying_input,
+    check(route_application_input(UiInputKind::character, key::enter) &&
+              route_application_input(UiInputKind::key_down, key::enter, true) &&
+              route_application_input(UiInputKind::key_up, key::enter) && !underlying_input,
           "Quick runtime: activation Enter character repeat and release do not leak into composer");
     route_application_input(UiInputKind::character, 'z');
     check(underlying_input != 0, "Quick runtime: released tail restores ordinary input routing");
@@ -330,34 +331,34 @@ void run() noexcept {
               g_app.renderer.quick_switcher_scene->accepted[0].channel_id == 201 &&
               g_app.renderer.quick_switcher_scene->accepted[0].presence == UiPresence::online &&
               g_app.renderer.quick_switcher_scene->accepted[0].mobile &&
-              route_application_input(UiInputKind::key_down, VK_RETURN) && routed_channel == 201 &&
+              route_application_input(UiInputKind::key_down, key::enter) && routed_channel == 201 &&
               private_requests == alice_requests,
           "Quick runtime: existing DM selection uses existing channel navigation and shows the phone status");
     // Retire the modal after a failed diagnostic so later independent route
     // assertions still evaluate the intended current document.
     if (application_quick_switcher_active())
         application_quick_switcher_close();
-    route_application_input(UiInputKind::key_up, VK_RETURN);
+    route_application_input(UiInputKind::key_up, key::enter);
     const u32 bob_requests = private_requests;
     check(open_key() && query(utf8_literal("@bob")) && g_app.renderer.quick_switcher_scene &&
               g_app.renderer.quick_switcher_scene->accepted_count == 1 &&
               g_app.renderer.quick_switcher_scene->accepted[0].kind == UiQuickSwitcherKind::user &&
               g_app.renderer.quick_switcher_scene->accepted[0].presence == UiPresence::idle &&
               !g_app.renderer.quick_switcher_scene->accepted[0].mobile &&
-              route_application_input(UiInputKind::key_down, VK_RETURN) &&
+              route_application_input(UiInputKind::key_down, key::enter) &&
               private_requests == bob_requests + 1 && private_user == 5 &&
               private_operation == PrivateConversationOperation::open,
           "Quick runtime: friend without DM uses scoped private conversation admission and shows the idle dot");
-    route_application_input(UiInputKind::key_up, VK_RETURN);
+    route_application_input(UiInputKind::key_up, key::enter);
     private_allowed = false;
     underlying_input = 0;
     const u32 refused_requests = private_requests;
     check(open_key() && query(utf8_literal("@bob")) &&
-              route_application_input(UiInputKind::key_down, VK_RETURN) &&
+              route_application_input(UiInputKind::key_down, key::enter) &&
               private_requests == refused_requests + 1 && !application_quick_switcher_active() &&
               !underlying_input,
           "Quick runtime: refused private admission consumes activation without underlying input");
-    route_application_input(UiInputKind::key_up, VK_RETURN);
+    route_application_input(UiInputKind::key_up, key::enter);
     private_allowed = true;
     picker();
     modifiers(true);
@@ -413,22 +414,22 @@ void run() noexcept {
           "Quick runtime: release removes borrowed scene document and wake");
     pending_message_link = true;
     settings = true;
-    check(route_application_input(UiInputKind::key_down, VK_ESCAPE) && pending_message_link &&
+    check(route_application_input(UiInputKind::key_down, key::escape) && pending_message_link &&
               !link_cancellations,
           "Input routing: foreground settings retains Escape before pending link cancellation");
     settings = false;
     g_app.message_edit.editor_active = true;
-    route_application_input(UiInputKind::key_down, VK_ESCAPE);
+    route_application_input(UiInputKind::key_down, key::escape);
     check(pending_message_link && !link_cancellations,
           "Input routing: active message editor retains its Escape semantics");
     g_app.message_edit.editor_active = false;
     underlying_input = 0;
-    check(route_application_input(UiInputKind::key_down, VK_ESCAPE) && !pending_message_link &&
+    check(route_application_input(UiInputKind::key_down, key::escape) && !pending_message_link &&
               link_cancellations == 1 && !underlying_input,
           "Input routing: unobscured link cancellation precedes ordinary pane focus");
     settings = true;
-    check(route_application_input(UiInputKind::key_down, VK_ESCAPE, true) &&
-              route_application_input(UiInputKind::key_up, VK_ESCAPE) && link_cancellations == 1 &&
+    check(route_application_input(UiInputKind::key_down, key::escape, true) &&
+              route_application_input(UiInputKind::key_up, key::escape) && link_cancellations == 1 &&
               !underlying_input,
           "Input routing: cancellation owns repeated Escape and release after owner retirement");
     settings = false;

@@ -177,7 +177,7 @@ void destroy(OAuthSignIn* owner) noexcept {
     if (r.notification) CloseHandle(r.notification);
     secure_buffer_release(&r.proof); secure_buffer_release(&r.wire); secure_buffer_release(&r.tokens);
     oauth_authorization_release(&r.authorization);
-    secure_clear_bytes(&r, sizeof(r)); VirtualFree(&r, 0, MEM_RELEASE); owner->runtime = nullptr;
+    secure_clear_bytes(&r, sizeof(r)); pages_release(&r); owner->runtime = nullptr;
 }
 }
 bool oauth_sign_in_start(OAuthSignIn* owner, Utf8View client, u64 generation, u32 timeout_ms,

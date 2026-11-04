@@ -6,6 +6,7 @@
 #include "maicord/ui/text/regional_flag.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace emoji_tooltip_test {
@@ -305,7 +306,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
 
     // Escape, the wheel and a click elsewhere close it; only Escape is consumed.
     click(joy);
-    const bool escape = popout.active && application_expression_card_window_message(WM_KEYDOWN, VK_ESCAPE, 0) &&
+    const bool escape = popout.active && application_expression_card_window_message(WM_KEYDOWN, key::escape, 0) &&
                         !popout.active;
     click(joy);
     const bool wheel = popout.active && !application_expression_card_window_message(WM_MOUSEWHEEL, 0, 0) &&
@@ -443,7 +444,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
               ui_expression_card_hit(popout, control(popout, popout.previews[0]).x,
                                      control(popout, popout.previews[0]).y) == UiExpressionCardControl::none,
           "expression card: View More Stickers is the pack popout's one control");
-    check(application_expression_card_window_message(WM_KEYDOWN, VK_RETURN, 0) && card::opened_pack == 42 &&
+    check(application_expression_card_window_message(WM_KEYDOWN, key::enter, 0) && card::opened_pack == 42 &&
               !popout.active,
           "expression card: Enter presses View More Stickers: the picker opens at the pack");
     const u32 before = card::submissions;

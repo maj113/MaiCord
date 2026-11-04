@@ -50,7 +50,7 @@ bool speech_speak(Speech* speech, Utf8View text) noexcept {
         wide[count] = 0;
         spoken = SUCCEEDED(speech->voice->Speak(wide, SPF_ASYNC | SPF_PURGEBEFORESPEAK | SPF_IS_NOT_XML, nullptr));
     }
-    VirtualFree(wide, 0, MEM_RELEASE);
+    pages_release(wide);
     return spoken;
 }
 

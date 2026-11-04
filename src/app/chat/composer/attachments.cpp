@@ -19,6 +19,7 @@
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -106,7 +107,7 @@ ApplicationAttachments* ensure() noexcept {
     if (g_app.attachments) return current(g_app.attachments) ? g_app.attachments : nullptr;
     auto* state = static_cast<ApplicationAttachments*>(commit_pages(sizeof(ApplicationAttachments)));
     if (!state) return nullptr;
-    if (!message_attachment_drafts_initialize(&state->drafts)) { VirtualFree(state, 0, MEM_RELEASE); return nullptr; }
+    if (!message_attachment_drafts_initialize(&state->drafts)) { pages_release(state); return nullptr; }
     state->profile_id = g_app.account.status.profile_id;
     g_app.attachments = state;
     return state;
@@ -179,7 +180,7 @@ bool reap(ApplicationAttachments* state) noexcept {
     if (!picker_done || state->active_id) return false;
     application_attachment_probe_release();
     message_attachment_drafts_release(&state->drafts);
-    SecureZeroMemory(state, sizeof(*state)); VirtualFree(state, 0, MEM_RELEASE); g_app.attachments = nullptr;
+    SecureZeroMemory(state, sizeof(*state)); pages_release(state); g_app.attachments = nullptr;
     return true;
 }
 }
@@ -794,7 +795,7 @@ bool application_attachment_strip_key(u32 key) noexcept {
     auto& scene = g_app.message_composer_scene;
     const auto tiles = message_composer_scene_attachment_tiles(scene);
     if (!state || !tiles.count) return false;
-    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_MENU) & 0x8000) == 0;
+    const bool control = (GetKeyState(key::ctrl) & 0x8000) != 0 && (GetKeyState(key::alt) & 0x8000) == 0;
     u32 index = message_composer_scene_attachment_selected(scene);
     const bool selected = index < tiles.count;
     if (!selected) index = 0;
@@ -804,15 +805,15 @@ bool application_attachment_strip_key(u32 key) noexcept {
         return refresh_message_composer_ui();
     };
     switch (key) {
-    case VK_LEFT: return select(selected && index ? index - 1 : 0);
-    case VK_RIGHT: return select(selected ? minimum(index + 1, tiles.count - 1) : 0);
-    case VK_HOME: return select(0);
-    case VK_END: return select(tiles.count - 1);
-    case VK_UP:
-    case VK_ESCAPE:
+    case key::left: return select(selected && index ? index - 1 : 0);
+    case key::right: return select(selected ? minimum(index + 1, tiles.count - 1) : 0);
+    case key::home: return select(0);
+    case key::end: return select(tiles.count - 1);
+    case key::up:
+    case key::escape:
         message_composer_scene_attachment_select(&scene, kUiComposerAttachmentNoTile);
         return focus_message_composer_control(MessageComposerControl::edit) && refresh_message_composer_ui();
-    case VK_BACK:
+    case key::backspace:
         if (control) {
             if (application_clear_channel_attachments()) {
                 application_sync_attachment_drop_target();
@@ -822,7 +823,7 @@ bool application_attachment_strip_key(u32 key) noexcept {
             return true;
         }
         [[fallthrough]];
-    case VK_DELETE:
+    case key::del:
     case 'D': {
         if (id == kPreparingTileId) return cancel_preparing(state);
         if (!application_attachment_remove(id)) return true;
@@ -831,9 +832,9 @@ bool application_attachment_strip_key(u32 key) noexcept {
             return focus_message_composer_control(MessageComposerControl::edit) && refresh_message_composer_ui();
         return select(minimum(index, remaining.count - 1));
     }
-    case VK_RETURN:
-    case VK_SPACE:
-    case VK_F2:
+    case key::enter:
+    case key::space:
+    case key::f2:
     case 'E':
         if (id == kPreparingTileId) return cancel_preparing(state);
         return application_attachment_modify(id, tile_button(index, UiComposerAttachmentPart::edit)) || true;

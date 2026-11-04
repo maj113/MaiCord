@@ -2,6 +2,8 @@
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/gsub_execute_fixture.inc"
 struct Reader {ConstSlice<u8> data;u32 at=0;
@@ -78,8 +80,8 @@ bool units() noexcept {
 }
 volatile u32 guard_observations=0;
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
-    DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;
+    if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
     u32 random=0x19db342a;bool ok=true;
     const u32 fixture_count=byte_load_le32(gsub_execution_fixture+8);
     for(u32 i=0;i<10000 && ok;++i){Fixture f{};if(!fixture(i%fixture_count,&f) || f.gsub.count>page){ok=false;break;}random^=random<<13;random^=random>>17;random^=random<<5;
@@ -90,7 +92,7 @@ bool guards() noexcept {
         SfntGsubExecutionResult result{};s=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,scratch(),{10000,1000},&result);guard_observations=guard_observations+static_cast<u32>(s)+result.input_end+1;
         if(result.operations>10000 || sfnt_glyph_count(sfnt_glyph_buffer_view(buffer))>1024)ok=false;
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 bool corpus(ConstSlice<u8> bytes) noexcept {
     if(bytes.count<12 || !bytes_equal(bytes.data,"MCGEX02\0",8))return false;Reader r{bytes,8};u32 cases=0;if(!r.word(&cases) || !cases || cases>100000)return false;
@@ -150,4 +152,4 @@ int run() noexcept {
     print(ok && !failures?utf8_literal("PASS native GSUB execution\n"):utf8_literal("FAIL native GSUB execution\n"));return ok && !failures?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gsub_execute_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gsub_execute_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

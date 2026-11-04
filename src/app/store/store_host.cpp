@@ -20,6 +20,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
@@ -1230,13 +1231,13 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
     const bool control = application_control_down(), shift = application_shift_down(), alt = application_alt_down();
     if (menu_shown()) {
         bool changed = false;
-        if (code == VK_ESCAPE || code == VK_LEFT || code == VK_RIGHT) {
+        if (code == key::escape || code == key::left || code == key::right) {
             close_menu();
             application_request_frame();
-        } else if (code == VK_UP || code == VK_DOWN || code == VK_TAB) {
-            popup_scene_move_selection(&g_app.popup_scene, code == VK_UP || (code == VK_TAB && shift) ? -1 : 1, &changed);
+        } else if (code == key::up || code == key::down || code == key::tab) {
+            popup_scene_move_selection(&g_app.popup_scene, code == key::up || (code == key::tab && shift) ? -1 : 1, &changed);
             application_request_frame();
-        } else if ((code == VK_RETURN || code == VK_SPACE) && !repeated) {
+        } else if ((code == key::enter || code == key::space) && !repeated) {
             const u32 action = popup_scene_selected_action(g_app.popup_scene);
             const StoreMenu menu = g->menu;
             const u32 item = g->menu_item;
@@ -1256,7 +1257,7 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
     }
     if (g->editing) {
         auto& model = editor();
-        if (code == VK_ESCAPE) {
+        if (code == key::escape) {
             if (model.bytes) {
                 message_composer_clear(&model);
                 query_changed();
@@ -1264,15 +1265,15 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
                 leave_editor();
             return true;
         }
-        if (code == VK_RETURN || code == VK_TAB || code == VK_DOWN) {
-            if (g->editing_action == kStoreLinkField && code == VK_RETURN) {
+        if (code == key::enter || code == key::tab || code == key::down) {
+            if (g->editing_action == kStoreLinkField && code == key::enter) {
                 act(store_action(StoreAct::dialog_confirm), {});
                 return true;
             }
             leave_editor();
-            if (code == VK_RETURN)
+            if (code == key::enter)
                 return true;
-            if (code == VK_TAB) {
+            if (code == key::tab) {
                 UiStoreEvent event{};
                 ui_store_scene_key(&g->scene, shift ? UiStoreKey::back_tab : UiStoreKey::tab, &event);
                 return true;
@@ -1306,7 +1307,7 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
             return true;
         }
     }
-    if (code == VK_ESCAPE) {
+    if (code == key::escape) {
         bool handled = false;
         const StoreCommand c = store_page_escape(g->model, &page(), &handled);
         if (handled) {
@@ -1315,11 +1316,11 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
         }
         return false;
     }
-    if (alt && code == VK_LEFT && page().detail) {
+    if (alt && code == key::left && page().detail) {
         act(store_action(StoreAct::back), {});
         return true;
     }
-    if (code == VK_OEM_2 && !control && !alt && mine && !dialog) {
+    if (code == key::slash && !control && !alt && mine && !dialog) {
         ui_settings_scene_focus(&settings, host_target(settings));
         focus_editor(store_action(StoreAct::search));
         g->swallow_char = true;
@@ -1329,43 +1330,43 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
         return false;
     UiStoreKey key;
     switch (code) {
-    case VK_TAB:
+    case key::tab:
         key = shift ? UiStoreKey::back_tab : UiStoreKey::tab;
         break;
-    case VK_LEFT:
+    case key::left:
         key = UiStoreKey::left;
         break;
-    case VK_RIGHT:
+    case key::right:
         key = UiStoreKey::right;
         break;
-    case VK_UP:
+    case key::up:
         key = UiStoreKey::up;
         break;
-    case VK_DOWN:
+    case key::down:
         key = UiStoreKey::down;
         break;
-    case VK_HOME:
+    case key::home:
         key = control ? UiStoreKey::first : UiStoreKey::home;
         break;
-    case VK_END:
+    case key::end:
         key = control ? UiStoreKey::last : UiStoreKey::end;
         break;
-    case VK_PRIOR:
+    case key::page_up:
         key = UiStoreKey::page_up;
         break;
-    case VK_NEXT:
+    case key::page_down:
         key = UiStoreKey::page_down;
         break;
-    case VK_RETURN:
+    case key::enter:
         key = UiStoreKey::enter;
         break;
-    case VK_SPACE:
+    case key::space:
         key = UiStoreKey::space;
         break;
-    case VK_APPS:
+    case key::menu:
         key = UiStoreKey::menu;
         break;
-    case VK_F10:
+    case key::f10:
         if (!shift)
             return false;
         key = UiStoreKey::menu;
@@ -1454,7 +1455,7 @@ void application_store_release() noexcept {
     ui_markdown_bank_release(&g->bank);
     g_app.renderer.settings_store = nullptr;
     ui_store_scene_release(&g->scene);
-    VirtualFree(g, 0, MEM_RELEASE);
+    pages_release(g);
     g = nullptr;
 }
 

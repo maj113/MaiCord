@@ -278,7 +278,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
 }
 void destroy(HttpsFileDownload* owner) noexcept {
     if (owner->notification) CloseHandle(owner->notification);
-    if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); VirtualFree(owner->runtime, 0, MEM_RELEASE); }
+    if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); pages_release(owner->runtime); }
     reset_value(owner);
 }
 bool valid_path(ConstSlice<wchar_t> path) noexcept {

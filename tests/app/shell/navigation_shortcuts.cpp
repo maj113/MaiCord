@@ -3,16 +3,17 @@
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/layout/list_navigation.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 
 void test_navigation_shortcuts(void (*check)(bool, const char*) noexcept) noexcept {
-    check(navigation_shortcut(VK_DOWN, false, true, false).mode == NavigationMode::channel &&
-              navigation_shortcut(VK_UP, true, true, false).mode == NavigationMode::guild &&
-              navigation_shortcut(VK_UP, true, true, false).reverse &&
-              navigation_shortcut(VK_DOWN, false, true, true).mode == NavigationMode::unread &&
-              navigation_shortcut(VK_DOWN, true, true, true).mode == NavigationMode::mention &&
-              navigation_shortcut(VK_UP, false, false, false).mode == NavigationMode::none &&
+    check(navigation_shortcut(key::down, false, true, false).mode == NavigationMode::channel &&
+              navigation_shortcut(key::up, true, true, false).mode == NavigationMode::guild &&
+              navigation_shortcut(key::up, true, true, false).reverse &&
+              navigation_shortcut(key::down, false, true, true).mode == NavigationMode::unread &&
+              navigation_shortcut(key::down, true, true, true).mode == NavigationMode::mention &&
+              navigation_shortcut(key::up, false, false, false).mode == NavigationMode::none &&
               navigation_shortcut('A', true, true, false).mode == NavigationMode::none,
           "navigation modifier mapping preserves plain arrows and AltGr text keys");
     const auto even = [](void*, u32 index) noexcept { return (index & 1) == 0; };

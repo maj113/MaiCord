@@ -17,6 +17,7 @@
 #include "../../src/app/account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 
@@ -155,8 +156,8 @@ bool fixture_input(UiInputKind kind, u32 code, bool repeated, bool ctrl = false,
     BYTE original[256]{}, state[256]{};
     if (!GetKeyboardState(original))
         return false;
-    state[VK_CONTROL] = ctrl ? 0x80 : 0;
-    state[VK_SHIFT] = shift ? 0x80 : 0;
+    state[key::ctrl] = ctrl ? 0x80 : 0;
+    state[key::shift] = shift ? 0x80 : 0;
     if (!SetKeyboardState(state))
         return false;
     const bool handled = app_detail::application_text_form_input(kind, code, repeated);
@@ -256,7 +257,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             log_u64(LogLevel::error, "probe", "form_failure_composition",
                     g_app.text_form->composition.active);
             log_u64(LogLevel::error, "probe", "form_failure_ctrl",
-                    static_cast<u16>(GetKeyState(VK_CONTROL)));
+                    static_cast<u16>(GetKeyState(key::ctrl)));
         }
     }
     valid = valid && fixture_input(UiInputKind::character, 'A', false) &&
@@ -265,9 +266,9 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             g_app.text_form->edit.storage.bytes == 12 && history_key('Y') &&
             g_app.text_form->edit.storage.bytes == 14 && history_key('Z') &&
             g_app.text_form->edit.storage.bytes == 12;
-    valid = valid && fixture_input(UiInputKind::key_down, VK_ESCAPE, false) && !g_app.text_form &&
+    valid = valid && fixture_input(UiInputKind::key_down, key::escape, false) && !g_app.text_form &&
             local.saves == 0 && g_app.context_focus == &previous && g_app.message_composer.focused &&
-            fixture_input(UiInputKind::key_up, VK_ESCAPE, false);
+            fixture_input(UiInputKind::key_up, key::escape, false);
     // The shipping host consumes one outside/focus dismissal, preserving its parent.
     valid = valid && fixture_open(request);
     LRESULT dismissed = 0;
@@ -284,27 +285,27 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
     if (!valid)
         log_write(LogLevel::error, "probe", "application_text_form_restore_focus_failed");
     valid = valid && fixture_open(request) && fixture_input(UiInputKind::character, 'z', false) &&
-            fixture_input(UiInputKind::key_down, VK_TAB, false) &&
-            fixture_input(UiInputKind::key_down, VK_TAB, false) &&
-            fixture_input(UiInputKind::key_down, VK_RETURN, false) && g_app.text_form &&
+            fixture_input(UiInputKind::key_down, key::tab, false) &&
+            fixture_input(UiInputKind::key_down, key::tab, false) &&
+            fixture_input(UiInputKind::key_down, key::enter, false) && g_app.text_form &&
             g_app.text_form->status.bytes && local.saves == 1;
-    valid = valid && fixture_input(UiInputKind::key_down, VK_RETURN, true) && local.saves == 1 &&
-            fixture_input(UiInputKind::key_up, VK_RETURN, false);
+    valid = valid && fixture_input(UiInputKind::key_down, key::enter, true) && local.saves == 1 &&
+            fixture_input(UiInputKind::key_up, key::enter, false);
     local.reject = false;
-    valid = valid && fixture_input(UiInputKind::key_down, VK_RETURN, false) && !g_app.text_form &&
+    valid = valid && fixture_input(UiInputKind::key_down, key::enter, false) && !g_app.text_form &&
             local.saves == 2 && local.bytes == 7 && bytes_equal(local.saved, "beforez", 7) &&
-            fixture_input(UiInputKind::key_down, VK_RETURN, true) &&
+            fixture_input(UiInputKind::key_down, key::enter, true) &&
             fixture_input(UiInputKind::character, '\r', false) &&
-            fixture_input(UiInputKind::key_up, VK_RETURN, false) &&
-            !fixture_input(UiInputKind::key_down, VK_RETURN, false);
+            fixture_input(UiInputKind::key_up, key::enter, false) &&
+            !fixture_input(UiInputKind::key_down, key::enter, false);
     char lines[256]{};
     if (!valid) {
         log_write(LogLevel::error, "probe", "application_text_form_save_retry_failed");
         log_u64(LogLevel::error, "probe", "form_failure_saves", local.saves);
         log_u64(LogLevel::error, "probe", "form_failure_saved_bytes", local.bytes);
         log_u64(LogLevel::error, "probe", "form_failure_held", g_app.text_form_held_key);
-        log_u64(LogLevel::error, "probe", "form_failure_shift", static_cast<u16>(GetKeyState(VK_SHIFT)));
-        log_u64(LogLevel::error, "probe", "form_failure_ctrl", static_cast<u16>(GetKeyState(VK_CONTROL)));
+        log_u64(LogLevel::error, "probe", "form_failure_shift", static_cast<u16>(GetKeyState(key::shift)));
+        log_u64(LogLevel::error, "probe", "form_failure_ctrl", static_cast<u16>(GetKeyState(key::ctrl)));
         if (g_app.text_form) {
             log_u64(LogLevel::error, "probe", "form_failure_focus",
                     static_cast<u32>(text_form_focused(g_app.text_form->scene)));
@@ -329,7 +330,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                 application_text_form_window_message(WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA),
                                                      MAKELPARAM(point.x, point.y), &result) &&
                 form->surface.layout.scroll_y < before_scroll && form->edit.caret == before_caret &&
-                fixture_input(UiInputKind::key_down, VK_END, false) &&
+                fixture_input(UiInputKind::key_down, key::end, false) &&
                 form->surface.layout.scroll_y == before_scroll;
     }
     local.valid = false;
@@ -374,8 +375,8 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             const auto revision = form->edit.revision;
             const u32 saves = local.saves;
             LRESULT consumed = 0;
-            valid = fixture_input(UiInputKind::key_down, VK_ESCAPE, false) &&
-                    fixture_input(UiInputKind::key_up, VK_ESCAPE, false) &&
+            valid = fixture_input(UiInputKind::key_down, key::escape, false) &&
+                    fixture_input(UiInputKind::key_up, key::escape, false) &&
                     application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &consumed) &&
                     application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &consumed) &&
                     application_text_form_window_message(WM_KILLFOCUS, 0, 0, &consumed) &&
@@ -389,11 +390,11 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             ++local.progress.revision;
             valid = application_text_form_synchronize() &&
                     text_form_focused(form->scene) == TextFormElement::accept &&
-                    fixture_input(UiInputKind::key_down, VK_RETURN, true) && local.saves == saves &&
-                    fixture_input(UiInputKind::key_up, VK_RETURN, false) &&
-                    fixture_input(UiInputKind::key_down, VK_RETURN, false) && local.saves == saves + 1 &&
-                    fixture_input(UiInputKind::key_down, VK_RETURN, true) && local.saves == saves + 1 &&
-                    fixture_input(UiInputKind::key_up, VK_RETURN, false) && g_app.text_form == form &&
+                    fixture_input(UiInputKind::key_down, key::enter, true) && local.saves == saves &&
+                    fixture_input(UiInputKind::key_up, key::enter, false) &&
+                    fixture_input(UiInputKind::key_down, key::enter, false) && local.saves == saves + 1 &&
+                    fixture_input(UiInputKind::key_down, key::enter, true) && local.saves == saves + 1 &&
+                    fixture_input(UiInputKind::key_up, key::enter, false) && g_app.text_form == form &&
                     valid;
             local.valid = false;
             valid = application_text_form_synchronize() && !g_app.text_form && valid;
@@ -433,11 +434,11 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
         valid = application_composer_text_input_synchronize() && g_app.composer_text_input &&
                 secure_text_store_attached(g_app.composer_text_input->store) && valid;
         if (g_app.composer_text_input) {
-            g_app.composer_text_input->held_key = VK_RETURN;
+            g_app.composer_text_input->held_key = key::enter;
             MSG repeat{};
             repeat.hwnd = window;
             repeat.message = WM_KEYDOWN;
-            repeat.wParam = VK_RETURN;
+            repeat.wParam = key::enter;
             repeat.lParam = 1ll << 30;
             valid = application_composer_text_input_filter(repeat) && valid;
             repeat.message = WM_KEYUP;

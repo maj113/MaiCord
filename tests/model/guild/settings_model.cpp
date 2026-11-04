@@ -710,7 +710,7 @@ void test_permission_pack() noexcept {
 } // namespace guild_settings_test
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_guild_settings_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_guild_settings_entry) {
     using namespace maicord::guild_settings_test;
     test_access();
     test_section_matrix();

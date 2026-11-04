@@ -3,6 +3,8 @@
 #include "maicord/text/layout/detail/paragraph_layout.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "emoji_test_support.inc"
 #include "../../generated/emoji_paragraph_fixture.inc"
@@ -105,5 +107,5 @@ bool run() noexcept {
 extern "C" void maicord_emoji_paragraph_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run());
     print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);
-    print(ok?"\nPASS native emoji itemized paragraphs\n":"\nFAIL native emoji itemized paragraphs\n");ExitProcess(ok?0u:1u);
+    print(ok?"\nPASS native emoji itemized paragraphs\n":"\nFAIL native emoji itemized paragraphs\n");::maicord::test_process_exit(ok?0u:1u);
 }

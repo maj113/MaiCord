@@ -14,6 +14,7 @@
 #include "../text/shaped_text_cache.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
 namespace maicord {
@@ -764,7 +765,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     d3d11_renderer_caption_release(renderer);
     renderer_release_login_form_text(renderer);
     if (renderer->inline_media.flags)
-        VirtualFree(renderer->inline_media.flags, 0, MEM_RELEASE);
+        pages_release(renderer->inline_media.flags);
     reset_value(&renderer->inline_media);
     if (renderer->graphics.context) {
         renderer->graphics.context->ClearState();
@@ -807,7 +808,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     icon_atlas_release(&renderer->icon_atlas);
     renderer_release_typography(renderer);
     if (renderer->picker_glyph_cache)
-        VirtualFree(renderer->picker_glyph_cache, 0, MEM_RELEASE);
+        pages_release(renderer->picker_glyph_cache);
     renderer->picker_glyph_cache = nullptr;
     renderer_unbind_media_atlas(renderer);
     animation_frame_cache_gpu_release(&renderer->animation_gpu);

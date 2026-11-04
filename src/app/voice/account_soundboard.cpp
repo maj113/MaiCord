@@ -22,7 +22,7 @@ SoundboardFileInfo check_file(const SoundboardRequest& request) noexcept {
         info.error = SoundboardFileError::memory;
     else {
         info = soundboard_probe_file(request.sound, {scratch, kSoundboardProbeScratchBytes});
-        VirtualFree(scratch, 0, MEM_RELEASE);
+        pages_release(scratch);
     }
     if (request.info)
         *request.info = info;

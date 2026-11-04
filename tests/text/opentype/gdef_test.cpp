@@ -1,6 +1,8 @@
 #include "maicord/text/opentype/gdef.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 u8 seen[65536];
@@ -40,9 +42,9 @@ bool units() noexcept {
     fixture(p);put(p,2,1);if(sfnt_gdef_open({p,54},5,&g)!=SfntStatus::unsupported)return false;
     fixture(p);byte_store_be32(p+44,0);if(sfnt_gdef_open({p,54},5,&g)!=SfntStatus::ok || sfnt_gdef_mark_set(g,0,&c)!=SfntStatus::malformed)return false;
     // The mark-set offset is 32 bits and can legitimately exceed 64 KiB.
-    auto* wide=static_cast<u8*>(VirtualAlloc(nullptr,70000,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!wide)return false;
+    auto* wide=static_cast<u8*>(pages_allocate(70000));if(!wide)return false;
     fixture(wide);byte_store_be32(wide+44,66000);put(wide,66040,1);put(wide,66042,1);put(wide,66044,3);
-    bool ok=sfnt_gdef_open({wide,70000},5,&g)==SfntStatus::ok && sfnt_gdef_mark_set(g,0,&c)==SfntStatus::ok && sfnt_coverage_index(c,3)==0;VirtualFree(wide,0,MEM_RELEASE);
+    bool ok=sfnt_gdef_open({wide,70000},5,&g)==SfntStatus::ok && sfnt_gdef_mark_set(g,0,&c)==SfntStatus::ok && sfnt_coverage_index(c,3)==0;pages_release(wide);
     // GDEF 1.3 store: one axis, one region and a design-unit delta of 40.
     clear_bytes(p,64);put(p,0,1);put(p,2,3);byte_store_be32(p+14,18);put(p,18,1);byte_store_be32(p+20,12);put(p,24,1);byte_store_be32(p+26,22);
     put(p,30,1);put(p,32,1);put(p,36,16384);put(p,38,16384);put(p,40,1);put(p,42,1);put(p,44,1);put(p,48,40);
@@ -54,8 +56,8 @@ bool units() noexcept {
 }
 bool guards() noexcept {
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
-    auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;
-    DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    auto* mem=static_cast<u8*>(pages_allocate(page*2));if(!mem)return false;
+    if(!pages_protect(mem+page, page, PageAccess::none)){pages_release(mem);return false;}
     u8 seed[256];full_fixture(seed);u32 random=0xb682fe19;
     for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i<191?i:random%191;u8* p=mem+page-size;
         for(u32 j=0;j<size;++j)p[j]=seed[j];if(i>=191 && size)p[(random>>8)%size]^=static_cast<u8>(random>>16);
@@ -64,7 +66,7 @@ bool guards() noexcept {
         for(u16 k=0;k<64;++k){SfntCoverage cov{};const auto status=sfnt_gdef_mark_set(g,k,&cov);observe(status);if(status==SfntStatus::glyph_out_of_range)break;}
         ItemVariationStore store{};observe(sfnt_gdef_variation_store(g,&store,1000));
     }
-    VirtualFree(mem,0,MEM_RELEASE);return true;
+    pages_release(mem);return true;
 }
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
@@ -107,4 +109,4 @@ int run() noexcept {
     print(utf8_literal("PASS native GDEF\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gdef_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gdef_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

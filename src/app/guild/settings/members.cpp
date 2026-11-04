@@ -803,7 +803,7 @@ void members_search_response(const RestClientResponse& response, const Utf8View&
     else
         guild_member_search_failed(&s);
     if (bank)
-        VirtualFree(bank, 0, MEM_RELEASE);
+        pages_release(bank);
 }
 
 void members_tick(u64 now) noexcept {
@@ -840,7 +840,7 @@ void members_release() noexcept {
     auto& p = *owner;
     if (p.search_bank) {
         secure_clear_bytes(p.search_bank, sizeof(GuildSearchMember) * kGuildMemberSearchCapacity);
-        VirtualFree(p.search_bank, 0, MEM_RELEASE);
+        pages_release(p.search_bank);
     }
     p.search_bank = nullptr;
     reset_value(&p.search);

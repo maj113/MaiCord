@@ -2,6 +2,8 @@
 // queries from stdin for the Python oracles (QA only).
 #include "maicord/text/scripts/myanmar_input.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -50,12 +52,11 @@ bool preparation() noexcept {
     for(const auto& v:output)CHECK(v.scalar==0xffffffffu&&v.source==0xffffffffu);
     CHECK(sfnt_myanmar_prepare_input({},{},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-    const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);bool exact=false;
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+    const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);bool exact=false;
     if(committed){auto* original=reinterpret_cast<u32*>(memory+page-sizeof(selectors));auto* target=reinterpret_cast<SfntIndicInputScalar*>(memory+page*3-sizeof(selected));
-        copy_bytes(original,selectors,sizeof(selectors));DWORD old=0;
-        exact=VirtualProtect(memory,page,PAGE_READONLY,&old)&&sfnt_myanmar_prepare_input({original,4},{target,4},&result)==SfntStatus::ok&&bytes_equal(target,selected,sizeof(selected));}
-    CHECK(VirtualFree(memory,0,MEM_RELEASE)&&committed&&exact);return true;
+        copy_bytes(original,selectors,sizeof(selectors));exact=pages_protect(memory, page, PageAccess::read)&&sfnt_myanmar_prepare_input({original,4},{target,4},&result)==SfntStatus::ok&&bytes_equal(target,selected,sizeof(selected));}
+    CHECK(pages_release(memory)&&committed&&exact);return true;
 }
 bool units() noexcept {
     CHECK(preparation());
@@ -77,15 +78,14 @@ bool units() noexcept {
     CHECK(sfnt_myanmar_cluster_boundaries({},{},0)==SfntStatus::ok);
     for(u8 v:output)CHECK(v==255);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-    const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+    const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
     bool exact=false;
     if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(a));auto* target=memory+page*3-5;
-        copy_bytes(input,a,sizeof(a));DWORD old=0;
-        exact=VirtualProtect(memory,page,PAGE_READONLY,&old)&&sfnt_myanmar_cluster_boundaries({input,5},{target,5})==SfntStatus::ok&&bytes_equal(target,ae,5);}
-    CHECK(VirtualFree(memory,0,MEM_RELEASE)&&committed&&exact);
+        copy_bytes(input,a,sizeof(a));exact=pages_protect(memory, page, PageAccess::read)&&sfnt_myanmar_cluster_boundaries({input,5},{target,5})==SfntStatus::ok&&bytes_equal(target,ae,5);}
+    CHECK(pages_release(memory)&&committed&&exact);
     print("PASS Myanmar input; assertions=");number(checks);print("\n");return true;
 }
 int run() noexcept {return units()?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_myanmar_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_myanmar_input_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

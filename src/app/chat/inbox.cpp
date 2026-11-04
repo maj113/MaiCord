@@ -26,6 +26,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -490,7 +491,7 @@ void application_inbox_trim() noexcept {
     retained = {inbox->account_scope, inbox->opens, inbox->scene.scroll_dips, inbox->tab,
                 inbox->this_server, inbox->everyone, inbox->roles, true};
     ui_inbox_scene_release(&inbox->scene);
-    VirtualFree(inbox, 0, MEM_RELEASE);
+    pages_release(inbox);
     inbox = nullptr;
 }
 void application_inbox_release() noexcept {
@@ -500,7 +501,7 @@ void application_inbox_release() noexcept {
         return;
     cancel_request();
     ui_inbox_scene_release(&inbox->scene);
-    VirtualFree(inbox, 0, MEM_RELEASE);
+    pages_release(inbox);
     inbox = nullptr;
 }
 bool application_inbox_synchronize() noexcept {
@@ -765,7 +766,7 @@ bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return (kind == UiInputKind::character || kind == UiInputKind::system_character) &&
                g_app.context_focus == &inbox->scene.widgets;
-    if (code == VK_ESCAPE) {
+    if (code == key::escape) {
         application_inbox_close();
         refresh_account_frame(true);
         return true;
@@ -773,21 +774,21 @@ bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept
     if (application_control_down() || application_alt_down() ||
         g_app.context_focus != &inbox->scene.widgets)
         return false;
-    if (code == VK_RETURN || code == VK_SPACE) {
+    if (code == key::enter || code == key::space) {
         if (!repeated)
             activate(ui_inbox_scene_focused_target(inbox->scene));
         return true;
     }
     UiInboxFocusMove move{};
-    if (code == VK_TAB)
+    if (code == key::tab)
         move = application_shift_down() ? UiInboxFocusMove::previous : UiInboxFocusMove::next;
-    else if (code == VK_DOWN)
+    else if (code == key::down)
         move = UiInboxFocusMove::next;
-    else if (code == VK_UP)
+    else if (code == key::up)
         move = UiInboxFocusMove::previous;
-    else if (code == VK_HOME)
+    else if (code == key::home)
         move = UiInboxFocusMove::first;
-    else if (code == VK_END)
+    else if (code == key::end)
         move = UiInboxFocusMove::last;
     else
         return false;

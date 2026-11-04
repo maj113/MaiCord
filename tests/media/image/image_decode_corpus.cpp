@@ -8,6 +8,7 @@
 #include "maicord/media/image/png.hpp"
 #include "maicord/media/image/webp.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -140,7 +141,7 @@ bool decode_webp_animated(const ImageCorpusEntry& entry, Arena arena) noexcept {
 
 void test_image_decode_corpus(Check check) noexcept {
     constexpr u64 capacity = 16ull << 20;
-    auto* base = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* base = static_cast<u8*>(pages_allocate(capacity));
     if (!base) { check(false, "image corpus workspace"); return; }
     u32 failures = 0;
     for (const auto& entry : kImageCorpus) {
@@ -160,6 +161,6 @@ void test_image_decode_corpus(Check check) noexcept {
         }
     }
     check(!failures, "every generated PNG/JPEG/WebP corpus variant decodes to its oracle");
-    VirtualFree(base, 0, MEM_RELEASE);
+    pages_release(base);
 }
 } // namespace maicord

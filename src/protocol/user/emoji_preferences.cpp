@@ -649,7 +649,7 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
                                                                 : check_frecency(part);
         r.at = stop;
     }
-    VirtualFree(raw, 0, MEM_RELEASE);
+    pages_release(raw, measured.bytes);
     return error;
 }
 } // namespace maicord

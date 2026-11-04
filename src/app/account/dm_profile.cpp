@@ -555,7 +555,7 @@ void application_dm_profile_release() noexcept {
     if (!g_panel)
         return;
     profile_scene_release(&g_panel->scene);
-    VirtualFree(g_panel, 0, MEM_RELEASE);
+    pages_release(g_panel);
     g_panel = nullptr;
 }
 } // namespace maicord::app_detail

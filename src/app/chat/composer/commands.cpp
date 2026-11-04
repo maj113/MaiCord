@@ -11,8 +11,10 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "../../account/account_access.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -671,14 +673,14 @@ bool reveal_rail(const Commands& c, u32 r) noexcept {
 // Right, Tab or Escape return to the list.
 bool rail_key(Commands& c, u32 key) noexcept {
     const u32 r = c.rail_focus;
-    if (key == VK_UP || key == VK_DOWN || key == VK_HOME || key == VK_END) {
-        c.rail_focus = key == VK_HOME ? 0
-                       : key == VK_END ? c.rail_count - 1
-                       : key == VK_UP  ? (r ? r - 1 : 0)
+    if (key == key::up || key == key::down || key == key::home || key == key::end) {
+        c.rail_focus = key == key::home ? 0
+                       : key == key::end ? c.rail_count - 1
+                       : key == key::up  ? (r ? r - 1 : 0)
                                        : minimum(r + 1, c.rail_count - 1);
         return reveal_rail(c, c.rail_focus) && render();
     }
-    if (key == VK_RETURN || key == VK_SPACE) {
+    if (key == key::enter || key == key::space) {
         // The key's character must not reach the draft.
         g_app.composer_menu_held_key = key;
         if (!application_commands_activate(rail_base + r))
@@ -686,10 +688,10 @@ bool rail_key(Commands& c, u32 key) noexcept {
         c.rail_focus = minimum(r, c.rail_count ? c.rail_count - 1 : 0);
         return reveal_rail(c, c.rail_focus) && render();
     }
-    if (key == VK_RIGHT || key == VK_TAB || key == VK_ESCAPE) {
+    if (key == key::right || key == key::tab || key == key::escape) {
         c.rail_focus = no_row;
         // Into the list at the section the rail entry names (Escape keeps the row).
-        if (key != VK_ESCAPE && r < c.rail_count) {
+        if (key != key::escape && r < c.rail_count) {
             const auto& section = c.rail[r];
             for (u32 s = 0; s < c.body_count; ++s)
                 if (c.body[s].kind == section.kind && c.body[s].app == section.app && c.body[s].count) {
@@ -700,34 +702,34 @@ bool rail_key(Commands& c, u32 key) noexcept {
         return (c.keyboard_row == no_row || reveal_row(c, c.keyboard_row)) && render();
     }
     // Left stays in the rail; typing goes to the draft (which leaves the rail).
-    return key == VK_LEFT;
+    return key == key::left;
 }
 bool picker_key(Commands& c, u32 key) noexcept {
     if (c.rail_focus != no_row && c.rail_focus < c.rail_count)
         return rail_key(c, key);
-    if (key == VK_LEFT && c.discovery && c.rail_count) {
+    if (key == key::left && c.discovery && c.rail_count) {
         c.rail_focus = minimum(active_rail(c), c.rail_count - 1);
         return reveal_rail(c, c.rail_focus) && render();
     }
-    if (key == VK_RETURN || key == VK_TAB) {
+    if (key == key::enter || key == key::tab) {
         if (c.count && c.keyboard_row < c.count)
             return application_commands_activate(choose_base + c.keyboard_row);
         // Without a keyboard selection Tab first selects the discovery list's
         // top row; otherwise the key keeps its composer meaning.
-        if (key == VK_TAB && c.discovery && c.count) {
+        if (key == key::tab && c.discovery && c.count) {
             c.keyboard_row = 0;
             return reveal_row(c, 0) && render();
         }
         return false;
     }
-    if (key == VK_UP || key == VK_DOWN) {
+    if (key == key::up || key == key::down) {
         if (!c.count)
             return true;
         const u32 last = c.count - 1;
         // Discovery stops at its ends; query results wrap.
         if (c.keyboard_row > last)
-            c.keyboard_row = key == VK_UP && !c.discovery ? last : 0;
-        else if (key == VK_UP)
+            c.keyboard_row = key == key::up && !c.discovery ? last : 0;
+        else if (key == key::up)
             c.keyboard_row = c.keyboard_row ? c.keyboard_row - 1 : c.discovery ? 0 : last;
         else
             c.keyboard_row = c.keyboard_row < last ? c.keyboard_row + 1 : c.discovery ? last : 0;
@@ -749,27 +751,27 @@ bool application_commands_key(u32 key) noexcept {
         return false;
     if (handled)
         return true;
-    if (key == VK_ESCAPE)
+    if (key == key::escape)
         return false;
     const u32 count = c.option_count;
     const bool row = c.keyboard_row != no_row && c.keyboard_row >= 1 && c.keyboard_row <= count;
-    if (key == VK_RETURN || key == VK_TAB) {
+    if (key == key::enter || key == key::tab) {
         // A selected row is taken; else Tab moves to the next option and Enter
         // sends.
         if (const u32 action = row ? popup_scene_selected_action(g_app.popup_scene) : 0)
             return application_commands_activate(action);
-        if (key == VK_TAB)
+        if (key == key::tab)
             return application_commands_option_tab(false);
         bool sent;
         // A built-in text command leaves its message for the ordinary send.
         return application_commands_send(&sent) && (sent || queue_message_send());
     }
-    if (key == VK_UP || key == VK_DOWN) {
+    if (key == key::up || key == key::down) {
         if (!count)
             return true;
         if (!row)
-            c.keyboard_row = key == VK_UP ? count : 1;
-        else if (key == VK_UP)
+            c.keyboard_row = key == key::up ? count : 1;
+        else if (key == key::up)
             c.keyboard_row = c.keyboard_row > 1 ? c.keyboard_row - 1 : count;
         else
             c.keyboard_row = c.keyboard_row < count ? c.keyboard_row + 1 : 1;
@@ -1313,10 +1315,10 @@ void application_commands_release() noexcept {
     command_index_release(&commands->index[1]);
     arena_release(&commands->projection);
     arena_release(&commands->retired_index_storage);
-    VirtualFree(commands, 0, MEM_RELEASE);
+    pages_release(commands);
     commands = nullptr;
     if (frecency)
-        VirtualFree(frecency, 0, MEM_RELEASE);
+        pages_release(frecency);
     frecency = nullptr;
 }
 

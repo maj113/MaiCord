@@ -4,9 +4,7 @@
 
 #include "maicord/media/video/h264_parameters.hpp"
 #include "maicord/media/containers/mp4_demux.hpp"
-
-struct ID3D11Device;
-struct ID3D11DeviceContext;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -56,16 +54,16 @@ bool h264_gpu_decoder_seek_start(H264GpuDecoder*) noexcept;
 // Worker only; uses the same demux/DPB reset as EOF looping. Any
 // previous output lease has already expired because a new read is starting.
 bool h264_gpu_decoder_rewind(H264GpuDecoder*) noexcept;
-bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
-                                 ID3D11DeviceContext* context, Mp4SourceAvailability availability = {}) noexcept;
+bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, GpuDevice* device,
+                                 GpuContext* context, Mp4SourceAvailability availability = {}) noexcept;
 // Empty decoder and borrowed indexed fragment source at its initial packet; never copies the
 // encoded entity. Source and metadata outlive decoder release. Sequential reads
 // share the same GPU path and acknowledgement fence; missing bytes return
 // data_pending. Movie sample count is unknown (zero); fragmented seek chooses a
 // validated preceding segment IDR, and sample indices are local to that segment.
 // The caller releases the source separately.
-bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder*, Mp4FragmentSource*, ID3D11Device*,
-                                            ID3D11DeviceContext*) noexcept;
+bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder*, Mp4FragmentSource*, GpuDevice*,
+                                            GpuContext*) noexcept;
 // Busy hardware returns sample error plus E_PENDING/D3DERR_WASSTILLDRAWING;
 // caller waits for queued GPU work, then retries without advancing stream state.
 // A zero submission budget means no limit. A nonzero budget accepts at most

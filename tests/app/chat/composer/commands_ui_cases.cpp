@@ -4,6 +4,7 @@
 #include "../../../../src/app/chat/messages/feedback.hpp"
 #include "maicord/app/chat/messages/send_response.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
@@ -55,7 +56,7 @@ void command_index_invalidation_cases() noexcept {
         check(application_commands_submit(1) && operation == 0, "command invalidation loads guild index");
         respond(200, server);
         edit(utf8_literal("/guild"));
-        check(application_commands_key(VK_RETURN) && g_app.message_composer_scene.command.name_bytes == 6 &&
+        check(application_commands_key(key::enter) && g_app.message_composer_scene.command.name_bytes == 6 &&
                   application_commands_submit(2) && operation == 1,
               "command invalidation retains selected guild command while the independent user index loads");
         const u32 before_event = calls;
@@ -111,7 +112,7 @@ void command_index_invalidation_cases() noexcept {
               "command invalidation refetch counts exclude duplicate events and user-index reloads");
         for (u32 sending = 0; sending < 2; ++sending) {
             edit(utf8_literal("/guild"));
-            check(application_commands_key(VK_RETURN) && application_commands_key(VK_RETURN),
+            check(application_commands_key(key::enter) && application_commands_key(key::enter),
                   "command invalidation queues an immutable interaction payload");
             if (sending)
                 check(application_commands_submit(30) && operation == 2,
@@ -468,7 +469,7 @@ void builtin_cases() noexcept {
                   !listed(utf8_literal("/leave"), utf8_literal("/leave")),
               "the picker lists the client's built-in commands this channel allows, in their own section");
         check(pick(utf8_literal("/shrug"), utf8_literal("/shrug message:hello")) &&
-                  application_commands_key(VK_RETURN) &&
+                  application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("hello \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
               "/shrug appends the shrug and leaves the message for the ordinary send");
         bool handled = true;
@@ -483,16 +484,16 @@ void builtin_cases() noexcept {
         check(utf8_equal(message_composer_text(composer), utf8_literal("/shrug message:hi\xE2\x81\xA3")) &&
                   composer.caret == composer.bytes - 3,
               "text after a command whose only option is optional becomes that option's value");
-        check(pick(utf8_literal("/tableflip"), utf8_literal("/tableflip")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/tableflip"), utf8_literal("/tableflip")) && application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer),
                              utf8_literal("(\xE2\x95\xAF\xC2\xB0\xE2\x96\xA1\xC2\xB0)\xE2\x95\xAF\xEF\xB8\xB5 "
                                           "\xE2\x94\xBB\xE2\x94\x81\xE2\x94\xBB")),
               "/tableflip without a message sends the table flip alone");
-        check(pick(utf8_literal("/me"), utf8_literal("/me message:waves")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/me"), utf8_literal("/me message:waves")) && application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("_waves_")),
               "/me wraps the message in emphasis");
         check(pick(utf8_literal("/spoiler"), utf8_literal("/spoiler message:ending")) &&
-                  application_commands_key(VK_RETURN) &&
+                  application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("||ending||")),
               "/spoiler marks the message as a spoiler");
         // The ordinary send path first rewrites the client's legacy text commands, then runs the selected
@@ -530,7 +531,7 @@ void builtin_cases() noexcept {
               "/spoiler sends the value between spoiler markers on the ordinary send path");
         check(pick(utf8_literal("/gif"), utf8_literal("/gif query:cats")) && searches &&
                   searched_kind == UiMediaPickerKind::gif && utf8_equal({searched, searched_bytes}, utf8_literal("cats")) &&
-                  application_commands_key(VK_RETURN) &&
+                  application_commands_key(key::enter) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("/gif query:cats\xE2\x81\xA3")),
               "/gif shows its inline results for the query; Enter without a chosen result keeps the draft");
         // Enter on a result-producing command's query sends a result rather than
@@ -561,13 +562,13 @@ void builtin_cases() noexcept {
         fake_results = FakeResults::ready;
         fake_selected = 0;
         fake_sent_index = ~u32{0};
-        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends + 1 &&
+        check(pick_gif() && application_commands_key(key::enter) && fake_sends == sends + 1 &&
                   fake_sent_index == 0 && !composer.bytes && !shook(),
               "/gif cat + Enter sends the first result and does not shake the app");
         sends = fake_sends;
         fake_results = FakeResults::ready;
         fake_selected = 1;
-        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends + 1 &&
+        check(pick_gif() && application_commands_key(key::enter) && fake_sends == sends + 1 &&
                   fake_sent_index == 1 && !composer.bytes && !shook(),
               "/gif cat + Enter sends the highlighted result when the selection moved off the first");
         sends = fake_sends;
@@ -580,7 +581,7 @@ void builtin_cases() noexcept {
               "the composer's own send path gives /gif's Enter to the results too");
         sends = fake_sends;
         fake_results = FakeResults::loading;
-        check(pick_gif() && application_commands_key(VK_RETURN) && fake_waits == waits + 1 && fake_sends == sends &&
+        check(pick_gif() && application_commands_key(key::enter) && fake_waits == waits + 1 && fake_sends == sends &&
                   gif_draft_kept() && !shook(),
               "/gif cat + Enter while the results load waits with the draft kept and no shake");
         check(fake_results_arrive(3) && fake_sends == sends + 1 && fake_sent_index == 0 && !composer.bytes &&
@@ -595,17 +596,17 @@ void builtin_cases() noexcept {
               "the composer's own send path waits for loading results the same way");
         waits = fake_waits;
         fake_results = FakeResults::loading;
-        check(pick_gif() && application_commands_key(VK_RETURN) && fake_waits == waits + 1 &&
+        check(pick_gif() && application_commands_key(key::enter) && fake_waits == waits + 1 &&
                   fake_results_arrive(0) && gif_draft_kept() && bar_refuses() && shook(),
               "a wait that ends with no results shakes the app and says so in the option bar");
         sends = fake_sends;
         fake_results = FakeResults::none;
-        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends && gif_draft_kept() &&
+        check(pick_gif() && application_commands_key(key::enter) && fake_sends == sends && gif_draft_kept() &&
                   bar_refuses() && shook(),
               "/gif cat + Enter with no results keeps the draft, shakes the app and says why");
         edit({});
         const u32 before_nick = calls;
-        check(pick(utf8_literal("/nick"), utf8_literal("/nick new_nick:Maj")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/nick"), utf8_literal("/nick new_nick:Maj")) && application_commands_key(key::enter) &&
                   !composer.bytes && application_commands_pending(clock_monotonic_milliseconds()) &&
                   application_commands_submit(clock_monotonic_milliseconds()) && calls == before_nick + 1 &&
                   operation == 7 && submitted_guild == 55 &&
@@ -621,7 +622,7 @@ void builtin_cases() noexcept {
         // The channel's own default archive (a day) replaces the three-day default.
         channels[0].default_archive = 2;
         check(pick(utf8_literal("/thread"), utf8_literal("/thread name:Plans message:first")) &&
-                  application_commands_key(VK_RETURN) && application_commands_submit(clock_monotonic_milliseconds()) &&
+                  application_commands_key(key::enter) && application_commands_submit(clock_monotonic_milliseconds()) &&
                   operation == 8 && submitted_channel == 9 &&
                   utf8_equal({payload, payload_bytes},
                              utf8_literal(
@@ -652,12 +653,12 @@ void builtin_cases() noexcept {
         message_composer_controller_cancel_unsent(&ui.message_composer_controller, thread_message);
         thread_sendable = false;
         const u32 before_kick = calls;
-        check(pick(utf8_literal("/kick"), utf8_literal("/kick user:5")) && application_commands_key(VK_RETURN) &&
+        check(pick(utf8_literal("/kick"), utf8_literal("/kick user:5")) && application_commands_key(key::enter) &&
                   !application_commands_pending(clock_monotonic_milliseconds()) && calls == before_kick &&
                   notice_says(utf8_literal("You do not have the appropriate permissions to kick that user.")),
               "/kick refuses a member it cannot manage with the client's notice and no request");
         check(pick(utf8_literal("/msg"), utf8_literal("/msg user:42 message:hey")) &&
-                  application_commands_key(VK_RETURN) && opened_dm_user == 42 && !composer.bytes,
+                  application_commands_key(key::enter) && opened_dm_user == 42 && !composer.bytes,
               "/msg opens the DM with the user");
         ui.private_conversation.target_id = 42;
         ui.private_conversation.operation = PrivateConversationOperation::open;
@@ -669,7 +670,7 @@ void builtin_cases() noexcept {
         channels[0].type = 3;
         // Enter first takes the highlighted True choice, then runs the command.
         check(pick(utf8_literal("/leave"), utf8_literal("/leave silent:true")) &&
-                  application_commands_key(VK_RETURN) && application_commands_key(VK_RETURN) && left_group == 9 &&
+                  application_commands_key(key::enter) && application_commands_key(key::enter) && left_group == 9 &&
                   left_silent,
               "/leave asks to leave the group, silently when asked");
     }

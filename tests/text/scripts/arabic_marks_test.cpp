@@ -1,6 +1,8 @@
 #include "maicord/text/scripts/arabic_marks.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
 #include "../../generated/arabic_marks_fixture.inc"
@@ -32,17 +34,17 @@ bool contracts() noexcept {
     for(u32 i=4;i<8;++i)if(output[i]!=0xeeeeeeee)return false;return true;
 }
 bool long_span() noexcept {
-    constexpr u32 n=12288;auto* input=static_cast<u32*>(VirtualAlloc(nullptr,n*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
-    auto* output=static_cast<u32*>(VirtualAlloc(nullptr,n*4+4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!input || !output){if(input)VirtualFree(input,0,MEM_RELEASE);if(output)VirtualFree(output,0,MEM_RELEASE);return false;}
+    constexpr u32 n=12288;auto* input=static_cast<u32*>(pages_allocate(n*4));
+    auto* output=static_cast<u32*>(pages_allocate(n*4+4096));if(!input || !output){if(input)pages_release(input);if(output)pages_release(output);return false;}
     for(u32 i=0;i<n;++i)input[i]=i%3==0?0x64e:i%3==1?0x651:0x655;
-    DWORD old=0;bool ok=VirtualProtect(input,n*4,PAGE_READONLY,&old)!=0 && VirtualProtect(output+n,4096,PAGE_NOACCESS,&old)!=0;
+    bool ok=pages_protect(input, n*4, PageAccess::read)!=0 && pages_protect(output+n, 4096, PageAccess::none)!=0;
     ok=ok && sfnt_arabic_mark_order({input,n},{output,n},n*16)==SfntStatus::ok;
     for(u32 i=0;i<n && ok;++i){const u32 group=i/(n/3),rank=i%(n/3);ok=output[i]==rank*3+(group==0?2:group==1?1:0);}
-    VirtualFree(output,0,MEM_RELEASE);VirtualFree(input,0,MEM_RELEASE);return ok;
+    pages_release(output);pages_release(input);return ok;
 }
 int run() noexcept {
     if(!corpus())return 1;if(!contracts())return 2;if(!long_span())return 3;
     constexpr auto message=utf8_literal("PASS native Arabic mark order: 2873 Windows cases, stable buckets, 12288-mark guarded span\n");DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data,message.bytes,&done,nullptr);return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_arabic_marks_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_arabic_marks_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

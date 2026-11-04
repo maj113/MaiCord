@@ -18,6 +18,9 @@ static float2 outline_origin;
 static float pixels_per_em;
 static uint first_node, allocation_padding, node_count, program_base, plan_offset;
 ByteAddressBuffer program : register(t0);
+#if defined(__spirv__)
+[[vk::image_format("rgba8")]]
+#endif
 RWTexture2D<unorm float4> color_atlas : register(u0);
 uint load1(uint at){return program.Load(program_base+at);}
 uint2 load2(uint at){return program.Load2(program_base+at);}

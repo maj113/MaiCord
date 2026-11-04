@@ -70,12 +70,13 @@
 #include "../voice/application_voice_message.hpp"
 
 #include "maicord/sys/shell.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 static_assert(kWindowMessageApp == WM_APP);
 namespace {
 void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
-    const bool shift_f10 = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_F10 &&
+    const bool shift_f10 = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == key::f10 &&
                            application_shift_down();
     const bool visible = keyboard_focus_after_message(g_app.keyboard_focus_visible, message, wparam, shift_f10);
     if (visible != g_app.keyboard_focus_visible) {
@@ -208,7 +209,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             return 0;
         }
         if (((message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) &&
-             (wparam == VK_F4 || wparam == VK_SPACE)) ||
+             (wparam == key::f4 || wparam == key::space)) ||
             (message == WM_SYSCHAR && wparam == ' '))
             return DefWindowProcW(window, message, wparam, lparam);
         if ((message >= WM_KEYFIRST && message <= WM_KEYLAST) ||
@@ -301,7 +302,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
                 end_pane_resize();
                 return 0;
             }
-            if (message == WM_KEYDOWN && wparam == VK_ESCAPE) {
+            if (message == WM_KEYDOWN && wparam == key::escape) {
                 cancel_pane_resize();
                 return 0;
             }

@@ -1,6 +1,7 @@
 #include "maicord/text/opentype/tt_interpreter.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/tt_interpreter_fixture.inc"
 bool fail(u32 item,u32 code) noexcept {test_write_text("FAIL item=");test_write_u64(item);test_write_text(" code=");test_write_u64(code);test_write_text("\n");return false;}
@@ -32,11 +33,11 @@ bool match(const Fixture& f,const TtInterpreter& s) noexcept {
 #pragma float_control(pop)
 bool guarded(ConstSlice<u8> program,TtPhase phase) noexcept {
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;if(program.count>page)return false;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}
     u32 random=0x8265721;for(u32 n=0;n<program.count+1024;++n){const u32 size=n<program.count?n:program.count;auto* p=memory+page-size;if(size)copy_bytes(p,program.data,size);
         if(n>=program.count && size){random^=random<<13;random^=random>>17;random^=random<<5;p[random%size]^=static_cast<u8>((random>>16)|1);}
-        auto s=fresh();TtExecution r{};tt_execute(&s,{p,size},phase,&r,1024);++guards;if(r.operations>1024 || s.stack_count>s.stack.count){VirtualFree(memory,0,MEM_RELEASE);return false;}
-    }VirtualFree(memory,0,MEM_RELEASE);return true;
+        auto s=fresh();TtExecution r{};tt_execute(&s,{p,size},phase,&r,1024);++guards;if(r.operations>1024 || s.stack_count>s.stack.count){pages_release(memory);return false;}
+    }pages_release(memory);return true;
 }
 bool corpus() noexcept {
     Reader reader{{tt_interpreter_fixture,sizeof(tt_interpreter_fixture)},8};u32 count=0;if(!bytes_equal(reader.bytes.data,"MCTTVM1\0",8)||!reader.word(&count))return false;
@@ -149,4 +150,4 @@ int run() noexcept {
     test_write_metric("cases=",cases);test_write_metric("coordinate_bits=",coordinates);test_write_metric("budgets=",budgets);test_write_metric("guards=",guards);test_write_metric("controls=",controls);test_write_metric("push_cases=",push_cases);test_write_metric("skip_cases=",skip_cases);test_write_metric("invalid=",invalid);
     test_write_line(ok?"PASS native TT instruction core":"FAIL native TT instruction core");return ok?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_tt_interpreter_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_tt_interpreter_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

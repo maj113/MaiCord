@@ -10,6 +10,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace settings_choice_runtime {
@@ -57,7 +58,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     }
     return DefWindowProcW(window, message, wparam, lparam);
 }
-bool key(u32 code) noexcept {
+bool press_key(u32 code) noexcept {
     return application_settings_input(UiInputKind::key_down, code, false) &&
            application_settings_input(UiInputKind::key_up, code, false);
 }
@@ -92,12 +93,12 @@ bool target_point(UiSettingsTarget target, LPARAM* point) noexcept {
     }
     return false;
 }
-bool open(u32 key_code = VK_RETURN) noexcept {
+bool open(u32 key_code = key::enter) noexcept {
     auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
     return application_settings_open_page(kAppearancePage) &&
            (scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene)) &&
            ui_settings_scene_focus(scene, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.background_effect")}) &&
-           key(key_code) && g_app.popup_scene.active &&
+           press_key(key_code) && g_app.popup_scene.active &&
            g_app.popup_owner_kind == PopupOwnerKind::settings_choice;
 }
 // The built-in effect the preferences hold (choices 0..3 of the dropdown).
@@ -212,7 +213,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     native_palette =
         native_palette && native_theme && native_theme->kind == UiSettingsControlKind::palette &&
         native_theme->choices.count == 3 && ui_settings_scene_focus(native_scene, theme_target) &&
-        key(VK_RETURN) && !g_app.popup_scene.active && g_app.preferences.theme == theme &&
+        press_key(key::enter) && !g_app.popup_scene.active && g_app.preferences.theme == theme &&
         g_app.preferences_request_revision == preference_revision;
     LPARAM card_point = 0;
     bool found_card = false;
@@ -319,14 +320,14 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     check(opened && g_app.popup_scene.item_count >= kBackgroundEffectCount &&
               (g_app.popup_scene.items[initial].flags & popup_item_checked) && effect() == initial,
           "choice runtime: Enter opens the list with the current value checked, without cycling or choosing");
-    check(popup_scene_select_index(&g_app.popup_scene, 1, &changed) && key(VK_RETURN) && effect() == 1 &&
+    check(popup_scene_select_index(&g_app.popup_scene, 1, &changed) && press_key(key::enter) && effect() == 1 &&
               !g_app.popup_scene.active,
           "choice runtime: Enter on an item dismisses the popup and applies that choice");
-    check(open(VK_SPACE) && g_app.popup_scene.selected_index == 1 &&
-              (g_app.popup_scene.items[1].flags & popup_item_checked) && key(VK_ESCAPE) &&
+    check(open(key::space) && g_app.popup_scene.selected_index == 1 &&
+              (g_app.popup_scene.items[1].flags & popup_item_checked) && press_key(key::escape) &&
               application_settings_active() && !g_app.popup_scene.active && effect() == 1,
           "choice runtime: Space opens on the current value and Escape closes only the picker");
-    check(key(VK_RIGHT) && effect() == 2 && key(VK_LEFT) && effect() == 1 && !g_app.popup_scene.active,
+    check(press_key(key::right) && effect() == 2 && press_key(key::left) && effect() == 1 && !g_app.popup_scene.active,
           "choice runtime: Left and Right step the value without opening a popup");
     ++projection.revision;
     application_settings_synchronize();
@@ -372,7 +373,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     ++projection.revision;
     const u32 chosen = effect();
     check(popup_scene_select_index(&g_app.popup_scene, 3, &changed) && application_settings_synchronize() &&
-              key(VK_RETURN) && !g_app.popup_scene.active && effect() == chosen,
+              press_key(key::enter) && !g_app.popup_scene.active && effect() == chosen,
           "choice runtime: a revised page expires the copied choice token before the choice is applied");
     check(open(), "choice runtime: current descriptors reopen after revision refresh");
     auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
@@ -387,7 +388,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
           "choice runtime: real account invalidation releases borrowed descriptors immediately");
     check(open(), "choice runtime: current account scope opens a new choice window");
     ++g_app.popup_scene.opens;
-    check(popup_scene_select_index(&g_app.popup_scene, 3, &changed) && key(VK_RETURN) && !g_app.popup_scene.active &&
+    check(popup_scene_select_index(&g_app.popup_scene, 3, &changed) && press_key(key::enter) && !g_app.popup_scene.active &&
               effect() == chosen,
           "choice runtime: reopened popup identity invalidates the old selection even with unchanged "
           "content");
@@ -396,7 +397,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
               application_settings_active(),
           "choice runtime: focus cancellation closes borrowed picker while retaining settings");
     check(open(), "choice runtime: the dropdown opens again after the focus loss");
-    check(popup_scene_select_index(&g_app.popup_scene, 0, &changed) && key(VK_RETURN) && effect() == 0 &&
+    check(popup_scene_select_index(&g_app.popup_scene, 0, &changed) && press_key(key::enter) && effect() == 0 &&
               !g_app.popup_scene.active,
           "choice runtime: a recaptured window applies its own choice");
     cleanup();

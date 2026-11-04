@@ -4,6 +4,7 @@
 #include "maicord/app/media/embed_resolver.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -173,7 +174,7 @@ static EmbedResolveResult load_collection(AccountMedia* media, const AccountMedi
             copy_bytes(text.data+text.bytes+6,title.text,title.bytes); copy_bytes(text.data+text.bytes+6+title.bytes,preview.data,preview.bytes);
             text.bytes+=6+title.bytes+preview.bytes; return true;
         }
-        ~Names() noexcept { if (text.data) VirtualFree(text.data, 0, MEM_RELEASE); }
+        ~Names() noexcept { if (text.data) pages_release(text.data); }
     } names{{},tracks};
     const MediaTrackTitleSink sink{&names, +[](void* opaque, u16 index, const MediaTrackTitle& title) noexcept {
         return static_cast<Names*>(opaque)->append(index,title);
@@ -223,7 +224,7 @@ static EmbedResolveResult load_collection(AccountMedia* media, const AccountMedi
         copy_bytes(ids + count, page.continuation, page.continuation_bytes);
     } else for (u32 i = 0; i < count; ++i) { ids[i].id.numeric = tracks[i]; ids[i].id.apple_track=apple; }
     if (media->collection) {
-        if (previous) VirtualFree(media->collection, 0, MEM_RELEASE);
+        if (previous) pages_release(media->collection);
         else release_collection(media->collection);
     }
     media->collection = collection;
@@ -716,7 +717,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             return remember_failure(media, request.key, now_ms, failure);
         }
         if (media->progressive_audio->state == ProgressiveVideoFetchState::empty) {
-            VirtualFree(media->progressive_audio, 0, MEM_RELEASE); media->progressive_audio = nullptr;
+            pages_release(media->progressive_audio); media->progressive_audio = nullptr;
         }
         return queue_progressive(media, request, now_ms, unix_seconds);
     }

@@ -4,8 +4,8 @@
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace permission_compute_test {
@@ -380,12 +380,12 @@ void test_bans() noexcept {
 } // namespace permission_compute_test
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_permission_compute_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_permission_compute_entry) {
     using namespace maicord::permission_compute_test;
     test_vectors();
     test_store();
     test_moderation();
     test_bans();
     maicord::test_write_text(failures ? "FAIL permission compute and moderation policy\n" : "PASS permission compute and moderation policy\n");
-    ExitProcess(failures ? 1 : 0);
+    ::maicord::test_process_exit(failures ? 1 : 0);
 }

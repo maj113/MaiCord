@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_error.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::plugin_runtime_detail {
@@ -39,7 +40,7 @@ bool ensure(PluginKeyValue* kv, u32 used) noexcept {
     const u32 needed = table_bytes(*kv) + round_page(used);
     if (needed <= kv->committed_bytes) return true;
     if (needed > kv->reserved_bytes ||
-        !VirtualAlloc(kv->memory + kv->committed_bytes, needed - kv->committed_bytes, MEM_COMMIT, PAGE_READWRITE))
+        !pages_commit_at(kv->memory + kv->committed_bytes, needed - kv->committed_bytes))
         return false;
     kv->committed_bytes = needed;
     return true;
@@ -118,10 +119,10 @@ bool kv_open(PluginKeyValue* kv, u32 maximum_keys, u32 maximum_key_bytes, u32 ma
     kv->maximum_value_bytes = maximum_value_bytes;
     kv->maximum_total_bytes = maximum_total_bytes;
     kv->reserved_bytes = table_bytes(*kv) + round_page(maximum_total_bytes);
-    kv->memory = static_cast<u8*>(VirtualAlloc(nullptr, kv->reserved_bytes, MEM_RESERVE, PAGE_READWRITE));
+    kv->memory = static_cast<u8*>(pages_reserve(kv->reserved_bytes));
     if (!kv->memory) return false;
-    if (!VirtualAlloc(kv->memory, table_bytes(*kv), MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(kv->memory, 0, MEM_RELEASE);
+    if (!pages_commit_at(kv->memory, table_bytes(*kv))) {
+        pages_release(kv->memory);
         kv->memory = nullptr;
         return false;
     }
@@ -130,7 +131,7 @@ bool kv_open(PluginKeyValue* kv, u32 maximum_keys, u32 maximum_key_bytes, u32 ma
 }
 
 void kv_close(PluginKeyValue* kv) noexcept {
-    if (kv->memory) VirtualFree(kv->memory, 0, MEM_RELEASE);
+    if (kv->memory) pages_release(kv->memory);
     reset_value(kv);
 }
 

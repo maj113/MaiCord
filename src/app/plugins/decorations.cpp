@@ -967,7 +967,7 @@ bool plugin_surfaces_add(PluginBinding* binding) noexcept {
 void plugin_surfaces_remove(PluginBinding* binding) noexcept {
     Plugin* plugin = find_plugin(binding);
     if (!plugin) return;
-    if (plugin->memory) VirtualFree(plugin->memory, 0, MEM_RELEASE);
+    if (plugin->memory) pages_release(plugin->memory);
     const u32 index = static_cast<u32>(plugin - g_plugins);
     for (u32 i = index + 1; i < g_plugin_count; ++i) g_plugins[i - 1] = g_plugins[i];
     reset_value(&g_plugins[--g_plugin_count]);

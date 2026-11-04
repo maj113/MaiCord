@@ -1,7 +1,7 @@
 #include "maicord/protocol/messages/thread_creation.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord::thread_creation_test {
 u32 failures;
@@ -178,7 +178,7 @@ void run() noexcept {
         "thread creation: decoded name remains owned after response storage is erased");
 }
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_thread_creation_protocol_test_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_thread_creation_protocol_test_entry) {
     maicord::thread_creation_test::run();
-    ExitProcess(maicord::thread_creation_test::failures ? 1 : 0);
+    ::maicord::test_process_exit(maicord::thread_creation_test::failures ? 1 : 0);
 }

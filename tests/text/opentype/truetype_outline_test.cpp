@@ -3,6 +3,7 @@
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -293,9 +294,9 @@ bool color_precision_cases() noexcept {
 
 bool coordinate_stream_cases() noexcept {
     constexpr u32 maximum_points=65536,glyph_capacity=14+512+maximum_points*4;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,4*1024*1024,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* memory=static_cast<u8*>(pages_allocate(4*1024*1024));
     if(!memory)return false;
-    struct Release {u8* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{memory};
+    struct Release {u8* p;~Release() noexcept {pages_release(p);}} release{memory};
     auto* decoded=reinterpret_cast<SfntOutlinePoint*>(memory+((glyph_capacity+3)&~3u));
     auto* contour_end=reinterpret_cast<u32*>(decoded+maximum_points);
     auto* active_glyphs=reinterpret_cast<u16*>(contour_end+1);
@@ -349,10 +350,10 @@ bool coordinate_stream_cases() noexcept {
 
 bool guarded_mutations() noexcept {
     fixture();
-    auto* memory = static_cast<u8*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
+    auto* memory = static_cast<u8*>(pages_reserve_no_access(8192));
     if (!memory) return false;
-    if (!VirtualAlloc(memory, 4096, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(memory, 0, MEM_RELEASE); return false;
+    if (!pages_commit_at(memory, 4096)) {
+        pages_release(memory); return false;
     }
     const u32 length = cursor;
     u32 random = 0x19770613;
@@ -372,7 +373,7 @@ bool guarded_mutations() noexcept {
         if(status==SfntStatus::ok&&bound&&out.count>bound){bounded=false;break;}
         s.require_instructions=true;sfnt_truetype_outline(font,glyph,&s,&out);
     }
-    VirtualFree(memory, 0, MEM_RELEASE);
+    pages_release(memory);
     return bounded;
 }
 

@@ -23,6 +23,7 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
@@ -296,56 +297,56 @@ bool handle_composer_key(WPARAM key) noexcept {
     if (control && key == 'A') {
         return application_composer_edit_command(TextEditCommand::select_all);
     }
-    if ((control && key == 'V') || (shift && !control && !alt && key == VK_INSERT)) {
+    if ((control && key == 'V') || (shift && !control && !alt && key == key::insert)) {
         return application_composer_edit_command(TextEditCommand::paste);
     }
-    if (control && (key == 'C' || key == VK_INSERT))
+    if (control && (key == 'C' || key == key::insert))
         return application_composer_edit_command(TextEditCommand::copy);
-    if ((control && key == 'X') || (shift && !control && !alt && key == VK_DELETE))
+    if ((control && key == 'X') || (shift && !control && !alt && key == key::del))
         return application_composer_edit_command(TextEditCommand::cut);
     switch (key) {
-    case VK_BACK:
+    case key::backspace:
         application_commands_prepare_delete(false);
         return composer_apply_result(
             control ? message_composer_delete_word(&composer, false, clock_monotonic_milliseconds())
                     : message_composer_backspace(&composer, clock_monotonic_milliseconds()),
             true);
-    case VK_DELETE:
+    case key::del:
         application_commands_prepare_delete(true);
         return composer_apply_result(
             control ? message_composer_delete_word(&composer, true, clock_monotonic_milliseconds())
                     : message_composer_delete_forward(&composer, clock_monotonic_milliseconds()),
             true);
-    case VK_LEFT:
+    case key::left:
         return composer_apply_result(message_composer_move(
             &composer, control ? MessageComposerMove::previous_word : MessageComposerMove::previous,
             shift));
-    case VK_RIGHT:
+    case key::right:
         return composer_apply_result(message_composer_move(
             &composer, control ? MessageComposerMove::next_word : MessageComposerMove::next, shift));
-    case VK_HOME:
+    case key::home:
         return composer_apply_result(message_composer_move(
             &composer, control ? MessageComposerMove::document_home : MessageComposerMove::line_home,
             shift));
-    case VK_END:
+    case key::end:
         return composer_apply_result(message_composer_move(
             &composer, control ? MessageComposerMove::document_end : MessageComposerMove::line_end, shift));
-    case VK_RETURN:
+    case key::enter:
         if (shift) {
             return composer_apply_result(message_composer_insert_line_break(&composer), true);
         }
         return queue_message_send() && pump_message_history();
-    case VK_ESCAPE:
+    case key::escape:
         if (g_app.message_edit.editor_active || application_reply_draft().message_id != 0)
             return application_reply_draft_activate(MessageComposerControl::cancel_reply);
         if (application_clear_channel_attachments())
             return refresh_message_composer_ui() && pump_message_history();
         release_message_composer_focus();
         return refresh_message_composer_ui();
-    case VK_UP: // In an empty composer the registry's edit_last_message has first refusal.
-    case VK_DOWN: {
+    case key::up: // In an empty composer the registry's edit_last_message has first refusal.
+    case key::down: {
         u32 position = composer.caret;
-        if (!renderer_message_composer_edit_move_vertical(g_app.renderer, key == VK_DOWN, &position)) {
+        if (!renderer_message_composer_edit_move_vertical(g_app.renderer, key == key::down, &position)) {
             return true;
         }
         return composer_apply_result(
@@ -381,7 +382,7 @@ bool handle_composer_character(WPARAM value) noexcept {
 }
 
 bool handle_composer_button_key(u32 key, bool down, bool repeated) noexcept {
-    if (key != VK_SPACE && key != VK_RETURN && key != VK_ESCAPE)
+    if (key != key::space && key != key::enter && key != key::escape)
         return false;
     if (!g_app.account_ui || g_app.login.visible ||
         g_app.context_focus != &g_app.message_composer_scene.widgets ||
@@ -389,8 +390,8 @@ bool handle_composer_button_key(u32 key, bool down, bool repeated) noexcept {
         ui_button_keyboard_cancel(&g_app.button_keyboard);
         return false;
     }
-    const auto logical = key == VK_SPACE    ? UiButtonKey::space
-                         : key == VK_RETURN ? UiButtonKey::enter
+    const auto logical = key == key::space    ? UiButtonKey::space
+                         : key == key::enter ? UiButtonKey::enter
                                             : UiButtonKey::escape;
     const auto result = ui_button_keyboard_key(
         &g_app.button_keyboard, &g_app.message_composer_scene.widgets, logical, down, repeated);

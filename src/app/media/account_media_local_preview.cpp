@@ -3,6 +3,7 @@
 #include "maicord/app/media/local_video_poster.hpp"
 #include "maicord/media/image/png_stream.hpp"
 #include "maicord/media/image/webp_thumbnail.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -16,7 +17,7 @@ struct ThumbnailMemory {
     u8* base = nullptr;
     ~ThumbnailMemory() noexcept {
         if (base)
-            VirtualFree(base, 0, MEM_RELEASE);
+            pages_release(base);
     }
     u8* allocate(u64 bytes) noexcept {
         if (!bytes || bytes > 0x7fffffffull)
@@ -356,14 +357,14 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
     if (!media->progressive || !scratch ||
         !progressive_source_initialize(&media->progressive->source, static_cast<u32>(request.snapshot.bytes))) {
         if (scratch)
-            VirtualFree(scratch, 0, MEM_RELEASE);
+            pages_release(scratch);
         account_media_release_video(media);
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     }
     auto* source = &media->progressive->source;
     LocalVideoPosterReader reader{read, context, scratch, kLocalVideoPosterReadBudget, 0, 0};
     const auto finish = [&](AccountMediaRequestResult value) noexcept {
-        VirtualFree(scratch, 0, MEM_RELEASE);
+        pages_release(scratch);
         if (value.state != AccountMediaRequestState::ready)
             account_media_release_video(media);
         reset_value<MediaAssetKey>(&media->active_key);

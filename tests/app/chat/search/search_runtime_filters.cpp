@@ -2,6 +2,7 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::search_runtime_test {
 
@@ -382,7 +383,7 @@ void rich_publication() noexcept {
         const bool focused = last.generation && ui_widget_manager_focus(&native->widgets, last);
         if (focused)
             g_app.context_focus = &native->widgets;
-        check(focused && key(VK_TAB) && g_app.context_focus == &g_app.search->scene.widgets &&
+        check(focused && key(key::tab) && g_app.context_focus == &g_app.search->scene.widgets &&
                   g_app.search->scene.widgets.focused.generation &&
                   g_app.search->scene.targets[g_app.search->scene.widgets.focused.slot].action ==
                       UiSearchAction::result,
@@ -688,7 +689,7 @@ void filter_choices_runtime() noexcept {
               member_query_active && member_queries == composing_queries + 1,
           "search choices: composition is quiet while held and returning to the same query republishes "
           "interest");
-    check(key(VK_ESCAPE) && !member_query_active && member_query_withdrawals == composing_withdrawals + 1,
+    check(key(key::escape) && !member_query_active && member_query_withdrawals == composing_withdrawals + 1,
           "search choices: Escape withdraws its current query with the dismissed suggestions");
     check(choice_draft(utf8_literal("from:zi")) && member_query_active,
           "search choices: delayed withdrawal starts from a real Search query");
@@ -721,11 +722,11 @@ void filter_choices_runtime() noexcept {
           "search choices: 64 retained synchronizations perform no inventory scans, copies, rebuilds, "
           "layouts, allocation or requests");
     const auto caret = g_app.search->edit.caret;
-    check(key(VK_DOWN) && bank->source.selected == 1 && g_app.search->edit.caret == caret &&
+    check(key(key::down) && bank->source.selected == 1 && g_app.search->edit.caret == caret &&
               g_app.search->focused && bank->scans == scans && bank->copies == copies,
           "search choices: Down highlights without moving native editor selection or rebuilding the bank");
-    check(modifiers(false, true) && key(VK_DOWN) && bank->source.selected == 1 && modifiers(true) &&
-              key(VK_UP) && bank->source.selected == 1 && modifiers(false, false, true) && key(VK_DOWN) &&
+    check(modifiers(false, true) && key(key::down) && bank->source.selected == 1 && modifiers(true) &&
+              key(key::up) && bank->source.selected == 1 && modifiers(false, false, true) && key(key::down) &&
               bank->source.selected == 1 && modifiers(),
           "search choices: Shift, Control and Alt arrow chords preserve ordinary editor routing");
     check(
@@ -736,7 +737,7 @@ void filter_choices_runtime() noexcept {
             g_app.search->edit.caret == caret,
         "search choices: roster publication preserves a still-present highlighted identity and edit "
         "selection");
-    check(key(VK_RETURN) &&
+    check(key(key::enter) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("from:3 ")) &&
               !g_app.search->suggestions && g_app.search->focused &&
               account.submissions == submissions_before && !application_search_pending(1),
@@ -748,7 +749,7 @@ void filter_choices_runtime() noexcept {
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("from:3 ")),
           "search choices: completion is one native undo and redo transaction");
     check(choice_draft(utf8_literal("from:\"ži\" in:"), utf8_literal("from:\"ži\"").bytes) &&
-              g_app.search->choices->source.rows.count == 1 && key(VK_TAB) &&
+              g_app.search->choices->source.rows.count == 1 && key(key::tab) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("from:3 in:")),
           "search choices: Unicode matching replaces the whole quoted value and preserves an unfinished "
           "unrelated filter");
@@ -780,45 +781,45 @@ void filter_choices_runtime() noexcept {
               !activate(*g_app.search, selection_ticket),
           "search choices: crossing a closing quote with identical decoded prefix retains matching data "
           "and rejects old targets");
-    check(choice_draft(utf8_literal("has:for")) && key(VK_RETURN) &&
+    check(choice_draft(utf8_literal("has:for")) && key(key::enter) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("has:snapshot ")) &&
-              choice_draft(utf8_literal("pinned:f")) && key(VK_TAB) &&
+              choice_draft(utf8_literal("pinned:f")) && key(key::tab) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("pinned:false ")),
           "search choices: friendly Forward and pinned choices emit canonical fixed values");
     check(choice_draft(utf8_literal("from:1 from:2 from:3 from:4 from:")) &&
               g_app.search->choices->source.rows.count == 1 && g_app.search->choices->rows[0].id == 3 &&
-              key(VK_RETURN) &&
+              key(key::enter) &&
               utf8_equal(message_composer_text(g_app.search->edit),
                          utf8_literal("from:1 from:2 from:3 from:4 from:3 ")),
           "search choices: four distinct IDs reject a fifth while still allowing duplicate identity "
           "completion");
-    check(choice_draft(utf8_literal("mentions: from:")) && key(VK_RETURN) &&
+    check(choice_draft(utf8_literal("mentions: from:")) && key(key::enter) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("mentions: from:@me ")),
           "search choices: another unfinished filter does not block current completion");
     check(choice_draft(utf8_literal("from:987654321")) && g_app.search->choices->source.rows.count == 0 &&
-              g_app.search->choices->source.selected == kUiSearchFilterNoSelection && key(VK_RETURN) &&
+              g_app.search->choices->source.selected == kUiSearchFilterNoSelection && key(key::enter) &&
               application_search_pending(1) && g_app.search->controller.query.author_count == 1 &&
               g_app.search->controller.query.author_ids[0] == 987654321 &&
               account.submissions == submissions_before && application_search_close_panel(),
           "search choices: manual Enter submits a valid uncached author ID through the full query parser");
     check(choice_draft(utf8_literal("mentions:987654322")) &&
-              g_app.search->choices->source.rows.count == 0 && key(VK_RETURN) &&
+              g_app.search->choices->source.rows.count == 0 && key(key::enter) &&
               application_search_pending(1) && g_app.search->controller.query.mention_count == 1 &&
               g_app.search->controller.query.mention_ids[0] == 987654322 &&
               account.submissions == submissions_before && application_search_close_panel(),
           "search choices: manual Enter submits a valid uncached mentioned-user ID without a cached row");
     check(choice_draft(utf8_literal("from:unresolvedfixtureperson")) &&
-              g_app.search->choices->source.rows.count == 0 && key(VK_RETURN) &&
+              g_app.search->choices->source.rows.count == 0 && key(key::enter) &&
               !application_search_pending(1) && g_app.search->validation.bytes &&
               account.submissions == submissions_before && application_search_close_panel(),
           "search choices: empty-match Enter retains full parser validation for unresolved author labels");
     check(choice_draft(utf8_literal("from:1 from:2 from:3 from:4 from:987654321")) &&
-              g_app.search->choices->source.rows.count == 0 && key(VK_RETURN) &&
+              g_app.search->choices->source.rows.count == 0 && key(key::enter) &&
               !application_search_pending(1) && g_app.search->validation.bytes &&
               account.submissions == submissions_before && application_search_close_panel(),
           "search choices: manual fifth distinct ID is rejected before any search request");
     check(choice_draft(utf8_literal("mentions:987654322")) &&
-              g_app.search->choices->source.rows.count == 0 && key(VK_TAB) && !g_app.search->suggestions &&
+              g_app.search->choices->source.rows.count == 0 && key(key::tab) && !g_app.search->suggestions &&
               !g_app.search->focused &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("mentions:987654322")) &&
               !application_search_pending(1) && account.submissions == submissions_before &&
@@ -854,7 +855,7 @@ void filter_choices_runtime() noexcept {
           "search choices: new document publication cannot retarget a retained row to the same channel ID");
     composing = true;
     check(application_search_synchronize() && !g_app.search->content.filter_choices &&
-              !g_app.search->content.suggestions && key(VK_RETURN) && key(VK_TAB) &&
+              !g_app.search->content.suggestions && key(key::enter) && key(key::tab) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")) &&
               !application_search_pending(1),
           "search choices: injected active-composition boundary withdraws choices and consumes "
@@ -882,11 +883,11 @@ void filter_choices_runtime() noexcept {
             application_search_window_message(WM_LBUTTONUP, 0, point(bounds)) &&
             utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")),
         "search choices: selection movement retires pointer capture and cannot activate a replacement row");
-    check(choice_draft(utf8_literal("from:")) && key(VK_ESCAPE) && !g_app.search->suggestions &&
+    check(choice_draft(utf8_literal("from:")) && key(key::escape) && !g_app.search->suggestions &&
               g_app.search->panel && application_search_synchronize() &&
               !g_app.search->content.filter_choices,
           "search choices: Escape dismisses once and warm synchronization does not revive the chooser");
-    check(choice_draft(utf8_literal("from:")) && modifiers(false, true) && key(VK_TAB) && modifiers() &&
+    check(choice_draft(utf8_literal("from:")) && modifiers(false, true) && key(key::tab) && modifiers() &&
               !g_app.search->focused,
           "search choices: Shift Tab retains ordinary reverse focus instead of accepting a value");
     check(choice_draft(utf8_literal("from:zi")) && member_query_active,
@@ -1064,7 +1065,7 @@ void thread_scope_runtime() noexcept {
           "search runtime: the shortcut over the browser focuses the scoped field without an in: prefill or "
           "results pane");
     check(type(utf8_literal("design")) && !s.content.suggestions && !s.content.recent_count &&
-              key(VK_RETURN) && browser_searches == 1 &&
+              key(key::enter) && browser_searches == 1 &&
               utf8_equal({browser_query, browser_query_bytes}, utf8_literal("design")) &&
               account.submissions == submissions && !application_search_pending(1) && !s.panel &&
               application_search_edit_focused() && browser_open,
@@ -1075,14 +1076,14 @@ void thread_scope_runtime() noexcept {
               server_bytes && utf8_equal(s.content.placeholder, server) &&
               !g_app.renderer.search_scene->scope.generation && application_search_edit_focused() && browser_open,
           "search runtime: removing the chip widens the field to the whole server without leaving the browser");
-    check(key(VK_RETURN) && browser_closes == 1 && !browser_open && s.panel && application_search_pending(1) &&
+    check(key(key::enter) && browser_closes == 1 && !browser_open && s.panel && application_search_pending(1) &&
               browser_searches == 1,
           "search runtime: a widened search leaves the thread browser for the results pane");
     application_search_close_panel();
     browser_open = true;
     ++browser_session;
-    check(open() && utf8_equal(s.content.scope_chip, utf8_literal("Threads")) && key(VK_BACK) &&
-              utf8_equal(s.content.scope_chip, utf8_literal("Threads")) && !s.edit.bytes && key(VK_BACK) &&
+    check(open() && utf8_equal(s.content.scope_chip, utf8_literal("Threads")) && key(key::backspace) &&
+              utf8_equal(s.content.scope_chip, utf8_literal("Threads")) && !s.edit.bytes && key(key::backspace) &&
               !s.content.scope_chip.bytes && application_search_edit_focused(),
           "search runtime: a new browsing session starts scoped; Backspace clears the query, then the chip");
     check(open() && utf8_equal(s.content.scope_chip, utf8_literal("Threads")) &&

@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/khmer_plan.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/khmer_plan_fixture.inc"
 u32 checks=0;
@@ -53,13 +54,13 @@ bool units() noexcept {
         poison(steps);alternate[16]=255;alternate[17]=255;
         CHECK(sfnt_khmer_lookup_plan(layout,variations,{scratch,8},{steps,32},&result)==SfntStatus::malformed&&untouched(steps));
         Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-        auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-        const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+        auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+        const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
         bool guarded=false;
         if(committed){auto* roots=reinterpret_cast<SfntLookupStep*>(memory+page*3-full.lookup_count*sizeof(SfntLookupStep));
             guarded=sfnt_khmer_lookup_plan(layout,{},{memory+page-layout.lookup_count,layout.lookup_count},{roots,full.lookup_count},&result)==SfntStatus::ok&&
                 result.lookup_count==full.lookup_count&&bytes_equal(saved,roots,full.lookup_count*sizeof(SfntLookupStep));}
-        CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&guarded);
+        CHECK(pages_release(memory));CHECK(committed&&guarded);
         const u32 alternatives[]{sfnt_tag('D','F','L','T'),sfnt_tag('k','h','m','2'),sfnt_tag('s','i','n','h')};for(u32 tag:alternatives){
             byte_store_be32(bytes+tag_at,tag);
             CHECK(sfnt_khmer_lookup_plan(layout,{},{scratch,8},{steps,32},&result)==SfntStatus::ok&&!result.language_found&&!result.lookup_count&&untouched(steps));
@@ -90,4 +91,4 @@ bool units() noexcept {
 }
 int run() noexcept {return units()?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_khmer_plan_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_khmer_plan_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

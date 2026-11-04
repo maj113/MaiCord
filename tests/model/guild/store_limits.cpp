@@ -293,7 +293,7 @@ void run() noexcept {
 }
 } // namespace maicord::store_limits_test
 
-extern "C" __declspec(noreturn) void WINAPI maicord_store_limits_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_store_limits_entry) {
     maicord::store_limits_test::run();
-    ExitProcess(maicord::store_limits_test::failures ? 1 : 0);
+    ::maicord::test_process_exit(maicord::store_limits_test::failures ? 1 : 0);
 }

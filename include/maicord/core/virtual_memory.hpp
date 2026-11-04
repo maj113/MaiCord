@@ -14,15 +14,36 @@
 // whole reservation is released at once. On Windows each function is the VirtualAlloc or VirtualFree call it
 // stands for; elsewhere mmap, mprotect and madvise. Sizes are multiples of the page size and addresses page
 // aligned, as the system requires.
+//
+// A reservation is released by its base alone, as VirtualFree(base, 0, MEM_RELEASE) does. munmap needs the length,
+// so on Linux pages_reserve and pages_allocate record each range they return (src/os/linux/pages.cpp) and the
+// release looks the length up; the callers of the Windows API keep their one-argument form.
 
 namespace maicord {
+
+#if !defined(_WIN32)
+// The Linux bodies of pages_reserve, pages_allocate and the releases: map a range (readable and writable when
+// `committed`, else without access) and record it; unmap a recorded range, or `hint_bytes` bytes of an unrecorded
+// one. Null and false when the system refuses.
+void* pages_map(usize bytes, bool committed) noexcept;
+bool pages_unmap(void* base, usize hint_bytes) noexcept;
+#endif
 
 __forceinline void* pages_reserve(usize bytes) noexcept {
 #if defined(_WIN32)
     return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE);
 #else
-    const long result = sys_mmap(nullptr, bytes, kProtectNone, kMapPrivate | kMapAnonymous | kMapNoReserve);
-    return syscall_failed(result) ? nullptr : reinterpret_cast<void*>(result);
+    return pages_map(bytes, false);
+#endif
+}
+
+// pages_reserve, with the PAGE_NOACCESS protection some Windows call sites name for a reservation (the protection
+// of a MEM_RESERVE call is not used, but it is part of the call a caller already compiles to).
+__forceinline void* pages_reserve_no_access(usize bytes) noexcept {
+#if defined(_WIN32)
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_NOACCESS);
+#else
+    return pages_reserve(bytes);
 #endif
 }
 
@@ -32,6 +53,16 @@ __forceinline bool pages_commit(void* address, usize bytes) noexcept {
     return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE) == address;
 #else
     return !syscall_failed(sys_mprotect(address, bytes, kProtectRead | kProtectWrite));
+#endif
+}
+
+// pages_commit for a caller that tests or compares the result as VirtualAlloc's: `address` on success, null when
+// the system refuses.
+__forceinline void* pages_commit_at(void* address, usize bytes) noexcept {
+#if defined(_WIN32)
+    return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE);
+#else
+    return pages_commit(address, bytes) ? address : nullptr;
 #endif
 }
 
@@ -45,13 +76,24 @@ __forceinline bool pages_decommit(void* address, usize bytes) noexcept {
 #endif
 }
 
-// Releases a whole reservation: its base and the size it was reserved with.
-__forceinline void pages_release(void* base, usize bytes) noexcept {
+// Releases a whole reservation by its base (the size it was reserved with is not needed: Windows takes none, and
+// Linux looks it up). False when the system refuses.
+__forceinline bool pages_release(void* base) noexcept {
+#if defined(_WIN32)
+    return VirtualFree(base, 0, MEM_RELEASE) != 0;
+#else
+    return pages_unmap(base, 0);
+#endif
+}
+
+// The same, for a caller that knows the size it reserved (the size only matters for a range that was not mapped by
+// pages_reserve or pages_allocate).
+__forceinline bool pages_release(void* base, usize bytes) noexcept {
 #if defined(_WIN32)
     (void)bytes;
-    VirtualFree(base, 0, MEM_RELEASE);
+    return VirtualFree(base, 0, MEM_RELEASE) != 0;
 #else
-    sys_munmap(base, bytes);
+    return pages_unmap(base, bytes);
 #endif
 }
 
@@ -60,8 +102,7 @@ __forceinline void* pages_allocate(usize bytes) noexcept {
 #if defined(_WIN32)
     return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
-    const long result = sys_mmap(nullptr, bytes, kProtectRead | kProtectWrite, kMapPrivate | kMapAnonymous);
-    return syscall_failed(result) ? nullptr : reinterpret_cast<void*>(result);
+    return pages_map(bytes, true);
 #endif
 }
 
@@ -85,6 +126,24 @@ __forceinline bool pages_protect(void* address, usize bytes, PageAccess access) 
                                         access == PageAccess::none   ? kProtectNone
                                         : access == PageAccess::read ? kProtectRead
                                                                      : kProtectRead | kProtectWrite));
+#endif
+}
+
+// Pins committed pages in memory so they are not written to swap (secrets). Not counted: one pages_unlock undoes
+// any number of pages_lock calls on a page. False when the system's lock quota is exhausted.
+__forceinline bool pages_lock(void* address, usize bytes) noexcept {
+#if defined(_WIN32)
+    return VirtualLock(address, bytes) != 0;
+#else
+    return !syscall_failed(sys_mlock(address, bytes));
+#endif
+}
+
+__forceinline bool pages_unlock(void* address, usize bytes) noexcept {
+#if defined(_WIN32)
+    return VirtualUnlock(address, bytes) != 0;
+#else
+    return !syscall_failed(sys_munlock(address, bytes));
 #endif
 }
 

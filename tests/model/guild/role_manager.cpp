@@ -10,8 +10,8 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace role_manager_test {
@@ -392,7 +392,7 @@ void test_locks_and_drafts() noexcept {
 } // namespace role_manager_test
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_role_manager_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_role_manager_entry) {
     using namespace maicord::role_manager_test;
     test_tristate_bits();
     test_tristate_control();
@@ -403,5 +403,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_role_manager_entry() noexcep
     constexpr char fail[] = "FAIL role manager\n";
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    ::maicord::test_process_exit(failures ? 1 : 0);
 }

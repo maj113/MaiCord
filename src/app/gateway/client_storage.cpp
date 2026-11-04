@@ -145,11 +145,11 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
     release_wiped_storage(&runtime->ready_arrays);
     if (runtime->self_status_group) {
         SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
-        VirtualFree(runtime->self_status_group, 0, MEM_RELEASE);
+        pages_release(runtime->self_status_group);
         runtime->self_status_group = nullptr;
     }
     SecureZeroMemory(runtime, bytes);
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
 }
 
 } // namespace client_detail

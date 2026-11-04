@@ -26,11 +26,7 @@
 #include "maicord/ui/core/widget_manager.hpp"
 #include "maicord/core/win32_records.hpp"
 #include <stddef.h>
-
-struct ID3D11Buffer;
-struct ID3D11RenderTargetView;
-struct ID3D11ShaderResourceView;
-struct ID3D11Texture2D;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 
@@ -306,7 +302,7 @@ struct D3D11Renderer {
     u64 background_next_frame_ms;
     bool background_motion_running;
     TextEffectConstants text_effects;
-    ID3D11Buffer* text_effect_buffer;
+    GpuBuffer* text_effect_buffer;
     u32 text_effect_count;
     bool text_effect_animated;
     bool reduced_motion;
@@ -588,10 +584,10 @@ struct D3D11Renderer {
     // again only when its stamp (content, theme, size) changes.
     u32 settings_modal_paint_first_batch, settings_modal_paint_end_batch;
     float settings_modal_progress;
-    ID3D11Texture2D* settings_backdrop;
-    ID3D11ShaderResourceView* settings_backdrop_view;
-    ID3D11RenderTargetView* settings_backdrop_target;
-    ID3D11Buffer* settings_backdrop_quad;
+    GpuTexture* settings_backdrop;
+    GpuSrv* settings_backdrop_view;
+    GpuRtv* settings_backdrop_target;
+    GpuBuffer* settings_backdrop_quad;
     u32 settings_backdrop_width, settings_backdrop_height;
     // The shell stamp the backdrop was last drawn (or rejected) for, and the
     // media it drew: a new frame of any of them (GIF, animated emoji or

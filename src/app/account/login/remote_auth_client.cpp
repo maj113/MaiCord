@@ -918,7 +918,7 @@ bool release_runtime(RemoteAuthClientRuntime* runtime) noexcept {
     }
     remote_auth_handshake_release(&runtime->handshake);
     SecureZeroMemory(runtime, sizeof(*runtime));
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     return true;
 }
 

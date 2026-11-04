@@ -6,6 +6,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/render/text/form_surface.hpp"
 #include "../../../src/app/shell/state.hpp"
 
@@ -716,10 +717,10 @@ void run() noexcept {
     check(q->content.mode == UiDownloadMode::confirmation &&
               q->scene.widgets.focused.slot == q->scene.cancel.slot && !picker_starts && !starts,
           "Downloads warning defaults to Cancel without URL or dialog work");
-    application_downloads_input(UiInputKind::key_down, VK_RETURN, false);
+    application_downloads_input(UiInputKind::key_down, key::enter, false);
     check(q->jobs[0].phase == JobPhase::cancelled && !starts && !picker_starts,
           "Downloads Enter on default warning cancels admission");
-    application_downloads_input(UiInputKind::key_up, VK_RETURN, false);
+    application_downloads_input(UiInputKind::key_up, key::enter, false);
     dismiss_all();
     check(application_downloads_begin(500, 600), "Downloads captures ordinary source");
     application_downloads_pump();

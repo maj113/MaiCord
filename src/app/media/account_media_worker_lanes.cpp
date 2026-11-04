@@ -322,7 +322,7 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         result = account_media_decode_local_preview(&lane->media, request, {bytes, offset});
     }
     SecureZeroMemory(bytes, static_cast<SIZE_T>(work.local_snapshot.bytes));
-    VirtualFree(bytes, 0, MEM_RELEASE);
+    pages_release(bytes);
     return result;
 }
 
@@ -342,18 +342,18 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWork
             if (work.text_bytes != sizeof(batch)) return request_result(AccountMediaRequestState::invalid,AccountMediaError::invalid_input);
             copy_bytes(&batch,work.text,sizeof(batch)); work.text_bytes=0;
             struct Output { AccountMediaWorkerLane* lane; const SoundcloudTitleBatch* batch; } output{lane,&batch};
-            if (lane->collection_titles) VirtualFree(lane->collection_titles,0,MEM_RELEASE);
+            if (lane->collection_titles) pages_release(lane->collection_titles);
             lane->collection_titles=nullptr; lane->collection_title_bytes=lane->collection_title_committed=0;
             const MediaTrackTitleSink sink{&output,+[](void* opaque,u16 index,const MediaTrackTitle& title) noexcept {
                 auto& o=*static_cast<Output*>(opaque); auto& lane=*o.lane;
                 const u32 required=lane.collection_title_bytes+12+title.bytes;
                 constexpr u32 capacity=32768;
                 if (required>capacity) return false;
-                if (!lane.collection_titles) lane.collection_titles=static_cast<char*>(VirtualAlloc(nullptr,capacity,MEM_RESERVE,PAGE_READWRITE));
+                if (!lane.collection_titles) lane.collection_titles=static_cast<char*>(pages_reserve(capacity));
                 if (!lane.collection_titles) return false;
                 if (required>lane.collection_title_committed) {
                     const u32 committed=(required+4095)&~4095u;
-                    if (!VirtualAlloc(lane.collection_titles,committed,MEM_COMMIT,PAGE_READWRITE)) return false;
+                    if (!pages_commit_at(lane.collection_titles, committed)) return false;
                     lane.collection_title_committed=committed;
                 }
                 u64 id=0; for (u32 i=0;i<o.batch->count;++i) if (o.batch->tracks[i].index==index) { id=o.batch->tracks[i].id; break; }
@@ -671,7 +671,7 @@ void collect_collection_titles(AccountMediaWorker* worker) noexcept {
             if (!found) account_media_collection_title_store(owner,request,id,{},lane.completed_result.retry_at_ms ?
                 lane.completed_result.retry_at_ms : deadline_after(clock_monotonic_milliseconds(),kAccountMediaFailureRetryMs));
         }
-        if (lane.collection_titles) VirtualFree(lane.collection_titles,0,MEM_RELEASE);
+        if (lane.collection_titles) pages_release(lane.collection_titles);
         lane.collection_titles=nullptr; lane.collection_title_bytes=lane.collection_title_committed=0;
         lane.media.frame_ready = false;
         store_phase(&lane, AccountMediaWorkerPhase::idle);

@@ -10,6 +10,7 @@
 #include "maicord/text/unicode/grapheme.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/heap.hpp"
 
 namespace maicord {
 namespace {
@@ -241,7 +242,7 @@ TextShapingView::TextShapingView(Utf8View input) noexcept : text(input) {
         // its punctuation/emoji lead bytes alone must not cost a heap copy.
         if (text_hide_default_ignorables(input, {}) != ~0u)
             return;
-        heap_ = static_cast<char*>(HeapAlloc(process_heap(), 0, input.bytes));
+        heap_ = static_cast<char*>(heap_allocate(input.bytes));
         if (!heap_)
             return;
         storage = {heap_, input.bytes};
@@ -253,7 +254,7 @@ TextShapingView::TextShapingView(Utf8View input) noexcept : text(input) {
 
 TextShapingView::~TextShapingView() noexcept {
     if (heap_)
-        HeapFree(process_heap(), 0, heap_);
+        heap_free(heap_);
 }
 
 // The fallback stages run only after a text failed to shape whole: compiled for size.
@@ -317,14 +318,14 @@ void log_native_fallback(u32 stage,u32 bytes) noexcept {
     log_u64(LogLevel::warning,"text","native_fallback_bytes",bytes);
 }
 } // namespace
-TextNativeFallback::~TextNativeFallback() noexcept {if(heap_)HeapFree(process_heap(),0,heap_);}
+TextNativeFallback::~TextNativeFallback() noexcept {if(heap_)heap_free(heap_);}
 bool TextNativeFallback::build(const TextSystem& system,Utf8View input,u32 stage) noexcept {
     if(!text_browser_invisibles()||stage>=stages||!input.data||!input.bytes)return false;
     char* out=local_;
     if(input.bytes>sizeof(local_)){
         if(heap_bytes_<input.bytes){
-            if(heap_)HeapFree(process_heap(),0,heap_);
-            heap_=static_cast<char*>(HeapAlloc(process_heap(),0,input.bytes));heap_bytes_=heap_?input.bytes:0;
+            if(heap_)heap_free(heap_);
+            heap_=static_cast<char*>(heap_allocate(input.bytes));heap_bytes_=heap_?input.bytes:0;
             if(!heap_)return false;
         }
         out=heap_;
@@ -491,7 +492,7 @@ struct FoldedSpans {
     TextStyleSpan* heap{};
     ~FoldedSpans() noexcept {
         if (heap)
-            HeapFree(process_heap(), 0, heap);
+            heap_free(heap);
     }
 };
 
@@ -514,7 +515,7 @@ __forceinline TextShapeResult text_layout_utf8(TextSystem* system, Utf8View sour
             sized = sized_styles[i].size != 0;
         if (sized) {
             folded.heap = static_cast<TextStyleSpan*>(
-                HeapAlloc(process_heap(), 0, sized_styles.count * sizeof(TextStyleSpan)));
+                heap_allocate(sized_styles.count * sizeof(TextStyleSpan)));
             if (!folded.heap)
                 return shape_result(TextShapeError::unsupported, E_OUTOFMEMORY);
             fold_scratch = {folded.heap, sized_styles.count};

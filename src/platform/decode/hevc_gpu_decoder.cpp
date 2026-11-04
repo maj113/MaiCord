@@ -383,7 +383,7 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
         com_release(s->guard);
         com_release(s->context);
         com_release(s->device);
-        VirtualFree(s, 0, MEM_RELEASE);
+        pages_release(s);
     }
     reset_value(handle);
 }

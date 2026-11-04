@@ -1,6 +1,7 @@
 #include "maicord/platform/crypto/p256.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_sha256.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -10,11 +11,8 @@ using Check = void (*)(bool, const char*) noexcept;
 void scalar_corpus(Check check) noexcept {
     constexpr P256Kind kinds[]{P256Kind::ecdh, P256Kind::ecdsa};
     for (auto kind : kinds) {
-        void* hash = nullptr;
-        check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
-              "P256 point corpus digest init");
-        if (!hash)
-            return;
+        TestSha256 hash;
+        test_sha256_begin(&hash);
         for (const auto* hex : p256_scalars) {
             u8 scalar[32], exported[48], point[80];
             test_unhex(hex, scalar);
@@ -29,17 +27,17 @@ void scalar_corpus(Check check) noexcept {
                 check(p256_export_private(key, {exported, 48}).ok() && bytes_equal(scalar, exported, 32) &&
                           test_filled(exported + 32, 16, 0xa5),
                       "P256 scalar import/export preserves exact full-width big-endian value");
-                check(BCryptHashData(hash, point, 65, 0) >= 0, "P256 public corpus aggregation");
+                test_sha256_update(&hash, point, 65);
             }
             p256_release(&key);
-            SecureZeroMemory(scalar, sizeof(scalar));
-            SecureZeroMemory(exported, sizeof(exported));
+            secure_clear_bytes(scalar, sizeof(scalar));
+            secure_clear_bytes(exported, sizeof(exported));
         }
         u8 expected[32], actual[32];
         test_unhex(p256_public_digest, expected);
-        check(BCryptFinishHash(hash, actual, 32, 0) >= 0 && bytes_equal(actual, expected, 32),
+        test_sha256_finish(&hash, actual);
+        check(bytes_equal(actual, expected, 32),
               "P256 all scalar bits, order boundary and random scalars match independent OpenSSL points");
-        BCryptDestroyHash(hash);
     }
 }
 void vectors(Check check) noexcept {
@@ -83,9 +81,9 @@ void vectors(Check check) noexcept {
         p256_release(&other);
         p256_release(&signing);
         p256_release(&verifier);
-        SecureZeroMemory(scalar, sizeof(scalar));
-        SecureZeroMemory(shared, sizeof(shared));
-        SecureZeroMemory(output, sizeof(output));
+        secure_clear_bytes(scalar, sizeof(scalar));
+        secure_clear_bytes(shared, sizeof(shared));
+        secure_clear_bytes(output, sizeof(output));
     }
 }
 void boundaries(Check check) noexcept {
@@ -155,45 +153,36 @@ void boundaries(Check check) noexcept {
     p256_release(&wrong);
     p256_release(&key);
     check(!key.handle && !key.has_private, "P256 release retires handle and private capability");
-    SecureZeroMemory(scalar, sizeof(scalar));
+    secure_clear_bytes(scalar, sizeof(scalar));
 }
 void guards(Check check) noexcept {
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
-    auto* input = static_cast<u8*>(
-        VirtualAlloc(nullptr, info.dwPageSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* output = static_cast<u8*>(
-        VirtualAlloc(nullptr, info.dwPageSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    DWORD previous = 0;
-    const bool ready = input && output &&
-                       VirtualProtect(input + info.dwPageSize, info.dwPageSize, PAGE_NOACCESS, &previous) &&
-                       VirtualProtect(output + info.dwPageSize, info.dwPageSize, PAGE_NOACCESS, &previous);
+    const usize page = pages_page_size();
+    auto* input = static_cast<u8*>(pages_allocate(page * 2));
+    auto* output = static_cast<u8*>(pages_allocate(page * 2));
+    const bool ready = input && output && pages_protect(input + page, page, PageAccess::none) &&
+                       pages_protect(output + page, page, PageAccess::none);
     check(ready, "P256 guarded input and output pages");
     P256Key signing{}, verifying{}, dh{}, peer{};
     if (ready) {
-        auto* scalar = input + info.dwPageSize - 32;
+        auto* scalar = input + page - 32;
         test_unhex(p256_vectors[0].scalar, scalar);
-        check(VirtualProtect(input, info.dwPageSize, PAGE_READONLY, &previous) != 0,
-              "P256 immutable scalar input");
+        check(pages_protect(input, page, PageAccess::read), "P256 immutable scalar input");
         check(p256_import_private(&signing, P256Kind::ecdsa, {scalar, 32}).ok() &&
                   p256_import_private(&dh, P256Kind::ecdh, {scalar, 32}).ok(),
               "P256 scalar imports respect inaccessible following page");
-        check(p256_export_private(signing, {output + info.dwPageSize - 32, 32}).ok() &&
-                  bytes_equal(scalar, output + info.dwPageSize - 32, 32),
+        check(p256_export_private(signing, {output + page - 32, 32}).ok() &&
+                  bytes_equal(scalar, output + page - 32, 32),
               "P256 private export respects exact guard capacity");
-        check(
-            p256_export_public(signing, {output + info.dwPageSize - 65, 65}).ok() &&
-                p256_import_public(&verifying, P256Kind::ecdsa, {output + info.dwPageSize - 65, 65}).ok() &&
-                p256_import_public(&peer, P256Kind::ecdh, {output + info.dwPageSize - 65, 65}).ok(),
-            "P256 public import/export respects exact SEC1 guarded boundary");
-        check(VirtualProtect(input, info.dwPageSize, PAGE_READWRITE, &previous) != 0,
-              "P256 guarded input restore");
-        auto* digest = input + info.dwPageSize - 32;
+        check(p256_export_public(signing, {output + page - 65, 65}).ok() &&
+                  p256_import_public(&verifying, P256Kind::ecdsa, {output + page - 65, 65}).ok() &&
+                  p256_import_public(&peer, P256Kind::ecdh, {output + page - 65, 65}).ok(),
+              "P256 public import/export respects exact SEC1 guarded boundary");
+        check(pages_protect(input, page, PageAccess::read_write), "P256 guarded input restore");
+        auto* digest = input + page - 32;
         test_unhex(p256_vectors[0].digest, digest);
-        check(VirtualProtect(input, info.dwPageSize, PAGE_READONLY, &previous) != 0,
-              "P256 immutable digest input");
-        check(p256_sign_digest(signing, {digest, 32}, {output + info.dwPageSize - 64, 64}).ok() &&
-                  p256_verify_digest(verifying, {digest, 32}, {output + info.dwPageSize - 64, 64}).ok(),
+        check(pages_protect(input, page, PageAccess::read), "P256 immutable digest input");
+        check(p256_sign_digest(signing, {digest, 32}, {output + page - 64, 64}).ok() &&
+                  p256_verify_digest(verifying, {digest, 32}, {output + page - 64, 64}).ok(),
               "P256 signature sign/verify respects exact digest and signature boundaries");
         u8 unchanged[32];
         memset(unchanged, 0xa5, sizeof(unchanged));
@@ -202,17 +191,16 @@ void guards(Check check) noexcept {
                       p256_export_private(signing, {unchanged, n}).error == P256Error::output_capacity &&
                       test_filled(unchanged, 32, 0xa5),
                   "P256 short private/shared-secret outputs remain untouched");
-        check(p256_ecdh(dh, peer, {output + info.dwPageSize - 32, 32}).ok(),
-              "P256 raw shared-secret output respects guard");
+        check(p256_ecdh(dh, peer, {output + page - 32, 32}).ok(), "P256 raw shared-secret output respects guard");
     }
     p256_release(&signing);
     p256_release(&verifying);
     p256_release(&dh);
     p256_release(&peer);
     if (input)
-        VirtualFree(input, 0, MEM_RELEASE);
+        pages_release(input, page * 2);
     if (output)
-        VirtualFree(output, 0, MEM_RELEASE);
+        pages_release(output, page * 2);
 }
 } // namespace
 void test_p256(Check check) noexcept {

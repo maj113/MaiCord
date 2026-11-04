@@ -60,7 +60,7 @@ CustomThemeOwner* ensure() noexcept {
         return nullptr;
     const auto defaults = client_theme_document_defaults();
     if (!client_theme_storage_capture(&o->applied, g_app.preferences, defaults, false, false)) {
-        VirtualFree(o, 0, MEM_RELEASE);
+        pages_release(o);
         return nullptr;
     }
     o->effective = o->applied;
@@ -683,7 +683,7 @@ bool application_custom_theme_release(u32 timeout_ms) noexcept {
     if (!client_theme_io_stop(&o->io, timeout_ms))
         return false;
     owner = nullptr;
-    VirtualFree(o, 0, MEM_RELEASE);
+    pages_release(o);
     return true;
 }
 } // namespace maicord::app_detail

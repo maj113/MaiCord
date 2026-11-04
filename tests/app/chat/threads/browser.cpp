@@ -6,6 +6,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 namespace maicord::thread_browser_test { u64 now = 1000; }
 namespace maicord { static u64 browser_fixture_now() noexcept { return thread_browser_test::now; } }
@@ -385,13 +386,13 @@ void run() noexcept {
         "browser: an over-long header query explains the limit in the panel");
     BYTE keyboard[256]{}, saved_keyboard[256]{};
     const bool keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    keyboard[VK_CONTROL] = keyboard[VK_LCONTROL] = 0x80;
+    keyboard[key::ctrl] = keyboard[key::left_ctrl] = 0x80;
     g_app.context_focus = &browser_owner->scene.widgets;
     const bool search_shortcut_passes = SetKeyboardState(keyboard) &&
         !application_thread_browser_input(UiInputKind::key_down, 'F', false);
-    keyboard[VK_CONTROL] = keyboard[VK_LCONTROL] = 0;
+    keyboard[key::ctrl] = keyboard[key::left_ctrl] = 0;
     SetKeyboardState(keyboard);
-    check(keyboard_saved && search_shortcut_passes && application_thread_browser_input(UiInputKind::key_down, VK_TAB, false) &&
+    check(keyboard_saved && search_shortcut_passes && application_thread_browser_input(UiInputKind::key_down, key::tab, false) &&
         application_thread_browser_input(UiInputKind::character, 'f', false) && application_thread_browser_active(),
         "browser: the search shortcut passes to the header search bar while panel keys stay in the panel");
     if (keyboard_saved) SetKeyboardState(saved_keyboard);

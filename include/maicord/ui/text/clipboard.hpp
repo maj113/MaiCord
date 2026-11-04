@@ -2,27 +2,9 @@
 
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 
 namespace maicord {
-
-enum class ClipboardTextError : u8 {
-    none,
-    invalid_input,
-    unavailable,
-    open_failed,
-    data_failed,
-    invalid_text,
-    capacity,
-};
-
-struct ClipboardTextResult {
-    u32 bytes;
-    ClipboardTextError error;
-
-    constexpr bool ok() const noexcept {
-        return error == ClipboardTextError::none;
-    }
-};
 
 ClipboardTextResult clipboard_read_utf8(HWND owner, const Slice<char>& output) noexcept;
 

@@ -39,7 +39,7 @@ void rejected(Utf8View source, EmbedPlayerError expected) noexcept {
 }
 } // namespace
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_youtube_player_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_youtube_player_entry) {
     using namespace maicord;
     using E = EmbedPlayerError;
     auto source = response(video720, audio, video360, alternate);
@@ -147,5 +147,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_youtube_player_entry() noexc
           "request capacity failure is transactional");
     check(!youtube_player_body(id, utf8_literal("bad\r\nvisitor"), {request, sizeof(request)}),
           "bootstrap metadata cannot inject headers");
-    ExitProcess(failures ? 1 : 0);
+    ::maicord::test_process_exit(failures ? 1 : 0);
 }

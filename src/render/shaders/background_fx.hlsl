@@ -27,6 +27,20 @@ cbuffer UiFrame : register(b0) {
 // BackgroundFxConstants (rows 0..11) plus the host-only rows: the canvas (DIPs)
 // and the sprite grid (first star cell, cells per row, comet lanes). The pixel
 // stage sees it at b0, the vertex stage at b2.
+#if defined(__spirv__)
+// The same offsets without packoffset: std140 admits no gaps, so the members the layout skips are named and each
+// member starts where std140 places it (scalars, never a float3, fill the registers the host struct leaves open).
+cbuffer McFxVertex : register(b2) {
+    float vertex_time;
+    float vertex_pad0_unused_, vertex_pad1_unused_, vertex_pad2_unused_;
+    float2 vertex_resolution;
+    float2 vertex_pad3_unused_;
+    float4 vertex_gap_unused_[8];
+    float4 vertex_parameters[2];
+    float4 vertex_canvas;
+    float4 vertex_grid;
+};
+#else
 cbuffer McFxVertex : register(b2) {
     float vertex_time : packoffset(c0.x);
     float2 vertex_resolution : packoffset(c1.x);
@@ -34,6 +48,7 @@ cbuffer McFxVertex : register(b2) {
     float4 vertex_canvas : packoffset(c12);
     float4 vertex_grid : packoffset(c13);
 };
+#endif
 
 // PCG3D (Jarzynski and Olano, JCGT 2020): three decorrelated values in [0, 1)
 // from three integers. Pure 32-bit integer arithmetic: the same stars on every GPU.
@@ -164,8 +179,14 @@ SamplerState fx_sampler : register(s0); // the pipeline's bilinear clamp sampler
 
 // The colour, and the weight of what is behind it: only the adapted screen and add's blend state reads the weight.
 struct FxCompositeTargets {
+#if defined(__spirv__)
+    // Dual-source blending (GL_EXT_blend_func_extended): both outputs are colour 0, the second at index 1.
+    [[vk::location(0), vk::index(0)]] float4 color : SV_Target0;
+    [[vk::location(0), vk::index(1)]] float4 weight : SV_Target1;
+#else
     float4 color : SV_Target0;
     float4 weight : SV_Target1;
+#endif
 };
 
 // The target holds premultiplied colour; the user's opacity scales all four channels.

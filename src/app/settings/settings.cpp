@@ -26,6 +26,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/text/clipboard.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
@@ -688,7 +689,7 @@ void application_settings_release() noexcept {
     message_composer_release(&settings->search_edit);
     g_app.settings = nullptr;
     g_app.settings_held_key = 0;
-    VirtualFree(settings, 0, MEM_RELEASE);
+    pages_release(settings);
 }
 
 } // namespace maicord::app_detail

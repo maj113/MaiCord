@@ -1,6 +1,8 @@
 #include "maicord/text/scripts/latin_run.hpp"
 #include "maicord/text/shaping/alphabetic_run.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 char output[65536];u32 used=0;bool print_ok=true;u32 checks=0,cases=0;
 void flush() noexcept {DWORD written=0;if(used&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),output,used,&written,nullptr)||written!=used))print_ok=false;used=0;}
@@ -46,4 +48,4 @@ SfntStatus shape(Utf8View text,u32 script,u32 mode,float em,NativeAsciiStorage s
 #include "latin_run_guards.inc"
 bool run() noexcept {return guards();}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_latin_run_entry() noexcept {using namespace maicord;const bool ok=run();print("cases=");number(cases);print(" checks=");number(checks);print(ok?" PASS native Latin runs\n":" FAIL native Latin runs\n");flush();ExitProcess(ok&&print_ok?0:1);}
+MAICORD_TEST_ENTRY(maicord_latin_run_entry) {using namespace maicord;const bool ok=run();print("cases=");number(cases);print(" checks=");number(checks);print(ok?" PASS native Latin runs\n":" FAIL native Latin runs\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);}

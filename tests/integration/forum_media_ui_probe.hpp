@@ -5,6 +5,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 namespace maicord {
 template <class Begin, class Resize, class Show, class Warm, class Metadata, class Type, class Fade>
 bool forum_media_ui_scenarios(D3D11Renderer& renderer, Theme& theme, Begin begin, Resize resize, Show show,
@@ -80,7 +81,7 @@ bool forum_media_ui_scenarios(D3D11Renderer& renderer, Theme& theme, Begin begin
         if (!forum_post_ui_adapter_input(UiInputKind::character, unit))
             return false;
     if (!require(
-            forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+            forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                 !forum_media_ui_adapter_child() &&
                 forum_media_ui_adapter_description_saved(id, utf8_literal("Original photo description")) &&
                 !parent->child_suspended,
@@ -112,7 +113,7 @@ bool forum_media_ui_scenarios(D3D11Renderer& renderer, Theme& theme, Begin begin
                      forum_media_ui_adapter_child(),
                  12))
         return false;
-    if (!require(forum_post_ui_adapter_input(UiInputKind::key_down, VK_ESCAPE) &&
+    if (!require(forum_post_ui_adapter_input(UiInputKind::key_down, key::escape) &&
                      !forum_media_ui_adapter_child() && action(UiAttachmentDraftAction::spoiler) &&
                      action(UiAttachmentDraftAction::spoiler) && show(L"forum-media-ready-thumbnail.bmp") &&
                      renderer.forum_media_first_batch < renderer.forum_media_end_batch && fade() && warm(1),
@@ -129,8 +130,8 @@ bool forum_media_ui_scenarios(D3D11Renderer& renderer, Theme& theme, Begin begin
     if (!require(
             resize(1100, 1000, 96) && forum_post_ui_adapter_pointer({ForumPostElement::body, 0}) &&
                 forum_post_ui_adapter_input(UiInputKind::key_down, 'A', false, true) &&
-                forum_post_ui_adapter_input(UiInputKind::key_down, VK_BACK) &&
-                forum_post_ui_adapter_input(UiInputKind::key_down, VK_RETURN, false, true) &&
+                forum_post_ui_adapter_input(UiInputKind::key_down, key::backspace) &&
+                forum_post_ui_adapter_input(UiInputKind::key_down, key::enter, false, true) &&
                 forum_post_ui_adapter_submit(91004) && forum_post_ui_adapter_flight(&create, &create_id) &&
                 create.operation == ForumPostOperation::create && create.attachments.count == 1 &&
                 !create.content.bytes &&

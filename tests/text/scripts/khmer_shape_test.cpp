@@ -6,6 +6,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "../../support/gsub_program_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 #include "../../generated/khmer_shape_fixture.inc"
@@ -101,4 +102,4 @@ int run() noexcept {
     return units(s)?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_khmer_shape_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_khmer_shape_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

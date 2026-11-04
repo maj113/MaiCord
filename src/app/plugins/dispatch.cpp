@@ -74,7 +74,7 @@ void plugin_dispatch_remove(PluginBinding* binding) noexcept {
         g_plugin_hook_subscribers[kind] = g_lists[kind].count;
     }
     if (--g_subscribed_plugins == 0 && g_buffers) {
-        VirtualFree(g_buffers, 0, MEM_RELEASE);
+        pages_release(g_buffers);
         g_buffers = nullptr;
     }
 }

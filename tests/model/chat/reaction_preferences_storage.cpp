@@ -90,7 +90,7 @@ void commit_failure() noexcept {
 }
 } // namespace maicord::reaction_preference_storage_test
 
-extern "C" __declspec(noreturn) void WINAPI maicord_reaction_preference_storage_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_reaction_preference_storage_entry) {
     using namespace maicord::reaction_preference_storage_test;
     maicord::test_write_metric("MEASURE reaction_preference_owner_bytes=", sizeof(maicord::ReactionPreferenceStore));
     DWORD before = 0, after = 0;
@@ -98,5 +98,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_reaction_preference_storage_
     ownership(); commit_failure();
     check(counted && GetProcessHandleCount(GetCurrentProcess(), &after) && before == after,
         "reaction storage: native fault views and mappings restore process handle baseline");
-    ExitProcess(failures ? 1u : 0u);
+    ::maicord::test_process_exit(failures ? 1u : 0u);
 }

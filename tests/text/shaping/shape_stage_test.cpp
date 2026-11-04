@@ -1,5 +1,6 @@
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 void print(const char* text) noexcept {u32 size=0;while(text[size])++size;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,size,&written,nullptr);}
 bool failed(u32 line) noexcept {char digits[16];u32 count=0;do{digits[count++]=static_cast<char>('0'+line%10);line/=10;}while(line);print("FAIL shape stages line ");while(count){char next[]{digits[--count],0};print(next);}print("\n");return false;}
@@ -136,4 +137,4 @@ bool run() noexcept {
     print("PASS staged substitution ordering, provenance, empty stages, bounds invalidation and work limits\n");return true;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_shape_stage_entry() noexcept {ExitProcess(maicord::run()?0u:1u);}
+MAICORD_TEST_ENTRY(maicord_shape_stage_entry) {::maicord::test_process_exit(maicord::run()?0u:1u);}

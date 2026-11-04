@@ -240,7 +240,7 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
     video->source = source;
     if (!capture_audio_metadata(*video)) {
         video->~ApplicationVideo();
-        VirtualFree(video, 0, MEM_RELEASE);
+        pages_release(video);
         g_app.video = nullptr;
         return false;
     }
@@ -629,7 +629,7 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
     g_app.renderer.retained_presentation.valid = false;
     g_app.video = nullptr;
     video->~ApplicationVideo();
-    VirtualFree(video, 0, MEM_RELEASE);
+    pages_release(video);
     if (had_scene && g_app.renderer_ready &&
         !renderer_rebuild_content_text(&g_app.renderer, application_theme()))
         log_write(LogLevel::warning, "media", "video_controls_text_retirement_failed");

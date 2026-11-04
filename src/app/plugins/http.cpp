@@ -131,7 +131,7 @@ u32 align_page(u32 bytes) noexcept {
 }
 
 void release_response(Slot& slot) noexcept {
-    if (slot.response) VirtualFree(slot.response, 0, MEM_RELEASE);
+    if (slot.response) pages_release(slot.response);
     slot.response = nullptr;
     slot.response_reserved = slot.response_committed = slot.response_used = 0;
 }
@@ -142,7 +142,7 @@ PluginHttp* http_of(PluginRuntime* runtime, bool create) noexcept {
     if (!http) return nullptr;
     http->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!http->notify) {
-        VirtualFree(http, 0, MEM_RELEASE);
+        pages_release(http);
         return nullptr;
     }
     runtime->http = http;
@@ -227,8 +227,7 @@ bool sink(void* context, ConstSlice<u8> bytes) noexcept {
         if (target < need) target = need;
         target = align_page(target);
         if (target > slot.response_reserved) target = slot.response_reserved;
-        if (!VirtualAlloc(slot.response + slot.response_committed, target - slot.response_committed, MEM_COMMIT,
-                          PAGE_READWRITE))
+        if (!pages_commit_at(slot.response + slot.response_committed, target - slot.response_committed))
             return false;
         slot.response_committed = target;
     }
@@ -263,7 +262,7 @@ void finish(Slot& slot, u32 error, u32 status) noexcept {
 void run(Slot& slot, const PluginHttpTransport& transport) noexcept {
     // Reserve the whole allowed response up front; pages are committed as bytes arrive.
     slot.response_reserved = align_page(slot.max_response ? slot.max_response : 4096);
-    slot.response = static_cast<u8*>(VirtualAlloc(nullptr, slot.response_reserved, MEM_RESERVE, PAGE_READWRITE));
+    slot.response = static_cast<u8*>(pages_reserve(slot.response_reserved));
     if (!slot.response) return finish(slot, MC_HTTP_E_NETWORK, 0);
 
     UpdateLocation at = slot.location;
@@ -344,7 +343,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         http->active = nullptr;
         ReleaseSRWLockExclusive(http->lock.native());
         update_https_release(https);
-        VirtualFree(https, 0, MEM_RELEASE);
+        pages_release(https);
         https = nullptr;
     };
     for (;;) {
@@ -360,7 +359,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
             if (!https) {
                 https = commit_pages<UpdateHttpsTransport>();
                 if (https && !update_https_initialize(https)) {
-                    VirtualFree(https, 0, MEM_RELEASE);
+                    pages_release(https);
                     https = nullptr;
                 }
                 if (https) {
@@ -529,7 +528,7 @@ u32 plugin_http_deliver(PluginRuntime* runtime) noexcept {
             plugin_binding_complete(binding, completion);
             ++delivered;
         }
-        if (response) VirtualFree(response, 0, MEM_RELEASE);
+        if (response) pages_release(response);
     }
     return delivered;
 }
@@ -572,7 +571,7 @@ void plugin_http_close(PluginRuntime* runtime) noexcept {
     if (http->thread) CloseHandle(http->thread);
     CloseHandle(http->notify);
     for (Slot& slot : http->slots) release_response(slot);
-    VirtualFree(http, 0, MEM_RELEASE);
+    pages_release(http);
 }
 
 } // namespace maicord

@@ -5,6 +5,7 @@
 #include "chat/composer/text_form_state.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::link_trust_runtime_test {
@@ -131,8 +132,8 @@ void run(Check check, UiTextMeasureBackend measure) noexcept {
     // exact URL and saves the host for this account.
     check(application_link_open(utf8_literal("https://user:secret@example.com/b"), false) && g_app.text_form &&
               text_form_focus(&g_app.text_form->scene, TextFormElement::option) &&
-              application_text_form_input(UiInputKind::key_down, VK_SPACE, false) &&
-              application_text_form_input(UiInputKind::key_up, VK_SPACE, false) && g_app.text_form &&
+              application_text_form_input(UiInputKind::key_down, key::space, false) &&
+              application_text_form_input(UiInputKind::key_up, key::space, false) && g_app.text_form &&
               g_app.text_form->scene.content.option_checked,
           "link trust: the trust checkbox toggles from the keyboard");
     check(click(TextFormElement::accept) && !g_app.text_form && launches == 3 &&

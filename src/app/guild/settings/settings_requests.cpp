@@ -458,7 +458,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             decoded.ok() && guild_ban_store_append_page(&p.bans, p.guild_id, {rows, decoded.count},
                                                         decoded.count < kBanPage);
         if (bank)
-            VirtualFree(bank, 0, MEM_RELEASE);
+            pages_release(bank);
         if (!stored) {
             p.bans_failed = true;
             p.status = utf8_literal("The ban list couldn't be read.");

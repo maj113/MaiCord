@@ -2,12 +2,8 @@
 
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/gpu/gpu.hpp"
 
-struct ID3D11Buffer;
-struct ID3D11ComputeShader;
-struct ID3D11Device;
-struct ID3D11DeviceContext1;
-struct ID3D11UnorderedAccessView;
 struct ID3D11Multithread;
 
 namespace maicord {
@@ -17,8 +13,8 @@ namespace maicord {
 // renderer retains no source texture or view and enqueues the conversion
 // before the caller releases its frame lease.
 struct VideoFrameGpu {
-    ID3D11ComputeShader* shader;
-    ID3D11Buffer* constants;
+    GpuComputeShader* shader;
+    GpuBuffer* constants;
     ID3D11Multithread* multithread;
     u64 converted_pixels;
     u32 frames;
@@ -27,9 +23,9 @@ struct VideoFrameGpu {
 // step > 1 box-averages step x step source pixels into each destination
 // pixel (gpu_video_frame_reduction); the destination then holds the reduced,
 // rotated extent gpu_video_frame_output_width/height(frame, step).
-HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
-    ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
-    ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step = 1) noexcept;
+GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device,
+    GpuContext1* context, const GpuVideoFrame& frame,
+    GpuUav* destination, u32 x, u32 y, u32 step = 1) noexcept;
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept;
 
 static_assert(sizeof(VideoFrameGpu) == 40);

@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/tibetan_input.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 bool fail(u32 line) noexcept {test_write_text("FAIL Tibetan input line ");test_write_u64(line);test_write_text("\n");return false;}
@@ -40,15 +41,15 @@ bool units() noexcept {
     CHECK(sfnt_tibetan_cluster_boundaries({long_input,4},{reinterpret_cast<u8*>(long_input),4})==SfntStatus::invalid_input);
     CHECK(sfnt_tibetan_cluster_boundaries({}, {},0)==SfntStatus::ok);
     Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-    const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+    const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
     bool good=false;
     if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(a));copy_bytes(input,a,sizeof(a));
         good=sfnt_tibetan_cluster_boundaries({input,7},{memory+page*3-7,7})==SfntStatus::ok;
     }
-    CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&good);
+    CHECK(pages_release(memory));CHECK(committed&&good);
     test_write_text("PASS Tibetan input; assertions=");test_write_u64(checks);test_write_text("\n");return true;
 }
 int run() noexcept {return units()?0:1;}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_tibetan_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_tibetan_input_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

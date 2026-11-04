@@ -25,13 +25,12 @@ bool text_reserve(SearchTextBanks& storage, u32 bank, u32 bytes) noexcept {
         return false;
     if (!storage.data)
         storage.data = static_cast<u8*>(
-            VirtualAlloc(nullptr, 2ull * search_bank_text_limit, MEM_RESERVE, PAGE_READWRITE));
+            pages_reserve(2ull * search_bank_text_limit));
     if (!storage.data)
         return false;
     const u32 rounded = (bytes + 4095u) & ~4095u;
     if (rounded > storage.committed[bank]) {
-        if (!VirtualAlloc(storage.data + bank * search_bank_text_limit + storage.committed[bank],
-                          rounded - storage.committed[bank], MEM_COMMIT, PAGE_READWRITE))
+        if (!pages_commit_at(storage.data + bank * search_bank_text_limit + storage.committed[bank], rounded - storage.committed[bank]))
             return false;
         storage.committed[bank] = rounded;
     }
@@ -94,7 +93,7 @@ void choices_release(ApplicationSearch& s) noexcept {
     member_query_withdraw(s);
     s.content.filter_choices = nullptr;
     if (s.choices)
-        VirtualFree(s.choices, 0, MEM_RELEASE);
+        pages_release(s.choices);
     s.choices = nullptr;
 }
 
@@ -103,7 +102,7 @@ namespace {
 
 void clear_poll_tickets(ApplicationSearch& s) noexcept {
     if (s.submitted_poll_tickets)
-        VirtualFree(s.submitted_poll_tickets, 0, MEM_RELEASE);
+        pages_release(s.submitted_poll_tickets);
     s.submitted_poll_tickets = nullptr;
     s.submitted_poll_count = 0;
     s.submitted_poll_gateway_serial = 0;
@@ -147,10 +146,10 @@ void bank_release(SearchBank* bank) noexcept {
     stable_storage_release(&bank->user_records);
     stable_storage_release(&bank->user_order);
     if (bank->rich_text.data)
-        VirtualFree(bank->rich_text.data, 0, MEM_RELEASE);
+        pages_release(bank->rich_text.data);
     if (bank->user_names.data)
-        VirtualFree(bank->user_names.data, 0, MEM_RELEASE);
-    VirtualFree(bank, 0, MEM_RELEASE);
+        pages_release(bank->user_names.data);
+    pages_release(bank);
 }
 bool bank_initialize(SearchBank& b) noexcept {
     constexpr u32 poll_text_limit =
@@ -496,7 +495,7 @@ MessageTextPresentation* application_search_message_text_presentation() noexcept
                 {o.measurements, kMaximumMessageTextMeasurements},
                 {o.reveals, kMaximumMessageTextSpoilerReveals},
                 {o.byte_styles, kMessageTextByteStyleScratchCapacity})) {
-            VirtualFree(s->text_owner, 0, MEM_RELEASE);
+            pages_release(s->text_owner);
             s->text_owner = nullptr;
             return nullptr;
         }
@@ -622,7 +621,7 @@ bool application_search_synchronize() noexcept {
         if (!s)
             return false;
         if (!message_composer_initialize(&s->edit, {s->query_text, sizeof(s->query_text)})) {
-            VirtualFree(s, 0, MEM_RELEASE);
+            pages_release(s);
             return false;
         }
         g_app.search = s;
@@ -859,13 +858,13 @@ void application_search_release() noexcept {
     choices_release(*s);
     clear_poll_tickets(*s);
     if (s->recent)
-        VirtualFree(s->recent, 0, MEM_RELEASE);
+        pages_release(s->recent);
     message_composer_release(&s->edit);
     bank_release(s->bank);
     bank_release(s->candidate);
     if (s->text_owner)
-        VirtualFree(s->text_owner, 0, MEM_RELEASE);
-    VirtualFree(s, 0, MEM_RELEASE);
+        pages_release(s->text_owner);
+    pages_release(s);
 }
 bool application_search_pending(u64 now) noexcept {
     const auto* s = g_app.search;
@@ -961,9 +960,9 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
                     utf8_literal("Results are out of date. Search again.");
         }
         if (scratch)
-            VirtualFree(scratch, 0, MEM_RELEASE);
+            pages_release(scratch);
         if (text)
-            VirtualFree(text, 0, MEM_RELEASE);
+            pages_release(text);
         if (valid && search_publication_counter == 0x03ffffffu) {
             valid = false;
             s->validation =

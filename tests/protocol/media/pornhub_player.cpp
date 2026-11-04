@@ -92,5 +92,5 @@ void run() noexcept {
 }
 }
 extern "C" void maicord_pornhub_player_entry() noexcept {
-    maicord::run(); ExitProcess(maicord::failures ? 1 : 0);
+    maicord::run(); ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

@@ -1,6 +1,8 @@
 // No argument runs the registered checks.
 #include "maicord/text/scripts/sinhala_input.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -60,17 +62,17 @@ bool units() noexcept {
     CHECK(sfnt_sinhala_expand_cluster({}, {},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
     CHECK(sfnt_sinhala_expand_cluster({}, {},nullptr)==SfntStatus::invalid_input);
     Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
-    const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
+    auto* memory=static_cast<u8*>(pages_reserve_no_access(page*4));CHECK(memory);
+    const bool committed=pages_commit_at(memory, page)&&pages_commit_at(memory+page*2, page);
     bool good=false;
     if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(original));copy_bytes(input,original,sizeof(original));
         auto* target=reinterpret_cast<SfntIndicInputScalar*>(memory+page*3-sizeof(expanded));
         good=sfnt_sinhala_expand_cluster({input,7},{target,11},&result)==SfntStatus::ok&&bytes_equal(target,expanded,sizeof(expanded));
         good=good&&sfnt_sinhala_cluster_boundaries({input,7},{memory+page*3-7,7})==SfntStatus::ok;
     }
-    CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&good);
+    CHECK(pages_release(memory));CHECK(committed&&good);
     print("PASS Sinhala input; assertions=");number(checks);print("\n");return true;
 }
 int run() noexcept { return units()?0:1; }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_sinhala_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_sinhala_input_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

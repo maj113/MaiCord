@@ -35,7 +35,7 @@ bool compatibility(const wchar_t* path,u32 path_units) noexcept {
 }
 bool guards() noexcept {
     wchar_t directory[MAX_PATH],temporary[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,directory)&&GetTempFileNameW(directory,L"mcl",0,temporary));
-    struct Cleanup {wchar_t* path;u8* pages=nullptr;~Cleanup() noexcept {if(plan.slot){native_run_plan_release(&store,plan);plan={};}arena_release(&profile_state);arena_release(&scratch);if(pages)VirtualFree(pages,0,MEM_RELEASE);DeleteFileW(path);}} cleanup{temporary};
+    struct Cleanup {wchar_t* path;u8* pages=nullptr;~Cleanup() noexcept {if(plan.slot){native_run_plan_release(&store,plan);plan={};}arena_release(&profile_state);arena_release(&scratch);if(pages)pages_release(pages);DeleteFileW(path);}} cleanup{temporary};
     HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
     DWORD written=0;const bool wrote=WriteFile(file,latin_guard_font,sizeof(latin_guard_font),&written,nullptr)!=0;CloseHandle(file);CHECK(wrote&&written==sizeof(latin_guard_font));
     CHECK(arena_initialize(&scratch,4*1024*1024,0,4096));u32 path_units=0;while(temporary[path_units])++path_units;CHECK(acquire(temporary,path_units,0));arena_reset(&scratch);
@@ -62,13 +62,13 @@ bool guards() noexcept {
         CHECK(failed(input,16,short_buffer,SfntStatus::output_too_small));
     }
     SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
-    cleanup.pages=static_cast<u8*>(VirtualAlloc(nullptr,page*3,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(cleanup.pages);
-    DWORD old=0;CHECK(VirtualProtect(cleanup.pages,page,PAGE_NOACCESS,&old)&&VirtualProtect(cleanup.pages+page*2,page,PAGE_NOACCESS,&old));
+    cleanup.pages=static_cast<u8*>(pages_allocate(page*3));CHECK(cleanup.pages);
+    CHECK(pages_protect(cleanup.pages, page, PageAccess::none)&&pages_protect(cleanup.pages+page*2, page, PageAccess::none));
     const u32 lengths[]{1,2,3,7,8,9,63,64,65,127,128,255,256};
     const Utf8View sequences[]{utf8_literal("a"),utf8_literal("\xcc\x81"),utf8_literal("\xe2\x80\x8d"),utf8_literal("\xf0\x90\x80\x80")};
     for(auto sequence:sequences)for(u32 count:lengths){const u32 bytes=count*sequence.bytes;auto* text=reinterpret_cast<char*>(cleanup.pages+page*2-bytes);
-        CHECK(VirtualProtect(cleanup.pages+page,page,PAGE_READWRITE,&old));for(u32 i=0;i<count;++i)copy_bytes(text+i*sequence.bytes,sequence.data,sequence.bytes);
-        CHECK(VirtualProtect(cleanup.pages+page,page,PAGE_READONLY,&old));
+        CHECK(pages_protect(cleanup.pages+page, page, PageAccess::read_write));for(u32 i=0;i<count;++i)copy_bytes(text+i*sequence.bytes,sequence.data,sequence.bytes);
+        CHECK(pages_protect(cleanup.pages+page, page, PageAccess::read));
         for(u32 mode=0;mode<2;++mode){++cases;NativeAsciiResult a{},b{};const auto sa=native_latin_run(store,plan,{text,bytes},mode!=0,17.5f,separate,&a);
             const auto sb=native_latin_run(store,plan,{text,bytes},mode!=0,17.5f,alias,&b);
             CHECK(sa==sb&&bytes_equal(&a,&b,sizeof(a)));

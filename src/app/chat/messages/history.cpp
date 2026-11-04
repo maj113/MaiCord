@@ -99,7 +99,7 @@ struct LargeResponseBank {
     }
     ~LargeResponseBank() noexcept {
         if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
+            pages_release(data);
     }
 };
 

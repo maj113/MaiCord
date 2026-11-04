@@ -12,6 +12,7 @@
 #include "maicord/ui/widgets/button_keyboard.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
@@ -286,9 +287,9 @@ bool reply_draft_ui_adapter_key(MessageComposerControl control, u32 key) noexcep
     auto& owner = g_app.message_composer_scene.widgets;
     g_app.context_focus = &owner;
     g_app.message_composer.focused = control == MessageComposerControl::edit;
-    if (control == MessageComposerControl::edit && key == VK_ESCAPE)
+    if (control == MessageComposerControl::edit && key == key::escape)
         return application_reply_draft_activate(MessageComposerControl::cancel_reply) && reply_draft_ui_adapter_refresh();
-    const auto logical = key == VK_SPACE ? UiButtonKey::space : key == VK_RETURN ? UiButtonKey::enter : UiButtonKey::other;
+    const auto logical = key == key::space ? UiButtonKey::space : key == key::enter ? UiButtonKey::enter : UiButtonKey::other;
     const auto ticket = owner.focused;
     ui_button_keyboard_cancel(&g_app.button_keyboard);
     u32 activated = 0;

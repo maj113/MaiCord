@@ -1,7 +1,7 @@
 #include "maicord/platform/crypto/aes_gcm.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/crypto.hpp"
+#include "../../support/test_sha256.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -95,13 +95,8 @@ void matrix(Check check) noexcept {
             continue;
         const void* retained_handle = key.handle;
         const void* retained_object = key.object.data;
-        BCRYPT_HASH_HANDLE hash = nullptr;
-        check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
-              "AES oracle comparison hash initialization");
-        if (!hash) {
-            aes_gcm_release(&key);
-            continue;
-        }
+        TestSha256 hash;
+        test_sha256_begin(&hash);
         u32 counter = 0;
         for (u32 size : sizes) {
             for (u32 aad_size : aad_sizes) {
@@ -114,7 +109,7 @@ void matrix(Check check) noexcept {
                                                  {packet, sizeof(packet)}, {packet + size, 16});
                 check(enc.ok() && enc.bytes == size && packet[size + 16] == 0xa5,
                       "AES matrix in-place encryption and adjacent tag");
-                check(BCryptHashData(hash, packet, size + 16, 0) >= 0, "AES matrix hash update");
+                test_sha256_update(&hash, packet, size + 16);
                 const auto dec = aes_gcm_decrypt(key, {nonce, 12}, {aad, aad_size}, {packet, size},
                                                  {packet + size, 16}, {packet, sizeof(packet)});
                 check(dec.ok() && dec.bytes == size && bytes_equal(packet, plain, size) &&
@@ -125,10 +120,9 @@ void matrix(Check check) noexcept {
                       "AES packets retain the initialized locked key object");
             }
         }
-        check(BCryptFinishHash(hash, digest, 32, 0) >= 0, "AES matrix hash finalization");
+        test_sha256_finish(&hash, digest);
         test_unhex(digests[k], expected);
         check(bytes_equal(digest, expected, 32), "AES ciphertexts and tags match independent OpenSSL matrix");
-        BCryptDestroyHash(hash);
         aes_gcm_release(&key);
         check(!key.handle && !key.object.data && !key.object.locked && !key.object.capacity,
               "AES release retires handle and locked storage");

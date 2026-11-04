@@ -26,6 +26,7 @@
 #include "../../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
@@ -350,10 +351,10 @@ void dispose(bool restore, bool rebuild, bool cancel) noexcept {
         application_text_form_close(false, false);
     const auto previous = f->previous_focus;
     const bool composer = f->previous_composer_focus, can_restore = restore && valid(f);
-    if (application_key_down(VK_RETURN))
-        held_key = VK_RETURN;
-    else if (application_key_down(VK_SPACE))
-        held_key = VK_SPACE;
+    if (application_key_down(key::enter))
+        held_key = key::enter;
+    else if (application_key_down(key::space))
+        held_key = key::space;
     // Detach every borrowed renderer/TSF/input reference before notifying owner.
     owner = nullptr;
     g_app.context_focus = nullptr;
@@ -366,7 +367,7 @@ void dispose(bool restore, bool rebuild, bool cancel) noexcept {
     for (auto& field : f->fields)
         secure_edit_release(&field.edit);
     SecureZeroMemory(f, sizeof(*f));
-    VirtualFree(f, 0, MEM_RELEASE);
+    pages_release(f);
     if (can_restore && previous.manager) {
         auto* manager = const_cast<UiWidgetManager*>(previous.manager);
         if (ui_widget_manager_focus(manager, previous.handle) ||
@@ -562,7 +563,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     if (!ok) {
         for (auto& field : f->fields)
             secure_edit_release(&field.edit);
-        VirtualFree(f, 0, MEM_RELEASE);
+        pages_release(f);
         return false;
     }
     auto* prior = g_app.context_focus ? g_app.context_focus : &g_app.message_composer_scene.widgets;
@@ -585,8 +586,8 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     g_app.context_focus = &f->scene.widgets;
     f->surface.scene = &f->scene;
     renderer_bind_forum_form(&g_app.renderer, &f->surface);
-    if (application_key_down(VK_RETURN))
-        held_key = VK_RETURN;
+    if (application_key_down(key::enter))
+        held_key = key::enter;
     for (auto& field : f->fields)
         if (!secure_text_store_initialize(
                 &field.store, {g_app.window, geometry, changed, &field, range_geometry, point_geometry})) {
@@ -704,16 +705,16 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
     if (!application_forum_form_synchronize() || owner != f)
         return true;
     if (kind == UiInputKind::system_key_down)
-        return code != VK_F4 && code != VK_SPACE;
+        return code != key::f4 && code != key::space;
     if (kind == UiInputKind::system_character)
         return code != ' ';
     const bool ctrl = application_control_down(), shift = application_shift_down();
-    if (kind == UiInputKind::key_down && code == VK_ESCAPE) {
+    if (kind == UiInputKind::key_down && code == key::escape) {
         held_key = code;
         application_forum_form_close();
         return true;
     }
-    if (kind == UiInputKind::key_down && code == VK_TAB) {
+    if (kind == UiInputKind::key_down && code == key::tab) {
         if (forum_post_move_focus(&f->scene, shift)) {
             const auto next = forum_post_focused(f->scene);
             // Focus movement happened in the retained manager; clear both native bindings.
@@ -726,7 +727,7 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         }
         return true;
     }
-    if (kind == UiInputKind::key_down && ctrl && code == VK_RETURN) {
+    if (kind == UiInputKind::key_down && ctrl && code == key::enter) {
         if (!repeated) {
             held_key = code;
             activate(f, {ForumPostElement::accept, 0});
@@ -746,8 +747,8 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
     if (focused < 0 || !f->editable) {
         if (kind == UiInputKind::key_down || kind == UiInputKind::key_up) {
             const auto target = forum_post_focused(f->scene);
-            const auto key = code == VK_RETURN  ? UiButtonKey::enter
-                             : code == VK_SPACE ? UiButtonKey::space
+            const auto key = code == key::enter  ? UiButtonKey::enter
+                             : code == key::space ? UiButtonKey::space
                                                 : UiButtonKey::other;
             const auto action = ui_button_keyboard_key(&f->keyboard, &f->scene.widgets, key,
                                                        kind == UiInputKind::key_down, repeated);
@@ -802,26 +803,26 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return apply(f, index, result);
     }
     switch (code) {
-    case VK_BACK:
+    case key::backspace:
         return apply(f, index, secure_edit_backspace(&edit, clock_monotonic_milliseconds()));
-    case VK_DELETE:
+    case key::del:
         return apply(f, index, secure_edit_delete_forward(&edit, clock_monotonic_milliseconds()));
-    case VK_LEFT:
+    case key::left:
         return apply(f, index, secure_edit_move(&edit, SecureEditMove::previous, shift));
-    case VK_RIGHT:
+    case key::right:
         return apply(f, index, secure_edit_move(&edit, SecureEditMove::next, shift));
-    case VK_HOME:
+    case key::home:
         return apply(
             f, index,
             secure_edit_move(&edit, ctrl ? SecureEditMove::home : SecureEditMove::line_home, shift));
-    case VK_END:
+    case key::end:
         return apply(f, index,
                      secure_edit_move(&edit, ctrl ? SecureEditMove::end : SecureEditMove::line_end, shift));
-    case VK_UP:
-    case VK_DOWN: {
+    case key::up:
+    case key::down: {
         u32 position = 0;
         SecureEditUtf16Selection selection{};
-        if (text_edit_layout_move_vertical(f->surface.layouts[index], code == VK_DOWN, &position) &&
+        if (text_edit_layout_move_vertical(f->surface.layouts[index], code == key::down, &position) &&
             secure_edit_utf16_selection(edit, &selection) == SecureEditResult::unchanged) {
             if (!shift)
                 selection.anchor = position;

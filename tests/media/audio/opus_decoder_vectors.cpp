@@ -1,7 +1,7 @@
 #include "../../fixtures/opus_decoder_vectors.inc"
 #include "../../support/opus_vector_decode.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 // Fast in-suite subset of tools/opus_conformance.ps1: synthetic streams that
 // reach every decoder mode, bandwidth class, frame size, frame-count code,
@@ -52,7 +52,7 @@ void test_opus_decoder_vectors() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_opus_decoder_vector_tests_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_opus_decoder_vector_tests_entry) {
     maicord::test_opus_decoder_vectors();
-    ExitProcess(maicord::failures ? 1 : 0);
+    ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

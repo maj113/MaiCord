@@ -8,6 +8,7 @@
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -74,7 +75,7 @@ bool application_image_zoom_message(UINT message, WPARAM wparam, LPARAM lparam) 
     const bool key = message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN ||
                      message == WM_SYSKEYUP;
     // Ctrl is read at key and focus events, so a mouse move costs a load.
-    if ((key && (wparam == VK_CONTROL || wparam == VK_MENU)) || message == WM_SETFOCUS ||
+    if ((key && (wparam == key::ctrl || wparam == key::alt)) || message == WM_SETFOCUS ||
         (message == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE))
         zoom.ctrl = application_control_down();
     // The viewer keeps its own lens.
@@ -89,7 +90,7 @@ bool application_image_zoom_message(UINT message, WPARAM wparam, LPARAM lparam) 
     case WM_KEYUP:
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
-        if (wparam == VK_CONTROL || wparam == VK_MENU) {
+        if (wparam == key::ctrl || wparam == key::alt) {
             UiPoint point{};
             if (application_pointer_dip(&point))
                 refresh_chat(point);

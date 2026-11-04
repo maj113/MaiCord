@@ -1,6 +1,7 @@
 #include "maicord/text/fonts/axes.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -80,8 +81,8 @@ bool invalid_maps() noexcept {
     return font_axis_mappings_table_open({avar,48},2,{maps,2},&result)==SfntStatus::unsupported;
 }
 bool guarded() noexcept {
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,8192,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;
-    DWORD old=0;if(!VirtualProtect(memory+4096,4096,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    auto* memory=static_cast<u8*>(pages_allocate(8192));if(!memory)return false;
+    if(!pages_protect(memory+4096, 4096, PageAccess::none)){pages_release(memory);return false;}
     u32 random=0xb7102345;
     for(u32 iteration=0;iteration<20000;++iteration) {
         fixture();random^=random<<13;random^=random>>17;random^=random<<5;
@@ -98,7 +99,7 @@ bool guarded() noexcept {
             }
         }
     }
-    VirtualFree(memory,0,MEM_RELEASE);return true;
+    pages_release(memory);return true;
 }
 }
 bool font_axes_tests() noexcept {return metadata() && normalization() && invalid_maps() && guarded();}

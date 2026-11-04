@@ -435,7 +435,7 @@ AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
                 return fail(*owner, Error::release, HRESULT_FROM_WIN32(GetLastError()));
             s->library = nullptr;
         }
-        if (!VirtualFree(s, 0, MEM_RELEASE))
+        if (!pages_release(s))
             return fail(*owner, Error::release, HRESULT_FROM_WIN32(GetLastError()));
     }
     reset_value(owner);

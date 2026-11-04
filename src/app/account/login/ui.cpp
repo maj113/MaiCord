@@ -13,6 +13,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -246,7 +247,7 @@ bool application_synchronize_login_view() noexcept {
     view.password_revealed = password_revealed;
     view.auth_rate_limited = application_login_auth_cooldown_active();
     view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
-    view.caps_lock = focused_edit == &application.login.password && (GetKeyState(VK_CAPITAL) & 1) != 0;
+    view.caps_lock = focused_edit == &application.login.password && (GetKeyState(key::caps_lock) & 1) != 0;
     if (phone) {
         reset_value(&view.login); reset_value(&view.remote_user); view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
         view.mfa_capabilities = view.selected_mfa_capability = view.backup_acknowledgement_seconds = 0;

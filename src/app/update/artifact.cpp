@@ -1,5 +1,6 @@
 #include "maicord/app/update/artifact.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/sys/crypto.hpp"
 
 namespace maicord {
@@ -30,10 +31,10 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
 }
 struct Temporary {
     HANDLE file = INVALID_HANDLE_VALUE;
-    BCRYPT_HASH_HANDLE hash = nullptr;
+    HashStream hash = nullptr;
     u8 digest[32]{};
     ~Temporary() noexcept {
-        if (hash) BCryptDestroyHash(hash);
+        if (hash) hash_stream_destroy(hash);
         if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
         SecureZeroMemory(digest, sizeof(digest));
     }
@@ -69,7 +70,7 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
     if (!GetFileSizeEx(temporary.file, &size)) return result(UpdateArtifactError::file, GetLastError());
     if (size.QuadPart < 0 || static_cast<u64>(size.QuadPart) != approved.artifact_bytes)
         return result(UpdateArtifactError::size);
-    NTSTATUS status = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &temporary.hash, nullptr, 0, nullptr, 0, 0);
+    NTSTATUS status = hash_stream_begin(&temporary.hash, HashAlgorithm::sha256);
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
     u8 buffer[kUpdateArtifactReadBufferBytes];
     u64 remaining = approved.artifact_bytes;
@@ -78,18 +79,18 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
         DWORD read = 0;
         if (!ReadFile(temporary.file, buffer, wanted, &read, nullptr)) return result(UpdateArtifactError::read, GetLastError());
         if (!read || read > wanted) return result(UpdateArtifactError::size);
-        status = BCryptHashData(temporary.hash, buffer, read, 0);
+        status = hash_stream_update(temporary.hash, buffer, read);
         if (status < 0) return result(UpdateArtifactError::hash, 0, status);
         remaining -= read;
     }
     DWORD trailing = 0;
     if (!ReadFile(temporary.file, buffer, 1, &trailing, nullptr)) return result(UpdateArtifactError::read, GetLastError());
     if (trailing) return result(UpdateArtifactError::size);
-    status = BCryptFinishHash(temporary.hash, temporary.digest, sizeof(temporary.digest), 0);
+    status = hash_stream_finish(temporary.hash, temporary.digest, sizeof(temporary.digest));
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
     if (!bytes_equal(temporary.digest, approved.artifact_sha256, sizeof(temporary.digest)))
         return result(UpdateArtifactError::digest);
-    status = BCryptDestroyHash(temporary.hash);
+    status = hash_stream_destroy(temporary.hash);
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
     temporary.hash = nullptr;
     LARGE_INTEGER zero{};

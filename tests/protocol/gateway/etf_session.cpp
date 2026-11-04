@@ -177,11 +177,11 @@ bool run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_gateway_etf_session_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_gateway_etf_session_entry) {
     using namespace maicord;
     const bool ok = run();
     test_write_text("checks=");
     test_write_u64(checks);
     test_write_text(ok ? " PASS Gateway session over zstd-stream ETF\n" : " FAIL Gateway session over zstd-stream ETF\n");
-    ExitProcess(ok ? 0 : 1);
+    ::maicord::test_process_exit(ok ? 0 : 1);
 }

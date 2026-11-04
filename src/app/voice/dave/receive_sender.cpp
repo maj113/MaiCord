@@ -41,7 +41,7 @@ bool external(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
 void destroy(DaveReceiveNode* node) noexcept {
     dave_receive_epoch_release(&node->epoch);
     secure_clear_bytes(node, sizeof(*node));
-    VirtualFree(node, 0, MEM_RELEASE);
+    pages_release(node);
 }
 void collect(DaveReceiveSender& sender, u64 now) noexcept {
     sender.last_now_ms = now;

@@ -41,7 +41,14 @@ function(maicord_test target)
         maicord_test_bundle_member(${bundle} ${target} ${program})
     endif()
     if(NOT bundle OR standalone)
-        maicord_program(${target} ${program})
+        if(MAICORD_LINUX)
+            # The shared tests make a few Win32 file and console calls (tests/support/win32_test_compat.hpp) and #embed their
+            # fixtures.
+            maicord_program(${target} ${program}
+                OPTIONS -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/win32_test_compat.hpp" -Wno-c23-extensions)
+        else()
+            maicord_program(${target} ${program})
+        endif()
     endif()
     if(client)
         maicord_test_uses_client(${target} ${client})
@@ -159,7 +166,8 @@ function(maicord_finish_test_bundles)
             string(REPLACE "{L\"" "{\"" table "${table}")
             configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tests/support/test_bundle_linux.cpp.in" "${dispatcher}" @ONLY)
             maicord_program(${bundle} ENTRY maicord_test_bundle_entry SOURCES "${dispatcher}" ${SOURCES}
-                LIBS ${LIBS} INCLUDES ${INCLUDES})
+                LIBS ${LIBS} INCLUDES ${INCLUDES}
+                OPTIONS -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/win32_test_compat.hpp" -Wno-c23-extensions)
             continue()
         endif()
         file(CONFIGURE OUTPUT "${dispatcher}" CONTENT [=[
@@ -213,14 +221,17 @@ endfunction()
 
 # maicord_font_test(<target> <entry> <source> [UNICODE] [<maicord_test argument>...])
 # A tests/<source>.cpp member of MaiCordTextUnitTests linking maicord_core,
-# maicord_font (then maicord_unicode with UNICODE) and kernel32.
+# maicord_font (then maicord_unicode with UNICODE) and kernel32 (Windows).
 function(maicord_font_test target entry source)
     set(libs maicord_core maicord_font)
     if(ARGC GREATER 3 AND ARGV3 STREQUAL "UNICODE")
         list(APPEND libs maicord_unicode)
         list(REMOVE_AT ARGN 0)
     endif()
-    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs} kernel32
+    if(NOT MAICORD_LINUX)
+        list(APPEND libs kernel32)
+    endif()
+    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs}
         BUNDLE MaiCordTextUnitTests ${ARGN})
 endfunction()
 

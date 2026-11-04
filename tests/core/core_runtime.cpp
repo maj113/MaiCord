@@ -401,7 +401,7 @@ void test_log_buffered_flush() noexcept {
     SetEnvironmentVariableW(L"LOCALAPPDATA", previous_length && previous_length < 1024 ? previous : nullptr);
 }
 #else
-// The same contract on the Linux log, whose file is <XDG_DATA_HOME>/MaiCord/logs/maicord.log and whose lines end in
+// The same contract on the Linux log, whose file is <XDG_DATA_HOME>/maicord/logs/maicord.log and whose lines end in
 // "\n". The harness gives every test a private XDG_DATA_HOME ("test-profile" in its path); the test refuses any
 // other, so it never deletes the user's log.
 void test_log_buffered_flush() noexcept {

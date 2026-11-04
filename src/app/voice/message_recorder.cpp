@@ -184,7 +184,7 @@ void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {
                                       kOggOpusWriterPageHeaderBytes + 255 + r->writer.staged
                                 : r->block_bytes;
         secure_clear_bytes(r->block, minimum(touched, r->block_bytes));
-        VirtualFree(r->block, 0, MEM_RELEASE);
+        pages_release(r->block);
     }
     const auto error = r->error;
     reset_value(r);

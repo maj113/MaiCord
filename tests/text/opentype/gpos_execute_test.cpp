@@ -5,6 +5,8 @@
 #include "maicord/text/opentype/gpos_mark_execute.hpp"
 #include "maicord/text/opentype/gpos_cursive_execute.hpp"
 #include "maicord/text/opentype/gpos_ligature_execute.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 // No argument runs the basic, mark, cursive and ligature corpora; a corpus file
 // path runs that file. Lookups dispatch by type, so every corpus uses one executor.
 namespace maicord {namespace {
@@ -125,11 +127,11 @@ bool units() noexcept {
     return sfnt_position_initialize({}, {},false,{})==SfntStatus::ok && sfnt_position_finalize({}, {},16,1000,{})==SfntStatus::ok;
 }
 bool guarded_storage() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*8,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;
-    DWORD old=0;for(u32 i=1;i<8;i+=2)if(!VirtualProtect(mem+i*page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(pages_allocate(page*8));if(!mem)return false;
+    for(u32 i=1;i<8;i+=2)if(!pages_protect(mem+i*page, page, PageAccess::none)){pages_release(mem);return false;}
     auto* p=reinterpret_cast<SfntPosition*>(mem+page-2*sizeof(SfntPosition));auto* flags=mem+page*3-2;auto* a=reinterpret_cast<double*>(mem+page*5-2*sizeof(double));auto* out=reinterpret_cast<SfntPlacement*>(mem+page*7-2*sizeof(SfntPlacement));
     flags[0]=2;flags[1]=3;a[0]=100;a[1]=200;const bool ok=sfnt_position_initialize({a,2},{flags,2},true,{p,2})==SfntStatus::ok && sfnt_position_finalize({p,2},{flags,2},1000,1000,{out,2})==SfntStatus::ok && out[0].advance==100 && out[1].advance==0 && out[1].advance_offset==-200;
-    VirtualFree(mem,0,MEM_RELEASE);return ok;
+    pages_release(mem);return ok;
 }
 #include "gpos_mark_execute_units.inc"
 #include "gpos_cursive_execute_units.inc"
@@ -160,4 +162,4 @@ int run() noexcept {
     return ok&&!failures?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_gpos_execute_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_gpos_execute_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

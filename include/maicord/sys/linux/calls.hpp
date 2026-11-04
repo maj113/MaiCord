@@ -66,6 +66,14 @@ inline long sys_madvise(void* address, usize bytes, int advice) noexcept {
     return syscall3(kSysMadvise, reinterpret_cast<long>(address), static_cast<long>(bytes), advice);
 }
 
+inline long sys_mlock(const void* address, usize bytes) noexcept {
+    return syscall2(kSysMlock, reinterpret_cast<long>(address), static_cast<long>(bytes));
+}
+
+inline long sys_munlock(const void* address, usize bytes) noexcept {
+    return syscall2(kSysMunlock, reinterpret_cast<long>(address), static_cast<long>(bytes));
+}
+
 inline long sys_gettid() noexcept {
     return syscall1(kSysGettid, 0);
 }
@@ -100,6 +108,32 @@ inline long sys_sched_setaffinity(u32 thread, usize bytes, const void* mask) noe
 inline long sys_sched_getaffinity(u32 thread, usize bytes, void* mask) noexcept {
     return syscall3(kSysSchedGetaffinity, static_cast<long>(thread), static_cast<long>(bytes),
                     reinterpret_cast<long>(mask));
+}
+
+// Waits until a descriptor is ready or the timeout (null waits forever) passes: the count of ready ones, 0 on timeout.
+inline long sys_ppoll(PollFd* descriptors, u32 count, const TimeSpec* timeout) noexcept {
+    return syscall5(kSysPpoll, reinterpret_cast<long>(descriptors), static_cast<long>(count),
+                    reinterpret_cast<long>(timeout), 0, 8);
+}
+
+inline long sys_eventfd(u32 initial, int flags) noexcept {
+    return syscall2(kSysEventfd2, static_cast<long>(initial), flags);
+}
+
+inline long sys_timerfd_create(int clock, int flags) noexcept {
+    return syscall2(kSysTimerfdCreate, clock, flags);
+}
+
+inline long sys_timerfd_settime(int fd, int flags, const ITimerSpec* setting, ITimerSpec* previous) noexcept {
+    return syscall4(kSysTimerfdSettime, fd, flags, reinterpret_cast<long>(setting), reinterpret_cast<long>(previous));
+}
+
+inline long sys_prctl(int option, unsigned long argument) noexcept {
+    return syscall2(kSysPrctl, option, static_cast<long>(argument));
+}
+
+inline long sys_sched_setscheduler(u32 thread, int policy, const SchedParam* parameter) noexcept {
+    return syscall3(kSysSchedSetscheduler, static_cast<long>(thread), policy, reinterpret_cast<long>(parameter));
 }
 
 [[noreturn]] inline void sys_exit_group(int status) noexcept {

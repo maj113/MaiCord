@@ -2,6 +2,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/cluster_execute_fixture.inc"
 u64 bitmap[9000],snapshot[9000];u32 expected_first[262145],expected_end[262145],boundaries[9000];
@@ -89,8 +91,8 @@ bool units() noexcept {
     return sfnt_cluster_map_split(&map,0)==SfntStatus::invalid_input;
 }
 bool guards() noexcept {
-    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*17,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
-    DWORD old=0;if(!VirtualProtect(memory+page*16,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}bool ok=true;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*17));if(!memory)return false;
+    if(!pages_protect(memory+page*16, page, PageAccess::none)){pages_release(memory);return false;}bool ok=true;
     const u32 lengths[]{1,63,64,65,4096,4097,262145};
     for(u32 count:lengths){const u32 words=sfnt_cluster_map_words(count);if(static_cast<u64>(words)*8>page*16){ok=false;break;}
         auto* storage=reinterpret_cast<u64*>(memory+page*16-words*8);SfntClusterMap map{};if(sfnt_cluster_map_open(count,{}, {storage,words},&map)!=SfntStatus::ok){ok=false;break;}
@@ -104,7 +106,7 @@ bool guards() noexcept {
             if(sfnt_cluster_map_find(map,i,&first,&end)!=SfntStatus::ok || first!=lo || end!=hi)ok=false;}
         if(!ok)break;
     }
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(at>data.count || data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}
@@ -162,4 +164,4 @@ int run() noexcept {
     print(ok && !failures?utf8_literal("PASS native cluster updates\n"):utf8_literal("FAIL native cluster updates\n"));return ok && !failures?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_clusters_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_clusters_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

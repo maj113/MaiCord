@@ -22,7 +22,7 @@ template <typename T> bool reserve(T*& data, u32& capacity, u32 count, u32 requi
         return false;
     copy_bytes(replacement, data, count * static_cast<u32>(sizeof(T)));
     if (data)
-        VirtualFree(data, 0, MEM_RELEASE);
+        pages_release(data);
     data = replacement;
     capacity = next;
     return true;
@@ -274,9 +274,9 @@ void voice_participants_release(VoiceParticipants* participants) noexcept {
     if (!participants)
         return;
     if (participants->users)
-        VirtualFree(participants->users, 0, MEM_RELEASE);
+        pages_release(participants->users);
     if (participants->sources)
-        VirtualFree(participants->sources, 0, MEM_RELEASE);
+        pages_release(participants->sources);
     reset_value(participants);
 }
 } // namespace maicord

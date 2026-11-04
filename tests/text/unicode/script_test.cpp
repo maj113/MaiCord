@@ -1,5 +1,6 @@
 #include "maicord/text/unicode/script.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* text) noexcept {u32 count=0;while(text[count])++count;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,count,&done,nullptr);}
@@ -73,4 +74,4 @@ bool run() noexcept {
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));print("checks=");number(checks);print(" PASS native script classes and resolution\n");return true;
 }
 }}
-extern "C" int maicord_script_tests_entry() noexcept {ExitProcess(maicord::run()?0u:1u);}
+extern "C" int maicord_script_tests_entry() noexcept {::maicord::test_process_exit(maicord::run()?0u:1u);}

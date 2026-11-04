@@ -35,13 +35,13 @@ struct IconPlacement {
     float offset_x, offset_y;
 };
 
-bool icon_atlas_initialize(IconAtlas* atlas, ID3D11Device* device) noexcept;
+bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept;
 void icon_atlas_release(IconAtlas* atlas) noexcept;
 bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept;
 // Copies all quads into the mapped instance buffer, resolving icons with
 // snapped rectangles and atlas origins and rasterizing missing cells first.
 // With valid buffers, failure still copies the unresolved tail unchanged.
-bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const PaintQuad* source,
+bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* source,
                         PaintQuad* destination, u32 count, u32 dpi, float weight) noexcept;
 
 } // namespace maicord

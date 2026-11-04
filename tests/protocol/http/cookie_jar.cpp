@@ -1,7 +1,7 @@
 #include "maicord/protocol/http/cookie_jar.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace cookie_jar_test {
@@ -175,7 +175,7 @@ void test_persistence() noexcept {
 } // namespace cookie_jar_test
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_cookie_jar_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_cookie_jar_entry) {
     using namespace maicord::cookie_jar_test;
     test_attributes();
     test_rejections();

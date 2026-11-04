@@ -13,6 +13,8 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"
+#include "../../support/test_output.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {namespace {
 #include "../../generated/arabic_plan_fixture.inc"
@@ -232,4 +234,4 @@ int run() noexcept {
     if(!ok)return 1;print(utf8_literal("PASS native Arabic schedule and coordinated shaping\n"));return 0;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_arabic_plan_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_arabic_plan_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

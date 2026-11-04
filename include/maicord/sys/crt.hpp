@@ -44,4 +44,14 @@ void* __cdecl memset(void* _Dst, int _Val, size_t _Size);
     return _Where;
 }
 #endif
+#if defined(__linux__)
+// <vcruntime_new.h>: placement new[] (reset_value of an array member).
+#ifndef __PLACEMENT_VEC_NEW_INLINE
+#define __PLACEMENT_VEC_NEW_INLINE
+[[nodiscard]] inline void* __cdecl operator new[](size_t _Size, void* _Where) noexcept {
+    (void)_Size;
+    return _Where;
+}
+#endif
+#endif
 #endif

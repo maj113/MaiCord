@@ -37,6 +37,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationQuickSwitcher {
@@ -253,7 +254,7 @@ void application_quick_switcher_release() noexcept {
         message_composer_release(&q->edit);
         ui_quick_switcher_scene_release(&q->scene);
         g_app.quick_switcher = nullptr;
-        SecureZeroMemory(q, sizeof(*q)); VirtualFree(q, 0, MEM_RELEASE);
+        SecureZeroMemory(q, sizeof(*q)); pages_release(q);
     }
     reset_value(&g_app.quick_switcher_recent_scope);
     g_app.quick_switcher_recent_count = 0;
@@ -336,7 +337,7 @@ static bool application_quick_switcher_open() noexcept {
     if (!q) {
         q = static_cast<ApplicationQuickSwitcher*>(commit_pages(sizeof(*q)));
         if (!q) return false;
-        if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)})) { VirtualFree(q, 0, MEM_RELEASE); return false; }
+        if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)})) { pages_release(q); return false; }
         g_app.quick_switcher = q;
     }
     if (g_app.quick_switcher_lifetime_serial == ~u64{0}) return false;
@@ -400,17 +401,17 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
         return true;
     }
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) return true;
-    if (key == VK_ESCAPE) { g_app.quick_switcher_held_key = key; application_quick_switcher_close(); return true; }
-    if (key == VK_RETURN) {
+    if (key == key::escape) { g_app.quick_switcher_held_key = key; application_quick_switcher_close(); return true; }
+    if (key == key::enter) {
         g_app.quick_switcher_held_key = key;
         if (!repeated && !application_composer_text_input_composing())
             activate(*q, q->picker && control ? UiQuickSwitcherTarget{UiQuickSwitcherAction::confirm}
                                               : ui_quick_switcher_scene_selected(q->scene));
         return true;
     }
-    if (key == VK_UP || key == VK_DOWN || key == VK_PRIOR || key == VK_NEXT) {
-        ui_quick_switcher_scene_move(&q->scene, key == VK_UP ? UiQuickSwitcherMove::previous :
-            key == VK_DOWN ? UiQuickSwitcherMove::next : key == VK_PRIOR ? UiQuickSwitcherMove::page_previous : UiQuickSwitcherMove::page_next);
+    if (key == key::up || key == key::down || key == key::page_up || key == key::page_down) {
+        ui_quick_switcher_scene_move(&q->scene, key == key::up ? UiQuickSwitcherMove::previous :
+            key == key::down ? UiQuickSwitcherMove::next : key == key::page_up ? UiQuickSwitcherMove::page_previous : UiQuickSwitcherMove::page_next);
         application_request_frame(); return true;
     }
     const auto revision = q->edit.text_revision;
@@ -430,7 +431,7 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
         }
         if (valid) result = message_composer_insert_utf8(&q->edit, {text, read.bytes});
     } else {
-        if (key == VK_BACK) g_app.quick_switcher_held_key = key;
+        if (key == key::backspace) g_app.quick_switcher_held_key = key;
         message_composer_edit_key(&q->edit, key, control, shift, &result);
     }
     if (result == MessageComposerResult::changed) application_quick_switcher_edit_changed(revision != q->edit.text_revision);

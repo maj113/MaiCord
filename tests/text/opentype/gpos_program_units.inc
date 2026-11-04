@@ -102,12 +102,12 @@ bool gpos_prepare_units(const SfntLayout& layout,const SfntGdef& gdef,u32 limit)
         if(status!=(budget==directory?SfntStatus::ok:SfntStatus::resource_limit)||(status!=SfntStatus::ok&&program.lookups.count))return false;}
     bool completed=false;for(u32 budget=0;budget<10000;++budget){const auto status=sfnt_gpos_program_prepare(layout,gdef,limit,storage,&program,budget);++gpos_prepare_budgets;
         if(status==SfntStatus::ok){completed=true;break;}if(status!=SfntStatus::resource_limit || program.lookups.count)return false;}
-    if(!completed)return false;SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,bytes=(layout.table.count/page+1)*page;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,bytes+page,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
-    DWORD old=0;bool ok=VirtualProtect(memory+bytes,page,PAGE_NOACCESS,&old)!=0;u32 random=0x41a593c7;
+    if(!completed)return false;SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,bytes=(layout.table.count/page+1)*page;auto* memory=static_cast<u8*>(pages_allocate(bytes+page));if(!memory)return false;
+    bool ok=pages_protect(memory+bytes, page, PageAccess::none)!=0;u32 random=0x41a593c7;
     for(u32 i=0;i<64 && ok;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i?random%(layout.table.count+1):layout.table.count;u8* data=memory+bytes-size;copy_bytes(data,layout.table.data,size);if(i>32 && size)data[(random>>8)%size]^=static_cast<u8>(random>>16);
         SfntLayout changed{};auto status=sfnt_layout_open({data,size},SfntLayoutKind::positioning,&changed);if(status==SfntStatus::ok)status=sfnt_gpos_program_prepare(changed,gdef,limit,storage,&program,1000,1000);
         if(!i && status!=SfntStatus::ok)ok=false;++gpos_prepare_guards;}
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }
 bool gpos_program_units(const SfntGposProgram& program,u16 index,SfntGlyphView view,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> state) noexcept {
     const u32 n=sfnt_glyph_count(view);if(n>64)return false;SfntPosition before[64],complete[64];copy_bytes(before,state.data,n*sizeof(SfntPosition));
@@ -121,11 +121,11 @@ bool gpos_program_units(const SfntGposProgram& program,u16 index,SfntGlyphView v
     // packed-position capacity using the published failure contract first.
     u32 need=0;bool found=false;
     for(;need<=256;++need){auto small=scratch;small.positions.count=need;const auto s=execute(1000000,small,&r);++gpos_capacity_checks;if(s==SfntStatus::ok){found=true;break;}if(s!=SfntStatus::output_too_small)return false;}
-    if(!found)return false;SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,6*page,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
-    bool ok=true;DWORD old=0;for(u32 i=1;i<6;i+=2)if(!VirtualProtect(memory+i*page,page,PAGE_NOACCESS,&old))ok=false;
+    if(!found)return false;SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(6*page));if(!memory)return false;
+    bool ok=true;for(u32 i=1;i<6;i+=2)if(!pages_protect(memory+i*page, page, PageAccess::none))ok=false;
     if(ok){auto exact=scratch;exact.positions={reinterpret_cast<u32*>(memory+page-need*4),need};exact.frames={reinterpret_cast<SfntGposExecutionFrame*>(memory+3*page-depth*sizeof(SfntGposExecutionFrame)),depth};exact.cursive_chains={reinterpret_cast<SfntCursiveChainNode*>(memory+5*page-n*sizeof(SfntCursiveChainNode)),n};
         ok=execute(1000000,exact,&r)==SfntStatus::ok && bytes_equal(state.data,complete,n*sizeof(SfntPosition));++gpos_guard_checks;}
-    VirtualFree(memory,0,MEM_RELEASE);copy_bytes(state.data,before,n*sizeof(SfntPosition));return ok;
+    pages_release(memory);copy_bytes(state.data,before,n*sizeof(SfntPosition));return ok;
 }
 bool gpos_cycle_units() noexcept {
     // A valid single-input context referring to itself. Action storage is

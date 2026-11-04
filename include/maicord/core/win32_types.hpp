@@ -3,6 +3,11 @@
 // Win32 scalar types, handles and the records most headers name, declared as the SDK declares them; see
 // maicord/sys/sdk.hpp.
 
+#if !defined(_WIN32)
+// Linux keeps the value vocabulary (D17) in its own header.
+#include "maicord/os/linux/types.hpp"
+#else
+
 #include "maicord/sys/sdk.hpp"
 
 #if defined(MAICORD_SDK_INCLUDES)
@@ -226,3 +231,5 @@ namespace maicord {
 // WM_APP: private window messages start here.
 inline constexpr UINT kWindowMessageApp = 0x8000;
 } // namespace maicord
+
+#endif // _WIN32

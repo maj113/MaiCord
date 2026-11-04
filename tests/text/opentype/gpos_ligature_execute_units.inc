@@ -70,10 +70,9 @@ bool ligature_units() noexcept {
         if(status!=(budget<ordered_total?SfntStatus::resource_limit:SfntStatus::ok) || result.operations>budget || result.matches>2 || result.prefix_queries)return false;
         for(u32 i=0;i<4;++i){const auto& expected=i>=2 && i-2<result.matches?complete[i]:before[i];if(!bytes_equal(&ligature_state[i],&expected,sizeof(expected)))return false;}}
     // Exact scratch capacity at an inaccessible page and stale-prefix reuse.
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
-    if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}auto* guarded=reinterpret_cast<double*>(memory+page-2*sizeof(double));
+    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*2));if(!memory)return false;if(!pages_protect(memory+page, page, PageAccess::none)){pages_release(memory);return false;}auto* guarded=reinterpret_cast<double*>(memory+page-2*sizeof(double));
     ligature_fixture(raw);bool ok=sfnt_gpos_attachment_open({raw,size},5,4,&sub)==SfntStatus::ok;ligature_input(4);
     ok=ok && ligature_run(lookup,4,0,false,{guarded,2},&result)==SfntStatus::ok && result.prefix_queries==2;
     ligature_input(4);ligature_state[0].advance=.5;ok=ok && ligature_run(lookup,4,0,false,{guarded,2},&result)==SfntStatus::ok && !result.prefix_queries && ligature_state[2].advance_offset==-520.5;
-    VirtualFree(memory,0,MEM_RELEASE);return ok;
+    pages_release(memory);return ok;
 }

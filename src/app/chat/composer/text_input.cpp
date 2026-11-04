@@ -22,6 +22,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
@@ -355,7 +356,7 @@ void application_composer_text_input_release() noexcept {
     g_app.composer_text_input = nullptr;
     secure_text_store_release(&input->store);
     SecureZeroMemory(input, sizeof(*input));
-    VirtualFree(input, 0, MEM_RELEASE);
+    pages_release(input);
 }
 bool application_composer_text_input_synchronize() noexcept {
     if (!eligible()) {
@@ -458,10 +459,10 @@ bool application_composer_text_input_filter(const MSG& message) noexcept {
     // Enter may finish composition during TestKeyDown without being marked
     // eaten. Do not translate that same key into the application's send action.
     const bool command =
-        message.wParam == VK_RETURN || message.wParam == VK_ESCAPE || message.wParam == VK_TAB ||
-        ((message.wParam == 'Z' || message.wParam == 'Y' || message.wParam == VK_BACK ||
-          message.wParam == VK_DELETE || message.wParam == VK_LEFT || message.wParam == VK_RIGHT) &&
-         (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000));
+        message.wParam == key::enter || message.wParam == key::escape || message.wParam == key::tab ||
+        ((message.wParam == 'Z' || message.wParam == 'Y' || message.wParam == key::backspace ||
+          message.wParam == key::del || message.wParam == key::left || message.wParam == key::right) &&
+         (GetKeyState(key::ctrl) & 0x8000) && !(GetKeyState(key::alt) & 0x8000));
     if (down && command && (composing || eaten) && input == g_app.composer_text_input)
         input->held_key = static_cast<u32>(message.wParam);
     return eaten || held || (composing && command);

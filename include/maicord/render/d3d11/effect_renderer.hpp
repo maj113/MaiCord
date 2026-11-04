@@ -2,19 +2,7 @@
 #include "maicord/core/win32_types.hpp"
 #include "maicord/render/effects/background_effect.hpp"
 #include "maicord/ui/core/geometry.hpp"
-
-struct ID3D11BlendState;
-struct ID3D11Buffer;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11PixelShader;
-struct ID3D11Query;
-struct ID3D11RasterizerState;
-struct ID3D11RenderTargetView;
-struct ID3D11SamplerState;
-struct ID3D11ShaderResourceView;
-struct ID3D11Texture2D;
-struct ID3D11VertexShader;
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 struct Theme;
@@ -29,20 +17,20 @@ inline constexpr u32 kD3D11EffectInputs = 7;
 
 // A graph target: one plane, or a persistent target's two (`current` holds the last state).
 struct D3D11EffectGraphTarget {
-    ID3D11RenderTargetView* views[2];
-    ID3D11ShaderResourceView* reads[2];
+    GpuRtv* views[2];
+    GpuSrv* reads[2];
     u32 width, height, current;
 };
 union D3D11EffectStage {
-    ID3D11VertexShader* vertex;
-    ID3D11PixelShader* pixel;
+    GpuVertexShader* vertex;
+    GpuPixelShader* pixel;
 };
 
 // One effect frame's timestamps; read with DONOTFLUSH a few frames later, never waited on.
 struct D3D11EffectTiming {
-    ID3D11Query* disjoint;
-    ID3D11Query* begin;
-    ID3D11Query* end;
+    GpuQuery* disjoint;
+    GpuQuery* begin;
+    GpuQuery* end;
     u64 identity, frame_ms;
     bool begun, pending;
 };
@@ -53,19 +41,19 @@ struct D3D11EffectTiming {
 // device loss; the selection (identity, knobs, settings, clock) survives it, a graph's persistent state does not.
 struct D3D11EffectOwner {
     // Device objects.
-    ID3D11VertexShader *target_vertex, *composite_vertex;
-    ID3D11PixelShader *composite_pixel, *shader;
-    ID3D11Buffer *frame_buffer, *composite_buffer;
-    ID3D11RasterizerState* rasterizer;
+    GpuVertexShader *target_vertex, *composite_vertex;
+    GpuPixelShader *composite_pixel, *shader;
+    GpuBuffer *frame_buffer, *composite_buffer;
+    GpuRaster* rasterizer;
     // The composite's blends (EffectBlend), then a graph pass's (EffectPassBlend alpha, add, premultiplied), then the
     // composite's adapted screen and add (effect_light_composite): while they cross-fade, source plus the background
     // times the shader's second output; settled, the background times the source.
-    ID3D11BlendState* blends[8];
-    ID3D11SamplerState* samplers[3];
-    ID3D11ShaderResourceView* inputs[kD3D11EffectInputs];
-    ID3D11Texture2D* target;
-    ID3D11RenderTargetView* target_view;
-    ID3D11ShaderResourceView* target_srv;
+    GpuBlend* blends[8];
+    GpuSampler* samplers[3];
+    GpuSrv* inputs[kD3D11EffectInputs];
+    GpuTexture* target;
+    GpuRtv* target_view;
+    GpuSrv* target_srv;
     // The pass graph (interface 3): the package's, its shaders but shader 0 (`shader`; vertex or pixel by
     // graph.vertex_shaders) and its targets, sized for the output. graph.pass_count 0: the single pass.
     EffectGraph graph;
@@ -110,15 +98,15 @@ struct D3D11EffectOwner {
 
 enum class EffectSelect : u8 { unchanged, changed, rejected, refused };
 struct EffectSelectResult {
-    HRESULT native_error;
+    GpuStatus native_error;
     EffectSelect state;
 };
 
 // The window size in pixels (content plus caption) is what the cost probe extrapolates to.
 // `glyph_view` is a ready glyph grid the owner adopts (null without effect_use_glyphs).
-EffectSelectResult d3d11_effect_select(D3D11EffectOwner*, ID3D11Device*, ID3D11DeviceContext*,
+EffectSelectResult d3d11_effect_select(D3D11EffectOwner*, GpuDevice*, GpuContext*,
                                        const BackgroundEffectSpec&, const EffectSettings&, u64 adapter_key,
-                                       ID3D11ShaderResourceView* glyph_view, u32 window_width,
+                                       GpuSrv* glyph_view, u32 window_width,
                                        u32 window_height) noexcept;
 // Back to no effect. True when one was selected.
 bool d3d11_effect_clear(D3D11EffectOwner*) noexcept;
@@ -135,7 +123,7 @@ void d3d11_effect_set_marker(D3D11EffectOwner*, volatile u64* marker) noexcept;
 // in seconds; while it runs (`clock_running`) a change of inputs waits for its next tick, so mc.delta is 0 only on a
 // redraw of a stopped clock. Sets owner->active when canvases can sample the target; owner->rendered says the target
 // was redrawn (the caller restores the viewport and the render target it bound). False only on a device failure.
-bool d3d11_effect_begin_frame(D3D11EffectOwner*, ID3D11Device*, ID3D11DeviceContext*, const Theme&, float phase,
+bool d3d11_effect_begin_frame(D3D11EffectOwner*, GpuDevice*, GpuContext*, const Theme&, float phase,
                               bool clock_running, u32 content_width, u32 content_height, u32 caption_height, u32 dpi,
                               bool live_resize, u64 now_ms) noexcept;
 // Composites the target over one canvas (DIP rectangle, paint quad index) under the bound scissor, layer
@@ -143,9 +131,9 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner*, ID3D11Device*, ID3D11DeviceCont
 // shaders, pixel constant slot 0, pixel view 0 and the blend state, which the caller binds again. Skips
 // canvases already drawn this frame. A positive tile_radius draws a tile instead: the whole effect, cover-fitted
 // to the rectangle (a miniature of the window background) with corners rounded to that radius in DIPs.
-bool d3d11_effect_draw(D3D11EffectOwner*, ID3D11DeviceContext*, UiRect canvas, u32 quad_index,
+bool d3d11_effect_draw(D3D11EffectOwner*, GpuContext*, UiRect canvas, u32 quad_index,
                        float tile_radius = 0) noexcept;
-void d3d11_effect_end_frame(D3D11EffectOwner*, ID3D11DeviceContext*) noexcept;
+void d3d11_effect_end_frame(D3D11EffectOwner*, GpuContext*) noexcept;
 // Releases the device objects but keeps the selection, so the next frame rebuilds them.
 void d3d11_effect_release_device(D3D11EffectOwner*) noexcept;
 void d3d11_effect_release(D3D11EffectOwner*) noexcept;

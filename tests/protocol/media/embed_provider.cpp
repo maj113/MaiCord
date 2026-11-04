@@ -12,7 +12,7 @@ void youtube(Utf8View url, EmbedProvider provider, u32 start = 0) noexcept {
 }
 } // namespace
 }
-extern "C" __declspec(noreturn) void WINAPI maicord_embed_provider_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_embed_provider_entry) {
     using namespace maicord;
     using P = EmbedProvider;
     youtube(utf8_literal("https://www.youtube.com/watch?v=aB_01234-xy&t=1h2m3s"), P::youtube, 3723);
@@ -50,5 +50,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_embed_provider_entry() noexc
     check(embed_provider(utf8_literal("https://www.tiktok.com/player/v1/123")) == P::tiktok, "TikTok host");
     check(embed_provider(utf8_literal("https://session-share.playstation.com/123")) == P::playstation,
           "PlayStation host");
-    ExitProcess(failures ? 1 : 0);
+    ::maicord::test_process_exit(failures ? 1 : 0);
 }

@@ -1,6 +1,8 @@
 #include "maicord/text/fonts/candidates.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_output.hpp"
 #if defined(MAICORD_FONT_FAMILY)
 #include "maicord/text/fonts/family.hpp"
 #endif
@@ -68,12 +70,11 @@ bool basic() noexcept {
 }
 bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
-    CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
+    struct Cleanup{u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};CHECK(pages_protect(memory+page, page, PageAccess::none)&&pages_protect(memory+page*3, page, PageAccess::none));
     u8 bytes[font_size];font(bytes);for(u32 size=0;size<=font_size;++size){auto* end=memory+page-size;copy_bytes(end,bytes,size);SfntFace face{};
         const auto status=sfnt_open({end,size},0,&face);CHECK(status==(size<font_size?SfntStatus::truncated:SfntStatus::ok));}
-    auto* end=memory+page-font_size;copy_bytes(end,bytes,font_size);CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old));
+    auto* end=memory+page-font_size;copy_bytes(end,bytes,font_size);CHECK(pages_protect(memory, page, PageAccess::read));
     SfntFace face{};CHECK(sfnt_open({end,font_size},0,&face)==SfntStatus::ok);NativeFontCandidates source{};CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok);
     auto* settings=reinterpret_cast<FontAxisSetting*>(memory+page*3-2*sizeof(FontAxisSetting));u32 count=0;
     CHECK(native_font_candidate_settings(source,2,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==300&&settings[1].value==75);
@@ -134,8 +135,8 @@ bool family_word_boundaries() noexcept {
 }
 bool family_fixture() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
-    auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
-    struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old));
+    auto* memory=static_cast<u8*>(pages_allocate(page*2));CHECK(memory);
+    struct Cleanup{u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};CHECK(pages_protect(memory+page, page, PageAccess::none));
     auto* guarded=reinterpret_cast<u16*>(memory+page-512);
     Reader reader{font_family_fixture,sizeof(font_family_fixture),8};u32 count=0;CHECK(bytes_equal(reader.data,"MCFFAM1\0",8)&&reader.word(&count));
     for(u32 i=0;i<count;++i){u32 bytes=0,units=0;NativeFontProperties expected{};CHECK(reader.word(&bytes)&&reader.word(&units)&&reader.take(&expected,4)&&bytes<=reader.size-reader.at);
@@ -181,6 +182,6 @@ bool run() noexcept {const wchar_t* command=GetCommandLineW();wchar_t path[32768
     CHECK(argument(&command,path));if(bytes_equal(path,L"--family",18)){CHECK(argument(&command,path));return family_audit(path);}
     while(*command==' '||*command=='\t')++command;u32 index=0;while(*command>='0'&&*command<='9'){CHECK(index<65536);index=index*10+*command++-'0';}CHECK(!*command);return audit(path,index);}
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_font_candidates_entry() noexcept {
-    using namespace maicord;const bool success=run();print("checks=");number(checks);print(success?"\nPASS native font candidates\n":"\nFAIL native font candidates\n");flush();ExitProcess(success&&print_ok?0:1);
+MAICORD_TEST_ENTRY(maicord_font_candidates_entry) {
+    using namespace maicord;const bool success=run();print("checks=");number(checks);print(success?"\nPASS native font candidates\n":"\nFAIL native font candidates\n");flush();::maicord::test_process_exit(success&&print_ok?0:1);
 }

@@ -11,6 +11,7 @@
 #include "maicord/core/ascii.hpp"
 
 #include "maicord/core/interlocked.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -179,8 +180,7 @@ void trim_consumed_response(CdnClientRuntime* runtime) noexcept {
         static_cast<u32>((body_offset + minimum(reusable_body_bytes, runtime->response_capacity) + 65535u) &
                          ~65535ull));
     if (keep < runtime->storage_committed_bytes &&
-        VirtualFree(reinterpret_cast<u8*>(runtime) + keep, runtime->storage_committed_bytes - keep,
-                    MEM_DECOMMIT))
+        pages_decommit(reinterpret_cast<u8*>(runtime) + keep, runtime->storage_committed_bytes - keep))
         runtime->storage_committed_bytes = keep;
 }
 
@@ -344,8 +344,7 @@ TlsStreamReadAction response_plaintext(void* opaque, ConstSlice<u8> plaintext, b
     const u32 required =
         static_cast<u32>(minimum<u64>((end + 65535u) & ~65535ull, runtime->allocation_bytes));
     if (required > runtime->storage_committed_bytes) {
-        if (!VirtualAlloc(reinterpret_cast<u8*>(runtime) + runtime->storage_committed_bytes,
-                          required - runtime->storage_committed_bytes, MEM_COMMIT, PAGE_READWRITE)) {
+        if (!pages_commit_at(reinterpret_cast<u8*>(runtime) + runtime->storage_committed_bytes, required - runtime->storage_committed_bytes)) {
             runtime->response_callback_failed = true;
             return TlsStreamReadAction::reject;
         }
@@ -733,7 +732,7 @@ void destroy_client_storage(CdnClient* client) noexcept {
         secure_clear_bytes(runtime->record_output + kRecordOutputBytes,
                            static_cast<u32>(end - runtime->record_output - kRecordOutputBytes));
     }
-    VirtualFree(runtime, 0, MEM_RELEASE);
+    pages_release(runtime);
     client->runtime = nullptr;
 }
 
@@ -772,7 +771,7 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
         return invalid;
     }
     reset_value<CdnClient>(client);
-    client->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE);
+    client->runtime = pages_reserve(bytes);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(CdnClientError::memory));
         InterlockedExchange(&client->native_error, static_cast<LONG>(thread_last_error()));
@@ -781,9 +780,9 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
     const u32 initial =
         minimum(bytes, static_cast<u32>((sizeof(CdnClientRuntime) + fixed_storage_bytes() + 65535u) &
                                         ~65535ull));
-    if (!VirtualAlloc(client->runtime, initial, MEM_COMMIT, PAGE_READWRITE)) {
+    if (!pages_commit_at(client->runtime, initial)) {
         const u32 native_error = thread_last_error();
-        VirtualFree(client->runtime, 0, MEM_RELEASE);
+        pages_release(client->runtime);
         client->runtime = nullptr;
         client->error = static_cast<LONG>(CdnClientError::memory);
         client->native_error = static_cast<LONG>(native_error);

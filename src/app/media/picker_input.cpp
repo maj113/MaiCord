@@ -8,6 +8,7 @@
 #include "maicord/ui/text/clipboard.hpp"
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/app/media/account_media.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -371,12 +372,12 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         return true;
     if (kind != UiInputKind::key_down)
         return false;
-    if (key == VK_ESCAPE) {
+    if (key == key::escape) {
         p->held_key = key;
         application_media_picker_close();
         return true;
     }
-    if (key == VK_TAB) {
+    if (key == key::tab) {
         p->held_key = key;
         focus(*p, false);
         const auto widget = ui_widget_manager_move_focus(&p->scene.widgets, shift);
@@ -392,7 +393,7 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
             ui_widget_manager_focus(&p->scene.widgets, widget);
         return true;
     }
-    if (key == VK_RETURN || (key == VK_SPACE && !p->focused)) {
+    if (key == key::enter || (key == key::space && !p->focused)) {
         p->held_key = key;
         if (p->favorites_view && p->phase == UiMediaPickerPhase::failed) {
             application_gif_favorites_set_visible(false);
@@ -419,20 +420,20 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
             return true;
         }
         bool changed = false;
-        if (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)
+        if (key == key::left || key == key::right || key == key::up || key == key::down)
             changed = ui_media_picker_scene_move_selection(&p->scene,
-                                                           key == VK_LEFT    ? -1
-                                                           : key == VK_RIGHT ? 1
+                                                           key == key::left    ? -1
+                                                           : key == key::right ? 1
                                                                              : 0,
-                                                           key == VK_UP     ? -1
-                                                           : key == VK_DOWN ? 1
+                                                           key == key::up     ? -1
+                                                           : key == key::down ? 1
                                                                             : 0);
-        else if (key == VK_PRIOR || key == VK_NEXT)
-            changed = ui_media_picker_scene_page_selection(&p->scene, key == VK_PRIOR);
-        else if (key == VK_HOME || key == VK_END)
+        else if (key == key::page_up || key == key::page_down)
+            changed = ui_media_picker_scene_page_selection(&p->scene, key == key::page_up);
+        else if (key == key::home || key == key::end)
             // Home/End reach the row's ends; with Ctrl the grid's.
-            changed = control ? ui_media_picker_scene_edge_selection(&p->scene, key == VK_END)
-                              : ui_media_picker_scene_row_edge_selection(&p->scene, key == VK_END);
+            changed = control ? ui_media_picker_scene_edge_selection(&p->scene, key == key::end)
+                              : ui_media_picker_scene_row_edge_selection(&p->scene, key == key::end);
         if (changed) {
             focus_selected(*p);
             repaint();
@@ -463,12 +464,12 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         }
         if (valid)
             result = message_composer_insert_utf8(&p->edit, {text, read.bytes});
-    } else if (key == VK_DOWN) {
+    } else if (key == key::down) {
         focus_results(*p);
         repaint();
         return true;
     } else {
-        if (key == VK_BACK)
+        if (key == key::backspace)
             p->held_key = key;
         message_composer_edit_key(&p->edit, key, control, shift, &result);
     }

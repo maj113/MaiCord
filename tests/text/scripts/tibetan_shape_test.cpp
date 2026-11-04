@@ -5,6 +5,7 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 #include "../../support/script_shape_test_support.inc"
@@ -84,4 +85,4 @@ int run() noexcept {
     const wchar_t tail[]=L"\\Fonts\\himalaya.ttf";copy_bytes(path+n,tail,sizeof(tail));return owned_stream(path,a,s)?0:1;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_tibetan_shape_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
+MAICORD_TEST_ENTRY(maicord_tibetan_shape_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

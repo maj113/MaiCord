@@ -4,6 +4,7 @@
 #include "maicord/app/voice/soundboard_audio.hpp"
 #include "maicord/core/time.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -47,8 +48,8 @@ VoicePlaybackStream* commit_stream(VoicePlayback& playback) noexcept {
     const u32 index = playback.stream_count;
     auto* stream = playback.streams + index;
     u8* storage = playback.block + decoder_offset() + usize{playback.decoder_bytes} * index;
-    if (!VirtualAlloc(stream, sizeof(*stream), MEM_COMMIT, PAGE_READWRITE) ||
-        !VirtualAlloc(storage, playback.decoder_bytes, MEM_COMMIT, PAGE_READWRITE) ||
+    if (!pages_commit_at(stream, sizeof(*stream)) ||
+        !pages_commit_at(storage, playback.decoder_bytes) ||
         !opus_decoder_initialize(&stream->decoder, {storage, playback.decoder_bytes}, kVoiceChannels).ok())
         return nullptr;
     playback.stream_count = index + 1;
@@ -139,11 +140,11 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept {
     const usize bytes = mix_offset(decoder_bytes) + committed;
     // Streams and decoders commit per speaker (commit_stream); only the mix and
     // the decode scratch are committed now.
-    auto* block = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE));
+    auto* block = static_cast<u8*>(pages_reserve(bytes));
     if (!block)
         return false;
-    if (!VirtualAlloc(block + mix_offset(decoder_bytes), committed, MEM_COMMIT, PAGE_READWRITE)) {
-        VirtualFree(block, 0, MEM_RELEASE);
+    if (!pages_commit_at(block + mix_offset(decoder_bytes), committed)) {
+        pages_release(block);
         return false;
     }
     AcquireSRWLockExclusive(playback->lock.native());
@@ -167,7 +168,7 @@ void voice_playback_release(VoicePlayback* playback) noexcept {
     playback->stream_count = 0;
     ReleaseSRWLockExclusive(playback->lock.native());
     if (block)
-        VirtualFree(block, 0, MEM_RELEASE);
+        pages_release(block);
 }
 
 void voice_playback_clear(VoicePlayback* playback) noexcept {

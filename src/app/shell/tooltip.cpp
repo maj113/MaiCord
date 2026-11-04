@@ -32,6 +32,7 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
@@ -725,7 +726,7 @@ ApplicationTooltip* ensure() noexcept {
     if (!owner)
         return nullptr;
     if (!ui_widget_manager_initialize(&owner->widgets, {&owner->root, 1}, {&owner->root_layout, 1})) {
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         return nullptr;
     }
     auto style = ui_layout_style();
@@ -736,7 +737,7 @@ ApplicationTooltip* ensure() noexcept {
         &owner->widgets, ui_widget_invalid_handle(),
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Tooltip overlay"), style, {}, 1}});
     if (!root.ok() || !ui_tooltip_bind_text_owner(&owner->scene, {&owner->widgets, root.handle})) {
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
         return nullptr;
     }
     g_app.tooltip = owner;
@@ -850,7 +851,7 @@ void application_tooltip_release() noexcept {
     g_app.tooltip = nullptr;
     g_app.renderer.tooltip_scene = nullptr;
     if (owner)
-        VirtualFree(owner, 0, MEM_RELEASE);
+        pages_release(owner);
 }
 u64 application_tooltip_next_wake() noexcept {
     const u64 content = g_app.tooltip ? ui_tooltip_next_wake(g_app.tooltip->scene) : 0;
@@ -890,8 +891,8 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     UiTooltipStyle candidate_style{};
     bool candidate_reaction = false;
     const bool navigation =
-        keyboard && (wparam == VK_TAB || wparam == VK_UP || wparam == VK_DOWN || wparam == VK_LEFT ||
-                     wparam == VK_RIGHT || wparam == VK_HOME || wparam == VK_END);
+        keyboard && (wparam == key::tab || wparam == key::up || wparam == key::down || wparam == key::left ||
+                     wparam == key::right || wparam == key::home || wparam == key::end);
     // Retain the first eligible pointer observation even when dispatch has not
     // published its action bar/video control yet. Synchronize resolves the new
     // typed source after dispatch without requiring a second mouse movement.
@@ -912,9 +913,9 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         owner->pointer_valid = true;
         reset_value(&owner->dismissed);
     }
-    if (keyboard && (wparam == VK_RETURN || wparam == VK_SPACE || wparam == VK_ESCAPE)) {
+    if (keyboard && (wparam == key::enter || wparam == key::space || wparam == key::escape)) {
         application_reaction_tooltip_leave();
-        if (wparam == VK_ESCAPE)
+        if (wparam == key::escape)
             application_interaction_card_close();
         owner->dismissed = owner->scene.key;
         ui_tooltip_clear(&owner->scene);
