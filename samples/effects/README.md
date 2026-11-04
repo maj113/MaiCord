@@ -105,6 +105,10 @@ the tool checks each against the slot it assigns and prints the line to add when
 #define knob_tint  (mc_knobs[1].rgb)
 ```
 
+The knob page shows a choice as a row of buttons, each as wide as its label, while they all fit the card, and as a
+dropdown when they don't (it decides again as the window changes size). Keep each entry to a word or two ("Clock",
+"Day", "Night") so the buttons show at common window sizes.
+
 ### The sidecar
 
 `<slug>.effect` sits next to the sample, one `key=value` per line. `effect build` writes it from the annotations and keeps
@@ -146,10 +150,27 @@ A theme that changes with the time of day (its `variants`) decides alone: it tur
 and the appearance follows its base whatever Windows says, so an effect shows its day under the light phases. The
 base changes with the theme's own 1.5 s glide, beside this one.
 
+**A theme following your knobs.** Such a theme can name knobs of the effect it asks for (its `background.effect`)
+that hold it on a month or a phase, so the theme and the sky agree when the user overrides them:
+
+```json
+"background": {"effect": "silk-waves",
+               "follow": {"month": "month", "phase": "sky", "phases": ["auto", "auto", "day", "night"]}}
+```
+
+`month` is a choice knob of 13 options: the first follows the date, the others hold January to December (the
+month's colours, without the turn toward the next). `phase` is a choice knob, and `phases` says for each of its
+options, in order, what the theme does: `"auto"` keeps the theme's own schedule, `"night"`, `"dawn"`, `"day"` or
+`"dusk"` holds that phase whole, its base included. The theme reads the knobs' current values, the user's overrides
+included, only while that effect draws as the window's background (the saved choice or the theme's own); otherwise,
+or with every knob on an `"auto"` option, it keeps its schedule. Changing such a knob glides the theme like a jump
+of the clock. The effect needs nothing new: the theme names the knobs, so any effect with such choices works, and a
+MaiCord before 0.6.5 skips `follow` and keeps the schedule.
+
 An effect that declares `appearance` has a light day picture of its own, so it should never draw that picture under
 a dark appearance's text unless the user chose so: by default, show the night whenever `mc_ambient.dark` is 1 (Silk
-Waves does when it follows the clock, `day-night` with its default "Clock or appearance"), and leave a clock-only or
-always-day look to an explicit choice labelled for light themes.
+Waves does when it follows the clock, `day-night` with its default "Either"), and leave a clock-only or always-day
+look to an explicit choice (Silk Waves' "Day", `day-night`'s "Clock").
 
 **Gliding.** MaiCord eases each value toward its source over 1.5 s on a smoothstep, so a shader blends with the
 value directly. A change of appearance glides, and so does a jump of the clock (waking from sleep, a new time zone,

@@ -27,10 +27,11 @@ enum class ClientThemeDocumentError : u8 {
     reference,
     cycle
 };
-// The optional package effect a theme asks for: "background": {"effect": "<slug>", "knobs": {...}, "universal": {...}}
-// next to the built-in effect names. Applied when the effect is installed and no built-in effect is active.
+// The optional package effect a theme asks for: "background": {"effect": "<slug>", "knobs": {...}, "universal": {...},
+// "follow": {...}} next to the built-in effect names. Applied when the effect is installed and no built-in effect is
+// active.
 inline constexpr u32 kClientThemeEffectSlugBytes = 40, kClientThemeEffectKnobMaximum = 28,
-                     kClientThemeEffectKnobIdBytes = 24;
+                     kClientThemeEffectKnobIdBytes = 24, kClientThemeFollowPhaseMaximum = 16;
 struct ClientThemeEffectKnob {
     char id[kClientThemeEffectKnobIdBytes + 1];
     bool color; // rgb is the value; otherwise number (a toggle is 0 or 1, a choice its index)
@@ -52,6 +53,11 @@ struct ClientThemeEffect {
     u8 resolution, frame_rate;   // step + 1
     u8 blend;                    // EffectBlend
     ClientThemeEffectKnob knobs[kClientThemeEffectKnobMaximum];
+    // "follow": {"month": "<knob>", "phase": "<knob>", "phases": ["auto" | "night" | "dawn" | "day" | "dusk", ...]}:
+    // knobs of the effect that hold a theme with variants on a month or a phase (client_theme_follow). Empty: none.
+    char month_knob[kClientThemeEffectKnobIdBytes + 1], phase_knob[kClientThemeEffectKnobIdBytes + 1];
+    u8 phases[kClientThemeFollowPhaseMaximum]; // per option of phase_knob: 0 the schedule, else ClientThemePhase + 1
+    u8 zero[2]; // always 0: documents compare and hash bytewise, so the record has no padding
 };
 // A theme that changes with the time of day: "variants": {"night"|"dawn"|"day"|"dusk": {"base": ..., "colors": {...},
 // "months": [12 objects of colours]}}. A phase starts from its base's built-in colours (the root's base when it
@@ -124,6 +130,14 @@ ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&
 // turns toward the next month's colours on a smoothstep, as Silk Waves' sky does. Only colours vary; everything else
 // is the root's.
 Theme client_theme_document_at(const ClientThemeDocument&, u32 minute_of_day, u32 month, u32 day) noexcept;
+// client_theme_document_at's clock with the theme's effect's knobs applied (ClientThemeEffect::month_knob, phase_knob):
+// `month` and `phase` are those knobs' values, negative while the effect isn't the window's background. A month 1..12
+// holds that month's colours (no turn toward the next); a phase option that names a phase holds that phase whole, base
+// included. Anything else keeps the clock.
+struct ClientThemeClock {
+    u32 minute, month, day;
+};
+ClientThemeClock client_theme_follow(const ClientThemeEffect&, ClientThemeClock, float month, float phase) noexcept;
 // Every colour of *to (core and semantic) moved from `from` by 1 - amount: amount 0 is `from`, 1 is *to.
 void client_theme_mix(Theme* to, const Theme& from, float amount) noexcept;
 } // namespace maicord

@@ -1204,6 +1204,15 @@ bool application_effects_knobs_reset() noexcept {
     return true;
 }
 
+float application_effects_drawn_knob(const char* slug, const char* id) noexcept {
+    const Loaded& l = g.resident;
+    if (g.selected && !g.trial.active && !g.preview.swapped && l.file && text_is(l.package.slug, slug))
+        for (u32 k = 0; k < l.package.knob_count; ++k)
+            if (text_is(l.package.knobs[k].id, id))
+                return l.values[k].number;
+    return -1;
+}
+
 EffectCost application_effects_cost(u64 identity) noexcept {
     if (!identity)
         return {};

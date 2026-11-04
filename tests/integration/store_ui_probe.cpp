@@ -32,7 +32,7 @@
 // catalog fixture's `previews/<sha>.png`: the tiles then show the real pictures, decoded and uploaded the way the
 // host does. 04 and 08 run the Aurora sample as the window background so their live tiles have an effect; 16 and 17
 // run every sample on its own knob page and check the tile's pixels; 19 is Starfield's page on the Light theme,
-// adapted to it.
+// adapted to it; 20 to 24 are choice knobs, buttons or dropdown, at window sizes up to 2560x1440 pixels.
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -407,6 +407,37 @@ void knobs() noexcept {
     m.effect_cost_text = utf8_literal("Light here \xC2\xB7 0.4 ms");
     m.effect_preview = 1; // the host draws the page's effect; the tile shows it
     m.global_universal = u;
+}
+// The choice knobs of the catalog's and the samples' effects (Silk Waves' Month and Day and night, day-night's Night
+// follows): each a row of buttons as wide as their labels while they fit the card, else its dropdown (store-20 to 24).
+void choice_knobs() noexcept {
+    knobs();
+    auto& m = fixture.model;
+    static constexpr Utf8View kMonths[]{utf8_literal("By date"), utf8_literal("January"), utf8_literal("February"),
+                                        utf8_literal("March"), utf8_literal("April"), utf8_literal("May"), utf8_literal("June"),
+                                        utf8_literal("July"), utf8_literal("August"), utf8_literal("September"),
+                                        utf8_literal("October"), utf8_literal("November"), utf8_literal("December")};
+    static constexpr Utf8View kSky[]{utf8_literal("Clock"), utf8_literal("Night when dark"), utf8_literal("Day"),
+                                     utf8_literal("Night")};
+    static constexpr Utf8View kFollows[]{utf8_literal("Clock"), utf8_literal("Appearance"), utf8_literal("Either")};
+    const struct {
+        Utf8View label;
+        const Utf8View* choices;
+        u32 count, value;
+    } kChoices[]{{utf8_literal("Month"), kMonths, 13, 0}, {utf8_literal("Day and night"), kSky, 4, 1},
+                 {utf8_literal("Night follows"), kFollows, 3, 2}};
+    m.knob_count = 0;
+    for (const auto& c : kChoices) {
+        StoreKnob& out = m.knobs[m.knob_count++];
+        reset_value(&out);
+        out.label = c.label;
+        out.type = 4;
+        out.maximum = static_cast<float>(c.count - 1);
+        out.value = out.fallback = static_cast<float>(c.value);
+        out.choice_count = c.count;
+        for (u32 i = 0; i < c.count; ++i)
+            out.choices[i] = c.choices[i];
+    }
 }
 
 // The shipped samples the store fixture lists, as their .effect sidecars describe them (background_effect_pixels.cpp
@@ -790,6 +821,52 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         next(L"store-19-knobs-light.bmp", kEffects, nullptr, kLightTheme);
         valid = valid && live_tile_pixels(renderer, kLightTheme).found;
     }
+    // 20 to 24 choice knobs (Silk Waves' Month and Day and night, day-night's Night follows) at 1440x900 DIP, a
+    // 1000x900 DIP window, and in pixels a 2560x1440 fullscreen window and narrower ones (at 125 % scale, the owner's
+    // setup). Every row of buttons stays inside its plate, and a choice whose buttons don't fit is its dropdown.
+    const auto choices = [&](const wchar_t* name, u32 width, u32 height, u32 expected_menus) noexcept {
+        stage = __LINE__;
+        const float w = static_cast<float>(width) / scale, h = static_cast<float>(height) / scale;
+        if (!valid || !renderer_resize(&renderer, width, height) || !relayout() ||
+            !show(f, renderer, kEffects, {0, 32, w, h}, name, capture, sunset))
+            return false;
+        u32 menus = 0;
+        bool inside = true;
+        for (u32 i = 0; i < f.store.count; ++i) {
+            const UiStoreNode& n = f.store.nodes[i];
+            if (n.kind == UiStoreKind::dropdown && (n.flags & ui_store_fallback) && !(n.flags & ui_store_hidden))
+                ++menus;
+            if (n.kind != UiStoreKind::row || n.variant != 1 || (n.flags & ui_store_hidden))
+                continue;
+            for (u16 c = n.first; c != kUiStoreNone; c = f.store.nodes[c].next)
+                inside = inside && f.store.nodes[c].x + f.store.nodes[c].w <= n.x + n.w - n.pad_x + .5f;
+        }
+        if (!inside || (expected_menus != ~0u && menus != expected_menus)) {
+            log_u64(LogLevel::error, "probe", "store_choice_menus", menus);
+            return false;
+        }
+        return true;
+    };
+    if (valid) {
+        stage = __LINE__;
+        effects();
+        choice_knobs();
+        valid = run_aurora(renderer);
+        StorePageState& st = f.state[2];
+        st.detail = st.knobs = true;
+        st.detail_from = StoreTab::installed;
+        copy_bytes(st.slug, "aurora", 7);
+    }
+    // At 2560x1440 only the thirteen months take the dropdown.
+    valid = valid && choices(L"store-20-knobs-choices.bmp", static_cast<u32>(1440 * scale + .5f),
+                             static_cast<u32>(900 * scale + .5f), ~0u) &&
+            choices(L"store-21-knobs-choices-narrow.bmp", static_cast<u32>(1000 * scale + .5f),
+                    static_cast<u32>(900 * scale + .5f), ~0u) &&
+            choices(L"store-22-knobs-choices-2560.bmp", 2560, 1440, 1) &&
+            choices(L"store-23-knobs-choices-1600.bmp", 1600, 1000, ~0u) &&
+            choices(L"store-24-knobs-choices-1300.bmp", 1300, 1000, ~0u) &&
+            renderer_resize(&renderer, static_cast<u32>(1440 * scale + .5f), static_cast<u32>(900 * scale + .5f)) &&
+            relayout();
     f.state[2].detail = f.state[2].knobs = false;
     // 05 Plugins > Installed with the overflow menu open
     renderer_clear_effect(&renderer);

@@ -24,6 +24,8 @@ struct ThemePublication {
     alignas(Theme) u8 ease_from_bytes[sizeof(Theme)];
     u64 ease_start_ms{}, schedule_next_ms{};
     u32 schedule_sample{}; // the last publication's minute, day and month as one count (months of 32 days)
+    // The theme's effect's month and phase knobs as last seen (application_effects_drawn_knob, client_theme_follow).
+    float follow_month{}, follow_phase{};
     ClientTheme previous_kind{};
     bool ready{}, custom{}, publishing{}, scheduled{};
 };

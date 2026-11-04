@@ -309,13 +309,15 @@ bool busy_spinner_wakes(UiPageKey plugins, UiPageKey other) noexcept {
 
 // ---- Knob page previews --------------------------------------------------------------------------------------
 // A minimal installed package: a manifest, a ps_5_0 DXBC header and its source, as the packager lays them out.
-u8 package_bytes[640];
+u8 package_bytes[900];
 void put32(u8* p, u32 v) noexcept {
     for (u32 i = 0; i < 4; ++i)
         p[i] = static_cast<u8>(v >> (8 * i));
 }
-bool install_effect(const char* slug, const char* uses = "[]", const char* interface = "1") noexcept {
-    char manifest[320];
+constexpr char kSpeedKnob[] = "[{\"id\":\"speed\",\"type\":\"float\",\"label\":\"Speed\",\"min\":0,\"max\":3,\"default\":1}]";
+bool install_effect(const char* slug, const char* uses = "[]", const char* interface = "1",
+                    const char* knobs = kSpeedKnob) noexcept {
+    char manifest[560];
     u32 m = 0;
     const auto add = [&](const char* text) noexcept {
         const u32 n = c_string_length(text);
@@ -330,7 +332,9 @@ bool install_effect(const char* slug, const char* uses = "[]", const char* inter
     add(slug);
     add("\",\"version\":\"1.0.0\",\"authors\":[{\"name\":\"Maj\"}],\"license\":\"MPL-2.0\",\"blend\":\"normal\",\"uses\":");
     add(uses);
-    add(",\"knobs\":[{\"id\":\"speed\",\"type\":\"float\",\"label\":\"Speed\",\"min\":0,\"max\":3,\"default\":1}]}");
+    add(",\"knobs\":");
+    add(knobs);
+    add("}");
     u8 dxbc[48]{};
     copy_bytes(dxbc, "DXBC", 4);
     put32(dxbc + 20, 1);
@@ -532,6 +536,46 @@ bool ambient_inputs_follow_the_system() noexcept {
     return own_off && application_effects_count() == before && !g_app.renderer.effect.selected;
 }
 
+// The knobs a theme follows (application_effects_drawn_knob, client_theme_follow): the values of the effect drawing
+// as the background, the user's change on its knob page at once, and nothing for an effect that only sits in the
+// library, draws on its own page in another background's place, or stopped being the background.
+bool drawn_knobs_follow_the_background() noexcept {
+    const ApplicationWindowState window = g_window_state;
+    g_window_state.visible = g_window_state.foreground = true;
+    g_window_state.minimized = false;
+    auto& observed = settings_runtime_test::observed;
+    const UiRect viewport = observed.viewport;
+    observed.viewport = {0, 0, 1000, 480};
+    application_effects_reload();
+    const u32 before = application_effects_count();
+    const bool installed =
+        install_effect("linked", "[]", "1",
+                       "[{\"id\":\"sky\",\"type\":\"choice\",\"label\":\"Day and night\","
+                       "\"choices\":[\"Clock\",\"Night when dark\",\"Day\",\"Night\"],\"default\":1}]") &&
+        install_effect("other");
+    application_effects_reload();
+    const u32 linked = effect_index("linked"), other = effect_index("other");
+    const auto sky = []() noexcept { return application_effects_drawn_knob("linked", "sky"); };
+    const bool library = installed && application_effects_count() == before + 2 && sky() == -1;
+    const McfxKnobValue night{3, 0};
+    const bool drawn = library && application_effects_select(linked) && frame() && sky() == 1 &&
+                       application_effects_drawn_knob("linked", "month") == -1 &&
+                       application_effects_drawn_knob("other", "sky") == -1 && application_settings_open() &&
+                       open_knobs("linked") && application_effects_knob_set(0, night, false) && sky() == 3;
+    const bool previewed = drawn && application_effects_select(other) && open_knobs("other") && sky() == -1 &&
+                           open_knobs("linked") &&
+                           g_app.renderer.effect.identity == application_effects_identity(linked) && sky() == -1;
+    application_settings_close(false);
+    application_effects_select_none();
+    const bool none = previewed && frame() && sky() == -1;
+    application_effects_remove("linked", 6);
+    application_effects_remove("other", 5);
+    application_effects_synchronize();
+    observed.viewport = viewport;
+    g_window_state = window;
+    return none && application_effects_count() == before && !g_app.renderer.effect.selected;
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -609,6 +653,9 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     check(ambient_inputs_follow_the_system(),
           "effect inputs: an interface-2 package gets the local clock and the appearance; Windows turning dark glides "
           "it with transition frames, reduced motion makes it instant, and an interface-1 package gets none");
+    check(drawn_knobs_follow_the_background(),
+          "effect knobs a theme follows: the background's own values, the user's change at once, and none for an "
+          "effect in the library, previewed in another's place, or no longer the background");
     // The wheel scrolls the category list over its rows and over its scrollbar, which sits in the sidebar's padding.
     auto& observed = settings_runtime_test::observed;
     const UiRect viewport = observed.viewport;

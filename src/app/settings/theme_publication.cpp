@@ -10,14 +10,30 @@
 
 namespace maicord::app_detail {
 namespace {
+// The theme's effect's month and phase knobs (application_effects_drawn_knob); a change makes the schedule due at once,
+// so the theme glides to a held month or phase as it does at a jump of the clock.
+void follow_knobs(ThemePublication& p, const ClientThemeDocument& document) noexcept {
+    const auto& effect = document.effect;
+    const float month = application_effects_drawn_knob(effect.slug, effect.month_knob),
+                phase = application_effects_drawn_knob(effect.slug, effect.phase_knob);
+    if (month != p.follow_month || phase != p.follow_phase) {
+        p.follow_month = month;
+        p.follow_phase = phase;
+        p.schedule_next_ms = 1;
+    }
+}
 // The scheduled look now, on the effects' clock. After a change the clock doesn't make minute by minute (a change of
-// base or month, a jump of the clock) it glides from what showed, as the effects' appearance does beside it.
+// base or month, a jump of the clock, a knob holding a month or phase) it glides from what showed, as the effects'
+// appearance does beside it.
 Theme scheduled_palette(ThemePublication& p, const ClientThemeDocument& document) noexcept {
     const u64 now = clock_monotonic_milliseconds();
     u64 next = 0;
     const EffectLocalTime local = application_effects_local_time(now, &next);
-    const u32 minute = local.hour * 60u + local.minute, sample = minute + 1440u * (local.day + 32u * local.month);
-    Theme target = client_theme_document_at(document, minute, local.month, local.day);
+    follow_knobs(p, document);
+    const ClientThemeClock clock = client_theme_follow(
+        document.effect, {local.hour * 60u + local.minute, local.month, local.day}, p.follow_month, p.follow_phase);
+    const u32 sample = clock.minute + 1440u * (clock.day + 32u * clock.month);
+    Theme target = client_theme_document_at(document, clock.minute, clock.month, clock.day);
     const bool reduced = g_app.preferences.reduced_motion || g_app.renderer.reduced_motion;
     if (p.scheduled && p.ready && !reduced &&
         (sample - p.schedule_sample > 2u || p.theme().appearance != target.appearance)) {
@@ -40,12 +56,20 @@ Theme scheduled_palette(ThemePublication& p, const ClientThemeDocument& document
 } // namespace
 
 u64 application_theme_schedule_wake() noexcept {
-    return theme_publication.scheduled ? theme_publication.schedule_next_ms : 0;
+    auto& p = theme_publication;
+    const auto* document = application_custom_theme_document();
+    if (!p.scheduled || !document)
+        return 0;
+    follow_knobs(p, *document);
+    return p.schedule_next_ms;
 }
 void application_theme_schedule_tick(u64 now_ms) noexcept {
     auto& p = theme_publication;
     const auto* document = application_custom_theme_document();
-    if (p.scheduled && now_ms >= p.schedule_next_ms && document && !application_custom_theme_publish(document))
+    if (!p.scheduled || !document)
+        return;
+    follow_knobs(p, *document);
+    if (now_ms >= p.schedule_next_ms && !application_custom_theme_publish(document))
         p.schedule_next_ms = now_ms + 1000; // a refused publication tries again in a second, not in a spin
 }
 

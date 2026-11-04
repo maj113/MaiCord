@@ -92,6 +92,10 @@ bool application_effects_knob_get(u32 knob, McfxKnobValue* value) noexcept;
 bool application_effects_knob_set(u32 knob, const McfxKnobValue& value, bool commit) noexcept;
 // Back to the package's defaults (and the theme's values when the theme supplies the effect).
 bool application_effects_knobs_reset() noexcept;
+// The value of knob `id` (natural units; a choice reads its index) of the effect drawing as the window's background,
+// the saved choice or the theme's, the user's values included, when that effect is `slug`; -1 otherwise (another
+// effect or none, a trial or another entry's preview drawing, no such knob). A theme follows it (client_theme_follow).
+float application_effects_drawn_knob(const char* slug, const char* id) noexcept;
 // The measured cost on this GPU, for the effect that is drawing now (known once it has been probed).
 enum class EffectCostClass : u8 { light, medium, heavy };
 struct EffectCost {

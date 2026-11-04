@@ -46,8 +46,7 @@ static constexpr UiSettingsSchemaNode notifications[]{
          utf8_literal("taskbar overlay count dot"), SettingBinding::unread_badge),
 };
 
-static constexpr Utf8View spoiler_choices[]{utf8_literal("On click"), utf8_literal("Always"),
-                                     utf8_literal("Servers I moderate")};
+static constexpr Utf8View spoiler_choices[]{utf8_literal("On click"), utf8_literal("Always"), utf8_literal("Moderated")};
 constexpr UiSettingsSchemaNode appearance[]{
     node(utf8_literal("appearance.theme"), K::palette, utf8_literal("Theme"),
          utf8_literal("Choose a light or dark look for MaiCord."), utf8_literal("dark mode light mode amoled black"),
@@ -95,7 +94,8 @@ constexpr UiSettingsSchemaNode appearance[]{
          dynamic),
     node(utf8_literal("appearance.render_reactions"), K::toggle, utf8_literal("Show emoji reactions"), {},
          utf8_literal("reactions emoji"), SettingBinding::render_reactions, {}, none, {}, dynamic),
-    node(utf8_literal("appearance.render_spoilers"), K::segments, utf8_literal("Show spoiler content"), {},
+    node(utf8_literal("appearance.render_spoilers"), K::segments, utf8_literal("Show spoiler content"),
+         utf8_literal("Hidden until clicked, always shown, or shown in servers you moderate."),
          utf8_literal("spoilers hidden reveal"), SettingBinding::render_spoilers, {spoiler_choices, 3}, none, {},
          dynamic),
     node(utf8_literal("appearance.role_colors_everywhere"), K::toggle, utf8_literal("Role colors everywhere"),

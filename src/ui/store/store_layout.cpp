@@ -217,13 +217,6 @@ float intrinsic(const UiStoreScene& s, u16 i) noexcept {
     }
     if (horizontal && shown)
         total += n.gap * (shown - 1);
-    if (n.kind == UiStoreKind::row && n.variant == 1) {
-        // A segmented track: equal options.
-        float widest = 0;
-        for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next)
-            widest = maximum(widest, intrinsic(s, c));
-        total = maximum(72.f, widest) * shown;
-    }
     return n.rw ? n.rw : total + n.pad_x * 2;
 }
 
@@ -236,6 +229,14 @@ float place_stack(const UiStoreScene& s, UiStoreNode& n, float x, float y, float
     bool any = false;
     for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
         auto& child = at(s, c);
+        if (child.next != kUiStoreNone && (at(s, child.next).flags & ui_store_fallback)) {
+            // A segmented track and the dropdown standing in for it: the track while its options, each at its
+            // label's width, fit the width; else the dropdown. Decided at every layout, so it follows the window.
+            auto& menu = at(s, child.next);
+            child.flags &= ~ui_store_hidden;
+            menu.flags &= ~ui_store_hidden;
+            (intrinsic(s, c) <= cw ? menu : child).flags |= ui_store_hidden;
+        }
         if (hidden(child))
             continue;
         if (any)
@@ -254,8 +255,7 @@ float place_stack(const UiStoreScene& s, UiStoreNode& n, float x, float y, float
 float place_row(const UiStoreScene& s, UiStoreNode& n, float x, float y, float width) noexcept {
     const float cx = x + n.pad_x, cw = maximum(1.f, width - n.pad_x * 2);
     u32 shown = 0, flex = 0;
-    float fixed = 0, widest = 0;
-    const bool track = n.variant == 1;
+    float fixed = 0;
     for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
         const auto& child = at(s, c);
         if (hidden(child))
@@ -263,22 +263,19 @@ float place_row(const UiStoreScene& s, UiStoreNode& n, float x, float y, float w
         ++shown;
         if (child.flags & ui_store_flex)
             ++flex;
-        else {
-            const float w = intrinsic(s, c);
-            fixed += w;
-            widest = maximum(widest, w);
-        }
+        else
+            fixed += intrinsic(s, c);
     }
-    if (track)
-        widest = n.rw ? cw / maximum(1u, shown) : maximum(72.f, widest);
+    // A segmented track with a width of its own (`rw`) shares it equally; any other row's options take their own.
+    const bool shared = n.variant == 1 && n.rw;
     const float gaps = shown > 1 ? n.gap * (shown - 1) : 0;
-    const float free = maximum(0.f, cw - (track ? widest * shown : fixed) - gaps);
+    const float free = maximum(0.f, cw - fixed - gaps);
     float cursor = cx, height = 0;
     for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
         auto& child = at(s, c);
         if (hidden(child))
             continue;
-        const float w = track ? widest : (child.flags & ui_store_flex) ? free / flex : intrinsic(s, c);
+        const float w = shared ? cw / shown : (child.flags & ui_store_flex) ? free / flex : intrinsic(s, c);
         place(s, c, cursor, y + n.pad_y, w);
         cursor += child.w + n.gap;
         height = maximum(height, child.h);
@@ -426,7 +423,9 @@ void place(const UiStoreScene& s, u16 i, float x, float y, float width) noexcept
         return;
     }
     if (container(n.kind)) {
-        n.w = n.rw && n.kind != UiStoreKind::split && n.kind != UiStoreKind::grid ? minimum(n.rw, width) : width;
+        n.w = n.rw && n.kind != UiStoreKind::split && n.kind != UiStoreKind::grid ? minimum(n.rw, width)
+              : n.kind == UiStoreKind::row && n.variant == 1                      ? minimum(intrinsic(s, i), width)
+                                                                                  : width;
         switch (n.kind) {
         case UiStoreKind::column:
         case UiStoreKind::card:

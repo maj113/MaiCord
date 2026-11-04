@@ -421,27 +421,26 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
         break;
     }
     case 4: {
-        value_row(c, k.label, k.choice_count ? k.choices[static_cast<u32>(k.value) < k.choice_count ? static_cast<u32>(k.value) : 0] : Utf8View{}, false, 0);
-        if (k.choice_count && k.choice_count <= 5) {
-            auto& track = c.b.open(UiStoreKind::row);
-            track.variant = 1;
-            track.pad_x = track.pad_y = 4;
-            for (u32 o = 0; o < k.choice_count; ++o) {
-                auto& s = c.b.leaf(UiStoreKind::segment);
-                s.text = k.choices[o];
-                s.action = store_action(StoreAct::knob, i | (o << 8) | (1u << 15));
-                s.group = 6;
-                if (o == static_cast<u32>(k.value))
-                    s.flags = ui_store_selected;
-            }
-            c.b.close();
-        } else {
-            auto& dd = c.b.leaf(UiStoreKind::dropdown);
-            dd.text2 = k.choice_count ? k.choices[static_cast<u32>(k.value) < k.choice_count ? static_cast<u32>(k.value) : 0] : Utf8View{};
-            dd.flags = ui_store_stretch;
-            dd.action = store_action(StoreAct::knob_menu, i);
-            dd.group = 6;
+        const Utf8View current = k.choice_count ? k.choices[static_cast<u32>(k.value) < k.choice_count ? static_cast<u32>(k.value) : 0] : Utf8View{};
+        value_row(c, k.label, current, false, 0);
+        // The segmented track, and the dropdown the layout shows instead when its options don't fit the width.
+        auto& track = c.b.open(UiStoreKind::row);
+        track.variant = 1;
+        track.pad_x = track.pad_y = 4;
+        for (u32 o = 0; o < k.choice_count; ++o) {
+            auto& s = c.b.leaf(UiStoreKind::segment);
+            s.text = k.choices[o];
+            s.action = store_action(StoreAct::knob, i | (o << 8) | (1u << 15));
+            s.group = 6;
+            if (o == static_cast<u32>(k.value))
+                s.flags = ui_store_selected;
         }
+        c.b.close();
+        auto& dd = c.b.leaf(UiStoreKind::dropdown);
+        dd.text2 = current;
+        dd.flags = ui_store_stretch | ui_store_fallback;
+        dd.action = store_action(StoreAct::knob_menu, i);
+        dd.group = 6;
         break;
     }
     default: {

@@ -149,6 +149,70 @@ void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, cons
     effect_ambient_sample(&ambient, effect_use_appearance, sources, 9000, false, false, values);
     check(before_flip && halfway_dark > .45f && halfway_dark < .55f && day && values[effect_ambient_dark] == 1,
           "theme variants: the base flip glides the effects' dark from 1 to 0 under a dark Windows; reduced motion snaps");
+
+    // A theme following its effect's knobs (background.follow) reads and writes them; while the effect draws, a held
+    // month or phase replaces the clock's, and the knobs' automatic options (or the effect not drawing, -1) keep it.
+    const auto linked_source = utf8_literal(
+        "{\"version\":\"2.0\",\"name\":\"Linked\",\"background\":{\"effect\":\"silk-waves\",\"follow\":{\"month\":"
+        "\"month\",\"phase\":\"sky\",\"phases\":[\"auto\",\"auto\",\"day\",\"night\"]}},\"variants\":{"
+        "\"night\":{\"colors\":{\"base_low\":\"#050608\"},\"months\":[{},{},{\"accent\":\"#ff8040\"},{},{},{},{},{},{},{},"
+        "{},{}]},\"day\":{\"base\":\"light\",\"colors\":{\"base_low\":\"#f4f1ea\"}}}}");
+    ClientThemeDocument linked{}, linked_again{};
+    u32 linked_bytes{};
+    const auto& follow = linked.effect;
+    check(parse(linked_source, defaults, &linked).ok() && bytes_equal(follow.month_knob, "month", 6) &&
+              bytes_equal(follow.phase_knob, "sky", 4) && !follow.phases[0] && !follow.phases[1] &&
+              follow.phases[2] == theme_phase_day + 1 && follow.phases[3] == theme_phase_night + 1 && !follow.phases[4] &&
+              client_theme_document_write(linked, {exported, sizeof(exported)}, &linked_bytes).ok() &&
+              contains(exported, linked_bytes,
+                       utf8_literal(",\"follow\":{\"month\":\"month\",\"phase\":\"sky\",\"phases\":[\"auto\",\"auto\","
+                                    "\"day\",\"night\"]}")) &&
+              parse({exported, linked_bytes}, defaults, &linked_again).ok() &&
+              client_theme_document_equal(linked, linked_again),
+          "theme follow: the effect's month and phase knobs and the phase each option holds read and write back equal");
+    const auto linked_with = [](const char* follow_member) noexcept {
+        static char text[256];
+        constexpr auto head = utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"silk-waves\",\"follow\":");
+        copy_bytes(text, head.data, head.bytes);
+        const u32 length = c_string_length(follow_member);
+        copy_bytes(text + head.bytes, follow_member, length);
+        text[head.bytes + length] = '}';
+        text[head.bytes + length + 1] = '}';
+        return Utf8View{text, head.bytes + length + 2};
+    };
+    check(refused(linked_with("{\"phases\":[\"noon\"]}"), defaults) && refused(linked_with("{\"month\":3}"), defaults) &&
+              refused(linked_with("{\"month\":\"\"}"), defaults) && refused(linked_with("[]"), defaults) &&
+              refused(linked_with("{\"phases\":[\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\","
+                                  "\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\",\"auto\","
+                                  "\"day\"]}"),
+                      defaults) &&
+              refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"stars\",\"follow\":{\"month\":"
+                                   "\"month\"}}}"),
+                      defaults),
+          "theme follow: knob names, phase names, sixteen options and a package effect are checked");
+    const auto shows = [&](ClientThemeClock clock) noexcept {
+        return client_theme_document_at(linked, clock.minute, clock.month, clock.day);
+    };
+    const auto same = [](const ClientThemeClock& a, const ClientThemeClock& b) noexcept {
+        return a.minute == b.minute && a.month == b.month && a.day == b.day;
+    };
+    const ClientThemeClock at_midnight{0, 4, 20}, at_noon{12 * 60, 4, 20};
+    const ClientThemeClock held_march = client_theme_follow(follow, at_midnight, 3, 0);
+    const ClientThemeClock held_day = client_theme_follow(follow, at_midnight, 0, 2);
+    const ClientThemeClock held_night = client_theme_follow(follow, at_noon, 0, 3);
+    const auto keeps = [&](float month, float phase) noexcept {
+        return same(client_theme_follow(follow, at_noon, month, phase), at_noon);
+    };
+    check(keeps(-1, -1) && keeps(0, 0) && keeps(0, 1) && keeps(13, 4) &&
+              shows(at_noon).appearance == ThemeAppearance::light && shows(at_midnight).appearance == ThemeAppearance::dark,
+          "theme follow: the automatic options, the effect not drawing and values out of range keep the schedule");
+    check(same(held_march, {0, 3, 1}) && same_color(shows(held_march).accent, 0xff8040) &&
+              !same_color(shows(at_midnight).accent, 0xff8040),
+          "theme follow: a month knob holds that month's colours, without the turn toward the next");
+    check(same(held_day, {12 * 60, 4, 20}) && shows(held_day).appearance == ThemeAppearance::light &&
+              same_color(shows(held_day).base_low, 0xf4f1ea) && same(held_night, {0, 4, 20}) &&
+              shows(held_night).appearance == ThemeAppearance::dark && same_color(shows(held_night).base_low, 0x050608),
+          "theme follow: Day and Night hold their phase whole, its base included, whatever the hour");
 }
 // MAICORD_THEME_CHECK_FILE may name a theme with variants (the catalog's Silk Waves theme): it reads with no member
 // skipped, its canonical form (what themes.bin stores) fits and reads back equal, and every quarter hour, blends

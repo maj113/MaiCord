@@ -91,6 +91,7 @@ enum UiStoreFlag : u16 {
     ui_store_foreground = 1u << 8,// drawn after the media layer (pills over previews)
     ui_store_critical = 1u << 10, // a critical emphasis (text, plate)
     ui_store_hairline = 1u << 11, // a card row is closed by a hairline
+    ui_store_fallback = 1u << 12, // a dropdown shown in place of the segmented track before it when that doesn't fit
     ui_store_clip = 1u << 13,     // children are clipped to the rounded plate
     ui_store_hidden = 1u << 14,
     ui_store_justify = 1u << 15   // a row centres its children (no flex children)

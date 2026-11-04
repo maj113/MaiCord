@@ -50,7 +50,7 @@ constexpr UserSettingsField kGuildLists[]{{8, 3, 0, K::id_member},
 // render_spoilers strings by MessageSpoilerReveal; unset or unknown is ON_CLICK.
 constexpr Utf8View kSpoilerValues[]{utf8_literal("ON_CLICK"), utf8_literal("IF_MODERATOR"),
                                     utf8_literal("ALWAYS")};
-// The select lists On click, Always, On servers I moderate.
+// The select lists On click, Always, Moderated (servers you moderate).
 constexpr u8 kSpoilerChoices[]{0, 2, 1};
 // friend_source_flags: MUTUAL_FRIENDS 2, MUTUAL_GUILDS 4, NO_RELATION 8. Everyone
 // means all three (14); turning it off keeps both narrower sources (6).

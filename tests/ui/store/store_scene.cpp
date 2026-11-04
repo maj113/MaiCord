@@ -382,6 +382,68 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(readable, "store scene: the live preview's pill reads 4.5:1 on its plate over a black or a white effect");
     }
+    {
+        // A choice: a segmented track of buttons as wide as their labels, and the dropdown standing in for it
+        // (ui_store_fallback). The track shows while its buttons fit the width, the dropdown once they don't; each
+        // layout decides again, and only the shown control takes the pointer.
+        static constexpr Utf8View kLong[]{utf8_literal("Follow the clock"), utf8_literal("Clock, night when dark"),
+                                          utf8_literal("Day (light themes)"), utf8_literal("Night")};
+        static constexpr Utf8View kShort[]{utf8_literal("Clock"), utf8_literal("Night when dark"), utf8_literal("Day"),
+                                           utf8_literal("Night")};
+        u16 track = kUiStoreNone, menu = kUiStoreNone;
+        const auto choice = [&](const Utf8View* labels, float width) noexcept {
+            ui_store_scene_begin(&g_scene);
+            UiStoreBuilder page(&g_scene);
+            auto& row = page.open(UiStoreKind::row);
+            row.variant = 1;
+            row.pad_x = row.pad_y = 4;
+            for (u32 i = 0; i < 4; ++i) {
+                auto& s = page.leaf(UiStoreKind::segment);
+                s.text = labels[i];
+                s.action = 0x50000 + i;
+            }
+            page.close();
+            track = static_cast<u16>(g_scene.count - 5);
+            auto& dd = page.leaf(UiStoreKind::dropdown);
+            dd.text2 = labels[1];
+            dd.action = 0x50010;
+            dd.flags = ui_store_stretch | ui_store_fallback;
+            menu = static_cast<u16>(g_scene.count - 1);
+            page.close();
+            return ui_store_scene_commit(&g_scene, {0, 0, 1200, 700}, {40, 30, 40 + width, 700}, {0, 0, 1200, 700});
+        };
+        const auto shows_track = [&]() noexcept {
+            return !(g_scene.nodes[track].flags & ui_store_hidden) && (g_scene.nodes[menu].flags & ui_store_hidden);
+        };
+        const auto shows_menu = [&]() noexcept {
+            return (g_scene.nodes[track].flags & ui_store_hidden) && !(g_scene.nodes[menu].flags & ui_store_hidden);
+        };
+        const bool wide = choice(kShort, 600) && shows_track();
+        const auto& first = g_scene.nodes[track + 1];
+        const auto& second = g_scene.nodes[track + 2];
+        const auto& last = g_scene.nodes[track + 4];
+        const auto& plate = g_scene.nodes[track];
+        const bool content = wide && first.w < second.w && second.x == first.x + first.w && plate.w < 600 &&
+                             last.x + last.w <= plate.x + plate.w;
+        UiStoreEvent event{};
+        UiRect hit{};
+        const auto click = [&](u32 action) noexcept {
+            event = {};
+            return ui_store_scene_rect(g_scene, action, &hit) &&
+                   ui_store_scene_press(&g_scene, (hit.left + hit.right) * .5f, (hit.top + hit.bottom) * .5f, &event) &&
+                   ui_store_scene_release_pointer(&g_scene, (hit.left + hit.right) * .5f, (hit.top + hit.bottom) * .5f,
+                                                  &event) &&
+                   event.action == action;
+        };
+        g_scene.active = true;
+        check(content && click(0x50000), "store scene: a choice whose buttons fit shows them, each as wide as its label");
+        check(choice(kShort, 200) && shows_menu() && click(0x50010) && !click(0x50000),
+              "store scene: a choice whose buttons don't fit the width falls back to its dropdown");
+        check(choice(kLong, 520) && shows_menu() && choice(kShort, 520) && shows_track() && choice(kLong, 1100) &&
+                  shows_track(),
+              "store scene: each layout decides again: long labels take the dropdown where short ones fit, and the "
+              "track comes back when the width allows");
+    }
     ui_store_scene_release(&g_scene);
 }
 

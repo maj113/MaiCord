@@ -8,7 +8,8 @@
 //  "motion":     {"fast": 120 | {"duration_ms": 120, "curve": "ease_out"}}
 //  "components": {"icons": {"muted": colour, "weight": 1.25},
 //                 "settings": {"focus_ring": colour, "modal_radius": 12, ...}}
-//  "background": {...}, "typography": {...}, "metrics": {...},
+//  "background": {...}, "typography": {...}, "metrics": {...},   background may name a package effect, its knobs,
+//                its universal settings and the knobs a theme with variants follows ("follow"; ClientThemeEffect)
 //  "variants":   {"night"|"dawn"|"day"|"dusk": {"base": ..., "colors": {...}, "months": [12 x {...}]}}}
 //                core colours through the day; see ClientThemeVariants
 //
@@ -76,12 +77,17 @@ bool effect_valid(const ClientThemeEffect& effect) noexcept {
     const u32 slug = c_string_length(effect.slug);
     if (slug > kClientThemeEffectSlugBytes || effect.knob_count > kClientThemeEffectKnobMaximum ||
         effect.universal > 31 || effect.speed > 60 || effect.opacity > 100 || effect.resolution > kEffectResolutionSteps ||
-        effect.frame_rate > kEffectFrameRateSteps || effect.blend > 2 || (!slug && (effect.knob_count || effect.universal)))
+        effect.frame_rate > kEffectFrameRateSteps || effect.blend > 2 || effect.month_knob[kClientThemeEffectKnobIdBytes] ||
+        effect.phase_knob[kClientThemeEffectKnobIdBytes] ||
+        (!slug && (effect.knob_count || effect.universal || effect.month_knob[0] || effect.phase_knob[0])))
         return false;
     if (slug && !effect_slug_valid(effect.slug, slug))
         return false;
     for (u32 i = 0; i < effect.knob_count; ++i)
         if (!effect.knobs[i].id[0] || !is_finite(effect.knobs[i].number) || effect.knobs[i].rgb > 0xffffffu)
+            return false;
+    for (const u8 phase : effect.phases)
+        if (phase > kClientThemePhaseCount)
             return false;
     return true;
 }
@@ -773,12 +779,50 @@ bool effect_universal_member(void* context, JsonString name, JsonValue value) no
     }
     return true;
 }
+constexpr char kFollowPhases[] = "auto\0night\0dawn\0day\0dusk\0";
+bool follow_phase(void* context, u32 index, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    JsonString text{};
+    if (!json_value_as_string(value, &text))
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    const u32 phase = key_index(text, kFollowPhases);
+    if (index >= kClientThemeFollowPhaseMaximum || phase > kClientThemePhaseCount)
+        return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+    parse.candidate.effect.phases[index] = static_cast<u8>(phase);
+    return true;
+}
+// "follow": {"month": "<knob>", "phase": "<knob>", "phases": [...]}; see ClientThemeEffect.
+bool effect_follow_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    auto& effect = parse.candidate.effect;
+    const u32 id = key_index(name, "month\0phase\0phases\0");
+    if (id == 3) {
+        ++parse.unsupported;
+        return true;
+    }
+    if (id == 2) {
+        if (value.kind != JsonValueKind::array)
+            return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+        return parse.read(
+            json_visit_indexed_array(parse.document, value, kClientThemeDocumentMaximumDepth, follow_phase, &parse));
+    }
+    char* knob = id ? effect.phase_knob : effect.month_knob;
+    JsonString text{};
+    if (!json_value_as_string(value, &text))
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    const auto decoded = json_string_decode_utf8(text, {knob, kClientThemeEffectKnobIdBytes});
+    if (!decoded.ok() || !decoded.bytes)
+        return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+    knob[decoded.bytes] = 0;
+    return true;
+}
 bool background_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    static constexpr char keys[] = "colors\0angle_degrees\0intensity\0effect\0speed\0strength\0density\0knobs\0universal\0";
+    static constexpr char keys[] =
+        "colors\0angle_degrees\0intensity\0effect\0speed\0strength\0density\0knobs\0universal\0follow\0";
     const u32 id = key_index(name, keys);
-    if (id == 9) {
+    if (id == 10) {
         ++parse.unsupported;
         return true;
     }
@@ -788,7 +832,10 @@ bool background_member(void* context, JsonString name, JsonValue value) noexcept
         if (value.kind != JsonValueKind::object)
             return parse.fail(ClientThemeDocumentError::type, value.source_offset);
         return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
-                                                    id == 7 ? effect_knob_member : effect_universal_member, &parse));
+                                                    id == 7   ? effect_knob_member
+                                                    : id == 8 ? effect_universal_member
+                                                              : effect_follow_member,
+                                                    &parse));
     }
     auto& background = parse.candidate.theme.background;
     if (!id) {
@@ -1293,6 +1340,30 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
             writer.quoted(name_list_at("normal\0screen\0add\0", package.blend));
         }
         writer.character('}');
+        u32 phases = kClientThemeFollowPhaseMaximum;
+        while (phases && !package.phases[phases - 1])
+            --phases;
+        if (package.month_knob[0] || package.phase_knob[0] || phases) {
+            writer.text(utf8_literal(",\"follow\":{"));
+            comma = false;
+            if (package.month_knob[0]) {
+                writer.key(comma, utf8_literal("month"));
+                writer.quoted({package.month_knob, c_string_length(package.month_knob)});
+            }
+            if (package.phase_knob[0]) {
+                writer.key(comma, utf8_literal("phase"));
+                writer.quoted({package.phase_knob, c_string_length(package.phase_knob)});
+            }
+            if (phases) {
+                writer.key(comma, utf8_literal("phases"));
+                for (u32 i = 0; i < phases; ++i) {
+                    writer.character(i ? ',' : '[');
+                    writer.quoted(name_list_at(kFollowPhases, package.phases[i]));
+                }
+                writer.character(']');
+            }
+            writer.character('}');
+        }
     }
     writer.text(utf8_literal("},\"typography\":{"));
     comma = false;
@@ -1446,6 +1517,16 @@ Theme client_theme_document_at(const ClientThemeDocument& document, u32 minute_o
         return at.amount < .5f ? from : to;
     client_theme_mix(&to, from, at.amount);
     return to;
+}
+ClientThemeClock client_theme_follow(const ClientThemeEffect& effect, ClientThemeClock clock, float month,
+                                     float phase) noexcept {
+    // Day 1 is before the month starts turning; a phase shows whole at its keyframe (client_theme_phase_at).
+    if (month >= 1 && month <= 12)
+        clock.month = static_cast<u32>(month), clock.day = 1;
+    if (phase >= 0 && phase < kClientThemeFollowPhaseMaximum)
+        if (const u32 held = effect.phases[static_cast<u32>(phase)])
+            clock.minute = (held - 1) * 360;
+    return clock;
 }
 bool client_theme_document_valid(const ClientThemeDocument& document) noexcept {
     return static_cast<u32>(document.base) <= static_cast<u32>(ClientThemeBase::amoled) &&

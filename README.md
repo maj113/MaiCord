@@ -130,7 +130,10 @@ base changes (gliding there, at once with reduced motion), and lets the theme al
 effect's day and night. A phase starts from its base's built-in colours, so it is light or dark on its own (the
 root's `semantic` overrides don't apply to it; its colours may name the root's `palette`); the root's typography,
 metrics, scale, motion, components and background apply to every phase. MaiCord before 0.6.4 skips `variants` as an
-unknown member and shows the root look.
+unknown member and shows the root look. Such a theme can follow knobs of its effect (`background.follow`: a month
+knob and a phase knob with the phase each option holds), so a month or a day or night picked on the effect's knob
+page holds the theme there too while that effect is the background; see
+[`samples/effects/README.md`](samples/effects/README.md#time-of-day-and-appearance).
 
 **Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
 pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a
