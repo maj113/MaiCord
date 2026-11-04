@@ -1,0 +1,18 @@
+{
+  "dxc": {
+    "version": "1.9.2609.5",
+    "release": "v1.9.2609",
+    "url": "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz",
+    "sha256": "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1",
+    "bytes": 13297763,
+    "executable": "bin/dxc"
+  },
+  "spirv_cross": {
+    "tag": "vulkan-sdk-1.4.363.0",
+    "commit": "f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7",
+    "repository": "https://github.com/KhronosGroup/SPIRV-Cross.git"
+  },
+  "validators": {
+    "note": "Optional checks of the emitted GLSL (glslang-tools) and SPIR-V (spirv-tools) when they are on PATH; the distro packages are enough, nothing is pinned."
+  }
+}

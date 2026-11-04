@@ -18,8 +18,21 @@ endif()
 set(maiopus_definitions
     OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT "PACKAGE_VERSION=\"1.6.1\"")
 # Upstream C keeps its own warning level. No CRT libraries, security cookie,
-# heap or float math path.
-set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
+# heap or float math path. clang-cl (the Windows build) takes MSVC-style options; the Linux build's clang the
+# GNU-style ones: the optimization levels below are the same, spelled for each.
+if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
+    set(maiopus_decoder_options /O2 /Ob1 /clang:-fstrict-aliasing)
+    set(maiopus_size_options /O1)
+    set(maiopus_smallest_options /O1 /clang:-Oz)
+    set(maiopus_speed_options /O2 /Ob1)
+else()
+    set(maiopus_options -w -fno-builtin-strlen -fno-math-errno -ffunction-sections -fdata-sections)
+    set(maiopus_decoder_options -O2 -fstrict-aliasing)
+    set(maiopus_size_options -O1)
+    set(maiopus_smallest_options -Oz)
+    set(maiopus_speed_options -O2)
+endif()
 if(MAIOPUS_LTCG)
     # A literal option: test builds strip it with list(REMOVE_ITEM).
     if(NOT DEFINED MAIOPUS_LTCG_OPTION)
@@ -110,7 +123,7 @@ add_library(${MAIOPUS_DECODER_TARGET} STATIC
 # the sample loops: compiled for size; the filters and transforms keep /O2.
 set(maiopus_decoder_cold silk/PLC.c silk/CNG.c silk/init_decoder.c silk/decoder_set_fs.c celt/modes.c
     celt/entcode.c src/opus.c src/opus_decoder.c)
-set_source_files_properties(${maiopus_decoder_cold} PROPERTIES COMPILE_OPTIONS "/O1")
+set_source_files_properties(${maiopus_decoder_cold} PROPERTIES COMPILE_OPTIONS "${maiopus_size_options}")
 target_include_directories(${MAIOPUS_DECODER_TARGET} PUBLIC include PRIVATE . celt silk src)
 target_compile_features(${MAIOPUS_DECODER_TARGET} PRIVATE c_std_17)
 target_compile_definitions(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_definitions})
@@ -118,7 +131,7 @@ target_compile_definitions(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_definitio
 # it at -O2; clang-cl does not): the decoder's filter states then stay in
 # registers across their int16 output stores. Measured: SILK decode 33,612 ->
 # 30,900 cycles per frame, hybrid 82,021 -> 79,166, CELT unchanged, PCM bit-exact.
-target_compile_options(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_options} /O2 /Ob1 /clang:-fstrict-aliasing)
+target_compile_options(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_options} ${maiopus_decoder_options})
 set_target_properties(${MAIOPUS_DECODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
@@ -184,14 +197,14 @@ target_compile_options(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_options})
 get_target_property(maiopus_encoder_sources ${MAIOPUS_ENCODER_TARGET} SOURCES)
 set(maiopus_encoder_hot celt/celt_encoder.c silk/fixed/warped_autocorrelation_FIX.c)
 list(REMOVE_ITEM maiopus_encoder_sources ${maiopus_encoder_hot})
-set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS /O1)
+set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS "${maiopus_size_options}")
 # Control, initialization and entropy-coding units run once per frame without
 # a sample loop: -Oz, with no measurable encode-time change.
 set(maiopus_encoder_cold silk/control_codec.c silk/check_control_input.c silk/control_SNR.c
     silk/control_audio_bandwidth.c silk/init_encoder.c silk/HP_variable_cutoff.c silk/LP_variable_cutoff.c
     silk/stereo_encode_pred.c silk/stereo_quant_pred.c)
-set_source_files_properties(${maiopus_encoder_cold} PROPERTIES COMPILE_OPTIONS "/O1;/clang:-Oz")
-set_source_files_properties(${maiopus_encoder_hot} PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
+set_source_files_properties(${maiopus_encoder_cold} PROPERTIES COMPILE_OPTIONS "${maiopus_smallest_options}")
+set_source_files_properties(${maiopus_encoder_hot} PROPERTIES COMPILE_OPTIONS "${maiopus_speed_options}")
 target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET})
 set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
