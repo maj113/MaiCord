@@ -35,6 +35,11 @@ UiIcon ui_attachment_file_icon(UiAttachmentFileKind kind) noexcept;
 u32 ui_attachment_file_extension(const Utf8View& filename, const Slice<char>& output) noexcept;
 // "12 B", "3.4 KB", "56 MB", "1.2 GB" (binary units).
 u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept;
+// "<name> is 27.3 MB, over the 10 MB limit." (sizes with one decimal, trailing ".0" dropped). `others` more
+// files over the limit append " (and N more)". When the size would read like the limit ("10 MB") the exact
+// count follows instead ("10485761 bytes"); unknown (zero) bytes read "<name> is over the 10 MB limit."; an
+// empty name reads "This file". The name is cut at 96 bytes on a scalar boundary.
+u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, u32 others, Slice<char> output) noexcept;
 // "0:07", "12:34", "1:02:03".
 u32 ui_attachment_format_duration(u32 milliseconds, Slice<char> output) noexcept;
 

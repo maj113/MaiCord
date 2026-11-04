@@ -397,7 +397,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
     u8* iend = chunk(idat, "IDAT", z, static_cast<u32>(zlib));
     u8* end = chunk(iend, "IEND", nullptr, 0);
     const u64 total = static_cast<u64>(end - png);
-    if (total > limit) { unreserve(png); return ERROR_FILE_TOO_LARGE; }
+    if (total > limit) { unreserve(png); output->bytes = total; return ERROR_FILE_TOO_LARGE; }
     *output = {png, total};
     return ERROR_SUCCESS;
 }
@@ -431,7 +431,7 @@ DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 l
     if (kind == ClipboardPasteKind::png) {
         const u64 bytes = clipboard_image_png_length(payload);
         if (!bytes) return ERROR_INVALID_DATA;
-        if (bytes > limit) return ERROR_FILE_TOO_LARGE;
+        if (bytes > limit) { output->bytes = bytes; return ERROR_FILE_TOO_LARGE; }
         u8* copy = reserve(bytes);
         if (!copy) return ERROR_NOT_ENOUGH_MEMORY;
         copy_bytes(copy, payload.data, static_cast<u32>(bytes));

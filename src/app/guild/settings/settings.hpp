@@ -11,15 +11,17 @@ namespace maicord::app_detail {
 // pages. Shares the channel settings lane and text input routing through
 // application_channel_overview, which forwards while this layer is active.
 // Reads a picked image file whole into a fresh VirtualAlloc allocation the caller frees; on failure
-// *error says why.
-bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes,
-                                 Utf8View* error) noexcept;
+// *error says why (a file over the source limit names its size, written to `error_storage`).
+bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes, Utf8View* error,
+                                 Slice<char> error_storage) noexcept;
 // Probes a picked image for `profile` the way the account module prepares it at submit; `info` says why it fails.
 // A `data_uri` buffer, sized by guild_image_data_uri_bytes, receives the prepared image's data URI.
 bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> image, GuildImageInfo* info,
                                    Slice<u8> data_uri = {}) noexcept;
-// Why an image failed its probe, as a sentence for that use.
-Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error) noexcept;
+// Why an image failed its probe, as a sentence for that use. The picked file at `path` is `bytes` long; a
+// too_large failure over the use's limit names it and its size, written to `storage` (which the result views).
+Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error, ConstSlice<wchar_t> path,
+                                            u64 bytes, Slice<char> storage) noexcept;
 bool application_guild_settings_available(u64 guild_id) noexcept;
 // page: 0 opens the first permitted page, else a submenu page value (falls
 // back to the first permitted page when that one is not allowed).

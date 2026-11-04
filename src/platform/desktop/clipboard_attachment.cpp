@@ -118,13 +118,20 @@ Content* content_create(DWORD* error) noexcept {
     content->references = 1;
     return content;
 }
+// Records a file refused for size; a name past the record's capacity is cut.
+void refuse(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name, u64 bytes) noexcept {
+    if (!oversize) return;
+    const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
+    copy_bytes(oversize->name, name.data, units * sizeof(wchar_t));
+    oversize->name[units] = 0; oversize->name_units = units; oversize->bytes = bytes;
+}
 UploadSource adopt_png(ClipboardPng* png, DWORD* error) noexcept {
     auto* content = content_create(error);
     if (!content) { clipboard_png_release(png); return {}; }
     content->owned = png->data; content->memory = png->data; content->bytes = png->bytes; reset_value(png);
     return {content, &operations, content->bytes};
 }
-UploadSource adopt(STGMEDIUM* medium, u64 expected, u64 limit, DWORD* error) noexcept {
+UploadSource adopt(STGMEDIUM* medium, u64 expected, u64 limit, DWORD* error, u64* refused) noexcept {
     auto* content = content_create(error);
     if (!content) return {};
     content->medium = *medium; reset_value(medium);
@@ -143,7 +150,7 @@ UploadSource adopt(STGMEDIUM* medium, u64 expected, u64 limit, DWORD* error) noe
         if (expected && bytes != expected) bytes = 0;
     }
     if (!bytes || bytes > limit) {
-        if (bytes) *error = ERROR_FILE_TOO_LARGE;
+        if (bytes) { *error = ERROR_FILE_TOO_LARGE; *refused = bytes; }
         release(content); return {};
     }
     content->bytes = bytes;
@@ -166,7 +173,7 @@ DWORD visit_files(IDataObject* object, u32 maximum, ClipboardAttachmentVisitor v
     ReleaseStgMedium(&metadata); return error;
 }
 DWORD visit_virtual_files(IDataObject* object, CLIPFORMAT descriptors, u32 maximum, u64 limit,
-    ClipboardAttachmentVisitor visitor, void* context, u32* count) noexcept {
+    ClipboardAttachmentVisitor visitor, void* context, u32* count, ClipboardAttachmentOversize* oversize) noexcept {
     const auto contents = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_FILECONTENTS));
     STGMEDIUM metadata{};
     if (!get(object, descriptors, -1, TYMED_HGLOBAL, &metadata)) return ERROR_INVALID_DATA;
@@ -180,13 +187,16 @@ DWORD visit_virtual_files(IDataObject* object, CLIPFORMAT descriptors, u32 maxim
         const u32 units = wide_length(file.cFileName, MAX_PATH);
         const u64 size = (file.dwFlags & FD_FILESIZE) ? (static_cast<u64>(file.nFileSizeHigh) << 32) | file.nFileSizeLow : 0;
         if (!units || units == MAX_PATH || ((file.dwFlags & FD_ATTRIBUTES) && (file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))) { error = ERROR_INVALID_DATA; break; }
-        if (size > limit) { error = ERROR_FILE_TOO_LARGE; break; }
+        if (size > limit) { refuse(oversize, {file.cFileName, units}, size); error = ERROR_FILE_TOO_LARGE; break; }
         STGMEDIUM medium{};
         if (!get(object, contents, static_cast<LONG>(i), TYMED_HGLOBAL | TYMED_ISTREAM, &medium)) { error = ERROR_INVALID_DATA; break; }
-        DWORD source_error = 0;
-        auto source = adopt(&medium, size, limit, &source_error);
+        DWORD source_error = 0; u64 refused = 0;
+        auto source = adopt(&medium, size, limit, &source_error, &refused);
         if (medium.tymed) ReleaseStgMedium(&medium);
-        if (!source.context) { error = source_error; break; }
+        if (!source.context) {
+            if (source_error == ERROR_FILE_TOO_LARGE) refuse(oversize, {file.cFileName, units}, refused);
+            error = source_error; break;
+        }
         if (!visitor(context, {}, {file.cFileName, units}, source)) { upload_source_release(source); error = ERROR_INVALID_DATA; }
         else ++*count;
     }
@@ -242,7 +252,7 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
             reset_value(png);
             const u64 bytes = clipboard_image_png_length({buffer, static_cast<u32>(used)});
             if (!bytes) error = ERROR_INVALID_DATA;
-            else if (bytes > limit) error = ERROR_FILE_TOO_LARGE;
+            else if (bytes > limit) { error = ERROR_FILE_TOO_LARGE; png->bytes = bytes; }
             else {
                 SYSTEM_INFO system{}; GetSystemInfo(&system);
                 const u64 page = system.dwPageSize;
@@ -286,7 +296,7 @@ DWORD image_from_win32(CLIPFORMAT format, ClipboardPasteKind kind, u64 limit, DW
     return error;
 }
 DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, ClipboardAttachmentVisitor visitor,
-    void* context, u32* count) noexcept {
+    void* context, u32* count, ClipboardAttachmentOversize* oversize) noexcept {
     const auto png_format = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(L"PNG"));
     const auto descriptors = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW));
     const bool live = sequence && GetClipboardSequenceNumber() == sequence;
@@ -309,7 +319,7 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
         DWORD error = ERROR_SUCCESS;
         if (kind == ClipboardPasteKind::files) error = visit_files(object, maximum, visitor, context, count);
         else if (kind == ClipboardPasteKind::virtual_files)
-            error = visit_virtual_files(object, descriptors, maximum, limit, visitor, context, count);
+            error = visit_virtual_files(object, descriptors, maximum, limit, visitor, context, count, oversize);
         else {
             // A PNG already over the allowance will not shrink as a re-encoded DIB.
             if (image_too_large) continue;
@@ -325,6 +335,7 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
                     *count = 1; return ERROR_SUCCESS;
                 }
             }
+            if (error == ERROR_FILE_TOO_LARGE) refuse(oversize, {L"image.png", 9}, png.bytes);
             image_too_large = error == ERROR_FILE_TOO_LARGE;
         }
         if (!error) return ERROR_SUCCESS;
@@ -380,14 +391,15 @@ void clipboard_attachment_release(ClipboardAttachmentData* input) noexcept {
 }
 void clipboard_attachment_shutdown() noexcept { if (ole_initialized) { OleUninitialize(); ole_initialized = false; } }
 DWORD clipboard_attachment_visit(ClipboardAttachmentData* input, u32 maximum, u64 limit,
-    ClipboardAttachmentVisitor visitor, void* context, u32* count) noexcept {
+    ClipboardAttachmentVisitor visitor, void* context, u32* count, ClipboardAttachmentOversize* oversize) noexcept {
     if (!input || !input->object || !maximum || !limit || !visitor || !count) return ERROR_INVALID_PARAMETER;
     IDataObject* object = nullptr; *count = 0;
+    if (oversize) reset_value(oversize);
     const DWORD sequence = input->sequence;
     const HRESULT result = CoGetInterfaceAndReleaseStream(input->object, __uuidof(IDataObject), reinterpret_cast<void**>(&object));
     reset_value(input);
     if (FAILED(result)) return ERROR_INVALID_DATA;
-    const DWORD error = visit_object(object, sequence, maximum, limit, visitor, context, count);
+    const DWORD error = visit_object(object, sequence, maximum, limit, visitor, context, count, oversize);
     object->Release(); return error;
 }
 }

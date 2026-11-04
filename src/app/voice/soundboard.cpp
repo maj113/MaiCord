@@ -739,7 +739,6 @@ bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info,
     const bool ok = h.instance && h.api.soundboard && h.api.soundboard(h.instance, &request, 0).ok() && out->ok();
     if (!ok && error) {
         switch (out->error) {
-        case SoundboardFileError::too_large: *error = utf8_literal("Choose a sound of 512 KB or less."); break;
         case SoundboardFileError::too_long: *error = utf8_literal("Sounds can be at most 5.2 seconds long."); break;
         case SoundboardFileError::format: *error = utf8_literal("Choose an MP3 or Ogg file."); break;
         case SoundboardFileError::empty: *error = utf8_literal("That file is empty."); break;

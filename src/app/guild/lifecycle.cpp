@@ -131,6 +131,8 @@ struct Owner : SettingsDialog {
     bool queued, failed;
     u64 request_id, retry_at;
     Utf8View status;
+    // Backs `status` while it says a picked icon is over its size limit.
+    char size_error[192];
     char banks[2][1024];
     u32 bank_index;
     u32 structurals[8192];
@@ -267,12 +269,13 @@ void release_icon() noexcept {
 bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
     u8* data = nullptr;
     u32 total = 0;
-    if (!application_image_file_read(path, &data, &total, error))
+    if (!application_image_file_read(path, &data, &total, error, {owner->size_error, sizeof(owner->size_error)}))
         return false;
     // The module prepares (crops/resizes) the image the same way at submit.
     Picked picked{data, total, {}};
     if (!application_guild_image_probe(GuildImageProfile::icon, {data, total}, &picked.info)) {
-        *error = application_guild_image_error_text(GuildImageProfile::icon, picked.info.error);
+        *error = application_guild_image_error_text(GuildImageProfile::icon, picked.info.error, path, total,
+                                                    {owner->size_error, sizeof(owner->size_error)});
         secure_clear_bytes(data, total);
         VirtualFree(data, 0, MEM_RELEASE);
         return false;

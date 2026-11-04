@@ -33,7 +33,8 @@ inline constexpr u64 kClipboardPasteMaximumPixels = 64ull * 1024 * 1024;
 struct ClipboardPng { u8* data; u64 bytes; };
 // Owned PNG for a png/dibv5/dib payload (V3/V4/V5 headers, 1/4/8-bit palettes,
 // 16/24/32-bit with BI_RGB or BI_BITFIELDS, either row order). Returns
-// ERROR_SUCCESS, ERROR_INVALID_DATA, ERROR_FILE_TOO_LARGE or ERROR_NOT_ENOUGH_MEMORY.
+// ERROR_SUCCESS, ERROR_INVALID_DATA, ERROR_FILE_TOO_LARGE (output->bytes is then the size the PNG would have, data
+// stays null) or ERROR_NOT_ENOUGH_MEMORY.
 DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 limit, ClipboardPng* output) noexcept;
 void clipboard_png_release(ClipboardPng* png) noexcept;
 } // namespace maicord

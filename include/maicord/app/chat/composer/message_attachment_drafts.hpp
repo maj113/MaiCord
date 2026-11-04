@@ -7,6 +7,9 @@ enum class MessageAttachmentDraftPhase : u8 { waiting_url, uploading, ready, que
 enum class MessageAttachmentDraftFailure : u8 { none, request, upload, source_changed, memory, size_limit };
 enum class MessageAttachmentDraftError : u8 { none, invalid_input, channel_capacity, capacity, empty_file, memory };
 struct MessageAttachmentFile { ConstSlice<wchar_t> path; FileSnapshot snapshot; ConstSlice<wchar_t> filename; UploadSource content; };
+// The UTF-8 display name a file gets as a draft: the clipboard file's own name, else the path's last component.
+// Zero when it has none or does not convert.
+u32 message_attachment_file_name(const MessageAttachmentFile& file, Slice<char> output) noexcept;
 struct MessageAttachmentDraft {
     UploadSource content;
     FileSnapshot source;

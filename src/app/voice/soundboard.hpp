@@ -40,7 +40,8 @@ u32 application_soundboard_revision() noexcept;
 // Loads the server's sounds once (again after a failure).
 void application_soundboard_request_guild(u64 guild_id) noexcept;
 const SoundboardSound* application_soundboard_find(u64 sound_id) noexcept;
-// Checks a picked file in the account module (format, size, duration).
+// Checks a picked file in the account module (format, size, duration). *error says why, except for a file over
+// the upload limit (info->error == too_large): the caller names the file and its size.
 bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info, Utf8View* error) noexcept;
 // Queues an upload; the bytes are copied. False when the queue is full.
 bool application_soundboard_create(u64 guild_id, Utf8View name, Utf8View emoji, u16 volume,

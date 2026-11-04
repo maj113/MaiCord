@@ -7,6 +7,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_ui_runtime.hpp"
+#include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/sys/shell.hpp"
 namespace maicord::app_detail {
 namespace {
@@ -41,12 +42,21 @@ void status(ApplicationForumAttachments& owner, Utf8View text, bool error = true
     owner.status_bytes = minimum(text.bytes, static_cast<u32>(sizeof(owner.status)));
     copy_bytes(owner.status, text.data, owner.status_bytes); owner.error = error; changed(owner);
 }
+// "<name> is 27.3 MB, over the 10 MB limit." as the owner's error status.
+void size_status(ApplicationForumAttachments& owner, Utf8View name, u64 bytes, u32 others = 0) noexcept {
+    char text[256];
+    const u32 used = ui_attachment_over_limit_text(name, bytes, application_attachment_limit(owner.ticket.parent_id), others, {text, sizeof(text)});
+    status(owner, {text, used});
+}
 void failed(ApplicationForumAttachments& owner, u64 id, MessageAttachmentDraftFailure failure, u16 code = 0) noexcept {
     auto* row = message_attachment_drafts_get(&owner.drafts, id);
     if (!row) return;
     if (row->phase == MessageAttachmentDraftPhase::failed && row->failure == failure && row->http_status == code) return;
     row->phase = MessageAttachmentDraftPhase::failed; row->failure = failure; row->http_status = code;
-    ++owner.drafts.revision; changed(owner);
+    ++owner.drafts.revision;
+    if (failure == MessageAttachmentDraftFailure::size_limit)
+        size_status(owner, message_attachment_drafts_filename(&owner.drafts, id), row->source.bytes);
+    else changed(owner);
 }
 bool editable(const ApplicationForumAttachments& owner) noexcept {
     return source(owner) && !owner.locked && application_forum_post_editable(owner.ticket);
@@ -220,15 +230,29 @@ bool application_forum_attachments_pump() noexcept {
             MessageAttachmentFile files[kAttachmentUploadMaximumCount]{}; u64 ids[kAttachmentUploadMaximumCount]{};
             bool valid = picked.count && picked.count <= kAttachmentUploadMaximumCount;
             const auto limit = application_attachment_limit(owner.ticket.parent_id);
+            u32 over = 0, largest = 0; u64 largest_bytes = 0;
             for (u32 i = 0; valid && i < picked.count; ++i) {
                 files[i].path = native_file_picker_path(&owner.picker, i); files[i].filename = native_file_picker_filename(&owner.picker, i);
                 files[i].content = native_file_picker_source(&owner.picker, i);
-                valid = native_file_picker_snapshot(&owner.picker, i, &files[i].snapshot) && files[i].snapshot.bytes <= limit;
+                valid = native_file_picker_snapshot(&owner.picker, i, &files[i].snapshot);
+                if (valid && files[i].snapshot.bytes > limit) {
+                    if (!over || files[i].snapshot.bytes > largest_bytes) { largest = i; largest_bytes = files[i].snapshot.bytes; }
+                    ++over;
+                }
             }
-            if (!valid || message_attachment_drafts_add(&owner.drafts, owner.ticket.parent_id, {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) != MessageAttachmentDraftError::none)
+            if (over) {
+                char name[kAttachmentUploadMaximumFilenameBytes];
+                size_status(owner, {name, message_attachment_file_name(files[largest], {name, sizeof(name)})}, largest_bytes, over - 1);
+            } else if (!valid || message_attachment_drafts_add(&owner.drafts, owner.ticket.parent_id, {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) != MessageAttachmentDraftError::none)
                 status(owner, utf8_literal("Couldn't attach these files. Posts can have up to 10 files."));
-        } else if (!owner.picker_cancelled && picked.error != NativeFilePickerError::cancelled)
-            status(owner, utf8_literal("Could not read the selected attachments."));
+        } else if (!owner.picker_cancelled && picked.error != NativeFilePickerError::cancelled) {
+            if (picked.native_error == ERROR_FILE_TOO_LARGE) {
+                // The paste worker named the refused file or image and measured it.
+                char name[kAttachmentUploadMaximumFilenameBytes];
+                const MessageAttachmentFile refused{native_file_picker_oversize_name(&owner.picker), {}, {}, {}};
+                size_status(owner, {name, message_attachment_file_name(refused, {name, sizeof(name)})}, picked.oversize_bytes);
+            } else status(owner, utf8_literal("Could not read the selected attachments."));
+        }
         changed(owner);
     }
     if (owner.picker_consumed && owner.picker.runtime && native_file_picker_release(&owner.picker, 0)) changed(owner);

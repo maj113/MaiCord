@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "../../media/file_over_limit.hpp"
 #include "../../account/application_account_module.hpp"
 #include "../../account/account_presentation.hpp"
 #include "../../chat/composer/attachments.hpp"
@@ -736,7 +737,7 @@ namespace {
 bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) noexcept {
     u8* data = nullptr;
     u32 bytes = 0;
-    if (!application_image_file_read(path, &data, &bytes, error))
+    if (!application_image_file_read(path, &data, &bytes, error, {owner->size_error, sizeof(owner->size_error)}))
         return false;
     release_picked(out);
     out->data = data;
@@ -744,22 +745,24 @@ bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) no
     return true;
 }
 // Validates through the account module; the same preparation runs at submit.
-bool probe_picked(GuildImageProfile profile, Picked* picked, Utf8View* error) noexcept {
+bool probe_picked(GuildImageProfile profile, Picked* picked, ConstSlice<wchar_t> path, Utf8View* error) noexcept {
     if (application_guild_image_probe(profile, {picked->data, picked->bytes}, &picked->info))
         return true;
     *error = application_guild_image_error_text(
-        profile, picked->info.error == GuildImageError::none ? GuildImageError::input : picked->info.error);
+        profile, picked->info.error == GuildImageError::none ? GuildImageError::input : picked->info.error, path,
+        picked->bytes, {owner->size_error, sizeof(owner->size_error)});
     return false;
 }
 // Server icon and invite background: the official chooser's checks (10 MB,
 // PNG, JPEG, WebP or GIF), probed by the account module's cropper.
-bool probe_profile_image(Picked* picked, ProfileImageInfo* info, Utf8View* error) noexcept {
+bool probe_profile_image(Picked* picked, ConstSlice<wchar_t> path, ProfileImageInfo* info, Utf8View* error) noexcept {
     ProfileImageRequest request{};
     request.source = {picked->data, picked->bytes};
     request.info = info;
     reset_value(info);
     if (picked->bytes > kProfileImageSourceMaximumBytes) {
-        *error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB.");
+        *error = application_file_over_limit_text(path, picked->bytes, kProfileImageSourceMaximumBytes,
+                                                  {owner->size_error, sizeof(owner->size_error)});
         return false;
     }
     if (g_app.account.api.profile_image && g_app.account.instance &&
@@ -783,19 +786,24 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
     Utf8View error{};
     bool ok = read_picked_file(path, &picked, &error);
     if (ok && (pick == Pick::icon || pick == Pick::splash))
-        ok = probe_profile_image(&picked, &info, &error);
-    else if (ok && pick == Pick::sound)
+        ok = probe_profile_image(&picked, path, &info, &error);
+    else if (ok && pick == Pick::sound) {
         // MP3/Ogg checked by the account module's demuxers (size, length).
-        ok = application_soundboard_probe({picked.data, picked.bytes}, nullptr, &error);
-    else if (ok) {
-        ok = probe_picked(pick_profile(pick), &picked, &error);
+        SoundboardFileInfo sound{};
+        ok = application_soundboard_probe({picked.data, picked.bytes}, &sound, &error);
+        if (!ok && sound.error == SoundboardFileError::too_large)
+            error = application_file_over_limit_text(path, picked.bytes, kSoundboardMaximumUploadBytes,
+                                                     {p.size_error, sizeof(p.size_error)});
+    } else if (ok) {
+        ok = probe_picked(pick_profile(pick), &picked, path, &error);
         // A GIF banner needs ANIMATED_BANNER; the official chooser takes 10 MB.
         if (ok && pick == Pick::banner && picked.info.source_kind == GuildImageKind::gif &&
             !(guild_features() & guild_feature_animated_banner)) {
             error = utf8_literal("Animated server banners need boost level 3.");
             ok = false;
         } else if (ok && pick == Pick::banner && picked.bytes > kProfileImageSourceMaximumBytes) {
-            error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB.");
+            error = application_file_over_limit_text(path, picked.bytes, kProfileImageSourceMaximumBytes,
+                                                     {p.size_error, sizeof(p.size_error)});
             ok = false;
         }
     }
@@ -1097,8 +1105,8 @@ void request_close() noexcept {
 } // namespace maicord::app_detail::server_settings
 namespace maicord::app_detail {
 
-bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes,
-                                 Utf8View* error) noexcept {
+bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes, Utf8View* error,
+                                 Slice<char> error_storage) noexcept {
     *error = utf8_literal("Couldn't read that file.");
     if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
         return false;
@@ -1116,7 +1124,8 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
     Win32LargeInteger size{};
     bool ok = GetFileSizeEx(file, size.native()) && size.QuadPart > 0;
     if (ok && size.QuadPart > kGuildImageSourceMaximumBytes) {
-        *error = utf8_literal("Choose a file of 16 MB or less.");
+        *error = application_file_over_limit_text(path, static_cast<u64>(size.QuadPart), kGuildImageSourceMaximumBytes,
+                                                  error_storage);
         ok = false;
     }
     u8* contents = ok ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(size.QuadPart)))
@@ -1153,7 +1162,8 @@ bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> ima
            info->error == GuildImageError::none;
 }
 
-Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error) noexcept {
+Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error, ConstSlice<wchar_t> path,
+                                            u64 bytes, Slice<char> storage) noexcept {
     const bool sticker = profile == GuildImageProfile::sticker;
     switch (error) {
     case GuildImageError::format:
@@ -1167,11 +1177,16 @@ Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImag
     case GuildImageError::dimensions:
         return sticker ? utf8_literal("Stickers must be 320×320 pixels.")
                        : utf8_literal("Role icons need at least 64×64 pixels.");
-    case GuildImageError::too_large:
+    case GuildImageError::too_large: {
+        const u64 limit = guild_image_limit(profile);
+        // The file's own size, when it is the one over the limit (a resized PNG that still overflows keeps the old text).
+        if (bytes > limit)
+            return application_file_over_limit_text(path, bytes, limit, storage);
         return profile == GuildImageProfile::emoji || profile == GuildImageProfile::role_icon
                    ? utf8_literal("This image is over 256 KB. Choose a smaller file or a PNG to resize.")
                : sticker ? utf8_literal("Stickers must be 512 KB or smaller.")
                          : utf8_literal("This image is over 8 MB. Choose a smaller file.");
+    }
     case GuildImageError::decode: return utf8_literal("This image couldn't be read.");
     default: return utf8_literal("This image couldn't be prepared.");
     }

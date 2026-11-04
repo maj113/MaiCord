@@ -13,9 +13,15 @@ bool clipboard_attachment_available() noexcept;
 bool clipboard_attachment_capture(ClipboardAttachmentData* output) noexcept;
 void clipboard_attachment_release(ClipboardAttachmentData* input) noexcept;
 void clipboard_attachment_shutdown() noexcept;
-// Called on an initialized MTA. Successful visit transfers one source reference.
+// The attachment that exceeded `maximum_bytes`, as far as the clipboard states it: its byte count and name (a
+// pasted image is "image.png"). Zero bytes when nothing was refused for size.
+struct ClipboardAttachmentOversize { u64 bytes; u32 name_units; wchar_t name[260]; };
+// Called on an initialized MTA. Successful visit transfers one source reference. A named file or image refused
+// for size returns ERROR_FILE_TOO_LARGE and, when `oversize` is set, is recorded there (a path the visitor
+// refuses is the visitor's to record).
 using ClipboardAttachmentVisitor = bool (*)(void*, ConstSlice<wchar_t> path,
     ConstSlice<wchar_t> filename, UploadSource source) noexcept;
 DWORD clipboard_attachment_visit(ClipboardAttachmentData* input, u32 maximum_files, u64 maximum_bytes,
-    ClipboardAttachmentVisitor visitor, void* context, u32* count) noexcept;
+    ClipboardAttachmentVisitor visitor, void* context, u32* count,
+    ClipboardAttachmentOversize* oversize = nullptr) noexcept;
 }

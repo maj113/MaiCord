@@ -1,5 +1,7 @@
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 
+#include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
@@ -11,6 +13,8 @@
 namespace maicord {
 namespace {
 constexpr const UiComposerAttachmentStripStyle& style = kUiComposerAttachmentStripStyle;
+// Longest file name quoted in an over-limit notice, cut on a scalar boundary (the composer label's length).
+constexpr u32 kUiAttachmentOverLimitNameBytes = 96;
 
 struct Extension {
     char name[7];
@@ -53,6 +57,40 @@ u32 append_unsigned(const Slice<char>& output, u32 used, u64 value, u32 minimum_
     while (count && used < output.count)
         output[used++] = digits[--count];
     return used;
+}
+
+u32 append_bytes(const Slice<char>& output, u32 used, const char* text, u32 bytes) noexcept {
+    for (u32 i = 0; i < bytes && used < output.count; ++i)
+        output[used++] = text[i];
+    return used;
+}
+
+// Binary units: one decimal below ten units (always, with `always_decimal`; a zero decimal is dropped), whole
+// numbers above.
+u32 format_size(u64 bytes, const Slice<char>& output, bool always_decimal) noexcept {
+    if (!output.data || !output.count)
+        return 0;
+    static constexpr const char* units[]{" KB", " MB", " GB", " TB"};
+    if (bytes < 1024)
+        return append(output, append_unsigned(output, 0, bytes), " B");
+    u32 unit = 0;
+    u64 scale = 1024;
+    while (unit < 3 && bytes >= scale * 1024) {
+        scale *= 1024;
+        ++unit;
+    }
+    const u64 tenths = (bytes * 10 + scale / 2) / scale;
+    u32 used = 0;
+    if (tenths < 100 || always_decimal) {
+        used = append_unsigned(output, used, tenths / 10);
+        if (tenths % 10) {
+            used = append(output, used, ".");
+            used = append_unsigned(output, used, tenths % 10);
+        }
+    } else {
+        used = append_unsigned(output, used, (tenths + 5) / 10);
+    }
+    return append(output, used, units[unit]);
 }
 
 UiRect centered(const UiRect& area, float extent) noexcept {
@@ -205,30 +243,38 @@ UiIcon ui_attachment_file_icon(UiAttachmentFileKind kind) noexcept {
 }
 
 u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept {
+    return format_size(bytes, output, false);
+}
+
+u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, u32 others, Slice<char> output) noexcept {
     if (!output.data || !output.count)
         return 0;
-    static constexpr const char* units[]{" KB", " MB", " GB", " TB"};
-    if (bytes < 1024)
-        return append(output, append_unsigned(output, 0, bytes), " B");
-    u32 unit = 0;
-    u64 scale = 1024;
-    while (unit < 3 && bytes >= scale * 1024) {
-        scale *= 1024;
-        ++unit;
-    }
-    // One decimal below ten units, whole numbers above.
-    const u64 tenths = (bytes * 10 + scale / 2) / scale;
-    u32 used = 0;
-    if (tenths < 100) {
-        used = append_unsigned(output, used, tenths / 10);
-        if (tenths % 10) {
-            used = append(output, used, ".");
-            used = append_unsigned(output, used, tenths % 10);
-        }
+    char size[24], cap[24];
+    const u32 size_bytes = format_size(bytes, {size, 24}, true);
+    const u32 cap_bytes = format_size(limit, {cap, 24}, true);
+    const u32 name_bytes = name.data ? utf8_truncated_length(name, kUiAttachmentOverLimitNameBytes) : 0;
+    u32 used = name_bytes ? append_bytes(output, 0, name.data, name_bytes) : append(output, 0, "This file");
+    if (!bytes) {
+        used = append(output, used, " is over the ");
     } else {
-        used = append_unsigned(output, used, (tenths + 5) / 10);
+        used = append(output, used, " is ");
+        // Just over the limit both round to the same text; the exact count shows how far over.
+        if (size_bytes == cap_bytes && bytes_equal(size, cap, size_bytes)) {
+            used = append_unsigned(output, used, bytes);
+            used = append(output, used, " bytes");
+        } else {
+            used = append_bytes(output, used, size, size_bytes);
+        }
+        used = append(output, used, ", over the ");
     }
-    return append(output, used, units[unit]);
+    used = append_bytes(output, used, cap, cap_bytes);
+    used = append(output, used, " limit");
+    if (others) {
+        used = append(output, used, " (and ");
+        used = append_unsigned(output, used, others);
+        used = append(output, used, " more)");
+    }
+    return append(output, used, ".");
 }
 
 u32 ui_attachment_format_duration(u32 milliseconds, Slice<char> output) noexcept {

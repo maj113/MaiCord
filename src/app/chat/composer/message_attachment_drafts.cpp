@@ -62,6 +62,14 @@ u32 message_attachment_drafts_channel(const MessageAttachmentDraftStore* store, 
     }
     return count;
 }
+u32 message_attachment_file_name(const MessageAttachmentFile& file, Slice<char> output) noexcept {
+    u32 first = file.path.count;
+    while (first && file.path[first - 1] != L'\\') --first;
+    const auto filename = file.content.context ? file.filename : ConstSlice<wchar_t>{file.path.data + first, file.path.count - first};
+    const int bytes = filename.data && filename.count ? WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, filename.data,
+        static_cast<int>(filename.count), output.data, static_cast<int>(output.count), nullptr, nullptr) : 0;
+    return bytes > 0 ? static_cast<u32>(bytes) : 0;
+}
 MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraftStore* store, u64 channel_id,
     ConstSlice<MessageAttachmentFile> files, Slice<u64> ids) noexcept {
     if (!store || !store->payload || !channel_id || !files.data || !files.count ||
@@ -76,13 +84,9 @@ MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraft
         if ((file.content.context ? !upload_source_valid(file.content) || file.content.bytes != file.snapshot.bytes || file.path.count :
             !native_file_picker_valid_path(file.path)) || file.snapshot.bytes > 0x7fffffffffffffffull) return MessageAttachmentDraftError::invalid_input;
         if (!file.snapshot.bytes) return MessageAttachmentDraftError::empty_file;
-        u32 first = file.path.count;
-        while (first && file.path[first - 1] != L'\\') --first;
-        const auto filename = file.content.context ? file.filename : ConstSlice<wchar_t>{file.path.data + first, file.path.count - first};
-        const int bytes = filename.data && filename.count ? WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, filename.data,
-            static_cast<int>(filename.count), prepared[i].filename, sizeof(prepared[i].filename), nullptr, nullptr) : 0;
-        if (bytes <= 0 || !attachment_upload_valid_filename({prepared[i].filename, static_cast<u32>(bytes)})) return MessageAttachmentDraftError::invalid_input;
-        prepared[i].bytes = static_cast<u32>(bytes);
+        const u32 bytes = message_attachment_file_name(file, {prepared[i].filename, sizeof(prepared[i].filename)});
+        if (!bytes || !attachment_upload_valid_filename({prepared[i].filename, bytes})) return MessageAttachmentDraftError::invalid_input;
+        prepared[i].bytes = bytes;
     }
     u32 added = 0;
     for (u32 slot = 0; slot < kMessageAttachmentDraftCapacity && added < files.count; ++slot) {

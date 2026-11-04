@@ -149,6 +149,8 @@ struct Owner : SettingsModal {
     ProfilePatch profile_patch;
     ProfileEditErrors errors;
     Utf8View status;
+    // Backs `status` while it says a picked image is over the size limit.
+    char size_error[192];
     u32 preview_serial;
     u32 structurals[32 * 1024];
     char banks[2][4096];

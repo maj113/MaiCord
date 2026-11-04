@@ -1,4 +1,5 @@
 #include "profile_editor_internal.hpp"
+#include "../media/file_over_limit.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "profile_editor.hpp"
 #include "application_account_logout.hpp"
@@ -28,7 +29,8 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
     if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > kProfileImageSourceMaximumBytes) {
         CloseHandle(file);
         if (size.QuadPart > kProfileImageSourceMaximumBytes)
-            *error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB please.");
+            *error = application_file_over_limit_text(path, static_cast<u64>(size.QuadPart), kProfileImageSourceMaximumBytes,
+                                                      {p.size_error, sizeof(p.size_error)});
         release_picked(staged);
         return false;
     }

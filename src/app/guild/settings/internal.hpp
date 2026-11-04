@@ -417,6 +417,8 @@ struct Settings : SettingsModal {
     Request request;
     u64 request_id, retry_at;
     Utf8View status;
+    // Backs `status` while it says a picked file is over its size limit.
+    char size_error[192];
     bool failed;
     // Two banks so labels borrowed by the previous projection stay valid
     // until the scene has taken the next one.

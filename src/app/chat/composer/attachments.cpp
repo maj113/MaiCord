@@ -16,6 +16,7 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
@@ -114,12 +115,9 @@ void notice(ApplicationAttachments* state, const Utf8View& text) noexcept {
     state->notice_bytes = minimum(text.bytes, static_cast<u32>(sizeof(state->notice)));
     copy_bytes(state->notice, text.data, state->notice_bytes);
 }
-void limit_notice(ApplicationAttachments* state, u64 limit) noexcept {
-    ProtocolWriter writer{{reinterpret_cast<u8*>(state->notice), sizeof(state->notice)}, 0};
-    protocol_writer_append_literal(&writer, "Max file size is ");
-    protocol_writer_append_u64(&writer, limit / kUploadMiB);
-    protocol_writer_append_literal(&writer, " MB in this channel.");
-    state->notice_bytes = writer.used;
+// "<name> is 27.3 MB, over the 10 MB limit." (the file's own size, the channel's allowance).
+void size_notice(ApplicationAttachments* state, Utf8View name, u64 bytes, u64 limit, u32 others = 0) noexcept {
+    state->notice_bytes = ui_attachment_over_limit_text(name, bytes, limit, others, {state->notice, sizeof(state->notice)});
 }
 void fail(ApplicationAttachments* state, u64 id, MessageAttachmentDraftFailure failure, u16 status = 0) noexcept {
     if (auto* record = message_attachment_drafts_get(&state->drafts, id)) {
@@ -431,7 +429,8 @@ bool application_attachment_submit_url(u64 request_id, u64 now_ms, bool* submitt
     auto* record = message_attachment_drafts_get(&state->drafts, id);
     const u64 limit = application_attachment_limit(record->channel_id);
     if (record->source.bytes > limit) {
-        fail(state, id, MessageAttachmentDraftFailure::size_limit); limit_notice(state, limit);
+        fail(state, id, MessageAttachmentDraftFailure::size_limit);
+        size_notice(state, message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, limit);
         return refresh_message_composer_ui();
     }
     if (!application_upload_lane_acquire(ApplicationUploadOwner::composer, &state->upload_lease)) return true;
@@ -470,7 +469,8 @@ bool application_attachment_accept_url(const RestClientResponse& response, Utf8V
     if (record->source.bytes > limit) {
         SecureZeroMemory(state->url, sizeof(state->url));
         SecureZeroMemory(state->uploaded_filename, sizeof(state->uploaded_filename));
-        fail(state, id, MessageAttachmentDraftFailure::size_limit); limit_notice(state, limit);
+        fail(state, id, MessageAttachmentDraftFailure::size_limit);
+        size_notice(state, message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, limit);
         application_upload_lane_release(&state->upload_lease);
         return refresh_message_composer_ui();
     }
@@ -502,25 +502,39 @@ bool application_pump_attachments() noexcept {
             MessageAttachmentFile files[kAttachmentUploadMaximumCount]{}; u64 ids[kAttachmentUploadMaximumCount]{};
             bool valid = picked.count <= kAttachmentUploadMaximumCount;
             bool too_large = false;
+            u32 over = 0, largest = 0; u64 largest_bytes = 0;
             const u64 limit = application_attachment_limit(state->picker_channel);
             for (u32 i = 0; valid && i < picked.count; ++i) {
                 files[i].path = native_file_picker_path(&state->picker, i);
                 files[i].filename = native_file_picker_filename(&state->picker, i);
                 files[i].content = native_file_picker_source(&state->picker, i);
                 valid = native_file_picker_snapshot(&state->picker, i, &files[i].snapshot);
-                too_large = too_large || files[i].snapshot.bytes > limit;
+                if (files[i].snapshot.bytes > limit) {
+                    if (!over || files[i].snapshot.bytes > largest_bytes) { largest = i; largest_bytes = files[i].snapshot.bytes; }
+                    ++over; too_large = true;
+                }
             }
             const auto added = valid && !too_large ? message_attachment_drafts_add(&state->drafts, state->picker_channel,
                 {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) : MessageAttachmentDraftError::invalid_input;
             if (added != MessageAttachmentDraftError::none) {
-                if (too_large) limit_notice(state, limit);
+                if (too_large) {
+                    char name[kAttachmentUploadMaximumFilenameBytes];
+                    const u32 name_bytes = message_attachment_file_name(files[largest], {name, sizeof(name)});
+                    size_notice(state, {name, name_bytes}, largest_bytes, limit, over - 1);
+                }
                 else
                 notice(state, added == MessageAttachmentDraftError::empty_file ? utf8_literal("Files cannot be empty.") :
                     utf8_literal("Couldn't attach these files.")); show_notice = true;
             }
             changed = true;
         } else if (!state->picker_cancel_requested && picked.error != NativeFilePickerError::cancelled) {
-            if (picked.native_error == ERROR_FILE_TOO_LARGE) limit_notice(state, application_attachment_limit(state->picker_channel));
+            if (picked.native_error == ERROR_FILE_TOO_LARGE) {
+                // The paste worker named the refused file or image and measured it.
+                char name[kAttachmentUploadMaximumFilenameBytes];
+                const MessageAttachmentFile refused{native_file_picker_oversize_name(&state->picker), {}, {}, {}};
+                const u32 name_bytes = message_attachment_file_name(refused, {name, sizeof(name)});
+                size_notice(state, {name, name_bytes}, picked.oversize_bytes, application_attachment_limit(state->picker_channel));
+            }
             else notice(state, picked.error == NativeFilePickerError::capacity ?
                 utf8_literal("You can only upload 10 files at a time.") :
                 utf8_literal("Could not read the selected files.")); show_notice = true;

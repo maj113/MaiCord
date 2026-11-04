@@ -143,8 +143,9 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
               png.bytes == png_bytes && bytes_equal(png.data, work, static_cast<u32>(png_bytes)),
           "registered PNG bytes paste unchanged without allocator padding");
     clipboard_png_release(&png);
-    check(clipboard_paste_png(ClipboardPasteKind::png, {work, static_cast<u32>(png_bytes)}, png_bytes - 1, &png) == ERROR_FILE_TOO_LARGE && !png.data,
-          "oversized PNG reports the upload allowance");
+    check(clipboard_paste_png(ClipboardPasteKind::png, {work, static_cast<u32>(png_bytes)}, png_bytes - 1, &png) == ERROR_FILE_TOO_LARGE && !png.data &&
+              png.bytes == png_bytes,
+          "oversized PNG reports the upload allowance and its size");
     // Snipping Tool's CF_DIB: BITMAPINFOHEADER, BI_BITFIELDS, masks after the header, bottom-up, unused alpha.
     const u32 rgb_masks[3]{0x00ff0000, 0x0000ff00, 0x000000ff};
     u32 offset = dib_header(work, 40, 5, 3, 32, BI_BITFIELDS, nullptr, rgb_masks, 3, nullptr, 0);
@@ -240,8 +241,9 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
               pass ? "incompressible DIB still produces an exact PNG" : "DIB conversion deflates and round-trips exactly");
         clipboard_png_release(&png);
     }
-    check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + kWide * kTall * 4}, 4096, &png) == ERROR_FILE_TOO_LARGE && !png.data,
-          "converted image over the allowance reports too large");
+    check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + kWide * kTall * 4}, 4096, &png) == ERROR_FILE_TOO_LARGE && !png.data &&
+              png.bytes > 4096,
+          "converted image over the allowance reports too large and the size it would have");
 
     // End to end through OLE and the picker worker.
     u8* scratch = work + 512 * 1024;
@@ -309,6 +311,36 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
               bytes_equal(picked.data, path, path_units * 2),
           "with no readable image the clipboard file list is used");
     settle(provider, &picker);
+    // A pasted screenshot over the allowance reports its size and image.png; a copied file its own name.
+    provider.raws[0] = {png_format, good_png, true}; provider.raw_count = 1;
+    ClipboardAttachmentData refused_input{};
+    check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &refused_input.object)) &&
+              native_file_picker_take_clipboard(&picker, &refused_input, 10, png_bytes - 1) == NativeFilePickerError::none &&
+              file_drop_fixture::await(&picker),
+          "oversized pasted PNG reaches the picker worker");
+    const auto refused_png = native_file_picker_status(&picker);
+    const auto refused_png_name = native_file_picker_oversize_name(&picker);
+    check(refused_png.native_error == ERROR_FILE_TOO_LARGE && refused_png.oversize_bytes == png_bytes &&
+              refused_png_name.count == 9 && bytes_equal(refused_png_name.data, L"image.png", 18),
+          "oversized pasted screenshot reports its byte count and image.png");
+    settle(provider, &picker);
+    if (seeded) {
+        provider.raws[0] = provider.raws[2]; provider.raw_count = 1;
+        ClipboardAttachmentData listed_input{};
+        check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &listed_input.object)) &&
+                  native_file_picker_take_clipboard(&picker, &listed_input, 10, 7) == NativeFilePickerError::none &&
+                  file_drop_fixture::await(&picker),
+              "oversized copied file reaches the picker worker");
+        const auto refused_file = native_file_picker_status(&picker);
+        const auto refused_file_name = native_file_picker_oversize_name(&picker);
+        u32 leaf = path_units;
+        while (leaf && path[leaf - 1] != L'\\') --leaf;
+        check(refused_file.native_error == ERROR_FILE_TOO_LARGE && refused_file.oversize_bytes == snapshot.bytes &&
+                  refused_file_name.count == path_units - leaf &&
+                  bytes_equal(refused_file_name.data, path + leaf, refused_file_name.count * sizeof(wchar_t)),
+              "oversized copied file reports its own size and file name");
+        settle(provider, &picker);
+    }
     provider.raw_count = 0;
     GlobalFree(good_png); GlobalFree(bad_png); GlobalFree(dib);
     if (drop) GlobalFree(drop);
@@ -365,6 +397,11 @@ void test_clipboard_attachment(void (*check)(bool, const char*) noexcept) noexce
         native_file_picker_take_clipboard(&picker, &input, 10, 7) == NativeFilePickerError::none && await(&picker) &&
         native_file_picker_status(&picker).native_error == ERROR_FILE_TOO_LARGE && provider.content_reads == 0,
         "account allowance rejects oversized named file before requesting its contents");
+    const auto refused = native_file_picker_status(&picker);
+    const auto refused_name = native_file_picker_oversize_name(&picker);
+    check(refused.oversize_bytes == 8 && refused_name.count == sizeof(name) / sizeof(wchar_t) - 1 &&
+              bytes_equal(refused_name.data, name, refused_name.count * sizeof(wchar_t)),
+          "oversized named clipboard file reports its own size and name");
     reap(&picker); clipboard_attachment_release(&input);
     provider.await_unreferenced();
 

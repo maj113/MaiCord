@@ -203,6 +203,20 @@ void run() noexcept {
     wchar_t path[MAX_PATH]{}; u32 units{}; FileSnapshot snapshot{};
     if (file_drop_fixture::seed(path, &units, &snapshot)) {
         const ConstSlice<wchar_t> dropped{path, units};
+        fixture_limit = 4;
+        char expected[96]{}; u32 leaf = units, expected_bytes = 0;
+        while (leaf && path[leaf - 1] != L'\\') --leaf;
+        for (u32 i = leaf; i < units; ++i) expected[expected_bytes++] = static_cast<char>(path[i]);
+        constexpr auto expected_tail = utf8_literal(" is 8 B, over the 4 B limit.");
+        copy_bytes(expected + expected_bytes, expected_tail.data, expected_tail.bytes); expected_bytes += expected_tail.bytes;
+        check(application_forum_attachments_drop(ticket, file_drop_fixture::make({&dropped, 1})) &&
+            forum_attachments && file_drop_fixture::await(&forum_attachments->picker), "forum media: oversized native drop worker completes");
+        application_forum_attachments_pump();
+        check(!application_forum_attachments_view(ticket).rows.count && application_forum_attachments_view(ticket).error &&
+            utf8_equal(application_forum_attachments_view(ticket).status, {expected, expected_bytes}),
+            "forum media: a dropped file over the allowance names itself, its size and the limit");
+        check(file_drop_fixture::reap(&forum_attachments->picker), "forum media: oversized native drop worker joins within fixture bound");
+        fixture_limit = 1024;
         check(application_forum_attachments_drop(ticket, file_drop_fixture::make({&dropped, 1})) &&
             forum_attachments && file_drop_fixture::await(&forum_attachments->picker), "forum media: actual native drop worker prepares original file");
         application_forum_attachments_pump();
@@ -237,6 +251,9 @@ void run() noexcept {
     check(forum_attachments->finishing && application_forum_attachments_view(ticket).rows[0].phase == MessageAttachmentDraftPhase::failed &&
         !application_forum_attachments_view(ticket).ready && !application_upload_lane_available(),
         "forum media: quota reduction cancels active transfer and prevents stale ready publication");
+    check(application_forum_attachments_view(ticket).error &&
+        utf8_equal(application_forum_attachments_view(ticket).status, utf8_literal("a.txt is 8 B, over the 4 B limit.")),
+        "forum media: a row pushed over the allowance names its file, size and the new limit");
     upload.join = true; application_forum_attachments_pump(); fixture_limit = 1024;
 
     ticket = intent(195); id = stage(ticket); application_forum_post_submit(196, now);

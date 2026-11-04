@@ -13,6 +13,9 @@ struct NativeFilePickerResult {
     u32 native_error;
     NativeFilePickerError error;
     NativeFilePickerPhase phase;
+    // With native_error ERROR_FILE_TOO_LARGE from a clipboard paste: the byte count of the file or image over the
+    // allowance (zero when unknown); native_file_picker_oversize_name names it.
+    u64 oversize_bytes;
     bool ok() const noexcept { return phase == NativeFilePickerPhase::complete && error == NativeFilePickerError::none; }
 };
 struct NativeFilePicker {
@@ -49,6 +52,8 @@ NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker
 // Virtual clipboard files expose a filename and borrowed source instead of a path.
 ConstSlice<wchar_t> native_file_picker_filename(const NativeFilePicker* picker, u32 index) noexcept;
 UploadSource native_file_picker_source(const NativeFilePicker* picker, u32 index) noexcept;
+// The clipboard attachment refused for size ("image.png" for a pasted image); valid until release.
+ConstSlice<wchar_t> native_file_picker_oversize_name(const NativeFilePicker* picker) noexcept;
 NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept;
 ConstSlice<wchar_t> native_file_picker_path(const NativeFilePicker* picker, u32 index) noexcept;
 bool native_file_picker_snapshot(const NativeFilePicker* picker, u32 index, FileSnapshot* output) noexcept;

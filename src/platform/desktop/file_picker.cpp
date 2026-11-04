@@ -28,6 +28,8 @@ struct Runtime {
     UploadSource sources[kNativeFilePickerMaximumFiles];
     ConstSlice<wchar_t> filenames[kNativeFilePickerMaximumFiles];
     u64 maximum_bytes;
+    // The clipboard file or image refused for size (see NativeFilePickerResult::oversize_bytes).
+    ClipboardAttachmentOversize oversize;
     NativeFilePickerResult result;
     volatile LONG cancelled;
     // The dialog thread's message window while the dialog is up; cancel posts to it.
@@ -70,6 +72,12 @@ void class_release(HINSTANCE module) noexcept {
     AcquireSRWLockExclusive(&g_class_lock);
     if (g_class_users && --g_class_users == 0) UnregisterClassW(kClassName, module);
     ReleaseSRWLockExclusive(&g_class_lock);
+}
+void note_oversize(Runtime* runtime, ConstSlice<wchar_t> name, u64 bytes) noexcept {
+    auto& oversize = runtime->oversize;
+    const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
+    copy_bytes(oversize.name, name.data, units * sizeof(wchar_t));
+    oversize.name[units] = 0; oversize.name_units = units; oversize.bytes = bytes;
 }
 bool snapshot_path(ConstSlice<wchar_t> path, FileSnapshot* snapshot, NativeFilePickerResult* outcome) noexcept {
     if (!native_file_picker_valid_path(path)) { outcome->error = NativeFilePickerError::path; return false; }
@@ -247,14 +255,21 @@ DWORD WINAPI clipboard_worker(void* context) noexcept {
                 copy_bytes(copied, text.data, text.count * sizeof(wchar_t)); copied[text.count] = 0;
                 if (path.count) {
                     if (!snapshot_path({copied, text.count}, &r->snapshots[i], state.outcome)) return false;
-                    if (r->snapshots[i].bytes > r->maximum_bytes) { state.outcome->native_error = ERROR_FILE_TOO_LARGE; return false; }
+                    if (r->snapshots[i].bytes > r->maximum_bytes) {
+                        state.outcome->native_error = ERROR_FILE_TOO_LARGE;
+                        u32 first = text.count;
+                        while (first && copied[first - 1] != L'\\') --first;
+                        note_oversize(r, {copied + first, text.count - first}, r->snapshots[i].bytes);
+                        return false;
+                    }
                     r->selected[i] = {copied, text.count};
                 } else { r->filenames[i] = {copied, text.count}; r->snapshots[i].bytes = source.bytes; r->sources[i] = source; }
                 return true;
-            }, &visit, &outcome.count);
+            }, &visit, &outcome.count, &runtime->oversize);
         if (error) {
             outcome.error = error == ERROR_TOO_MANY_NAMES ? NativeFilePickerError::capacity : NativeFilePickerError::path;
             if (!outcome.native_error) outcome.native_error = error;
+            if (outcome.native_error == ERROR_FILE_TOO_LARGE) outcome.oversize_bytes = runtime->oversize.bytes;
         }
         CoUninitialize();
     }
@@ -444,6 +459,12 @@ ConstSlice<wchar_t> native_file_picker_filename(const NativeFilePicker* picker, 
 UploadSource native_file_picker_source(const NativeFilePicker* picker, u32 index) noexcept {
     const auto status = native_file_picker_status(picker);
     return status.ok() && index < status.count ? static_cast<const Runtime*>(picker->runtime)->sources[index] : UploadSource{};
+}
+ConstSlice<wchar_t> native_file_picker_oversize_name(const NativeFilePicker* picker) noexcept {
+    if (!picker || !picker->runtime || static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase)) != NativeFilePickerPhase::complete)
+        return {};
+    const auto& oversize = static_cast<const Runtime*>(picker->runtime)->oversize;
+    return {oversize.name, oversize.name_units};
 }
 NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept {
     if (!picker || !picker->runtime) return {};
