@@ -1806,7 +1806,9 @@ endforeach()
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
 # With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
 # MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day;
-# MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change.
+# MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change;
+# MAICORD_SHOWCASE_FRIENDS takes only the Friends page in Dark, Light, AMOLED and
+# Aurora, then by day and night in MAICORD_SHOWCASE_THEME's theme when one is named.
 maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
     RESOURCE_LOCK native_gpu)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built

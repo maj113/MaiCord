@@ -2364,8 +2364,9 @@ bool probe_friends_requests_scene() noexcept {
     UiFriendsVisibleRow spam{};
     if (!ui_friends_scene_visible_row(requests, 2, &spam) || !spam.row.spam || spam.row.ignored)
         return false;
-    const Color dark{kDefaultTheme.base_lowest.red * .35f, kDefaultTheme.base_lowest.green * .35f,
-                     kDefaultTheme.base_lowest.blue * .35f, 1};
+    // The dimmed page is the shell's content canvas (Friends draws no plate of its own).
+    const Color dark{kDefaultTheme.base_low.red * .35f, kDefaultTheme.base_low.green * .35f,
+                     kDefaultTheme.base_low.blue * .35f, 1};
     const ProbePixelSample samples[]{
         {{center().right - 4, center().bottom - 4}, dark, 3},
         {{requests.surface.left + 5, requests.surface.top + 5}, kDefaultTheme.base_lowest, 3},

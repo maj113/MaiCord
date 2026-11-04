@@ -9,9 +9,7 @@
 namespace maicord {
 namespace {
 constexpr float header_height = 52.f, filter_height = 40.f, footer_height = 48.f, inset = 12.f, gap = 8.f;
-// Tabs are pills shown while selected or hot; filter chips always show, outlined while checked.
-constexpr UiLook kTab{.fill = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
-                      .flags = ui_look_hot_only | ui_look_pill};
+// Tabs are the shared pills (kUiTab); filter chips always show, outlined while checked.
 constexpr UiLook kChip{.fill = UI_TOKEN(base_lower), .hover = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high),
                        .border = UI_TOKEN(surface_high), .focus = UI_TOKEN(tokens.emphasis.outline),
                        .selected_border = UI_TOKEN(tokens.emphasis.outline), .flags = ui_look_pill};
@@ -338,8 +336,8 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
         .rule_below(s.header)
         .icon(UiIcon::inbox, ui_rect_edges(s.panel, ui_start(14), ui_start(16), ui_start(34), ui_start(36)),
               theme.text_secondary)
-        .control<kTab>(s.widgets, s.tabs[0], s.tab == UiInboxTab::mentions)
-        .control<kTab>(s.widgets, s.tabs[1], s.tab == UiInboxTab::unreads)
+        .control<kUiTab>(s.widgets, s.tabs[0], s.tab == UiInboxTab::mentions)
+        .control<kUiTab>(s.widgets, s.tabs[1], s.tab == UiInboxTab::unreads)
         .icon_control<kUiGhostButton>(s.widgets, s.close, UiIcon::close, 7, theme.text_secondary);
     if (s.tab == UiInboxTab::mentions)
         p.control<kChip>(s.widgets, s.chips[0], c.this_server)

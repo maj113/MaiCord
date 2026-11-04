@@ -1000,8 +1000,9 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
         if (!ui_rect_intersects(row.presence, row.clip))
             continue;
         const bool blocked = row.row.kind == UiFriendsKind::blocked;
-        p.use<ui_presence_paint>(row.presence, blocked ? UiPresence::offline : row.row.presence, theme.base_lowest,
-                                 theme, !blocked && row.row.mobile);
+        // The cut-out takes the colour under the row: the content canvas, or the requests dialog's card.
+        p.use<ui_presence_paint>(row.presence, blocked ? UiPresence::offline : row.row.presence,
+                                 hidden(s) ? theme.base_lowest : theme.base_low, theme, !blocked && row.row.mobile);
     }
     return p.end();
 }
@@ -1015,16 +1016,12 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         return false;
     UiPaint p{paint, theme};
     p.clip(s.viewport);
+    // The page draws no plate of its own: the shell's content canvas (with its
+    // effect and, on gradient themes, the contrast plate) shows through it as
+    // through the message view. The requests dialog dims the page under its card.
     if (hidden(s))
-        p.fill(s.viewport, {0, 0, 0, .65f});
-    // The shell owns the full Friends canvas contrast plate. Adding another
-    // one here compounds its tint and hides the selected background.
-    if (hidden(s) || !ui_background_active(theme)) {
-        if (!hidden(s) && background_effects_active(theme.background))
-            p.use<ui_background_paint_canvas>(s.surface, theme, theme.base_lowest, UiBackgroundTier::chat);
-        else
-            p.fill(s.surface, ui_background_surface_color(theme, theme.base_lowest, .94f));
-    }
+        p.fill(s.viewport, {0, 0, 0, .65f})
+            .fill(s.surface, ui_background_surface_color(theme, theme.base_lowest, .94f));
     const auto* body = ui_widget_manager_layout_node(s.widgets, s.body);
     if (!body) {
         p.fail();
@@ -1044,7 +1041,6 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             continue;
         if (!node || !ui_rect_intersects(node->rectangle, node->clip_rectangle))
             continue;
-        const bool selected = e.target.action == UiFriendsAction::select_tab && e.target.tab == s.tab;
         const bool focused = s.focus_visible && ui_widget_handle_equal(s.widgets.focused, h);
         const bool hovered = ui_widget_handle_equal(s.widgets.hovered, h);
         const bool pressed = hovered && ui_widget_handle_equal(s.widgets.captured, h);
@@ -1060,6 +1056,13 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             p.clip(clip);
             previous_clip = clip;
             clip_open = true;
+        }
+        // The tab row: the shared pill tab, a plate only while selected or hot.
+        if (e.target.action == UiFriendsAction::select_tab) {
+            p.look<kUiTab>(node->rectangle, static_cast<u8>((hovered ? ui_state_hovered : 0) |
+                                                            (focused ? ui_state_focused : 0) |
+                                                            (e.target.tab == s.tab ? ui_state_selected : 0)));
+            continue;
         }
         const UiIcon icon = e.row.user_id && !e.row_label ? action_icon(e.target.action) : UiIcon::count;
         if (icon != UiIcon::count) {
@@ -1078,20 +1081,19 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         }
         // Idle row/action background and border quads are skipped: the labels
         // already show the affordance and the quads would exceed the shared native
-        // paint budget at tall viewports. Tab chrome and hover/focus feedback stay.
+        // paint budget at tall viewports. Button chrome and hover/focus feedback stay.
         if ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused)
             p.rounded_border(
                 {node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
                  node->rectangle.bottom - 1},
-                (selected || hovered ? ui_background_hover_color : ui_background_surface_color)(
+                (hovered ? ui_background_hover_color : ui_background_surface_color)(
                     theme,
-                    selected || hovered ? theme.interactive_hover
-                    : e.row_label       ? theme.base_lowest
-                                        : theme.surface_high,
-                    pressed    ? .32f
-                    : selected ? .24f
-                    : hovered  ? .20f
-                               : .12f),
+                    hovered       ? theme.interactive_hover
+                    : e.row_label ? theme.base_lowest
+                                  : theme.surface_high,
+                    pressed   ? .32f
+                    : hovered ? .20f
+                              : .12f),
                 focused ? theme.tokens.border.focus : ui_background_surface_color(theme, theme.interactive, .38f),
                 theme.scale.radius_sm, focused ? 2.f : 1.f);
         if (e.row_label) {
@@ -1106,8 +1108,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     p.scrollbar(ui_friends_scene_scrollbar(s));
     if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
-        p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, edit,
-                                   ui_background_surface_color(theme, theme.surface_high, .12f), theme, dpi,
+        p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, edit, theme.base_lowest, theme, dpi,
                                    kUiEditCornerRadius);
     }
     if (p && include_presence && !ui_friends_scene_presence_paint(s, theme, paint))
@@ -1276,7 +1277,10 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                        : e.target.action == UiFriendsAction::select_tab ? tab_label(e.target.tab)
                                                                         : action_label(e.target.action),
                        r,
-                       (s.widgets.storage[i].flags & ui_widget_enabled) ? theme.text_primary : theme.text_secondary,
+                       (s.widgets.storage[i].flags & ui_widget_enabled) &&
+                               (e.target.action != UiFriendsAction::select_tab || e.target.tab == s.tab)
+                           ? theme.text_primary
+                           : theme.text_secondary,
                        text_style_subtext, e.target.action == UiFriendsAction::toggle_section ? 0 : ui_text_center);
         }
     }

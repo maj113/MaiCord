@@ -34,6 +34,7 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/widgets/presence.hpp"
+#include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/media/picker.hpp"
@@ -1084,7 +1085,6 @@ bool open_settings(Fixture& f, D3D11Renderer& r) noexcept {
     }
     const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
     const UiPageKey page{kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
-    renderer_set_layer_opacity(&r, RendererLayerSurface::settings_page, 1);
     renderer_bind_settings_scene(&r, &f.settings);
     return check(ui_page_registry_select(&f.registry, page).ok() &&
                      ui_settings_scene_update(&f.settings, &f.registry, viewport) &&
@@ -1638,10 +1638,13 @@ bool transitions(Fixture& f, D3D11Renderer& r, const BackgroundEffectSpec& base,
     renderer_clear_effect(&r);
     return check(total > 1.f && between >= 3 && largest <= total * .25f, "transition_month_jumped");
 }
-bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
+// MAICORD_SHOWCASE_THEME's document into g_day_theme and, when MAICORD_SHOWCASE_EFFECT names one, its effect into
+// g_effect_workspace and `spec`; *package is then the file, which the caller frees. *taken: a theme is named.
+bool load_day(bool* taken, BackgroundEffectSpec* spec, u8** package) noexcept {
     u32 bytes = 0;
     u8* text = read_whole(L"MAICORD_SHOWCASE_THEME", kClientThemeDocumentMaximumBytes, &bytes);
     *taken = text != nullptr;
+    *package = nullptr;
     if (!text)
         return true;
     const bool parsed = client_theme_document_parse({reinterpret_cast<const char*>(text), bytes},
@@ -1654,56 +1657,72 @@ bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
     if (!check(parsed, "day_theme_parse_failed"))
         return false;
     u32 package_bytes = 0;
-    u8* package = read_whole(L"MAICORD_SHOWCASE_EFFECT", 2u << 20, &package_bytes);
+    *package = read_whole(L"MAICORD_SHOWCASE_EFFECT", 2u << 20, &package_bytes);
     const McfxPackage& effect = g_effect_workspace.package;
-    BackgroundEffectSpec spec{};
-    if (package) {
-        if (!check(mcfx_parse({package, package_bytes}, &g_effect_workspace).ok(), "day_effect_parse_failed"))
+    if (*package) {
+        if (!check(mcfx_parse({*package, package_bytes}, &g_effect_workspace).ok(), "day_effect_parse_failed"))
             return false;
         McfxKnobValue values[kMcfxKnobMaximum];
         mcfx_knob_defaults(effect, values);
-        mcfx_knob_pack(effect, values, spec.knobs);
-        spec.bytecode = effect.shaders[0];
-        spec.identity = hash64_bytes(kHash64Seed, package, package_bytes) | 1;
-        spec.uses = effect.uses;
-        spec.blend = effect.blend;
+        mcfx_knob_pack(effect, values, spec->knobs);
+        spec->bytecode = effect.shaders[0];
+        spec->identity = hash64_bytes(kHash64Seed, *package, package_bytes) | 1;
+        spec->uses = effect.uses;
+        spec->blend = effect.blend;
         if (effect.graph.pass_count) {
-            spec.graph = &effect.graph;
-            spec.shaders = effect.shaders;
+            spec->graph = &effect.graph;
+            spec->shaders = effect.shaders;
         }
     }
+    return true;
+}
+// f.theme as the day theme has it at `hour` on the 3rd of `month`, the view laid out by `layout`, and with a package
+// its effect, selected afresh so the cloth starts over, run for two seconds at 30 fps up to *phase.
+bool day_moment(Fixture& f, D3D11Renderer& r, const BackgroundEffectSpec& spec, bool package, u32 month, u32 hour,
+                bool (*layout)(Fixture&, D3D11Renderer&) noexcept, float* phase) noexcept {
+    f.theme = client_theme_document_at(g_day_theme, hour * 60, month, 3);
+    ui_theme_resolve_emphasis(&f.theme);
+    *phase = 6.f;
+    if (package) {
+        renderer_clear_effect(&r);
+        if (!check(renderer_select_effect(&r, spec, {1.f, 1.f, spec.blend, 4, 2, EffectBudget::high, false}).state !=
+                           EffectSelect::rejected &&
+                       r.effect.selected,
+                   "day_effect_select_failed"))
+            return false;
+        r.effect.step = r.effect.budget.step = r.effect.budget.ceiling = 4;
+        r.effect.budget.warmup = 0x7fffffff;
+        EffectAmbient ambient{};
+        float inputs[4];
+        // The 3rd: Silk Waves turns toward the next month's colours from the 5th.
+        const EffectAmbientSources sources{{2026, static_cast<u16>(month), 3, static_cast<u16>(hour), 0},
+                                           f.theme.appearance != ThemeAppearance::light, false, true};
+        renderer_set_effect_light(&r, effect_ambient_sample(&ambient, g_effect_workspace.package.uses, sources, 1000,
+                                                            false, false, inputs));
+        renderer_set_effect_ambient(&r, inputs);
+    }
+    if (!layout(f, r))
+        return false;
+    for (u32 step = 0; package && step < 60; ++step, *phase += 1.f / 30)
+        if (!check(renderer_set_background_phase(&r, *phase) &&
+                       d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000),
+                   "day_effect_frame_failed"))
+            return false;
+    return true;
+}
+bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
+    BackgroundEffectSpec spec{};
+    u8* package = nullptr;
+    if (!load_day(taken, &spec, &package))
+        return false;
+    if (!*taken)
+        return true;
     constexpr u32 kMonths[]{4, 10}, kHours[]{3, 8, 12, 18, 21};
     for (const u32 month : kMonths)
         for (const u32 hour : kHours) {
-            f.theme = client_theme_document_at(g_day_theme, hour * 60, month, 3);
-            ui_theme_resolve_emphasis(&f.theme);
             float phase = 6.f;
-            if (package) {
-                // A fresh selection each time, so the cloth starts over, then two seconds of it at 30 fps.
-                renderer_clear_effect(&r);
-                if (!check(renderer_select_effect(&r, spec, {1.f, 1.f, spec.blend, 4, 2, EffectBudget::high, false})
-                                   .state != EffectSelect::rejected &&
-                               r.effect.selected,
-                           "day_effect_select_failed"))
-                    return false;
-                r.effect.step = r.effect.budget.step = r.effect.budget.ceiling = 4;
-                r.effect.budget.warmup = 0x7fffffff;
-                EffectAmbient ambient{};
-                float inputs[4];
-                // The 3rd: Silk Waves turns toward the next month's colours from the 5th.
-                const EffectAmbientSources sources{{2026, static_cast<u16>(month), 3, static_cast<u16>(hour), 0},
-                                                   f.theme.appearance != ThemeAppearance::light, false, true};
-                renderer_set_effect_light(&r, effect_ambient_sample(&ambient, effect.uses, sources, 1000, false, false,
-                                                                    inputs));
-                renderer_set_effect_ambient(&r, inputs);
-            }
-            if (!project(f, r))
+            if (!day_moment(f, r, spec, package != nullptr, month, hour, project, &phase))
                 return false;
-            for (u32 step = 0; package && step < 60; ++step, phase += 1.f / 30)
-                if (!check(renderer_set_background_phase(&r, phase) &&
-                               d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000),
-                           "day_effect_frame_failed"))
-                    return false;
             wchar_t name[40] = L"showcase-day-MM-HH.bmp";
             name[13] = static_cast<wchar_t>(L'0' + month / 10);
             name[14] = static_cast<wchar_t>(L'0' + month % 10);
@@ -1712,10 +1731,94 @@ bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
             shot(f, r, name, phase);
         }
     if (package && GetEnvironmentVariableW(L"MAICORD_SHOWCASE_TRANSITIONS", nullptr, 0) &&
-        !transitions(f, r, spec, effect))
+        !transitions(f, r, spec, g_effect_workspace.package))
         return false;
     if (package)
         VirtualFree(package, 0, MEM_RELEASE);
+    return g_failures == 0;
+}
+// MAICORD_SHOWCASE_FRIENDS: only the Friends page (Online, its search and the empty Active now column, as Home
+// shows it), in Dark, Light, AMOLED and the Aurora gradient (showcase-friends-<theme>.bmp), and with
+// MAICORD_SHOWCASE_THEME (and _EFFECT) that theme at 12:00 and 03:00 on 3 October (showcase-friends-day.bmp, -night).
+UiFriendsScene g_friends;
+bool friend_row(void*, u32 index, UiFriendsRow* out) noexcept {
+    constexpr u32 kFriends[]{1, 2, 3, 5, 6}; // Ada, Milo, Juniper, Priya, Sam
+    if (index >= sizeof(kFriends) / sizeof(kFriends[0]))
+        return false;
+    const Person& p = kPeople[kFriends[index]];
+    *out = {p.id,
+            text(p.name),
+            text(p.username),
+            p.activity ? text(p.activity) : Utf8View{},
+            p.status == GuildMemberStatus::idle  ? UiPresence::idle
+            : p.status == GuildMemberStatus::dnd ? UiPresence::busy
+                                                 : UiPresence::online,
+            UiFriendsKind::friend_user,
+            false};
+    return true;
+}
+bool project_friends(Fixture& f, D3D11Renderer& r) noexcept {
+    static const UiFriendsSource source{nullptr, 5, 1, friend_row};
+    static const UiFriendsContent content{{{}, 0, 0, true, false, false}, 5, 1};
+    static const UiFriendsActiveNow active{nullptr, 0, 1, false};
+    const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
+    if (!chat_state_store_select_home(&f.state).ok())
+        return check(false, "friends_home_failed");
+    f.state.selected_channel_id = 0;
+    if (!navigation_view_rebuild(&f.view, f.state).ok() ||
+        !ui_scene_layout_with_metrics(&f.shell, UiShellView::friends, kFriendsShellLayoutMetrics, width, height))
+        return check(false, "friends_layout_failed");
+    const UiLayoutNode* rail = node(f.shell, UiSemantic::guild_navigation);
+    const UiLayoutNode* channels = node(f.shell, UiSemantic::channel_navigation);
+    if (!check(rail && channels && guild_rail_scene_update(&f.rail, &f.view, rail->rectangle, 0).ok() &&
+                   shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok() &&
+                   ui_friends_scene_update(&g_friends, &source, UiFriendsTab::online, UiFriendsPhase::ready, {},
+                                           ui_scene_content_rectangle(f.shell, UiSemantic::message_view), &content,
+                                           nullptr, &active),
+               "friends_update_failed"))
+        return false;
+    r.search_scene = nullptr;
+    renderer_bind_friends_scene(&r, &g_friends);
+    if (!renderer_bind_ui_scene(&r, &f.shell) || !renderer_bind_guild_rail_scene(&r, &f.rail) ||
+        !renderer_bind_shell_navigation_scene(&r, &f.navigation))
+        return check(false, "friends_bind_failed");
+    renderer_bind_navigation_view(&r, &f.state, &f.users, &f.view);
+    r.retained_presentation.valid = false;
+    content_text_retention_invalidate(&r.content_text_retention);
+    return true;
+}
+bool friends_pages(Fixture& f, D3D11Renderer& r) noexcept {
+    if (!size_window(f, r, 96))
+        return false;
+    struct Look {
+        ClientTheme theme;
+        const wchar_t* name;
+    };
+    constexpr Look kLooks[]{{ClientTheme::dark, L"showcase-friends-dark.bmp"},
+                            {ClientTheme::light, L"showcase-friends-light.bmp"},
+                            {ClientTheme::amoled, L"showcase-friends-amoled.bmp"},
+                            {ClientTheme::aurora, L"showcase-friends-aurora.bmp"}};
+    for (const Look& look : kLooks) {
+        f.theme = client_theme_projection(preferences(look.theme, BackgroundEffect::none));
+        if (project_friends(f, r))
+            shot(f, r, look.name);
+    }
+    bool taken = false;
+    BackgroundEffectSpec spec{};
+    u8* package = nullptr;
+    if (load_day(&taken, &spec, &package) && taken) {
+        float phase = 6.f;
+        if (day_moment(f, r, spec, package != nullptr, 10, 12, project_friends, &phase))
+            shot(f, r, L"showcase-friends-day.bmp", phase);
+        if (day_moment(f, r, spec, package != nullptr, 10, 3, project_friends, &phase))
+            shot(f, r, L"showcase-friends-night.bmp", phase);
+        renderer_clear_effect(&r);
+    }
+    if (package)
+        VirtualFree(package, 0, MEM_RELEASE);
+    renderer_bind_friends_scene(&r, nullptr);
+    ui_friends_scene_release(&g_friends);
+    log_u64(g_failures ? LogLevel::error : LogLevel::info, "showcase", "failures", g_failures);
     return g_failures == 0;
 }
 bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) noexcept {
@@ -1792,6 +1895,8 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
     Fixture& f = fixture;
     if (!r.message_text || !r.message_measure_cache || !setup(f, r, presentation))
         return false;
+    if (GetEnvironmentVariableW(L"MAICORD_SHOWCASE_FRIENDS", nullptr, 0))
+        return friends_pages(f, r);
     bool day_only = false;
     if (!theme_day(f, r, &day_only) || day_only)
         return g_failures == 0;

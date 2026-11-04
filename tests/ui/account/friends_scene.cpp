@@ -248,26 +248,30 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.clip_count < 20 &&
               paint.clip_depth == 1,
           "friends_native_paint_shares_bounded_body_clip");
+    // No theme gets a page plate: the shell's content canvas (its flat fill, gradient plate or effect)
+    // shows through the page as through the message view.
+    const auto page_plate = [&]() noexcept {
+        for (u32 i = 0; i < paint.count; ++i) {
+            const auto& q = paint.quads[i];
+            if (q.left <= scene.surface.left && q.top <= scene.surface.top && q.right >= scene.surface.right &&
+                q.bottom >= scene.surface.bottom)
+                return true;
+        }
+        return false;
+    };
     const u32 flat_count = paint.count;
+    check(!page_plate(), "friends_flat_page_shows_the_shell_canvas");
     Theme gradient = kDefaultTheme;
     gradient.background = background_theme_defaults();
     bool themed = paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                   ui_friends_scene_paint(scene, gradient, &paint);
-    bool duplicate_canvas = false, translucent_control = false;
+    bool translucent_control = false;
     for (u32 i = 0; themed && i < paint.count; ++i) {
         const auto& q = paint.quads[i];
-        duplicate_canvas =
-            duplicate_canvas || (q.left == scene.surface.left && q.top == scene.surface.top &&
-                                 q.right == scene.surface.right && q.bottom == scene.surface.bottom);
         translucent_control = translucent_control || (q.radius > 0 && q.fill.alpha > 0 && q.fill.alpha < 1);
     }
-    check(themed && !duplicate_canvas && translucent_control && paint.count + 1 == flat_count,
-          "friends_gradient_reuses_parent_canvas_with_bounded_translucent_controls");
-    gradient.background = {};
-    check(paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
-              ui_friends_scene_paint(scene, gradient, &paint) && paint.count == flat_count &&
-              paint.quads[0].fill.alpha == 1,
-          "friends_disabled_background_restores_original_flat_canvas");
+    check(themed && !page_plate() && translucent_control && paint.count == flat_count,
+          "friends_gradient_page_shows_the_shell_canvas_with_translucent_controls");
     paint_stream_release(&paint);
     const UiFriendsTarget last{UiFriendsAction::open_dm, 10000, UiFriendsTab::all};
     check(ui_friends_scene_focus(&scene, last) && scene.scroll_dips > 550000 &&
@@ -300,32 +304,32 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               scene.count == 146,
           "friends_maximum_native_viewport_retains_visible_rows_and_overscan");
     // 145 avatar intersections plus144 badges (last badge is below the clip),
-    // five tabs, root fill and scrollbar =296 quads, plus a circle and a glyph
+    // the selected tab's pill and scrollbar =291 quads, plus a circle and a glyph
     // for each visible Message/More icon button (144 or 145 rows).
     const bool tall_painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 8192) &&
                               ui_friends_scene_paint(scene, kDefaultTheme, &paint);
-    const u32 icon_quads = paint.count - 296;
+    const u32 icon_quads = paint.count - 291;
     check(tall_painted && (icon_quads == 4 * 144 || icon_quads == 4 * 145) && paint.clip_count == 5 &&
               paint.clip_depth == 1 && paint.rejected == 0,
           "friends_maximum_native_viewport_exact_bounded_paint");
     ui_friends_scene_set_focus_visible(&scene, true);
     check(paint_stream_reset(&paint, 800, 8192) && ui_friends_scene_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 297 + icon_quads,
+              paint.count == 292 + icon_quads,
           "friends_tall_viewport_preserves_focused_row_outline");
     ui_friends_scene_set_focus_visible(&scene, false);
     fixture.presence = UiPresence::idle;
     ++source.revision;
     // Idle/offline/unknown/busy each use two presence primitives. The full
-    // native viewport needs145 avatars+2*144 badges+7 chrome=440 quads.
+    // native viewport needs145 avatars+2*144 badges+2 chrome=435 quads.
     check(ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall) &&
               paint_stream_reset(&paint, 800, 8192) &&
-              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.count == 440 + icon_quads &&
+              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.count == 435 + icon_quads &&
               paint.rejected == 0,
           "friends_tall_viewport_two_primitive_presence_fits_native_budget");
     check(paint_stream_reset(&paint, 800, 8192) &&
               ui_friends_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96, false) &&
-              paint.count == 152 + icon_quads && ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 440 + icon_quads && paint.clip_depth == 1,
+              paint.count == 147 + icon_quads && ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) &&
+              paint.count == 435 + icon_quads && paint.clip_depth == 1,
           "friends_avatar_base_and_presence_overlay_preserve_complete_paint_budget");
     UiFriendsScene tall_search{};
     UiFriendsContent tall_content{{utf8_literal("borrow"), 0, 6, true, true, true}, 16384, 1};

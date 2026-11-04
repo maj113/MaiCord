@@ -74,6 +74,9 @@ struct UiLook {
 };
 // The quiet icon button of popout headers: a plate only while hot.
 inline constexpr UiLook kUiGhostButton{.fill = UI_TOKEN(surface_high), .radius = 6, .flags = ui_look_hot_only};
+// A tab of a row of tabs (Inbox, Friends): a pill shown while selected or hot.
+inline constexpr UiLook kUiTab{.fill = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high),
+                               .border = UI_TOKEN(surface_high), .flags = ui_look_hot_only | ui_look_pill};
 
 // ---------------------------------------------------------------------------
 // Paint pen: every call is skipped after the first failure; clips it pushed
