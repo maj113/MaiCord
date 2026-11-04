@@ -44,8 +44,9 @@ bool fail(Parse& p, E error) noexcept {
     if (p.error == E::none) p.error = error;
     return false;
 }
-// The index of name among names, marking it in seen. An unknown name, or one
-// allowed lacks, is unknown_field; a repeated one duplicate_field.
+// The index of name among names, marking it in seen, or ~0u. A repeated name is duplicate_field; a name the
+// schema doesn't define for this object (or this kind) is ignored, so a later index can add members: the visitor
+// answers ignored() for it.
 u32 member(Parse& p, JsonString name, const char* names, u32 allowed, u32* seen) noexcept {
     u32 i = 0;
     for (NameList list{names}; list; list.next(), ++i) {
@@ -55,9 +56,10 @@ u32 member(Parse& p, JsonString name, const char* names, u32 allowed, u32* seen)
         *seen |= 1u << i;
         return i;
     }
-    fail(p, E::unknown_field);
     return ~0u;
 }
+// A member visitor's answer for member()'s ~0u: an unknown member is skipped, a duplicate fails.
+bool ignored(const Parse& p) noexcept { return p.error == E::none; }
 bool object(Parse& p, JsonValue value, JsonMemberVisitor visitor, void* context) noexcept {
     if (value.kind != JsonValueKind::object) return fail(p, E::type);
     return json_visit_indexed_object(p.document, value, kCatalogIndexMaximumDepth, visitor, context).ok() || fail(p, E::json);
@@ -291,7 +293,7 @@ struct BlobContext {
 bool blob_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<BlobContext*>(context);
     const u32 field = member(*c.p, name, "sha256\0bytes\0", 3, &c.seen);
-    if (field == ~0u) return false;
+    if (field == ~0u) return ignored(*c.p);
     if (field == 0) return digest(*c.p, value, c.blob->sha256, 32);
     return u32_in(*c.p, value, 1, c.maximum, E::file, &c.blob->bytes);
 }
@@ -324,7 +326,7 @@ bool image_member(void* context, JsonString name, JsonValue value) noexcept {
     case im_alt: return display(p, value, kAltMaximumBytes, true, nullptr);
     case im_fps: return u32_in(p, value, 1, 60, E::limit, &range_only);
     case im_seconds: return u32_in(p, value, 1, 10, E::limit, &range_only);
-    default: return false;
+    default: return ignored(p);
     }
 }
 bool image(Parse& p, JsonValue value, u32 fields, CatalogImage* out) noexcept {
@@ -349,7 +351,7 @@ struct AuthorContext {
 bool author_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<AuthorContext*>(context);
     const u32 field = member(*c.p, name, "name\0github\0", 3, &c.seen);
-    if (field == ~0u) return false;
+    if (field == ~0u) return ignored(*c.p);
     if (field == 0) return display(*c.p, value, kAuthorMaximumBytes, true, &c.author->name);
     return grammar(*c.p, value, github_valid, E::identifier, &c.author->github);
 }
@@ -373,7 +375,7 @@ bool derived_member(void* context, JsonString name, JsonValue value) noexcept {
     case 0: return grammar(*c.p, value, url_valid, E::url, nullptr);
     case 1: return display(*c.p, value, kAuthorMaximumBytes, true, nullptr);
     case 2: return grammar(*c.p, value, license_valid, E::identifier, nullptr);
-    default: return false;
+    default: return ignored(*c.p);
     }
 }
 bool category_entry(void* context, u32 index, JsonValue value) noexcept {
@@ -449,7 +451,7 @@ bool version_member(void* context, JsonString name, JsonValue value) noexcept {
         v.first_host = p.out->host_count;
         return array(p, value, host_entry, pair, 0);
     case ve_file: return blob(p, value, kCatalogIndexPluginMaximumBytes, &v.file);
-    default: return false;
+    default: return ignored(p);
     }
 }
 struct VersionsContext {
@@ -537,7 +539,7 @@ bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
         }
     case kn_choices:
         return array(p, value, choice_entry, &c, 2);
-    default: return false;
+    default: return ignored(p);
     }
     if (type == CatalogKnobType::float_value) {
         if (!decimal(p, value, bound)) return false;
@@ -547,8 +549,8 @@ bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-// The position of the string member name holds among names; choice when it is something
-// else, missing_field when absent. A repeated name is duplicate_field.
+// The position of the string member name holds among names, ~0u for another string; choice when it is not a
+// string, missing_field when absent. A repeated name is duplicate_field.
 struct Peek {
     Parse* p;
     Utf8View name;
@@ -566,7 +568,8 @@ bool peek_member(void* context, JsonString name, JsonValue value) noexcept {
     u32 i = 0;
     for (NameList list{k.names}; decoded.ok() && list; list.next(), ++i)
         if (utf8_equal({text, decoded.bytes}, list.name())) { k.index = i; return true; }
-    return fail(*k.p, E::choice);
+    k.index = ~0u;
+    return true;
 }
 bool peek(Parse& p, JsonValue value, Utf8View name, const char* names, u32* index) noexcept {
     if (value.kind != JsonValueKind::object) return fail(p, E::type);
@@ -589,6 +592,7 @@ bool knob_entry(void* context, u32 index, JsonValue value) noexcept {
         return fail(p, E::limit);
     u32 type = 0;
     if (!peek(p, value, utf8_literal("type"), kKnobTypes, &type)) return false;
+    if (type == ~0u) return fail(p, E::choice);
     CatalogKnob& k = out.knobs[out.knob_count];
     k.type = static_cast<CatalogKnobType>(type);
     KnobContext kc{&p, &k, 0};
@@ -638,7 +642,7 @@ struct SwatchContext {
 bool swatch_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<SwatchContext*>(context);
     const u32 field = member(*c.p, name, "background\0surface\0text\0accent\0", 0xF, &c.seen);
-    if (field == ~0u) return false;
+    if (field == ~0u) return ignored(*c.p);
     Text t{};
     if (!decode(*c.p, value, &t)) return false;
     return color(t.view, &c.swatches[field]) || fail(*c.p, E::text);
@@ -656,10 +660,12 @@ constexpr u32 kCommonFields = (1u << (it_previews + 1)) - 1;
 constexpr u32 kCommonRequired = kCommonFields & ~(bit(it_homepage) | bit(it_derived));
 constexpr u32 kDataFields = bit(it_version) | bit(it_released) | bit(it_changelog) | bit(it_file);
 constexpr u32 kDataRequired = kDataFields & ~bit(it_changelog);
+// Every kind may carry an interface (CatalogItem::interface).
 constexpr u32 kItemFields[]{
-    kCommonFields | bit(it_versions),
-    kCommonFields | kDataFields | bit(it_base) | bit(it_effect) | bit(it_swatches),
-    kCommonFields | kDataFields | bit(it_cost) | bit(it_blend) | bit(it_uses) | bit(it_knobs) | bit(it_loop) | bit(it_interface)};
+    kCommonFields | bit(it_interface) | bit(it_versions),
+    kCommonFields | bit(it_interface) | kDataFields | bit(it_base) | bit(it_effect) | bit(it_swatches),
+    kCommonFields | bit(it_interface) | kDataFields | bit(it_cost) | bit(it_blend) | bit(it_uses) | bit(it_knobs) |
+        bit(it_loop)};
 constexpr u32 kItemRequired[]{
     kCommonRequired | bit(it_versions),
     kCommonRequired | kDataRequired | bit(it_base),
@@ -725,10 +731,10 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
     }
     case it_knobs: return knobs(p, value, item);
     case it_loop: return image(p, value, kLoopFields, &item.loop) && (item.has_loop = true);
-    // The .mcfx interface the package needs, when above 1. Only index-full.json names it: 0.6.0 to 0.6.2 refuse
-    // the member, so index.json leaves such effects out.
-    case it_interface: return u32_in(p, value, 1, 0xFFFF, E::api_level, &data.api_level);
-    default: return false;
+    // What the item needs of the client (CatalogItem::interface_level). index-3.json names it on any kind,
+    // index-full.json on effects only, and index.json never: 0.6.0 to 0.6.3 refuse it where they don't expect it.
+    case it_interface: return u32_in(p, value, 1, 0xFFFF, E::api_level, &item.interface_level);
+    default: return ignored(p);
     }
 }
 bool item_entry(void* context, u32 index, JsonValue value) noexcept {
@@ -737,7 +743,9 @@ bool item_entry(void* context, u32 index, JsonValue value) noexcept {
     if (index >= kCatalogIndexMaximumItems) return fail(p, E::limit);
     u32 kind = 0;
     if (!peek(p, value, utf8_literal("kind"), kKinds, &kind)) return false;
-    CatalogItem& item = out.items[index];
+    if (kind == ~0u) return true; // a kind a later client lists
+    const u32 slot = out.item_count;
+    CatalogItem& item = out.items[slot];
     item.kind = static_cast<CatalogKind>(kind);
     item.first_version = out.version_count;
     if (item.kind != CatalogKind::plugin) {
@@ -747,9 +755,9 @@ bool item_entry(void* context, u32 index, JsonValue value) noexcept {
     ItemContext c{&p, &item, 0};
     if (!object(p, value, item_member, &c) || !required(p, c.seen, kItemRequired[kind])) return false;
     const Utf8View slug = catalog_text(out, item.slug);
-    for (u32 i = 0; i < index; ++i)
+    for (u32 i = 0; i < slot; ++i)
         if (out.items[i].kind == item.kind && utf8_equal(catalog_text(out, out.items[i].slug), slug)) return fail(p, E::duplicate);
-    out.item_count = index + 1;
+    out.item_count = slot + 1;
     return true;
 }
 
@@ -774,7 +782,7 @@ bool revoked_member(void* context, JsonString name, JsonValue value) noexcept {
         if (!lookup(p, value, kSeverities, &severity)) return false;
         e.severity = static_cast<CatalogRevocationSeverity>(severity + 1);
         return true;
-    default: return false;
+    default: return ignored(p);
     }
 }
 template <bool Blocklist>
@@ -812,7 +820,7 @@ bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     case r_items: return array(p, value, item_entry, &p, 0);
     case r_revoked: return array(p, value, revoked_entry<false>, &p, 0);
     case r_blocklist: return array(p, value, revoked_entry<true>, &p, 0);
-    default: return false;
+    default: return ignored(p);
     }
 }
 CatalogIndexResult finish(CatalogIndex* output, E error) noexcept {

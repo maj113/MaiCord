@@ -198,13 +198,17 @@ class PluginIndexToolTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 plugin_index.install_record(index, *bad)
 
-    def test_shared_vectors_fail_with_their_error(self):
+    def test_shared_vectors_give_their_result(self):
         count = 0
         for number, expected, find, replace in vectors():
             document = self.document.decode("utf-8")
             self.assertEqual(document.count(find), 1, f"vectors.txt:{number}: the search text must occur once")
-            self.assertIn(expected, plugin_index.ERRORS, f"vectors.txt:{number}")
+            self.assertIn(expected, plugin_index.ERRORS + ("none",), f"vectors.txt:{number}")
             mutated = document.replace(find, replace).encode("utf-8")
+            if expected == "none":
+                self.assertEqual(self.code(mutated), "none", f"vectors.txt:{number}")
+                count += 1
+                continue
             with self.assertRaises(plugin_index.PluginIndexError, msg=f"vectors.txt:{number}") as raised:
                 if expected == "signature":
                     plugin_index.verify_index(mutated, self.signature, SCALAR_ONE_POINT, NOW)
@@ -213,6 +217,14 @@ class PluginIndexToolTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, expected, f"vectors.txt:{number}: {raised.exception}")
             count += 1
         self.assertGreaterEqual(count, 60)
+
+    def test_older_readers_refuse_what_reader_3_skips(self):
+        document = self.document.decode("utf-8")
+        extra = document.replace('"format":2,', '"format":2,"extra":0,', 1).encode("utf-8")
+        kind = document.replace('"kind":"theme","slug":"obsidian"', '"kind":"skin","slug":"obsidian"', 1).encode("utf-8")
+        self.assertEqual([self.code(extra, reader=r) for r in (3, 2, 1)], ["none", "unknown_field", "unknown_field"])
+        self.assertEqual([self.code(kind, reader=r) for r in (3, 2, 1)], ["none", "choice", "choice"])
+        self.assertEqual(len(plugin_index.parse_index(kind, NOW)["items"]), 5, "an item of an unknown kind is skipped")
 
     def test_list_limits(self):
         index = json.loads(self.document)
@@ -240,34 +252,49 @@ class PluginIndexToolTests(unittest.TestCase):
         self.assertEqual(self.code(self.document, now=ISSUED - plugin_index.CLOCK_SKEW_SECONDS - 1), "time")
         self.assertEqual(self.code(self.document, now=ISSUED - plugin_index.CLOCK_SKEW_SECONDS), "none")
 
-    def test_effect_interface_and_the_legacy_index(self):
+    def test_interfaces_and_the_three_indexes(self):
         source = spec()
-        self.assertEqual(plugin_index.render_index(plugin_index.legacy_source(source)), self.document,
-                         "without interfaces the legacy index is the full one")
+        for reader in (2, 1):
+            self.assertEqual(plugin_index.render_index(plugin_index.reader_source(source, reader), reader), self.document,
+                             "without interfaces every index is the same")
         items = {(i["kind"], i["slug"]): i for i in source["items"]}
         items["effect", "aurora"]["interface"] = 3
         items["effect", "starfield"]["interface"] = 1
-        items["theme", "obsidian"]["effect"] = "aurora"
-        full = plugin_index.parse_index(plugin_index.render_index(source), None)
-        listed = {(i["kind"], i["slug"]): i for i in full["items"]}
-        self.assertEqual((listed["effect", "aurora"]["interface"], listed["effect", "starfield"]["interface"]), (3, 1))
-        legacy = plugin_index.render_index(plugin_index.legacy_source(source))
+        items["theme", "obsidian"]["interface"] = 2
+        items["theme", "warm-paper"]["effect"] = "aurora"
+        items["plugin", "translate"]["interface"] = 2
+        three = plugin_index.parse_index(plugin_index.render_index(source), None)
+        listed = {(i["kind"], i["slug"]): i for i in three["items"]}
+        self.assertEqual([listed[k].get("interface") for k in (("effect", "aurora"), ("effect", "starfield"),
+                                                               ("theme", "obsidian"), ("plugin", "translate"))],
+                         [3, 1, 2, 2], "index-3.json names the interface on any kind")
+        full = plugin_index.render_index(plugin_index.reader_source(source, 2), 2)
+        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(full, None, reader=2)["items"]}
+        self.assertEqual(sorted(listed), [("effect", "aurora"), ("effect", "starfield"), ("plugin", "clear-urls"),
+                                          ("theme", "warm-paper")],
+                         "index-full.json leaves out the theme and the plugin 0.6.3 can't read")
+        self.assertEqual((listed["effect", "aurora"]["interface"], listed["theme", "warm-paper"]["effect"]), (3, "aurora"))
+        legacy = plugin_index.render_index(plugin_index.reader_source(source, 1), 1)
         self.assertNotIn(b'"interface"', legacy, "0.6.0 to 0.6.2 refuse the member")
-        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(legacy, None)["items"]}
-        self.assertNotIn(("effect", "aurora"), listed, "an effect they can't run is left out")
-        self.assertIn(("effect", "starfield"), listed)
-        self.assertNotIn("effect", listed["theme", "obsidian"], "a theme does not name an effect that is left out")
-        self.assertEqual(len(listed), 5)
+        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(legacy, None, reader=1)["items"]}
+        self.assertEqual(sorted(listed), [("effect", "starfield"), ("plugin", "clear-urls"), ("theme", "warm-paper")])
+        self.assertNotIn("effect", listed["theme", "warm-paper"], "a theme does not name an effect that is left out")
+        for reader, document in ((2, full), (1, legacy)):
+            self.assertEqual(plugin_index.parse_index(document, None, reader=reader)["sequence"],
+                             plugin_index.parse_index(document, None)["sequence"], "each tier reads its file")
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.parse_index(plugin_index.render_index(source), None, reader=2)
+        self.assertEqual(raised.exception.code, "unknown_field", "0.6.3 refuses an interface on a theme or plugin")
         for value, code in ((0, "api_level"), (65536, "api_level"), ("3", "type")):
-            items["effect", "aurora"]["interface"] = value
+            items["theme", "obsidian"]["interface"] = value
             with self.assertRaises(plugin_index.PluginIndexError) as raised:
                 plugin_index.render_index(source)
             self.assertEqual(raised.exception.code, code, value)
-        items["effect", "aurora"]["interface"] = 3
-        items["theme", "obsidian"]["interface"] = 3
+        items["theme", "obsidian"]["interface"] = 2
+        items["theme", "obsidian"]["extra"] = 1
         with self.assertRaises(plugin_index.PluginIndexError) as raised:
             plugin_index.render_index(source)
-        self.assertEqual(raised.exception.code, "unknown_field", "only effects have an interface")
+        self.assertEqual(raised.exception.code, "unknown_field", "rendering refuses members no reader defines")
 
     def test_signatures(self):
         key, other = cng_p256.PrivateKey.generate(), cng_p256.PrivateKey.generate()

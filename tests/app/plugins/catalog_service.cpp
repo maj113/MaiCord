@@ -8,6 +8,7 @@
 #include "plugins/catalog_worker.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/app/packages/mcfx.hpp"
+#include "maicord/app/settings/client_theme_document.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
@@ -124,6 +125,7 @@ struct Publish {
     const u8* revoked;    // a malicious revocation
     const u8* broken;     // a broken one
     u32 effect_interface; // the effect's .mcfx interface, 0 to leave it out
+    u32 theme_interface;  // the theme's document interface, 0 to leave it out
 };
 void file(Text& t, const Blob& b) noexcept {
     t.add("\"file\":{\"sha256\":\"").digest(b.sha256).add("\",\"bytes\":").number(b.bytes).add("}");
@@ -165,6 +167,7 @@ void publish(const Publish& p) noexcept {
                                                          "\"version\":\"1.0.0\",\"released\":")
         .number(g_now - 1000).add(",");
     file(t, g->theme);
+    if (p.theme_interface) t.add(",\"interface\":").number(p.theme_interface);
     t.add(",\"base\":\"dark\"},");
     common(t, "effect", "rain", "Rain");
     t.add("{\"sha256\":\"").digest(g->details.sha256).add("\",\"bytes\":1,\"width\":480,\"height\":270,\"alt\":\"Rain\"}],"
@@ -180,8 +183,8 @@ void publish(const Publish& p) noexcept {
     if (p.bad_signature) g->signature[3] ^= 1;
     auto& s = g->server;
     plugin_fake::reset(s, kOrigin);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-full.json", 200, t.data, t.bytes);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-full.json.sig", 200, g->signature, 64);
+    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-3.json", 200, t.data, t.bytes);
+    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-3.json.sig", 200, g->signature, 64);
     for (const Blob& b : g->plugin) plugin_fake::serve(s, UpdateHost::pages, b.target, 200, b.data, b.bytes);
     const Blob& theme = p.corrupt_theme ? g->corrupt : g->theme;
     plugin_fake::serve(s, UpdateHost::pages, g->theme.target, 200, theme.data, theme.bytes);
@@ -373,7 +376,7 @@ void run_flow(const wchar_t* base) noexcept {
               phase() == CatalogPhase::failed && application_catalog_view().operation.error == CatalogError::incompatible &&
               !application_catalog_item_state(CatalogKind::effect, utf8_literal("rain")).installed,
           "an effect needing a newer interface is listed as needing a newer MaiCord and isn't downloaded");
-    publish({102, false, false, false, nullptr, nullptr, kMcfxInterfaceMaximum});
+    publish({102, false, false, false, nullptr, nullptr, kMcfxInterfaceMaximum, kClientThemeInterfaceMaximum});
     check(check_now(), "the fixed index is accepted");
     const u32 changes = g_library_changes;
     check(application_catalog_install(CatalogKind::theme, utf8_literal("fjord")) && settle(finished) && phase() == CatalogPhase::done &&
@@ -457,6 +460,13 @@ void run_flow(const wchar_t* base) noexcept {
     check(application_catalog_remove(CatalogKind::theme, utf8_literal("fjord"), false) && g_removed == 1 &&
               !application_catalog_item_state(CatalogKind::theme, utf8_literal("fjord")).installed,
           "remove hands themes to the package library");
+
+    // A theme needing a newer document interface is listed but can't be installed (one with variants installs above).
+    publish({106, true, false, false, g->plugin[0].sha256, g->effect.sha256, 0, kClientThemeInterfaceMaximum + 1});
+    check(check_now() && application_catalog_item_state(CatalogKind::theme, utf8_literal("fjord")).incompatible &&
+              !application_catalog_install(CatalogKind::theme, utf8_literal("fjord")) &&
+              application_catalog_view().operation.error == CatalogError::incompatible,
+          "a theme needing a newer interface is listed as needing a newer MaiCord and isn't downloaded");
 
     // A declined consent leaves nothing behind.
     check(application_catalog_install(CatalogKind::plugin, kSlug) && settle(consent_or_finished) && phase() == CatalogPhase::consent &&

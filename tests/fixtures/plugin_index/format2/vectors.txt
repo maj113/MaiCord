@@ -1,15 +1,16 @@
-# Malformed catalog indexes shared by the client's tests and
+# Catalog indexes shared by the client's tests and
 # tools/release/test_plugin_index_tools.py. Each row is
 #   <error>	<search>	<replacement>
 # and replaces the single occurrence of <search> in index.json; the result must
-# fail with <error> (plugin_index.ERRORS) at now = 1760400000. `signature` rows
-# are verified against the unchanged index.json.sig under the scalar-one public
-# key; every other row is a parse-only check (the signature is not looked at).
-# Rows change exactly one rule.
+# fail with <error> (plugin_index.ERRORS) at now = 1760400000, or parse when it
+# is `none` (index-3.json's reader skips members and item kinds it doesn't
+# know). `signature` rows are verified against the unchanged index.json.sig
+# under the scalar-one public key; every other row is a parse-only check (the
+# signature is not looked at). Rows change exactly one rule.
 format	"format":2,	"format":3,
 type	"sequence":1760227200	"sequence":"1760227200"
 sequence	"sequence":1760227200	"sequence":0
-unknown_field	"format":2,	"format":2,"extra":0,
+none	"format":2,	"format":2,"extra":0,
 duplicate_field	"format":2,	"format":2,"format":2,
 json	"format":2,	"format":2,,
 json	"since":1760150000}]}	"since":1760150000}]}x
@@ -22,9 +23,10 @@ missing_field	"issued":1760226600,
 signature	"sequence":1760227200	"sequence":1760227201
 depth	"previews":[]	"previews":[[[[[[[[[[]]]]]]]]]]
 type	"revoked":[{"sha256"	"revoked":["x",{"sha256"
-choice	"kind":"theme","slug":"obsidian"	"kind":"skin","slug":"obsidian"
+none	"kind":"theme","slug":"obsidian"	"kind":"skin","slug":"obsidian"
+choice	"kind":"theme","slug":"obsidian"	"kind":3,"slug":"obsidian"
 missing_field	"kind":"theme","slug":"obsidian",	"slug":"obsidian",
-unknown_field	"base":"amoled"	"base":"amoled","versions":[]
+none	"base":"amoled"	"base":"amoled","versions":[]
 identifier	"slug":"obsidian"	"slug":"Obsidian"
 identifier	"slug":"warm-paper"	"slug":"-warm-paper"
 duplicate	"slug":"warm-paper"	"slug":"obsidian"
@@ -63,7 +65,9 @@ api_level	"kind":"effect","slug":"aurora"	"kind":"effect","interface":0,"slug":"
 api_level	"kind":"effect","slug":"aurora"	"kind":"effect","interface":65536,"slug":"aurora"
 type	"kind":"effect","slug":"aurora"	"kind":"effect","interface":"3","slug":"aurora"
 duplicate_field	"kind":"effect","slug":"aurora"	"kind":"effect","interface":3,"interface":3,"slug":"aurora"
-unknown_field	"kind":"theme","slug":"obsidian"	"kind":"theme","interface":3,"slug":"obsidian"
+none	"kind":"theme","slug":"obsidian"	"kind":"theme","interface":3,"slug":"obsidian"
+api_level	"kind":"theme","slug":"obsidian"	"kind":"theme","interface":0,"slug":"obsidian"
+api_level	"kind":"plugin","slug":"translate"	"kind":"plugin","interface":65536,"slug":"translate"
 permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_send","network"],"network":[],"file":{"sha256":"13fd
 permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_sendx"],"network":[],"file":{"sha256":"13fd
 permission	"permissions":["network","composer"]	"permissions":["composer"]
@@ -81,7 +85,7 @@ choice	"base":"amoled"	"base":"sepia"
 identifier	"effect":"aurora"	"effect":"Aurora"
 text	"accent":"#34D399"	"accent":"#34D39"
 missing_field	"background":"#000000",	
-unknown_field	"accent":"#34D399"	"accent":"#34D399","extra":"#000000"
+none	"accent":"#34D399"	"accent":"#34D399","extra":"#000000"
 file	"bytes":1209	"bytes":65537
 choice	"cost":"light"	"cost":"extreme"
 choice	"blend":"normal"	"blend":"multiply"
@@ -93,7 +97,7 @@ type	"default":0.35	"default":0.3512
 type	"default":0.35	"default":3.5e-1
 limit	"max":4,"default":3}	"max":4,"default":5}
 type	"max":4,"default":3}	"max":4,"default":3.0}
-unknown_field	"max":4,"default":3}	"max":4,"default":3,"percent":true}
+none	"max":4,"default":3}	"max":4,"default":3,"percent":true}
 type	"default":0.35	"default":0.35,"percent":1
 identifier	"id":"speed"	"id":"Speed"
 duplicate	"id":"curtains"	"id":"speed"
@@ -104,7 +108,7 @@ text	"default":"#26FF66"	"default":"26FF66"
 limit	"choices":["Soft","Sharp"],"default":1	"choices":["Soft","Sharp"],"default":2
 limit	"choices":["Soft","Sharp"]	"choices":["Soft"]
 duplicate	"choices":["Soft","Sharp"]	"choices":["Soft","Soft"]
-unknown_field	"label":"Mirrored"	"label":"Mirrored","hint":"x"
+none	"label":"Mirrored"	"label":"Mirrored","hint":"x"
 missing_field	{"id":"tint","type":"color","label":"Colour","default":"#26FF66"}	{"id":"tint","type":"color","label":"Colour"}
 limit	"uses":[],"knobs":[]	"uses":[],"knobs":[{"id":"t0","type":"toggle","label":"T","default":false},{"id":"t1","type":"toggle","label":"T","default":false},{"id":"t2","type":"toggle","label":"T","default":false},{"id":"t3","type":"toggle","label":"T","default":false},{"id":"t4","type":"toggle","label":"T","default":false},{"id":"t5","type":"toggle","label":"T","default":false},{"id":"t6","type":"toggle","label":"T","default":false},{"id":"t7","type":"toggle","label":"T","default":false},{"id":"t8","type":"toggle","label":"T","default":false},{"id":"t9","type":"toggle","label":"T","default":false},{"id":"t10","type":"toggle","label":"T","default":false},{"id":"t11","type":"toggle","label":"T","default":false},{"id":"t12","type":"toggle","label":"T","default":false},{"id":"t13","type":"toggle","label":"T","default":false},{"id":"t14","type":"toggle","label":"T","default":false},{"id":"t15","type":"toggle","label":"T","default":false},{"id":"t16","type":"toggle","label":"T","default":false}]
 limit	"fps":15	"fps":0
@@ -112,10 +116,10 @@ limit	"fps":15	"fps":61
 limit	"seconds":3	"seconds":11
 type	"seconds":3	"seconds":2.5
 file	"bytes":90000	"bytes":2097153
-unknown_field	"seconds":3}	"seconds":3,"alt":"x"}
+none	"seconds":3}	"seconds":3,"alt":"x"}
 choice	"severity":"broken"	"severity":"bad"
 time	"since":1760100000}	"since":0}
 missing_field	"reason":"Crashes on empty drafts.",	
 digest	"revoked":[{"sha256":"d70e26b1	"revoked":[{"sha256":"D70E26B1
 duplicate	"blocklist":[{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000}]	"blocklist":[{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000},{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000}]
-unknown_field	"reason":"Known malicious build."	"reason":"Known malicious build.","severity":"broken"
+none	"reason":"Known malicious build."	"reason":"Known malicious build.","severity":"broken"

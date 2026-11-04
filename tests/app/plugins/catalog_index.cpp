@@ -100,7 +100,7 @@ void test_vectors(const wchar_t* fixtures, Utf8View document, ConstSlice<u8> sig
         test_write_line(name_list_at(kErrorNames, static_cast<u32>(result.error)).data);
     }
     test_write_metric("catalog_index_vectors=", rows);
-    check(rows >= 100 && passed == rows, "every shared vector fails with its error");
+    check(rows >= 100 && passed == rows, "every shared vector gives its result");
     release(vectors);
 }
 
@@ -193,21 +193,29 @@ void test_document(Utf8View document, ConstSlice<u8> signature) noexcept {
               g_work->index.item_count == 0,
           "a bad or short signature refuses the document and leaves nothing behind");
     check(verify({document.data, 0}, signature, kNow).error == E::size, "an empty document is refused before hashing");
-    // index-full.json names the .mcfx interface an effect needs; it reads into the version's api_level.
-    const Utf8View search = utf8_literal("\"kind\":\"effect\",\"slug\":\"aurora\"");
-    u32 occurrences = 0;
-    const u32 at = find(document, search, &occurrences);
-    Text& full = g_work->text;
-    full.bytes = 0;
-    full.add({document.data, at}).add("\"kind\":\"effect\",\"interface\":4,\"slug\":\"aurora\"")
-        .add({document.data + at + search.bytes, document.bytes - at - search.bytes});
-    u8 resigned[64]{};
-    const bool listed = occurrences == 1 && g_key.sign(full.view(), resigned) && verify(full.view(), {resigned, 64}, kNow).ok();
-    const u32 aurora = listed ? catalog_index_find(index, CatalogKind::effect, utf8_literal("aurora")) : ~0u;
-    const u32 starfield = listed ? catalog_index_find(index, CatalogKind::effect, utf8_literal("starfield")) : ~0u;
-    check(aurora != ~0u && starfield != ~0u && index.versions[index.items[aurora].first_version].api_level == 4 &&
-              index.versions[index.items[starfield].first_version].api_level == 0,
-          "an effect's interface is read into its version, absent as 0");
+    // index-3.json names the interface an item needs, on any kind; it reads into the item, absent as 0.
+    const Utf8View marks[][2]{
+        {utf8_literal("\"kind\":\"effect\",\"slug\":\"aurora\""), utf8_literal("\"kind\":\"effect\",\"interface\":4,\"slug\":\"aurora\"")},
+        {utf8_literal("\"kind\":\"theme\",\"slug\":\"obsidian\""), utf8_literal("\"kind\":\"theme\",\"interface\":5,\"slug\":\"obsidian\"")},
+        {utf8_literal("\"kind\":\"plugin\",\"slug\":\"translate\""),
+         utf8_literal("\"kind\":\"plugin\",\"interface\":6,\"slug\":\"translate\"")}};
+    constexpr CatalogKind marked_kinds[]{CatalogKind::effect, CatalogKind::theme, CatalogKind::plugin};
+    constexpr Utf8View slugs[]{utf8_literal("aurora"), utf8_literal("obsidian"), utf8_literal("translate")};
+    u32 marked = 0;
+    for (u32 k = 0; k < 3; ++k) {
+        u32 occurrences = 0;
+        const u32 at = find(document, marks[k][0], &occurrences);
+        Text& full = g_work->text;
+        full.bytes = 0;
+        full.add({document.data, at}).add(marks[k][1]).add({document.data + at + marks[k][0].bytes, document.bytes - at - marks[k][0].bytes});
+        u8 resigned[64]{};
+        if (occurrences != 1 || !g_key.sign(full.view(), resigned) || !verify(full.view(), {resigned, 64}, kNow).ok()) continue;
+        const CatalogIndex& index = g_work->index;
+        const u32 item = catalog_index_find(index, marked_kinds[k], slugs[k]);
+        const u32 other = catalog_index_find(index, marked_kinds[(k + 1) % 3], slugs[(k + 1) % 3]);
+        marked += item != ~0u && other != ~0u && index.items[item].interface_level == 4 + k && !index.items[other].interface_level;
+    }
+    check(marked == 3, "an interface on a plugin, a theme or an effect is read into the item, absent as 0");
 }
 
 void test_versions() noexcept {
@@ -280,7 +288,7 @@ void test_state(const wchar_t* root) noexcept {
     VirtualFree(state, 0, MEM_RELEASE);
 }
 
-// A real index CI built: MAICORD_CATALOG_E2E_DIR holds index-full.json(.sig), details/, previews/ and files/;
+// A real index CI built: MAICORD_CATALOG_E2E_DIR holds index-3.json(.sig), details/, previews/ and files/;
 // MAICORD_CATALOG_E2E_KEY is the public key.
 void test_end_to_end() noexcept {
     wchar_t directory[MAX_PATH], key_text[140];
@@ -305,10 +313,10 @@ void test_end_to_end() noexcept {
     check(ok, "e2e: MAICORD_CATALOG_E2E_KEY is a 130-digit public key");
     wchar_t path[MAX_PATH];
     const u32 base = wide_copy(path, 0, directory);
-    wide_copy(path, base, L"\\index-full.json");
+    wide_copy(path, base, L"\\index-3.json");
     u32 document_bytes = 0, signature_bytes = 0;
     u8* document = read_file(path, &document_bytes);
-    wide_copy(path, base, L"\\index-full.json.sig");
+    wide_copy(path, base, L"\\index-3.json.sig");
     u8* signature = read_file(path, &signature_bytes);
     const P256Key* keys[]{&key};
     const auto verified = ok && document && signature

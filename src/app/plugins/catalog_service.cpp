@@ -3,6 +3,7 @@
 #include "dev_console.hpp"
 #include "dev_watch.hpp"
 #include "maicord/app/packages/mcfx.hpp"
+#include "maicord/app/settings/client_theme_document.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/plugins/pipeline.hpp"
@@ -863,10 +864,12 @@ const CatalogView& application_catalog_view() noexcept {
 }
 
 namespace {
-// A plugin version's API level, or an effect's .mcfx interface, is one this client has.
-bool version_runs(CatalogKind kind, const CatalogVersion& v) noexcept {
-    if (kind == CatalogKind::plugin) return v.api_level <= MC_API_LEVEL;
-    return kind != CatalogKind::effect || v.api_level <= kMcfxInterfaceMaximum;
+// The item's interface (a plugin entry's, a theme document's or an effect's .mcfx interface) and a plugin version's
+// API level are ones this client has.
+bool version_runs(const CatalogItem& item, const CatalogVersion& v) noexcept {
+    constexpr u32 kInterfaces[kCatalogKindCount]{1, kClientThemeInterfaceMaximum, kMcfxInterfaceMaximum};
+    return item.interface_level <= kInterfaces[static_cast<u32>(item.kind)] &&
+           (item.kind != CatalogKind::plugin || v.api_level <= MC_API_LEVEL);
 }
 } // namespace
 
@@ -875,7 +878,7 @@ u32 application_catalog_installable_version(u32 item) noexcept {
     const CatalogItem& it = g->index->items[item];
     for (u32 i = 0; i < it.version_count; ++i) {
         const CatalogVersion& v = g->index->versions[it.first_version + i];
-        if (!version_runs(it.kind, v)) continue;
+        if (!version_runs(it, v)) continue;
         const auto severity = catalog_index_revocation(*g->index, v.file.sha256);
         if (severity == CatalogRevocationSeverity::none || severity == CatalogRevocationSeverity::withdrawn) return it.first_version + i;
     }
@@ -892,7 +895,7 @@ CatalogItemState application_catalog_item_state(CatalogKind kind, const Utf8View
         const CatalogItem& it = g->index->items[s.item];
         bool any = false;
         for (u32 i = 0; i < it.version_count; ++i)
-            any = any || version_runs(kind, g->index->versions[it.first_version + i]);
+            any = any || version_runs(it, g->index->versions[it.first_version + i]);
         s.incompatible = !any;
     }
     if (!e) return s;

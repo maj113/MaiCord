@@ -3,10 +3,11 @@
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/platform/crypto/p256.hpp"
 
-// The official catalog's index, format 2 (index-full.json and its detached 64-byte
-// index-full.json.sig: P-256/P1363 over SHA-256 of the domain followed by the
-// document; index.json, for 0.6.0 to 0.6.2, is the same index without what they
-// can't run). tools/release/plugin_index.py is the reference writer and
+// The official catalog's index, format 2, in three signed files, each with its detached 64-byte .sig (P-256/P1363
+// over SHA-256 of the domain followed by the document): index-3.json, which this reader reads, lists every item;
+// index-full.json (0.6.3) leaves out the themes and plugins that name an interface; index.json (0.6.0 to 0.6.2) also
+// the effects that do. This reader ignores members it doesn't know and items of kinds it doesn't know, so later
+// fields join index-3.json without another split. tools/release/plugin_index.py is the reference writer and
 // verifier; tests/fixtures/plugin_index/format2 holds the shared vectors.
 namespace maicord {
 
@@ -107,7 +108,7 @@ struct CatalogAuthor {
     CatalogString name, github;
 };
 // A plugin's listed version, or the one version of a theme or effect (permissions and hosts zero). api_level is a
-// plugin's MC_API_LEVEL, or the .mcfx interface an effect's package needs (0 when the index leaves it out: 1).
+// plugin version's MC_API_LEVEL.
 struct CatalogVersion {
     u64 code; // major * 1000000 + minor * 1000 + patch
     u64 released;
@@ -128,6 +129,10 @@ struct CatalogKnob {
 };
 struct CatalogItem {
     CatalogKind kind;
+    // What the item needs of the client, 0 when the index leaves it out (1): a plugin's catalog entry level (1), a
+    // theme's document interface (kClientThemeInterfaceMaximum) or an effect's .mcfx interface (kMcfxInterfaceMaximum).
+    // Above the client's, the item shows as needing a newer MaiCord.
+    u32 interface_level;
     CatalogThemeBase base;
     CatalogCost cost;
     CatalogBlend blend;
@@ -172,8 +177,8 @@ inline Utf8View catalog_text(const CatalogIndex& index, CatalogString s) noexcep
     return {index.text + s.offset, s.bytes};
 }
 
-// Strict format 2: unknown (also for the item's kind), duplicate or missing
-// members are refused, every limit is checked, display text bans controls,
+// Format 2: unknown members (also for the item's kind) and items of an unknown kind are skipped; duplicate or
+// missing members are refused, every limit is checked, display text bans controls,
 // bidi controls and zero-width characters. The size is checked before
 // hashing; the signature (by any of keys) before parsing. No allocation,
 // network or file access. On failure *output is zeroed.

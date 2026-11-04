@@ -19,11 +19,16 @@ of the domain and the document); verify checks the signature, schema and
 freshness; manifest prints the install record the client derives for one
 listed file.
 
-The catalog publishes two signed indexes: FULL_INDEX (every item; an effect
-whose package needs a .mcfx interface above 1 names it in "interface"), which
-MaiCord 0.6.3 and later read, and LEGACY_INDEX, legacy_source() of the same
-source signed one sequence lower, for 0.6.0 to 0.6.2: their reader refuses the
-"interface" member, and their package reader any interface but 1.
+The catalog publishes three signed indexes of one source, one per reader:
+INDEX_3 (every item; any item may name the interface it needs in "interface"),
+which MaiCord 0.6.4 and later read: their reader ignores members and item kinds
+it doesn't know, so later fields need no further split. FULL_INDEX, for 0.6.3,
+is reader_source(source, 2) one sequence lower: its reader takes "interface"
+on effects only, so themes and plugins that name one are left out. LEGACY_INDEX,
+for 0.6.0 to 0.6.2, is reader_source(source, 1) two sequences lower: their
+reader refuses "interface" anywhere and their package reader any .mcfx
+interface but 1. parse_index(reader=) validates a document as each reader does;
+render_index always refuses unknown members, so a typo in a source never ships.
 """
 
 from __future__ import annotations
@@ -62,8 +67,11 @@ DETAILS_MAX_BYTES = 16 * 1024
 PREVIEW_MAX_BYTES = 256 * 1024
 LOOP_MAX_BYTES = 2 * 1024 * 1024
 FILE_MAX_BYTES = {"plugin": 8 * 1024 * 1024, "theme": 64 * 1024, "effect": 1536 * 1024}
+INDEX_3 = "index-3.json"
 FULL_INDEX = "index-full.json"
 LEGACY_INDEX = "index.json"
+# (file, reader, sequence offset): each newer client's index is signed higher, so every update moves forward.
+INDEXES = ((INDEX_3, 3, 2), (FULL_INDEX, 2, 1), (LEGACY_INDEX, 1, 0))
 FILE_EXTENSIONS = {"plugin": "dll", "theme": "json", "effect": "mcfx"}
 IMAGE_MAX_EXTENT = 4096
 
@@ -113,6 +121,23 @@ class PluginIndexError(Exception):
         self.code, self.detail = code, detail
 
 
+# The reader a validation runs as (INDEXES) and whether unknown members are refused: readers 1 and 2 refuse them,
+# reader 3 skips them, and render_index refuses them for every reader. Set by _reading().
+_reader = {"level": 3, "strict": False}
+
+
+class _reading:
+    def __init__(self, level: int, strict: bool):
+        self.state = {"level": level, "strict": strict or level < 3}
+
+    def __enter__(self):
+        self.saved = dict(_reader)
+        _reader.update(self.state)
+
+    def __exit__(self, *_):
+        _reader.update(self.saved)
+
+
 class _NotInteger:
     """A JSON integer that has more than 20 digits."""
 
@@ -132,6 +157,7 @@ def _refuse_constant(text: str):
     raise PluginIndexError("json", f"{text} is not JSON")
 
 
+# Any repeated name. The client refuses a repeated member it knows and never reads one it skips; render never writes one.
 def _pairs(pairs):
     names = [name for name, _ in pairs]
     if len(set(names)) != len(names):
@@ -372,13 +398,14 @@ def _list(check, maximum: int, minimum: int = 0, unique: bool = False):
 
 
 def _obj(fields: list, post=None):
-    """fields: (name, check, required) in canonical order. Unknown members are refused."""
+    """fields: (name, check, required) in canonical order. Unknown members are refused by a strict reader and
+    skipped (left out of the result) by reader 3."""
     names = {name for name, _, _ in fields}
 
     def run(value):
         members = _object(value)
         for name in members:
-            if name not in names:
+            if name not in names and _reader["strict"]:
                 raise PluginIndexError("unknown_field", name)
         missing = [name for name, _, required in fields if required and name not in members]
         if missing:
@@ -528,23 +555,32 @@ def _data_fields(kind: str) -> list:
             ("changelog", _text(CHANGELOG_MAX, False), False), ("file", _file(FILE_MAX_BYTES[kind]), True)]
 
 
+# What the item needs of the client; any kind may name it (reader 3). Reader 2 takes it on effects only, reader 1
+# nowhere (_item_check).
+_INTERFACE = ("interface", _integer(1, 0xFFFF, "api_level"), False)
 _ITEM_FIELDS = {
-    "plugin": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS), True), ("versions", _versions, True)],
+    "plugin": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS), True), ("versions", _versions, True),
+                         _INTERFACE],
     "theme": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS, 1), True)] + _data_fields("theme") + [
         ("base", _choice(BASES), True), ("effect", _grammar(slug_valid, "identifier"), False),
-        ("swatches", _swatches_check(), False)],
+        ("swatches", _swatches_check(), False), _INTERFACE],
     "effect": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS, 1), True)] + _data_fields("effect") + [
         ("cost", _choice(COSTS), True), ("blend", _choice(BLENDS), True),
         ("uses", _list(_choice(USES), len(USES), unique=True), True), ("knobs", _knobs, True),
-        ("loop", _loop_check(), False), ("interface", _integer(1, 0xFFFF, "api_level"), False)],
+        ("loop", _loop_check(), False), _INTERFACE],
 }
 _ITEM = {kind: _obj(fields) for kind, fields in _ITEM_FIELDS.items()}
 
 
-def _item_check(value) -> dict:
+def _item_check(value) -> dict | None:
+    """An item, or None for one of a kind reader 3 doesn't know (it skips it)."""
     kind = _object(value).get("kind")
     if kind not in KINDS:
+        if type(kind) is str and not _reader["strict"]:
+            return None
         raise PluginIndexError("choice" if "kind" in value else "missing_field", "kind")
+    if "interface" in value and (_reader["level"] == 1 or (_reader["level"] == 2 and kind != "effect")):
+        raise PluginIndexError("unknown_field", "interface")
     return _ITEM[kind](value)
 
 
@@ -563,7 +599,7 @@ def _unique_digests(check, maximum: int):
 
 
 def _items(value) -> list:
-    items = _list(_item_check, MAX_ITEMS)(value)
+    items = [item for item in _list(_item_check, MAX_ITEMS)(value) if item is not None]
     if len({(i["kind"], i["slug"]) for i in items}) != len(items):
         raise PluginIndexError("duplicate", "kind and slug")
     return items
@@ -594,8 +630,8 @@ def _check_root(root, now: int | None) -> dict:
     return index
 
 
-def parse_index(document: bytes, now: int | None, accept_expired: bool = False) -> dict:
-    """Validates an index exactly as the client does, without the signature.
+def parse_index(document: bytes, now: int | None, accept_expired: bool = False, reader: int = 3) -> dict:
+    """Validates an index exactly as the client of `reader` (INDEXES) does, without the signature.
 
     now=None skips the comparisons with the current time (render uses it).
     Returns the members in canonical form plus "expired" and "digest"."""
@@ -611,7 +647,8 @@ def parse_index(document: bytes, now: int | None, accept_expired: bool = False) 
         raise PluginIndexError("json", str(error)) from None
     if type(root) is not dict or _surrogates(root):
         raise PluginIndexError("json")
-    index = _check_root(root, now)
+    with _reading(reader, False):
+        index = _check_root(root, now)
     index["expired"] = False
     if now is not None and index["expires"] <= now:
         if not accept_expired:
@@ -622,13 +659,13 @@ def parse_index(document: bytes, now: int | None, accept_expired: bool = False) 
 
 
 def verify_index(document: bytes, signature: bytes, public_point: bytes, now: int | None,
-                 accept_expired: bool = False) -> dict:
+                 accept_expired: bool = False, reader: int = 3) -> dict:
     """plugin_index_verify: size, then the signature under the index domain, then the schema."""
     if not document or len(document) > MAX_BYTES:
         raise PluginIndexError("size")
     if len(signature) != 64 or not cng_p256.verify_digest(public_point, hashlib.sha256(DOMAIN + document).digest(), signature):
         raise PluginIndexError("signature")
-    return parse_index(document, now, accept_expired)
+    return parse_index(document, now, accept_expired, reader)
 
 
 def sign_index(document: bytes, key: cng_p256.PrivateKey) -> bytes:
@@ -636,8 +673,9 @@ def sign_index(document: bytes, key: cng_p256.PrivateKey) -> bytes:
 
 
 # ---- writer ------------------------------------------------------------------------
-def render_index(index: dict) -> bytes:
-    """Compact canonical UTF-8 JSON, validated as the client would (time checks need a clock and are left out).
+def render_index(index: dict, reader: int = 3) -> bytes:
+    """Compact canonical UTF-8 JSON for `reader`, validated as that client would (time checks need a clock and are
+    left out); unknown members are refused whatever the reader.
 
     Items are ordered by kind, then slug; both lists of withdrawn digests are always written."""
     source = dict(index)
@@ -645,22 +683,29 @@ def render_index(index: dict) -> bytes:
                              key=lambda i: (KINDS.index(i["kind"]) if i.get("kind") in KINDS else len(KINDS), i.get("slug", "")))
     source.setdefault("revoked", [])
     source.setdefault("blocklist", [])
-    document = json.dumps(_check_root(source, None), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    parse_index(document, None)
+    with _reading(reader, True):
+        document = json.dumps(_check_root(source, None), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    parse_index(document, None, reader=reader)
     return document
 
 
-def legacy_source(index: dict) -> dict:
-    """The index source for clients before "interface" (0.6.0 to 0.6.2): without the effects that need an interface
-    above 1, and without a theme's link to such an effect. The other items are unchanged."""
-    held = {i["slug"] for i in index.get("items", []) if i.get("kind") == "effect" and i.get("interface", 1) > 1}
+def reader_source(index: dict, reader: int) -> dict:
+    """The index source for `reader` (INDEXES); 3 reads the source itself. Reader 2 (0.6.3) takes "interface" on
+    effects only: plugins and themes that name an interface above 1 are left out, and the others lose the member.
+    Reader 1 (0.6.0 to 0.6.2) takes it nowhere and runs .mcfx interface 1 only: effects that need more are left out
+    too, with a theme's link to one. The other items are unchanged."""
+    if reader >= 3:
+        return index
+    kept = ("effect",) if reader == 2 else ()
+    held = {(i["kind"], i["slug"]) for i in index.get("items", [])
+            if i.get("interface", 1) > 1 and i.get("kind") not in kept}
     items = []
     for item in index.get("items", []):
-        if item.get("kind") == "effect":
-            if item["slug"] in held:
-                continue
+        if (item.get("kind"), item.get("slug")) in held:
+            continue
+        if item.get("kind") not in kept:
             item = {k: v for k, v in item.items() if k != "interface"}
-        elif item.get("kind") == "theme" and item.get("effect") in held:
+        if item.get("kind") == "theme" and ("effect", item.get("effect")) in held:
             item = {k: v for k, v in item.items() if k != "effect"}
         items.append(item)
     return dict(index, items=items)
@@ -706,6 +751,8 @@ def main(argv: list[str] | None = None) -> int:
     verify = commands.add_parser("verify", help="check signature, schema and freshness")
     verify.add_argument("--public-key", required=True, help="130 hex digits: the compiled catalog key")
     verify.add_argument("--now", type=int, default=None, help="unix time (default: now)")
+    verify.add_argument("--reader", type=int, choices=(1, 2, 3), default=3,
+                        help="the client the file is for: 3 index-3.json, 2 index-full.json, 1 index.json")
     verify.add_argument("index", type=Path)
     manifest = commands.add_parser("manifest", help="print the install record of one listed file")
     manifest.add_argument("index", type=Path)
@@ -730,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
             now = arguments.now if arguments.now is not None else int(time.time())
             point = cng_p256.parse_public_point(arguments.public_key)
             signature = Path(str(arguments.index) + ".sig").read_bytes()
-            index = verify_index(document, signature, point, now)
+            index = verify_index(document, signature, point, now, reader=arguments.reader)
             counts = {kind: sum(1 for i in index["items"] if i["kind"] == kind) for kind in KINDS}
             print(f"valid: {len(index['items'])} items ({counts['plugin']} plugins, {counts['theme']} themes, "
                   f"{counts['effect']} effects), {len(index.get('revoked', []))} revoked, "
