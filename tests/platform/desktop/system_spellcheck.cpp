@@ -1,6 +1,6 @@
-// Real Windows spell checker smoke test (CTest label system_spellcheck).
-// Skips when the factory or a language is unavailable. Read-only: it never
-// adds or ignores words, so the user's dictionary is untouched.
+// System spell checker smoke test (CTest label system_spellcheck): the Windows checker, or Hunspell/Enchant on Linux.
+// Skips when the checker or a language is unavailable. Read-only: it never adds or ignores words, so the user's
+// dictionary is untouched.
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/desktop/spell_checker.hpp"
 #include "../../support/test_output.hpp"
@@ -53,6 +53,6 @@ u32 run() noexcept {
 } // namespace
 } // namespace maicord
 
-extern "C" __declspec(noreturn) void WINAPI maicord_system_spellcheck_entry() noexcept {
-    ExitProcess(maicord::run());
+MAICORD_TEST_ENTRY(maicord_system_spellcheck_entry) {
+    maicord::test_process_exit(maicord::run());
 }

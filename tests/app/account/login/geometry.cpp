@@ -39,7 +39,7 @@ void test_application_login_geometry(void (*check)(bool, const char*) noexcept) 
                 check(measured, "login ACP real retained layout measured");
                 if (!measured) continue;
                 for (u32 dpi : dpis) {
-                    RECT rectangle{}; bool clipped = false;
+                    SecureTextRect rectangle{}; bool clipped = false;
                     const bool range = application_login_range_geometry(edit, layout, bounds, dpi, origin,
                         first, last, &rectangle, &clipped);
                     check(range && rectangle.right > rectangle.left && rectangle.bottom > rectangle.top,
@@ -55,7 +55,7 @@ void test_application_login_geometry(void (*check)(bool, const char*) noexcept) 
                             &rectangle, &clipped) && clipped, "login ACP partial prefix rebases and flags clipping");
                     }
                 }
-                RECT sentinel{1,2,3,4}; bool untouched = false;
+                SecureTextRect sentinel{1,2,3,4}; bool untouched = false;
                 check(!application_login_range_geometry(edit, layout, bounds, 96, origin, last + 1, last + 1,
                     &sentinel, &untouched) && sentinel.left == 1 && !untouched,
                     "login ACP invalid range fails atomically");
@@ -68,7 +68,7 @@ void test_application_login_geometry(void (*check)(bool, const char*) noexcept) 
                     &sentinel, &untouched), "login ACP stale field geometry is rejected");
             }
             check(valid_result(secure_edit_assign(&edit, utf8_literal("😀"))), "login ACP surrogate fixture");
-            RECT rectangle{}; bool clipped = false;
+            SecureTextRect rectangle{}; bool clipped = false;
             check(!application_login_range_geometry(edit, layout, {12.5f,24.25f,172.5f,64.25f}, 96,
                 {0,0}, 1, 1, &rectangle, &clipped), "login ACP interior surrogate is rejected");
             edit.password = true;

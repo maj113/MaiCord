@@ -365,7 +365,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         }
         const u8 domain = large_preview && renderer->preview_media_atlas ? 1 : 0;
         MediaAtlas* atlas = domain == 1 ? renderer->preview_media_atlas : renderer->media_atlas;
-        ID3D11ShaderResourceView* texture_view =
+        GpuSrv* texture_view =
             domain == 1 ? renderer->media_gpu.preview_texture_view : renderer->media_gpu.texture_view;
         if (!atlas || !texture_view) {
             continue;

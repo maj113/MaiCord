@@ -18,7 +18,7 @@
 
 #include "renderer_interaction_state.hpp"
 
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord::renderer_layout_detail {
 

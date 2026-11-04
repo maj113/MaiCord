@@ -57,7 +57,7 @@ inline bool probe_glyph_cache(D3D11Renderer& renderer,bool (*capture)(const wcha
                 cold_ticks[1]=end.QuadPart-start.QuadPart;cold_cycles[1]=ended-cycles;first_shape=false;
             }
         }
-        const float clear[]{0,0,0,1};context->ClearRenderTargetView(renderer.graphics.target,clear);
+        const float clear[]{0,0,0,1};context->ClearRenderTargetView(renderer.graphics.surface.target,clear);
         return d3d11_renderer_draw_stream(&renderer,kDefaultTheme,false,false,nullptr,10000)&&renderer.draw_calls_last_frame==1;
     };
     for(u32 phase=0;phase<5;++phase){

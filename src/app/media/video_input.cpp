@@ -211,8 +211,29 @@ u64 application_video_next_wake() noexcept {
 }
 // Pointer, cursor, key and tooltip events: input-rate, not per frame. The pump above stays at full speed.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
-    if (message == WM_MOUSELEAVE) {
+bool application_video_pointer(const WindowEvent& event) noexcept {
+    VideoPointer pointer{};
+    switch (event.type) {
+    case EventType::pointer_leave:
+        pointer = VideoPointer::leave;
+        break;
+    case EventType::pointer_move:
+        pointer = VideoPointer::move;
+        break;
+    case EventType::pointer_down:
+        if (!input_press(event))
+            return false;
+        pointer = VideoPointer::down;
+        break;
+    case EventType::pointer_up:
+        if (!input_release(event))
+            return false;
+        pointer = VideoPointer::up;
+        break;
+    default:
+        return false;
+    }
+    if (pointer == VideoPointer::leave) {
         if (g_app.video) {
             if (g_app.video->source.audio) {
                 auto& scene = g_app.video->ui.audio;
@@ -233,8 +254,7 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
     if (!video_surface_available())
         return false;
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
-    const UiPoint point{static_cast<float>(static_cast<i16>(LOWORD(lparam))) * scale,
-                        static_cast<float>(static_cast<i16>(HIWORD(lparam))) * scale};
+    const UiPoint point{event.pointer.x * scale, event.pointer.y * scale};
     auto* video = g_app.video;
     if (video && !search_video_still_current(*video))
         return false;
@@ -248,22 +268,22 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
             return false;
         }
         const auto before = ui_audio_scene_paint_revision(video->ui.audio);
-        const auto kind = message == WM_LBUTTONDOWN ? UiAudioPointerEvent::down
-                          : message == WM_LBUTTONUP ? UiAudioPointerEvent::up
-                                                    : UiAudioPointerEvent::move;
+        const auto kind = pointer == VideoPointer::down ? UiAudioPointerEvent::down
+                          : pointer == VideoPointer::up ? UiAudioPointerEvent::up
+                                                        : UiAudioPointerEvent::move;
         const auto result = ui_audio_scene_pointer(&video->ui.audio, kind, point);
         if (before != ui_audio_scene_paint_revision(video->ui.audio))
             application_request_frame();
         if (result.handled) {
-            if (message == WM_LBUTTONDOWN)
+            if (pointer == VideoPointer::down)
                 acquire_video_focus(*video);
             dispatch_audio_event(*video, result);
             return true;
         }
     }
-    if (video && !video->source.audio && video->ui.video.active && video_scene_pointer_event(*video, message, point))
+    if (video && !video->source.audio && video->ui.video.active && video_scene_pointer_event(*video, pointer, point))
         return true;
-    if (message != WM_LBUTTONDOWN)
+    if (pointer != VideoPointer::down)
         return false;
     // Search's typed rich target owns preview activation. A miss on its player
     // controls must not fall through into a covered live message preview.
@@ -320,24 +340,24 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
     }
     return false;
 }
-bool application_video_viewer_pointer(UINT message, UiPoint point) noexcept {
+bool application_video_viewer_pointer(VideoPointer pointer, UiPoint point) noexcept {
     auto* video = g_app.video;
     if (!video || !video->expanded || video->source.audio || !video_surface_available() ||
         !video->ui.video.active)
         return false;
     auto& scene = video->ui.video;
-    if (video_scene_pointer_event(*video, message, point))
+    if (video_scene_pointer_event(*video, pointer, point))
         return true;
     // A click on the picture itself toggles playback, as in the official client's viewer.
-    if (message == WM_LBUTTONDOWN && ui_rect_contains(ui_rect_intersection(scene.preview, scene.clip), point.x,
-                                                      point.y)) {
+    if (pointer == VideoPointer::down && ui_rect_contains(ui_rect_intersection(scene.preview, scene.clip), point.x,
+                                                          point.y)) {
         acquire_video_focus(*video);
         dispatch_video_event(*video, ui_video_scene_player_key(&scene, UiVideoPlayerKey::toggle_play, 0,
                                                                clock_monotonic_milliseconds()));
         return true;
     }
-    return message != WM_MOUSEMOVE && ui_rect_contains(ui_rect_intersection(scene.preview, scene.clip),
-                                                       point.x, point.y);
+    return pointer != VideoPointer::move && ui_rect_contains(ui_rect_intersection(scene.preview, scene.clip),
+                                                             point.x, point.y);
 }
 bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
     if (!cursor || !g_app.account_ui || !video_surface_available() || !g_app.message_scene.active ||
@@ -510,7 +530,7 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     if (printable) {
         // TranslateMessage already queued this key's character; it is not text.
         MSG character{};
-        PeekMessageW(&character, g_app.window, WM_CHAR, WM_CHAR, PM_REMOVE);
+        PeekMessageW(&character, win32_hwnd(g_app.window), WM_CHAR, WM_CHAR, PM_REMOVE);
     }
     result.handled = true;
     dispatch_video_event(*video, result);

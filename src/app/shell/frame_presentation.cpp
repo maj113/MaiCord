@@ -241,17 +241,11 @@ bool application_loading_spinner_due(u64 now_ms) noexcept {
 
 namespace {
 // Re-run WM_SETCURSOR after a frame changed the scene under a still pointer.
-// Captured drags own their cursor until release.
-inline void application_cursor_refresh(HWND window) noexcept {
+inline void application_cursor_refresh(Window window) noexcept {
     if (!g_application_cursor_refresh)
         return;
     g_application_cursor_refresh = false;
-    POINT cursor{};
-    if (!window || GetCapture() || !GetCursorPos(&cursor) || WindowFromPoint(cursor) != window)
-        return;
-    const LRESULT hit = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(cursor.x, cursor.y));
-    SendMessageW(window, WM_SETCURSOR, reinterpret_cast<WPARAM>(window),
-                 MAKELPARAM(static_cast<WORD>(hit), WM_MOUSEMOVE));
+    window_request_cursor_refresh(window);
 }
 
 // The step that rejected the last frame, logged with the failure count.
@@ -455,11 +449,11 @@ bool application_present_frame() noexcept {
 void application_update_frame_rate(u64 now_us) noexcept {
     if (!frame_rate_update(g_app.frame_rate, now_us) || !g_app.window || !frame_rate_title_enabled())
         return;
-    wchar_t title[48] = L"MaiCord | ";
+    char title[48] = "MaiCord | ";
     u32 cursor = 10 + decimal_write(title + 10, g_app.frame_rate.fps);
-    for (wchar_t letter : L" FPS")
+    for (char letter : " FPS")
         title[cursor++] = letter;
-    SetWindowTextW(g_app.window, title);
+    window_set_title(g_app.window, {title, cursor - 1});
 }
 
 void application_present_pending_frame() noexcept {
@@ -467,7 +461,7 @@ void application_present_pending_frame() noexcept {
         return;
     // UI changes set frame_pending directly; WM_PAINT acknowledges OS damage.
     // Several worker completions/input events coalesce into this one frame.
-    if (!g_app.frame_pending || (g_app.renderer.graphics.frame_latency_waitable &&
+    if (!g_app.frame_pending || (gpu_frame_clock_waitable(&g_app.renderer.graphics.surface) &&
                                  !g_app.renderer.live_resize && !g_app.renderer.begin_frame_permit))
         return;
     // Pointer drags that move a pane follow the pointer once per frame here,
@@ -543,7 +537,7 @@ void application_resize_surface(u32 width, u32 height) noexcept {
     // needs a taller or shorter target.
     if (!g_app.renderer_ready || !width || !height ||
         (g_app.renderer.width == width && g_app.renderer.height == height &&
-         g_app.renderer.graphics.buffer_height >= height + g_app.renderer.caption_height))
+         gpu_surface_height(&g_app.renderer.graphics.surface) >= height + g_app.renderer.caption_height))
         return;
     popup_scene_close(&g_app.popup_scene);
     application_plugins_menu_dismissed();

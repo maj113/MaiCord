@@ -286,7 +286,7 @@ GuildFolderEditError application_guild_folders_move(GuildFolderItem source, Guil
         return GuildFolderEditError::input;
     if (!editable_layout(*folders))
         return GuildFolderEditError::capacity;
-    const u64 seed = clock_unix_milliseconds() ^ (static_cast<u64>(GetTickCount64()) << 20) ^ source.id;
+    const u64 seed = clock_unix_milliseconds() ^ (static_cast<u64>(clock_monotonic_milliseconds()) << 20) ^ source.id;
     const u64 folder_id = drop == GuildFolderDrop::combine && !target.folder
                               ? guild_folders_new_id(folders->settings, seed)
                               : 0;

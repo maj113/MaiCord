@@ -1,4 +1,6 @@
 #include "../../shell/overlay_input.hpp"
+#include "../../shell/input.hpp"
+#include "../../shell/window_events.hpp"
 #include "pinned_messages.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "../../shell/state.hpp"
@@ -21,7 +23,6 @@
 #include "history_decode.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -508,29 +509,29 @@ bool application_pinned_messages_scroll_to(double offset) noexcept {
     return application_pinned_messages_active() &&
         ui_pinned_messages_scene_scroll(&g_app.pinned_messages->scene, static_cast<float>(offset)) && repaint();
 }
-bool application_pinned_messages_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
+bool application_pinned_messages_window_event(const WindowEvent& event) noexcept {
     auto* value = g_app.pinned_messages;
-    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CAPTURECHANGED && message != WM_CANCELMODE)
+    if (!input_pointer(event) && event.type != EventType::capture_lost && event.type != EventType::cancel_input)
         return false;
     if (!front()) return false;
-    const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-    const float x = static_cast<short>(LOWORD(lparam)) * scale;
-    const float y = static_cast<short>(HIWORD(lparam)) * scale;
+    const bool positioned = input_pointer(event);
+    const float x = positioned ? client_dip_x(event) : 0.f;
+    const float y = positioned ? client_dip_y(event) : 0.f;
     const auto pin_rectangle = ui_scene_header_geometry(g_app.shell_scene).pins;
     const bool header = ui_rect_contains(pin_rectangle, x, y);
     const bool inside = value && application_pinned_messages_active() && ui_pinned_messages_scene_contains(value->scene, x, y);
-    if (message == WM_LBUTTONDOWN && header) {
+    if (input_press(event) && header) {
         value = ensure_owner();
         if (!value) return true;
         value->pressed = {UiPinnedMessagesAction::none, scope().channel_id, ~u64{0}};
         value->pressed_scope = scope();
         value->captured = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         return true;
     }
     if (!value) return false;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE) { clear_capture(*value); return false; }
-    if (message == WM_LBUTTONUP && value->captured) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input) { clear_capture(*value); return false; }
+    if (input_release(event) && value->captured) {
         const auto pressed = value->pressed;
         const bool header_press = pressed.message_id == ~u64{0};
         const auto hit = inside ? ui_pinned_messages_scene_hit_test(value->scene, x, y) : UiPinnedMessagesTarget{};
@@ -544,26 +545,26 @@ bool application_pinned_messages_window_message(UINT message, WPARAM, LPARAM lpa
         return true;
     }
     if (!inside && !value->scrollbar_dragging) {
-        if (message == WM_MOUSEMOVE && application_pinned_messages_active()) {
+        if (event.type == EventType::pointer_move && application_pinned_messages_active()) {
             bool changed = false;
             ui_pinned_messages_scene_set_hover(&value->scene, -1.f, -1.f, &changed);
             if (changed) application_request_frame();
         }
         return false;
     }
-    if (message == WM_MOUSEMOVE && value->scrollbar_dragging) {
+    if (event.type == EventType::pointer_move && value->scrollbar_dragging) {
         const auto bar = ui_scrollbar_geometry(value->scene.body, value->scene.scroll_dips,
             ui_rect_height(value->scene.body) + ui_pinned_messages_scene_scroll_maximum(value->scene));
         application_pinned_messages_scroll_to(ui_scrollbar_scroll_from_pointer(bar, y, value->thumb_grab));
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         bool changed = false;
         ui_pinned_messages_scene_set_hover(&value->scene, x, y, &changed);
         if (changed) application_request_frame();
         return true;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (input_press(event)) {
         const auto bar = ui_scrollbar_geometry(value->scene.body, value->scene.scroll_dips,
             ui_rect_height(value->scene.body) + ui_pinned_messages_scene_scroll_maximum(value->scene));
         value->pressed = ui_pinned_messages_scene_hit_test(value->scene, x, y);
@@ -577,13 +578,14 @@ bool application_pinned_messages_window_message(UINT message, WPARAM, LPARAM lpa
         value->pressed_source_revision = value->controller.revision;
         value->captured = true;
         g_app.context_focus = &value->scene.widgets;
-        SetFocus(g_app.window);
-        SetCapture(g_app.window);
+        window_focus(g_app.window);
+        window_capture_pointer(g_app.window);
         application_request_frame();
         return true;
     }
-    return message == WM_LBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_RBUTTONDOWN ||
-        message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP;
+    return input_release(event) || input_double(event) || input_press(event, PointerButton::right) ||
+        input_release(event, PointerButton::right) || input_press(event, PointerButton::middle) ||
+        input_release(event, PointerButton::middle);
 }
 bool application_pinned_messages_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* value = g_app.pinned_messages;

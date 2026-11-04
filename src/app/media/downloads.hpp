@@ -3,6 +3,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {
 struct ApplicationSearchSourceTicket;
 bool application_downloads_available(u64 message_id, u64 attachment_id, bool snapshot = false) noexcept;
@@ -33,8 +34,8 @@ bool application_downloads_active() noexcept;
 bool application_downloads_pump() noexcept;
 bool application_downloads_synchronize() noexcept;
 bool application_downloads_input(UiInputKind, u32 key, bool repeated) noexcept;
-bool application_downloads_filter(const MSG&) noexcept;
-bool application_downloads_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_downloads_filter(const WindowEvent&) noexcept;
+bool application_downloads_window_event(const WindowEvent&) noexcept;
 HANDLE application_downloads_notification() noexcept;
 u64 application_downloads_next_wake() noexcept;
 void application_downloads_prepare_account_stop() noexcept;

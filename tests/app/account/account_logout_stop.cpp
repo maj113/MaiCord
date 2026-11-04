@@ -50,7 +50,7 @@ bool idle(const AccountLogoutStopOwner& owner) noexcept {
         !owner.result.account_status.profile_id && !owner.result.login_status.user_id;
 }
 bool same_live(const AccountLogoutStopOwner& owner, HANDLE thread, AccountHost* host) noexcept {
-    return owner.thread == thread && owner.host == host && owner.stop == held_stop &&
+    return reinterpret_cast<HANDLE>(owner.thread) == thread && owner.host == host && owner.stop == held_stop &&
         owner.timeout_ms == 250 && owner.monotonic_now_ms == 1234 && owner.unix_now_ms == 5678;
 }
 void cleanup(HeldStop* held, void (*check)(bool, const char*) noexcept) noexcept {

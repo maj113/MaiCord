@@ -2,6 +2,8 @@
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/platform/net/network.hpp"
 
 namespace maicord {

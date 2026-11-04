@@ -23,7 +23,8 @@ import tempfile
 # soname -> [(version node, exported functions)], oldest node first. Add a function here together with its declaration
 # in include/maicord/sys/linux/libc.hpp. The versions are those glibc introduced the symbols with on x86-64.
 STUBS = {
-    "libc.so.6": [("GLIBC_2.2.5", ["malloc", "calloc", "free"]), ("GLIBC_2.17", ["clock_gettime"])],
+    "libc.so.6": [("GLIBC_2.2.5", ["malloc", "calloc", "free", "getaddrinfo", "freeaddrinfo"]),
+                  ("GLIBC_2.17", ["clock_gettime"])],
     "libdl.so.2": [("GLIBC_2.2.5", ["dlopen", "dlsym", "dlclose", "dlerror"])],
     "libpthread.so.0": [("GLIBC_2.2.5", ["pthread_create", "pthread_join", "pthread_detach", "pthread_attr_init",
                                          "pthread_attr_setstacksize", "pthread_attr_destroy"])],

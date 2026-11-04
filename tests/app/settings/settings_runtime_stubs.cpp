@@ -289,7 +289,7 @@ bool application_channel_overview_synchronize() noexcept {
 bool application_channel_overview_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool application_channel_overview_window_message(UINT, WPARAM, LPARAM) noexcept {
+bool application_channel_overview_window_event(const WindowEvent&) noexcept {
     return false;
 }
 void application_notifications_settings_refresh(Application*) noexcept {

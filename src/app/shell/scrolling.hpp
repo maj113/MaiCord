@@ -3,6 +3,7 @@
 #include "maicord/core/base.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 bool request_older_history_if_near_start() noexcept;
@@ -13,13 +14,13 @@ bool scroll_message_view_to(bool bottom) noexcept;
 // deep scrollback) is replaced by the latest page; otherwise scrolls to bottom.
 bool application_message_jump_to_present() noexcept;
 bool handle_scrollbar_begin(float pointer_x, float pointer_y) noexcept;
-bool handle_scrollbar_drag(WPARAM buttons, float pointer_y) noexcept;
+bool handle_scrollbar_drag(bool primary_held, float pointer_y) noexcept;
 void end_scrollbar_drag() noexcept;
 // Scrolls the command picker's body (or rail) to show [top, bottom).
 bool reveal_command_row(float top, float bottom, bool rail = false) noexcept;
 bool queue_profile_scroll(bool right, i32 delta) noexcept;
-bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept;
-bool handle_message_key(WPARAM key) noexcept;
+bool handle_scroll_wheel(const WindowEvent& event) noexcept;
+bool handle_message_key(u32 key) noexcept;
 bool tick_smooth_scrolls(u64 now_us) noexcept;
 // A keyboard move or scroll-into-view already placed the rail or menu at its
 // target. With smooth scrolling on, replay that move from `before` with the
@@ -29,6 +30,6 @@ bool animate_popup_scroll_from(float before) noexcept;
 void update_scrollbar_hover(float x, float y) noexcept;
 // The hover and drag look of every painted scrollbar: observes each pointer message after its owner
 // handled it and republishes the renderer's hot bar (requesting a frame) when it changes.
-void track_scrollbar_pointer(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+void track_scrollbar_pointer(const WindowEvent& event) noexcept;
 
 } // namespace maicord::app_detail

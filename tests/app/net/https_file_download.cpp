@@ -2,31 +2,33 @@
 #include "maicord/protocol/http/http_response_stream.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord {
 namespace {
 bool await_local_failure(HttpsFileDownload* download) noexcept {
-    const DWORD done = WaitForSingleObject(download->notification, 5000);
+    const u32 done = wait_one(download->notification, 5000);
     const auto result = https_file_download_status(download);
     return done == WAIT_OBJECT_0 && result.phase == HttpsFileDownloadPhase::complete &&
         result.error == HttpsFileDownloadError::destination_changed && !result.committed_bytes &&
         !result.cleanup_pending && !result.cleanup_native_error;
 }
 bool seed(const wchar_t* path, FileSnapshot* snapshot) noexcept {
-    const HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    const HANDLE file = file_open(path, {FileAccess::read_write, FileCreate::create_always, 0, kFileTemporary});
     if (file == INVALID_HANDLE_VALUE) return false;
-    constexpr u8 bytes[]{1, 2, 3, 4}; DWORD written = 0;
-    const bool ok = WriteFile(file, bytes, sizeof(bytes), &written, nullptr) && written == sizeof(bytes) &&
-        FlushFileBuffers(file) && file_snapshot_read(file, snapshot);
-    CloseHandle(file); return ok;
+    constexpr u8 bytes[]{1, 2, 3, 4}; u32 written = 0;
+    const bool ok = file_write(file, bytes, sizeof(bytes), &written) && written == sizeof(bytes) &&
+        file_flush(file) && file_snapshot_read(file, snapshot);
+    file_close(file); return ok;
 }
 bool retained(const wchar_t* path) noexcept {
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    const HANDLE file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead, 0});
     if (file == INVALID_HANDLE_VALUE) return false;
-    u8 bytes[4]{}; DWORD read = 0;
-    const bool ok = ReadFile(file, bytes, sizeof(bytes), &read, nullptr) && read == sizeof(bytes) &&
+    u8 bytes[4]{}; u32 read = 0;
+    const bool ok = file_read(file, bytes, sizeof(bytes), &read) && read == sizeof(bytes) &&
         bytes[0] == 1 && bytes[1] == 2 && bytes[2] == 3 && bytes[3] == 4;
-    CloseHandle(file); return ok;
+    file_close(file); return ok;
 }
 }
 void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcept {
@@ -65,11 +67,8 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
     check(https_file_download_start(&owner, request) == HttpsFileDownloadError::invalid_input && !owner.runtime,
         "download refuses an existing destination without explicit overwrite authorization");
     request.overwrite_authorized = true;
-    const HANDLE changed = CreateFileW(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     const u64 changed_time = selected.identity.last_write + 10000000;
-    const FILETIME modified{static_cast<DWORD>(changed_time), static_cast<DWORD>(changed_time >> 32)};
-    const bool timestamp_changed = changed != INVALID_HANDLE_VALUE && SetFileTime(changed, nullptr, nullptr, &modified);
-    if (changed != INVALID_HANDLE_VALUE) CloseHandle(changed);
+    const bool timestamp_changed = file_set_last_write(path, changed_time);
     check(timestamp_changed && https_file_download_start(&owner, request) == HttpsFileDownloadError::none,
         "zero-byte attachment admission owns its request without requiring a body allocation");
     if (owner.runtime) {
@@ -83,7 +82,7 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
     seed(path, &selected); request.destination = selected;
     DeleteFileW(replacement);
     FileSnapshot new_selected{};
-    check(MoveFileExW(path, replacement, 0) && seed(path, &new_selected) &&
+    check(file_rename_noreplace(path, replacement, false) && seed(path, &new_selected) &&
         https_file_download_start(&owner, request) == HttpsFileDownloadError::none,
         "replacement destination fixture changes file identity while preserving size");
     if (owner.runtime) { check(await_local_failure(&owner) && retained(path) && retained(replacement),

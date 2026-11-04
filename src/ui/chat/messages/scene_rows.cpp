@@ -4,6 +4,7 @@
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 
 namespace maicord {
 using namespace message_scene_detail;
@@ -331,16 +332,10 @@ bool local_message_date(u64 timestamp_ms, u32* date) noexcept {
     constexpr u64 windows_to_unix_seconds = 11'644'473'600ull;
     constexpr u64 file_time_ticks_per_second = 10'000'000ull;
     const u64 seconds = timestamp_ms / 1'000ull;
+    CalendarTime local{};
     if (seconds > ~0ull - windows_to_unix_seconds ||
-        seconds + windows_to_unix_seconds > ~0ull / file_time_ticks_per_second) {
-        return false;
-    }
-    const u64 ticks = (seconds + windows_to_unix_seconds) * file_time_ticks_per_second;
-    const FILETIME file_time{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
-    SYSTEMTIME utc{};
-    SYSTEMTIME local{};
-    if (!FileTimeToSystemTime(&file_time, &utc) ||
-        !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local)) {
+        seconds + windows_to_unix_seconds > ~0ull / file_time_ticks_per_second ||
+        !local_time_from_unix(static_cast<i64>(seconds), &local)) {
         return false;
     }
     *date = static_cast<u32>(local.wYear) * 512u + static_cast<u32>(local.wMonth) * 32u + local.wDay;

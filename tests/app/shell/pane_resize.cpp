@@ -7,16 +7,16 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../support/window_fixture.hpp"
 namespace maicord::app_detail {
 namespace { u32 layouts, text_updates; bool fail_layout; }
 bool synchronize_shell_layout() noexcept { ++layouts; return !fail_layout; }
 bool refresh_account_text(bool) noexcept { ++text_updates; return true; }
-float client_dip_x(LPARAM point) noexcept { return static_cast<float>(static_cast<short>(LOWORD(point))) * 96.0f / g_app.renderer.dpi; }
 }
 namespace maicord {
 void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace app_detail;
-    const HWND saved_window = g_app.window;
+    const HWND saved_window = win32_hwnd(g_app.window);
     const bool saved_live_resize = g_app.renderer.live_resize;
     const bool saved_pending = g_app.frame_pending;
     HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC",
@@ -24,7 +24,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
                                  -32000, -32000, 64, 64, nullptr, nullptr, module_instance(), nullptr);
     check(window != nullptr, "create offscreen frame scheduling window");
     if (window) {
-        g_app.window = window;
+        g_app.window = win32_window(window);
         g_app.renderer.live_resize = false;
         g_app.frame_pending = false;
         ValidateRect(window, nullptr);
@@ -38,7 +38,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
         ValidateRect(window, nullptr);
         DestroyWindow(window);
     }
-    g_app.window = saved_window;
+    g_app.window = win32_window(saved_window);
     g_app.renderer.live_resize = saved_live_resize;
     g_app.frame_pending = saved_pending;
     g_app.renderer.dpi = 96; g_app.channel_pane_width = 180; g_app.member_pane_width = 180;
@@ -50,7 +50,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
         g_app.pane_resize = pane; layouts = text_updates = 0;
         for (u32 i = 0; i < 1000; ++i) {
             const u32 x = pane == PaneResizeKind::channels ? 260 + i % 70 : 520 + i % 70;
-            check(handle_pane_resize_drag(MK_LBUTTON, MAKELPARAM(x, 300)), "pane drag accepts pointer sample");
+            check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(x)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))), "pane drag accepts pointer sample");
         }
         const float channel = g_app.channel_pane_width, member = g_app.member_pane_width;
         check(!layouts && !text_updates && g_app.pane_layout_pending && g_app.frame_pending, "pointer burst schedules presentation without synchronous layout");
@@ -100,10 +100,10 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
                                       .maximum;
     g_app.channel_pane_width = 200; g_app.pane_resize_origin_width = 200; g_app.pane_widths_persist_pending = false;
     g_app.pane_resize = PaneResizeKind::channels;
-    check(handle_pane_resize_drag(MK_LBUTTON, MAKELPARAM(4000, 300)) && g_app.channel_pane_width == channel_maximum &&
-              handle_pane_resize_drag(MK_LBUTTON, MAKELPARAM(0, 300)) &&
+    check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(4000)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) && g_app.channel_pane_width == channel_maximum &&
+              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(0)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
               g_app.channel_pane_width == kUiSplitterMinimumPaneDips &&
-              handle_pane_resize_drag(MK_LBUTTON, MAKELPARAM(static_cast<int>(rail) + 190, 300)) &&
+              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(static_cast<int>(rail) + 190)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
               g_app.channel_pane_width == 190.f,
           "channel splitter (thread browser left edge) clamps between its minimum and the live maximum");
     check(cancel_pane_resize() && g_app.pane_resize == PaneResizeKind::none && g_app.channel_pane_width == 200.f &&
@@ -117,9 +117,9 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
         application_viewport_dips().right, UiSplitterEdge::left, 610.f,
         ui_splitter_limits(ui_rect_width(application_viewport_dips()) - rail - g_app.channel_pane_width -
                            kMinimumAccountMessageWidthDips));
-    check(member_expected != 180.f && handle_pane_resize_drag(MK_LBUTTON, MAKELPARAM(610, 300)) &&
+    check(member_expected != 180.f && handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(610)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
               g_app.member_pane_width == member_expected &&
-              handle_pane_resize_drag(0, MAKELPARAM(500, 300)) && g_app.pane_resize == PaneResizeKind::none &&
+              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(500)), static_cast<float>(static_cast<i16>(300)), 0)) && g_app.pane_resize == PaneResizeKind::none &&
               g_app.pane_widths_persist_pending && g_app.member_pane_width == member_expected,
           "member splitter follows the pointer and a button-less move ends the drag with one pending save");
     g_app.pane_widths_persist_pending = false; g_app.pane_layout_pending = false; layouts = text_updates = 0;
@@ -128,12 +128,15 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     fail_layout = false;
     check(apply_pending_pane_layout() && !g_app.pane_layout_pending, "pane layout retries after failure");
     g_app.renderer.dpi = 0; g_app.channel_pane_width = g_app.member_pane_width = 0; g_app.member_pane_visible = false; g_app.frame_pending = false;
-    bool visible = keyboard_focus_after_message(false, WM_KEYDOWN, key::tab, false);
-    check(visible && keyboard_focus_after_message(visible, WM_MOUSEMOVE, 0, false), "keyboard focus survives pointer hover");
-    visible = keyboard_focus_after_message(visible, WM_LBUTTONDOWN, 0, false);
-    check(!visible && !keyboard_focus_after_message(visible, WM_CHAR, 'a', false), "click and ordinary typing show no focus outline");
-    check(keyboard_focus_after_message(visible, WM_KEYDOWN, key::down, false) &&
-        keyboard_focus_after_message(visible, WM_SYSKEYDOWN, key::f10, true) &&
-        !keyboard_focus_after_message(true, WM_RBUTTONDOWN, 0, false), "keyboard navigation restores focus and context click hides it");
+    bool visible = keyboard_focus_after_event(false, window_test::key_down(key::tab), false);
+    check(visible && keyboard_focus_after_event(visible, window_test::pointer_move(0, 0), false), "keyboard focus survives pointer hover");
+    visible = keyboard_focus_after_event(visible, window_test::pointer_down(0, 0), false);
+    check(!visible && !keyboard_focus_after_event(visible, window_test::character('a'), false), "click and ordinary typing show no focus outline");
+    check(keyboard_focus_after_event(visible, window_test::key_down(key::down), false) &&
+        keyboard_focus_after_event(visible, window_test::key_down(key::f10, ev_system), true) &&
+        !keyboard_focus_after_event(true, window_test::pointer_down(0, 0, PointerButton::right), false), "keyboard navigation restores focus and context click hides it");
+    check(!keyboard_focus_after_event(true, window_test::pointer_double(0, 0), false) &&
+        keyboard_focus_after_event(true, window_test::pointer_double(0, 0, PointerButton::right), false),
+        "a primary double click hides the outline like a click, another button's double press leaves it");
 }
 }

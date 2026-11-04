@@ -81,8 +81,9 @@ bool application_request_frame() noexcept {
     g_app.frame_pending = true;
     // The normal loop observes this flag and waits for a DXGI display slot.
     // Windows owns dispatch during modal sizing, so retain a paint wakeup there.
-    return !g_app.renderer.live_resize || !g_app.window ||
-           InvalidateRect(g_app.window, nullptr, FALSE) != FALSE;
+    if (g_app.renderer.live_resize && g_app.window)
+        window_invalidate(g_app.window);
+    return true;
 }
 
 } // namespace maicord::app_detail

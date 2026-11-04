@@ -67,7 +67,7 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
     const auto draw_changed = [&]() noexcept {
         const float clear[]{kDefaultTheme.base_lowest.red, kDefaultTheme.base_lowest.green,
                             kDefaultTheme.base_lowest.blue, 1};
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         return d3d11_renderer_draw_stream(&renderer, kDefaultTheme, true, false, nullptr, 10000);
     };
     ui_widget_manager_hover(&scene.widgets, ui_widget_invalid_handle());

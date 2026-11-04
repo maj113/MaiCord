@@ -2,6 +2,7 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct UiThreadBrowserScene;
@@ -25,7 +26,7 @@ bool application_thread_browser_synchronize() noexcept;
 // text must follow the moved rows (a frame request alone repaints row quads
 // under stale glyphs).
 bool application_thread_browser_refresh_after_scroll() noexcept;
-bool application_thread_browser_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_thread_browser_window_event(const WindowEvent&) noexcept;
 bool application_thread_browser_input(UiInputKind, u32, bool repeated) noexcept;
 bool application_thread_browser_consume_key_tail(UiInputKind, u32, bool repeated) noexcept;
 bool application_thread_browser_pending(u64 now_ms) noexcept;

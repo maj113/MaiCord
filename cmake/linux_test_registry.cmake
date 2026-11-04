@@ -30,6 +30,8 @@ maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wai
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_wait)
 maicord_test(MaiCordOsThreadTests ENTRY maicord_os_thread_entry SOURCES tests/os/thread.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_thread)
+maicord_test(MaiCordOsFileTests ENTRY maicord_os_file_entry SOURCES tests/os/file.cpp
+    LIBS maicord_core TIMEOUT 10 TEST maicord_os_file)
 maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 
@@ -50,6 +52,12 @@ maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
 maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
     ENV XDG_DATA_HOME=relative/data HOME=/maicord-home-test
     TEST maicord_linux_data_path_relative_xdg --data-path-relative-xdg)
+maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
+    ENV XDG_CACHE_HOME=/maicord-xdg-test/cache XDG_STATE_HOME=/maicord-xdg-test/state HOME=/maicord-home-test
+    TEST maicord_linux_cache_state_xdg --cache-state-xdg)
+maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
+    ENV XDG_CACHE_HOME=relative/cache --unset=XDG_STATE_HOME HOME=/maicord-home-test
+    TEST maicord_linux_cache_state_home --cache-state-home)
 
 # The platform crypto over the system OpenSSL: the vectors shared with the Windows suite (AES-GCM, AES-GCM with a
 # 64-bit tag, XChaCha20-Poly1305, P-256) and the ones of the parts the Linux backend adds (HKDF/HMAC/SHA-256, the
@@ -86,6 +94,30 @@ add_test(NAME maicord_tls_smoke
         "${CMAKE_BINARY_DIR}/tls-smoke")
 set_tests_properties(maicord_tls_smoke PROPERTIES TIMEOUT 20 SKIP_RETURN_CODE 77)
 
+# The network layer against sockets of this machine (the same test as Windows): streams, datagrams, lookups,
+# signals from other threads, file operations and the worker.
+maicord_test(MaiCordNetworkLoopTests ENTRY maicord_network_loop_entry SOURCES tests/platform/net/network_loop.cpp
+    LIBS maicord_net maicord_crypto maicord_core
+    TIMEOUT 20 TEST maicord_network_loop)
+
+# tls_stream over the whole stack (lookup, epoll loop, sockets, OpenSSL) against the same kind of local s_server
+# processes, started by tests/platform/net/tls_stream_smoke.sh (skipped, status 77, without the command).
+maicord_test(MaiCordTlsStreamTests ENTRY maicord_tls_stream_entry SOURCES tests/platform/net/tls_stream_linux.cpp
+    LIBS maicord_net maicord_crypto maicord_core)
+add_test(NAME maicord_tls_stream_smoke
+    COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/platform/net/tls_stream_smoke.sh" "$<TARGET_FILE:MaiCordTlsStreamTests>"
+        "${CMAKE_BINARY_DIR}/tls-stream-smoke")
+set_tests_properties(maicord_tls_stream_smoke PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+
 include(cmake/linux_test_registry_libraries.cmake)
 include(cmake/linux_gpu_tests.cmake)
+include(cmake/linux_render_tests.cmake)
+include(cmake/linux_lottie_tests.cmake)
 include(cmake/linux_window_tests.cmake)
+include(cmake/linux_font_tests.cmake)
+include(cmake/linux_audio_tests.cmake)
+include(cmake/linux_dbus_tests.cmake)
+include(cmake/linux_time_tests.cmake)
+include(cmake/linux_spell_tests.cmake)
+include(cmake/linux_app_tests.cmake)
+include(cmake/linux_video_tests.cmake)

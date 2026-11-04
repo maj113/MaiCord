@@ -25,6 +25,10 @@ struct ID3D11ShaderResourceView;
 struct ID3D11Texture2D;
 struct ID3D11UnorderedAccessView;
 struct ID3D11VertexShader;
+struct IDCompositionDevice;
+struct IDCompositionTarget;
+struct IDCompositionVisual;
+struct IDXGISwapChain1;
 
 namespace maicord {
 
@@ -51,13 +55,40 @@ using GpuInputLayout = ID3D11InputLayout;
 using GpuSampler = ID3D11SamplerState;
 using GpuBlend = ID3D11BlendState;
 using GpuRaster = ID3D11RasterizerState;
-
 using GpuQuery = ID3D11Query;
 using GpuFence = ID3D11Fence;
+
+// A swap chain shown through one DirectComposition visual. The renderer's owner holds it by value (the caller owns
+// the storage; gpu_surface_create fills it, gpu_surface_release zeroes it) and reads it only through gpu_surface_*.
+struct GpuSurface {
+    IDXGISwapChain1* swap_chain;
+    IDCompositionDevice* composition_device;
+    IDCompositionTarget* composition_target;
+    IDCompositionVisual* composition_visual;
+    GpuRtv* target; // the draw target: the back buffer's view, or what gpu_surface_set_target pointed it at
+    HANDLE frame_latency_waitable;
+    u32 buffer_width;
+    u32 buffer_height;
+    u32 resize_buffer_reallocations;
+};
+
+// Frame timing: a disjoint query with two timestamps. One frame is bracketed by gpu_timer_begin and gpu_timer_end.
+struct GpuTimer {
+    GpuQuery* disjoint;
+    GpuQuery* begin;
+    GpuQuery* end;
+};
 
 // Releases the reference and clears the handle; null is fine.
 template <typename T> inline void gpu_release(T*& handle) noexcept {
     com_release(handle);
+}
+
+// Takes another reference to a handle that several owners share (a decoded frame's texture and views, the device a
+// decoder keeps); each owner releases its own with gpu_release. Other backends make the handles they share
+// retainable the same way.
+template <typename T> inline void gpu_retain(T* handle) noexcept {
+    handle->AddRef();
 }
 
 } // namespace maicord

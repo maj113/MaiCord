@@ -11,6 +11,7 @@
 
 maicord_library(maicord_gpu_gles
     src/gpu/gles/loader.cpp src/gpu/gles/device.cpp src/gpu/gles/resources.cpp src/gpu/gles/draw.cpp
+    src/gpu/gles/surface.cpp src/gpu/gles/sync.cpp src/gpu/gles/video_planes.cpp
     LIBS maicord_core INCLUDES src)
 
 set(MAICORD_GLES_SHADER_PACK "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack_gles.inc")
@@ -20,7 +21,8 @@ add_custom_command(
     BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack_gles.bin"
     COMMAND "${Python3_EXECUTABLE}" -B tools/build_gles_shader_pack.py "${MAICORD_GLES_SHADER_PACK}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    DEPENDS tools/build_gles_shader_pack.py tools/fetch_linux_shader_toolchain.py tools/linux_shader_toolchain.json
+    DEPENDS tools/build_gles_shader_pack.py tools/glsl_translate.py tools/fetch_linux_shader_toolchain.py
+        tools/linux_shader_toolchain.json
         tools/shadertool/mc_shadertool.cpp tools/optimal_deflate.py tools/deflate_cache.txt
         tools/font_reference/embed_fixture.py cmake/generated_sources.cmake ${maicord_hlsl_sources}
     VERBATIM)
@@ -30,3 +32,12 @@ set_source_files_properties(src/gpu/gles/shader_pack.cpp PROPERTIES OBJECT_DEPEN
 set_target_properties(maicord_gpu_gles_shaders PROPERTIES EXCLUDE_FROM_ALL TRUE)
 # The pack is #embed'ed (a C23 extension to clang's C++).
 target_compile_options(maicord_gpu_gles_shaders PRIVATE -Wno-c23-extensions)
+
+# The effect host: the pass-graph executor and inputs of .mcfx background effects (the code Windows runs, over the GPU
+# API) and the package parser. The default theme the executor takes its palette from is maicord_theme's
+# (cmake/linux_render.cmake).
+maicord_library(maicord_effect_host
+    src/render/d3d11/effect_renderer.cpp src/render/d3d11/effect_inputs.cpp src/app/packages/mcfx.cpp
+    src/app/packages/link.cpp
+    LIBS maicord_gpu_gles maicord_media_codec maicord_theme maicord_core INCLUDES src)
+target_compile_options(maicord_effect_host PRIVATE -Wno-c23-extensions)

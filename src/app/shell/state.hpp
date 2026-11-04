@@ -51,6 +51,9 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
 #include "maicord/core/win32_types.hpp"
+#if defined(_WIN32)
+#include "maicord/platform/window/win32.hpp"
+#endif
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
 
 namespace maicord::app_detail {
@@ -86,8 +89,6 @@ inline constexpr u32 kUiRebuildRetryMinimumMilliseconds = 100;
 inline constexpr u32 kUiRebuildRetryMaximumMilliseconds = 1'600;
 inline constexpr u32 kRemoteAuthRetryMinimumMs = 1'500;
 inline constexpr u32 kRemoteAuthRetryMaximumMs = 30'000;
-inline constexpr UINT kBeginWebAuthnMessage = kWindowMessageApp + 0x31;
-inline constexpr UINT kApplicationPhoneVerifyMessage = kWindowMessageApp + 0x32;
 inline constexpr u32 kWebAuthnStructuralCapacity = 4 * 1024;
 inline constexpr u32 kGuildRailRowCapacity = 192;
 inline constexpr u32 kInitialVirtualRowCapacity = 32;
@@ -353,8 +354,7 @@ struct Application {
     u64 preferences_request_revision;
     bool preferences_save_failed, preferences_save_pending;
     u32 settings_held_key;
-    HINSTANCE instance;
-    HWND window;
+    Window window;
     MessageViewRuntime message_view;
     MessageMediaController message_media;
     D3D11Renderer renderer;
@@ -492,6 +492,11 @@ inline u64 application_account_scope() noexcept {
 // The signed-in account UI can issue requests.
 inline bool application_account_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
+}
+
+// The caret's blink interval as the system sets it (INFINITE when it does not blink).
+__declspec(noinline) inline u32 application_caret_blink_ms() noexcept {
+    return platform_settings_read().caret_blink_ms;
 }
 
 // Reduced motion: the user's preference, or Windows' client-area animation setting as the surface-motion owner

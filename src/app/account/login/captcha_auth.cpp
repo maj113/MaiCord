@@ -132,7 +132,7 @@ bool application_captcha_auth_pump() noexcept {
                    epoch == login.captcha_generation && host.module == module &&
                    host.login_instance == instance && login.visible && login.status != LoginStatus::cancelling;
         };
-        const bool opened = copied && current() && captcha_bridge_launch(g_app.window, &url);
+        const bool opened = copied && current() && captcha_bridge_launch(win32_hwnd(g_app.window), &url);
         secure_buffer_release(&url);
         if (!current())
             return true;

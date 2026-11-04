@@ -2,9 +2,11 @@
 // XDG_DATA_HOME is unset or not absolute (the XDG base directory rule). Paths stay UTF-16 wchar_t strings (see
 // maicord/sys/linux/path.hpp): the separator written is '/', and a relative path may use either separator.
 //
-// D19 also names a cache directory ($XDG_CACHE_HOME/maicord) and a state and log directory
-// ($XDG_STATE_HOME/maicord). They are not split from the data directory yet: until what is re-creatable has been
-// classified, everything lives here, as on Windows everything lives under %LOCALAPPDATA%\MaiCord.
+// D19 also names a cache directory ($XDG_CACHE_HOME/maicord, else $HOME/.cache/maicord) for what can be created
+// again and a state directory ($XDG_STATE_HOME/maicord, else $HOME/.local/state/maicord) for logs and state: the
+// same rule and the same builder, under cache_path and state_path. Nothing is moved into them yet; until what is
+// re-creatable has been classified, callers keep their files under the data directory, as on Windows everything
+// lives under %LOCALAPPDATA%\MaiCord.
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/linux/calls.hpp"
@@ -15,7 +17,8 @@ namespace maicord {
 namespace {
 
 constexpr u32 kRootCapacity = 1024;
-constexpr char kHomeSuffix[] = "/.local/share";
+
+enum class Root : u8 { data, cache, state };
 
 bool separator(wchar_t value) noexcept {
     return value == L'/' || value == L'\\';
@@ -38,11 +41,14 @@ bool absolute_path(const char* text) noexcept {
     return true;
 }
 
-// The XDG data root as UTF-16: $XDG_DATA_HOME, else $HOME/.local/share. Zero when neither names an absolute path.
-u32 data_root(wchar_t* root, u32 capacity) noexcept {
-    const char* data_home = environment_get("XDG_DATA_HOME");
-    if (absolute_path(data_home)) {
-        return path_from_utf8(data_home, root, capacity);
+// The XDG base directory of `root` as UTF-16: its environment variable, else the $HOME-relative default. Zero when
+// neither names an absolute path.
+u32 xdg_root(Root root, wchar_t* output, u32 capacity) noexcept {
+    const char* variable = root == Root::data ? "XDG_DATA_HOME" : root == Root::cache ? "XDG_CACHE_HOME" : "XDG_STATE_HOME";
+    const char* suffix = root == Root::data ? "/.local/share" : root == Root::cache ? "/.cache" : "/.local/state";
+    const char* base = environment_get(variable);
+    if (absolute_path(base)) {
+        return path_from_utf8(base, output, capacity);
     }
     const char* home = environment_get("HOME");
     if (!absolute_path(home)) {
@@ -50,15 +56,18 @@ u32 data_root(wchar_t* root, u32 capacity) noexcept {
     }
     char text[kRootCapacity];
     u32 length = 0;
-    while (home[length] && length < kRootCapacity - sizeof(kHomeSuffix)) {
+    while (home[length] && length < kRootCapacity - 16) {
         text[length] = home[length];
         ++length;
     }
     if (home[length]) {
         return 0;
     }
-    copy_bytes(text + length, kHomeSuffix, sizeof(kHomeSuffix));
-    return path_from_utf8(text, root, capacity);
+    u32 added = 0;
+    do {
+        text[length++] = suffix[added];
+    } while (suffix[added++]);
+    return path_from_utf8(text, output, capacity);
 }
 
 } // namespace
@@ -115,17 +124,20 @@ u32 data_path_build(const wchar_t* root, wchar_t* output, u32 capacity, const wc
     return length;
 }
 
-DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative, bool create_parents) noexcept {
-    wchar_t root[kRootCapacity];
-    const u32 root_length = data_root(root, kRootCapacity);
+namespace {
+
+DataPathResult rooted_path(Root root, wchar_t* output, u32 capacity, const wchar_t* relative,
+                           bool create_parents) noexcept {
+    wchar_t base[kRootCapacity];
+    const u32 root_length = xdg_root(root, base, kRootCapacity);
     if (root_length == 0)
         return failure(DataPathError::path, static_cast<u32>(kErrorInvalid));
-    const u32 length = data_path_build(root, output, capacity, relative);
+    const u32 length = data_path_build(base, output, capacity, relative);
     if (length == 0)
         return failure(DataPathError::path, static_cast<u32>(kErrorInvalid));
     if (create_parents) {
-        // Every directory above the last component, the data root's missing ancestors included (XDG: create
-        // them as needed); the path itself is the caller's file or directory.
+        // Every directory above the last component, the root's missing ancestors included (XDG: create them as
+        // needed); the path itself is the caller's file or directory.
         for (u32 i = 1; i < length; ++i) {
             if (output[i] != L'/')
                 continue;
@@ -138,6 +150,20 @@ DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
         }
     }
     return {length, 0, DataPathError::none};
+}
+
+} // namespace
+
+DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative, bool create_parents) noexcept {
+    return rooted_path(Root::data, output, capacity, relative, create_parents);
+}
+
+DataPathResult cache_path(wchar_t* output, u32 capacity, const wchar_t* relative, bool create_parents) noexcept {
+    return rooted_path(Root::cache, output, capacity, relative, create_parents);
+}
+
+DataPathResult state_path(wchar_t* output, u32 capacity, const wchar_t* relative, bool create_parents) noexcept {
+    return rooted_path(Root::state, output, capacity, relative, create_parents);
 }
 
 bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_t* stem,
@@ -171,6 +197,16 @@ bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
     if (native_error)
         *native_error = static_cast<u32>(-result);
     return false;
+}
+
+u32 executable_path(wchar_t* output, u32 capacity) noexcept {
+    char text[kRootCapacity];
+    const long bytes = sys_readlink("/proc/self/exe", text, kRootCapacity - 1);
+    if (syscall_failed(bytes) || bytes == 0) {
+        return 0;
+    }
+    text[bytes] = 0;
+    return path_from_utf8(text, output, capacity);
 }
 
 } // namespace maicord

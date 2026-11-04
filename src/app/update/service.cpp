@@ -5,15 +5,24 @@
 #include "maicord/core/data_path.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
 using SE = UpdateServiceError;
 
+#if defined(_WIN32)
+constexpr wchar_t kSeparator = L'\\';
+constexpr u32 kRootCharacters = 3; // "X:\"
+#else
+constexpr wchar_t kSeparator = L'/';
+constexpr u32 kRootCharacters = 1; // "/"
+#endif
+
 bool join(wchar_t* out, const wchar_t* base, u32 base_count, const wchar_t* leaf, u32* count = nullptr) noexcept {
     const u32 leaf_count = wide_length(leaf, kUpdatePathCapacity);
     if (base_count + 1 + leaf_count >= kUpdatePathCapacity) return false;
-    copy_bytes(out, base, base_count * sizeof(wchar_t)); out[base_count] = L'\\';
+    copy_bytes(out, base, base_count * sizeof(wchar_t)); out[base_count] = kSeparator;
     copy_bytes(out + base_count + 1, leaf, (leaf_count + 1) * sizeof(wchar_t));
     if (count) *count = base_count + 1 + leaf_count;
     return true;
@@ -28,43 +37,49 @@ bool suffixed(wchar_t* out, const ConstSlice<wchar_t>& path, const wchar_t* suff
     if (count) *count = path.count + suffix_count;
     return true;
 }
-// An absolute drive path: "X:\..." with no trailing separator, forward
-// slash, control character or later colon.
+// An absolute path with no trailing separator, control character or alien separator: "X:\..." with no forward
+// slash or later colon on Windows, "/..." with no backslash elsewhere.
 bool drive_path(ConstSlice<wchar_t> path) noexcept {
+#if defined(_WIN32)
     if (!path.data || path.count < 4 || path.count >= kUpdatePathCapacity || path[1] != L':' || path[2] != L'\\' ||
         path[path.count - 1] == L'\\' || !((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')))
         return false;
     for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] == L'/' || path[i] < 32 || (i > 1 && path[i] == L':')) return false;
     return true;
+#else
+    if (!path.data || path.count < 2 || path.count >= kUpdatePathCapacity || path[0] != L'/' || path[path.count - 1] == L'/')
+        return false;
+    for (u32 i = 0; i < path.count; ++i) if (path[i] < 32 || path[i] == L'\\') return false;
+    return true;
+#endif
 }
-bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
+bool exists(const wchar_t* path) noexcept { FileStat stat{}; return file_path_stat(path, &stat); }
 bool write_exact(HANDLE h, const void* data, u32 bytes) noexcept {
     u32 done = 0;
     while (done < bytes) {
-        DWORD put = 0;
-        if (!WriteFile(h, static_cast<const u8*>(data) + done, bytes - done, &put, nullptr) || !put || put > bytes - done) return false;
+        u32 put = 0;
+        if (!file_write(h, static_cast<const u8*>(data) + done, bytes - done, &put) || !put || put > bytes - done) return false;
         done += put;
     }
     return true;
 }
 HANDLE open_read(const wchar_t* path) noexcept {
-    const HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const HANDLE h = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead, kFileNoFollow});
     return h == INVALID_HANDLE_VALUE ? nullptr : h;
 }
 bool regular_size(HANDLE h, u64* bytes) noexcept {
-    BY_HANDLE_FILE_INFORMATION info{}; LARGE_INTEGER size{};
-    if (!h || !GetFileInformationByHandle(h, &info) || !GetFileSizeEx(h, &size) || size.QuadPart < 0 ||
-        info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) || info.nNumberOfLinks != 1) return false;
-    *bytes = static_cast<u64>(size.QuadPart); return true;
+    FileStat info{};
+    if (!h || !file_stat(h, &info) || info.kind != FileKind::regular || info.links != 1) return false;
+    *bytes = info.bytes; return true;
 }
-void close(HANDLE* h) noexcept { if (*h) { CloseHandle(*h); *h = nullptr; } }
+void close(HANDLE* h) noexcept { if (*h) { file_close(*h); *h = nullptr; } }
 // Creates base and work (work is base\work).
 bool ensure_storage(const UpdatePaths& paths) noexcept {
     wchar_t partial[kUpdatePathCapacity]{};
     copy_bytes(partial, paths.work, (paths.work_count + 1) * sizeof(wchar_t));
-    for (u32 i = 3; i <= paths.work_count; ++i) if (i == paths.work_count || partial[i] == L'\\') {
+    for (u32 i = kRootCharacters; i <= paths.work_count; ++i) if (i == paths.work_count || partial[i] == kSeparator) {
         const wchar_t saved = partial[i]; partial[i] = 0;
-        if (!CreateDirectoryW(partial, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+        if (!dir_create(partial) && thread_last_error() != ERROR_ALREADY_EXISTS) return false;
         partial[i] = saved;
     }
     return true;
@@ -110,7 +125,7 @@ UpdateCheckResult report(UpdateCheckResult r, const char* phase) noexcept {
 UpdateCheckResult up_to_date(const UpdateService* s, u64 floor, u64 offered) noexcept {
     UpdateLog line("up_to_date");
     line.field("floor", floor).field("offered", offered);
-    if (DeleteFileW(s->paths.download)) line.field("dropped_package", 1);
+    if (file_remove(s->paths.download)) line.field("dropped_package", 1);
     line.write();
     return outcome(UpdateCheckOutcome::up_to_date, floor);
 }
@@ -123,7 +138,7 @@ void release_work(UpdateService* s) noexcept {
 }
 void discard_work(UpdateService* s) noexcept {
     release_work(s);
-    DeleteFileW(s->paths.download);
+    file_remove(s->paths.download);
 }
 // <base>\changelog-<channel>: the cache file, signature then document.
 bool changelog_path(const UpdatePaths& paths, UpdateChannel channel, wchar_t (&out)[kUpdatePathCapacity], u32* count) noexcept {
@@ -223,12 +238,12 @@ bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable
 bool update_paths_default(UpdatePaths* out) noexcept {
     wchar_t base[kUpdatePathCapacity]{}, executable[kUpdatePathCapacity]{};
     const DataPathResult built = data_path(base, kUpdatePathCapacity, L"updates");
-    const DWORD n = GetModuleFileNameW(nullptr, executable, kUpdatePathCapacity);
-    return built.ok() && n && n < kUpdatePathCapacity && update_paths_build({base, built.length}, {executable, n}, out);
+    const u32 n = executable_path(executable, kUpdatePathCapacity);
+    return built.ok() && n && update_paths_build({base, built.length}, {executable, n}, out);
 }
 void update_paths_cleanup(const UpdatePaths& paths) noexcept {
-    const bool replaced = DeleteFileW(paths.replaced) != FALSE;
-    const bool stale = DeleteFileW(paths.staged) != FALSE;
+    const bool replaced = file_remove(paths.replaced);
+    const bool stale = file_remove(paths.staged);
     if (replaced || stale) UpdateLog("cleanup").field("replaced", replaced).field("stale_stage", stale).write();
 }
 
@@ -328,7 +343,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (verified.error == UpdateManifestError::rollback) return up_to_date(s, floor, manifest.version);
     if (!verified.ok()) return report(manifest_failed(manifest_error(verified.error), verified.error), "freshness");
     // 4. Durable admission before any package byte is fetched.
-    if (!ensure_storage(s->paths)) { auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "storage"); }
+    if (!ensure_storage(s->paths)) { auto r = failed(SE::storage); r.native_error = thread_last_error(); return report(r, "storage"); }
     UpdateAcceptanceTransaction acceptance{};
     auto admitted = update_acceptance_begin({s->paths.acceptance, s->paths.acceptance_count}, &acceptance, true);
     UpdateManifest approved{};
@@ -354,18 +369,18 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     update_artifact_release(&kept);
     if (reused) UpdateLog("package").field("version", manifest.version).field("reused", 1).write();
     else {
-        s->download = CreateFileW(s->paths.download, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        s->download = file_open(s->paths.download, {FileAccess::write, FileCreate::create_always, kFileShareRead, 0});
         if (s->download == INVALID_HANDLE_VALUE) {
-            s->download = nullptr; auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "download_file");
+            s->download = nullptr; auto r = failed(SE::storage); r.native_error = thread_last_error(); return report(r, "download_file");
         }
         InterlockedExchange64(&s->progress.received, 0);
         InterlockedExchange64(&s->progress.total, static_cast<LONG64>(manifest.artifact_bytes));
         fetched = update_fetch(transport, location, manifest.artifact_bytes, manifest.artifact_bytes, file_sink, s, now);
-        const bool flushed = FlushFileBuffers(s->download) != FALSE;
-        const DWORD flush_error = flushed ? 0 : GetLastError();
+        const bool flushed = file_flush(s->download);
+        const u32 flush_error = flushed ? 0 : thread_last_error();
         close(&s->download);
         if (!fetched.ok() || !flushed) {
-            DeleteFileW(s->paths.download);
+            file_remove(s->paths.download);
             // A 404 here means the signed version's release is gone, unpublished or private.
             auto r = !flushed ? failed(SE::storage) : fetched.error == UpdateFetchError::not_found ? failed(SE::unavailable) : fetch_failed(fetched);
             r.fetch_error = fetched.error; r.retry_at_unix = fetched.retry_at_unix;
@@ -391,7 +406,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     //    An earlier stage is replaced only now; a stale file from an earlier
     //    session is never adopted.
     update_package_release(&s->staged, true);
-    if (!s->staged.file) DeleteFileW(s->paths.staged);
+    if (!s->staged.file) file_remove(s->paths.staged);
     UpdatePackage package{};
     const UpdatePackageOffer offer{{s->document, s->document_bytes}, {s->signature, 64}};
     const auto extracted = update_package_extract(&s->preparation.artifact, offer, s->key, s->workspace, policy,
@@ -423,15 +438,15 @@ const UpdateChangelog* update_service_cached_changelog(UpdateService* s, UpdateC
 
 UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     UpdateSwapResult r{};
-    if (!MoveFileExW(paths.executable, paths.replaced, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        r.error = UpdateSwapError::replace; r.native_error = GetLastError(); return r;
+    if (!file_replace(paths.executable, paths.replaced, true)) {
+        r.error = UpdateSwapError::replace; r.native_error = thread_last_error(); return r;
     }
-    if (MoveFileExW(paths.staged, paths.executable, MOVEFILE_WRITE_THROUGH)) return r;
-    r.error = UpdateSwapError::install; r.native_error = GetLastError();
+    if (file_rename_noreplace(paths.staged, paths.executable, true)) return r;
+    r.error = UpdateSwapError::install; r.native_error = thread_last_error();
     // Put the running executable back; a copy is the last resort.
-    if (!MoveFileExW(paths.replaced, paths.executable, MOVEFILE_WRITE_THROUGH)) {
-        r.restore_error = GetLastError();
-        if (CopyFileW(paths.replaced, paths.executable, TRUE)) r.restore_error = 0;
+    if (!file_rename_noreplace(paths.replaced, paths.executable, true)) {
+        r.restore_error = thread_last_error();
+        if (file_copy_new(paths.replaced, paths.executable)) r.restore_error = 0;
     }
     return r;
 }
@@ -444,7 +459,7 @@ UpdateSwapResult update_service_swap(UpdateService* s) noexcept {
     if (!released.ok()) { r.error = UpdateSwapError::release; r.native_error = released.native_error; }
     else r = update_swap(s->paths);
     // Installed: the package it came from is not needed again.
-    if (r.ok()) DeleteFileW(s->paths.download);
+    if (r.ok()) file_remove(s->paths.download);
     UpdateLog("swap").field("version", version).field("error", static_cast<u8>(r.error)).field("native", r.native_error)
         .field("restore", r.restore_error).write(r.ok() ? LogLevel::info : LogLevel::warning);
     return r;
@@ -459,11 +474,10 @@ u8 load_choice(const wchar_t* path, u8 maximum, u8 fallback) noexcept {
 }
 bool save_choice(const UpdatePaths& paths, bool interval, u8 value) noexcept {
     if (!ensure_storage(paths)) return false;
-    HANDLE h = CreateFileW(interval ? paths.interval : paths.channel, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE h = file_open(interval ? paths.interval : paths.channel, {FileAccess::write, FileCreate::create_always, 0, 0});
     if (h == INVALID_HANDLE_VALUE) return false;
     const bool ok = write_exact(h, &value, 1);
-    CloseHandle(h);
+    file_close(h);
     return ok;
 }
 } // namespace

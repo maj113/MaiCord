@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 
 namespace maicord {
 namespace {
@@ -68,14 +69,13 @@ void loopback(void (*check)(bool, const char*) noexcept, i32 family) noexcept {
     i32 client_bytes = sizeof(client);
     u8 received[128], packet[100];
     if (ok) {
-        ok = voice_udp_begin(&discovery, &loop, reinterpret_cast<const sockaddr*>(&address), address_bytes,
-                             0x01020304, GetTickCount64());
+        ok = voice_udp_begin(&discovery, &loop, test_network_address(&address, address_bytes), 0x01020304,
+                             GetTickCount64());
         check(ok && discovery.socket.send_pending && discovery.socket.receive_pending,
               "UDP discovery posts read and write concurrently");
         const auto generation = discovery.socket.generation;
         const SOCKET original_socket = discovery.socket.socket;
-        check(!network_datagram_open(&loop, &discovery.socket, reinterpret_cast<const sockaddr*>(&address),
-                                     address_bytes)
+        check(!network_datagram_open(&loop, &discovery.socket, test_network_address(&address, address_bytes))
                       .ok() &&
                   discovery.socket.generation == generation,
               "UDP live owner cannot be reopened");
@@ -142,16 +142,15 @@ void loopback(void (*check)(bool, const char*) noexcept, i32 family) noexcept {
             check(network_datagram_receive(&discovery.socket, {pending_buffers[index], 8}).ok(),
                   "UDP cancellation read posted");
         voice_udp_close(&discovery);
-        check(!network_datagram_open(&loop, &discovery.socket, reinterpret_cast<const sockaddr*>(&address),
-                                     address_bytes)
+        check(!network_datagram_open(&loop, &discovery.socket, test_network_address(&address, address_bytes))
                    .ok(),
               "UDP closed owner cannot be reused before cancellation drains");
         check(drain(&discovery, &loop) && discovery.phase == VoiceUdpPhase::closed &&
                   !discovery.external.address_bytes,
               "UDP pending cancellation drains and retires discovered address");
         if (voice_udp_drained(discovery)) {
-            check(voice_udp_begin(&discovery, &loop, reinterpret_cast<const sockaddr*>(&address),
-                                  address_bytes, 0x01020304, GetTickCount64()) &&
+            check(voice_udp_begin(&discovery, &loop, test_network_address(&address, address_bytes), 0x01020304,
+                                  GetTickCount64()) &&
                       discovery.socket.generation > generation,
                   "UDP drained socket owner reopens with a new generation");
             voice_udp_tick(&discovery, discovery.deadline_ms);
@@ -162,8 +161,8 @@ void loopback(void (*check)(bool, const char*) noexcept, i32 family) noexcept {
             // fixture's response targets the newly allocated local UDP port.
             recvfrom(peer, reinterpret_cast<char*>(received), sizeof(received), 0,
                      reinterpret_cast<sockaddr*>(&client), &client_bytes);
-            check(voice_udp_begin(&discovery, &loop, reinterpret_cast<const sockaddr*>(&address),
-                                  address_bytes, 0x01020304, GetTickCount64()),
+            check(voice_udp_begin(&discovery, &loop, test_network_address(&address, address_bytes), 0x01020304,
+                                  GetTickCount64()),
                   "UDP late-response attempt starts");
             const auto request_bytes = recvfrom(peer, reinterpret_cast<char*>(received), sizeof(received),
                                                 0, reinterpret_cast<sockaddr*>(&client), &client_bytes);

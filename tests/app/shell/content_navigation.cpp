@@ -2,6 +2,7 @@
 // selection and channel authority. Surrounding presentation/history are thin
 // deterministic boundaries; no cloned navigation helper is used.
 #include "../../../src/app/shell/content_input.cpp"
+#include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../../src/app/shell/content_point.hpp"
 #include "maicord/core/memory.hpp"
@@ -94,8 +95,8 @@ bool reset() noexcept {
 // window, so the hand stuck everywhere until the next click.
 void cursor_tests() noexcept {
     check(reset(), "content cursor: fixture resets");
-    g_app.window = CreateWindowExW(0, L"STATIC", L"cursor fixture", WS_POPUP, 0, 0, 800, 600, nullptr,
-                                   nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"cursor fixture", WS_POPUP, 0, 0, 800, 600, nullptr,
+                                   nullptr, nullptr, nullptr));
     g_app.message_scene.active = true;
     g_app.message_scene.viewport = {0, 0, 800, 600};
     save_button = {100, 100, 130, 130};
@@ -118,9 +119,9 @@ void cursor_tests() noexcept {
     g_app.message_scene.active = false;
     check(!application_message_content_cursor(115, 170, &cursor),
           "content cursor: a hidden message scene claims no cursor");
-    if (GetCapture() == g_app.window)
+    if (GetCapture() == win32_hwnd(g_app.window))
         ReleaseCapture();
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     save_button = {};
 }
@@ -130,21 +131,16 @@ bool select_home() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     return activate_focused_navigation();
 }
-// The system turns WM_RBUTTONUP's client point into WM_CONTEXTMENU's screen point. The window procedure hands
-// the application content coordinates, so DefWindowProc must still get the point as sent: with the content
-// point the menu's screen point sat a caption above the pointer and the application subtracted the caption
-// again, so right clicks missed what a left click on the same pixel hit.
+// The system turns WM_RBUTTONUP's client point into WM_CONTEXTMENU's screen point; the window backend hands the
+// default procedure the client point as sent (the content shift happens on the event the application sees), so the
+// screen point maps back to the content point under the caption.
 LPARAM context_screen_point;
-bool context_use_content_point;
 LRESULT CALLBACK context_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (message == WM_CONTEXTMENU) {
         context_screen_point = lparam;
         return 0;
     }
-    return DefWindowProcW(window, message, wparam,
-                          message == WM_RBUTTONUP && context_use_content_point
-                              ? application_caption_content_point(lparam)
-                              : lparam);
+    return DefWindowProcW(window, message, wparam, lparam);
 }
 void context_point_tests() noexcept {
     check(reset(), "context point: fixture resets");
@@ -153,27 +149,21 @@ void context_point_tests() noexcept {
     type.hInstance = GetModuleHandleW(nullptr);
     type.lpszClassName = L"MaiCordContextPointTest";
     RegisterClassExW(&type);
-    g_app.window = CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP, 40, 60, 800, 600, nullptr, nullptr,
-                                   type.hInstance, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP, 40, 60, 800, 600, nullptr, nullptr,
+                                   type.hInstance, nullptr));
     g_app.renderer.caption_height = 31;
     const LPARAM client = MAKELPARAM(120, 200); // Pixels in the window's client area, caption rows included.
-    const LPARAM content = application_caption_content_point(client);
-    check(g_app.window && static_cast<short>(HIWORD(content)) == 200 - 31 && LOWORD(content) == 120,
-          "context point: content coordinates start below the caption");
-    for (u32 variant = 0; variant < 2 && g_app.window; ++variant) {
-        context_use_content_point = variant != 0;
-        context_screen_point = 0;
-        SendMessageW(g_app.window, WM_RBUTTONUP, 0, client);
-        POINT point{static_cast<short>(LOWORD(context_screen_point)), static_cast<short>(HIWORD(context_screen_point))};
-        const bool converted = context_screen_point && application_screen_to_content(&point);
-        const bool exact = converted && point.x == 120 && point.y == 200 - 31;
-        check(variant ? !exact && point.y == 200 - 2 * 31 : exact,
-              variant ? "context point: the content point given to DefWindowProc lands a caption too high"
-                      : "context point: the client point given to DefWindowProc maps back to the content point");
-    }
+    context_screen_point = 0;
+    if (g_app.window)
+        SendMessageW(win32_hwnd(g_app.window), WM_RBUTTONUP, 0, client);
+    POINT point{static_cast<short>(LOWORD(context_screen_point)), static_cast<short>(HIWORD(context_screen_point))};
+    const bool converted = context_screen_point && ScreenToClient(win32_hwnd(g_app.window), &point);
+    application_client_to_content(&point);
+    check(converted && point.x == 120 && point.y == 200 - 31,
+          "context point: the client point given to DefWindowProc maps back to the content point");
     g_app.renderer.caption_height = 0;
     if (g_app.window)
-        DestroyWindow(g_app.window);
+        DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     UnregisterClassW(type.lpszClassName, type.hInstance);
 }
@@ -293,7 +283,7 @@ void tests() noexcept {
                       static_cast<u16>(url.bytes),
                       MessageMarkdownSemanticKind::message_link,
                       true};
-        check(handle_content_click(0) && typed_links == 1 && captured_sources == 1 &&
+        check(handle_content_click(window_test::pointer_down(window_test::x_of(0), window_test::y_of(0))) && typed_links == 1 && captured_sources == 1 &&
                   captured_source.channel_id == 21 && captured_source.message_id == resident->id &&
                   captured_source.handle.slot == inserted.handle.slot &&
                   captured_source.handle.generation == inserted.handle.generation &&
@@ -302,11 +292,11 @@ void tests() noexcept {
               "content navigation: real hit dispatch captures exact source handle before uncached target "
               "hydration");
         native_hit.kind = MessageMarkdownSemanticKind::link;
-        check(handle_content_click(0) && typed_links == 2,
+        check(handle_content_click(window_test::pointer_down(window_test::x_of(0), window_test::y_of(0))) && typed_links == 2,
               "content navigation: masked ordinary link uses the same internal typed owner");
         ++native_hit.message_revision;
         check(
-            handle_content_click(0) && typed_links == 2 && captured_sources == 2,
+            handle_content_click(window_test::pointer_down(window_test::x_of(0), window_test::y_of(0))) && typed_links == 2 && captured_sources == 2,
             "content navigation: stale semantic revision cannot start navigation or external confirmation");
     }
 }
@@ -347,12 +337,6 @@ bool application_friends_show() noexcept {
 ChannelMemoryEntry application_channel_memory_recall(u64) noexcept {
     return {};
 }
-float client_dip_x(LPARAM) noexcept {
-    return 0;
-}
-float client_dip_y(LPARAM) noexcept {
-    return 0;
-}
 bool refresh_message_composer_ui() noexcept {
     return false;
 }
@@ -362,7 +346,7 @@ bool application_downloads_save_target(float x, float y) noexcept {
 bool application_downloads_save_press(float, float) noexcept {
     ++content_navigation_test::save_presses;
     if (g_app.window)
-        SetCapture(g_app.window);
+        SetCapture(win32_hwnd(g_app.window));
     return true;
 }
 const Theme& application_theme() noexcept {

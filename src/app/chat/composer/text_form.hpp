@@ -4,6 +4,7 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "../threads/forum_post.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 struct TextFormOwnerKey {
@@ -95,9 +96,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
 void application_text_form_close(bool restore_focus = true, bool redraw = true) noexcept;
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept;
 bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noexcept;
-bool application_text_form_filter_message(const MSG& message) noexcept;
-bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lparam,
-                                          LRESULT* result) noexcept;
+bool application_text_form_filter(const WindowEvent& event) noexcept;
+bool application_text_form_window_event(const WindowEvent& event) noexcept;
 bool application_text_form_synchronize() noexcept;
 // Every committed font-bank change, including hidden owners and token wrap.
 void application_text_form_theme_changed() noexcept;

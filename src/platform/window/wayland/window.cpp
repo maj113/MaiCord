@@ -6,7 +6,11 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/wayland.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
+#include "maicord/platform/window/wayland/settings_map.hpp"
+#include "maicord/platform/dbus/desktop_settings.hpp"
+#include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/process.hpp"
 #include "backend.hpp"
 #include "fd.hpp"
 
@@ -87,10 +91,12 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
             wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
         }
     } else if (same(interface, "wp_viewporter")) {
-        if (!g.viewporter)
+        if (!g.viewporter && !environment_get("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
     } else if (same(interface, "wp_fractional_scale_manager_v1")) {
-        if (!g.fractional_manager)
+        // MAICORD_WAYLAND_NO_FRACTIONAL=1 ignores this protocol and viewporter: the integer scale path (wl_surface
+        // buffer scale), for testing it where the compositor offers both.
+        if (!g.fractional_manager && !environment_get("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.fractional_manager = static_cast<wp_fractional_scale_manager_v1*>(
                 wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
     } else if (same(interface, "wp_cursor_shape_manager_v1")) {
@@ -101,6 +107,31 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
         if (!g.decoration_manager)
             g.decoration_manager = static_cast<zxdg_decoration_manager_v1*>(
                 wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1));
+    } else if (same(interface, "wl_data_device_manager")) {
+        if (!g.data_manager)
+            g.data_manager = static_cast<wl_data_device_manager*>(
+                wl_registry_bind(registry, name, &wl_data_device_manager_interface, minimum(version, 3u)));
+    } else if (same(interface, "zwp_primary_selection_device_manager_v1")) {
+        if (!g.primary_manager)
+            g.primary_manager = static_cast<zwp_primary_selection_device_manager_v1*>(
+                wl_registry_bind(registry, name, &zwp_primary_selection_device_manager_v1_interface, 1));
+    } else if (same(interface, "zwp_text_input_manager_v3")) {
+        if (!g.text_input_manager)
+            g.text_input_manager = static_cast<zwp_text_input_manager_v3*>(
+                wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1));
+    } else if (same(interface, "xdg_activation_v1")) {
+        if (!g.activation_manager)
+            g.activation_manager = static_cast<xdg_activation_v1*>(
+                wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1));
+    } else if (same(interface, "zwp_idle_inhibit_manager_v1")) {
+        if (!g.idle_manager)
+            g.idle_manager = static_cast<zwp_idle_inhibit_manager_v1*>(
+                wl_registry_bind(registry, name, &zwp_idle_inhibit_manager_v1_interface, 1));
+    } else if (same(interface, "wl_output")) {
+        // Version 2 reports the integer scale; the output is only tracked when the window needs it.
+        if (version >= 2)
+            extras_output_added(static_cast<wl_output*>(
+                wl_registry_bind(registry, name, &wl_output_interface, minimum(version, 3u))));
     }
 }
 
@@ -268,15 +299,7 @@ void on_decoration_configure(void*, zxdg_toplevel_decoration_v1*, u32 mode) noex
 const zxdg_toplevel_decoration_v1_listener kDecorationListener = {on_decoration_configure};
 
 void on_preferred_scale(void*, wp_fractional_scale_v1*, u32 scale) noexcept {
-    if (scale == 0 || scale == g.window.scale_120)
-        return;
-    g.window.scale_120 = scale;
-    g.window.dpi = scale_to_dpi(scale);
-    if (!g.window.configured)
-        return;
-    emit_resize(EventType::scale_changed);
-    pointer_scale_changed();
-    present_clear();
+    window_scale_changed(scale);
 }
 
 const wp_fractional_scale_v1_listener kFractionalListener = {on_preferred_scale};
@@ -319,6 +342,7 @@ wl_buffer* make_clear_buffer(u32 width, u32 height, u32 color) noexcept {
 }
 
 void destroy_window_objects() noexcept {
+    extras_shutdown();  // the wl_egl_window, the idle inhibitor and an activation token belong to the surface
     WindowState& window = g.window;
     if (window.frame_callback)
         wl_callback_destroy(window.frame_callback);
@@ -343,8 +367,20 @@ bool configured_and_scaled() noexcept {
 }
 
 void disconnect() noexcept {
+    data_shutdown();
+    text_shutdown();
     keyboard_shutdown();
     pointer_detach();
+    if (g.data_manager)
+        g_client.proxy_destroy(reinterpret_cast<Proxy*>(g.data_manager));
+    if (g.primary_manager)
+        zwp_primary_selection_device_manager_v1_destroy(g.primary_manager);
+    if (g.text_input_manager)
+        zwp_text_input_manager_v3_destroy(g.text_input_manager);
+    if (g.activation_manager)
+        xdg_activation_v1_destroy(g.activation_manager);
+    if (g.idle_manager)
+        zwp_idle_inhibit_manager_v1_destroy(g.idle_manager);
     if (g.seat) {
         if (g.seat_version >= wl_seat_release_since)
             wl_seat_release(g.seat);
@@ -478,9 +514,38 @@ bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept {
     return true;
 }
 
+// What the surface needs besides a buffer: the destination size of the viewport (fractional scale) or the integer buffer
+// scale. Both are applied by the next commit, whoever makes it.
+void apply_surface_geometry() noexcept {
+    WindowState& window = g.window;
+    if (window.viewport)
+        wp_viewport_set_destination(window.viewport, static_cast<i32>(window.logical_width),
+                                    static_cast<i32>(window.logical_height));
+    else if (g.compositor_version >= wl_surface_set_buffer_scale_since)
+        wl_surface_set_buffer_scale(window.surface, static_cast<i32>(maximum<u32>(window.dpi / kDefaultDpi, 1)));
+}
+
+void window_scale_changed(u32 scale_120) noexcept {
+    if (scale_120 == 0 || scale_120 == g.window.scale_120)
+        return;
+    g.window.scale_120 = scale_120;
+    g.window.dpi = scale_to_dpi(scale_120);
+    if (!g.window.configured)
+        return;
+    emit_resize(EventType::scale_changed);
+    pointer_scale_changed();
+    present_clear();
+}
+
 void present_clear() noexcept {
     WindowState& window = g.window;
-    if (!window.configured || !window.visible || window.external_buffers || !window.surface)
+    if (!window.configured || !window.surface)
+        return;
+    if (window.external_buffers) {
+        egl_sync();  // the GPU backend presents; the wl_egl_window follows the size
+        return;
+    }
+    if (!window.visible)
         return;
     u32 width = 0;
     u32 height = 0;
@@ -488,9 +553,7 @@ void present_clear() noexcept {
     wl_buffer* buffer = make_clear_buffer(width, height, window.clear_color);
     if (!buffer)
         return;
-    if (window.viewport)
-        wp_viewport_set_destination(window.viewport, static_cast<i32>(window.logical_width),
-                                    static_cast<i32>(window.logical_height));
+    apply_surface_geometry();
     wl_surface_attach(window.surface, buffer, 0, 0);
     wl_surface_damage_buffer(window.surface, 0, 0, static_cast<i32>(width), static_cast<i32>(height));
     wl_surface_commit(window.surface);
@@ -519,6 +582,20 @@ const WindowCaps& window_caps() noexcept {
     return g.caps;
 }
 
+// The portal's settings changed (or were first read): the app reads PlatformSettings again for these areas.
+static void on_desktop_settings(void*, u32 areas) noexcept {
+    if (!g.window_exists)
+        return;
+    WindowEvent event = make_event(EventType::settings_changed, now_ms32());
+    event.settings.areas = areas;
+    ring_push(event);
+    if (areas & dbus::desktop_cursor) {
+        // The cursor theme or size changed: the next cursor is loaded afresh.
+        g.pointer.applied_valid = false;
+        window_request_cursor_refresh(nullptr);
+    }
+}
+
 bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept {
     if (g.window_exists || !out || info.client_width_dips == 0 || info.client_height_dips == 0)
         return false;
@@ -543,6 +620,13 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
         return false;
     }
     g.display_waitable = waitable_borrow_fd(g_client.display_get_fd(g.display));
+    post_queue_init(&g.post);
+    __atomic_store_n(&g.post_ready, 1u, __ATOMIC_RELEASE);
+    // The desktop's settings come over the session bus while the compositor handshake runs.
+    dbus::desktop_settings_set_handler(on_desktop_settings, nullptr);
+    dbus::desktop_settings_start();
+    data_attach();
+    text_attach();
 
     WindowState& window = g.window;
     window.sink = sink;
@@ -584,7 +668,7 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     if (g.decoration_manager) {
         window.decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(g.decoration_manager, window.toplevel);
         zxdg_toplevel_decoration_v1_add_listener(window.decoration, &kDecorationListener, nullptr);
-        zxdg_toplevel_decoration_v1_set_mode(window.decoration, zxdg_toplevel_decoration_v1_mode_server_side);
+        zxdg_toplevel_decoration_v1_set_mode(window.decoration, zxdg_toplevel_decoration_v1_mode_client_side);
     }
     if (g.viewporter) {
         window.viewport = wp_viewporter_get_viewport(g.viewporter, window.surface);
@@ -594,16 +678,20 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
             g.caps.fractional_scale = true;
         }
     }
+    extras_attach_surface();
     g.window_exists = true;
-    // The initial commit asks for the first configure; the window is ready once it and the first scale arrived.
+    // The initial commit asks for the first configure. The window is ready once that has arrived and what the bound
+    // globals announce (the preferred scale, the selection) has been answered.
     wl_surface_commit(window.surface);
-    if (!dispatch_until(configured_and_scaled, kCreateTimeoutMs) ||
-        (g.caps.fractional_scale && g_client.display_roundtrip(g.display) < 0)) {
+    if (!dispatch_until(configured_and_scaled, kCreateTimeoutMs) || g_client.display_roundtrip(g.display) < 0) {
         log_write(LogLevel::error, "wayland", "the compositor never configured the window");
         destroy_window_objects();
         disconnect();
         return false;
     }
+    // Settings that did not arrive during the handshake are waited for briefly: a first frame in the wrong colour
+    // scheme would flash; a desktop without the portal answers at once with an error.
+    dbus::desktop_settings_wait_loaded(250);
     *out = reinterpret_cast<Window>(&g.window);
     return true;
 }
@@ -611,8 +699,16 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
 void window_destroy(Window window) noexcept {
     if (!is_window(window))
         return;
+    dbus::desktop_settings_set_handler(nullptr, nullptr);
     destroy_window_objects();
     disconnect();
+}
+
+void window_wayland_prefer_server_decorations(Window window, bool server) noexcept {
+    if (!is_window(window) || !g.window.decoration)
+        return;
+    zxdg_toplevel_decoration_v1_set_mode(g.window.decoration, server ? zxdg_toplevel_decoration_v1_mode_server_side
+                                                                      : zxdg_toplevel_decoration_v1_mode_client_side);
 }
 
 NativeWindow window_surface_native(Window window) noexcept {
@@ -656,7 +752,12 @@ void window_set_title(Window window, Utf8View title) noexcept {
     xdg_toplevel_set_title(g.window.toplevel, text);
 }
 
-void window_set_icon(Window, const IconImage*) noexcept {}
+void window_set_icon(Window, const IconImage*, u32) noexcept {}
+
+// No icon is stored in the program on Linux; the .desktop entry and the hicolor icons carry it.
+ConstSlice<u8> window_app_icon_png(u32, u32, u32*) noexcept {
+    return {};
+}
 
 void window_minimize(Window window) noexcept {
     if (is_window(window))
@@ -718,9 +819,6 @@ void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept {
                               static_cast<i32>(height_px * 96 / dpi));
 }
 
-void window_request_attention(Window, Attention) noexcept {}
-
-void window_set_drop_target(Window, bool) noexcept {}
 
 void window_invalidate(Window) noexcept {}
 
@@ -761,17 +859,29 @@ void window_fatal_message(Utf8View title, Utf8View text) noexcept {
 }
 
 PlatformSettings platform_settings_read() noexcept {
-    PlatformSettings settings{};
-    settings.double_click_ms = 500;
-    settings.double_click_dx_px = 4;
-    settings.double_click_dy_px = 4;
-    settings.caret_blink_ms = 530;
-    settings.wheel_lines = 3;
-    settings.wheel_page = false;
-    settings.client_area_animation = true;
-    settings.dark_scheme = false;
-    settings.system_idle_ms = kSystemIdleUnknown;
-    return settings;
+    dbus::DesktopSettings desktop;
+    dbus::desktop_settings_get(&desktop);
+    return wayland::platform_settings_from_desktop(desktop);
+}
+
+bool window_inject(Window window, const WindowEvent& event, WindowEventResult* result) noexcept {
+    if (!is_window(window) || !g.window.sink)
+        return false;
+    // As a real event goes: the pointer and capture bookkeeping around the sink (not the decoration filter: an
+    // accessibility action is not a click on the frame).
+    WindowEvent synthetic = event;
+    synthetic.flags |= ev_synthetic;
+    WindowEventResult local{};
+    pointer_before_dispatch(synthetic);
+    sink_call(synthetic, &local);
+    pointer_after_dispatch(synthetic);
+    if (event.type == EventType::close_requested && !local.handled) {
+        g.quit = true;
+        g.exit_code = 0;
+    }
+    if (result)
+        *result = local;
+    return true;
 }
 
 bool window_wayland_global(u32 index, const char** name, u32* version) noexcept {

@@ -39,7 +39,7 @@ struct Gate {
         width = height = 0;
     }
     bool ensure() noexcept {
-        const u32 w = r.graphics.buffer_width, h = r.graphics.buffer_height;
+        const u32 w = r.graphics.surface.buffer_width, h = r.graphics.surface.buffer_height;
         if (target && w == width && h == height)
             return true;
         release();
@@ -68,12 +68,12 @@ struct Gate {
     bool draw_reference(const Theme& theme) noexcept {
         const u32 draws = r.draw_calls_last_frame, media = r.media_draws_last_frame, total = r.media_draws_total;
         const u64 effect_next = r.text_effect_next_ms;
-        ID3D11RenderTargetView* presented = r.graphics.target;
-        r.graphics.target = target;
+        ID3D11RenderTargetView* presented = r.graphics.surface.target;
+        r.graphics.surface.target = target;
         // At the frame's own effect clock: draw_stream set the next deadline 42 ms past it.
         const bool drawn = d3d11_renderer_draw_stream(&r, theme, false, false, nullptr, effect_next - 42);
-        r.graphics.target = presented;
-        r.graphics.context->OMSetRenderTargets(1, &r.graphics.target, nullptr);
+        r.graphics.surface.target = presented;
+        r.graphics.context->OMSetRenderTargets(1, &r.graphics.surface.target, nullptr);
         r.text_effect_next_ms = effect_next;
         r.draw_calls_last_frame = draws;
         r.media_draws_last_frame = media;
@@ -90,7 +90,7 @@ struct Gate {
             return true; // nothing changed: nothing presented
         // Flip-sequential: buffer 1 is the image Present just queued.
         ID3D11Texture2D* shown = nullptr;
-        if (FAILED(r.graphics.swap_chain->GetBuffer(1, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&shown))))
+        if (FAILED(r.graphics.surface.swap_chain->GetBuffer(1, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&shown))))
             return fail(stage, 2);
         // Pixels no quad paints (outside the root's corners) keep whatever the
         // buffer held; the full draw replaces every other pixel, the opaque

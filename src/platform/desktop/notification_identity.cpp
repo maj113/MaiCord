@@ -75,13 +75,13 @@ bool string_equals(HKEY key,const wchar_t* name,const wchar_t* expected) noexcep
     return r==ERROR_SUCCESS&&type==REG_SZ&&bytes==want&&bytes_equal(value,expected,want);
 }
 bool value_absent(HKEY key,const wchar_t* name) noexcept {return RegQueryValueExW(key,name,nullptr,nullptr,nullptr,nullptr)==ERROR_FILE_NOT_FOUND;}
-enum class Key : u8 { absent, owned, foreign, error };
-Key open_key(const wchar_t* path,const wchar_t* nonce,HKEY* out,LSTATUS* status) noexcept {
+enum class KeyState : u8 { absent, owned, foreign, error };
+KeyState open_key(const wchar_t* path,const wchar_t* nonce,HKEY* out,LSTATUS* status) noexcept {
     *out=nullptr;const LSTATUS r=RegOpenKeyExW(HKEY_CURRENT_USER,path,0,KEY_QUERY_VALUE,out);*status=r;
-    if(r==ERROR_FILE_NOT_FOUND||r==ERROR_PATH_NOT_FOUND){*out=nullptr;return Key::absent;}
-    if(r!=ERROR_SUCCESS){*out=nullptr;return Key::error;}
-    if(string_equals(*out,kOwner,nonce))return Key::owned;
-    RegCloseKey(*out);*out=nullptr;return Key::foreign;
+    if(r==ERROR_FILE_NOT_FOUND||r==ERROR_PATH_NOT_FOUND){*out=nullptr;return KeyState::absent;}
+    if(r!=ERROR_SUCCESS){*out=nullptr;return KeyState::error;}
+    if(string_equals(*out,kOwner,nonce))return KeyState::owned;
+    RegCloseKey(*out);*out=nullptr;return KeyState::foreign;
 }
 bool aumid_current(HKEY key,const Paths& p) noexcept {
     return string_equals(key,L"DisplayName",p.name)&&string_equals(key,L"CustomActivator",p.activator)&&
@@ -123,12 +123,12 @@ NotificationIdentityResult notification_identity_check(const NotificationIdentit
     ScratchPages<Paths> work;if(!work.data)return failure(NotificationIdentityError::registry,ERROR_NOT_ENOUGH_MEMORY);
     Paths& p=*work.data;if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
     HKEY aumid=nullptr,clsid=nullptr;LSTATUS aumid_status{},clsid_status{};
-    const Key a=open_key(p.aumid_key,p.nonce,&aumid,&aumid_status),k=open_key(p.clsid_key,p.nonce,&clsid,&clsid_status);
+    const KeyState a=open_key(p.aumid_key,p.nonce,&aumid,&aumid_status),k=open_key(p.clsid_key,p.nonce,&clsid,&clsid_status);
     NotificationIdentityResult result{};
-    if(a==Key::error||k==Key::error)result=failure(NotificationIdentityError::registry,static_cast<u32>(a==Key::error?aumid_status:clsid_status));
-    else if(a==Key::foreign||k==Key::foreign)result=failure(NotificationIdentityError::foreign_resource,ERROR_ACCESS_DENIED);
-    else if(a==Key::absent&&k==Key::absent)result=failure(NotificationIdentityError::absent,ERROR_FILE_NOT_FOUND);
-    else if(a==Key::absent||k==Key::absent||!aumid_current(aumid,p)||!clsid_current(clsid,p))result=failure(NotificationIdentityError::stale,ERROR_INVALID_DATA);
+    if(a==KeyState::error||k==KeyState::error)result=failure(NotificationIdentityError::registry,static_cast<u32>(a==KeyState::error?aumid_status:clsid_status));
+    else if(a==KeyState::foreign||k==KeyState::foreign)result=failure(NotificationIdentityError::foreign_resource,ERROR_ACCESS_DENIED);
+    else if(a==KeyState::absent&&k==KeyState::absent)result=failure(NotificationIdentityError::absent,ERROR_FILE_NOT_FOUND);
+    else if(a==KeyState::absent||k==KeyState::absent||!aumid_current(aumid,p)||!clsid_current(clsid,p))result=failure(NotificationIdentityError::stale,ERROR_INVALID_DATA);
     if(aumid)RegCloseKey(aumid);if(clsid)RegCloseKey(clsid);return result;
 }
 NotificationIdentityResult notification_identity_create(const NotificationIdentityConfig& c) noexcept {

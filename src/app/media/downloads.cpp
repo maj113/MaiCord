@@ -633,7 +633,7 @@ bool begin_source(const DownloadSource& source) noexcept {
         q->warning_id = j.id;
     changed(*q);
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
     // Like the official client, saving goes straight to the save dialog; only
     // a risky file type first asks for confirmation in the panel.
     return !source.risky || application_downloads_open();
@@ -707,7 +707,7 @@ bool application_downloads_open() noexcept {
         return false;
     q->active = true;
     if (g_app.window)
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
     application_release_capture();
     return application_downloads_synchronize() && application_request_frame();
 }
@@ -1264,7 +1264,7 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
         read = renderer_read_media_rgba(&g_app.renderer,
                                         media_asset_attachment(source.attachment, format, tiers[index]),
                                         {pixels, capacity}, &width, &height);
-    const bool copied = read && clipboard_write_image(g_app.window, pixels, width, height, width * 4,
+    const bool copied = read && clipboard_write_image(pixels, width, height, width * 4,
                                                       {source.url, source.url_bytes});
     pages_release(pixels);
     application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);

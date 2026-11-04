@@ -16,6 +16,13 @@ using Sizei = i32;
 using Boolean = u8;
 using Sizeiptr = i64;
 using Intptr = i64;
+using Sync = void*; // a GLsync
+inline constexpr Enum kSyncGpuCommandsComplete = 0x9117;
+inline constexpr Enum kAlreadySignaled = 0x911A, kConditionSatisfied = 0x911C, kTimeoutExpired = 0x911B,
+                      kWaitFailed = 0x911D;
+inline constexpr Bitfield kSyncFlushCommandsBit = 0x00000001;
+inline constexpr Enum kTimestampExt = 0x8E28, kQueryResultAvailableExt = 0x8867, kQueryResultExt = 0x8866,
+                      kGpuDisjointExt = 0x8FBB;
 
 inline constexpr Boolean kFalse = 0;
 inline constexpr Boolean kTrue = 1;
@@ -107,6 +114,7 @@ inline constexpr Enum kDrawFramebuffer = 0x8CA9;
 inline constexpr Enum kColorAttachment0 = 0x8CE0;
 inline constexpr Enum kFramebufferComplete = 0x8CD5;
 inline constexpr Enum kColor = 0x1800;
+inline constexpr Bitfield kColorBufferBit = 0x00004000;
 
 // Shaders, programs and vertex state.
 inline constexpr Enum kFragmentShader = 0x8B30;
@@ -152,6 +160,7 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glDeleteBuffers, (Sizei count, const Uint* names))                                                         \
     X(void, glBindBuffer, (Enum target, Uint name))                                                                    \
     X(void, glBindBufferBase, (Enum target, Uint index, Uint name))                                                    \
+    X(void, glBindBufferRange, (Enum target, Uint index, Uint name, Intptr offset, Sizeiptr bytes))                    \
     X(void, glBufferData, (Enum target, Sizeiptr bytes, const void* data, Enum usage))                                 \
     X(void, glBufferSubData, (Enum target, Intptr offset, Sizeiptr bytes, const void* data))                           \
     X(void*, glMapBufferRange, (Enum target, Intptr offset, Sizeiptr bytes, Bitfield access))                          \
@@ -175,6 +184,9 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(Enum, glCheckFramebufferStatus, (Enum target))                                                                   \
     X(void, glDrawBuffers, (Sizei count, const Enum* buffers))                                                         \
     X(void, glReadBuffer, (Enum source))                                                                               \
+    X(void, glBlitFramebuffer, (Int source_x0, Int source_y0, Int source_x1, Int source_y1, Int destination_x0,        \
+                                Int destination_y0, Int destination_x1, Int destination_y1, Bitfield mask,             \
+                                Enum filter))                                                                          \
     X(void, glClearBufferfv, (Enum buffer, Int draw_buffer, const float* value))                                       \
     X(void, glGenSamplers, (Sizei count, Uint * names))                                                                \
     X(void, glDeleteSamplers, (Sizei count, const Uint* names))                                                        \
@@ -205,6 +217,9 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glDrawArrays, (Enum mode, Int first, Sizei count))                                                         \
     X(void, glDrawArraysInstanced, (Enum mode, Int first, Sizei count, Sizei instances))                               \
     X(void, glDispatchCompute, (Uint x, Uint y, Uint z))                                                               \
+    X(Sync, glFenceSync, (Enum condition, Bitfield flags))                                                             \
+    X(Enum, glClientWaitSync, (Sync sync, Bitfield flags, u64 timeout))                                                \
+    X(void, glDeleteSync, (Sync sync))                                                                                 \
     X(void, glMemoryBarrier, (Bitfield barriers))
 
 struct Api {
@@ -215,6 +230,12 @@ struct Api {
     void (*glCopyImageSubData)(Uint source, Enum source_target, Int source_level, Int sx, Int sy, Int sz,
                                Uint destination, Enum destination_target, Int destination_level, Int dx, Int dy,
                                Int dz, Sizei width, Sizei height, Sizei depth);
+    // Optional: GL_EXT_disjoint_timer_query; null otherwise.
+    void (*glGenQueriesEXT)(Sizei count, Uint* names);
+    void (*glDeleteQueriesEXT)(Sizei count, const Uint* names);
+    void (*glQueryCounterEXT)(Uint name, Enum target);
+    void (*glGetQueryObjectuivEXT)(Uint name, Enum parameter, Uint* value);
+    void (*glGetQueryObjectui64vEXT)(Uint name, Enum parameter, u64* value);
 };
 
 } // namespace maicord::gl

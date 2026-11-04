@@ -51,3 +51,18 @@ inline PVOID InterlockedCompareExchangePointer(PVOID volatile* destination, PVOI
     __atomic_compare_exchange_n(destination, &comparand, exchange, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     return comparand;
 }
+
+// <winnt.h>: on x64 the SDK's acquire and release accesses are plain volatile ones, as they are here (x86-64 orders
+// them like the barrier-free Windows build).
+inline LONG ReadAcquire(const volatile LONG* source) noexcept {
+    return *source;
+}
+inline LONG64 ReadAcquire64(const volatile LONG64* source) noexcept {
+    return *source;
+}
+inline void WriteRelease(volatile LONG* destination, LONG value) noexcept {
+    *destination = value;
+}
+inline void WriteRelease64(volatile LONG64* destination, LONG64 value) noexcept {
+    *destination = value;
+}

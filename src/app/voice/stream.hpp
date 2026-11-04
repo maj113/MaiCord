@@ -5,6 +5,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct UiStreamCardScene;
@@ -39,7 +40,7 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept;
 void application_stream_pump() noexcept;
 u64 application_stream_next_wake() noexcept;
 // Voice channel rows: hover card, LIVE badge clicks. True when consumed.
-bool application_stream_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_stream_window_event(const WindowEvent& event) noexcept;
 // Paint-only spinner phase for the card (host frame clock); null when hidden.
 UiStreamCardScene* application_stream_card_spinner_scene() noexcept;
 

@@ -42,13 +42,17 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# certificate <name> <common name>: a self-signed certificate for localhost under that subject. The certificate the
+# "untrusted" case trusts instead of the server's has another subject: with the same one, OpenSSL before 3.2 offers it
+# as the issuer and reports an authority key identifier mismatch (30) where later releases report the self-signed
+# certificate (18), so the expected code would depend on the library version.
 certificate() {
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$1.key" -out "$1.pem" -days 2 \
-        -subj /CN=localhost -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
+        -subj "/CN=$2" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
 }
 
-certificate server || { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
-certificate other || { echo "FAIL: cannot make the second certificate"; failed=1; exit 1; }
+certificate server localhost || { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
+certificate other other.example || { echo "FAIL: cannot make the second certificate"; failed=1; exit 1; }
 yes 0123456789abcdef | head -c 100000 > payload
 
 # start_server <name> <s_server option>...: sets port_<name> to the port it listens on.

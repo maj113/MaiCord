@@ -1,4 +1,5 @@
 #include "../support/model_store_fixtures.hpp"
+#include "../support/window_fixture.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "probe_glyph_ink.hpp"
@@ -176,7 +177,7 @@ bool initialize_step(bool value, u32 stage) noexcept {
 
 bool initialize(HWND window) noexcept {
     auto& ui = *g_app.account_ui;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.account.instance = fixture;
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 9;
@@ -362,7 +363,7 @@ bool click() noexcept {
             return false;
         // The Win32 boundary passes the physical point to shipping input. It
         // never fabricates a MessageTextHit, Source ticket or navigation result.
-        return handle_content_click(MAKELPARAM(static_cast<u16>(x), static_cast<u16>(y))) &&
+        return handle_content_click(window_test::pointer_down(static_cast<float>(static_cast<i16>(static_cast<u16>(x))), static_cast<float>(static_cast<i16>(static_cast<u16>(y))))) &&
                fixture->refresh_ok;
     }
     return false;
@@ -833,7 +834,7 @@ bool message_link_ui_probe() noexcept {
             log_close();
         }
     } cleanup{window};
-    return require(renderer_initialize(&g_app.renderer, window) &&
+    return require(renderer_initialize(&g_app.renderer, probe_window_surface(window)) &&
                        initialize(window),
                    100) &&
            require(message_style_boundaries(), 101) && require(message_emoji_hits(), 102) && scenarios();
@@ -884,12 +885,6 @@ bool scroll_to_resident_message(u64 id) noexcept {
 bool application_stop_account() noexcept {
     g_app.account.status.running = false;
     return true;
-}
-float client_dip_x(LPARAM p) noexcept {
-    return static_cast<short>(LOWORD(p)) * 96.f / g_app.renderer.dpi;
-}
-float client_dip_y(LPARAM p) noexcept {
-    return static_cast<short>(HIWORD(p)) * 96.f / g_app.renderer.dpi;
 }
 bool application_search_navigation_source(const ApplicationSearchSourceTicket&,
                                           ApplicationSearchNavigationSource*) noexcept {

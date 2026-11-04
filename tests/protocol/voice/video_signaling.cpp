@@ -54,6 +54,7 @@ void test_select_protocol(Check check) noexcept {
     VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
     const u32 all = voice_video_codec_bit(VoiceVideoCodec::av1) | voice_video_codec_bit(VoiceVideoCodec::h265) |
                     voice_video_codec_bit(VoiceVideoCodec::vp8);
+#if defined(_WIN32)
     check(voice_video_decode_offers(0, {offers, kVoiceVideoMaximumCodecs}) == 1 &&
               offers[0].codec == VoiceVideoCodec::h264 && offers[0].decode && !offers[0].encode &&
               voice_video_decode_offers(voice_video_codec_bit(VoiceVideoCodec::h265),
@@ -63,6 +64,17 @@ void test_select_protocol(Check check) noexcept {
               offers[0].codec == VoiceVideoCodec::av1 && offers[1].codec == VoiceVideoCodec::h265 &&
               offers[2].codec == VoiceVideoCodec::h264 && voice_video_decode_offers(all, {offers, 1}) == 1,
           "Select Protocol: decode offers follow Discord's order AV1, H265, H264; H264 always, VP8 never");
+#else
+    // Linux offers what its decoders handle (tests/platform/decode/video_capability.cpp covers the software tier).
+    check(voice_video_decode_offers(0, {offers, kVoiceVideoMaximumCodecs}) == 0 &&
+              voice_video_decode_offers(voice_video_codec_bit(VoiceVideoCodec::h265),
+                                        {offers, kVoiceVideoMaximumCodecs}) == 1 &&
+              offers[0].codec == VoiceVideoCodec::h265 && offers[0].decode && !offers[0].encode &&
+              voice_video_decode_offers(all, {offers, kVoiceVideoMaximumCodecs}) == 2 &&
+              offers[0].codec == VoiceVideoCodec::av1 && offers[1].codec == VoiceVideoCodec::h265 &&
+              voice_video_decode_offers(all, {offers, 1}) == 1,
+          "Select Protocol: decode offers follow Discord's order AV1, H265, H264; only what decodes, VP8 never");
+#endif
 
     u8 output[1024];
     const auto rejected = [&](const VoiceSelectProtocolMedia& value) noexcept {

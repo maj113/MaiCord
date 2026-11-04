@@ -9,7 +9,6 @@
 #include "maicord/core/log.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 bool private_navigation_changed() noexcept {
@@ -31,7 +30,7 @@ bool queue_private_conversation(PrivateConversationOperation operation, u64 id) 
         }
     }
     if (!private_conversation_begin(&ui.private_conversation, ui.chat_state, operation, id)) return false;
-    if (g_app.window) PostMessageW(g_app.window, WM_NULL, 0, 0);
+    if (g_app.window) window_wake(g_app.window);
     return true;
 }
 void fail_private_conversation() noexcept {

@@ -8,6 +8,7 @@
 #include "../../../src/app/voice/send_shared.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 
 namespace maicord {
 namespace {
@@ -367,8 +368,8 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
               dave_receive_sender_initialize(&v->opener, {77, kUser}, 0) == DaveSenderError::none &&
               dave_receive_sender_transition(v->opener, {77, kUser}, 1, {seed, 16}, 0, 1000).ok() &&
               voice_playback_initialize(&v->receive.playback) && voice_send_open(&v->send) &&
-              voice_udp_begin(&v->discovery, &v->loop, reinterpret_cast<const sockaddr*>(&address), address_bytes,
-                              kSsrc, GetTickCount64()) &&
+              voice_udp_begin(&v->discovery, &v->loop, test_network_address(&address, address_bytes), kSsrc,
+                              GetTickCount64()) &&
               recvfrom(peer, reinterpret_cast<char*>(wire), sizeof(wire), 0, reinterpret_cast<sockaddr*>(&client),
                        &client_bytes) == 74;
     if (ok) {

@@ -2,13 +2,17 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 
+#if defined(_WIN32)
 #include "maicord/sys/spellcheck.hpp"
+#endif
 
 namespace maicord {
 namespace {
+#if defined(_WIN32)
 constexpr CLSID kSpellCheckerFactoryClass = {0x7AB36653, 0x1796, 0x484B, {0xBD, 0xFA, 0xE7, 0x4F, 0x1D, 0xB7, 0xC1, 0xDC}};
 constexpr IID kSpellCheckerFactoryInterface = {0x8E018A9D, 0x2415, 0x4677, {0xBF, 0x08, 0x79, 0x4E, 0xA6, 0x1F, 0x94, 0xBB}};
 constexpr u32 kWordChars = kSpellCheckerWordBytes + 1;
+#endif
 
 bool copy_tag(Slice<wchar_t> output, const wchar_t* tag, u32 length) noexcept {
     if (!length || length >= output.count)
@@ -17,6 +21,7 @@ bool copy_tag(Slice<wchar_t> output, const wchar_t* tag, u32 length) noexcept {
     output[length] = 0;
     return true;
 }
+#if defined(_WIN32)
 // UTF-8 word to a NUL-terminated UTF-16 buffer; rejects empty/oversized words.
 bool widen(Utf8View word, wchar_t (&output)[kWordChars]) noexcept {
     if (!word.data || !word.bytes || word.bytes > kSpellCheckerWordBytes)
@@ -32,6 +37,7 @@ bool factory_supports(void* context, const wchar_t* tag) noexcept {
     BOOL supported = FALSE;
     return SUCCEEDED(static_cast<ISpellCheckerFactory*>(context)->IsSupported(tag, &supported)) && supported;
 }
+#endif
 } // namespace
 
 bool spell_checker_choose_language(const wchar_t* locale, bool (*supported)(void*, const wchar_t*) noexcept,
@@ -57,6 +63,7 @@ bool spell_checker_choose_language(const wchar_t* locale, bool (*supported)(void
     return supported(context, fallback) && copy_tag(output, fallback, 5);
 }
 
+#if defined(_WIN32)
 bool spell_checker_open(SpellChecker* spell) noexcept {
     if (!spell)
         return false;
@@ -148,5 +155,6 @@ void spell_checker_release(SpellChecker* spell) noexcept {
         CoUninitialize();
     reset_value(spell);
 }
+#endif
 
 } // namespace maicord

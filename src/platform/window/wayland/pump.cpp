@@ -2,6 +2,8 @@
 // display descriptor, the loop wake and the key-repeat timer at once; window_pump drains the ring into the sink.
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/pump.hpp"
+#include "maicord/platform/dbus/session.hpp"
+#include "maicord/platform/dbus/instance.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "backend.hpp"
 
@@ -44,8 +46,34 @@ bool is_key_event(EventType type) noexcept {
     return type == EventType::key_down || type == EventType::key_up || type == EventType::character;
 }
 
+// What DefWindowProc makes of an event the app left unhandled on Windows, which the app relies on: the context menu of a
+// right click (on the release) and of Shift+F10 or the Menu key (on the press, nested inside that key's dispatch; not
+// for auto-repeats). The keyboard one carries ev_keyboard and no position.
+void default_context_menu(const WindowEvent& event) noexcept {
+    const bool by_pointer = event.type == EventType::pointer_up && event.button == static_cast<u8>(PointerButton::right);
+    const bool by_key =
+        event.type == EventType::key_down && (event.flags & ev_repeat) == 0 &&
+        (event.key.key == key::menu ||
+         (event.key.key == key::f10 && (event.modifiers & (mod_ctrl | mod_alt | mod_shift)) == mod_shift));
+    if (!by_pointer && !by_key)
+        return;
+    WindowEvent menu = make_event(EventType::context_menu, event.time_ms);
+    menu.modifiers = event.modifiers;
+    if (by_pointer) {
+        menu.pointer.x = event.pointer.x;
+        menu.pointer.y = event.pointer.y;
+        menu.pointer.buttons = event.pointer.buttons;
+    } else {
+        menu.flags |= ev_keyboard;
+    }
+    WindowEventResult ignored{};
+    sink_call(menu, &ignored);
+}
+
 // One event to the sink, with the bookkeeping that follows what the app has seen.
 void dispatch(const WindowEvent& event) noexcept {
+    if (frame_filter(event))
+        return;  // a client-side decoration took it: a move, a resize, the window menu
     pointer_before_dispatch(event);
     WindowEventResult result{};
     sink_call(event, &result);
@@ -54,11 +82,25 @@ void dispatch(const WindowEvent& event) noexcept {
         g.quit = true;
         g.exit_code = 0;
     }
+    if (!result.handled)
+        default_context_menu(event);
     if (event.type == EventType::pointer_move)
         pointer_cursor_query(event);
 }
 
 } // namespace
+
+void post_drain() noexcept {
+    EventRing& ring = g.ring;
+    PostEntry entry;
+    while (ring.tail - ring.head < kRingCapacity && post_queue_pop(&g.post, &entry)) {
+        WindowEvent event = make_event(EventType::wake, now_ms32());
+        event.wake.cause = entry.cause;
+        event.wake.a = entry.a;
+        event.wake.b = entry.b;
+        ring_push(event);
+    }
+}
 
 void display_poll_nonblocking() noexcept {
     if (!g.display || g.failed || g.read_prepared)
@@ -133,7 +175,7 @@ u32 window_next_deadline_ms(u64 now_ms) noexcept {
 
 WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     WindowWaitResult result{};
-    constexpr u32 kExtra = 3;  // the display, the loop wake and the key-repeat timer
+    constexpr u32 kExtra = 5;  // the display, the loop wake, the key-repeat timer, the session bus and the instance socket
     if (count > kWaitMaximumCount - kExtra) {
         result.failed = true;
         return result;
@@ -182,6 +224,21 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     // A flush that could not send everything leaves requests buffered: look again soon instead of sleeping on.
     if (g_client.display_flush(g.display) < 0 && timeout_ms > 4)
         timeout_ms = 4;
+    // The session bus: its traffic wakes the loop (window_input), and a call timeout or a reconnect bounds the sleep.
+    u32 bus_bit = ~0u;
+    if (const Waitable bus = dbus::session_bus_waitable()) {
+        bus_bit = total;
+        all[total++] = bus;
+    }
+    // The single-instance socket (no session bus): a second launch's request wakes the loop the same way.
+    u32 instance_bit = ~0u;
+    if (const Waitable instance = dbus::instance_waitable()) {
+        instance_bit = total;
+        all[total++] = instance;
+    }
+    const u32 bus_ms = dbus::session_bus_wait_ms(now);
+    if (bus_ms < timeout_ms)
+        timeout_ms = bus_ms;
 
     const WaitManyResult waited = wait_many(all, total, timeout_ms, tolerance_ms);
     const bool display_ready = (waited.ready_mask >> display_bit) & 1;
@@ -190,7 +247,9 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     result.ready_mask = waited.ready_mask & ((1ull << count) - 1);
     const bool woken = (waited.ready_mask >> wake_bit) & 1;
     const bool repeat_fired = repeat_bit != ~0u && ((waited.ready_mask >> repeat_bit) & 1);
-    result.window_input = woken || repeat_fired || work_pending();
+    const bool bus_ready = (bus_bit != ~0u && ((waited.ready_mask >> bus_bit) & 1)) ||
+                           (instance_bit != ~0u && ((waited.ready_mask >> instance_bit) & 1));
+    result.window_input = woken || repeat_fired || bus_ready || work_pending();
     result.timed_out = waited.timed_out && !result.window_input;
     result.failed = waited.failed;
     return result;
@@ -206,7 +265,10 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
     const i64 started = clock_now();
     const i64 budget = static_cast<i64>(soft_budget_us) * 1000;
     display_poll_nonblocking();
+    dbus::session_bus_process(clock_monotonic_milliseconds());
+    dbus::instance_process();
     keyboard_poll_repeat(clock_monotonic_milliseconds());
+    post_drain();
     if (__atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL)) {
         WindowEvent event = make_event(EventType::wake, now_ms32());
         event.wake.cause = wake_poke;
@@ -237,6 +299,16 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
 void window_wake(Window) noexcept {
     __atomic_store_n(&g.wake_pending, 1u, __ATOMIC_RELEASE);
     loop_wake();
+}
+
+bool window_post(const Waker& waker, u64 a, u64 b) noexcept {
+    if (!__atomic_load_n(&g.post_ready, __ATOMIC_ACQUIRE))
+        return false;
+    const wayland::PostEntry entry{waker.cause, a, b};
+    if (!wayland::post_queue_push(&g.post, entry))
+        return false;
+    loop_wake();
+    return true;
 }
 
 } // namespace maicord

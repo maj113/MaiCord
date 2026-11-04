@@ -2,6 +2,7 @@
 // links launch at once, others show the warning with its trust checkbox, and
 // a checked trust is saved per account so the host opens directly next time.
 #include "shell/state.hpp"
+#include "../../support/window_fixture.hpp"
 #include "chat/composer/text_form_state.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/memory.hpp"
@@ -38,11 +39,10 @@ bool click(TextFormElement element) noexcept {
     const auto* node = g_app.text_form ? text_form_node(g_app.text_form->scene, element) : nullptr;
     if (!node)
         return false;
-    LRESULT result = 0;
     const LPARAM point = MAKELPARAM(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
                                     static_cast<short>((node->rectangle.top + node->rectangle.bottom) * .5f));
-    return application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
-           application_text_form_window_message(WM_LBUTTONUP, 0, point, &result);
+    return application_text_form_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+           application_text_form_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
 }
 // Removes the per-profile file and the temporary %LOCALAPPDATA% tree.
 void remove_tree(const wchar_t* root, u64 profile) noexcept {

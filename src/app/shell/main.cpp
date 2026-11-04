@@ -18,6 +18,7 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
+#include "maicord/platform/window/pump.hpp"
 #include "../account/account_ui_runtime.hpp"
 
 #include "state.hpp"
@@ -108,6 +109,37 @@ void drain_deferred_text_services() noexcept {
     failed = next_failed;
 }
 
+// Whether the waitable at `index` of the wait set is the one that ended the wait.
+bool wait_ready(const WindowWaitResult& waited, u32 index) noexcept {
+    return ((waited.ready_mask >> index) & 1) != 0;
+}
+
+// Before each event: the theme's consumers follow a theme change before any input meets them.
+bool pump_before_event(void*) noexcept {
+    if (application_synchronize_theme_consumers())
+        return true;
+    log_write(LogLevel::error, "theme", "theme_layout_refresh_failed");
+    return false;
+}
+
+// The text-service and overlay key filters run ahead of the event's own dispatch, on the presses and releases of
+// plain keys.
+bool pump_key_prefilter(void*, const WindowEvent& event) noexcept {
+    if (application_account_logout_blocked())
+        return application_text_form_filter(event);
+    return (g_app.text_form && application_forum_form_active() && application_text_form_filter(event)) ||
+           application_forum_form_filter(event) || application_composer_text_input_filter(event) ||
+           application_text_form_filter(event) ||
+           (!g_app.text_form && g_app.login.visible &&
+            secure_text_store_filter_key(&g_app.login.text_store, event));
+}
+
+// After each event, IME-consumed input included.
+void pump_after_event(void*) noexcept {
+    drain_deferred_text_services();
+    application_downloads_pump();
+}
+
 bool initialize_ui_runtime() noexcept {
     u64 stage = 1;
     if (!animation_visual_runtime_initialize(&g_app.animations)) {
@@ -173,7 +205,6 @@ int application_run() noexcept {
     MAICORD_PERF_MARK("renderer_prestart");
     g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;
     g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
-    g_app.instance = module_instance();
     log_open();
     MAICORD_PERF_MARK("log_open");
     application_preferences_initialize();
@@ -206,17 +237,15 @@ int application_run() noexcept {
         log_u64(LogLevel::error, "model", "message_view_runtime_initialization_failed",
                 static_cast<u64>(message_view_initialized.error));
         renderer_prestart_cancel();
-        MessageBoxW(nullptr, L"MaiCord could not initialize message state.", L"MaiCord",
-                    MB_OK | MB_ICONERROR);
+        window_fatal_message(utf8_literal("MaiCord"), utf8_literal("MaiCord could not initialize message state."));
         application_account_prestart_cancel();
         log_close();
         return 2;
     }
     MAICORD_PERF_MARK("message_view");
-    if (!application_create_main_window(application_window_proc)) {
+    if (!application_create_main_window()) {
         renderer_prestart_cancel();
-        MessageBoxW(nullptr, L"MaiCord could not create its main window.", L"MaiCord",
-                    MB_OK | MB_ICONERROR);
+        window_fatal_message(utf8_literal("MaiCord"), utf8_literal("MaiCord could not create its main window."));
         application_account_prestart_cancel();
         log_close();
         message_view_runtime_release(&g_app.message_view);
@@ -239,13 +268,12 @@ int application_run() noexcept {
     text_set_browser_invisibles(true);
     // A prestarted saved account attaches before the first frame and binds its
     // content text.
-    if (!renderer_initialize(&g_app.renderer, g_app.window, application_account_prestart_pending())) {
+    if (!renderer_initialize(&g_app.renderer, renderer_window_surface(g_app.window), application_account_prestart_pending())) {
         renderer_prestart_cancel();
-        MessageBoxW(g_app.window,
-                    L"MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime.",
-                    L"Direct3D 11 unavailable", MB_OK | MB_ICONERROR);
+        window_fatal_message(utf8_literal("Direct3D 11 unavailable"),
+                             utf8_literal("MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime."));
         application_release_login_ui();
-        DestroyWindow(g_app.window);
+        window_destroy(g_app.window);
         application_account_prestart_cancel();
         message_view_runtime_release(&g_app.message_view);
         log_close();
@@ -262,7 +290,7 @@ int application_run() noexcept {
         animation_visual_runtime_release(&g_app.animations);
         g_app.renderer_ready = false;
         renderer_shutdown(&g_app.renderer);
-        DestroyWindow(g_app.window);
+        window_destroy(g_app.window);
         application_account_prestart_cancel();
         message_view_runtime_release(&g_app.message_view);
         log_close();
@@ -280,10 +308,15 @@ int application_run() noexcept {
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
     // Shown without activation at the bottom of the z-order: the probe never
     // takes keyboard focus or covers another window.
-    probe_window::show(g_app.window);
+    probe_window::show(win32_hwnd(g_app.window));
 #else
     // Start minimized hides a startup-entry launch in the tray.
-    ShowWindow(g_app.window, application_desktop_initial_show());
+    {
+        const int show = application_desktop_initial_show();
+        window_show(g_app.window, show == kDesktopShowHide                ? ShowMode::hide
+                                  : show == kDesktopShowMinimizedNoActive ? ShowMode::minimize_no_activate
+                                                                          : ShowMode::show_default);
+    }
 #endif
     application_trace_load_stage("window_shown");
     MAICORD_PERF_MARK("window_shown");
@@ -300,29 +333,25 @@ int application_run() noexcept {
     }
 #endif
 
-    MSG message{};
     int exit_code = 0;
-    bool quit = false;
     constexpr u64 kFrameClockWatchdogUs = 100'000;
     constexpr u64 kFrameClockFallbackUs = 16'000;
     application_trace_load_stage("loop_entered");
     MAICORD_PERF_MARK("loop_entered");
-    // Synchronization timer for tolerant background waits (SetWaitableTimerEx).
-    const HANDLE wake_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     g_app.frame_loop_active = true;
-    while (!quit) {
+    for (;;) {
         drain_deferred_text_services();
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 19];
+        Waitable wait_handles[kAccountHostNotificationHandleCapacity + 19];
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
                 : account_host_notification_handles(&g_app.account, wait_handles,
                                                     kAccountHostNotificationHandleCapacity);
         u32 wait_handle_count = account_handle_count;
-        const auto push_handle = [&](HANDLE handle) noexcept {
+        const auto push_handle = [&](Waitable handle) noexcept {
             if (handle)
                 wait_handles[wait_handle_count++] = handle;
         };
@@ -357,7 +386,7 @@ int application_run() noexcept {
         const bool window_hidden = !application_window_shown();
         const bool frame_clock_available = !window_hidden && g_app.renderer_ready &&
                                            !g_app.renderer.live_resize &&
-                                           g_app.renderer.graphics.frame_latency_waitable;
+                                           gpu_frame_clock_waitable(&g_app.renderer.graphics.surface);
         const bool visual_frame_requested =
             !window_hidden && application_visual_frame_requested(wait_now_ms, wait_now_us);
         // The waitable object grants an available swap-chain slot, not a
@@ -367,7 +396,7 @@ int application_run() noexcept {
             frame_clock_available && visual_frame_requested && g_app.renderer.begin_frame_permit;
         if (frame_clock_available && visual_frame_requested && !retained_frame_permit) {
             frame_handle_index = wait_handle_count;
-            wait_handles[wait_handle_count++] = g_app.renderer.graphics.frame_latency_waitable;
+            wait_handles[wait_handle_count++] = gpu_frame_clock_waitable(&g_app.renderer.graphics.surface);
             if (g_app.frame_clock_watchdog_at_us == 0) {
                 g_app.frame_clock_watchdog_at_us =
                     wait_now_us +
@@ -393,47 +422,26 @@ int application_run() noexcept {
                                          ? g_app.frame_clock_watchdog_at_us - wait_now_us
                                          : 0;
             timeout = minimum(
-                timeout, static_cast<u32>(minimum<u64>((remaining_us + 999u) / 1'000u, INFINITE - 1u)));
+                timeout, static_cast<u32>(minimum<u64>((remaining_us + 999u) / 1'000u, 0xFFFFFFFEu)));
         }
-        // Unfocused or minimized, a timer may slip so Windows can batch it with
-        // other expirations; the waitable timer replaces the exact timeout.
-        u32 wake_timer_index = 0xFFFFFFFFu;
-        DWORD wait_timeout = timeout;
+        // Unfocused or minimized, a timer may slip so the system can batch it with other expirations.
         const WakeContext wake_context = window_hidden                    ? WakeContext::hidden
                                          : application_window_foreground() ? WakeContext::foreground
                                                                            : WakeContext::background;
         const u32 tolerance = frame_handle_index == 0xFFFFFFFFu && !retained_frame_permit
                                   ? wake_tolerance_ms(timeout, wake_context)
                                   : 0;
-        if (tolerance && wake_timer) {
-            LARGE_INTEGER due{};
-            due.QuadPart = -static_cast<LONGLONG>(timeout) * 10'000;
-            if (SetWaitableTimerEx(wake_timer, &due, 0, nullptr, nullptr, nullptr, tolerance)) {
-                wake_timer_index = wait_handle_count;
-                wait_handles[wait_handle_count++] = wake_timer;
-                wait_timeout = INFINITE;
-            }
-        }
-        DWORD waited =
-            MsgWaitForMultipleObjectsEx(wait_handle_count, wait_handle_count != 0 ? wait_handles : nullptr,
-                                        wait_timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-        if (wake_timer_index != 0xFFFFFFFFu) {
-            if (waited == WAIT_OBJECT_0 + wake_timer_index)
-                waited = WAIT_TIMEOUT;
-            else
-                CancelWaitableTimer(wake_timer);
-        }
+        const WindowWaitResult waited = window_wait(wait_handles, wait_handle_count, timeout, tolerance);
         MAICORD_PERF_MARK("loop_wait");
-        if (waited == WAIT_FAILED) {
+        if (waited.failed) {
             log_u64(LogLevel::error, "app", "message_wait_native_error", thread_last_error());
             exit_code = 5;
             break;
         }
 #if defined(MAICORD_PERF_PROBE)
-        perf::probe_observe_wait(timeout, waited == WAIT_TIMEOUT,
-                                 frame_handle_index != 0xFFFFFFFFu && waited == WAIT_OBJECT_0 + frame_handle_index,
-                                 waited == WAIT_OBJECT_0 + wait_handle_count,
-                                 waited >= WAIT_OBJECT_0 && waited < WAIT_OBJECT_0 + wait_handle_count);
+        perf::probe_observe_wait(timeout, waited.timed_out,
+                                 frame_handle_index != 0xFFFFFFFFu && wait_ready(waited, frame_handle_index),
+                                 waited.window_input, waited.ready_mask != 0);
 #endif
         u64 restart_now_ms = clock_monotonic_milliseconds();
         application_preferences_poll();
@@ -446,28 +454,27 @@ int application_run() noexcept {
         if (application_updates_poll() && g_app.window) {
             // An update restart closes for real, never to the tray.
             application_desktop_request_quit();
-            PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+            window_request_close(g_app.window);
         }
         u64 restart_now_us = application_now_us();
-        const bool video_signal = video_handle && waited == WAIT_OBJECT_0 + video_handle_index;
+        const bool video_signal = video_handle && wait_ready(waited, video_handle_index);
         if (video_signal)
             application_call_video_signaled();
-        const bool account_signal = account_handle_count != 0 && waited >= WAIT_OBJECT_0 &&
-                                    waited < WAIT_OBJECT_0 + account_handle_count;
+        const bool account_signal = account_handle_count != 0 && (waited.ready_mask & ((u64{1} << account_handle_count) - 1)) != 0;
         bool frame_signal = retained_frame_permit || (frame_handle_index != 0xFFFFFFFFu &&
-                                                      waited == WAIT_OBJECT_0 + frame_handle_index);
+                                                      wait_ready(waited, frame_handle_index));
         if (!frame_signal && frame_handle_index != 0xFFFFFFFFu) {
             // MsgWait returns the lowest ready handle. Drain a simultaneous
             // display signal even when an earlier account handle or queued
             // window message won the primary wait.
-            frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
+            frame_signal = gpu_frame_try_acquire(&g_app.renderer.graphics.surface);
         } else if (!frame_signal && frame_clock_available &&
                    (video_signal ||
-                    (waited == WAIT_TIMEOUT && application_visual_frame_requested(restart_now_ms, restart_now_us)))) {
+                    (waited.timed_out && application_visual_frame_requested(restart_now_ms, restart_now_us)))) {
             // A new call picture, or a timer that just made a visual deadline
             // due, uses a free display slot in this turn instead of waking
             // again for it.
-            frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
+            frame_signal = gpu_frame_try_acquire(&g_app.renderer.graphics.surface);
         }
         const bool frame_timeout = frame_handle_index != 0xFFFFFFFFu && !frame_signal &&
                                    restart_now_us >= g_app.frame_clock_watchdog_at_us;
@@ -493,51 +500,15 @@ int application_run() noexcept {
             // synthetic tick from tearing.
             renderer_accept_begin_frame(&g_app.renderer);
         }
-        // Input precedes this frame's scroll sample. WM_PAINT only records
-        // damage here; independent codec completions must not consume display
-        // slots from inside DispatchMessage with an old scroll position.
-        const i64 dispatch_start = clock_now();
-        bool dispatched_messages = false;
-        for (u32 dispatched = 0; dispatched < 256 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE);
-             ++dispatched) {
-            if (!application_synchronize_theme_consumers()) {
-                log_write(LogLevel::error, "theme", "theme_layout_refresh_failed");
-                exit_code = 6;
-                quit = true;
-                break;
-            }
-            dispatched_messages = true;
-            if (message.message == WM_QUIT) {
-                exit_code = static_cast<int>(message.wParam);
-                quit = true;
-                break;
-            }
-            const bool filtered =
-                application_account_logout_blocked()
-                    ? application_text_form_filter_message(message)
-                    : (g_app.text_form && application_forum_form_active() &&
-                       application_text_form_filter_message(message)) ||
-                          application_forum_form_filter_message(message) ||
-                          application_composer_text_input_filter(message) ||
-                          application_text_form_filter_message(message) ||
-                          (!g_app.text_form && g_app.login.visible &&
-                           secure_text_store_filter_message(&g_app.login.text_store, message));
-            if (!filtered) {
-                if (message.message == WM_KEYDOWN || message.message == WM_KEYUP ||
-                    message.message == WM_SYSKEYDOWN || message.message == WM_SYSKEYUP)
-                    TranslateMessage(&message);
-                DispatchMessageW(&message);
-            }
-            drain_deferred_text_services();
-            application_downloads_pump();
-            // Include IME-consumed input in the soft fairness budget. A slow
-            // handler cannot be preempted; pending messages remain queued.
-            if ((dispatched & 7u) == 7u &&
-                clock_microseconds(g_app.clock, dispatch_start, clock_now()) >= 2'000u)
-                break;
-        }
-        if (quit)
+        // Input precedes this frame's scroll sample. A paint event only records damage here; independent codec
+        // completions must not consume display slots from inside event dispatch with an old scroll position.
+        const WindowPumpHooks pump_hooks{pump_before_event, pump_key_prefilter, pump_after_event, nullptr};
+        const WindowPumpResult pumped = window_pump(256, 2'000, pump_hooks);
+        const bool dispatched_messages = pumped.dispatched != 0;
+        if (pumped.before_failed || pumped.quit) {
+            exit_code = pumped.before_failed ? 6 : pumped.exit_code;
             break;
+        }
         MAICORD_PERF_MARK("loop_dispatch");
         // A theme glide steps on display frames, like smooth scrolling (see application_visual_frame_requested).
         application_theme_schedule_tick(clock_monotonic_milliseconds(), begin_frame || !frame_clock_available);
@@ -546,8 +517,8 @@ int application_run() noexcept {
             exit_code = 6;
             break;
         }
-        // DispatchMessage can spend seconds in DefWindowProc's sizing modal
-        // loop. Work below must sample the resumed clock, not the pre-drag time.
+        // Event dispatch can spend seconds in the system's sizing modal loop. Work below must sample the resumed
+        // clock, not the pre-drag time.
         restart_now_ms = clock_monotonic_milliseconds();
         restart_now_us = application_now_us();
         application_account_logout_pump();
@@ -753,8 +724,6 @@ int application_run() noexcept {
     }
 
     g_app.frame_loop_active = false;
-    if (wake_timer)
-        CloseHandle(wake_timer);
     drain_deferred_text_services();
     application_media_picker_close();
     application_preferences_shutdown();

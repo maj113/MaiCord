@@ -1,5 +1,6 @@
 #include "maicord/app/update/artifact.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -53,8 +54,8 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
         "update artifact: known hash admits owned file handle and exact approved manifest identity");
     if (!verified.ok()) return;
     u8 read_back[3]{};
-    DWORD read = 0;
-    check(ReadFile(artifact.file, read_back, sizeof(read_back), &read, nullptr) && read == 3 && bytes_equal(read_back, abc, 3),
+    u32 read = 0;
+    check(file_read(artifact.file, read_back, sizeof(read_back), &read) && read == 3 && bytes_equal(read_back, abc, 3),
         "update artifact: retained verified file is positioned at zero for staging handoff");
     const UpdateArtifact owned = artifact;
     check(update_artifact_verify(file_path, approved, &artifact).error == UpdateArtifactError::invalid_input &&
@@ -62,17 +63,20 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
     HANDLE peer_reader = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     check(peer_reader != INVALID_HANDLE_VALUE, "update artifact: verified ownership permits compatible readers");
     if (peer_reader != INVALID_HANDLE_VALUE) CloseHandle(peer_reader);
+#if defined(_WIN32)
+    // Windows denies the writer by sharing mode; on Linux sharing is advisory and a writer that does not lock gets in.
     HANDLE writer = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
     const DWORD writer_error = writer == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
     check(writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION && !DeleteFileW(path) &&
         GetLastError() == ERROR_SHARING_VIOLATION,
         "update artifact: retained verified handle denies file writes and deletion before handoff");
+#endif
     const HANDLE verified_handle = artifact.file;
     const UpdateArtifact empty{};
-    Win32LargeInteger closed_size{};
+    u64 closed_size = 0;
     check(update_artifact_release(&artifact).ok() && bytes_equal(&artifact, &empty, sizeof(artifact)) &&
-        !GetFileSizeEx(verified_handle, closed_size.native()) && GetLastError() == ERROR_INVALID_HANDLE &&
+        !file_size(verified_handle, &closed_size) && thread_last_error() == ERROR_INVALID_HANDLE &&
         update_artifact_release(&artifact).ok(), "update artifact: explicit release closes handle, clears identity and is idempotent");
 
     UpdateArtifact sentinel{};
@@ -110,14 +114,16 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
     wrong = approved; wrong.version = 0;
     check(reject(wrong, UpdateArtifactError::invalid_input), "update artifact: unversioned plan is refused without output publication");
 
-    writer = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    check(writer != INVALID_HANDLE_VALUE, "update artifact: sharing-rejection fixture owns a live writer");
-    if (writer != INVALID_HANDLE_VALUE) {
+#if defined(_WIN32)
+    HANDLE blocker = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    check(blocker != INVALID_HANDLE_VALUE, "update artifact: sharing-rejection fixture owns a live writer");
+    if (blocker != INVALID_HANDLE_VALUE) {
         const auto blocked = update_artifact_verify(file_path, approved, &artifact);
         check(blocked.error == UpdateArtifactError::open && blocked.native_error == ERROR_SHARING_VIOLATION &&
             bytes_equal(&artifact, &sentinel, sizeof(artifact)), "update artifact: an existing writer prevents a verified read-only handoff");
-        CloseHandle(writer);
+        CloseHandle(blocker);
     }
+#endif
     constexpr wchar_t relative[] = L"MaiCord-update.zip";
     constexpr wchar_t drive_relative[] = L"D:MaiCord-update.zip";
     constexpr wchar_t device[] = L"\\\\.\\MaiCord-update.zip";

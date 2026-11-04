@@ -6,12 +6,11 @@
 #include "text_input.hpp"
 #include "../messages/interaction.hpp"
 #include "../../shell/state.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -19,7 +18,7 @@ TextEditMenuState state() noexcept {
     const auto& composer = g_app.message_composer;
     const auto history = message_composer_history_costs(composer);
     return {history.undo_steps != 0, history.redo_steps != 0, composer.anchor != composer.caret,
-        composer.bytes != 0, IsClipboardFormatAvailable(CF_UNICODETEXT) != FALSE || clipboard_attachment_available(), true, true,
+        composer.bytes != 0, clipboard_has_text() || clipboard_has_attachment(), true, true,
         application_composer_text_input_composing()};
 }
 bool ready() noexcept {
@@ -42,7 +41,7 @@ __declspec(noinline) MessageComposerResult paste_text(MessageComposer* composer,
     char text[kMessageComposerMaximumBytes];
     MessageComposerResult result = MessageComposerResult::unchanged;
     const auto copied = clipboard ? clipboard->read ? clipboard->read(clipboard->context, {text, sizeof(text)}) :
-        ClipboardTextResult{0, ClipboardTextError::unavailable} : clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        ClipboardTextResult{0, ClipboardTextError::unavailable} : clipboard_read_utf8({text, sizeof(text)});
     if (copied.ok() && copied.bytes) {
         u32 bytes = 0;
         for (u32 i = 0; i < copied.bytes; ++i) {
@@ -73,7 +72,7 @@ bool application_composer_edit_command(TextEditCommand command, const ComposerEd
         const u32 first = minimum(composer.anchor, composer.caret), last = maximum(composer.anchor, composer.caret);
         const Utf8View selected{composer.text + first, last - first};
         const bool copied = clipboard ? clipboard->write && clipboard->write(clipboard->context, selected) :
-            clipboard_write_utf8(g_app.window, selected);
+            clipboard_write_utf8(selected);
         if (!copied) {
             log_write(LogLevel::warning, "ui", "composer_clipboard_write_failed");
             return true;
@@ -82,7 +81,7 @@ bool application_composer_edit_command(TextEditCommand command, const ComposerEd
         break;
     }
     case TextEditCommand::paste: {
-        if (!clipboard && clipboard_attachment_available()) return application_paste_attachments();
+        if (!clipboard && clipboard_has_attachment()) return application_paste_attachments();
         result = paste_text(&composer, clipboard);
         break;
     }

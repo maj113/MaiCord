@@ -401,4 +401,7 @@ inline BOOL QueryPerformanceCounter(LARGE_INTEGER* counter) noexcept {
     return TRUE;
 }
 
+// The process and memory queries of the font tests (descriptor count, VirtualQuery, hard links).
+#include "linux_test_process.hpp"
+
 #endif

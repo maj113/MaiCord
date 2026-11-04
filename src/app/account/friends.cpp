@@ -17,6 +17,7 @@
 #include "profile.hpp"
 #include "../chat/messages/interaction.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../media/image_viewer.hpp"
 #include "friends_search.hpp"
@@ -27,7 +28,7 @@
 #include "user_actions.hpp"
 #include "maicord/model/user/active_now.hpp"
 #include "maicord/model/user/friend_search.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/protocol/user/relationships.hpp"
@@ -39,9 +40,7 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::app_detail {
@@ -221,7 +220,7 @@ ApplicationFriends* ensure() noexcept {
     friends->sections = {friends->section_rows, 2, 1, false, false, 0};
     friends->requests_sections = {nullptr, 0, 1, false, true, 0};
     friends->tab = UiFriendsTab::online;
-    friends->search_blink_ms = GetCaretBlinkTime();
+    friends->search_blink_ms = application_caret_blink_ms();
     if (!friends->search_blink_ms) friends->search_blink_ms = 500;
     g_app.friends = friends;
     return friends;
@@ -571,7 +570,7 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
     friends->stranger_confirmation = false;
     friends->status = operation == RelationshipOperation::list ? utf8_literal("Loading friends…") : utf8_literal("Sending request…");
     project(*friends, true);repaint();
-    if (g_app.window) PostMessageW(g_app.window, WM_NULL, 0, 0);
+    if (g_app.window) window_wake(g_app.window);
     return true;
 }
 bool text_valid(TextFormOwnerKey key) noexcept {
@@ -801,10 +800,10 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
     if (key == key::backspace) friends.held_key = key;
     if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
-        if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
+        if (last > first && clipboard_write_utf8({model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
     } else if (control && key == 'V') {
-        char text[kFriendsSearchBytes];const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        char text[kFriendsSearchBytes];const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool line = read.ok();
         for (u32 i = 0; line && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
@@ -1240,33 +1239,32 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
         g_app.context_focus = &input_scene(*friends).widgets;
     return repaint();
 }
-bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_friends_window_event(const WindowEvent& event) noexcept {
     auto* friends = g_app.friends;
     if (!application_friends_active()) return false;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
         reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;
-        if (message == WM_KILLFOCUS) { friends->search_caret_visible = false;friends->search_blink_at = 0;application_composer_text_input_suspend();repaint(); }
+        if (input_focus_lost(event)) { friends->search_caret_visible = false;friends->search_blink_at = 0;application_composer_text_input_suspend();repaint(); }
         return false;
     }
-    if (message == WM_SETFOCUS && friends->search_focused) { application_friends_search_changed(false);return false; }
-    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CONTEXTMENU) return false;
+    if (event.type == EventType::focus_changed && friends->search_focused) { application_friends_search_changed(false);return false; }
+    if (!input_pointer(event) && event.type != EventType::context_menu) return false;
     if (overlay_open()) return false;
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
-    float x = client_dip_x(lparam), y = client_dip_y(lparam);
-    if (message == WM_CONTEXTMENU && lparam == -1) {
+    float x = client_dip_x(event), y = client_dip_y(event);
+    if (event.type == EventType::context_menu && (event.flags & ev_keyboard) != 0) {
         if (!modal && g_app.context_focus != &scene.widgets) return false;
         const auto focused = ui_friends_scene_focused(scene);
         if (focused.user_id) more(*friends, focused);
         return true;
     }
-    if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point)) return false;
+    if (input_vertical_wheel(event) || event.type == EventType::context_menu) {
+        const UiPoint point = event.type == EventType::wheel ? client_wheel_dip(event) : client_context_dip(event);
         x = point.x;y = point.y;
         if (!ui_rect_contains(scene.viewport, x, y)) return modal;
-        if (message == WM_MOUSEWHEEL) {
-            ui_friends_scene_scroll(&scene, -static_cast<short>(HIWORD(wparam)) * .8f);repaint();
+        if (event.type == EventType::wheel) {
+            ui_friends_scene_scroll(&scene, -static_cast<i16>(event.wheel.dy120) * .8f);repaint();
         } else {
             const auto hit = ui_friends_scene_hit_test(scene, x, y);
             if (hit.action == UiFriendsAction::active_card)
@@ -1275,22 +1273,23 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         }
         return true;
     }
-    if (message == WM_MOUSEMOVE && friends->dragging) {
+    if (event.type == EventType::pointer_move && friends->dragging) {
         const auto geometry = ui_friends_scene_scrollbar(scene);
         const float target = ui_scrollbar_scroll_from_pointer(geometry, y, friends->thumb_grab);
         ui_friends_scene_scroll(&scene, target - scene.scroll_dips);repaint();return true;
     }
-    if (message == WM_MOUSEMOVE && friends->search_dragging) {
+    if (event.type == EventType::pointer_move && friends->search_dragging) {
         search_pointer(*friends, x, y, true);
         return true;
     }
     const bool inside = ui_rect_contains(scene.viewport, x, y);
-    if (message == WM_LBUTTONDBLCLK &&
-        (!inside || ui_friends_scene_hit_test(scene, x, y).action != UiFriendsAction::search))
-        message = WM_LBUTTONDOWN;
-    if (message == WM_MOUSEMOVE && ui_friends_scene_active_hover(&scene, inside ? x : -1.f, inside ? y : -1.f))
+    // A second press anywhere but the search field is another press.
+    const bool search_double = input_double(event) && inside &&
+                               ui_friends_scene_hit_test(scene, x, y).action == UiFriendsAction::search;
+    const bool press = input_press(event) || (input_double(event) && !search_double);
+    if (event.type == EventType::pointer_move && ui_friends_scene_active_hover(&scene, inside ? x : -1.f, inside ? y : -1.f))
         application_request_frame();
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         const auto hit = inside && ui_friends_scene_hit_test(scene, x, y).action != UiFriendsAction::none ?
             ui_widget_manager_hit_test(scene.widgets, x, y) : ui_widget_invalid_handle();
         const auto old = scene.widgets.hovered;
@@ -1299,12 +1298,13 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         }
     }
     if (!inside && friends->pressed.action == UiFriendsAction::none && !friends->dragging && !friends->search_dragging)
-        return modal && (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_LBUTTONDBLCLK ||
-            message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP);
-    if (message == WM_LBUTTONDOWN) {
+        return modal && (event.type == EventType::pointer_move || press || input_release(event) ||
+            input_press(event, PointerButton::right) || input_release(event, PointerButton::right) ||
+            input_press(event, PointerButton::middle) || input_release(event, PointerButton::middle));
+    if (press) {
         const auto geometry = ui_friends_scene_scrollbar(scene);
         if (ui_scrollbar_track_hit(geometry, x, y)) {
-            if (ui_scrollbar_thumb_hit(geometry, x, y)) { friends->dragging = true;friends->thumb_grab = y - geometry.thumb.top;SetCapture(g_app.window); }
+            if (ui_scrollbar_thumb_hit(geometry, x, y)) { friends->dragging = true;friends->thumb_grab = y - geometry.thumb.top;window_capture_pointer(g_app.window); }
             else { const float page = maximum(1.f, geometry.track.bottom - geometry.track.top - 56.f);
                 ui_friends_scene_scroll(&scene, y < geometry.thumb.top ? -page : page);repaint(); }
             return true;
@@ -1312,25 +1312,26 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         friends->pressed = ui_friends_scene_hit_test(scene, x, y);
         if (friends->pressed.action == UiFriendsAction::search) {
             search_focus(*friends, true);repaint();
-            search_pointer(*friends, x, y, (wparam & MK_SHIFT) != 0);
-            reset_value(&friends->pressed);friends->search_dragging = true;SetCapture(g_app.window);return true;
+            search_pointer(*friends, x, y, input_shift(event));
+            reset_value(&friends->pressed);friends->search_dragging = true;window_capture_pointer(g_app.window);return true;
         }
         search_focus(*friends, false);
         if (friends->pressed.action != UiFriendsAction::none) {
             ui_friends_scene_focus(&scene, friends->pressed);g_app.context_focus = &scene.widgets;
-            repaint();friends->pressed_revision = scene.revision;SetCapture(g_app.window);
+            repaint();friends->pressed_revision = scene.revision;window_capture_pointer(g_app.window);
         }
         return true;
     }
-    if (message == WM_LBUTTONUP) {
+    if (input_release(event)) {
         const auto pressed = friends->pressed;const auto revision = friends->pressed_revision;
         reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;application_release_capture();
         if (revision == scene.revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
         return true;
     }
-    if (message == WM_LBUTTONDBLCLK && inside && ui_friends_scene_hit_test(scene, x, y).action == UiFriendsAction::search)
+    if (search_double)
         return search_pointer(*friends, x, y, false, true);
-    return inside && (message == WM_MOUSEMOVE || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_CONTEXTMENU ||
-        (modal && (message == WM_LBUTTONDBLCLK || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP)));
+    return inside && (event.type == EventType::pointer_move || input_press(event, PointerButton::right) ||
+        input_release(event, PointerButton::right) ||
+        (modal && (input_press(event, PointerButton::middle) || input_release(event, PointerButton::middle))));
 }
 } // namespace maicord::app_detail

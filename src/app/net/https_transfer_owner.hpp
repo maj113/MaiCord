@@ -1,6 +1,8 @@
 #pragma once
 // Cancel and stop-and-join shared by the HTTPS file download and upload owners.
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/platform/net/worker.hpp"
 
 namespace maicord {
@@ -19,12 +21,12 @@ inline bool https_transfer_cancel(NetworkWorker* worker, volatile LONG* cancelle
 // Cancels, asks the worker to stop and joins it within timeout_ms; false keeps the owner intact.
 inline bool https_transfer_stop_and_join(NetworkWorker* worker, volatile LONG* cancelled, bool* stop_requested,
                                          u32 timeout_ms) noexcept {
-    const u64 started = GetTickCount64();
+    const u64 started = clock_monotonic_milliseconds();
     if (!*stop_requested) {
         InterlockedExchange(cancelled, 1);
         auto startup = network_worker_startup_status(worker);
         if (startup.error == NetworkWorkerError::startup_pending) {
-            if (!timeout_ms || WaitForSingleObject(worker->ready_event, timeout_ms) != WAIT_OBJECT_0)
+            if (!timeout_ms || wait_one(worker->ready_event, timeout_ms) != WAIT_OBJECT_0)
                 return false;
             startup = network_worker_startup_status(worker);
         }
@@ -35,7 +37,7 @@ inline bool https_transfer_stop_and_join(NetworkWorker* worker, volatile LONG* c
             *stop_requested = true;
         }
     }
-    const u64 elapsed = GetTickCount64() - started;
+    const u64 elapsed = clock_monotonic_milliseconds() - started;
     return network_worker_join(worker, elapsed >= timeout_ms ? 0 : timeout_ms - static_cast<u32>(elapsed)).ok();
 }
 

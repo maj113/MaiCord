@@ -46,9 +46,8 @@ u64 application_effects_transition_wake() noexcept;
 // The local date and time mc_ambient follows (a development folder's simulation included); a theme with variants
 // follows it too, so the two agree. *next_ms: when the clock is read again (the next whole minute).
 EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcept;
-// Windows' app mode (AppsUseLightTheme under HKCU\...\Themes\Personalize; 0 is dark). The window procedure reads it
-// again on WM_SETTINGCHANGE "ImmersiveColorSet" and hands it here; the appearance input then eases to it.
-bool application_effects_read_system_dark() noexcept;
+// The system's light or dark scheme (PlatformSettings::dark_scheme). The dispatcher reads it again on a scheme
+// change and hands it here; the appearance input then eases to it.
 void application_effects_set_system_dark(bool dark) noexcept;
 
 // The user's settings (Settings > Appearance, and the effect's own page). Setters validate, persist

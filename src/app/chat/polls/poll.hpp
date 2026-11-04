@@ -6,6 +6,7 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // Capture beside the native card action. An action never resolves a retired
@@ -36,7 +37,7 @@ void application_poll_voters_close() noexcept;
 bool application_poll_voters_active() noexcept;
 // Received and selected timeline cards: hand on enabled answers/buttons only.
 bool application_poll_cursor(UiPoint, UiCursor*) noexcept;
-bool application_poll_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_poll_window_event(const WindowEvent&) noexcept;
 bool application_poll_input(UiInputKind, u32 code, bool repeated) noexcept;
 bool application_poll_consume_key_tail(UiInputKind, u32 code, bool repeated) noexcept;
 bool application_poll_pending(u64 now_ms) noexcept;

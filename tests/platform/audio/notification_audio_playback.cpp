@@ -8,7 +8,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_playback_
     using namespace maicord;
     NotificationSoundAssetBank bank{};
     NotificationAudio owner{};
-    const NotificationAudioConfig config{notification_sound_asset_resolve, &bank, nullptr, 0, 1, true,
+    const NotificationAudioConfig config{notification_sound_asset_resolve, &bank, {}, 1, true,
                                          notification_sound_asset_gain};
     bool ok = notification_audio_initialize(&owner, config).ok() &&
               notification_audio_submit(&owner, {1, 1, .4f, {}}).ok();

@@ -20,6 +20,8 @@ constexpr u32 win32_error_from_errno(int error) noexcept {
     case kErrorPermission:
     case kErrorAccess:
         return ERROR_ACCESS_DENIED;
+    case kErrorBadDescriptor:
+        return ERROR_INVALID_HANDLE;
     case kErrorNoEntry:
         return ERROR_FILE_NOT_FOUND;
     case kErrorNotDirectory:

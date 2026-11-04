@@ -32,6 +32,12 @@ struct NativeTextCatalogs {
     struct NativeSystemFontFile* files;
     // System face locator kept from the first system family build until release.
     struct SystemFontLocator* locator;
+#if !defined(_WIN32)
+    // The CJK order of the fallback table (the user's language) and the family lists of the fallback routes built
+    // so far, in storage (native_system_fallback.inc).
+    u32 fallback_locale;
+    struct RouteFamilies** routes;
+#endif
     NativeFontCoverageCache coverage;NativeFontCoverageSlot coverage_slots[16];
 };
 bool native_text_catalogs_initialize(NativeTextCatalogs*) noexcept;

@@ -166,10 +166,8 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
 } // namespace
 
 void application_surface_motion_refresh_system_preference() noexcept {
-    BOOL enabled = FALSE;
-    const bool queried = SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0) != FALSE;
     auto& owner = g_app.surface_motion;
-    owner.client_area_animation = queried && enabled;
+    owner.client_area_animation = platform_settings_read().client_area_animation;
     owner.system_preference_cached = true;
     if (!owner.client_area_animation) {
         for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {

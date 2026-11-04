@@ -4,6 +4,7 @@
 #include "maicord/media/core/asset.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct GuildRecord;
@@ -39,7 +40,7 @@ void application_expression_card_close() noexcept;
 bool application_expression_card_shows(const MessageExpression& expression) noexcept;
 bool application_expression_card_contains(UiPoint point) noexcept;
 // Pointer, keys and wheel while open; true when consumed.
-bool application_expression_card_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_expression_card_window_event(const WindowEvent& event) noexcept;
 // Per frame: the source message still current, the entrance animation.
 void application_expression_card_synchronize(u64 now_ms) noexcept;
 // The primary request lane: the sticker, pack list or pack being resolved.

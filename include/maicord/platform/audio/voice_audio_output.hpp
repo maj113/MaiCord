@@ -4,10 +4,13 @@
 namespace maicord {
 // Fills interleaved 48 kHz stereo PCM16 on the audio thread; must not block.
 using VoiceAudioRender = void (*)(void* context, Slice<i16> pcm, u64 now_us) noexcept;
-// Shared-mode WASAPI on the default console render endpoint, event driven on
-// a dedicated thread (~10 ms engine period, ~20 ms buffer). The engine
-// converts PCM16 48 kHz stereo to the mix format. Device loss and
-// default-device changes reopen the stream; stop joins the thread.
+// The default console render endpoint, event driven on a dedicated thread
+// (~10 ms period, ~20 ms buffer); the engine converts PCM16 48 kHz stereo to
+// the device format. Windows: shared-mode WASAPI. Linux: a PulseAudio (or
+// pipewire-pulse) playback stream through libpulse, where the endpoint ID is
+// the sink name widened to UTF-16. Device loss and default-device changes
+// reopen the stream; with no sound server the start retries every second;
+// stop joins the thread.
 struct VoiceAudioOutput {
     void* runtime;
 };

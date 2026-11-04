@@ -14,7 +14,6 @@
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 #include <stddef.h>
 #include "maicord/app/account/account_profile_edit.hpp"

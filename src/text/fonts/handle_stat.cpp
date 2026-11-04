@@ -1,7 +1,9 @@
 #include "path_stat.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 
 namespace maicord::font_path_stat {
 // FILE_STAT_INFORMATION.
@@ -24,5 +26,14 @@ bool read_handle(HANDLE file,NativeFontFileStamp* output) noexcept {
        (stat.attributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)))return false;
     *output={{stat.volume,stat.identity},static_cast<u64>(stat.bytes),{}, {}};
     copy_bytes(&output->write,&stat.write,8);copy_bytes(&output->change,&stat.change,8);return true;
+}
+// The public-API reference path: size and identity through documented queries, no times.
+bool read_fallback(FileHandle file,NativeFontFileStamp* output,u32* error) noexcept {
+    LARGE_INTEGER length{};
+    if(GetFileType(file)!=FILE_TYPE_DISK){*error=ERROR_FILE_INVALID;return false;}
+    if(!GetFileSizeEx(file,&length)||!GetFileInformationByHandleEx(file,FileIdInfo,&output->identity,sizeof(output->identity))){
+        *error=thread_last_error();return false;}
+    output->bytes=static_cast<u64>(length.QuadPart); // A negative size fails the caller's limit.
+    return true;
 }
 }

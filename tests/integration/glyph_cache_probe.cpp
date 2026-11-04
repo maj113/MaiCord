@@ -1,6 +1,7 @@
 // Manual measurement probe (MaiCordGlyphCacheProbe, cmake/benchmarks.cmake with
 // -DMAICORD_BUILD_BENCHMARKS=ON; tools/measure_glyph_cache.py runs it). Not part of the CTest suite.
 #include "glyph_cache_measurement.hpp"
+#include "probe_surface.hpp"
 #include "maicord/core/log.hpp"
 #include "cjk_pixel_probe.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -21,7 +22,7 @@ bool capture(const wchar_t* filename) noexcept {
     ID3D11Resource* resource=nullptr;ID3D11Texture2D* source=nullptr;ID3D11Texture2D* staging=nullptr;
     struct Release {ID3D11Resource*& r;ID3D11Texture2D*& s;ID3D11Texture2D*& t;
         ~Release() noexcept {com_release(r);com_release(s);com_release(t);}} release{resource,source,staging};
-    renderer.graphics.target->GetResource(&resource);
+    renderer.graphics.surface.target->GetResource(&resource);
     if(FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(&source))))return false;
     D3D11_TEXTURE2D_DESC description{};source->GetDesc(&description);
     description.Usage=D3D11_USAGE_STAGING;description.BindFlags=0;description.MiscFlags=0;
@@ -60,7 +61,7 @@ bool run() noexcept {
     struct Cleanup {HWND w;~Cleanup() noexcept {renderer_shutdown(&renderer);DestroyWindow(w);log_close();}} cleanup{window};
     LARGE_INTEGER begin{},end{},frequency{};ULONG64 first=0,last=0;
     if(!QueryPerformanceFrequency(&frequency)||!QueryThreadCycleTime(GetCurrentThread(),&first)||!QueryPerformanceCounter(&begin))return false;
-    if(!renderer_initialize(&renderer,window))return false;
+    if(!renderer_initialize(&renderer,probe_window_surface(window)))return false;
     if(!QueryPerformanceCounter(&end)||!QueryThreadCycleTime(GetCurrentThread(),&last))return false;
     log_u64(LogLevel::info,"bootstrap","renderer_init_us",static_cast<u64>(end.QuadPart-begin.QuadPart)*1000000/frequency.QuadPart);
     log_u64(LogLevel::info,"bootstrap","renderer_init_cycles",last-first);

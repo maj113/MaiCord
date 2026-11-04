@@ -36,7 +36,7 @@ bool prepare_remote(RemoteAuthClient* client, HANDLE* release) noexcept {
     if (!prepare_runtime(client) || !*release) return false;
     store_user(client, utf8_literal("42:0:0:synthetic"));
     held = {client, *release};
-    client->thread = CreateThread(nullptr, 0, held_authenticated_worker, &held, 0, nullptr);
+    client->thread = reinterpret_cast<Thread*>(CreateThread(nullptr, 0, held_authenticated_worker, &held, 0, nullptr));
     return client->thread && WaitForSingleObject(client->ready_event, 3000) == WAIT_OBJECT_0;
 }
 bool remote_credential_erased(const RemoteAuthClient& client) noexcept {
@@ -68,7 +68,7 @@ DWORD WINAPI publish_limited_during_stop(void* opaque) noexcept {
 bool prepare_remote_stop_limit(RemoteAuthClient* client) noexcept {
     if (!prepare_runtime(client)) return false;
     publish_phase(client, RemoteAuthClientPhase::qr_ready);
-    client->thread = CreateThread(nullptr, 0, publish_limited_during_stop, client, 0, nullptr);
+    client->thread = reinterpret_cast<Thread*>(CreateThread(nullptr, 0, publish_limited_during_stop, client, 0, nullptr));
     return client->thread && WaitForSingleObject(client->ready_event, 3000) == WAIT_OBJECT_0;
 }
 } // namespace maicord::login_handoff_test

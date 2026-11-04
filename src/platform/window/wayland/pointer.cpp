@@ -1,6 +1,7 @@
 // wl_pointer to WindowEvents: motion, buttons with the double-click synthesiser, wheel, capture bookkeeping and the
 // cursor (wp_cursor_shape, with an XCursor wl_shm fallback).
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/dbus/desktop_settings.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/ui/core/cursor.hpp"
@@ -157,6 +158,7 @@ void on_button(void*, wl_pointer*, u32 serial, u32 time, u32 code, u32 state) no
     if (pressed) {
         pointer.buttons |= button_bit(button);
         pointer.press_serial = serial;
+        g.input_serial = serial;
     } else {
         pointer.buttons = static_cast<u8>(pointer.buttons & ~button_bit(button));
     }
@@ -213,36 +215,69 @@ const wl_pointer_listener kPointerListener = {
 
 // Cursor --------------------------------------------------------------------------------------------------------------
 
-u32 cursor_shape_of(UiCursor cursor) noexcept {
-    switch (cursor) {
-    case UiCursor::hand:
+// A UiCursor value, or kFrameCursorBase + a FrameHit (the resize cursors of the window's edges).
+u32 cursor_shape_of(u8 code) noexcept {
+    switch (code) {
+    case static_cast<u8>(UiCursor::hand):
         return wp_cursor_shape_device_v1_shape_pointer;
-    case UiCursor::ibeam:
+    case static_cast<u8>(UiCursor::ibeam):
         return wp_cursor_shape_device_v1_shape_text;
-    case UiCursor::resize_we:
+    case static_cast<u8>(UiCursor::resize_we):
         return wp_cursor_shape_device_v1_shape_ew_resize;
-    case UiCursor::move:
+    case static_cast<u8>(UiCursor::move):
         return wp_cursor_shape_device_v1_shape_move;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::left):
+        return wp_cursor_shape_device_v1_shape_w_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::right):
+        return wp_cursor_shape_device_v1_shape_e_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top):
+        return wp_cursor_shape_device_v1_shape_n_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom):
+        return wp_cursor_shape_device_v1_shape_s_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top_left):
+        return wp_cursor_shape_device_v1_shape_nw_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top_right):
+        return wp_cursor_shape_device_v1_shape_ne_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_left):
+        return wp_cursor_shape_device_v1_shape_sw_resize;
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_right):
+        return wp_cursor_shape_device_v1_shape_se_resize;
     default:
         return wp_cursor_shape_device_v1_shape_default;
     }
 }
 
-// XCursor names, the CSS-style one first and the classic X11 one after.
+// XCursor names, the CSS-style one first and the classic X11 ones after.
 struct CursorNames {
     const char* names[3];
 };
 
-CursorNames cursor_names_of(UiCursor cursor) noexcept {
-    switch (cursor) {
-    case UiCursor::hand:
+CursorNames cursor_names_of(u8 code) noexcept {
+    switch (code) {
+    case static_cast<u8>(UiCursor::hand):
         return {{"pointer", "hand2", "hand1"}};
-    case UiCursor::ibeam:
+    case static_cast<u8>(UiCursor::ibeam):
         return {{"text", "xterm", "ibeam"}};
-    case UiCursor::resize_we:
+    case static_cast<u8>(UiCursor::resize_we):
         return {{"ew-resize", "sb_h_double_arrow", "h_double_arrow"}};
-    case UiCursor::move:
+    case static_cast<u8>(UiCursor::move):
         return {{"move", "fleur", "all-scroll"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::left):
+        return {{"w-resize", "left_side", "sb_h_double_arrow"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::right):
+        return {{"e-resize", "right_side", "sb_h_double_arrow"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top):
+        return {{"n-resize", "top_side", "sb_v_double_arrow"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom):
+        return {{"s-resize", "bottom_side", "sb_v_double_arrow"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top_left):
+        return {{"nw-resize", "top_left_corner", "ul_angle"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::top_right):
+        return {{"ne-resize", "top_right_corner", "ur_angle"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_left):
+        return {{"sw-resize", "bottom_left_corner", "ll_angle"}};
+    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_right):
+        return {{"se-resize", "bottom_right_corner", "lr_angle"}};
     default:
         return {{"default", "left_ptr", "arrow"}};
     }
@@ -262,27 +297,58 @@ u32 integer_scale() noexcept {
     return scale ? scale : 1;
 }
 
-void apply_cursor_theme(UiCursor cursor) noexcept {
+// The cursor theme and nominal size: XCURSOR_THEME and XCURSOR_SIZE when set (the user's explicit choice), else the
+// desktop's settings (cursor-theme, cursor-size from the settings portal), else the library's default theme at 24.
+void choose_cursor_theme(char (&name)[64], u32* size) noexcept {
+    dbus::DesktopSettings desktop;
+    dbus::desktop_settings_get(&desktop);
+    const char* theme = environment_get("XCURSOR_THEME");
+    if (!theme || !*theme)
+        theme = desktop.cursor_theme;
+    u32 length = 0;
+    while (theme[length] && length < sizeof(name) - 1) {
+        name[length] = theme[length];
+        ++length;
+    }
+    name[length] = 0;
+    *size = parse_unsigned(environment_get("XCURSOR_SIZE"));
+    if (*size == 0)
+        *size = desktop.cursor_size;
+    if (*size == 0)
+        *size = kDefaultCursorSize;
+}
+
+bool same_text(const char* left, const char* right) noexcept {
+    while (*left && *left == *right) {
+        ++left;
+        ++right;
+    }
+    return *left == *right;
+}
+
+void apply_cursor_theme(u8 code) noexcept {
     PointerState& pointer = g.pointer;
     const CursorApi* api = cursor_api();
     if (!api || !g.shm || !g.compositor)
         return;
     const u32 scale = integer_scale();
-    if (pointer.theme && pointer.theme_scale != scale) {
+    char name[64];
+    u32 size = 0;
+    choose_cursor_theme(name, &size);
+    if (pointer.theme && (pointer.theme_scale != scale || pointer.theme_size != size || !same_text(pointer.theme_name, name))) {
         api->theme_destroy(pointer.theme);
         pointer.theme = nullptr;
     }
     if (!pointer.theme) {
-        u32 size = parse_unsigned(environment_get("XCURSOR_SIZE"));
-        if (size == 0)
-            size = kDefaultCursorSize;
-        pointer.theme = api->theme_load(environment_get("XCURSOR_THEME"), static_cast<int>(size * scale), g.shm);
+        pointer.theme = api->theme_load(name[0] ? name : nullptr, static_cast<int>(size * scale), g.shm);
         pointer.theme_scale = scale;
+        pointer.theme_size = size;
+        copy_bytes(pointer.theme_name, name, sizeof(name));
         if (!pointer.theme)
             return;
     }
     Cursor* shape = nullptr;
-    const CursorNames names = cursor_names_of(cursor);
+    const CursorNames names = cursor_names_of(code);
     for (const char* name : names.names) {
         shape = api->theme_get_cursor(pointer.theme, name);
         if (shape && shape->image_count > 0)
@@ -371,6 +437,12 @@ void pointer_cursor_query(const WindowEvent& move) noexcept {
     PointerState& pointer = g.pointer;
     if (!pointer.inside)
         return;
+    // Over the frame the cursor is the frame's: an edge resizes, the caption is an arrow. Only the client area asks the app.
+    if (g.caps.csd && g.frame.hover != FrameHit::client) {
+        pointer.desired_cursor = static_cast<u8>(kFrameCursorBase + static_cast<u8>(g.frame.hover));
+        cursor_apply();
+        return;
+    }
     WindowEvent query = make_event(EventType::cursor_query, move.time_ms);
     query.flags = static_cast<u8>(move.flags & ev_synthetic);
     query.pointer = move.pointer;
@@ -388,13 +460,13 @@ void cursor_apply() noexcept {
         return;
     if (pointer.applied_valid && pointer.applied_cursor == pointer.desired_cursor)
         return;
-    const UiCursor cursor = static_cast<UiCursor>(pointer.desired_cursor);
-    if (cursor == UiCursor::hidden)
+    const u8 code = pointer.desired_cursor;
+    if (code == static_cast<u8>(UiCursor::hidden))
         wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, nullptr, 0, 0);
     else if (pointer.shape_device)
-        wp_cursor_shape_device_v1_set_shape(pointer.shape_device, pointer.enter_serial, cursor_shape_of(cursor));
+        wp_cursor_shape_device_v1_set_shape(pointer.shape_device, pointer.enter_serial, cursor_shape_of(code));
     else
-        apply_cursor_theme(cursor);
+        apply_cursor_theme(code);
     pointer.applied_cursor = pointer.desired_cursor;
     pointer.applied_valid = true;
 }

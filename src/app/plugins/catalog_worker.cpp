@@ -9,6 +9,9 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -66,21 +69,21 @@ u32 append(wchar_t (&path)[600], u32 length, const wchar_t* text) noexcept {
 // Reads a whole regular file of at most maximum bytes (not following a final reparse point) into a new
 // allocation; null when it is missing, larger or unreadable.
 u8* read_file(const wchar_t* path, u32 maximum, u32* bytes) noexcept {
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                    FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    const HANDLE file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead,
+                                         kFileNoFollow | kFileSequential});
     if (file == INVALID_HANDLE_VALUE) return nullptr;
-    LARGE_INTEGER size{};
+    u64 size = 0;
     u8* data = nullptr;
-    if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= maximum) {
-        data = commit_pages<u8>(static_cast<u64>(size.QuadPart));
-        DWORD read = 0;
-        if (data && (!ReadFile(file, data, static_cast<DWORD>(size.QuadPart), &read, nullptr) || read != size.QuadPart)) {
+    if (file_size(file, &size) && size > 0 && size <= maximum) {
+        data = commit_pages<u8>(size);
+        u32 read = 0;
+        if (data && (!file_read(file, data, static_cast<u32>(size), &read) || read != size)) {
             release(data);
             data = nullptr;
         }
-        *bytes = static_cast<u32>(size.QuadPart);
+        *bytes = static_cast<u32>(size);
     }
-    CloseHandle(file);
+    file_close(file);
     return data;
 }
 // Writes bytes to "<path>.new" and moves it over path, flushed before the rename.
@@ -90,14 +93,13 @@ bool write_file(const wchar_t* path, const ConstSlice<u8>& bytes) noexcept {
     copy_bytes(staged, path, length * 2);
     staged[length] = 0;
     if (!wide_append(staged, 604, &length, L".new")) return false;
-    const HANDLE file = CreateFileW(staged, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const HANDLE file = file_open(staged, {FileAccess::write, FileCreate::create_always, 0, kFileNoFollow});
     if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD written = 0;
-    const bool ok = WriteFile(file, bytes.data, bytes.count, &written, nullptr) && written == bytes.count && FlushFileBuffers(file);
-    CloseHandle(file);
-    if (ok && MoveFileExW(staged, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;
-    DeleteFileW(staged);
+    u32 written = 0;
+    const bool ok = file_write(file, bytes.data, bytes.count, &written) && written == bytes.count && file_flush(file);
+    file_close(file);
+    if (ok && file_replace(staged, path, true)) return true;
+    file_remove(staged);
     return false;
 }
 // <base>\<directory> exists.
@@ -289,7 +291,7 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
             copy_bytes(record, signature, kSignatureBytes);
             copy_bytes(record + kSignatureBytes, document, document_bytes);
             if (!write_file(path, {record, kSignatureBytes + document_bytes}))
-                UpdateLog(kLog, "cache_write_failed").field("error", GetLastError()).write(LogLevel::warning);
+                UpdateLog(kLog, "cache_write_failed").field("error", thread_last_error()).write(LogLevel::warning);
         }
         release(record);
         UpdateLog(kLog, "index_accepted").field("sequence", r.index->sequence).field("items", r.index->item_count).write();
@@ -350,28 +352,25 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
 
 // ---- details and previews -----------------------------------------------------------------------------
 void trim_assets(const Worker& w) noexcept {
-    wchar_t pattern[600];
-    u32 length = catalog_path(base(w), L"catalog-cache\\", pattern);
-    if (!length || !wide_append(pattern, 600, &length, L"*")) return;
+    wchar_t directory[600];
+    if (!catalog_path(base(w), L"catalog-cache\\", directory)) return;
     // Oldest first until the cache is under its cap; at most a few hundred files.
     for (u32 round = 0; round < 64; ++round) {
-        WIN32_FIND_DATAW found{}, oldest{};
+        DirIter scan{};
+        if (!dir_open(&scan, directory)) return;
+        DirEntry found{}, oldest{};
         u64 total = 0;
         bool any = false;
-        const HANDLE scan = FindFirstFileW(pattern, &found);
-        if (scan == INVALID_HANDLE_VALUE) return;
-        do {
-            if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
-            total += (static_cast<u64>(found.nFileSizeHigh) << 32) | found.nFileSizeLow;
-            const u64 when = (static_cast<u64>(found.ftLastWriteTime.dwHighDateTime) << 32) | found.ftLastWriteTime.dwLowDateTime;
-            const u64 best = (static_cast<u64>(oldest.ftLastWriteTime.dwHighDateTime) << 32) | oldest.ftLastWriteTime.dwLowDateTime;
-            if (!any || when < best) oldest = found, any = true;
-        } while (FindNextFileW(scan, &found));
-        FindClose(scan);
+        while (dir_next(&scan, &found)) {
+            if (found.kind != FileKind::regular) continue;
+            total += found.bytes;
+            if (!any || found.last_write < oldest.last_write) oldest = found, any = true;
+        }
+        dir_close(&scan);
         if (total <= kAssetCacheBytes || !any) return;
         wchar_t path[600];
-        if (!catalog_path(base(w), L"catalog-cache\\", path) || !append(path, wide_length(path, 600), oldest.cFileName) ||
-            !DeleteFileW(path))
+        if (!catalog_path(base(w), L"catalog-cache\\", path) || !append(path, wide_length(path, 600), oldest.name) ||
+            !file_remove(path))
             return;
     }
 }
@@ -415,24 +414,21 @@ void asset(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
 
 // ---- plugin data and sideloads -------------------------------------------------------------------------
 void delete_data(const Worker& w, const CatalogJob& job) noexcept {
-    wchar_t directory[600], pattern[600];
+    wchar_t directory[600];
     u32 length = catalog_path(base(w), L"plugin-data\\", directory);
     if (!length || !wide_append_hex(directory, 600, &length, job.owner)) return;
-    copy_bytes(pattern, directory, (length + 1) * 2);
-    u32 pattern_length = length;
-    if (!wide_append(pattern, 600, &pattern_length, L"\\*")) return;
-    WIN32_FIND_DATAW found{};
-    const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+    DirIter scan{};
+    if (dir_open(&scan, directory)) {
+        DirEntry found{};
+        while (dir_next(&scan, &found)) {
+            if (found.kind != FileKind::regular) continue;
             wchar_t path[600];
             copy_bytes(path, directory, (length + 1) * 2);
-            if (append(path, length, L"\\") && append(path, length + 1, found.cFileName)) DeleteFileW(path);
-        } while (FindNextFileW(scan, &found));
-        FindClose(scan);
+            if (append(path, length, L"\\") && append(path, length + 1, found.name)) file_remove(path);
+        }
+        dir_close(&scan);
     }
-    RemoveDirectoryW(directory);
+    dir_remove(directory);
 }
 void copy(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     wchar_t source[521];
@@ -442,6 +438,7 @@ void copy(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     u8* bytes = read_file(source, kPluginDllMaximumBytes, &count);
     Crypto crypto{};
     wchar_t path[600], leaf[69];
+    FileStat present{};
     if (!bytes || !crypto.digest({bytes, count}, r.sha256)) r.error = CatalogError::plugin_load;
     else {
         catalog_plugin_leaf(r.sha256, leaf);
@@ -449,7 +446,7 @@ void copy(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
         // loaded right now (a dev folder build that did not change) can't be written over.
         if (!ensure(w, L"plugins", path) || !catalog_path(base(w), L"plugins\\", path) ||
             !append(path, wide_length(path, 600), leaf) ||
-            (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES && !write_file(path, {bytes, count})))
+            (!file_path_stat(path, &present) && !write_file(path, {bytes, count})))
             r.error = CatalogError::storage;
     }
     release(bytes);
@@ -471,7 +468,7 @@ void free_result(CatalogJobResult& r) noexcept {
     release(r.bytes);
 }
 
-DWORD WINAPI worker_main(void* parameter) noexcept {
+u32 worker_main(void* parameter) noexcept {
     auto& w = *static_cast<Worker*>(parameter);
     for (;;) {
         AcquireSRWLockExclusive(w.lock.native());
@@ -484,11 +481,11 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         }
         ReleaseSRWLockExclusive(w.lock.native());
         if (!have) {
-            HANDLE handles[]{w.stop, w.wake};
-            if (WaitForMultipleObjects(2, handles, FALSE, INFINITE) != WAIT_OBJECT_0 + 1) break;
+            Waitable handles[]{w.stop, w.wake};
+            if (wait_any(handles, 2, INFINITE) != WAIT_OBJECT_0 + 1) break;
             continue;
         }
-        if (WaitForSingleObject(w.stop, 0) == WAIT_OBJECT_0) break;
+        if (wait_one(w.stop, 0) == WAIT_OBJECT_0) break;
         CatalogJobResult result{};
         result.kind = job.kind;
         result.serial = job.serial;
@@ -503,7 +500,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         }
         w.results[(w.result_first + w.result_count++) % kQueue] = result;
         ReleaseSRWLockExclusive(w.lock.native());
-        SetEvent(w.notify);
+        event_set(w.notify);
     }
     return 0;
 }
@@ -539,14 +536,14 @@ bool catalog_worker_start(const CatalogWorkerOptions& options) noexcept {
     w->clock_unix = options.clock_unix;
     w->validate_package = options.validate_package;
     w->library_changed = options.library_changed;
-    w->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    w->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    w->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    w->wake = event_create(false, false);
+    w->stop = event_create(true, false);
+    w->notify = event_create(false, false);
     if (w->wake && w->stop && w->notify)
-        w->thread = CreateThread(nullptr, 256 * 1024, worker_main, w, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
     if (!w->thread) {
         const HANDLE events[]{w->wake, w->stop, w->notify};
-        for (HANDLE h : events) if (h) CloseHandle(h);
+        for (HANDLE h : events) if (h) waitable_close(h);
         release(w);
         return false;
     }
@@ -558,14 +555,14 @@ void catalog_worker_stop() noexcept {
     Worker* w = g_worker;
     if (!w) return;
     g_worker = nullptr;
-    SetEvent(w->stop);
+    event_set(w->stop);
     if (UpdateHttpsTransport* https = w->https) update_https_cancel(https);
     // A worker that does not stop keeps its memory: it may still be writing to it.
-    if (WaitForSingleObject(w->thread, 5000) != WAIT_OBJECT_0) return;
-    CloseHandle(w->thread);
+    if (!thread_wait(static_cast<Thread*>(w->thread), 5000)) return;
+    thread_close(static_cast<Thread*>(w->thread));
     for (u32 i = 0; i < w->result_count; ++i) free_result(w->results[(w->result_first + i) % kQueue]);
     const HANDLE events[]{w->wake, w->stop, w->notify};
-    for (HANDLE h : events) CloseHandle(h);
+    for (HANDLE h : events) waitable_close(h);
     release(w);
 }
 
@@ -578,7 +575,7 @@ bool catalog_worker_submit(const CatalogJob& job) noexcept {
     const bool room = w->job_count < kQueue;
     if (room) w->jobs[(w->job_first + w->job_count++) % kQueue] = job;
     ReleaseSRWLockExclusive(w->lock.native());
-    if (room) SetEvent(w->wake);
+    if (room) event_set(w->wake);
     return room;
 }
 

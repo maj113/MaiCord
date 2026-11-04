@@ -8,6 +8,7 @@
 #include "../chat/messages/interaction.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/state.hpp"
 #include "voice.hpp"
 #include "maicord/app/gateway/stream_session.hpp"
@@ -18,7 +19,6 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord::app_detail {
@@ -400,35 +400,33 @@ u64 application_stream_next_wake() noexcept {
     return wake;
 }
 
-bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
+bool application_stream_window_event(const WindowEvent& event) noexcept {
     if (!g_app.account_ui)
         return false;
-    switch (message) {
-    case WM_CAPTURECHANGED:
-    case WM_CANCELMODE:
-    case WM_KILLFOCUS:
-        if (stream.captured && (message != WM_CAPTURECHANGED || reinterpret_cast<HWND>(lparam) != g_app.window)) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
+        if (stream.captured && (event.type != EventType::capture_lost || event.focus.other != g_app.window)) {
             stream.captured = false;
             release_press();
         }
         return false;
-    case WM_MOUSELEAVE:
+    }
+    if (event.type == EventType::pointer_leave) {
         reset_value(&stream.hover_key);
         if (stream.card.active && !stream.leave_ms)
             stream.leave_ms = now_ms();
         if (ui_stream_card_set_hover(&stream.card, -1e7f, -1e7f))
             application_repaint();
         return false;
-    case WM_MOUSEWHEEL:
+    }
+    if (input_vertical_wheel(event)) {
         // The channel list scrolls under the card: its anchor is gone.
         close_card();
         return false;
-    default:
-        break;
     }
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP &&
-        message != WM_LBUTTONDBLCLK && message != WM_SETCURSOR && message != WM_RBUTTONDOWN &&
-        message != WM_RBUTTONUP)
+    const bool move = event.type == EventType::pointer_move, cursor = event.type == EventType::cursor_query;
+    const bool press = input_down(event), release = input_release(event);
+    if (!move && !cursor && !press && !release && !input_press(event, PointerButton::right) &&
+        !input_release(event, PointerButton::right))
         return false;
     if (card_blocked()) {
         if (stream.card.active)
@@ -436,17 +434,16 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         return false;
     }
     UiPoint point{};
-    if (message == WM_SETCURSOR) {
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+    if (cursor) {
+        if (!client_cursor_dip(event, &point))
             return false;
     } else
-        point = {client_dip_x(lparam), client_dip_y(lparam)};
+        point = {client_dip_x(event), client_dip_y(event)};
     const bool over_card = ui_stream_card_contains(stream.card, point.x, point.y);
     GatewayStreamKey key{};
     UiRect row{}, badge{};
     const bool live = !over_card && live_at(point.x, point.y, &key, &row, &badge);
-    switch (message) {
-    case WM_MOUSEMOVE: {
+    if (move) {
         const u64 now = now_ms();
         if (ui_stream_card_set_hover(&stream.card, point.x, point.y))
             application_repaint();
@@ -474,7 +471,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         }
         return stream.captured;
     }
-    case WM_SETCURSOR:
+    if (cursor) {
         if (over_card) {
             application_set_cursor(ui_action_cursor(ui_stream_card_hit(stream.card, point.x, point.y) ==
                                                     UiStreamCardControl::watch));
@@ -485,13 +482,13 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
             return true;
         }
         return false;
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
+    }
+    if (press) {
         if (over_card) {
             if (ui_stream_card_hit(stream.card, point.x, point.y) == UiStreamCardControl::watch) {
                 stream.card_pressed = true;
                 ui_stream_card_set_pressed(&stream.card, true);
-                SetCapture(g_app.window);
+                window_capture_pointer(g_app.window);
                 stream.captured = true;
                 application_repaint();
             }
@@ -499,12 +496,13 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         }
         if (live && ui_rect_contains(badge, point.x, point.y)) {
             stream.press_key = key;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             stream.captured = true;
             return true;
         }
         return false;
-    case WM_LBUTTONUP: {
+    }
+    if (release) {
         const bool card_press = stream.card_pressed;
         const GatewayStreamKey badge_press = stream.press_key;
         release_press();
@@ -527,9 +525,8 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         }
         return over_card;
     }
-    default: // Right clicks on the card stay on it.
-        return over_card;
-    }
+    // Right clicks on the card stay on it.
+    return over_card;
 }
 
 UiStreamCardScene* application_stream_card_spinner_scene() noexcept {

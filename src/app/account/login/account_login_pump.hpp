@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/os/thread.hpp"
 #include "account_login_handoff.hpp"
 
 // Profile staging, the pump and the stop of the TU-local login owner (see account_login_handoff.hpp).
@@ -114,7 +115,7 @@ AccountLoginStatus pump_remote_auth(AccountLoginRuntime* runtime) noexcept {
     const bool profile_retry = account_profile_promotion_has_credential(runtime->promotion);
     if ((runtime->authenticated_pending || profile_retry) &&
         !runtime->profile_saved) {
-        if (!profile_retry && WaitForSingleObject(runtime->remote_auth.thread, 0) == WAIT_TIMEOUT) {
+        if (!profile_retry && !thread_wait(runtime->remote_auth.thread, 0)) {
             // The completion event is signaled just before the outer thread
             // exits. Keep the credential owner and wait on its thread
             // handle; this is readiness, not an authentication rejection.

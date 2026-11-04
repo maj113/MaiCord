@@ -31,7 +31,7 @@ struct Pixels {
     ProbeTargetReadback readback;
     bool bgra{}, ready{};
     explicit Pixels(D3D11Renderer& renderer) noexcept : r(renderer) {
-        if (!r.graphics.target)
+        if (!r.graphics.surface.target)
             return;
         D3D11_TEXTURE2D_DESC desc{};
         ready = readback.read_target(r, desc) == 0;

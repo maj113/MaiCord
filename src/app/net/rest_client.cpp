@@ -530,7 +530,7 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
                 peer = nullptr;
         ReleaseSRWLockExclusive(client->shared->lock.native());
     }
-    if (WaitForSingleObject(client->worker.thread, 0) == WAIT_TIMEOUT) {
+    if (!thread_wait(static_cast<Thread*>(client->worker.thread), 0)) {
         network_worker_request_stop(&client->worker);
     }
     const NetworkWorkerResult joined = network_worker_join(&client->worker, timeout_ms);
@@ -544,7 +544,7 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
         return value;
     }
     if (client->response_event) {
-        CloseHandle(client->response_event);
+        waitable_close(client->response_event);
     }
     destroy_client_storage(client, nullptr);
     reset_value<RestClient>(client);

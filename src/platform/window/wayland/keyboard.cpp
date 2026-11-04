@@ -239,6 +239,7 @@ void on_enter(void*, wl_keyboard*, u32 serial, wl_surface*, Array* keys) noexcep
     KeyboardState& keyboard = g.keyboard;
     keyboard.focused = true;
     keyboard.serial = serial;
+    g.input_serial = serial;
     // Keys already down when focus arrives become held state; they raise no key_down.
     if (keyboard.state && keys && keys->data) {
         const u32* held = static_cast<const u32*>(keys->data);
@@ -282,6 +283,7 @@ void on_leave(void*, wl_keyboard*, u32 serial, wl_surface*) noexcept {
 void on_key(void*, wl_keyboard*, u32 serial, u32 time, u32 evdev, u32 state_value) noexcept {
     KeyboardState& keyboard = g.keyboard;
     keyboard.serial = serial;
+    g.input_serial = serial;
     if (!keyboard.state || evdev >= kMaxEvdev)
         return;
     if (state_value != wl_keyboard_key_state_pressed) {

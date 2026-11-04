@@ -6,6 +6,7 @@
 #include "maicord/ui/layout/scroll_host.hpp"
 namespace maicord { struct UiSettingsAvatarMedia; struct UiSettingsScene; }
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // Settings avatar rows: the cached user's avatar key and hash, or an empty
@@ -61,7 +62,7 @@ void application_settings_release() noexcept;
 bool application_settings_synchronize() noexcept;
 UiScrollBinding application_settings_scroll_binding(bool sidebar) noexcept;
 bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexcept;
-bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_settings_window_event(const WindowEvent& event) noexcept;
 void application_settings_choice_account_invalidated() noexcept;
 // UI-thread contribution registry. Allocate lazily; unregister owner before
 // unloading any borrowed descriptors. Registration alone does not open settings.

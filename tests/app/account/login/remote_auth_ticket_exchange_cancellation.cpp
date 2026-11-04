@@ -291,13 +291,13 @@ void run() noexcept {
     check(owner_ready, "remote auth: enclosing native client quarantine fixture initializes");
     if (owner_ready) {
         client.runtime = runtime;
-        client.thread = CreateThread(nullptr, 0, completed_outer_thread, nullptr, 0, nullptr);
+        client.thread = reinterpret_cast<Thread*>(CreateThread(nullptr, 0, completed_outer_thread, nullptr, 0, nullptr));
         client.ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         client.notification_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         client.cancel_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         client.captcha_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         const bool handles_ready = client.thread && client.ready_event && client.notification_event &&
-            client.cancel_event && client.captcha_event && WaitForSingleObject(client.thread, 1000) == WAIT_OBJECT_0;
+            client.cancel_event && client.captcha_event && thread_wait(client.thread, 1000);
         check(handles_ready, "remote auth: synthetic outer client thread joins without network");
         if (handles_ready) {
             rest_client_start_user_auth(&runtime->ticket_exchange.transport, 1024);
@@ -306,7 +306,8 @@ void run() noexcept {
             fixture.limited_stop_receipt = true;
             SetEvent(fixture.ready);
             fixture.mode = Mode::join_failure;
-            const auto thread = client.thread, notification = client.notification_event;
+            const auto thread = client.thread;
+            const auto notification = client.notification_event;
             const auto mismatched = remote_auth_client_stop(&client, 1);
             check(mismatched.error == RemoteAuthClientError::stop && !mismatched.http_status &&
                 !mismatched.retry_at_ms && runtime->ticket_exchange.admitted_request_id == 19,
@@ -318,7 +319,7 @@ void run() noexcept {
                 runtime->ticket_exchange.transport.worker.thread && runtime->ticket_exchange.transport.runtime &&
                 stopped.http_status == 429 && stopped.retry_at_ms == kServerRetryAt &&
                 runtime->ticket_exchange.admitted_request_id == 19 &&
-                WaitForSingleObject(thread, 0) == WAIT_OBJECT_0,
+                thread_wait(thread, 0),
                 "remote auth: joined outer thread cannot release a still-live nested worker or client handles");
             fixture.mode = Mode::success;
             fixture.limited_stop_receipt = false;

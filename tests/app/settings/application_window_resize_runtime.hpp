@@ -57,7 +57,7 @@ inline void test_window_resize_lifecycle() noexcept {
         UnregisterClassW(name, type.hInstance);
         return;
     }
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.settings = nullptr;
     g_app.scroll_host = {};
     g_app.animations = {};

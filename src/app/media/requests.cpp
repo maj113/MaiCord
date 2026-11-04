@@ -1,5 +1,6 @@
 #include "requests_internal.hpp"
 #include "../account/profile.hpp"
+#include "maicord/core/time.hpp"
 #include "../account/profile_editor.hpp"
 #include "../guild/card.hpp"
 #include "expression_card.hpp"
@@ -355,7 +356,7 @@ bool profile_scene_shows(const ProfileScene& scene, const MediaAssetKey& key) no
     }
     for (u32 i = 0; scene.effect && i < maximum<u8>(1, scene.effect->count); ++i) {
         ProfileMedia media;
-        if (profile_effect_media_resolve(scene, i, GetTickCount64(), &media) &&
+        if (profile_effect_media_resolve(scene, i, clock_monotonic_milliseconds(), &media) &&
             media_asset_key_equal(key, media.key))
             return true;
     }

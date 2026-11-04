@@ -74,7 +74,7 @@ bool reap(ApplicationForumAttachments& owner) noexcept {
     message_attachment_drafts_release(&owner.drafts);
     if (owner.receipt) { SecureZeroMemory(owner.receipt, owner.receipt_bytes); pages_release(owner.receipt); }
     SecureZeroMemory(&owner, sizeof(owner)); pages_release(&owner); forum_attachments = nullptr;
-    if (close && g_app.window) PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+    if (close && g_app.window) window_request_close(g_app.window);
     return true;
 }
 bool picked_start(ApplicationForumAttachments& owner, NativeFilePickerError result) noexcept {
@@ -142,25 +142,25 @@ bool application_forum_attachments_pick(const ApplicationForumPostTicket& ticket
     const auto count = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {});
     return picked_start(owner, native_file_picker_start(&owner.picker, g_app.window, kAttachmentUploadMaximumCount - count, utf8_literal("Attach files to this post")));
 }
-bool application_forum_attachments_drop(const ApplicationForumPostTicket& ticket, HANDLE drop) noexcept {
+bool application_forum_attachments_drop(const ApplicationForumPostTicket& ticket, DroppedFiles* drop) noexcept {
     if (!drop) return true;
     if (!authorized(ticket) || !application_forum_attachments_begin(ticket) || !application_forum_attachments_view(ticket).can_add) {
-        DragFinish(static_cast<HDROP>(drop)); return true;
+        dropped_files_release(drop); return true;
     }
     auto& owner = *forum_attachments;
     const auto count = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {});
     const auto started = native_file_picker_take_drop(&owner.picker, drop, kAttachmentUploadMaximumCount - count);
-    if (started != NativeFilePickerError::none) DragFinish(static_cast<HDROP>(drop));
+    if (started != NativeFilePickerError::none) dropped_files_release(drop);
     return picked_start(owner, started);
 }
 bool application_forum_attachments_paste(const ApplicationForumPostTicket& ticket) noexcept {
     if (!authorized(ticket) || !application_forum_attachments_begin(ticket) || !application_forum_attachments_view(ticket).can_add) return false;
     auto& owner = *forum_attachments;
-    ClipboardAttachmentData input{};
-    if (!clipboard_attachment_capture(&input)) { status(owner, utf8_literal("Could not read the clipboard attachment.")); return false; }
+    ClipboardCapture* input = clipboard_capture_attachment();
+    if (!input) { status(owner, utf8_literal("Could not read the clipboard attachment.")); return false; }
     const auto count = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {});
-    const auto result = native_file_picker_take_clipboard(&owner.picker, &input, kAttachmentUploadMaximumCount - count, application_attachment_limit(ticket.parent_id));
-    clipboard_attachment_release(&input); return picked_start(owner, result);
+    const auto result = native_file_picker_take_clipboard(&owner.picker, input, kAttachmentUploadMaximumCount - count, application_attachment_limit(ticket.parent_id));
+    clipboard_capture_release(input); return picked_start(owner, result);
 }
 bool application_forum_attachments_remove(const ApplicationForumPostTicket& ticket, u64 id) noexcept {
     if (!application_forum_attachments_current(ticket, id) || !editable(*forum_attachments)) return false;

@@ -6,7 +6,6 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/media/atlas.hpp"
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
@@ -39,17 +38,17 @@ struct RendererCaption {
     // Title glyphs, then the tooltip's.
     GlyphQuad glyphs[kCaptionGlyphCapacity * 2];
     char title[kCaptionTitleCapacity];
-    ID3D11Buffer* paint_buffer;
-    ID3D11Buffer* glyph_buffer;
+    GpuBuffer* paint_buffer;
+    GpuBuffer* glyph_buffer;
     // The app icon: one immutable texture, replaced only when its size changes.
-    ID3D11ShaderResourceView* icon_view;
-    ID3D11Buffer* icon_quad;
+    GpuSrv* icon_view;
+    GpuBuffer* icon_quad;
     u32 icon_extent;
     // The title's glyph, or a server icon from the media atlas once resident
     // (image_drawn: its quad is in image_quad).
     UiIcon title_glyph;
     MediaAssetKey title_image;
-    ID3D11Buffer* image_quad;
+    GpuBuffer* image_quad;
     bool image_drawn;
     UiCaptionBarState state;
     u64 stamp;
@@ -163,38 +162,32 @@ UiCaptionBarLayout caption_layout(const D3D11Renderer& renderer, const RendererC
                                  static_cast<float>(renderer.dpi) / 96.0f);
 }
 
-bool create_buffer(ID3D11Device* device, u32 bytes, ID3D11Buffer** buffer) noexcept {
+bool create_buffer(GpuDevice* device, u32 bytes, GpuBuffer** buffer) noexcept {
     if (*buffer)
         return true;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = bytes;
-    description.Usage = D3D11_USAGE_DYNAMIC;
-    description.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    return SUCCEEDED(device->CreateBuffer(&description, nullptr, buffer));
+    return gpu_ok(gpu_buffer_create(device, {bytes, GpuUsage::dynamic, gpu_bind_vertex, false}, nullptr, buffer));
 }
 
-bool upload(ID3D11DeviceContext* context, ID3D11Buffer* buffer, const void* data, u32 bytes) noexcept {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) || !mapped.pData)
+bool upload(GpuContext* context, GpuBuffer* buffer, const void* data, u32 bytes) noexcept {
+    void* mapped = gpu_map(context, buffer, GpuMap::discard, nullptr);
+    if (!mapped)
         return false;
-    copy_bytes(mapped.pData, data, bytes);
-    context->Unmap(buffer, 0);
+    copy_bytes(mapped, data, bytes);
+    gpu_unmap(context, buffer);
     return true;
 }
 
 // Settings and update icons resolve against the shared icon atlas.
 bool upload_paint(D3D11Renderer* renderer, RendererCaption* caption, float weight) noexcept {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
     auto* context = renderer->graphics.context;
-    if (FAILED(context->Map(caption->paint_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) ||
-        !mapped.pData)
+    void* mapped = gpu_map(context, caption->paint_buffer, GpuMap::discard, nullptr);
+    if (!mapped)
         return false;
-    auto* destination = static_cast<PaintQuad*>(mapped.pData);
+    auto* destination = static_cast<PaintQuad*>(mapped);
     if (!icon_atlas_resolve(&renderer->icon_atlas, context, caption->paint.quads, destination,
                             caption->paint.count, renderer->dpi, weight))
         log_write(LogLevel::warning, "render", "caption_icon_raster_failed");
-    context->Unmap(caption->paint_buffer, 0);
+    gpu_unmap(context, caption->paint_buffer);
     return true;
 }
 
@@ -476,23 +469,18 @@ bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 e
         return false;
     if (caption->icon_view && caption->icon_extent == extent)
         return true;
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = description.Height = extent;
-    description.MipLevels = description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_IMMUTABLE;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    const D3D11_SUBRESOURCE_DATA data{pixels, extent * 4, 0};
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11ShaderResourceView* view = nullptr;
+    const GpuInitialData data{pixels, extent * 4};
+    GpuTexture* texture = nullptr;
+    GpuSrv* view = nullptr;
     const bool created =
-        SUCCEEDED(renderer->graphics.device->CreateTexture2D(&description, &data, &texture)) &&
-        SUCCEEDED(renderer->graphics.device->CreateShaderResourceView(texture, nullptr, &view));
-    com_release(texture);
+        gpu_ok(gpu_texture_create(renderer->graphics.device,
+                                  {extent, extent, GpuFormat::bgra8, GpuUsage::immutable, gpu_bind_srv}, &data,
+                                  &texture)) &&
+        gpu_ok(gpu_srv_create(renderer->graphics.device, texture, {GpuViewKind::texture, GpuFormat::bgra8}, &view));
+    gpu_release(texture);
     if (!created)
         return false;
-    com_release(caption->icon_view);
+    gpu_release(caption->icon_view);
     caption->icon_view = view;
     caption->icon_extent = extent;
     caption->dirty = true;
@@ -523,7 +511,7 @@ bool d3d11_renderer_caption_pending(D3D11Renderer* renderer, const Theme& theme)
 
 bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) noexcept {
     auto* caption = renderer->caption;
-    if (!renderer->caption_height || !caption || !renderer->graphics.target)
+    if (!renderer->caption_height || !caption || !gpu_surface_target(&renderer->graphics.surface))
         return true;
     // The back buffer still holds the bar unless it changed since that buffer
     // was presented (scrims of this frame's content draw included), the
@@ -584,39 +572,35 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     const u32 glyph_count = caption->title_glyphs, tooltip_glyphs = caption->tooltip_glyphs;
 
     // Caption rows: their own viewport and frame transform, then the content's again.
-    const D3D11_VIEWPORT viewport{
-        0, 0, static_cast<float>(renderer->width), static_cast<float>(renderer->caption_height), 0, 1};
-    const D3D11_RECT scissor{0, 0, static_cast<LONG>(renderer->width),
-                             static_cast<LONG>(renderer->caption_height)};
+    const GpuRect scissor{0, 0, static_cast<i32>(renderer->width), static_cast<i32>(renderer->caption_height)};
     const auto frame = [&](bool content_space) noexcept {
         return d3d11_draw_pipeline_update_caption(pipeline, context, renderer->width, renderer->caption_height,
                                                   renderer->height, renderer->dpi, content_space);
     };
     const float blend_factor[4]{};
-    const UINT offset = 0;
-    const UINT paint_stride = sizeof(PaintQuad);
+    const u32 paint_stride = sizeof(PaintQuad);
     // The paint pipeline over the shared state (target, rasterizer, blend,
     // frame constants, sampler), which other pipelines here leave bound.
     const auto bind_paint_pipeline = [&]() noexcept {
-        ID3D11Buffer* pixel_constants[2]{pipeline.ui_frame_buffer,
-                                         pipeline.background_active ? pipeline.background_buffer : nullptr};
-        context->PSSetConstantBuffers(0, 2, pixel_constants);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-        context->IASetInputLayout(pipeline.ui_input_layout);
-        context->IASetVertexBuffers(0, 1, &caption->paint_buffer, &paint_stride, &offset);
-        context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
-        ID3D11ShaderResourceView* icon_view = renderer->icon_atlas.gpu.texture_view;
-        context->PSSetShaderResources(0, 1, &icon_view);
+        GpuBuffer* pixel_constants[2]{pipeline.ui_frame_buffer,
+                                      pipeline.background_active ? pipeline.background_buffer : nullptr};
+        gpu_set_constants(context, GpuStage::pixel, 0, 2, pixel_constants);
+        gpu_set_strip_topology(context);
+        gpu_set_input_layout(context, pipeline.ui_input_layout);
+        gpu_set_vertex_buffer(context, caption->paint_buffer, paint_stride, 0);
+        gpu_set_shader(context, pipeline.ui_vertex_shader);
+        gpu_set_shader(context, pipeline.ui_pixel_shader);
+        GpuSrv* icon_view = renderer->icon_atlas.gpu.texture_view;
+        gpu_set_srvs(context, GpuStage::pixel, 0, 1, &icon_view);
     };
     const auto bind_paint = [&]() noexcept {
-        context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
-        context->RSSetState(pipeline.ui_rasterizer_state);
-        context->RSSetViewports(1, &viewport);
-        context->RSSetScissorRects(1, &scissor);
-        context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
-        context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
-        context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
+        gpu_set_render_target(context, gpu_surface_target(&renderer->graphics.surface));
+        gpu_set_raster(context, pipeline.ui_rasterizer_state);
+        gpu_set_viewport(context, 0, 0, static_cast<float>(renderer->width), static_cast<float>(renderer->caption_height));
+        gpu_set_scissor(context, scissor);
+        gpu_set_blend(context, pipeline.ui_blend_state, blend_factor);
+        gpu_set_constants(context, GpuStage::vertex, 0, 1, &pipeline.ui_frame_buffer);
+        gpu_set_samplers(context, GpuStage::pixel, 0, 1, &pipeline.glyph_sampler);
         bind_paint_pipeline();
     };
     if (!frame(false))
@@ -626,7 +610,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     // over it in content DIPs, then the bar's own items.
     u32 first = 0;
     if (caption->paint.count && ui_background_canvas_quad(caption->paint.quads[0])) {
-        context->DrawInstanced(4, 1, 0, 0);
+        gpu_draw_instanced(context, 4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
         first = 1;
         const float top = -layout.height;
@@ -637,7 +621,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
             if (package ? d3d11_effect_draw(&renderer->effect, context, canvas, kCaptionEffectCanvas)
                         : d3d11_background_fx_draw(&renderer->background_fx, context, canvas, kCaptionEffectCanvas)) {
                 ++renderer->draw_calls_last_frame;
-                context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
+                gpu_set_blend(context, pipeline.ui_blend_state, blend_factor);
                 bind_paint_pipeline();
             }
             if (!frame(false))
@@ -648,35 +632,33 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     const bool scrim = caption->scrim_quad < bar_end;
     const u32 buttons = scrim ? caption->buttons_first_quad : bar_end;
     if (buttons > first) {
-        context->DrawInstanced(4, buttons - first, 0, first);
+        gpu_draw_instanced(context, 4, buttons - first, 0, first);
         ++renderer->draw_calls_last_frame;
     }
     // The app icon and a resident server icon: one media quad each.
-    const auto draw_media_quad = [&](ID3D11Buffer* quad, ID3D11ShaderResourceView* view) noexcept {
-        const UINT media_stride = sizeof(MediaQuad);
-        context->IASetInputLayout(pipeline.media_input_layout);
-        context->IASetVertexBuffers(0, 1, &quad, &media_stride, &offset);
-        context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        ID3D11ShaderResourceView* media_views[3]{view, nullptr, nullptr};
-        context->PSSetShaderResources(0, 3, media_views);
-        context->DrawInstanced(4, 1, 0, 0);
+    const auto draw_media_quad = [&](GpuBuffer* quad, GpuSrv* view) noexcept {
+        gpu_set_input_layout(context, pipeline.media_input_layout);
+        gpu_set_vertex_buffer(context, quad, sizeof(MediaQuad), 0);
+        gpu_set_shader(context, pipeline.media_vertex_shader);
+        gpu_set_shader(context, pipeline.media_pixel_shader);
+        GpuSrv* media_views[3]{view, nullptr, nullptr};
+        gpu_set_srvs(context, GpuStage::pixel, 0, 3, media_views);
+        gpu_draw_instanced(context, 4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
     };
     if (caption->icon_view)
         draw_media_quad(caption->icon_quad, caption->icon_view);
     if (caption->image_drawn && renderer->media_gpu.texture_view)
         draw_media_quad(caption->image_quad, renderer->media_gpu.texture_view);
-    const UINT glyph_stride = sizeof(GlyphQuad);
-    ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
+    GpuSrv* glyph_views[]{renderer->glyph_text.gpu.texture_view,
                                             d3d11_glyph_text_color_view(renderer->glyph_text)};
     const auto draw_glyphs = [&](u32 first_glyph, u32 count) noexcept {
-        context->IASetInputLayout(pipeline.glyph_input_layout);
-        context->IASetVertexBuffers(0, 1, &caption->glyph_buffer, &glyph_stride, &offset);
-        context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.glyph_pixel_shader, nullptr, 0);
-        context->PSSetShaderResources(0, 2, glyph_views);
-        context->DrawInstanced(4, count, 0, first_glyph);
+        gpu_set_input_layout(context, pipeline.glyph_input_layout);
+        gpu_set_vertex_buffer(context, caption->glyph_buffer, sizeof(GlyphQuad), 0);
+        gpu_set_shader(context, pipeline.glyph_vertex_shader);
+        gpu_set_shader(context, pipeline.glyph_pixel_shader);
+        gpu_set_srvs(context, GpuStage::pixel, 0, 2, glyph_views);
+        gpu_draw_instanced(context, 4, count, 0, first_glyph);
         ++renderer->draw_calls_last_frame;
     };
     if (glyph_count)
@@ -685,33 +667,31 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         // The scrim over band, icon, title and items; the window buttons
         // follow undimmed.
         bind_paint_pipeline();
-        context->DrawInstanced(4, 1, 0, caption->scrim_quad);
+        gpu_draw_instanced(context, 4, 1, 0, caption->scrim_quad);
         if (caption->scrim_quad > buttons)
-            context->DrawInstanced(4, caption->scrim_quad - buttons, 0, buttons);
+            gpu_draw_instanced(context, 4, caption->scrim_quad - buttons, 0, buttons);
         renderer->draw_calls_last_frame += 2;
     }
     if (caption->paint.count > bar_end) {
         // The tooltip hangs below the band: caption DIPs over the whole target.
         const u32 target_height = renderer->caption_height + renderer->height;
-        const D3D11_VIEWPORT surface{0, 0, static_cast<float>(renderer->width), static_cast<float>(target_height),
-                                     0, 1};
-        const D3D11_RECT clip{maximum<LONG>(0, caption->tooltip_pixels.left),
-                              maximum<LONG>(0, caption->tooltip_pixels.top),
-                              minimum<LONG>(static_cast<LONG>(renderer->width), caption->tooltip_pixels.right),
-                              minimum<LONG>(static_cast<LONG>(target_height), caption->tooltip_pixels.bottom)};
+        const RECT clip{maximum<LONG>(0, caption->tooltip_pixels.left),
+                        maximum<LONG>(0, caption->tooltip_pixels.top),
+                        minimum<LONG>(static_cast<LONG>(renderer->width), caption->tooltip_pixels.right),
+                        minimum<LONG>(static_cast<LONG>(target_height), caption->tooltip_pixels.bottom)};
         if (!d3d11_draw_pipeline_update_caption(pipeline, context, renderer->width, target_height, 0,
                                                 renderer->dpi, false))
             return false;
         bind_paint_pipeline();
-        context->RSSetViewports(1, &surface);
-        context->RSSetScissorRects(1, &clip);
-        context->DrawInstanced(4, caption->paint.count - bar_end, 0, bar_end);
+        gpu_set_viewport(context, 0, 0, static_cast<float>(renderer->width), static_cast<float>(target_height));
+        gpu_set_scissor(context, {clip.left, clip.top, clip.right, clip.bottom});
+        gpu_draw_instanced(context, 4, caption->paint.count - bar_end, 0, bar_end);
         ++renderer->draw_calls_last_frame;
         if (tooltip_glyphs)
             draw_glyphs(glyph_count, tooltip_glyphs);
     }
-    ID3D11ShaderResourceView* null_views[3]{};
-    context->PSSetShaderResources(0, 3, null_views);
+    GpuSrv* null_views[3]{};
+    gpu_set_srvs(context, GpuStage::pixel, 0, 3, null_views);
     caption->drawn = true;
     ++caption->draws;
     return d3d11_draw_pipeline_update_transform(pipeline, context, renderer->width, renderer->height,
@@ -776,11 +756,11 @@ void d3d11_renderer_caption_release_device(D3D11Renderer* renderer) noexcept {
     auto* caption = renderer->caption;
     if (!caption)
         return;
-    com_release(caption->paint_buffer);
-    com_release(caption->glyph_buffer);
-    com_release(caption->icon_view);
-    com_release(caption->icon_quad);
-    com_release(caption->image_quad);
+    gpu_release(caption->paint_buffer);
+    gpu_release(caption->glyph_buffer);
+    gpu_release(caption->icon_view);
+    gpu_release(caption->icon_quad);
+    gpu_release(caption->image_quad);
     caption->icon_extent = 0;
     caption->image_drawn = false;
     caption->built = false;
@@ -792,11 +772,11 @@ void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {
     auto* caption = renderer->caption;
     if (!caption)
         return;
-    com_release(caption->paint_buffer);
-    com_release(caption->glyph_buffer);
-    com_release(caption->icon_view);
-    com_release(caption->icon_quad);
-    com_release(caption->image_quad);
+    gpu_release(caption->paint_buffer);
+    gpu_release(caption->glyph_buffer);
+    gpu_release(caption->icon_view);
+    gpu_release(caption->icon_quad);
+    gpu_release(caption->image_quad);
     shaped_text_reset(&caption->title_line.shape);
     shaped_text_reset(&caption->tooltip_line.shape);
     paint_stream_release(&caption->paint);

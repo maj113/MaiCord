@@ -1,6 +1,8 @@
 #include "maicord/core/log.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "gpu/gles/internal.hpp"
+#include "gpu/gles/video_planes_internal.hpp"
 
 namespace maicord {
 namespace gles {
@@ -8,6 +10,7 @@ namespace {
 
 GpuDevice g_device;
 GpuContext g_context;
+void* g_requested_display; // gpu_device_set_native_display: copied into the device by gpu_device_create
 
 constexpr gl::Enum kContextLost = 0x0507;
 constexpr gl::Enum kOutOfMemory = 0x0505;
@@ -22,7 +25,14 @@ u32 append(char* destination, u32 capacity, u32 used, const char* text) noexcept
 bool open_display(GpuDevice& device) noexcept {
     egl::Int major = 0, minor = 0;
     const char* client_extensions = device.egl.eglQueryString(egl::kNoDisplay, egl::kExtensions);
-    // The driver's headless platform first: no window system, no GPU selection by a compositor.
+    // A window system connection first when the caller has one: surfaces can only be made on that display.
+    if (device.native_display && device.egl.eglGetPlatformDisplay) {
+        device.display = device.egl.eglGetPlatformDisplay(egl::kPlatformWaylandKhr, device.native_display, nullptr);
+        if (device.display && device.egl.eglInitialize(device.display, &major, &minor))
+            return true;
+        device.display = nullptr;
+        device.native_display = nullptr;
+    }
     if (device.egl.eglGetPlatformDisplay && string_has_word(client_extensions, "EGL_MESA_platform_surfaceless")) {
         device.display = device.egl.eglGetPlatformDisplay(egl::kPlatformSurfacelessMesa, nullptr, nullptr);
         if (device.display && device.egl.eglInitialize(device.display, &major, &minor))
@@ -45,11 +55,22 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
                                            egl::kGreenSize,      8,                    egl::kBlueSize,
                                            8,                    egl::kAlphaSize,      8,
                                            egl::kNone};
+    const egl::Int attributes_window[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kSurfaceType,
+                                          egl::kWindowBit,      egl::kRedSize,        8,
+                                          egl::kGreenSize,      8,                    egl::kBlueSize,
+                                          8,                    egl::kAlphaSize,      8,
+                                          egl::kNone};
+    // On a window system display the config can draw to windows (the surfaces made later share the context's
+    // config); there is no pbuffer fallback there.
+    const bool window = device.native_display != nullptr;
+    if (window && pbuffer)
+        return false;
     egl::Config config = nullptr;
     egl::Int count = 0;
     if (!device.egl.eglBindAPI(egl::kOpenGlEsApi) ||
-        !device.egl.eglChooseConfig(device.display, pbuffer ? attributes_pbuffer : attributes_surfaceless, &config, 1,
-                                    &count) ||
+        !device.egl.eglChooseConfig(device.display,
+                                    window ? attributes_window : (pbuffer ? attributes_pbuffer : attributes_surfaceless),
+                                    &config, 1, &count) ||
         count < 1) {
         return false;
     }
@@ -75,6 +96,7 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
         return false;
     }
     device.surface = surface;
+    device.config = config;
     return true;
 }
 
@@ -100,6 +122,16 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.max_uniform_block_bytes = static_cast<u32>(value);
     api.glGetIntegerv(gl::kMaxComputeWorkGroupInvocations, &value);
     caps.max_compute_invocations = static_cast<u32>(value);
+    // MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=<n> lowers the group size limit the way a small device reports it (tests
+    // only: the narrow shader variants and the decode gates).
+    const char* invocations = environment_get("MAICORD_GLES_MAX_COMPUTE_INVOCATIONS");
+    if (invocations && invocations[0] >= '0' && invocations[0] <= '9') {
+        u32 limit = 0;
+        for (const char* digit = invocations; *digit >= '0' && *digit <= '9'; ++digit)
+            limit = limit * 10 + static_cast<u32>(*digit - '0');
+        if (limit != 0 && limit < caps.max_compute_invocations)
+            caps.max_compute_invocations = limit;
+    }
     api.glGetIntegerv(gl::kMaxComputeSharedMemorySize, &value);
     caps.max_shared_bytes = static_cast<u32>(value);
     api.glGetIntegerv(gl::kMaxComputeShaderStorageBlocks, &value);
@@ -110,8 +142,25 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.half_render_targets =
         caps.float_render_targets || has_extension(api, "GL_EXT_color_buffer_half_float");
     caps.float_linear = has_extension(api, "GL_OES_texture_float_linear");
-    caps.dual_source_blend = has_extension(api, "GL_EXT_blend_func_extended");
-    caps.timer_query = has_extension(api, "GL_EXT_disjoint_timer_query");
+    // MAICORD_GLES_NO_DUAL_SOURCE=1 and MAICORD_GLES_NO_TIMER_QUERY=1 take the paths of drivers without
+    // GL_EXT_blend_func_extended (the composite drawn in two halves) and GL_EXT_disjoint_timer_query (no GPU timing).
+    const char* no_dual = environment_get("MAICORD_GLES_NO_DUAL_SOURCE");
+    caps.dual_source_blend = has_extension(api, "GL_EXT_blend_func_extended") && !(no_dual && no_dual[0] == '1');
+    const char* no_timer = environment_get("MAICORD_GLES_NO_TIMER_QUERY");
+    caps.timer_query = false;
+    device.gl.glGenQueriesEXT = nullptr;
+    if (has_extension(api, "GL_EXT_disjoint_timer_query") && !(no_timer && no_timer[0] == '1')) {
+        const auto load = [&](const char* name) noexcept { return device.egl.eglGetProcAddress(name); };
+        device.gl.glGenQueriesEXT = reinterpret_cast<decltype(device.gl.glGenQueriesEXT)>(load("glGenQueriesEXT"));
+        device.gl.glDeleteQueriesEXT = reinterpret_cast<decltype(device.gl.glDeleteQueriesEXT)>(load("glDeleteQueriesEXT"));
+        device.gl.glQueryCounterEXT = reinterpret_cast<decltype(device.gl.glQueryCounterEXT)>(load("glQueryCounterEXT"));
+        device.gl.glGetQueryObjectuivEXT =
+            reinterpret_cast<decltype(device.gl.glGetQueryObjectuivEXT)>(load("glGetQueryObjectuivEXT"));
+        device.gl.glGetQueryObjectui64vEXT =
+            reinterpret_cast<decltype(device.gl.glGetQueryObjectui64vEXT)>(load("glGetQueryObjectui64vEXT"));
+        caps.timer_query = device.gl.glGenQueriesEXT && device.gl.glDeleteQueriesEXT && device.gl.glQueryCounterEXT &&
+                           device.gl.glGetQueryObjectuivEXT && device.gl.glGetQueryObjectui64vEXT;
+    }
     caps.map_no_overwrite_on_srv = true; // glMapBufferRange with GL_MAP_UNSYNCHRONIZED_BIT
     const char* display_extensions = device.egl.eglQueryString(device.display, egl::kExtensions);
     caps.dmabuf_import = string_has_word(display_extensions, "EGL_EXT_image_dma_buf_import") &&
@@ -119,6 +168,18 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.surface_damage = string_has_word(display_extensions, "EGL_KHR_swap_buffers_with_damage") ||
                           string_has_word(display_extensions, "EGL_EXT_swap_buffers_with_damage");
     caps.buffer_age = string_has_word(display_extensions, "EGL_EXT_buffer_age");
+    device.egl.eglSwapBuffersWithDamage = nullptr;
+    if (caps.surface_damage) {
+        const char* damage_names[] = {"eglSwapBuffersWithDamageKHR", "eglSwapBuffersWithDamageEXT"};
+        for (const char* name : damage_names) {
+            void* function = device.egl.eglGetProcAddress(name);
+            if (function) {
+                device.egl.eglSwapBuffersWithDamage = reinterpret_cast<decltype(device.egl.eglSwapBuffersWithDamage)>(function);
+                break;
+            }
+        }
+        caps.surface_damage = device.egl.eglSwapBuffersWithDamage != nullptr;
+    }
     const char* copy_names[] = {"glCopyImageSubData", "glCopyImageSubDataOES", "glCopyImageSubDataEXT"};
     device.gl.glCopyImageSubData = nullptr;
     // MAICORD_GLES_NO_COPY_IMAGE=1 takes the framebuffer-copy path of drivers without copy-image (tests only).
@@ -233,13 +294,33 @@ u32 texture_framebuffer(GpuTexture* texture) noexcept {
 
 } // namespace gles
 
-GpuStatus gpu_device_create(GpuDevice** out_device, GpuContext** out_context) {
-    using namespace gles;
+void gpu_device_set_native_display(void* native_display) {
+    gles::g_requested_display = native_display;
+}
+
+namespace gles {
+namespace {
+
+// The prestart worker (gpu_device_prestart): it makes the context on its thread, runs the continuation there and
+// lets the context go; gpu_device_create then hands the device to the main thread, which takes the context over
+// (claim_context) when the worker is done.
+struct DevicePrestart {
+    Thread* thread;
+    Waitable ready;
+    GpuDevicePrestartContinuation continuation;
+    GpuStatus status;
+    bool adopted;
+};
+DevicePrestart g_prestart;
+bool g_prestarted_device; // the device in use came from the worker
+
+GpuStatus create_device_here() noexcept {
     GpuDevice& d = gles::device();
     if (d.created)
         return kGpuFail;
     clear_bytes(&d, static_cast<u32>(sizeof(d)));
     clear_bytes(&gles::context(), static_cast<u32>(sizeof(GpuContext)));
+    d.native_display = gles::g_requested_display;
     GpuStatus status = load_libraries(&d);
     if (!gpu_ok(status))
         return status;
@@ -264,6 +345,8 @@ GpuStatus gpu_device_create(GpuDevice** out_device, GpuContext** out_context) {
     }
     describe(d);
     probe_caps(d, major > 3 || minor >= 2);
+    const char* checks = environment_get("MAICORD_GLES_CHECK");
+    d.debug_checks = checks && checks[0] == '1';
     d.gl.glDisable(gl::kDither);
     d.gl.glDisable(gl::kCullFace);
     d.gl.glDisable(gl::kDepthTest);
@@ -283,6 +366,8 @@ GpuStatus gpu_device_create(GpuDevice** out_device, GpuContext** out_context) {
     d.pixel_shaders.reset();
     d.compute_shaders.reset();
     d.layouts.reset();
+    d.queries.reset();
+    d.fences.reset();
     GpuContext& c = gles::context();
     c.applied_draw_framebuffer = 0xFFFFFFFFu;
     c.applied_program = 0xFFFFFFFFu;
@@ -290,14 +375,105 @@ GpuStatus gpu_device_create(GpuDevice** out_device, GpuContext** out_context) {
     c.applied_vertex_buffer = 0xFFFFFFFFu;
     status = check_error("device initialization");
     if (!gpu_ok(status)) {
-        gpu_device_destroy(out_device, out_context);
+        gpu_device_destroy(nullptr, nullptr);
         return status;
     }
     d.created = true;
     log_write(LogLevel::info, "gpu", d.description);
-    *out_device = &d;
-    *out_context = &c;
     return kGpuOk;
+}
+
+u32 prestart_worker(void*) noexcept {
+    DevicePrestart& prestart = g_prestart;
+    prestart.status = create_device_here();
+    const bool made = gpu_ok(prestart.status);
+    event_set(prestart.ready);
+    if (made && prestart.continuation)
+        prestart.continuation(&gles::device(), &gles::context());
+    if (made) {
+        // The context is current on this thread until it is let go; the owner takes it over in claim_context.
+        GpuDevice& d = gles::device();
+        d.egl.eglMakeCurrent(d.display, egl::kNoSurface, egl::kNoSurface, egl::kNoContext);
+    }
+    return 0;
+}
+
+// Waits for the worker to return and forgets it.
+void reap_prestart() noexcept {
+    if (g_prestart.thread) {
+        thread_wait(g_prestart.thread, 0xFFFFFFFFu);
+        thread_close(g_prestart.thread);
+    }
+    waitable_close(g_prestart.ready);
+    g_prestart = {};
+}
+
+} // namespace
+
+void claim_context() noexcept {
+    if (!g_prestart.thread)
+        return;
+    GpuDevice& d = gles::device();
+    thread_wait(g_prestart.thread, 0xFFFFFFFFu);
+    thread_close(g_prestart.thread);
+    g_prestart.thread = nullptr;
+    if (d.created)
+        d.egl.eglMakeCurrent(d.display, d.surface, d.surface, d.context);
+}
+
+} // namespace gles
+
+GpuStatus gpu_device_create(GpuDevice** out_device, GpuContext** out_context) {
+    using namespace gles;
+    if (g_prestart.ready) {
+        wait_one(g_prestart.ready, 0xFFFFFFFFu);
+        if (gpu_ok(g_prestart.status)) {
+            // The worker made the device; its continuation may still be using the context.
+            g_prestart.adopted = true;
+            g_prestarted_device = true;
+            *out_device = &gles::device();
+            *out_context = &gles::context();
+            return kGpuOk;
+        }
+        reap_prestart(); // it failed: try again here, driver failures can be transient
+    }
+    const GpuStatus status = create_device_here();
+    if (!gpu_ok(status))
+        return status;
+    *out_device = &gles::device();
+    *out_context = &gles::context();
+    return kGpuOk;
+}
+
+void gpu_device_prestart(GpuDevicePrestartContinuation continuation) {
+    using namespace gles;
+    if (g_prestart.ready)
+        return;
+    g_prestart.ready = event_create(true, false);
+    if (!g_prestart.ready)
+        return;
+    g_prestart.continuation = continuation;
+    g_prestart.thread = thread_start(prestart_worker, nullptr, 1024u * 1024u, nullptr);
+    if (!g_prestart.thread) {
+        waitable_close(g_prestart.ready);
+        g_prestart = {};
+    }
+}
+
+void gpu_device_prestart_finish() {
+    using namespace gles;
+    if (!g_prestart.ready)
+        return;
+    claim_context();
+    const bool adopted = g_prestart.adopted;
+    waitable_close(g_prestart.ready);
+    g_prestart = {};
+    if (!adopted && gles::device().created)
+        gpu_device_destroy(nullptr, nullptr); // nobody took the device the worker made
+}
+
+bool gpu_device_prestarted(const GpuDevice* device) {
+    return device && device == &gles::device() && gles::g_prestarted_device;
 }
 
 void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {
@@ -305,6 +481,7 @@ void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {
     if (!d.display && !d.egl_library)
         return;
     if (d.display) {
+        gles::video_planes_shutdown(); // the EGLImages of decoded pictures go before the display
         d.egl.eglMakeCurrent(d.display, egl::kNoSurface, egl::kNoSurface, egl::kNoContext);
         // The GL objects of the context go with it.
         if (d.context)
@@ -331,6 +508,22 @@ const char* gpu_device_description(const GpuDevice* device) {
 
 bool gpu_device_lost(GpuDevice* device) {
     return device->lost;
+}
+
+u64 gpu_adapter_key(const GpuDevice* device) {
+    // The vendor, renderer and version strings name the GPU and its driver stack (FNV-1a, 64 bits).
+    u64 hash = 0xcbf29ce484222325ull;
+    for (const char* text = device->description; *text; ++text)
+        hash = (hash ^ static_cast<u8>(*text)) * 0x100000001b3ull;
+    return hash;
+}
+
+GpuContext1* gpu_context_1(GpuContext* context) {
+    return context;
+}
+
+GpuDevice* gpu_context_device(GpuContext*) {
+    return &gles::device();
 }
 
 } // namespace maicord

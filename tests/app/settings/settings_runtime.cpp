@@ -1,6 +1,8 @@
 #include "settings_runtime_internal.hpp"
 #include "shell/state.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
+#include "../../support/window_fixture.hpp"
+#include "maicord/ui/core/cursor.hpp"
 #include "../../support/settings_schema_validation.hpp"
 #include "settings/settings.hpp"
 #include "account/friends.hpp"
@@ -269,7 +271,7 @@ void test_search_field() noexcept {
         return utf8_equal(current->search.view.text, {expected, bytes}) && current->search.view.caret <= bytes;
     };
     for (const char* c = "theme"; *c; ++c)
-        application_settings_window_message(WM_CHAR, static_cast<WPARAM>(*c), 0);
+        application_settings_window_event(window_test::character(static_cast<WPARAM>(*c)));
     check(query("theme") && current->search.view.caret == 5 && ui_page_key_equal(current->selected_page, kSearchPage) &&
               ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: typing from the sidebar focuses the field and opens results");
@@ -277,20 +279,16 @@ void test_search_field() noexcept {
           "settings search: Backspace deletes after the results page relayouts");
     check(key(key::left) && key(key::left) && key(key::del) && query("thm") && current->search.view.caret == 2,
           "settings search: arrows move the caret and Delete removes forward");
-    BYTE original_keys[256]{};
-    if (GetKeyboardState(original_keys)) {
-        BYTE local_keys[256]{};
-        local_keys[key::ctrl] = 0x80;
-        if (SetKeyboardState(local_keys) && (GetKeyState(key::ctrl) & 0x8000)) {
-            const bool selected = key('A') && current->search.view.anchor == 0 && current->search.view.caret == 3;
-            SetKeyboardState(original_keys);
-            check(selected && key(key::backspace) && query("") && ui_page_key_equal(current->selected_page, kAppearancePage) &&
-                      ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
-                  "settings search: Ctrl+A then Backspace clears the query and restores the page");
-        } else
-            SetKeyboardState(original_keys);
-    }
-    application_settings_window_message(WM_CHAR, 'x', 0);
+    null_window_set_key(key::ctrl, true);
+    if (window_key_down(nullptr, key::ctrl)) {
+        const bool selected = key('A') && current->search.view.anchor == 0 && current->search.view.caret == 3;
+        null_window_release_keys();
+        check(selected && key(key::backspace) && query("") && ui_page_key_equal(current->selected_page, kAppearancePage) &&
+                  ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
+              "settings search: Ctrl+A then Backspace clears the query and restores the page");
+    } else
+        null_window_release_keys();
+    application_settings_window_event(window_test::character('x'));
     check(query("x") && key(key::escape) && query("") && application_settings_active() &&
               ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: Escape clears a query before it closes Settings");
@@ -678,32 +676,23 @@ void test_controller() noexcept {
     check(application_settings_open() && g_app.settings == settings_memory &&
               observed.text_builds == builds,
           "settings: duplicate open preserves one controller and retained scene");
-    check(application_settings_window_message(WM_CONTEXTMENU, 0, 0) &&
-              application_settings_window_message(WM_RBUTTONDOWN, 0, 0) &&
+    check(application_settings_window_event(window_test::context_menu(0, 0)) &&
+              application_settings_window_event(window_test::pointer_down(0, 0, PointerButton::right)) &&
               application_settings_input(UiInputKind::character, 'x', false) &&
               application_settings_active(),
           "settings: modal context menu and text input cannot reach account content");
     const u32 content_hits = observed.content_hits, text_hits = observed.text_hits,
               profile_hits = observed.profile_hits;
-    check(set_client_cursor(980, 680) && GetCursor() == LoadCursorW(nullptr, IDC_ARROW) &&
+    check(set_client_cursor(980, 680) && null_window_probe().cursor == static_cast<u8>(UiCursor::arrow) &&
               observed.content_hits == content_hits && observed.text_hits == text_hits &&
               observed.profile_hits == profile_hits,
           "settings: empty opaque page owns cursor without consulting underlying profiles, links or text");
-    BYTE original_keys[256]{};
-    if (GetKeyboardState(original_keys)) {
-        BYTE local_keys[256]{};
-        local_keys[key::alt] = 0x80;
-        const bool set = SetKeyboardState(local_keys) != FALSE;
-        if (set && (GetKeyState(key::alt) & 0x8000))
-            check(!application_settings_input(UiInputKind::system_key_down, key::f4, false) &&
-                      application_settings_active(),
-                  "settings: Alt+F4 passes through modal keyboard handling");
-        // A platform which cannot establish thread-local modifiers leaves this
-        // branch untested; never synthesize input into the desktop session.
-        if (set)
-            check(SetKeyboardState(original_keys) != FALSE,
-                  "settings: original thread keyboard state restored");
-    }
+    null_window_set_key(key::alt, true);
+    if (window_key_down(nullptr, key::alt))
+        check(!application_settings_input(UiInputKind::system_key_down, key::f4, false) &&
+                  application_settings_active(),
+              "settings: Alt+F4 passes through modal keyboard handling");
+    null_window_release_keys();
     const u32 before_close_member_updates = observed.member_updates;
     // A click on the scrim closes Settings; a press there released over the
     // dialog does not.
@@ -713,11 +702,11 @@ void test_controller() noexcept {
         const LPARAM scrim = MAKELPARAM(static_cast<int>(modal_viewport.left + 4), static_cast<int>(modal.top + 40));
         const LPARAM dialog = MAKELPARAM(static_cast<int>((modal.left + modal.right) * .5f),
                                          static_cast<int>((modal.top + modal.bottom) * .5f));
-        check(application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, scrim) &&
-                  application_settings_window_message(WM_LBUTTONUP, 0, dialog) && application_settings_active(),
+        check(application_settings_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim))) &&
+                  application_settings_window_event(window_test::pointer_up(window_test::x_of(dialog), window_test::y_of(dialog), PointerButton::left)) && application_settings_active(),
               "settings: a scrim press released over the dialog keeps Settings open");
-        check(application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, scrim) &&
-                  application_settings_window_message(WM_LBUTTONUP, 0, scrim) && !application_settings_active(),
+        check(application_settings_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim))) &&
+                  application_settings_window_event(window_test::pointer_up(window_test::x_of(scrim), window_test::y_of(scrim), PointerButton::left)) && !application_settings_active(),
               "settings: a click on the scrim closes Settings");
     } else
         application_settings_close();
@@ -737,9 +726,8 @@ void test_controller() noexcept {
     {
         // Leaving Profiles hands the modal back (the editor closed Settings
         // under it); only a genuine reopen plays the entrance.
-        const HWND saved_window = g_app.window;
-        const HWND window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1000, 700, nullptr, nullptr,
-                                            GetModuleHandleW(nullptr), nullptr);
+        const Window saved_window = g_app.window;
+        const Window window = window_test::open();
         g_app.window = window;
         application_settings_close(false);
         const bool reopened = application_settings_open() && application_settings_synchronize() &&
@@ -749,8 +737,7 @@ void test_controller() noexcept {
                              g_app.renderer.settings_modal_progress == 1.f && application_settings_synchronize() &&
                              g_app.renderer.settings_modal_progress == 1.f;
         g_app.window = saved_window;
-        if (window)
-            DestroyWindow(window);
+        window_test::close();
         check(window && reopened && resumed,
               "settings: a reopen plays the entrance; the profile editor's hand-back does not replay it");
     }
@@ -856,7 +843,7 @@ void test_controller() noexcept {
             flat_effects_preserved = flat_effects_preserved &&
                                      ui_theme_editor_focus(flat_editor, UiThemeEditorElement::strength) &&
                                      application_theme_editor_input(UiInputKind::key_down, key::right, false);
-            application_theme_editor_window_message(WM_CANCELMODE, 0, 0);
+            application_theme_editor_window_event(window_test::cancel_input());
             flat_effects_preserved = flat_effects_preserved &&
                                      client_preferences_equal(g_app.preferences, flat_cancel_baseline) &&
                                      g_app.preferences_request_revision == flat_cancel_revision;
@@ -945,7 +932,7 @@ void test_controller() noexcept {
         named_effects_preserve_raw = named_effects_preserve_raw &&
                                      ui_theme_editor_focus(preset_editor, UiThemeEditorElement::strength) &&
                                      application_theme_editor_input(UiInputKind::key_down, key::right, false);
-        application_theme_editor_window_message(WM_CANCELMODE, 0, 0);
+        application_theme_editor_window_event(window_test::cancel_input());
         named_effects_preserve_raw = named_effects_preserve_raw &&
                                      client_preferences_equal(g_app.preferences, preset_cancel_baseline) &&
                                      g_app.preferences_request_revision == preset_cancel_revision;
@@ -1021,10 +1008,9 @@ void test_controller() noexcept {
               g_app.renderer.theme_editor_scene != nullptr,
           "theme editor host: actual Appearance action opens bounded visual drawer");
     auto* editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
-    const HWND previous_window = g_app.window;
+    const Window previous_window = g_app.window;
     const u32 previous_dpi = g_app.renderer.dpi;
-    HWND editor_window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1000, 700, nullptr, nullptr,
-                                         GetModuleHandleW(nullptr), nullptr);
+    const Window editor_window = window_test::open();
     g_app.window = editor_window;
     g_app.renderer.dpi = 96;
     bool drag = editor && editor_window && ui_theme_editor_focus(editor, UiThemeEditorElement::sv);
@@ -1039,12 +1025,10 @@ void test_controller() noexcept {
     const u16 before_drag_generation = editor ? editor->widgets.generation : 0;
     if (sv) {
         const UiRect rect = sv->rectangle;
-        drag = application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                       pack(rect.left + 8, rect.top + 8)) &&
-               GetCapture() == editor_window;
+        drag = application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(pack(rect.left + 8, rect.top + 8)), window_test::y_of(pack(rect.left + 8, rect.top + 8)))) &&
+               window_pointer_captured(editor_window);
         for (u32 i = 0; i < 64 && drag; ++i)
-            drag = application_theme_editor_window_message(
-                WM_MOUSEMOVE, MK_LBUTTON, pack(rect.left + 8 + static_cast<float>(i) * 2, rect.top + 20));
+            drag = application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(rect.left + 8 + static_cast<float>(i) * 2, rect.top + 20)), window_test::y_of(pack(rect.left + 8 + static_cast<float>(i) * 2, rect.top + 20)), window_test::button_bit(PointerButton::left)));
         drag = drag && g_app.preferences_request_revision == before_drag_save &&
                observed.text_builds == before_drag_text &&
                observed.forced_account_text_updates == before_drag_forced &&
@@ -1060,9 +1044,8 @@ void test_controller() noexcept {
                   g_app.preferences_request_revision == before_drag_save,
               "theme editor host: frame publication coalesces latest palette foreground once and retains "
               "unchanged repeats");
-        check(application_theme_editor_window_message(WM_LBUTTONUP, 0,
-                                                      pack(rect.left + 134, rect.top + 20)) &&
-                  GetCapture() != editor_window &&
+        check(application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(pack(rect.left + 134, rect.top + 20)), window_test::y_of(pack(rect.left + 134, rect.top + 20)), PointerButton::left)) &&
+                  !window_pointer_captured(editor_window) &&
                   g_app.preferences_request_revision == before_drag_save + 1 &&
                   application_settings_synchronize() && await_save_retained(),
               "theme editor host: actual capture release commits one latest draft");
@@ -1078,12 +1061,9 @@ void test_controller() noexcept {
         coalesced_intensity ? ui_theme_editor_node(*editor, UiThemeEditorElement::intensity) : nullptr;
     if (intensity_node) {
         const auto r = intensity_node->rectangle;
-        coalesced_intensity = application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                                      pack(r.left + 9, r.bottom - 14));
+        coalesced_intensity = application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(pack(r.left + 9, r.bottom - 14)), window_test::y_of(pack(r.left + 9, r.bottom - 14))));
         for (u32 i = 0; i < 64 && coalesced_intensity; ++i)
-            coalesced_intensity = application_theme_editor_window_message(
-                WM_MOUSEMOVE, MK_LBUTTON,
-                pack(r.left + 9 + (r.right - r.left - 29) * static_cast<float>(i) / 63.f, r.bottom - 14));
+            coalesced_intensity = application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(r.left + 9 + (r.right - r.left - 29) * static_cast<float>(i) / 63.f, r.bottom - 14)), window_test::y_of(pack(r.left + 9 + (r.right - r.left - 29) * static_cast<float>(i) / 63.f, r.bottom - 14)), window_test::button_bit(PointerButton::left)));
         coalesced_intensity = coalesced_intensity &&
                               observed.forced_account_text_updates == intensity_forced &&
                               g_app.preferences_request_revision == intensity_revision &&
@@ -1091,7 +1071,7 @@ void test_controller() noexcept {
                               observed.forced_account_text_updates == intensity_forced + 1 &&
                               application_theme_editor_publish_foreground() &&
                               observed.forced_account_text_updates == intensity_forced + 1;
-        application_theme_editor_window_message(WM_CANCELMODE, 0, 0);
+        application_theme_editor_window_event(window_test::cancel_input());
         coalesced_intensity = coalesced_intensity &&
                               client_preferences_equal(g_app.preferences, intensity_baseline) &&
                               application_theme_editor_publish_foreground() &&
@@ -1100,8 +1080,8 @@ void test_controller() noexcept {
     }
     check(coalesced_intensity, "theme editor host: sixty-four intensity previews coalesce real foreground "
                                "once per frame and cancel publishes restored tokens without saves");
-    constexpr UINT editor_cancel_messages[]{WM_SIZE, WM_KILLFOCUS};
-    for (const UINT cancel_message : editor_cancel_messages) {
+    constexpr EventType editor_cancel_events[]{EventType::resize, EventType::focus_changed};
+    for (const EventType cancel_event : editor_cancel_events) {
         const auto gesture_baseline = g_app.preferences;
         const u64 gesture_revision = g_app.preferences_request_revision;
         const u32 gesture_forced = observed.forced_account_text_updates;
@@ -1110,22 +1090,20 @@ void test_controller() noexcept {
             canceled_effect ? ui_theme_editor_node(*editor, UiThemeEditorElement::strength) : nullptr;
         if (strength_node) {
             const auto r = strength_node->rectangle;
-            canceled_effect = application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                                      pack(r.left + 9, r.bottom - 14)) &&
-                              GetCapture() == editor_window;
+            canceled_effect = application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(pack(r.left + 9, r.bottom - 14)), window_test::y_of(pack(r.left + 9, r.bottom - 14)))) &&
+                              window_pointer_captured(editor_window);
             const u32 gesture_text_builds = observed.text_builds;
             for (u32 i = 0; i < 64 && canceled_effect; ++i)
-                canceled_effect = application_theme_editor_window_message(
-                    WM_MOUSEMOVE, MK_LBUTTON, pack(r.left + 9 + static_cast<float>(i), r.bottom - 14));
+                canceled_effect = application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(r.left + 9 + static_cast<float>(i), r.bottom - 14)), window_test::y_of(pack(r.left + 9 + static_cast<float>(i), r.bottom - 14)), window_test::button_bit(PointerButton::left)));
             canceled_effect = canceled_effect &&
                               g_app.preferences.gradient.strength != gesture_baseline.gradient.strength &&
                               observed.text_builds == gesture_text_builds &&
                               g_app.preferences_request_revision == gesture_revision;
-            application_theme_editor_window_message(cancel_message, 0, 0);
+            application_theme_editor_window_event(window_test::plain(cancel_event));
             canceled_effect =
                 canceled_effect && client_preferences_equal(g_app.preferences, gesture_baseline) &&
                 g_app.preferences_request_revision == gesture_revision &&
-                observed.forced_account_text_updates == gesture_forced && GetCapture() != editor_window;
+                observed.forced_account_text_updates == gesture_forced && !window_pointer_captured(editor_window);
         }
         check(canceled_effect, "theme editor host: sixty-four effect moves cancel exact profile draft on "
                                "resize or focus loss without writer or Main reshape");
@@ -1136,15 +1114,13 @@ void test_controller() noexcept {
     const u64 effect_write = g_app.preferences_request_revision;
     if (released_strength) {
         const auto r = released_strength->rectangle;
-        released_effect = application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                                  pack(r.left + 9, r.bottom - 14));
+        released_effect = application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(pack(r.left + 9, r.bottom - 14)), window_test::y_of(pack(r.left + 9, r.bottom - 14))));
         for (u32 i = 0; i < 64 && released_effect; ++i)
-            released_effect = application_theme_editor_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                                      pack(r.right - 20, r.bottom - 14));
+            released_effect = application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(r.right - 20, r.bottom - 14)), window_test::y_of(pack(r.right - 20, r.bottom - 14)), window_test::button_bit(PointerButton::left)));
         const u8 retained_strength = g_app.preferences.gradient.strength;
         released_effect =
             released_effect && g_app.preferences_request_revision == effect_write &&
-            application_theme_editor_window_message(WM_LBUTTONUP, 0, pack(r.right - 20, r.bottom - 14)) &&
+            application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(pack(r.right - 20, r.bottom - 14)), window_test::y_of(pack(r.right - 20, r.bottom - 14)), PointerButton::left)) &&
             g_app.preferences_request_revision == effect_write + 1 && application_settings_synchronize() &&
             await_save_retained();
         released_effect = released_effect &&
@@ -1166,7 +1142,7 @@ void test_controller() noexcept {
     check(released_effect, "theme editor host: sixty-four effect previews write once on release and "
                            "subtype switches restore saved profile");
     const auto rapid_effect_write = g_app.preferences_request_revision;
-    const auto click_effect = [&](UiThemeEditorElement element, UINT press) noexcept {
+    const auto click_effect = [&](UiThemeEditorElement element, bool second_press) noexcept {
         if (!editor || !ui_theme_editor_focus(editor, element))
             return false;
         const auto* effect_node = ui_theme_editor_node(*editor, element);
@@ -1174,15 +1150,16 @@ void test_controller() noexcept {
             return false;
         const auto location = pack((effect_node->rectangle.left + effect_node->rectangle.right) * .5f,
                                    (effect_node->rectangle.top + effect_node->rectangle.bottom) * .5f);
-        return application_theme_editor_window_message(press, MK_LBUTTON, location) &&
-               GetCapture() == editor_window &&
-               application_theme_editor_window_message(WM_LBUTTONUP, 0, location) &&
-               GetCapture() != editor_window;
+        return application_theme_editor_window_event(second_press ? window_test::pointer_double(window_test::x_of(location), window_test::y_of(location))
+                                                                : window_test::pointer_down(window_test::x_of(location), window_test::y_of(location))) &&
+               window_pointer_captured(editor_window) &&
+               application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(location), window_test::y_of(location), PointerButton::left)) &&
+               !window_pointer_captured(editor_window);
     };
-    check(click_effect(UiThemeEditorElement::effect_comets, WM_LBUTTONDOWN) &&
+    check(click_effect(UiThemeEditorElement::effect_comets, false) &&
               g_app.preferences.gradient.effect == BackgroundEffect::comets &&
               application_settings_synchronize() && await_save_retained() &&
-              click_effect(UiThemeEditorElement::effect_stars, WM_LBUTTONDBLCLK) &&
+              click_effect(UiThemeEditorElement::effect_stars, true) &&
               g_app.preferences.gradient.effect == BackgroundEffect::stars &&
               g_app.preferences_request_revision == rapid_effect_write + 2 &&
               application_settings_synchronize() && await_save_retained(),
@@ -1223,19 +1200,18 @@ void test_controller() noexcept {
         const float x = (scrollbar.thumb.left + scrollbar.thumb.right) * .5f;
         const float y = scrollbar.thumb.top + 4;
         bool thumb_drag = scrollbar.visible &&
-                          application_theme_editor_window_message(WM_MOUSEMOVE, 0, pack(x, y)) &&
+                          application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(x, y)), window_test::y_of(pack(x, y)))) &&
                           editor->widgets.hovered.slot ==
                               editor->elements[static_cast<u32>(UiThemeEditorElement::scrollbar)].slot &&
-                          application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pack(x, y)) &&
-                          GetCapture() == editor_window;
+                          application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(pack(x, y)), window_test::y_of(pack(x, y)))) &&
+                          window_pointer_captured(editor_window);
         thumb_drag =
             thumb_drag &&
-            application_theme_editor_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                    pack(x, scrollbar.track.bottom - 4)) &&
+            application_theme_editor_window_event(window_test::pointer_move(window_test::x_of(pack(x, scrollbar.track.bottom - 4)), window_test::y_of(pack(x, scrollbar.track.bottom - 4)), window_test::button_bit(PointerButton::left))) &&
             ui_theme_editor_scrollbar(*editor).thumb.top > scrollbar.thumb.top &&
-            application_theme_editor_window_message(WM_LBUTTONUP, 0, pack(x, scrollbar.track.bottom - 4));
+            application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(pack(x, scrollbar.track.bottom - 4)), window_test::y_of(pack(x, scrollbar.track.bottom - 4)), PointerButton::left));
         check(
-            thumb_drag && GetCapture() != editor_window &&
+            thumb_drag && !window_pointer_captured(editor_window) &&
                 g_app.preferences_request_revision == thumb_revision &&
                 client_preferences_equal(g_app.preferences, thumb_baseline),
             "theme editor host: real native thumb hover capture drag scrolls fields without theme writes");
@@ -1253,11 +1229,11 @@ void test_controller() noexcept {
     const LPARAM hex_position = pack((hex_rectangle.left + hex_rectangle.right) * .5f,
                                      (hex_rectangle.top + hex_rectangle.bottom) * .5f);
     hex_pointer = hex_pointer && ui_rect_has_area(hex_rectangle) &&
-                  application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON, hex_position) &&
-                  GetCapture() == editor_window && !gradient_form.active &&
+                  application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(hex_position), window_test::y_of(hex_position))) &&
+                  window_pointer_captured(editor_window) && !gradient_form.active &&
                   gradient_form.opens == hex_pointer_opens &&
-                  application_theme_editor_window_message(WM_LBUTTONUP, 0, hex_position) &&
-                  GetCapture() != editor_window && gradient_form.active &&
+                  application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(hex_position), window_test::y_of(hex_position), PointerButton::left)) &&
+                  !window_pointer_captured(editor_window) && gradient_form.active &&
                   gradient_form.opens == hex_pointer_opens + 1 && gradient_form.request.valid &&
                   gradient_form.request.valid(gradient_form.request.owner) &&
                   utf8_equal(gradient_form.request.initial, {editor->hex, 7}) &&
@@ -1270,15 +1246,15 @@ void test_controller() noexcept {
               client_preferences_equal(hex_pointer_baseline, g_app.preferences),
           "theme editor host: canceled hex request restores drawer focus without applying a color");
     const u32 hex_canceled_opens = gradient_form.opens;
-    check(application_theme_editor_window_message(WM_LBUTTONDOWN, MK_LBUTTON, hex_position) &&
-              application_theme_editor_window_message(WM_CANCELMODE, 0, 0) == false &&
-              application_theme_editor_window_message(WM_LBUTTONUP, 0, hex_position) &&
+    check(application_theme_editor_window_event(window_test::pointer_down(window_test::x_of(hex_position), window_test::y_of(hex_position))) &&
+              application_theme_editor_window_event(window_test::cancel_input()) == false &&
+              application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(hex_position), window_test::y_of(hex_position), PointerButton::left)) &&
               !gradient_form.active && gradient_form.opens == hex_canceled_opens &&
-              GetCapture() != editor_window,
+              !window_pointer_captured(editor_window),
           "theme editor host: canceled hex pointer capture cannot open its editor on late release");
-    check(application_theme_editor_window_message(WM_LBUTTONDBLCLK, MK_LBUTTON, hex_position) &&
+    check(application_theme_editor_window_event(window_test::pointer_double(window_test::x_of(hex_position), window_test::y_of(hex_position))) &&
               !gradient_form.active &&
-              application_theme_editor_window_message(WM_LBUTTONUP, 0, hex_position) &&
+              application_theme_editor_window_event(window_test::pointer_up(window_test::x_of(hex_position), window_test::y_of(hex_position), PointerButton::left)) &&
               gradient_form.active && gradient_form.opens == hex_canceled_opens + 1,
           "theme editor host: native second-click message preserves release-only hex activation");
     gradient_form.active = false;
@@ -1344,8 +1320,7 @@ void test_controller() noexcept {
               client_preferences_equal(newer_preferences, g_app.preferences),
           "theme editor host: stale scope retires owner without overwriting newer preferences");
     --g_app.plugin_account_scope_serial;
-    if (editor_window)
-        DestroyWindow(editor_window);
+    window_test::close();
     g_app.window = previous_window;
     g_app.renderer.dpi = previous_dpi;
     g_app.preferences.gradient = original_gradient;
@@ -1530,15 +1505,14 @@ void test_controller() noexcept {
     check(activate_control(kNotificationsPage, cid("notifications.volume"), key::home) && g_app.preferences.output_volume == 0 &&
               await_save_retained(),
           "settings: native volume slider Home commits exact mute");
-    const HWND volume_previous_window = g_app.window;
+    const Window volume_previous_window = g_app.window;
     const u32 volume_previous_dpi = g_app.renderer.dpi;
-    HWND volume_window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1000, 700, nullptr, nullptr,
-                                         GetModuleHandleW(nullptr), nullptr);
+    const Window volume_window = window_test::open();
     g_app.window = volume_window;
     g_app.renderer.dpi = 96;
     const bool desktop_before_rapid = g_app.preferences.desktop_enabled;
     const auto desktop_rapid_revision = g_app.preferences_request_revision;
-    const auto click_desktop = [&](UINT press) noexcept {
+    const auto click_desktop = [&](bool second_press) noexcept {
         const UiSettingsTarget target{UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.desktop")};
         UiRect bounds{};
         auto* current = const_cast<UiSettingsScene*>(scene());
@@ -1546,22 +1520,23 @@ void test_controller() noexcept {
             !ui_settings_scene_control_anchor(*current, target, &bounds))
             return false;
         const auto location = pack((bounds.left + bounds.right) * .5f, (bounds.top + bounds.bottom) * .5f);
-        return application_settings_window_message(press, MK_LBUTTON, location) &&
-               application_settings_window_message(WM_LBUTTONUP, 0, location) &&
+        return application_settings_window_event(second_press ? window_test::pointer_double(window_test::x_of(location), window_test::y_of(location))
+                                                             : window_test::pointer_down(window_test::x_of(location), window_test::y_of(location))) &&
+               application_settings_window_event(window_test::pointer_up(window_test::x_of(location), window_test::y_of(location), PointerButton::left)) &&
                application_settings_synchronize() && await_save_retained();
     };
-    check(volume_window && click_desktop(WM_LBUTTONDOWN) &&
+    check(volume_window && click_desktop(false) &&
               g_app.preferences.desktop_enabled != desktop_before_rapid &&
-              click_desktop(WM_LBUTTONDBLCLK) &&
+              click_desktop(true) &&
               g_app.preferences.desktop_enabled == desktop_before_rapid &&
               g_app.preferences_request_revision == desktop_rapid_revision + 2 &&
-              GetCapture() != volume_window,
+              !window_pointer_captured(volume_window),
           "settings host: rapid native toggle pair commits both clicks and restores initial value");
     check(ui_settings_scene_focus(const_cast<UiSettingsScene*>(scene()),
                                   {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}),
           "settings host: rapid toggle fixture restores the following volume gesture geometry");
-    constexpr UINT cancel_messages[]{WM_SIZE, WM_KILLFOCUS};
-    for (const UINT cancel_message : cancel_messages) {
+    constexpr EventType cancel_events[]{EventType::resize, EventType::focus_changed};
+    for (const EventType cancel_event : cancel_events) {
         const UiSettingsTarget volume_target{UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")};
         UiSettingsSliderGeometry geometry{};
         const auto baseline = g_app.preferences;
@@ -1571,17 +1546,16 @@ void test_controller() noexcept {
         if (gesture) {
             const float y = (geometry.track.top + geometry.track.bottom) * .5f;
             const float start_x = geometry.track.left + ui_rect_width(geometry.track) * .25f;
-            gesture = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pack(start_x, y)) &&
-                      GetCapture() == volume_window;
+            gesture = application_settings_window_event(window_test::pointer_down(window_test::x_of(pack(start_x, y)), window_test::y_of(pack(start_x, y)))) &&
+                      window_pointer_captured(volume_window);
             const u32 gesture_builds = observed.text_builds;
             for (u32 i = 0; i < 64 && gesture; ++i)
-                gesture = application_settings_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                              pack(start_x + static_cast<float>(i), y));
+                gesture = application_settings_window_event(window_test::pointer_move(window_test::x_of(pack(start_x + static_cast<float>(i), y)), window_test::y_of(pack(start_x + static_cast<float>(i), y)), window_test::button_bit(PointerButton::left)));
             gesture = gesture && g_app.preferences.output_volume != baseline.output_volume &&
                       g_app.preferences_request_revision == revision &&
                       observed.text_builds == gesture_builds;
-            application_settings_window_message(cancel_message, 0, 0);
-            gesture = gesture && GetCapture() != volume_window &&
+            application_settings_window_event(window_test::plain(cancel_event));
+            gesture = gesture && !window_pointer_captured(volume_window) &&
                       client_preferences_equal(g_app.preferences, baseline) &&
                       g_app.preferences_request_revision == revision;
         }
@@ -1602,12 +1576,12 @@ void test_controller() noexcept {
     if (preset_cancel) {
         const float x = direction_geometry.track.right - 2;
         const float y = (direction_geometry.track.top + direction_geometry.track.bottom) * .5f;
-        preset_cancel = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pack(x, y)) &&
+        preset_cancel = application_settings_window_event(window_test::pointer_down(window_test::x_of(pack(x, y)), window_test::y_of(pack(x, y)))) &&
                         g_app.preferences.theme == ClientTheme::custom_gradient;
-        application_settings_window_message(WM_CANCELMODE, 0, 0);
+        application_settings_window_event(window_test::cancel_input());
         preset_cancel = preset_cancel && client_preferences_equal(g_app.preferences, preset_baseline) &&
                         g_app.preferences_request_revision == preset_save_revision &&
-                        GetCapture() != volume_window;
+                        !window_pointer_captured(volume_window);
     }
     check(preset_cancel, "settings slider host: canceled preset customization restores full original theme "
                          "and dormant gradient");
@@ -1615,8 +1589,7 @@ void test_controller() noexcept {
     application_preferences_apply();
     ui_settings_scene_select(scene(), kNotificationsPage);
     application_settings_synchronize();
-    if (volume_window)
-        DestroyWindow(volume_window);
+    window_test::close();
     g_app.window = volume_previous_window;
     g_app.renderer.dpi = volume_previous_dpi;
     check(!ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kNotificationsPage, 0xFFFFFF}),
@@ -1699,7 +1672,7 @@ void test_controller() noexcept {
               application_settings_lifetime() == ending_settings_lifetime,
           "settings: releasing an owner retains its process lifetime serial");
     application_settings_release();
-    check(!application_settings_window_message(WM_CONTEXTMENU, 0, 0),
+    check(!application_settings_window_event(window_test::context_menu(0, 0)),
           "settings: inactive controller no longer consumes context menus");
     // The production shell dispatcher previously activated the settings gear
     // from hover and omitted click. Exercise real layout and hit testing here.
@@ -1714,10 +1687,10 @@ void test_controller() noexcept {
         const LPARAM point = shell_point(UiSemantic::settings);
         const u32 suspends = observed.suspends;
         g_app.frame_pending = false;
-        check(handle_shell_hover(point) && !application_settings_active() && !g_app.settings &&
+        check(handle_shell_hover(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point))) && !application_settings_active() && !g_app.settings &&
                   observed.suspends == suspends && g_app.frame_pending,
               "shell: actual gear hover requests paint and never opens or allocates settings");
-        check(handle_shell_click(point) && application_settings_active(),
+        check(handle_shell_click(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) && application_settings_active(),
               "shell: actual gear click opens account settings controller");
         check(application_settings_lifetime() > ending_settings_lifetime,
               "settings: recreated owner has a fresh lifetime even if its address is reused");
@@ -1805,7 +1778,7 @@ void test_controller() noexcept {
         ui_settings_scene_select(scene(), kAppearancePage);
         ui_settings_scene_focus(scene(), {UiSettingsTargetKind::page, kAppearancePage, 0});
         for (const char* c = "import"; *c; ++c)
-            application_settings_window_message(WM_CHAR, static_cast<WPARAM>(*c), 0);
+            application_settings_window_event(window_test::character(static_cast<WPARAM>(*c)));
         application_settings_synchronize();
         // The results page is already selected: focus the row and press Enter there.
         const u32 actions_before_import = custom_theme_actions;
@@ -1825,7 +1798,7 @@ void test_controller() noexcept {
         application_settings_release();
     }
     const bool member_before = g_app.preferences.member_pane_visible;
-    check(handle_shell_click(shell_point(UiSemantic::member_toggle)) &&
+    check(handle_shell_click(window_test::pointer_down(window_test::x_of(shell_point(UiSemantic::member_toggle)), window_test::y_of(shell_point(UiSemantic::member_toggle)))) &&
               g_app.preferences.member_pane_visible != member_before &&
               g_app.member_pane_visible == g_app.preferences.member_pane_visible && await_save() &&
               !g_app.preferences_save_failed,
@@ -1850,7 +1823,7 @@ void test_controller() noexcept {
                                  static_cast<short>(
                                      (footer_node->rectangle.top + footer_node->rectangle.bottom) * .5f))
                     : 0;
-    check(footer_node && handle_shell_click(avatar_point) &&
+    check(footer_node && handle_shell_click(window_test::pointer_down(window_test::x_of(avatar_point), window_test::y_of(avatar_point))) &&
               observed.account_menu_opens == menus_before + 1 && observed.profile_opens == profile_before &&
               observed.account_menu_source.slot == footer.slot &&
               observed.account_menu_source.generation == footer.generation && footer_node &&
@@ -1860,7 +1833,7 @@ void test_controller() noexcept {
     const auto blank_point = footer_node ? MAKELPARAM(static_cast<short>(footer_node->rectangle.right - 48),
                                                       static_cast<short>(footer_node->rectangle.top + 2))
                                          : 0;
-    check(footer_node && !handle_shell_click(blank_point) &&
+    check(footer_node && !handle_shell_click(window_test::pointer_down(window_test::x_of(blank_point), window_test::y_of(blank_point))) &&
               observed.account_menu_opens == menus_before + 1 && observed.profile_opens == profile_before,
           "shell: blank account-footer space cannot open an identity menu");
     auto pin_metrics = kGuildChannelShellLayoutMetrics;
@@ -1871,13 +1844,14 @@ void test_controller() noexcept {
           "shell cursor: current channel Pins launcher initializes under explicit layout flag");
     const auto pin_target = ui_scene_header_geometry(g_app.shell_scene).pins;
     g_app.frame_pending = false;
-    check(handle_shell_hover(MAKELPARAM(static_cast<short>((pin_target.left + pin_target.right) * .5f),
-                                        static_cast<short>((pin_target.top + pin_target.bottom) * .5f))) &&
+    check(handle_shell_hover(window_test::pointer_move(window_test::x_of(MAKELPARAM(static_cast<short>((pin_target.left + pin_target.right) * .5f),
+                                        static_cast<short>((pin_target.top + pin_target.bottom) * .5f))), window_test::y_of(MAKELPARAM(static_cast<short>((pin_target.left + pin_target.right) * .5f),
+                                        static_cast<short>((pin_target.top + pin_target.bottom) * .5f))))) &&
               g_app.frame_pending && !application_settings_active(),
           "shell hover: native Pins launcher requests its own paint without opening account Settings");
     check(set_client_cursor(static_cast<i32>((pin_target.left + pin_target.right) * .5f),
                             static_cast<i32>((pin_target.top + pin_target.bottom) * .5f)) &&
-              GetCursor() == LoadCursorW(nullptr, IDC_HAND),
+              null_window_probe().cursor == static_cast<u8>(UiCursor::hand),
           "shell cursor: native Pins launcher presents a hand over its retained target");
     ui_scene_release(&g_app.shell_scene);
     g_app.context_focus = nullptr;

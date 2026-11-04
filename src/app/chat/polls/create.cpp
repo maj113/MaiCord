@@ -334,7 +334,7 @@ bool application_poll_create_open(u64 channel_id) noexcept {
             return false;
         for (u32 i = 0; i < kEditorCount; ++i)
             message_composer_initialize(&owner->models[i], editor_storage(i));
-        nonce_sequence = GetTickCount64();
+        nonce_sequence = clock_monotonic_milliseconds();
     }
     auto& p = *owner;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);

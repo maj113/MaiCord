@@ -1,6 +1,7 @@
 // log.hpp on Linux: the same buffered file log as src/core/log.cpp, on open/write/rename and a futex lock. Lines end
-// in "\n". Time stamps are UTC: the local zone (the /etc/localtime TZif database) is not read yet, so a Linux log's
-// stamps differ from a Windows log's by the zone offset.
+// in "\n". Time stamps are local time in the user's zone (os/local_time.hpp: $TZ or the /etc/localtime TZif database;
+// UTC when none is readable), as on Windows. The file is <state directory>/logs/maicord.log (D19:
+// $XDG_STATE_HOME/maicord, see state_path in data_path.hpp).
 //
 // Lines are formatted in place after the buffered bytes, under the lock. Error lines, a full buffer and close
 // write synchronously; everything else reaches the file within kFlushDelayMilliseconds through one flush thread
@@ -10,6 +11,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/path.hpp"
@@ -101,8 +103,10 @@ char level_letter(LogLevel level) noexcept {
 // Caller holds the lock. The date/time prefix changes once per second.
 void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
-        const CivilDate date = civil_date_from_days(static_cast<i64>(second / 86400));
-        const u32 seconds_of_day = static_cast<u32>(second % 86400);
+        const i64 shifted = static_cast<i64>(second) + local_utc_offset(static_cast<i64>(second));
+        const u64 local = shifted > 0 ? static_cast<u64>(shifted) : 0; // the clock is past 1970; a negative reading clamps
+        const CivilDate date = civil_date_from_days(static_cast<i64>(local / 86400));
+        const u32 seconds_of_day = static_cast<u32>(local % 86400);
         char* stamp = g_log.stamp;
         put_fixed_decimal(stamp, static_cast<u32>(date.year), 4);
         stamp[4] = '-';
@@ -230,7 +234,7 @@ bool log_open() noexcept {
     g_log.file = -1;
 
     wchar_t path[kPathCapacity]{};
-    const DataPathResult built = data_path(path, kPathCapacity, L"logs/maicord.log", true);
+    const DataPathResult built = state_path(path, kPathCapacity, L"logs/maicord.log", true);
     if (!built.ok()) {
         return false;
     }

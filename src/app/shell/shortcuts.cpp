@@ -1,5 +1,6 @@
 #include "shortcuts.hpp"
 #include "state.hpp"
+#include "window_events.hpp"
 #include "window_state.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/composer/attachments.hpp"
@@ -28,6 +29,7 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/global_keys.hpp"
 #include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
@@ -77,12 +79,11 @@ bool run_custom(CustomKeybindAction action) noexcept {
 // Whether the chord is held. The modifier keys are read on the first held
 // key and shared by the chords checked after it in the same pump.
 bool chord_down(ShortcutChord chord, u32* held) noexcept {
-    if (!chord.key || !(GetAsyncKeyState(chord.key) & 0x8000))
+    if (!chord.key || !global_key_down(chord.key))
         return false;
     if (*held == kModifiersUnread)
-        *held = ((GetAsyncKeyState(key::ctrl) & 0x8000) ? shortcut_ctrl : 0) |
-                ((GetAsyncKeyState(key::alt) & 0x8000) ? shortcut_alt : 0) |
-                ((GetAsyncKeyState(key::shift) & 0x8000) ? shortcut_shift : 0);
+        *held = (global_key_down(key::ctrl) ? shortcut_ctrl : 0) | (global_key_down(key::alt) ? shortcut_alt : 0) |
+                (global_key_down(key::shift) ? shortcut_shift : 0);
     return *held == chord.modifiers;
 }
 
@@ -395,47 +396,37 @@ bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeat
     return true;
 }
 
-bool application_shortcuts_overlay_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_shortcuts_overlay_window_event(const WindowEvent& event) noexcept {
     if (!overlay.active || !ui_shortcuts_scene_current(overlay.scene))
         return false;
-    switch (message) {
-    case WM_MOUSEWHEEL:
-        if (ui_shortcuts_scene_scroll(&overlay.scene, -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80))
+    if (input_vertical_wheel(event)) {
+        if (ui_shortcuts_scene_scroll(&overlay.scene, -static_cast<float>(event.wheel.dy120) / 120.0f * 80))
             application_repaint();
         return true;
-    case WM_MOUSEMOVE: {
+    }
+    if (event.type == EventType::pointer_move) {
         bool changed = false;
-        ui_shortcuts_scene_set_hover(&overlay.scene, client_dip_x(lparam), client_dip_y(lparam), &changed);
+        ui_shortcuts_scene_set_hover(&overlay.scene, client_dip_x(event), client_dip_y(event), &changed);
         if (changed)
             application_repaint();
         return true;
     }
-    case WM_SETCURSOR: {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
-        if (LOWORD(lparam) != HTCLIENT || !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+        if (!client_cursor_dip(event, &point))
             return false;
         application_set_cursor(ui_action_cursor(ui_shortcuts_scene_hit_test(overlay.scene, point.x, point.y) ==
                                                 UiShortcutsTarget::close));
         return true;
     }
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-        if (ui_shortcuts_scene_hit_test(overlay.scene, client_dip_x(lparam), client_dip_y(lparam)) ==
+    if (input_down(event)) {
+        if (ui_shortcuts_scene_hit_test(overlay.scene, client_dip_x(event), client_dip_y(event)) ==
             UiShortcutsTarget::close)
             application_shortcuts_overlay_close();
         return true;
-    case WM_LBUTTONUP:
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
-    case WM_XBUTTONDOWN:
-    case WM_XBUTTONUP:
-    case WM_MOUSEHWHEEL:
-    case WM_CONTEXTMENU:
-        return true;
-    default:
-        return false;
     }
+    // The other releases, the other buttons' presses and releases, tilts and the context menu are swallowed.
+    return input_release(event) || input_other_button(event) || input_horizontal_wheel(event) ||
+           event.type == EventType::context_menu;
 }
 } // namespace maicord::app_detail

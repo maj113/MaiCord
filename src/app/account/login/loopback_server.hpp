@@ -1,8 +1,9 @@
 #pragma once
 
 #include "maicord/core/win32_process.hpp"
-#include "maicord/sys/winsock.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
+#include "maicord/platform/net/socket.hpp"
 
 namespace maicord {
 
@@ -49,8 +50,8 @@ struct LoopbackServer {
     SRWLOCK lock;
     SecureBuffer storage;
     HANDLE stop_event, wake_event, notification, thread;
-    WSAEVENT listener_event, client_event;
-    SOCKET listener, client;
+    SocketWatch listener_watch, client_watch;
+    Socket listener, client;
     u64 client_deadline;
     u8 *wire, *response;
     u32 wire_bytes, response_bytes, response_sent;
@@ -61,7 +62,7 @@ struct LoopbackServer {
 // make the worker re-run its step hook.
 LoopbackStart loopback_start(LoopbackServer* server, const LoopbackProfile* profile, bool wake_event,
                              u32* native_error) noexcept;
-inline void loopback_notify(LoopbackServer* server) noexcept { SetEvent(server->notification); }
+inline void loopback_notify(LoopbackServer* server) noexcept { event_set(server->notification); }
 // Signals stop and waits; returns the wait result.
 u32 loopback_join(LoopbackServer* server, u32 timeout_ms) noexcept;
 void loopback_close_client(LoopbackServer* server) noexcept;

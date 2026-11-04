@@ -2,9 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
-
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {
@@ -27,8 +26,7 @@ bool valid_server_name(const wchar_t* value) noexcept {
         return false;
     }
     if (ipv6) {
-        IN6_ADDR address{};
-        return InetPtonW(AF_INET6, value, &address) == 1;
+        return network_address_is_ipv6_literal(value);
     }
     u32 bytes = 0;
     u32 label_bytes = 0;
@@ -126,7 +124,7 @@ bool release_resolver(TlsStream* stream) noexcept {
         return false;
     }
     stream->resolver_started = false;
-    stream->next_address = nullptr;
+    stream->next_address = 0;
     return true;
 }
 
@@ -171,16 +169,9 @@ bool continue_send(TlsStream* stream) noexcept {
 }
 
 bool start_connect_candidate(TlsStream* stream, NetworkLoop* loop) noexcept {
-    while (stream->next_address) {
-        ADDRINFOEXW* candidate = stream->next_address;
-        stream->next_address = candidate->ai_next;
-        if (!candidate->ai_addr || candidate->ai_addrlen == 0 ||
-            candidate->ai_addrlen > sizeof(sockaddr_storage) ||
-            (candidate->ai_family != AF_INET && candidate->ai_family != AF_INET6)) {
-            continue;
-        }
-        const NetworkResult connected = network_connection_connect(
-            loop, &stream->connection, candidate->ai_addr, static_cast<i32>(candidate->ai_addrlen));
+    while (stream->next_address < stream->resolver.address_count) {
+        const NetworkAddress& candidate = stream->resolver.addresses[stream->next_address++];
+        const NetworkResult connected = network_connection_connect(loop, &stream->connection, candidate);
         if (connected.ok()) {
             ++stream->outstanding_operations;
             return true;
@@ -214,7 +205,7 @@ TlsStreamEvent drive_handshake(TlsStream* stream) noexcept {
         stream->after_tls_send = step.state;
         if (!start_send(stream, ConstSlice<u8>{stream->buffers.handshake_output.data, step.produced},
                         SendPurpose::handshake)) {
-            return failure(stream, TlsStreamError::send, static_cast<u32>(WSAGetLastError()));
+            return failure(stream, TlsStreamError::send, static_cast<u32>(network_last_error()));
         }
         return event(TlsStreamEventKind::waiting);
     }
@@ -225,7 +216,7 @@ TlsStreamEvent drive_handshake(TlsStream* stream) noexcept {
         return failure(stream,
                        step.state == TlsHandshakeState::need_receive ? TlsStreamError::receive
                                                                      : TlsStreamError::tls,
-                       static_cast<u32>(WSAGetLastError()), step.native_status);
+                       static_cast<u32>(network_last_error()), step.native_status);
     }
     return event(TlsStreamEventKind::waiting);
 }
@@ -277,7 +268,7 @@ TlsStreamEvent start_next_record(TlsStream* stream) noexcept {
     stream->current_plaintext_bytes = plaintext_bytes;
     if (!start_send(stream, ConstSlice<u8>{stream->buffers.record_output.data, produced},
                     SendPurpose::application)) {
-        return failure(stream, TlsStreamError::send, static_cast<u32>(WSAGetLastError()));
+        return failure(stream, TlsStreamError::send, static_cast<u32>(network_last_error()));
     }
     return event(TlsStreamEventKind::waiting);
 }
@@ -338,7 +329,7 @@ TlsStreamEvent finish_completed_read(TlsStream* stream, bool peer_closed) noexce
             // A coalesced prefix may be a fragmented authenticated shutdown.
             // Retain the completed owner state and receive only its remainder.
             if (!start_receive(stream))
-                return failure(stream, TlsStreamError::receive, static_cast<u32>(WSAGetLastError()));
+                return failure(stream, TlsStreamError::receive, static_cast<u32>(network_last_error()));
             return event(TlsStreamEventKind::waiting);
         }
         if (decrypted.plaintext.count) return failure(stream, TlsStreamError::unexpected_data);
@@ -354,7 +345,7 @@ TlsStreamEvent drive_read(TlsStream* stream) noexcept {
         const ConstSlice<u8> readable = byte_queue_readable(stream->encrypted_input);
         if (readable.count == 0) {
             if (!start_receive(stream)) {
-                return failure(stream, TlsStreamError::receive, static_cast<u32>(WSAGetLastError()));
+                return failure(stream, TlsStreamError::receive, static_cast<u32>(network_last_error()));
             }
             return event(TlsStreamEventKind::waiting);
         }
@@ -365,7 +356,7 @@ TlsStreamEvent drive_read(TlsStream* stream) noexcept {
         }
         if (decrypted.state == TlsDecryptState::need_receive) {
             if (!start_receive(stream)) {
-                return failure(stream, TlsStreamError::receive, static_cast<u32>(WSAGetLastError()));
+                return failure(stream, TlsStreamError::receive, static_cast<u32>(network_last_error()));
             }
             return event(TlsStreamEventKind::waiting);
         }
@@ -435,7 +426,7 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
         return false;
     }
     reset_value<TlsStream>(stream);
-    stream->connection.socket = INVALID_SOCKET;
+    network_connection_reset(&stream->connection);
     stream->server_name = server_name;
     u32 digits = 1;
     for (u32 value = port; value >= 10; value /= 10)
@@ -447,7 +438,7 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
 }
 
 TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) noexcept {
-    if (!stream || !loop || !loop->completion_port ||
+    if (!stream || !loop || !network_loop_ready(*loop) ||
         (stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
         stream->outstanding_operations != 0 || stream->resolver.pending) {
         return invalid_event();
@@ -463,7 +454,7 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
     wchar_t service[sizeof(stream->service) / sizeof(wchar_t)];
     copy_bytes(service, stream->service, sizeof(service));
     reset_value<TlsStream>(stream);
-    stream->connection.socket = INVALID_SOCKET;
+    network_connection_reset(&stream->connection);
     stream->server_name = server_name;
     copy_bytes(stream->service, service, sizeof(service));
     stream->buffers = buffers;
@@ -591,10 +582,10 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
     }
     if (completion.kind == NetworkOperationKind::resolve) {
         if (stream->state != TlsStreamState::resolving || completion.stale || !completion.succeeded ||
-            !stream->resolver.results) {
+            stream->resolver.address_count == 0) {
             return failure(stream, TlsStreamError::resolve, static_cast<u32>(completion.native_error));
         }
-        stream->next_address = stream->resolver.results;
+        stream->next_address = 0;
         stream->state = TlsStreamState::connecting;
         if (!start_connect_candidate(stream, loop)) {
             return failure(stream, TlsStreamError::connect, WSAEHOSTUNREACH);
@@ -623,7 +614,7 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
         stream->send_offset += completion.transferred;
         if (stream->send_offset < stream->send_bytes) {
             if (!continue_send(stream)) {
-                return failure(stream, TlsStreamError::send, static_cast<u32>(WSAGetLastError()));
+                return failure(stream, TlsStreamError::send, static_cast<u32>(network_last_error()));
             }
             return event(TlsStreamEventKind::waiting);
         }

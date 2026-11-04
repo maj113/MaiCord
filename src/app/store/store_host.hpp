@@ -2,6 +2,7 @@
 
 #include "maicord/app/plugins/catalog_index.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/settings/scene.hpp"
 
@@ -27,7 +28,7 @@ bool application_store_active() noexcept;
 // clock samples the shared spinner phase into it and arms the next spinner step from it.
 UiStoreScene* application_store_spinner_scene() noexcept;
 // Pointer, wheel and character input of the settings modal; true when the store took the message.
-bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_store_window_event(const WindowEvent& input) noexcept;
 bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept;
 bool application_store_character(u32 code) noexcept;
 // Settings > Effects on an installed effect's knobs (the theme editor's Knobs button).

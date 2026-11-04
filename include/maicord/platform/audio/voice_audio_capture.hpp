@@ -13,12 +13,17 @@ struct VoiceAudioCaptureStatus {
     VoiceCaptureState state;
     u32 native_error;
 };
-// Shared-mode WASAPI on the given endpoint (empty: default communications
-// capture device), event driven on a dedicated thread with a 256 KiB stack
+// Capture on the given endpoint (empty: the default communications capture
+// device), event driven on a dedicated thread with a 256 KiB stack
 // reservation for the sink's encoder. The engine converts to 48 kHz mono
-// PCM16. Communications processing asks Windows for its echo cancellation,
-// noise suppression and gain control; otherwise a raw stream is preferred.
-// Device loss and default-device changes reopen the stream; stop joins.
+// PCM16 (~40 ms buffer, ~10 ms fragments). Windows: shared-mode WASAPI, where
+// communications processing asks Windows for its echo cancellation, noise
+// suppression and gain control and otherwise a raw stream is preferred. Linux:
+// a PulseAudio (or pipewire-pulse) record stream through libpulse; the
+// endpoint ID is the source name widened to UTF-16 (a sink's ".monitor"
+// source is a valid ID) and communications is ignored. Device loss and
+// default-device changes reopen the stream; with no sound server the status
+// stays `waiting` with a native error and the start retries; stop joins.
 struct VoiceAudioCapture {
     void* runtime;
 };

@@ -1,10 +1,11 @@
 #include "maicord/ui/media/image_viewer.hpp"
+#include "maicord/platform/window/win32_clipboard.hpp"
 #include "maicord/ui/media/zoom_lens.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "../../fixtures/png_growth_fixture.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/text/presentation.hpp"
@@ -270,7 +271,7 @@ struct CapturedClipboard {
     u32 sizes[4];
 };
 CapturedClipboard g_captured{};
-bool capture_open(void* context, HWND) noexcept {
+bool capture_open(void* context) noexcept {
     auto& captured = *static_cast<CapturedClipboard*>(context);
     ++captured.opens;
     captured.publishes = 0;
@@ -308,8 +309,6 @@ void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept 
     g_captured = {};
     const ClipboardSink previous =
         clipboard_sink_install({&g_captured, capture_open, capture_publish, capture_close});
-    // Never a real window: if the sink were bypassed, OpenClipboard would fail.
-    const HWND owner = reinterpret_cast<HWND>(usize{0x10});
     constexpr u32 width = 3, height = 2;
     const u8 rgba[width * height * 4]{255, 0,  0,  255, 0,   255, 0,   128, 0, 0, 255, 0,
                                       10,  20, 30, 40,  200, 150, 100, 255, 1, 2, 3,   4};
@@ -320,7 +319,7 @@ void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept 
     u8 png[512]{};
     const u64 dib_bytes = clipboard_image_build_dib(rgba, width, height, width * 4, {dib, sizeof(dib)});
     const u64 png_bytes = clipboard_image_encode_png(rgba, width, height, width * 4, {png, sizeof(png)});
-    const bool written = clipboard_write_image(owner, rgba, width, height, width * 4, url);
+    const bool written = clipboard_write_image(rgba, width, height, width * 4, url);
     check(written && g_captured.opens == 1 && g_captured.closes == 1 && g_captured.publishes == 3 &&
               g_captured.formats[0] == CF_DIBV5 && g_captured.formats[1] == png_format &&
               g_captured.formats[2] == html_format && g_captured.sizes[0] >= dib_bytes &&
@@ -344,20 +343,19 @@ void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept 
               !clipboard_html_image_fragment(utf8_literal("https://x/\n"), {small, sizeof(small)}),
           "clipboard publish: CF_HTML rejects short capacity and control characters");
     g_captured.publishes = 0;
-    check(clipboard_write_utf8(owner, utf8_literal("h\xC3\xA9llo")) && g_captured.opens == 2 &&
+    check(clipboard_write_utf8(utf8_literal("h\xC3\xA9llo")) && g_captured.opens == 2 &&
               g_captured.publishes == 1 && g_captured.formats[0] == CF_UNICODETEXT &&
               g_captured.sizes[0] >= 6 * sizeof(wchar_t) &&
               reinterpret_cast<const wchar_t*>(g_captured.bytes[0])[1] == L'\x00e9' &&
               reinterpret_cast<const wchar_t*>(g_captured.bytes[0])[5] == 0,
           "clipboard publish: Copy Link writes terminated UTF-16 text through the same sink");
     g_captured.refuse_at = 2;
-    check(!clipboard_write_image(owner, rgba, width, height, width * 4, url) && g_captured.opens == 3 &&
+    check(!clipboard_write_image(rgba, width, height, width * 4, url) && g_captured.opens == 3 &&
               g_captured.closes == 3 && g_captured.publishes == 1,
           "clipboard publish: a refused format fails the transaction and closes the sink");
     g_captured.refuse_at = 0;
-    check(!clipboard_write_image(owner, rgba, 0, height, 0, url) &&
-              !clipboard_write_image(nullptr, rgba, width, height, width * 4) && g_captured.opens == 3,
-          "clipboard publish: invalid images and owners never open the clipboard");
+    check(!clipboard_write_image(rgba, 0, height, 0, url) && g_captured.opens == 3,
+          "clipboard publish: invalid images never open the clipboard");
     clipboard_sink_install(previous);
 }
 void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {

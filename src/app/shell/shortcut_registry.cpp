@@ -8,6 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 namespace {
@@ -228,10 +229,11 @@ bool user_path(wchar_t* path, bool create) noexcept {
 }
 } // namespace
 
+static_assert(static_cast<u8>(shortcut_ctrl) == mod_ctrl && static_cast<u8>(shortcut_alt) == mod_alt &&
+              static_cast<u8>(shortcut_shift) == mod_shift);
+
 ShortcutChord shortcut_chord_from_keyboard(u32 key) noexcept {
-    const u8 modifiers = static_cast<u8>(((GetKeyState(key::ctrl) & 0x8000) ? shortcut_ctrl : 0) |
-                                         ((GetKeyState(key::alt) & 0x8000) ? shortcut_alt : 0) |
-                                         ((GetKeyState(key::shift) & 0x8000) ? shortcut_shift : 0));
+    const auto modifiers = static_cast<u8>(window_modifiers(nullptr) & (mod_ctrl | mod_alt | mod_shift));
     return {key <= 0xff ? static_cast<u8>(key) : u8{0}, modifiers};
 }
 

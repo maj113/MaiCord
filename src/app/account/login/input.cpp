@@ -6,7 +6,7 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/app/account/login/continuations.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -78,7 +78,7 @@ bool application_login_paste() noexcept {
     }
     if (login_phone_mode(g_app.login.status)) {
         char digits[kLoginPhoneCodeDigits]{};
-        const auto pasted = clipboard_read_utf8(g_app.window, {digits, kLoginPhoneCodeDigits});
+        const auto pasted = clipboard_read_utf8({digits, kLoginPhoneCodeDigits});
         const auto result = pasted.ok() && pasted.bytes ? application_phone_insert_utf8(edit, {digits, pasted.bytes}) : SecureEditResult::unchanged;
         SecureZeroMemory(digits, sizeof(digits));
         return phone_input_changed(result);
@@ -87,8 +87,7 @@ bool application_login_paste() noexcept {
         SecureBuffer converted{};
         if (!secure_buffer_initialize(&converted, login_recovery_mode(g_app.login.status) ?
             kUserAuthMaximumLoginBytes : kLoginVerificationMaximumLinkBytes).ok()) return true;
-        const ClipboardTextResult pasted = clipboard_read_utf8(
-            g_app.window, {reinterpret_cast<char*>(converted.data), converted.capacity});
+        const ClipboardTextResult pasted = clipboard_read_utf8({reinterpret_cast<char*>(converted.data), converted.capacity});
         const Utf8View inserted{reinterpret_cast<const char*>(converted.data), pasted.ok() ? pasted.bytes : 0};
         const bool verification = pasted.ok() && (login_verification_link_candidate(inserted) || login_reset_link_candidate(inserted));
         if (pasted.ok() && login_recovery_mode(g_app.login.status) && !user_auth_recovery_identifier_valid(inserted)) {
@@ -114,9 +113,7 @@ bool application_login_paste() noexcept {
         return prepared && (changed ? application_refresh_login_view() : true);
     }
     char converted[kUserAuthMaximumPasswordBytes]{};
-    const ClipboardTextResult pasted = clipboard_read_utf8(
-        g_app.window,
-        Slice<char>{converted, minimum(edit->storage.capacity, static_cast<u32>(sizeof(converted)))});
+    const ClipboardTextResult pasted = clipboard_read_utf8(Slice<char>{converted, minimum(edit->storage.capacity, static_cast<u32>(sizeof(converted)))});
     bool changed = false;
     if (pasted.ok() && pasted.bytes != 0) {
         changed =
@@ -195,17 +192,17 @@ void application_login_end_pointer_selection() noexcept {
     application_release_capture();
 }
 
-bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept {
+bool application_login_handle_drag(const WindowEvent& event) noexcept {
     const LoginControl control = g_app.login.pointer_selection;
     if (control != LoginControl::login && control != LoginControl::password && control != LoginControl::phone_code) {
         return false;
     }
-    if ((buttons & MK_LBUTTON) == 0) {
+    if (!input_held(event)) {
         application_login_end_pointer_selection();
         return true;
     }
-    const i32 x = static_cast<short>(LOWORD(position));
-    const i32 y = static_cast<short>(HIWORD(position));
+    const i32 x = static_cast<short>(event.pointer.x);
+    const i32 y = static_cast<short>(event.pointer.y);
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
     auto& widgets = g_app.login_scene.widgets;
     const auto target = ui_widget_manager_pointer_target(&widgets, x * scale, y * scale);
@@ -223,7 +220,7 @@ bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept {
     return true;
 }
 
-bool application_login_handle_character(WPARAM character) noexcept {
+bool application_login_handle_character(u32 character) noexcept {
     if (!g_app.login.visible) {
         return false;
     }

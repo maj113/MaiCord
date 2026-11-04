@@ -235,7 +235,7 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
         if (!probe_present(&renderer, theme))
             return false;
         const float clear[]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         ++stage;
         if (!d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr, 10000))
             return false;

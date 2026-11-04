@@ -167,8 +167,8 @@ void test_container(Check check) noexcept {
     put16(file + 4, 2);
     check(error_of(bytes) == McfxError::header, "mcfx: unknown format version");
     good_package();
-    put16(file + 6, 10);
-    check(error_of(bytes) == McfxError::header, "mcfx: more than nine sections");
+    put16(file + 6, 11);
+    check(error_of(bytes) == McfxError::header, "mcfx: more than ten sections");
     good_package();
     put32(file + 8, bytes + 1);
     check(error_of(bytes) == McfxError::header, "mcfx: declared size differs from the file");
@@ -183,7 +183,7 @@ void test_container(Check check) noexcept {
     put32(file + 16 + 16, 1); // second entry repeats MANIFEST
     check(error_of(bytes) == McfxError::section, "mcfx: a repeated section type is refused");
     good_package();
-    put32(file + 16 + 32, 10);
+    put32(file + 16 + 32, 11);
     check(error_of(bytes) == McfxError::section, "mcfx: an unknown section type is refused");
     good_package();
     put32(file + 16 + 4, 0);
@@ -327,6 +327,66 @@ void test_manifest(Check check) noexcept {
     many[n++] = '}';
     many[n] = 0;
     check(error_of(good_package(many)) == McfxError::manifest, "mcfx manifest: more than four colours are refused");
+}
+
+// ---- Interface 4: the GLSL section --------------------------------------------------------------------------------
+// One shader entry (glsl_shader.hpp): stage, no bindings, a stand-in for the zlib stream (parsing checks the container
+// only; the GPU backend inflates and compiles).
+u8 glsl[64];
+u32 make_glsl(u32 count, u32 stage, u32 entry_bytes_adjust = 0, u32 trailing = 0) noexcept {
+    clear_bytes(glsl, sizeof(glsl));
+    put16(glsl, count);
+    u32 at = 4;
+    for (u32 i = 0; i < count; ++i) {
+        put32(glsl + at, 24 + entry_bytes_adjust);
+        glsl[at + 4] = static_cast<u8>(stage);
+        put32(glsl + at + 8, 20);  // GLSL bytes
+        put32(glsl + at + 12, 8);  // packed bytes
+        at += 24;
+    }
+    return at + trailing;
+}
+
+u32 glsl_package(const char* manifest, bool with_section, u32 section_bytes) noexcept {
+    make_dxbc(0x50);
+    const Section sections[]{{1, reinterpret_cast<const u8*>(manifest), c_string_length(manifest)},
+                             {2, dxbc, sizeof(dxbc)},
+                             {5, reinterpret_cast<const u8*>("float4 background(float2 p){return 0;}"), 38},
+                             {10, glsl, section_bytes}};
+    return build(sections, with_section ? 4 : 3);
+}
+
+void test_glsl(Check check) noexcept {
+    const char* four = edit("\"interface\":1", "\"interface\":4");
+    check(four != nullptr, "mcfx glsl: the manifest edit applies");
+    if (!four)
+        return;
+    // Windows parses the section and keeps the DXBC; Linux hands out the GLSL entry as shader 0.
+    bool good = parses(glsl_package(four, true, make_glsl(1, 1)));
+    check(good && workspace.package.interface_version == 4 &&
+#if defined(_WIN32)
+              workspace.package.shaders[0].count == sizeof(dxbc),
+#else
+              workspace.package.shaders[0].count == 24,
+#endif
+          "mcfx glsl: an interface 4 package with a well-formed GLSL section parses");
+    // Interface 4 is the section: one without the other is refused, whatever the client does with the section.
+    check(error_of(glsl_package(four, false, 0)) == McfxError::manifest &&
+              error_of(glsl_package(kManifest, true, make_glsl(1, 1))) == McfxError::manifest,
+          "mcfx glsl: interface 4 and the GLSL section go together");
+    // The container: the count is the shader count, each entry is whole, of the stage its use needs, and nothing trails.
+    check(error_of(glsl_package(four, true, make_glsl(2, 1))) == McfxError::bytecode &&
+              error_of(glsl_package(four, true, make_glsl(1, 2))) == McfxError::bytecode &&
+              error_of(glsl_package(four, true, make_glsl(1, 0))) == McfxError::bytecode &&
+              error_of(glsl_package(four, true, make_glsl(1, 1, 4))) == McfxError::bytecode &&
+              error_of(glsl_package(four, true, make_glsl(1, 1, 0, 4))) == McfxError::bytecode,
+          "mcfx glsl: a wrong count, stage, entry size or trailing bytes are refused");
+    glsl[2] = 1; // the reserved half of the header
+    check(error_of(glsl_package(four, true, 28)) == McfxError::bytecode, "mcfx glsl: reserved bytes are zero");
+#if !defined(_WIN32)
+    // A Linux client needs the section: an interface 3 package without it has no shaders for this platform.
+    check(error_of(good_package()) == McfxError::payload, "mcfx glsl: a package without GLSL has no payload on Linux");
+#endif
 }
 
 void test_mutation(Check check) noexcept {
@@ -699,6 +759,7 @@ void test_install(Check check) noexcept {
 
 void test_packages(Check check) noexcept {
     test_parse(check);
+    test_glsl(check);
     test_container(check);
     test_bytecode(check);
     test_manifest(check);

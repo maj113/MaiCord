@@ -13,13 +13,13 @@
 #include "../settings/catalog.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/modal_scroll.hpp"
 #include "../shell/toast.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
@@ -1027,23 +1027,23 @@ void handle_event(const UiStoreEvent& event, bool commit) noexcept {
         act(event.action, event.anchor);
 }
 
-bool menu_pointer(UINT message, float x, float y) noexcept {
+bool menu_pointer(PointerStep step, float x, float y) noexcept {
     const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
-    if (!hit.inside && message == WM_LBUTTONDOWN) {
+    if (!hit.inside && step == PointerStep::press) {
         close_menu();
         application_request_frame();
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (step == PointerStep::move) {
         bool changed = false;
         popup_scene_set_hover(&g_app.popup_scene, x, y, &changed);
         if (changed)
             application_request_frame();
-    } else if (message == WM_LBUTTONDOWN) {
+    } else if (step == PointerStep::press) {
         application_focus_window();
         application_capture_pointer();
         g->menu_pressed = hit.enabled ? hit.action : 0;
-    } else if (message == WM_LBUTTONUP) {
+    } else if (step == PointerStep::release) {
         const u32 pressed = g->menu_pressed;
         const StoreMenu menu = g->menu;
         const u32 item = g->menu_item;
@@ -1059,69 +1059,66 @@ bool menu_pointer(UINT message, float x, float y) noexcept {
 
 } // namespace
 
-bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_store_window_event(const WindowEvent& input) noexcept {
     UiSettingsScene* active_scene = application_settings_scene();
     if (!application_store_active() || !active_scene)
         return false;
     UiSettingsScene& settings = *active_scene;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
+    if (input.type == EventType::capture_lost || input.type == EventType::cancel_input || input_focus_lost(input)) {
         g->slider_action = 0;
         g->dragging_scrollbar = false;
         ui_store_scene_release_pointer(&g->scene, -1, -1, nullptr);
         return false;
     }
-    if (message == WM_MOUSELEAVE) {
+    if (input.type == EventType::pointer_leave) {
         if (ui_store_scene_hover(&g->scene, -1, -1))
             application_request_frame();
         return false;
     }
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_LBUTTONDBLCLK &&
-        message != WM_MOUSEWHEEL)
+    const PointerStep step = input_pointer_step(input);
+    const bool wheel = input_vertical_wheel(input);
+    if (step == PointerStep::none && !wheel)
         return false;
     g->last_input_ms = clock_monotonic_milliseconds();
     float x = 0, y = 0;
-    if (message == WM_MOUSEWHEEL) {
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point))
-            return true;
+    if (wheel) {
+        const UiPoint point = client_wheel_dip(input);
         x = point.x;
         y = point.y;
     } else {
-        x = client_dip_x(lparam);
-        y = client_dip_y(lparam);
+        x = client_dip_x(input);
+        y = client_dip_y(input);
     }
-    if (message == WM_LBUTTONDBLCLK)
-        message = WM_LBUTTONDOWN;
     // A release ends the press of whoever took it: Settings' own presses (the sidebar, the close button) get theirs.
-    if (message == WM_LBUTTONDOWN)
+    if (step == PointerStep::press)
         g->pressing = false;
-    else if (message == WM_LBUTTONUP) {
+    else if (step == PointerStep::release) {
         const bool owned = g->pressing;
         g->pressing = false;
         if (!owned)
             return false;
     }
     if (menu_shown()) {
-        if (message == WM_LBUTTONDOWN)
+        if (step == PointerStep::press)
             g->pressing = true;
-        return message == WM_MOUSEWHEEL ? true : menu_pointer(message, x, y);
+        return wheel ? true : menu_pointer(step, x, y);
     }
     const bool dialog = g->scene.dialog_open && !g->scene.dialog_bar;
     const bool in_dialog = ui_store_scene_modal_hit(g->scene, x, y);
     // The panel's body runs under Settings' close button, which stays Settings'.
     const bool inside = ui_rect_contains(g->host_clip, x, y) && !ui_rect_contains(settings.layout.close, x, y);
-    if (message == WM_MOUSEWHEEL) {
+    if (wheel) {
         if (!inside && !dialog)
             return false;
         // Wherever the store took it, the wheel moves the open dialog's body, else the page.
         const auto binding = scroll_binding(g->scene.dialog_open);
         UiScrollRange range{};
         if (binding.read(nullptr, binding.key, &range))
-            application_modal_scroll_wheel(binding, {range.viewport.left, range.viewport.top}, wparam);
+            application_modal_scroll_wheel(binding, {range.viewport.left, range.viewport.top}, input);
         application_request_frame();
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (step == PointerStep::move) {
         if (g->dragging_scrollbar) {
             const auto geometry = scrollbar();
             ui_store_scene_scroll_to(&g->scene, ui_scrollbar_scroll_from_pointer(geometry, y, g->scrollbar_grab));
@@ -1139,7 +1136,7 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
             application_request_frame();
         return dialog;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (step == PointerStep::press) {
         if (!inside && !in_dialog && !dialog)
             return false;
         g->pressing = true;
@@ -1169,12 +1166,12 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
         application_request_frame();
         return true;
     }
-    // WM_LBUTTONUP
+    // The release of the left button.
     const u32 slider = g->slider_action;
     g->slider_action = 0;
     const bool scrollbar = g->dragging_scrollbar;
     g->dragging_scrollbar = false;
-    // Take the release before giving up the capture: the WM_CAPTURECHANGED that ReleaseCapture sends cancels the
+    // Take the release before giving up the capture: the capture_lost event that releasing the capture sends cancels the
     // press it still finds.
     UiStoreEvent event{};
     if (!scrollbar)
@@ -1284,11 +1281,11 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
             MessageComposerResult result = MessageComposerResult::unchanged;
             if (control && (code == 'C' || code == 'X')) {
                 const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
-                if (last > first && clipboard_write_utf8(g_app.window, {model.text + first, last - first}) && code == 'X')
+                if (last > first && clipboard_write_utf8({model.text + first, last - first}) && code == 'X')
                     result = message_composer_replace_range(&model, first, last, {});
             } else if (control && code == 'V') {
                 char text[kPackageUrlMaximumBytes];
-                const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+                const auto read = clipboard_read_utf8({text, sizeof(text)});
                 u32 kept = 0;
                 while (read.ok() && kept < read.bytes) {
                     const auto scalar = utf8_decode_one(text + kept, read.bytes - kept);

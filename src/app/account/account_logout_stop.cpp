@@ -2,10 +2,11 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord {
 namespace {
-DWORD WINAPI stop_account(void* context) noexcept {
+u32 stop_account(void* context) noexcept {
     auto* owner = static_cast<AccountLogoutStopOwner*>(context);
     owner->result = owner->stop(owner->host, owner->timeout_ms, owner->monotonic_now_ms,
                                owner->unix_now_ms);
@@ -15,8 +16,7 @@ DWORD WINAPI stop_account(void* context) noexcept {
 bool joined_result(AccountLogoutStopOwner* owner, AccountHostStopResult* result) noexcept {
     // The signaled thread handle is the publication barrier for result and all
     // host writes. Keep even terminal ownership if handle closure fails.
-    if (!CloseHandle(owner->thread))
-        return false;
+    thread_close(owner->thread);
     if (result)
         *result = owner->result;
     reset_value(owner);
@@ -33,10 +33,9 @@ AccountLogoutStopStartResult account_logout_stop_start(
         return {ERROR_BUSY, AccountLogoutStopStartError::active};
     *owner = {nullptr, host, stop, timeout_ms, monotonic_now_ms, unix_now_ms, {}};
     // An ephemeral kernel thread needs no network worker, sockets or event bank.
-    const HANDLE thread = CreateThread(nullptr, 256u * 1024u, stop_account, owner,
-                                       STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    u32 error = 0;
+    Thread* const thread = thread_start(stop_account, owner, 256u * 1024u, &error);
     if (!thread) {
-        const u32 error = GetLastError();
         reset_value(owner);
         return {error, AccountLogoutStopStartError::thread_create};
     }
@@ -47,11 +46,11 @@ AccountLogoutStopStartResult account_logout_stop_start(
 bool account_logout_stop_owned(const AccountLogoutStopOwner& owner) noexcept {
     return owner.thread != nullptr;
 }
-HANDLE account_logout_stop_notification(const AccountLogoutStopOwner& owner) noexcept {
-    return owner.thread;
+Waitable account_logout_stop_notification(const AccountLogoutStopOwner& owner) noexcept {
+    return owner.thread ? thread_waitable(owner.thread) : nullptr;
 }
 bool account_logout_stop_take(AccountLogoutStopOwner* owner, AccountHostStopResult* result) noexcept {
-    if (!owner || !result || !owner->thread || WaitForSingleObject(owner->thread, 0) != WAIT_OBJECT_0)
+    if (!owner || !result || !owner->thread || !thread_wait(owner->thread, 0))
         return false;
     return joined_result(owner, result);
 }
@@ -61,7 +60,7 @@ bool account_logout_stop_join_for_shutdown(AccountLogoutStopOwner* owner, u32 ti
         return false;
     if (!owner->thread)
         return owner->host == nullptr;
-    if (WaitForSingleObject(owner->thread, timeout_ms) != WAIT_OBJECT_0)
+    if (!thread_wait(owner->thread, timeout_ms))
         return false;
     return joined_result(owner, result);
 }

@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../../shell/overlay_input.hpp"
+#include "../../shell/input.hpp"
+#include "../../shell/window_events.hpp"
 #include "../../shell/window_state.hpp"
 #include "../composer/text_edit_keys.hpp"
 #include "../../shell/cursor.hpp"
@@ -24,14 +26,12 @@
 #include "maicord/app/chat/messages/forward_controller.hpp"
 #include "maicord/protocol/messages/card_excerpt.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/render/text/form_surface.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationMessageForward {
@@ -93,7 +93,7 @@ void revoke_capture(ApplicationMessageForward& q) noexcept {
     application_release_capture();
 }
 u64 blink_deadline(u64 now) noexcept {
-    const u32 interval = GetCaretBlinkTime();
+    const u32 interval = application_caret_blink_ms();
     return interval && interval != INFINITE ? deadline_after(now, interval) : 0;
 }
 void caret_reset(ApplicationMessageForward& q) noexcept {
@@ -152,7 +152,7 @@ bool activate(ApplicationMessageForward& q, UiMessageForwardTarget target) noexc
         else message_forward_confirm(&q.controller, scope(), sources(), &g_app.account_ui->message_composer_controller,
                 clock_unix_milliseconds(), clock_monotonic_milliseconds());
         if (q.controller.committed) q.focused = q.edit.focused = q.caption.focused = false;
-        if (g_app.window) PostMessageW(g_app.window, WM_NULL, 0, 0);
+        if (g_app.window) window_wake(g_app.window);
         break;
     default: break;
     }
@@ -287,7 +287,7 @@ bool application_message_forward_open(u64 id) noexcept {
         if (!application_profile_close() || !dismiss_popup()) return false;
         application_release_capture();
         q->active = true;
-        if (g_app.window) SetFocus(g_app.window);
+        if (g_app.window) window_focus(g_app.window);
         return application_message_forward_synchronize() && application_request_frame();
     }
     // Retire a completed publication before replacing its source/candidate bank.
@@ -333,7 +333,7 @@ bool application_message_forward_open(u64 id) noexcept {
     application_video_blur();
     application_release_capture();
     if (!application_message_forward_synchronize()) { application_message_forward_close(); return false; }
-    if (g_app.window) SetFocus(g_app.window);
+    if (g_app.window) window_focus(g_app.window);
     return application_composer_text_input_synchronize() && application_request_frame();
 }
 bool application_message_forward_edit_changed(bool content) noexcept {
@@ -346,7 +346,7 @@ bool application_message_forward_edit_changed(bool content) noexcept {
 // Its own frame: the clipboard buffer must not weigh on every input event.
 __declspec(noinline) static MessageComposerResult paste_single_line(MessageComposer* model) noexcept {
     char text[kMessageForwardCaptionMaximumBytes];
-    const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+    const auto read = clipboard_read_utf8({text, sizeof(text)});
     bool valid = read.ok();
     for (u32 i = 0; valid && i < read.bytes;) {
         const auto scalar = utf8_decode_one(text + i, read.bytes - i);
@@ -398,7 +398,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (control && (key == 'C' || key == 'X')) {
         const u32 a = minimum(model.anchor, model.caret), b = maximum(model.anchor, model.caret);
-        if (b > a && clipboard_write_utf8(g_app.window, {model.text + a, b - a}) && key == 'X')
+        if (b > a && clipboard_write_utf8({model.text + a, b - a}) && key == 'X')
             result = message_composer_replace_range(&model, a, b, {});
     } else if (control && key == 'V') {
         result = paste_single_line(&model);
@@ -410,54 +410,53 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     return true;
 }
 
-bool application_message_forward_filter(const MSG& message) noexcept {
-    if (message.hwnd != g_app.window || (message.message != WM_KEYDOWN && message.message != WM_KEYUP)) return false;
+bool application_message_forward_filter(const WindowEvent& event) noexcept {
+    if (!input_plain_key(event)) return false;
     return ui_input_consume_key_tail(&g_app.message_forward_held_key,
-        {message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up,
-         static_cast<u32>(message.wParam), (message.lParam & (1ll << 30)) != 0});
+        {event.type == EventType::key_down ? UiInputKind::key_down : UiInputKind::key_up, event.key.key,
+         input_key_was_down(event)});
 }
-bool application_message_forward_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_message_forward_window_event(const WindowEvent& event) noexcept {
     auto* q = g_app.message_forward;
-    if (message == WM_LBUTTONDOWN && (!q || !q->active)) g_app.message_forward_pointer_tail = false;
-    if (message == WM_LBUTTONUP && g_app.message_forward_pointer_tail && (!q || !q->active)) { g_app.message_forward_pointer_tail = false; return true; }
+    if (input_press(event) && (!q || !q->active)) g_app.message_forward_pointer_tail = false;
+    if (input_release(event) && g_app.message_forward_pointer_tail && (!q || !q->active)) { g_app.message_forward_pointer_tail = false; return true; }
     if (!q || !q->active) return false;
     if (!available() || !quick_switcher_scope_equal(q->controller.scope, scope())) {
-        if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) g_app.message_forward_held_key = static_cast<u32>(wparam);
+        if (input_key_down(event)) g_app.message_forward_held_key = event.key.key;
         application_message_forward_close(); return true;
     }
-    if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point)) return false;
+        if (!client_cursor_dip(event, &point)) return false;
         application_set_cursor(ui_message_forward_scene_cursor(q->scene, point.x, point.y));
         return true;
     }
-    if (message == WM_KILLFOCUS || message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
+    if (input_focus_lost(event) || event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
         revoke_capture(*q); q->blink_at = 0; q->caret_visible = false; ++q->content_revision;
         application_request_frame(); return false;
     }
-    if (message == WM_SETFOCUS) { caret_reset(*q); ++q->content_revision; application_request_frame(); return false; }
-    if (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-        message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_MOUSEHWHEEL) return true;
-    if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE && message != WM_MOUSEWHEEL) return false;
-    if (message == WM_MOUSEWHEEL) {
+    if (event.type == EventType::focus_changed) { caret_reset(*q); ++q->content_revision; application_request_frame(); return false; }
+    if (event.type == EventType::context_menu || input_side_button(event) || input_double(event) ||
+        input_horizontal_wheel(event)) return true;
+    if (!input_press(event) && !input_release(event) && event.type != EventType::pointer_move && !input_vertical_wheel(event)) return false;
+    if (input_vertical_wheel(event)) {
         ui_message_forward_scene_scroll(&q->scene, q->scene.scroll_dips -
-            static_cast<short>(HIWORD(wparam)) / static_cast<float>(WHEEL_DELTA) * kUiMessageForwardRowHeight * 3);
+            event.wheel.dy120 / 120.0f * kUiMessageForwardRowHeight * 3);
         application_request_frame(); return true;
     }
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    const float scale = 96.f / g_app.renderer.dpi, x = point.x * scale, y = point.y * scale;
-    if (message == WM_MOUSEMOVE) {
-        if (q->dragging && (wparam & MK_LBUTTON)) pointer_edit(*q, x, y, true);
+    const float x = client_dip_x(event), y = client_dip_y(event);
+    if (event.type == EventType::pointer_move) {
+        if (q->dragging && input_held(event)) pointer_edit(*q, x, y, true);
         else { bool changed = false; ui_message_forward_scene_set_hover(&q->scene, x, y, &changed); if (changed) application_request_frame(); }
         return true;
     }
     const auto hit = ui_message_forward_scene_hit_test(q->scene, x, y);
-    if (message == WM_LBUTTONDOWN) {
+    if (input_press(event)) {
         g_app.message_forward_pointer_tail = false;
         q->pressed = hit; q->captured = true;
         q->dragging = !q->controller.committed && (hit.action == UiMessageForwardAction::edit || hit.action == UiMessageForwardAction::caption);
-        if (q->dragging) { focus_field(*q, hit.action == UiMessageForwardAction::caption); pointer_edit(*q, x, y, (wparam & MK_SHIFT) != 0); }
-        if (g_app.window) SetCapture(g_app.window);
+        if (q->dragging) { focus_field(*q, hit.action == UiMessageForwardAction::caption); pointer_edit(*q, x, y, input_shift(event)); }
+        if (g_app.window) window_capture_pointer(g_app.window);
         return true;
     }
     const auto pressed = q->pressed; const bool captured = q->captured;

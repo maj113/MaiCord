@@ -1,5 +1,6 @@
 #include "../account/user_actions.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "../shell/content_point.hpp"
 #include "voice.hpp"
 #include "channels.hpp"
@@ -178,12 +179,11 @@ UiVoiceControl hit(float x, float y) noexcept {
     const UiRect* rectangle = footer();
     return rectangle ? ui_voice_hit(*rectangle, voice.view, x, y) : UiVoiceControl::none;
 }
-// The participant row under the pointer of the message being handled (a
+// The participant row under the pointer of the click being handled (a
 // click on a voice channel row), when that user has their camera on.
 u64 camera_user_at_message_point() noexcept {
-    const DWORD position = GetMessagePos();
-    POINT point{static_cast<short>(LOWORD(position)), static_cast<short>(HIWORD(position))};
-    if (!g_app.window || !application_screen_to_content(&point))
+    POINT point{};
+    if (!g_app.window || !application_cursor_content(&point))
         return 0;
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
     const auto* state = application_voice_participant_at(
@@ -217,7 +217,7 @@ void application_voice_pump() noexcept {
     push();
     auto& h = g_app.account;
     const auto* s = session();
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (h.instance && h.api.voice_audio_status && ((s && in_call(*s)) || voice.monitor) &&
         now >= voice.status_at_ms) {
         VoiceAudioStatus status{};
@@ -229,7 +229,7 @@ void application_voice_pump() noexcept {
     refresh_view();
     application_voice_channels_pump();
     application_voice_settings_tick();
-    if (voice.save_pending && !(GetKeyState(key::lbutton) & 0x8000)) {
+    if (voice.save_pending && !window_key_down(nullptr, key::lbutton)) {
         voice.save_pending = false;
         save();
     }
@@ -248,7 +248,7 @@ u64 application_voice_next_wake() noexcept {
     const u64 keys = application_shortcuts_next_wake();
     const auto earliest = [keys](u64 wake) noexcept { return !keys ? wake : !wake ? keys : minimum(wake, keys); };
     if (!voice.monitor && !(s && in_call(*s)))
-        return earliest(voice.users_dirty || voice.save_pending ? GetTickCount64() + 250 : 0);
+        return earliest(voice.users_dirty || voice.save_pending ? clock_monotonic_milliseconds() + 250 : 0);
     return earliest(voice.status_at_ms ? voice.status_at_ms : 1);
 }
 
@@ -456,7 +456,7 @@ VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool pre
     const UiRect track = popup_feedback_slider(g_app.popup_scene);
     if (!press && *dragging && !application_key_down(key::lbutton)) {
         *dragging = false;
-        ReleaseCapture();
+        window_release_capture(g_app.window);
         return VolumeMenuPointer::handled;
     }
     if (press ? !ui_rect_contains({track.left - 6, track.top - 6, track.right + 6, track.bottom + 6}, x, y)
@@ -464,7 +464,7 @@ VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool pre
         return VolumeMenuPointer::ignored;
     if (press) {
         *dragging = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
     }
     const auto geometry =
         ui_slider_geometry(ui_settings_layout_tokens(application_theme().styles), track, steps, 0, false);

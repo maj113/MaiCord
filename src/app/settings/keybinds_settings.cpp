@@ -4,7 +4,6 @@
 #include "../shell/overlay_input.hpp"
 #include "maicord/core/log.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

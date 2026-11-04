@@ -2,10 +2,16 @@
 #include "maicord/text/fonts/catalog.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"
+#else
+// The Linux locator (fontconfig, else a directory scan) is the platform's SystemFontLocator.
+#include "maicord/platform/font/system_font_locator.hpp"
+#endif
 namespace maicord {
 // Context-local metadata for one physical face; never serialized as a full file.
 struct NativeSystemFontFile {NativeSystemFontFile* next;NativeFontCatalog catalog;u32 first_candidate;};
+#if defined(_WIN32)
 // Maps a GDI font description to its file path and face index.
 struct SystemFontLocator {
     struct Realization {DWORD bytes,flags,cache,instance,files;WORD face,simulations;};
@@ -35,4 +41,5 @@ struct SystemFontLocator {
             needed<=sizeof(file)&&file.path[0]&&!file.path[1023]&&file.size.QuadPart>0&&file.size.QuadPart<=0xffffffffu;
     }
 };
+#endif
 }

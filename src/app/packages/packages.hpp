@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/app/packages/link.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/dropped_files.hpp"
 #include "maicord/app/packages/mcfx.hpp"
 #include "maicord/app/settings/client_theme_document.hpp"
 #include "../effects/effects.hpp"
@@ -118,7 +119,7 @@ bool application_packages_protocol_answer(bool enable) noexcept;
 // Drag and drop of a file onto the window while the install dialog is open (the store pages enable it for
 // that time). The first dropped file starts a session; every other drop goes to attachments.
 void application_packages_drop_enable(bool wanted) noexcept;
-bool application_packages_drop(HANDLE drop) noexcept;
+bool application_packages_drop(DroppedFiles* drop) noexcept;
 
 // ---- Installed themes and effects --------------------------------------------------------------------------
 bool application_packages_remove(PackageLinkKind kind, Utf8View slug) noexcept;

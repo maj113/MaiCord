@@ -66,7 +66,7 @@ bool current_ink(D3D11Renderer& renderer, const Theme& theme, UiRect rectangle, 
                  u32* count, u32 stage) noexcept {
     *count = 0;
     const float clear[]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
     if (!require(d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr), stage))
         return false;
     ProbeTargetReadback readback;
@@ -271,7 +271,7 @@ bool initialize(Fixture& fixture) noexcept {
 } // namespace
 
 bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
-    if (!require(renderer.graphics.device && renderer.graphics.context && renderer.graphics.target &&
+    if (!require(renderer.graphics.device && renderer.graphics.context && renderer.graphics.surface.target &&
                      renderer.message_scene && renderer.chat_state && renderer.navigation_view &&
                      renderer.content_text && renderer.message_measure_cache,
                  2) ||

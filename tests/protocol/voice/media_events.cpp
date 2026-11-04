@@ -113,7 +113,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
 
     VoiceMediaSetup media{};
     check(voice_media_ready(&media, ready) == VoiceMediaSetupError::none && media.has_ready &&
-              reinterpret_cast<const sockaddr_storage&>(media.endpoint).ss_family == AF_INET6 && media.endpoint_bytes == sizeof(sockaddr_in6),
+              media.endpoint.family == 6,
           "voice media setup owns a numeric IPv6 endpoint beyond input lifetime");
     check(voice_media_description(&media, object(description_json), {scratch, 512}, 16, 1, 7) ==
                   VoiceMediaSetupError::order &&
@@ -160,7 +160,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
           "voice Ready IP cannot become an unexpected DNS lookup");
     invalid.ip = {utf8_literal("127.0.0.1"), 0, false};
     check(voice_media_ready(&media, invalid) == VoiceMediaSetupError::none &&
-              !media.packets.aes.object.data && !media.selected_mode && reinterpret_cast<const sockaddr_storage&>(media.endpoint).ss_family == AF_INET,
+              !media.packets.aes.object.data && !media.selected_mode && media.endpoint.family == 4,
           "voice replacement Ready retires previous key and protocol selection");
     check(voice_packet_seal(media.packets, 7, {rtp, sizeof(rtp)}, {wire, sizeof(wire)}).error ==
               VoicePacketError::not_initialized,
@@ -183,7 +183,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
           "new voice generation encrypts with the selected replacement cipher");
     voice_media_clear(&media);
     check(!media.has_ready && !media.packets.aes.object.data && !media.packets.xchacha.storage.data &&
-              !media.endpoint_bytes,
+              !media.endpoint.family,
           "voice media teardown clears owned state");
     SecureZeroMemory(key, sizeof(key));
 }

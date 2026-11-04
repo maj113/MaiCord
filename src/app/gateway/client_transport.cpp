@@ -142,7 +142,7 @@ namespace client_detail {
 
 void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
     if (runtime->mailbox_cancel)
-        SetEvent(runtime->mailbox_cancel);
+        event_set(runtime->mailbox_cancel);
     if (!runtime->stopping) {
         runtime->stopping = true;
         reset_voice(client, runtime);
@@ -169,7 +169,7 @@ NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* ru
     }
     runtime->failed = true;
     GatewayClientEvent event{};
-    event.timestamp_ms = GetTickCount64();
+    event.timestamp_ms = clock_monotonic_milliseconds();
     event.native_error = native_error;
     event.kind = GatewayClientEventKind::failed;
     event.error = error;
@@ -190,7 +190,7 @@ NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* ru
     // is visible (or the mailbox was full): record the failure, then wake it again.
     publish_failure(client, error, native_error);
     if (client->notification_event)
-        SetEvent(client->notification_event);
+        event_set(client->notification_event);
     begin_shutdown(client, runtime);
     return NetworkWorkerStep{INFINITE, shutdown_drained(runtime)};
 }
@@ -249,16 +249,9 @@ bool continue_send(GatewayClientRuntime* runtime) noexcept {
 }
 
 bool start_connect_candidate(NetworkLoop* loop, GatewayClientRuntime* runtime) noexcept {
-    while (runtime->next_address) {
-        ADDRINFOEXW* candidate = runtime->next_address;
-        runtime->next_address = runtime->next_address->ai_next;
-        if (!candidate->ai_addr || candidate->ai_addrlen == 0 ||
-            candidate->ai_addrlen > sizeof(sockaddr_storage) ||
-            (candidate->ai_family != AF_INET && candidate->ai_family != AF_INET6)) {
-            continue;
-        }
-        const NetworkResult started = network_connection_connect(
-            loop, &runtime->connection, candidate->ai_addr, static_cast<i32>(candidate->ai_addrlen));
+    while (runtime->next_address < runtime->resolver.address_count) {
+        const NetworkAddress& candidate = runtime->resolver.addresses[runtime->next_address++];
+        const NetworkResult started = network_connection_connect(loop, &runtime->connection, candidate);
         if (started.ok()) {
             ++runtime->outstanding_socket_operations;
             return true;

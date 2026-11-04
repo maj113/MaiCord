@@ -23,6 +23,8 @@ the MIT licence stated in each file's `<copyright>` block. `tools/generate_wayla
 | `idle-inhibit-unstable-v1.xml` | unstable | idle inhibit during calls |
 | `wlr-virtual-pointer-unstable-v1.xml` | wlr-protocols | tests only: a virtual pointer for sway |
 | `virtual-keyboard-unstable-v1.xml` | wtype (atx/wtype) | tests only: a virtual keyboard for sway |
+| `input-method-unstable-v2.xml` | wlroots 0.17 | tests only: the test acts as an IME |
+| `wlr-data-control-unstable-v1.xml` | wlr-protocols | tests only: the test acts as a clipboard manager |
 
 To update one, copy the new file over the old, rebuild and run `maicord_wayland_input`, which compares the generated core
 tables with libwayland-client's own.

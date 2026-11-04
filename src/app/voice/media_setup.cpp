@@ -1,11 +1,7 @@
 #include "maicord/app/voice/media_setup.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/winsock.hpp"
 #include "maicord/protocol/voice/video_signaling.hpp"
-
-static_assert(sizeof(maicord::VoiceEndpointAddress) == sizeof(sockaddr_storage) &&
-              alignof(maicord::VoiceEndpointAddress) == alignof(sockaddr_storage));
 
 namespace maicord {
 void voice_media_clear(VoiceMediaSetup* setup) noexcept {
@@ -24,23 +20,11 @@ VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady&
     for (u32 i = 0; i < decoded.bytes; ++i)
         if (!ip[i])
             return VoiceMediaSetupError::endpoint;
-    sockaddr_storage endpoint{};
-    auto* v4 = reinterpret_cast<sockaddr_in*>(&endpoint);
-    auto* v6 = reinterpret_cast<sockaddr_in6*>(&endpoint);
-    u32 bytes = 0;
-    if (InetPtonA(AF_INET, ip, &v4->sin_addr) == 1) {
-        v4->sin_family = AF_INET;
-        v4->sin_port = htons(ready.port);
-        bytes = sizeof(*v4);
-    } else if (InetPtonA(AF_INET6, ip, &v6->sin6_addr) == 1) {
-        v6->sin6_family = AF_INET6;
-        v6->sin6_port = htons(ready.port);
-        bytes = sizeof(*v6);
-    } else
+    NetworkAddress endpoint{};
+    if (!network_address_parse(ip, ready.port, &endpoint))
         return VoiceMediaSetupError::endpoint;
     voice_media_clear(setup);
-    copy_bytes(&setup->endpoint, &endpoint, sizeof(endpoint));
-    setup->endpoint_bytes = bytes;
+    setup->endpoint = endpoint;
     setup->ssrc = ready.ssrc;
     setup->offered_modes = ready.recognized_modes;
     setup->has_ready = true;

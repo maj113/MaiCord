@@ -18,7 +18,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "../chat/messages/history_decode.hpp"

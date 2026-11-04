@@ -562,17 +562,17 @@ static bool activate_channel_row_control(u64 channel_id, float x, float y) noexc
     return false;
 }
 
-bool handle_navigation_click(LPARAM lparam) noexcept {
+bool handle_navigation_click(const WindowEvent& event) noexcept {
     // Draggable rows act on release so a drag never also clicks them.
-    if (application_navigation_drag_press(lparam))
+    if (application_navigation_drag_press(event))
         return true;
-    return activate_navigation_press(lparam);
+    return activate_navigation_press(event);
 }
 
-bool activate_navigation_press(LPARAM lparam) noexcept {
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+bool activate_navigation_press(const WindowEvent& event) noexcept {
+    const POINT point{static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y)};
     if (renderer_guild_rail_hit_test(g_app.renderer, point.x, point.y)) {
-        const auto rail = guild_rail_scene_hit_test(g_app.guild_rail_scene, client_dip_x(lparam), client_dip_y(lparam));
+        const auto rail = guild_rail_scene_hit_test(g_app.guild_rail_scene, client_dip_x(event), client_dip_y(event));
         if (rail.add_server)
             return application_guild_lifecycle_open_create() || true;
         if (rail.folder) {
@@ -591,7 +591,7 @@ bool activate_navigation_press(LPARAM lparam) noexcept {
     if (hit.kind == RendererNavigationHitKind::none)
         return false;
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel &&
-        activate_channel_row_control(hit.id, client_dip_x(lparam), client_dip_y(lparam)))
+        activate_channel_row_control(hit.id, client_dip_x(event), client_dip_y(event)))
         return true;
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel && navigation_events_row(hit.id)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
@@ -605,15 +605,15 @@ bool activate_navigation_press(LPARAM lparam) noexcept {
     // A locked channel's row (Show hidden channels) only explains itself: it is never selected or joined.
     if (g_app.account_ui && !hit.selectable && hit.kind == RendererNavigationHitKind::channel &&
         application_channel_hidden(hit.id))
-        return application_hidden_channel_open(hit.id, {client_dip_x(lparam), client_dip_y(lparam),
-                                                        client_dip_x(lparam) + 1.0f, client_dip_y(lparam) + 1.0f}) ||
+        return application_hidden_channel_open(hit.id, {client_dip_x(event), client_dip_y(event),
+                                                        client_dip_x(event) + 1.0f, client_dip_y(event) + 1.0f}) ||
                true;
     if (g_app.account_ui && !hit.selectable && hit.kind == RendererNavigationHitKind::channel)
         join_voice_channel(hit.id);
     if (!hit.selectable || !g_app.account_ui)
         return true;
     if (hit.kind == RendererNavigationHitKind::channel &&
-        application_private_channel_row_close(hit.id, client_dip_x(lparam), client_dip_y(lparam)))
+        application_private_channel_row_close(hit.id, client_dip_x(event), client_dip_y(event)))
         return true;
     if (hit.kind == RendererNavigationHitKind::home) {
         ui_widget_manager_focus(&g_app.shell_scene.widgets,
@@ -658,21 +658,21 @@ bool handle_navigation_shortcut(NavigationShortcut shortcut) noexcept {
     return select_navigation(target.guild, target.id, true, target.home);
 }
 
-bool handle_message_action_bar_click(LPARAM lparam) noexcept {
+bool handle_message_action_bar_click(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked())
         return false;
     if (!g_app.account_ui || !g_app.message_action_bar.active || g_app.login.visible) {
         return false;
     }
     const MessageActionBarHit hit =
-        message_action_bar_hit_test(g_app.message_action_bar, client_dip_x(lparam), client_dip_y(lparam));
+        message_action_bar_hit_test(g_app.message_action_bar, client_dip_x(event), client_dip_y(event));
     if (!hit.inside) {
         return false;
     }
     if (hit.action == MessageActionBarAction::none) {
         return true;
     }
-    SetFocus(g_app.window);
+    window_focus(g_app.window);
     if (message_scene_focus_message(&g_app.message_scene, hit.message_id))
         g_app.context_focus = &g_app.message_scene.widgets;
     return application_message_action_bar_activate(hit, application_shift_down());
@@ -729,26 +729,26 @@ bool application_received_attachment_open(u64 message_id, u64 attachment_id,
     return record && begin_received_attachment_open(*record, attachment_id, snapshot_origin_channel);
 }
 
-bool handle_message_click(LPARAM lparam) noexcept {
+bool handle_message_click(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked())
         return false;
     if (!g_app.account_ui || !g_app.message_scene.active || g_app.login.visible) {
         return false;
     }
-    if (application_downloads_save_press(client_dip_x(lparam), client_dip_y(lparam)))
+    if (application_downloads_save_press(client_dip_x(event), client_dip_y(event)))
         return true;
     const auto reply =
-        message_scene_reply_hit_test(g_app.message_scene, client_dip_x(lparam), client_dip_y(lparam));
+        message_scene_reply_hit_test(g_app.message_scene, client_dip_x(event), client_dip_y(event));
     if (reply.message_id != 0) {
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
         // The quoted author's avatar and name open their profile; the rest of the line jumps.
-        if (const auto author = application_message_profile_hit_test(client_dip_x(lparam), client_dip_y(lparam));
+        if (const auto author = application_message_profile_hit_test(client_dip_x(event), client_dip_y(event));
             author.user_id)
             return application_profile_open(author.user_id, author.anchor);
         return navigate_content_message(reply.channel_id, reply.message_id);
     }
     const MessageSceneHit hit =
-        message_scene_hit_test(g_app.message_scene, client_dip_x(lparam), client_dip_y(lparam));
+        message_scene_hit_test(g_app.message_scene, client_dip_x(event), client_dip_y(event));
     // Generic received attachments use the same message access check as
     // inline media, while opening only their validated HTTPS download URL.
     const auto* row = message_scene_find_row(g_app.message_scene, hit.source_index);
@@ -757,19 +757,19 @@ bool handle_message_click(LPARAM lparam) noexcept {
     const auto* rich = record ? message_rich_store_find(rich_store, record->id) : nullptr;
     if (row && record && rich && rich->message_revision == record->revision && rich->thread.id &&
         ui_widget_handle_equal(hit.widget, row->thread)) {
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
         return open_thread_starter(record->channel_id, rich->thread.id);
     }
     if (row && record && record->channel_id == g_app.account_ui->active_channel_id && hit.widget.generation) {
         const auto* node = message_scene_layout_node(g_app.message_scene, hit.widget);
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+        const float x = client_dip_x(event), y = client_dip_y(event);
         if (application_invite_card_click(record->id, hit.widget, x, y)) {
-            SetFocus(g_app.window);
+            window_focus(g_app.window);
             return true;
         }
         if (application_message_component_click(record->id, hit.widget,
                                                 node ? node->rectangle : UiRect{x, y, x + 1, y + 1})) {
-            SetFocus(g_app.window);
+            window_focus(g_app.window);
             return true;
         }
     }
@@ -800,7 +800,7 @@ bool handle_message_click(LPARAM lparam) noexcept {
                     return true;
                 const auto clip = ui_rect_intersection(
                     file_card(*node), ui_rect_intersection(row_node->rectangle, g_app.message_scene.viewport));
-                if (!ui_rect_contains(clip, client_dip_x(lparam), client_dip_y(lparam)))
+                if (!ui_rect_contains(clip, client_dip_x(event), client_dip_y(event)))
                     return false;
                 begin_received_attachment_open(*record, attachment.id,
                                                content_scope ? outer_rich->reference.channel_id : 0);
@@ -812,7 +812,7 @@ bool handle_message_click(LPARAM lparam) noexcept {
     if (!message_scene_reaction_index(g_app.message_scene, hit, &reaction_index)) {
         return false;
     }
-    SetFocus(g_app.window);
+    window_focus(g_app.window);
     if (!queue_message_reaction(hit.message_id, reaction_index)) {
         return false;
     }
@@ -862,9 +862,13 @@ bool application_received_attachment_activate_focused() noexcept {
             if (!ui_rect_has_area(clip))
                 return false;
             const float scale = static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f;
-            return handle_message_click(
-                MAKELPARAM(static_cast<short>((clip.left + clip.right) * .5f * scale),
-                           static_cast<short>((clip.top + clip.bottom) * .5f * scale)));
+            WindowEvent press{};
+            press.type = EventType::pointer_down;
+            press.button = static_cast<u8>(PointerButton::left);
+            press.flags = ev_synthetic;
+            press.pointer.x = static_cast<float>(static_cast<short>((clip.left + clip.right) * .5f * scale));
+            press.pointer.y = static_cast<float>(static_cast<short>((clip.top + clip.bottom) * .5f * scale));
+            return handle_message_click(press);
         }
     }
     return false;
@@ -1008,11 +1012,11 @@ bool application_message_media_reveal_at(float x, float y) noexcept {
     return false;
 }
 
-bool handle_content_click(LPARAM lparam) noexcept {
+bool handle_content_click(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked())
         return false;
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    const POINT point{static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y)};
+    const float x = client_dip_x(event), y = client_dip_y(event);
     if (const auto& renderer = g_app.renderer;
         !g_app.login.visible && renderer.message_text && renderer.chat_state && renderer.user_store) {
         const auto slot = message_author_plugin_hit_test(g_app.message_scene, *renderer.message_text,
@@ -1052,7 +1056,7 @@ bool handle_content_click(LPARAM lparam) noexcept {
             constexpr u32 ephemeral_flag = 1u << 6;
             if (hit.kind == MessageMarkdownSemanticKind::message_link && hit.target == message->id &&
                 (message->flags & ephemeral_flag)) {
-                SetFocus(g_app.window);
+                window_focus(g_app.window);
                 if (g_app.message_scene.timeline)
                     message_timeline_remove_local(g_app.message_scene.timeline, message->id);
                 return refresh_account_frame(true);
@@ -1087,8 +1091,8 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return true;
     }
     case MessageMarkdownSemanticKind::user_mention:
-        return application_profile_open(hit.target, {client_dip_x(lparam), client_dip_y(lparam),
-                                                     client_dip_x(lparam) + 1, client_dip_y(lparam) + 1});
+        return application_profile_open(hit.target, {client_dip_x(event), client_dip_y(event),
+                                                     client_dip_x(event) + 1, client_dip_y(event) + 1});
     case MessageMarkdownSemanticKind::channel_mention:
         // A voice or stage channel mention joins it instead of opening it.
         return join_voice_channel(hit.target) || select_content_channel(hit.target);
@@ -1171,10 +1175,10 @@ bool application_message_content_cursor(float x, float y, UiCursor* cursor) noex
     return true;
 }
 
-bool handle_content_hover(LPARAM lparam) noexcept {
+bool handle_content_hover(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked())
         return false;
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    const POINT point{static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y)};
     const MessageTextHit hit = renderer_content_hit_test(g_app.renderer, point.x, point.y);
     if (!g_app.account_ui) {
         return true;

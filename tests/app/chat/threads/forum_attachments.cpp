@@ -269,16 +269,16 @@ void run() noexcept {
     row(70)->type = 15; ++row(70)->revision;
     ticket = intent(200); id = stage(ticket); upload.join = false;
     application_forum_post_submit(201, now); receipt(201, 200, url_body());
-    g_app.window = CreateWindowExW(0, L"STATIC", L"forum deferred close fixture", 0,
-        0, 0, 40, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"forum deferred close fixture", 0,
+        0, 0, 40, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     check(g_app.window && application_forum_attachments_defer_close() && forum_attachments,
         "forum media: requested window close keeps retained transfer alive until exact join");
     upload.join = true; application_forum_attachments_pump();
     MSG close_message{};
-    check(!forum_attachments && IsWindow(g_app.window) &&
-        PeekMessageW(&close_message, g_app.window, WM_CLOSE, WM_CLOSE, PM_REMOVE),
+    check(!forum_attachments && IsWindow(win32_hwnd(g_app.window)) &&
+        PeekMessageW(&close_message, win32_hwnd(g_app.window), WM_CLOSE, WM_CLOSE, PM_REMOVE),
         "forum media: completed retained close posts centralized WM_CLOSE instead of bypassing other owners");
-    if (g_app.window) DestroyWindow(g_app.window); g_app.window = nullptr;
+    if (win32_hwnd(g_app.window)) DestroyWindow(win32_hwnd(g_app.window)); g_app.window = nullptr;
     clean();
     check(!memory.references && (!forum_attachments || !forum_attachments->drafts.committed_bytes),
         "forum media: zero retained source references or lazy media pages after teardown");

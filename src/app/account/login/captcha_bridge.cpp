@@ -1,5 +1,6 @@
 #include "loopback_server.hpp"
 #include "maicord/app/account/login/captcha_bridge.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -50,7 +51,7 @@ void wipe(LoopbackServer* server) noexcept { SecureZeroMemory(server->storage.da
 bool step(LoopbackServer* server, LoopbackState* state) noexcept {
     auto* runtime = static_cast<Runtime*>(server);
     const auto current = loopback_snapshot(runtime);
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (!live(current.phase) && current.phase != CaptchaBridgePhase::complete &&
         current.phase != CaptchaBridgePhase::failed) return false;
     const bool admitting = current.phase == CaptchaBridgePhase::starting || current.phase == CaptchaBridgePhase::waiting;
@@ -81,7 +82,7 @@ bool respond(Runtime* runtime, const CaptchaBridgeParseResult& parsed) noexcept 
     bool candidate = false;
     AcquireSRWLockExclusive(&runtime->lock);
     const bool admitted = runtime->status.phase == CaptchaBridgePhase::waiting && !runtime->spent &&
-                          !deadline_due(GetTickCount64(), runtime->status.deadline_ms);
+                          !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms);
     if (!parsed.ok()) {
         // A well-routed POST with the exact state spends it even when malformed.
         if (admitted && (parsed.error == CaptchaBridgeProtocolError::json ||
@@ -165,7 +166,7 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
     if (!runtime) return invalid(CaptchaBridgeError::memory, thread_last_error());
     bridge->runtime = runtime;
     runtime->status.generation = generation;
-    runtime->status.deadline_ms = deadline_after(GetTickCount64(), timeout_ms);
+    runtime->status.deadline_ms = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
     runtime->status.phase = CaptchaBridgePhase::starting;
     runtime->provider = provider;
     runtime->invisible = challenge.invisible;
@@ -240,7 +241,7 @@ SecureBufferResult captcha_bridge_copy_url(const CaptchaBridge* bridge, u64 expe
     CaptchaBridgeWriteResult written{0, CaptchaBridgeProtocolError::invalid_input};
     if (expected_generation && runtime->status.generation == expected_generation &&
         runtime->status.phase == CaptchaBridgePhase::waiting && !runtime->spent &&
-        !deadline_due(GetTickCount64(), runtime->status.deadline_ms))
+        !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms))
         written = captcha_bridge_write_url(runtime->status.port, view(runtime, kStateOffset, kCaptchaBridgeStateBytes),
                                            {output->data, output->capacity});
     if (written.ok()) output->bytes = written.bytes;

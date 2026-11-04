@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/log.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/render/text/form_surface.hpp"
@@ -13,8 +14,8 @@
 #include "renderer_login_form.hpp"
 #include "../text/shaped_text_cache.hpp"
 
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/gpu/api.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
 namespace maicord {
@@ -28,7 +29,7 @@ bool update_frame_transform(D3D11Renderer* renderer) noexcept {
 
 // A failure that may be the device's: a removal or reset is remembered for the host, which recovers.
 void note_device_failure(D3D11Renderer* renderer) noexcept {
-    if (renderer->graphics.device && FAILED(renderer->graphics.device->GetDeviceRemovedReason()))
+    if (gpu_device_lost(renderer->graphics.device))
         renderer->device_lost = true;
 }
 
@@ -74,11 +75,11 @@ static_assert(kMaxPaintQuads == kD3D11MaximumUiInstanceCapacity);
 // off the main thread. The device pointers identify which device they belong
 // to; they are not owned.
 D3D11DrawPipelineOwner g_prestarted_pipeline{};
-ID3D11Device* g_prestarted_pipeline_device = nullptr;
+GpuDevice* g_prestarted_pipeline_device = nullptr;
 GlyphAtlasGpu g_prestarted_glyph_atlas{};
-ID3D11Device* g_prestarted_glyph_atlas_device = nullptr;
+GpuDevice* g_prestarted_glyph_atlas_device = nullptr;
 
-void prestart_objects(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
+void prestart_objects(GpuDevice* device, GpuContext* context) noexcept {
     if (glyph_atlas_gpu_initialize(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
                                    kRendererGlyphAtlasExtent, kRendererPathCapacity)
             .ok())
@@ -90,7 +91,7 @@ void prestart_objects(ID3D11Device* device, ID3D11DeviceContext* context) noexce
 }
 
 void release_prestarted_pipeline() noexcept {
-    d3d11_device_prestart_finish();
+    gpu_device_prestart_finish();
     d3d11_draw_pipeline_release(&g_prestarted_pipeline);
     g_prestarted_pipeline_device = nullptr;
     glyph_atlas_gpu_release(&g_prestarted_glyph_atlas);
@@ -100,14 +101,14 @@ void release_prestarted_pipeline() noexcept {
 // Joins the prestart worker and lends its glyph atlas to the text resources
 // when it belongs to this device; null otherwise.
 GlyphAtlasGpu* prestarted_glyph_atlas(const D3D11Renderer& renderer) noexcept {
-    d3d11_device_prestart_finish();
+    gpu_device_prestart_finish();
     return g_prestarted_glyph_atlas_device && g_prestarted_glyph_atlas_device == renderer.graphics.device
                ? &g_prestarted_glyph_atlas
                : nullptr;
 }
 
 D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
-    d3d11_device_prestart_finish();
+    gpu_device_prestart_finish();
     // An atlas the text resources did not take (another device, or their
     // initialization failed first) is released with the worker's leftovers.
     glyph_atlas_gpu_release(&g_prestarted_glyph_atlas);
@@ -137,7 +138,7 @@ D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
 } // namespace
 
 void renderer_prestart() noexcept {
-    d3d11_device_prestart(prestart_objects);
+    gpu_device_prestart(prestart_objects);
 }
 
 void renderer_prestart_cancel() noexcept {
@@ -160,7 +161,7 @@ EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const Backgro
         return {E_INVALIDARG, EffectSelect::rejected};
     // The glyph grid is rasterized only while this device does not hold the package yet.
     const auto& effect = renderer->effect;
-    ID3D11ShaderResourceView* glyphs = nullptr;
+    GpuSrv* glyphs = nullptr;
     if (!(effect.selected && effect.identity == spec.identity && effect.shader) &&
         (spec.uses & effect_use_glyphs) && !effect_glyph_grid_build(renderer, &glyphs))
         return {E_FAIL, EffectSelect::rejected};
@@ -168,7 +169,7 @@ EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const Backgro
         &renderer->effect, renderer->graphics.device, renderer->graphics.context, spec, settings,
         renderer->adapter_key, glyphs, renderer->width, renderer->height + renderer->caption_height);
     if (result.state == EffectSelect::rejected)
-        com_release(glyphs);
+        gpu_release(glyphs);
     if (result.state == EffectSelect::changed || result.state == EffectSelect::refused) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         reset_value(&renderer->settings_backdrop_stamp);
@@ -213,8 +214,8 @@ void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEdit
     presentation_damage_invalidate_full(&renderer->presentation_damage);
 }
 
-bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text) noexcept {
-    if (!renderer || !window || !renderer_media_draw_storage_initialize(&renderer->media_draw)) {
+bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface, bool content_text) noexcept {
+    if (!renderer || !renderer_media_draw_storage_initialize(&renderer->media_draw)) {
         return false;
     }
     // Identity animation frames (<= 128 px): start at 256 rows (2 MiB) and
@@ -241,7 +242,8 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
     renderer->present_logical_damage_full = false;
     renderer->begin_frame_permit = false;
 
-    const D3D11DeviceOwnerResult graphics = d3d11_device_owner_initialize(&renderer->graphics, window);
+    // The surface is the caller's: its window handle (null for an offscreen surface where the backend has them), size and DPI.
+    const D3D11DeviceOwnerResult graphics = d3d11_device_owner_initialize(&renderer->graphics, surface);
     if (!graphics.ok()) {
         switch (graphics.error) {
         case D3D11DeviceOwnerError::hardware_device:
@@ -250,17 +252,8 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         case D3D11DeviceOwnerError::context_11_1:
             log_write(LogLevel::error, "render", "d3d11_1_context_unavailable");
             break;
-        case D3D11DeviceOwnerError::dxgi_factory:
-            log_write(LogLevel::error, "render", "dxgi_factory_unavailable");
-            break;
-        case D3D11DeviceOwnerError::composition_swap_chain:
-            log_write(LogLevel::error, "render", "direct_composition_swap_chain_creation_failed");
-            break;
-        case D3D11DeviceOwnerError::frame_latency:
-            log_write(LogLevel::error, "render", "dxgi_1_3_resize_surface_unavailable");
-            break;
-        case D3D11DeviceOwnerError::render_target:
-            log_write(LogLevel::error, "render", "create_render_target_failed");
+        case D3D11DeviceOwnerError::surface:
+            // The backend logged the step that failed.
             break;
         default:
             log_write(LogLevel::error, "render", "d3d11_device_owner_initialization_failed");
@@ -271,12 +264,12 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         renderer_shutdown(renderer);
         return false;
     }
-    renderer->width = graphics.width;
+    renderer->width = surface.width;
     renderer->height =
-        graphics.height > renderer->caption_height ? graphics.height - renderer->caption_height : 1;
+        surface.height > renderer->caption_height ? surface.height - renderer->caption_height : 1;
     renderer->target_origin_y = renderer->caption_height;
-    renderer->dpi = graphics.dpi;
-    renderer->window = window;
+    renderer->dpi = surface.dpi;
+    renderer->window = surface.window;
     renderer->adapter_key = graphics.adapter_key;
     renderer->startup_prestart = graphics.prestarted ? 1 : 0;
     // The icon atlas is created here while the prestart worker still builds the
@@ -311,13 +304,14 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
 }
 
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
-    if (!renderer || !renderer->graphics.swap_chain || width == 0 || height == 0) {
+    if (!renderer || !gpu_surface_valid(&renderer->graphics.surface) || width == 0 || height == 0) {
         return true;
     }
     const u32 target_height = height + renderer->caption_height;
-    if (renderer->width == width && renderer->height == height && renderer->graphics.target &&
+    if (renderer->width == width && renderer->height == height && gpu_surface_target(&renderer->graphics.surface) &&
         (renderer->live_resize ||
-         (renderer->graphics.buffer_width == width && renderer->graphics.buffer_height == target_height))) {
+         (gpu_surface_width(&renderer->graphics.surface) == width &&
+          gpu_surface_height(&renderer->graphics.surface) == target_height))) {
         return true;
     }
     // Reserve a small growth margin only inside Windows' sizing modal loop.
@@ -327,23 +321,19 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
     // finishing the resize trims the buffers to the final client size.
     u32 buffer_width = width, buffer_height = target_height;
     if (renderer->live_resize) {
-        buffer_width = renderer->graphics.buffer_width;
-        buffer_height = renderer->graphics.buffer_height;
+        buffer_width = gpu_surface_width(&renderer->graphics.surface);
+        buffer_height = gpu_surface_height(&renderer->graphics.surface);
         if (width > buffer_width || target_height > buffer_height) {
             buffer_width = maximum((width + 63u) & ~63u, buffer_width);
             buffer_height = maximum((target_height + 63u) & ~63u, buffer_height);
         }
     }
-    if (buffer_width != renderer->graphics.buffer_width ||
-        buffer_height != renderer->graphics.buffer_height) {
-        const D3D11DeviceOwnerResult resized =
-            d3d11_device_owner_resize(&renderer->graphics, buffer_width, buffer_height);
-        if (!resized.ok()) {
-            log_write(LogLevel::error, "render",
-                      resized.error == D3D11DeviceOwnerError::render_target ? "create_render_target_failed"
-                                                                            : "swap_chain_resize_failed");
-            log_u64(LogLevel::error, "render", "d3d11_resize_native_error",
-                    static_cast<u32>(resized.native_error));
+    if (buffer_width != gpu_surface_width(&renderer->graphics.surface) ||
+        buffer_height != gpu_surface_height(&renderer->graphics.surface)) {
+        const GpuStatus resized = gpu_surface_resize(&renderer->graphics.surface, buffer_width, buffer_height);
+        if (!gpu_ok(resized)) {
+            // The backend logged whether the buffers or the render target failed.
+            log_u64(LogLevel::error, "render", "d3d11_resize_native_error", static_cast<u32>(resized));
             note_device_failure(renderer);
             return false;
         }
@@ -384,17 +374,18 @@ void renderer_set_live_resize(D3D11Renderer* renderer, bool live_resize) noexcep
 }
 
 void renderer_accept_begin_frame(D3D11Renderer* renderer) noexcept {
-    if (renderer && renderer->graphics.frame_latency_waitable && !renderer->live_resize) {
+    if (renderer && gpu_frame_clock_waitable(&renderer->graphics.surface) && !renderer->live_resize) {
         renderer->begin_frame_permit = true;
     }
 }
 
 bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer->graphics.target || !renderer->graphics.swap_chain || renderer->device_lost) {
+    if (!gpu_surface_target(&renderer->graphics.surface) || !gpu_surface_valid(&renderer->graphics.surface) ||
+        renderer->device_lost) {
         return false;
     }
     if (renderer->has_presented)
-        renderer_note_text_effect_damage(renderer, GetTickCount64());
+        renderer_note_text_effect_damage(renderer, clock_monotonic_milliseconds());
     const RendererPresentationStamp current = renderer_capture_presentation_stamp(*renderer, theme);
     if (renderer->has_presented &&
         (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
@@ -410,30 +401,22 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     // Modal resize presents must consume a slot too. Skipping these waits
     // accumulates semaphore credits, allowing normal frames to queue far ahead
     // of the compositor after the drag ends.
-    if (renderer->graphics.frame_latency_waitable && !renderer->begin_frame_permit) {
-        const DWORD waited = d3d11_device_owner_wait(renderer->graphics, 1'000u);
-        if (waited != WAIT_OBJECT_0) {
+    if (gpu_frame_clock_waitable(&renderer->graphics.surface) && !renderer->begin_frame_permit) {
+        if (!gpu_frame_wait(&renderer->graphics.surface, 1'000u)) {
             log_write(LogLevel::error, "render", "frame_latency_wait_failed");
             return false;
         }
         renderer->begin_frame_permit = true;
     }
     const bool first_paint = renderer->painted_frames == 0;
-    LARGE_INTEGER paint_begin{};
-    if (first_paint)
-        QueryPerformanceCounter(&paint_begin);
+    const Clock clock = clock_initialize();
+    const i64 paint_begin = first_paint ? clock_now() : 0;
     if (!d3d11_renderer_paint_layout(renderer, theme, current)) {
         note_device_failure(renderer);
         return false;
     }
-    if (first_paint) {
-        LARGE_INTEGER paint_end{}, frequency{};
-        QueryPerformanceCounter(&paint_end);
-        QueryPerformanceFrequency(&frequency);
-        renderer->first_frame_cpu_us =
-            static_cast<u64>(paint_end.QuadPart - paint_begin.QuadPart) * 1'000'000ull /
-            static_cast<u64>(frequency.QuadPart);
-    }
+    if (first_paint)
+        renderer->first_frame_cpu_us = clock_microseconds(clock, paint_begin, clock_now());
     ++renderer->painted_frames;
     if (!renderer->present_required) {
         return true;
@@ -446,10 +429,11 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     dirty[0].top += static_cast<LONG>(renderer->target_origin_y);
     dirty[0].bottom += static_cast<LONG>(renderer->target_origin_y);
     const u32 dirty_count = 1 + d3d11_renderer_caption_dirty_rect(*renderer, &dirty[1]);
-    const HRESULT result = d3d11_device_owner_present(&renderer->graphics, sync_interval,
-                                                      renderer->present_full ? nullptr : dirty,
-                                                      dirty_count);
-    if (FAILED(result)) {
+    const GpuStatus result = gpu_surface_present(&renderer->graphics.surface, sync_interval,
+                                                 renderer->present_full ? nullptr
+                                                                        : reinterpret_cast<const GpuRect*>(dirty),
+                                                 dirty_count);
+    if (!gpu_ok(result)) {
         log_write(LogLevel::error, "render", "present_failed_or_device_removed");
         note_device_failure(renderer);
         return false;
@@ -768,8 +752,8 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
         pages_release(renderer->inline_media.flags);
     reset_value(&renderer->inline_media);
     if (renderer->graphics.context) {
-        renderer->graphics.context->ClearState();
-        renderer->graphics.context->Flush();
+        gpu_clear_state(renderer->graphics.context);
+        gpu_flush(renderer->graphics.context);
     }
     d3d11_background_fx_release(&renderer->background_fx);
     d3d11_effect_release(&renderer->effect);
@@ -874,7 +858,7 @@ bool renderer_device_lost(D3D11Renderer* renderer) noexcept {
 // host rebuilds text and requests media again. Cold: runs once per reset.
 bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     // A renderer that never finished initialization has nothing to rebuild.
-    if (!renderer || !renderer->window || !renderer->glyph_text.atlas_origins)
+    if (!renderer || !renderer->glyph_text.atlas_origins)
         return false;
     log_write(LogLevel::warning, "render", "device_recovery_begin");
     d3d11_effect_release_device(&renderer->effect);
@@ -888,22 +872,23 @@ bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     icon_atlas_release(&renderer->icon_atlas);
     d3d11_draw_pipeline_release(&renderer->pipeline);
     if (renderer->graphics.context) {
-        renderer->graphics.context->ClearState();
-        renderer->graphics.context->Flush();
+        gpu_clear_state(renderer->graphics.context);
+        gpu_flush(renderer->graphics.context);
     }
     d3d11_device_owner_release(&renderer->graphics);
 
-    const D3D11DeviceOwnerResult graphics =
-        d3d11_device_owner_initialize(&renderer->graphics, renderer->window);
+    const GpuSurfaceDesc surface{renderer->window, renderer->width, renderer->height + renderer->caption_height,
+                                 renderer->dpi == 0 ? 96 : renderer->dpi};
+    const D3D11DeviceOwnerResult graphics = d3d11_device_owner_initialize(&renderer->graphics, surface);
     if (!graphics.ok()) {
         log_u64(LogLevel::error, "render", "device_recovery_device_error", static_cast<u32>(graphics.native_error));
         renderer->device_lost = true;
         return false;
     }
-    renderer->width = graphics.width;
-    renderer->height = graphics.height > renderer->caption_height ? graphics.height - renderer->caption_height : 1;
+    renderer->width = surface.width;
+    renderer->height = surface.height > renderer->caption_height ? surface.height - renderer->caption_height : 1;
     renderer->target_origin_y = renderer->caption_height;
-    renderer->dpi = graphics.dpi;
+    renderer->dpi = surface.dpi;
     renderer->adapter_key = graphics.adapter_key;
     if (!icon_atlas_initialize(&renderer->icon_atlas, renderer->graphics.device))
         log_write(LogLevel::error, "render", "icon_atlas_creation_failed");

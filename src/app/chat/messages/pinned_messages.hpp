@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct UiScrollRange;
@@ -17,7 +18,7 @@ bool application_pinned_messages_toggle() noexcept;
 void application_pinned_messages_close() noexcept;
 void application_pinned_messages_release() noexcept;
 bool application_pinned_messages_synchronize() noexcept;
-bool application_pinned_messages_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_pinned_messages_window_event(const WindowEvent&) noexcept;
 bool application_pinned_messages_input(UiInputKind, u32, bool repeated) noexcept;
 bool application_pinned_messages_pending(u64 now_ms) noexcept;
 bool application_pinned_messages_submit(u64 request_id, u64 now_ms) noexcept;

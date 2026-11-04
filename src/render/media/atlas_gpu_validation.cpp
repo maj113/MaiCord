@@ -215,7 +215,7 @@ i32 vp8_macroblock_filter_level(const Vp8ControlHeader& header, const Vp8Macrobl
 }
 
 MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                            ID3D11DeviceContext1* context, ID3D11RenderTargetView* target,
+                                            GpuContext1* context, GpuRtv* target,
                                             u16 surface_width, u16 surface_height, MediaAssetKey key,
                                             u16 width, u16 height, bool clear_cached) noexcept {
     const MediaAtlasResult allocation = media_atlas_allocate(atlas, key, width, height);
@@ -228,7 +228,7 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
         return allocation;
     }
     const LONG padding = atlas->allocations.padding;
-    const D3D11_RECT rectangle{
+    const GpuRect rectangle{
         maximum<LONG>(0, static_cast<LONG>(allocation.x) - padding),
         maximum<LONG>(0, static_cast<LONG>(allocation.y) - padding),
         minimum<LONG>(surface_width, static_cast<LONG>(allocation.x + allocation.width) + padding),
@@ -236,12 +236,12 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
     };
     const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     unbind_media_pixel_resources(context);
-    context->ClearView(target, transparent, &rectangle, 1);
+    gpu_clear_rtv_rect(context, target, transparent, rectangle);
     ++gpu->cleared_regions;
     return allocation;
 }
 
-MediaAtlasResult allocate_and_clear(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11DeviceContext1* context,
+MediaAtlasResult allocate_and_clear(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuContext1* context,
                                     MediaAssetKey key, u16 width, u16 height) noexcept {
     return allocate_and_clear_surface(gpu, atlas, context, gpu->target, gpu->width, gpu->height, key, width,
                                       height);

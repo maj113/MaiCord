@@ -60,7 +60,7 @@ bool open_url(const SecureBuffer& url) noexcept {
         wide[i] = static_cast<wchar_t>(url.data[i]);
     }
     wide[url.bytes] = 0;
-    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(g_app.window, L"open", wide, nullptr, nullptr,
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(win32_hwnd(g_app.window), L"open", wide, nullptr, nullptr,
                                                                 SW_SHOWNORMAL));
     SecureZeroMemory(wide, sizeof(wide));
     return result > 32;

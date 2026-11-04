@@ -16,7 +16,6 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
 

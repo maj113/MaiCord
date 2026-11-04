@@ -102,7 +102,7 @@ bool application_link_channel_trusted(u64) noexcept {
 bool application_guild_folders_toggle(u64) noexcept {
     return false;
 }
-bool application_navigation_drag_press(LPARAM) noexcept {
+bool application_navigation_drag_press(const WindowEvent&) noexcept {
     return false;
 }
 bool application_guild_lifecycle_open_invite(u64, u64) noexcept {

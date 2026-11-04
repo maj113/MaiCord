@@ -14,8 +14,6 @@ struct ApplicationWindowState {
     bool visible;
     bool foreground;
     bool keyboard_focus;
-    // A TME_LEAVE request is outstanding; WM_MOUSELEAVE spends it.
-    bool pointer_leave_armed;
     // Zero until first queried; then the value of the last WM_DPICHANGED.
     u32 dpi;
     LONG client_width;
@@ -64,23 +62,5 @@ inline u32 application_window_dpi(HWND window) noexcept {
     return g_window_state.dpi;
 }
 
-// Asks the system to post WM_MOUSELEAVE when the pointer leaves the client
-// area. One request per window: it stays armed until WM_MOUSELEAVE.
-inline void application_arm_pointer_leave(HWND window) noexcept {
-    if (g_window_state.pointer_leave_armed)
-        return;
-    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, window, 0};
-    g_window_state.pointer_leave_armed = TrackMouseEvent(&tracking) != FALSE;
-}
-
-// The cursor in client pixels, resolved once for the WM_SETCURSOR being
-// dispatched so every layer that asks where the pointer is reads it instead
-// of querying the system again.
-struct ApplicationDispatchCursor {
-    HWND window;
-    POINT point;
-    bool valid;
-};
-inline ApplicationDispatchCursor g_dispatch_cursor{};
 
 } // namespace maicord::app_detail

@@ -7,7 +7,9 @@
 // data and is set up by gpu_device_create).
 
 #include "maicord/core/memory.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/gpu/glsl_shader.hpp"
 #include "maicord/sys/linux/egl.hpp"
 #include "maicord/sys/linux/gles.hpp"
 
@@ -33,6 +35,7 @@ struct GlesBinding {
 static_assert(sizeof(GlesBinding) == 4);
 
 struct GpuBuffer {
+    u32 refs; // owners: the handle, every view, every retain (a texture's the same)
     u32 name;
     u32 bytes;
     GpuUsage usage;
@@ -42,16 +45,19 @@ struct GpuBuffer {
 };
 
 struct GpuTexture {
+    u32 refs; // owners: the handle, every view, every retain
     u32 name;
     u32 framebuffer; // created on first use as a render or read target
     u32 width, height;
     gl::Enum internal; // the GL storage format
     GpuFormat format;  // the logical format callers see
     u8 bind;
+    GpuUsage usage;
     bool wide; // r8 stored as RGBA8 because it is a storage image
 };
 
 struct GpuSrv {
+    u32 refs; // gpu_retain: owners beyond the first
     GpuViewKind kind;
     GpuTexture* texture;
     GpuBuffer* buffer;
@@ -65,6 +71,7 @@ struct GpuRtv {
 };
 struct GpuSampler {
     u32 name;
+    u32 nearest_name; // a linear sampler's point twin: float32 textures are not filtered without float_linear
 };
 struct GpuBlend {
     GpuBlendDesc desc;
@@ -75,9 +82,13 @@ struct GpuRaster {
 
 struct GlesShader {
     u32 name;                   // GL shader object (graphics) or program (compute)
-    const GlesBinding* rows;    // inside the pack, which outlives every shader
+    const GlesBinding* rows;    // inside the pack, which outlives every shader, or owned_rows
     u32 row_count;
     ShaderId id;
+    // The composite pixel shader of a device without dual-source blending: `name` is 0 and the two outputs are two
+    // shaders, drawn one after the other (gpu_draw_instanced). Both have the manifest of the original.
+    u32 weight_name, color_name;
+    GlesBinding owned_rows[kGlslBindingMaximum]; // a package shader's manifest
 };
 struct GpuVertexShader : GlesShader {};
 struct GpuPixelShader : GlesShader {};
@@ -127,6 +138,27 @@ struct GlesProgram {
     const GpuVertexShader* vertex;
     const GpuPixelShader* pixel;
     u32 name;
+    u32 variant; // 0 the pixel shader itself, 1 and 2 its weight and colour halves (GlesShader::weight_name)
+};
+
+// A timer's two timestamp queries (GL_EXT_disjoint_timer_query).
+struct GpuQuery {
+    u32 begin, end;
+    bool issued; // end was queued and not yet read
+};
+
+// A fence: the sync objects of its signals in order, and the events armed for values not yet reached. Completion is
+// noticed where the render thread calls into the backend (gles::poll_fences): GL sync objects belong to the context.
+inline constexpr u32 kGlesFenceSignals = 16, kGlesFenceWaits = 16;
+struct GpuFence {
+    gl::Sync syncs[kGlesFenceSignals];
+    u64 values[kGlesFenceSignals];
+    u32 signal_count;
+    u64 completed;
+    u64 wait_values[kGlesFenceWaits];
+    Waitable wait_events[kGlesFenceWaits];
+    u32 wait_count;
+    bool in_use;
 };
 
 struct GpuContext {
@@ -138,6 +170,8 @@ struct GpuContext {
     GpuBuffer* vertex_buffer;
     u32 vertex_stride, vertex_offset;
     GpuBuffer* constants[3][kGlesConstantSlots];
+    u32 compute_range_first[kGlesConstantSlots]; // gpu_set_constants_range: 16-byte constants; count 0 = whole buffer
+    u32 compute_range_count[kGlesConstantSlots];
     GpuSrv* srvs[3][kGlesResourceSlots];
     GpuSampler* samplers[3][kGlesResourceSlots];
     GpuUav* uavs[kGlesUavSlots];
@@ -176,27 +210,59 @@ struct GpuDevice {
     egl::Display display;
     egl::Context context;
     egl::Surface surface; // the 1x1 pbuffer when the context could not be made current without a surface
+    egl::Config config;   // the config of the context; window surfaces use the same one
+    void* native_display; // the window system connection (wl_display*) this display was made from, or null
     GpuCaps caps;
     char description[160];
     u32 empty_vertex_array;
     u32 scratch_framebuffer;
     bool lost;
+    bool debug_checks; // MAICORD_GLES_CHECK=1: a GL error is reported after the draw or clear that raised it
     bool created;
+    u32 refs; // gpu_retain: owners beyond the first
 
     GlesSlab<GpuBuffer, 256> buffers;
     GlesSlab<GpuTexture, 128> textures;
     GlesSlab<GpuSrv, 256> srvs;
     GlesSlab<GpuUav, 64> uavs;
     GlesSlab<GpuRtv, 128> rtvs;
-    GlesSlab<GpuSampler, 16> samplers;
+    GlesSlab<GpuSampler, 32> samplers;
     GlesSlab<GpuBlend, 32> blends;
     GlesSlab<GpuRaster, 4> rasters;
-    GlesSlab<GpuVertexShader, 16> vertex_shaders;
-    GlesSlab<GpuPixelShader, 16> pixel_shaders;
+    GlesSlab<GpuVertexShader, 32> vertex_shaders;
+    GlesSlab<GpuPixelShader, 32> pixel_shaders;
     GlesSlab<GpuComputeShader, 24> compute_shaders;
     GlesSlab<GpuInputLayout, 8> layouts;
+    GlesSlab<GpuQuery, 16> queries;
+    GlesSlab<GpuFence, 8> fences;
     GlesProgram programs[kGlesProgramCacheSize];
     u32 program_count;
+};
+
+// What one present changed: the whole frame, or the bounding box of its dirty rectangles.
+struct GlesDamage {
+    bool full;
+    GpuRect box;
+};
+inline constexpr u32 kGlesDamageHistory = 3; // buffer ages up to history + 1 blit only the damage they missed
+
+// The window surface (behind the caller's GpuSurface::impl): an EGL surface on the window's wl_egl_window and the
+// offscreen frame the renderer draws into.
+struct GlesSurface {
+    void* window;       // wl_egl_window*
+    egl::Surface surface;
+    GpuTexture* frame;
+    GpuRtv* own_target; // the frame's render target, what a present blits
+    GpuRtv* target;     // what gpu_surface_target answers: own_target unless gpu_surface_set_target moved it
+    u32 width, height;
+    i32 offset_x, offset_y;
+    GlesDamage history[kGlesDamageHistory]; // newest first
+    u32 history_count;
+    Waitable clock;      // the frame permit
+    i32 swap_interval;   // applied, -1 unknown
+    bool needs_full;     // the next present blits the whole frame
+    bool resized;        // the window surface must be revalidated at its new size before the next blit
+    bool created;
 };
 
 namespace gles {
@@ -236,7 +302,11 @@ u32 texture_framebuffer(GpuTexture* texture) noexcept;
 // Shader pack (shader_pack.cpp).
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum stage, GlesShader* shader) noexcept;
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept;
-u32 graphics_program(GpuContext* context) noexcept;
+u32 graphics_program(GpuContext* context, u32 variant = 0) noexcept;
+// Waits for the prestart worker, if one still runs, and makes the context current on the calling thread.
+void claim_context() noexcept;
+// Looks for the fences whose signals the GPU has passed and wakes the events armed for them.
+void poll_fences() noexcept;
 
 } // namespace gles
 } // namespace maicord

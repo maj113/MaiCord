@@ -23,7 +23,9 @@ set(MAICORD_WAYLAND_XML
     "${MAICORD_WAYLAND_XML_DIRECTORY}/idle-inhibit-unstable-v1.xml"
     # The compositor side of input injection, for tests/platform/window/wayland_window.cpp (wlroots compositors).
     "${MAICORD_WAYLAND_XML_DIRECTORY}/wlr-virtual-pointer-unstable-v1.xml"
-    "${MAICORD_WAYLAND_XML_DIRECTORY}/virtual-keyboard-unstable-v1.xml")
+    "${MAICORD_WAYLAND_XML_DIRECTORY}/virtual-keyboard-unstable-v1.xml"
+    "${MAICORD_WAYLAND_XML_DIRECTORY}/input-method-unstable-v2.xml"
+    "${MAICORD_WAYLAND_XML_DIRECTORY}/wlr-data-control-unstable-v1.xml")
 set(MAICORD_WAYLAND_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
 set(MAICORD_WAYLAND_PROTOCOL_HEADER "${MAICORD_WAYLAND_GENERATED_DIRECTORY}/wayland_protocols.hpp")
 set(MAICORD_WAYLAND_PROTOCOL_SOURCE "${MAICORD_WAYLAND_GENERATED_DIRECTORY}/wayland_protocols.cpp")
@@ -35,10 +37,14 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_wayland_protocols.py" ${MAICORD_WAYLAND_XML}
     VERBATIM)
 
+# maicord_dbus: the desktop settings (the settings portal) and the session bus the loop waits on.
 maicord_library(maicord_window_wayland
     src/platform/window/wayland/client.cpp src/platform/window/wayland/xkb.cpp
     src/platform/window/wayland/keymap.cpp src/platform/window/wayland/window.cpp
     src/platform/window/wayland/pointer.cpp src/platform/window/wayland/keyboard.cpp
     src/platform/window/wayland/pump.cpp src/platform/window/wayland/global_keys.cpp
+    src/platform/window/wayland/frame.cpp src/platform/window/wayland/extras.cpp
+    src/platform/window/wayland/data.cpp src/platform/window/wayland/uri.cpp
+    src/platform/window/wayland/text_input.cpp
     "${MAICORD_WAYLAND_PROTOCOL_HEADER}" "${MAICORD_WAYLAND_PROTOCOL_SOURCE}"
-    LIBS maicord_core INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}")
+    LIBS maicord_core maicord_media_codec maicord_dbus INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}")

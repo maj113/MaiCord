@@ -16,8 +16,8 @@ static_assert(sizeof(Vp8TileWaveConstants) == 256);
 static_assert(kVp8MacroblockDimensionMaximum <= 32);
 // Waves: ceil((columns + 2 * rows - 2) / 8) + ceil(rows / 2) - 1 diagonals at most.
 static_assert((kVp8MacroblockDimensionMaximum * 3 + 5) / 8 + (kVp8MacroblockDimensionMaximum + 1) / 2 <= 32);
-HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
-                          ID3D11DeviceContext1* context, u32 columns, u32 rows) noexcept {
+GpuStatus prepare_vp8_tiles(MediaAtlasGpu* gpu, GpuDevice* device,
+                            GpuContext1* context, u32 columns, u32 rows) noexcept {
     if (gpu->vp8_tile_constants && gpu->vp8_tile_columns == columns && gpu->vp8_tile_rows == rows)
         return S_OK;
     constexpr u32 tile_rows = 2, span = 8;
@@ -25,19 +25,16 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
     const u32 rank_tiles = (ranks + span - 1) / span;
     const u32 row_tiles = (rows + tile_rows - 1) / tile_rows;
     if (!gpu->vp8_tile_constants) {
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = 32 * sizeof(Vp8TileWaveConstants);
-        desc.Usage = D3D11_USAGE_DYNAMIC;
-        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        const HRESULT result = device->CreateBuffer(&desc, nullptr, &gpu->vp8_tile_constants);
+        const GpuStatus result = gpu_buffer_create(
+            device, {32 * sizeof(Vp8TileWaveConstants), GpuUsage::dynamic, gpu_bind_constant, false}, nullptr,
+            &gpu->vp8_tile_constants);
         if (FAILED(result)) return result;
     }
     // Only the first `count` 256-byte ranges are ever bound, so the rest stay unwritten.
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const HRESULT mapped_result = context->Map(gpu->vp8_tile_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (FAILED(mapped_result)) return mapped_result;
-    auto* constants = static_cast<Vp8TileWaveConstants*>(mapped.pData);
+    GpuStatus mapped_result = kGpuOk;
+    void* mapped = gpu_map(context, gpu->vp8_tile_constants, GpuMap::discard, &mapped_result);
+    if (!mapped) return FAILED(mapped_result) ? mapped_result : kGpuFail;
+    auto* constants = static_cast<Vp8TileWaveConstants*>(mapped);
     u32 count = 0;
     for (u32 diagonal = 0; diagonal < rank_tiles + row_tiles - 1; ++diagonal) {
         const u32 first = diagonal >= rank_tiles ? diagonal - rank_tiles + 1 : 0;
@@ -54,7 +51,7 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
         constants[count].rank_span = span;
         gpu->vp8_tile_groups[count++] = last - first + 1;
     }
-    context->Unmap(gpu->vp8_tile_constants, 0);
+    gpu_unmap(context, gpu->vp8_tile_constants);
     gpu->vp8_tile_columns = static_cast<u16>(columns);
     gpu->vp8_tile_rows = static_cast<u16>(rows);
     gpu->vp8_tile_wave_count = count;
@@ -63,7 +60,7 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
 } // namespace
 
 MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
-    MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context, const Vp8Keyframe& frame,
+    MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context, const Vp8Keyframe& frame,
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients) noexcept {
     if (!gpu || !device || !context || !gpu->texture ||
         !vp8_reconstruction_valid(frame, modes, coefficients)) {
@@ -84,7 +81,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     const u32 yuv_samples = luma_samples + chroma_samples * 2u;
     const u32 yuv_bytes = yuv_samples * sizeof(u32) * 2u;
 
-    HRESULT result = create_vp8_resources(gpu, device);
+    GpuStatus result = create_vp8_resources(gpu, device);
     if (SUCCEEDED(result)) {
         result = ensure_dynamic_raw_buffer(device, mode_bytes, &gpu->vp8_mode_buffer, &gpu->vp8_mode_view,
                                            &gpu->vp8_mode_capacity);
@@ -128,16 +125,15 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
         sizeof(Vp8MacroblockCoefficients),
         {0, 0, 0},
     };
-    context->UpdateSubresource(gpu->vp8_constants, 0, nullptr, &constants, 0, 0);
-    context->Dispatch((macroblock_count * 24u + 63u) / 64u, 1, 1);
-    context->CSSetShader(gpu->vp8_reconstruct_shader, nullptr, 0);
+    gpu_update_buffer(context, gpu->vp8_constants, &constants, sizeof(constants));
+    gpu_dispatch(context, (macroblock_count * 24u + 63u) / 64u, 1, 1);
+    gpu_set_shader(context, gpu->vp8_reconstruct_shader);
     for (u32 wave = 0; wave < gpu->vp8_tile_wave_count; ++wave) {
-        const UINT first_constant = wave * 16, constant_count = 16;
-        context->CSSetConstantBuffers1(1, 1, &gpu->vp8_tile_constants, &first_constant, &constant_count);
-        context->Dispatch(gpu->vp8_tile_groups[wave], 1, 1);
+        gpu_set_constants_range(context, 1, gpu->vp8_tile_constants, wave * 16, 16);
+        gpu_dispatch(context, gpu->vp8_tile_groups[wave], 1, 1);
     }
-    ID3D11Buffer* no_tiles = nullptr;
-    context->CSSetConstantBuffers(1, 1, &no_tiles);
+    GpuBuffer* no_tiles = nullptr;
+    gpu_set_constants(context, GpuStage::compute, 1, 1, &no_tiles);
     unbind_compute(context);
 
     gpu->vp8_width = frame.width;
@@ -156,7 +152,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
 }
 
 MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
-    MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context, const Vp8Keyframe& frame,
+    MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context, const Vp8Keyframe& frame,
     const Vp8ControlHeader& header, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients) noexcept {
     const u32 expected_luma_stride = ((static_cast<u32>(frame.width) + 15u) / 16u) * 16u;
@@ -195,7 +191,7 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
         return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
     }
 
-    const HRESULT result = create_vp8_filter_resources(gpu, device);
+    const GpuStatus result = create_vp8_filter_resources(gpu, device);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
@@ -224,10 +220,10 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
     // vp8_filter.hlsl gives each wavefront rank (x + 2y) 16 thread rows and no
     // inner loop: a rank holds at most ceil(columns / 2) macroblocks.
     static_assert((kWebpDimensionMaximum + 15u) / 16u <= 32u, "VP8 filter rank exceeds 16 macroblocks");
-    context->UpdateSubresource(gpu->vp8_filter_constants, 0, nullptr, &constants, 0, 0);
+    gpu_update_buffer(context, gpu->vp8_filter_constants, &constants, sizeof(constants));
     bind_compute_2srv(context, gpu->vp8_filter_shader, gpu->vp8_filter_constants,
                       gpu->vp8_mode_view, gpu->vp8_coefficient_view, gpu->vp8_yuv_uav);
-    context->Dispatch(1, 1, 1);
+    gpu_dispatch(context, 1, 1, 1);
     unbind_compute(context);
 
     gpu->vp8_last_filtered_reconstruction = gpu->vp8_reconstructions;
@@ -239,8 +235,8 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
 }
 
 MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
+    MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+    GpuContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
     ConstSlice<u8> alpha, bool preview) noexcept {
     const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
     if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
@@ -252,7 +248,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
-    const HRESULT result = upload_vp8_alpha(gpu, device, context, alpha);
+    const GpuStatus result = upload_vp8_alpha(gpu, device, context, alpha);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
@@ -267,7 +263,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
 }
 
 MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device, ID3D11DeviceContext1* context,
+    MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u16 canvas_width, u16 canvas_height, u32 background_rgba,
     const AnimatedWebpFrame& animation_frame, const Vp8Keyframe& vp8_frame, ConstSlice<u8> alpha) noexcept {
     if (!animation_target_ready(gpu, atlas, device, context, key) ||
@@ -278,7 +274,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
         !vp8_atlas_frame_ready(gpu, vp8_frame, alpha)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    const HRESULT uploaded = upload_vp8_alpha(gpu, device, context, alpha);
+    const GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded);
     }
@@ -297,7 +293,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
 }
 
 MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device, ID3D11DeviceContext1* context,
+    MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u32 background_rgba, const AnimatedWebpFrame& previous_frame,
     const AnimatedWebpFrame& animation_frame, const Vp8Keyframe& vp8_frame, ConstSlice<u8> alpha) noexcept {
     const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
@@ -309,7 +305,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
         !vp8_atlas_frame_ready(gpu, vp8_frame, alpha)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
-    const HRESULT uploaded = upload_vp8_alpha(gpu, device, context, alpha);
+    const GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded, allocation);
     }
@@ -330,43 +326,43 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
         return;
     }
     video_frame_gpu_release(&gpu->video);
-    com_release(gpu->jpeg_atlas_shader);
-    com_release(gpu->jpeg_atlas_constants);
-    com_release(gpu->jpeg_idct_shader);
-    com_release(gpu->jpeg_idct_constants);
-    com_release(gpu->vp8_atlas_shader);
-    com_release(gpu->vp8_atlas_constants);
-    com_release(gpu->vp8_filter_shader);
-    com_release(gpu->vp8_filter_constants);
-    com_release(gpu->vp8_reconstruct_shader);
-    com_release(gpu->vp8_idct_shader);
-    com_release(gpu->vp8_constants);
-    com_release(gpu->vp8_tile_constants);
+    gpu_release(gpu->jpeg_atlas_shader);
+    gpu_release(gpu->jpeg_atlas_constants);
+    gpu_release(gpu->jpeg_idct_shader);
+    gpu_release(gpu->jpeg_idct_constants);
+    gpu_release(gpu->vp8_atlas_shader);
+    gpu_release(gpu->vp8_atlas_constants);
+    gpu_release(gpu->vp8_filter_shader);
+    gpu_release(gpu->vp8_filter_constants);
+    gpu_release(gpu->vp8_reconstruct_shader);
+    gpu_release(gpu->vp8_idct_shader);
+    gpu_release(gpu->vp8_constants);
+    gpu_release(gpu->vp8_tile_constants);
     gpu->vp8_tile_columns = gpu->vp8_tile_rows = 0;
     gpu->vp8_tile_wave_count = 0;
-    com_release(gpu->vp8_yuv_uav);
-    com_release(gpu->vp8_yuv_view);
-    com_release(gpu->vp8_yuv_buffer);
-    com_release(gpu->vp8_coefficient_view);
-    com_release(gpu->vp8_coefficient_buffer);
-    com_release(gpu->vp8_mode_view);
-    com_release(gpu->vp8_mode_buffer);
-    com_release(gpu->png_shader);
-    com_release(gpu->png_constants);
-    com_release(gpu->png_palette_view);
-    com_release(gpu->png_palette_buffer);
-    com_release(gpu->png_scanline_view);
-    com_release(gpu->png_scanline_buffer);
-    com_release(gpu->apng_backup_texture);
-    com_release(gpu->preview_texture_uav);
-    com_release(gpu->preview_target);
-    com_release(gpu->preview_texture_view);
-    com_release(gpu->preview_texture);
-    com_release(gpu->preview_animation_backup_texture);
-    com_release(gpu->texture_uav);
-    com_release(gpu->target);
-    com_release(gpu->texture_view);
-    com_release(gpu->texture);
+    gpu_release(gpu->vp8_yuv_uav);
+    gpu_release(gpu->vp8_yuv_view);
+    gpu_release(gpu->vp8_yuv_buffer);
+    gpu_release(gpu->vp8_coefficient_view);
+    gpu_release(gpu->vp8_coefficient_buffer);
+    gpu_release(gpu->vp8_mode_view);
+    gpu_release(gpu->vp8_mode_buffer);
+    gpu_release(gpu->png_shader);
+    gpu_release(gpu->png_constants);
+    gpu_release(gpu->png_palette_view);
+    gpu_release(gpu->png_palette_buffer);
+    gpu_release(gpu->png_scanline_view);
+    gpu_release(gpu->png_scanline_buffer);
+    gpu_release(gpu->apng_backup_texture);
+    gpu_release(gpu->preview_texture_uav);
+    gpu_release(gpu->preview_target);
+    gpu_release(gpu->preview_texture_view);
+    gpu_release(gpu->preview_texture);
+    gpu_release(gpu->preview_animation_backup_texture);
+    gpu_release(gpu->texture_uav);
+    gpu_release(gpu->target);
+    gpu_release(gpu->texture_view);
+    gpu_release(gpu->texture);
     gpu->width = 0;
     gpu->height = 0;
     gpu->preview_width = 0;

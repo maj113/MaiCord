@@ -14,6 +14,7 @@
 #include "maicord/ui/media/picker_presentation.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord::app_detail {
 // No voice message recording in this runtime.
@@ -237,8 +238,8 @@ bool capture_edit() noexcept {
     const auto& field = g_app.media_picker->scene.field;
     const auto point = MAKELPARAM(static_cast<short>((field.left + field.right) * .5f),
                                   static_cast<short>((field.top + field.bottom) * .5f));
-    return application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point) &&
-           g_app.media_picker->captured && GetCapture() == g_app.window;
+    return application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+           g_app.media_picker->captured && window_pointer_captured(g_app.window);
 }
 bool capture_body_thumb() noexcept {
     const auto scrollbar = ui_media_picker_scene_scrollbar(g_app.media_picker->scene);
@@ -246,14 +247,14 @@ bool capture_body_thumb() noexcept {
         return false;
     const auto point = MAKELPARAM(static_cast<short>((scrollbar.thumb.left + scrollbar.thumb.right) * .5f),
                                   static_cast<short>((scrollbar.thumb.top + scrollbar.thumb.bottom) * .5f));
-    return application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point) &&
-           g_app.media_picker->scrollbar_dragging && GetCapture() == g_app.window;
+    return application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+           g_app.media_picker->scrollbar_dragging && window_pointer_captured(g_app.window);
 }
 bool initialize() noexcept {
     keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
     BYTE keyboard[256]{};
-    g_app.window = CreateWindowExW(0, L"STATIC", L"MaiCord picker runtime fixture", WS_POPUP, -16000,
-                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord picker runtime fixture", WS_POPUP, -16000,
+                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!keyboard_saved || !SetKeyboardState(keyboard) || !g_app.window || !g_app.account_ui)
@@ -312,10 +313,10 @@ void release() noexcept {
     message_composer_scene_release(&g_app.message_composer_scene);
     message_composer_release(&g_app.message_composer);
     ui_scene_release(&g_app.shell_scene);
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (window_pointer_captured(g_app.window))
+        window_release_capture(g_app.window);
     if (g_app.window)
-        DestroyWindow(g_app.window);
+        DestroyWindow(win32_hwnd(g_app.window));
     if (g_app.account_ui)
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.window = nullptr;
@@ -601,8 +602,8 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     const float fx = forward ? (forward->rectangle.left + forward->rectangle.right) * .5f : 0;
     const float fy = forward ? (forward->rectangle.top + forward->rectangle.bottom) * .5f : 0;
     const float paged = ui_rect_width(p.scene.body) * .8f;
-    const bool started = forward && application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(fx, fy)) &&
-                         application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(fx, fy)) &&
+    const bool started = forward && application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(fx, fy)), window_test::y_of(pointer(fx, fy)))) &&
+                         application_media_picker_window_event(window_test::pointer_up(window_test::x_of(pointer(fx, fy)), window_test::y_of(pointer(fx, fy)), PointerButton::left)) &&
                          ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips == 0 &&
                          p.scene.page_to == paged && p.scene.page_duration_ms > kUiTransitionFrameMs &&
                          p.scene.page_duration_ms <= 1'500 && p.page_at &&
@@ -620,8 +621,8 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     const float bx = back ? (back->rectangle.left + back->rectangle.right) * .5f : 0;
     const float by = back ? (back->rectangle.top + back->rectangle.bottom) * .5f : 0;
     g_app.preferences.reduced_motion = true;
-    check(back && application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(bx, by)) &&
-              application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(bx, by)) &&
+    check(back && application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(bx, by)), window_test::y_of(pointer(bx, by)))) &&
+              application_media_picker_window_event(window_test::pointer_up(window_test::x_of(pointer(bx, by)), window_test::y_of(pointer(bx, by)), PointerButton::left)) &&
               !ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips == 0 &&
               !application_media_picker_caret_wake(),
           "inline results: reduced motion pages at once, as the client's scrollBy behavior auto");
@@ -636,13 +637,13 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
             tile = p.scene.projection->cells[i].clip;
     const float tx = (tile.left + tile.right) * .5f, ty = (tile.top + tile.bottom) * .5f;
     check(p.scene.selected_index == 0 &&
-              application_media_picker_window_message(WM_MOUSEMOVE, 0, pointer(tx, ty)) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(tx, ty)), window_test::y_of(pointer(tx, ty)))) &&
               p.scene.selected_index == ~u32{0} &&
-              !application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(tx, anchor.bottom + 4)) &&
+              !application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(tx, anchor.bottom + 4)), window_test::y_of(pointer(tx, anchor.bottom + 4)))) &&
               p.active,
           "inline results: pointing at a result drops the keyboard selection; clicks elsewhere pass through");
-    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(tx, ty)) &&
-              application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(tx, ty)) &&
+    check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(tx, ty)), window_test::y_of(pointer(tx, ty)))) &&
+              application_media_picker_window_event(window_test::pointer_up(window_test::x_of(pointer(tx, ty)), window_test::y_of(pointer(tx, ty)), PointerButton::left)) &&
               controller.request_count == requests + 2 && builtin_uses == 3 && !builtin_replacement_bytes &&
               !p.active,
           "inline results: clicking a tile sends it");
@@ -767,7 +768,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
         }
     }
     check(results_back && second_x > 0 &&
-              application_media_picker_window_message(WM_MOUSEMOVE, 0, pointer(second_x, second_y)) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(second_x, second_y)), window_test::y_of(pointer(second_x, second_y)))) &&
               p.scene.selected_index == ~u32{0} && application_media_picker_inline_key(key::enter, &handled) &&
               handled && controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/b")) &&
               !p.active,
@@ -816,16 +817,13 @@ void run() noexcept {
     const float initial_width = ui_rect_width(p.scene.panel), fixed_edge = p.scene.panel.right;
     const float resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
     const auto resize_generation = p.generation;
-    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                  pointer(p.scene.panel.left, resize_y)) &&
-              p.resizing && GetCapture() == g_app.window &&
-              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                      pointer(fixed_edge - initial_width - 64, resize_y)) &&
+    check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(p.scene.panel.left, resize_y)), window_test::y_of(pointer(p.scene.panel.left, resize_y)))) &&
+              p.resizing && window_pointer_captured(g_app.window) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(fixed_edge - initial_width - 64, resize_y)), window_test::y_of(pointer(fixed_edge - initial_width - 64, resize_y)), window_test::button_bit(PointerButton::left))) &&
               ui_rect_width(p.scene.panel) == initial_width + 64 && p.scene.panel.right == fixed_edge &&
               p.generation == resize_generation && !p.edit.bytes && preference_saves == 0 &&
-              application_media_picker_window_message(WM_LBUTTONUP, 0,
-                                                      pointer(fixed_edge - initial_width - 64, resize_y)) &&
-              !p.resizing && GetCapture() != g_app.window && preference_saves == 1 &&
+              application_media_picker_window_event(window_test::pointer_up(window_test::x_of(pointer(fixed_edge - initial_width - 64, resize_y)), window_test::y_of(pointer(fixed_edge - initial_width - 64, resize_y)), PointerButton::left)) &&
+              !p.resizing && !window_pointer_captured(g_app.window) && preference_saves == 1 &&
               g_app.preferences.expression_picker_width == initial_width + 64,
           "picker runtime: captured resize keeps query identity and saves width once on release");
     const float saved_width = p.preferred_width;
@@ -833,19 +831,16 @@ void run() noexcept {
     check(application_media_picker_open(UiMediaPickerKind::gif) && p.preferred_width == saved_width &&
               ui_rect_width(p.scene.panel) == saved_width,
           "picker runtime: expression drawer width survives close and reopen");
-    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                   pointer(p.scene.panel.left, resize_y)) &&
-              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                       pointer(fixed_edge + 200, resize_y)) &&
+    check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(p.scene.panel.left, resize_y)), window_test::y_of(pointer(p.scene.panel.left, resize_y)))) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(fixed_edge + 200, resize_y)), window_test::y_of(pointer(fixed_edge + 200, resize_y)), window_test::button_bit(PointerButton::left))) &&
               ui_rect_width(p.scene.panel) == initial_width &&
-              !application_media_picker_window_message(WM_CANCELMODE, 0, 0) &&
-              !p.resizing && GetCapture() != g_app.window,
+              !application_media_picker_window_event(window_test::cancel_input()) &&
+              !p.resizing && !window_pointer_captured(g_app.window),
           "picker runtime: resize clamps to the minimum and native cancel releases capture");
-    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                   pointer(p.scene.panel.left, resize_y)) &&
-              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, pointer(-1000, resize_y)) &&
+    check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(p.scene.panel.left, resize_y)), window_test::y_of(pointer(p.scene.panel.left, resize_y)))) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(-1000, resize_y)), window_test::y_of(pointer(-1000, resize_y)), window_test::button_bit(PointerButton::left))) &&
               p.scene.panel.left == p.scene.viewport.left + p.scene.style.metrics.viewport_inset &&
-              !application_media_picker_window_message(WM_CAPTURECHANGED, 0, 0) && !p.resizing,
+              !application_media_picker_window_event(window_test::capture_lost()) && !p.resizing,
           "picker runtime: outward resize clamps to viewport and lost capture ends the drag");
     p.preferred_width = 0;
     check(application_media_picker_synchronize(), "picker runtime: default width restores after resize");
@@ -916,10 +911,10 @@ void run() noexcept {
           "picker runtime: caret timer and idle pumps never duplicate ready catalog requests");
     const auto old_key = preview.key;
     check(capture_edit() && query(utf8_literal("replacement")) && !p.captured &&
-              GetCapture() != g_app.window &&
+              !window_pointer_captured(g_app.window) &&
               application_media_picker_preview_owner_current(old_key, p.scope, old_key.variant) &&
               send_pending(103) && capture_edit() && response(103, gif_body) && !p.captured &&
-              !p.dragging && GetCapture() != g_app.window &&
+              !p.dragging && !window_pointer_captured(g_app.window) &&
               !application_media_picker_preview_owner_current(old_key, p.scope, old_key.variant) &&
               p.gif->first_id > old_key.id,
           "picker runtime: query and accepted bank replacements immediately release real editor capture "
@@ -999,7 +994,7 @@ void run() noexcept {
           "picker runtime: official tab-separated sticker metadata loads and remains searchable locally");
     const auto sticker_submissions = account.submissions;
     check(capture_body_thumb() && query(utf8_literal("needle")) && !p.captured && !p.scrollbar_dragging &&
-              GetCapture() != g_app.window && p.source.count == 1 && p.section_count == 1 &&
+              !window_pointer_captured(g_app.window) && p.source.count == 1 && p.section_count == 1 &&
               p.sections[0].id == 42 && item_at(p, 0)->sticker_id == 99 &&
               account.submissions == sticker_submissions,
           "picker runtime: local catalog filtering immediately retires real thumb capture and reaches "
@@ -1146,11 +1141,11 @@ void run() noexcept {
               utf8_equal(p.status, utf8_literal("Too many requests. Try again in a moment.")),
           "picker requests: local limiter refusals retry after a floor, then stop with a notice");
     focus(p, true);
-    SetCapture(g_app.window);
+    window_capture_pointer(g_app.window);
     p.captured = p.dragging = true;
     settings = true;
     check(application_media_picker_synchronize() && !application_media_picker_active() && !p.captured &&
-              !p.dragging && GetCapture() != g_app.window && !application_media_picker_caret_wake() &&
+              !p.dragging && !window_pointer_captured(g_app.window) && !application_media_picker_caret_wake() &&
               !g_app.renderer.media_picker_scene,
           "picker runtime: modal front retires native capture, projection and caret ownership");
     settings = false;
@@ -1390,9 +1385,9 @@ void run() noexcept {
             MAKELPARAM(static_cast<short>(category_bar.thumb.right - 1),
                        static_cast<short>((category_bar.thumb.top + category_bar.thumb.bottom) * .5f));
         const float prior = p.scene.rail_scroll_dips;
-        check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point) &&
+        check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
                   !p.scrollbar_dragging &&
-                  application_media_picker_window_message(WM_LBUTTONUP, 0, point) &&
+                  application_media_picker_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) &&
                   p.scene.rail_scroll_dips == prior,
               "common picker: category rail has no invisible draggable thumb over its icons");
     }
@@ -1409,33 +1404,31 @@ void run() noexcept {
             application_media_picker_drag_tick();
             return true;
         };
-        check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point(x, y)) &&
+        check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point(x, y)), window_test::y_of(point(x, y)))) &&
                   p.scrollbar_dragging &&
-                  application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, point(x, y + 30)) &&
-                  application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, point(x, y + 60)) &&
+                  application_media_picker_window_event(window_test::pointer_move(window_test::x_of(point(x, y + 30)), window_test::y_of(point(x, y + 30)), window_test::button_bit(PointerButton::left))) &&
+                  application_media_picker_window_event(window_test::pointer_move(window_test::x_of(point(x, y + 60)), window_test::y_of(point(x, y + 60)), window_test::button_bit(PointerButton::left))) &&
                   p.scrollbar_follow_pending && g_app.frame_pending && drag_frame() &&
                   !p.scrollbar_follow_pending && p.scene.scroll_dips > 0 && p.generation == generation &&
-                  application_media_picker_window_message(WM_LBUTTONUP, 0, point(x, y + 60)) &&
+                  application_media_picker_window_event(window_test::pointer_up(window_test::x_of(point(x, y + 60)), window_test::y_of(point(x, y + 60)), PointerButton::left)) &&
                   !p.scrollbar_dragging,
               "common picker: thumb drag follows the latest pointer once per frame and scrolls real native "
               "body without changing source/query or activating a cell");
         const auto burst_scrollbar = ui_media_picker_scene_scrollbar(p.scene);
         const float burst_y = (burst_scrollbar.thumb.top + burst_scrollbar.thumb.bottom) * .5f;
-        bool burst = application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point(x, burst_y));
+        bool burst = application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point(x, burst_y)), window_test::y_of(point(x, burst_y))));
         for (u32 i = 0; i < 8; ++i)
-            burst &= application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                             point(x, burst_y + (i % 17) + 1));
-        burst &= application_media_picker_window_message(WM_LBUTTONUP, 0, point(x, burst_y + 13));
+            burst &= application_media_picker_window_event(window_test::pointer_move(window_test::x_of(point(x, burst_y + (i % 17) + 1)), window_test::y_of(point(x, burst_y + (i % 17) + 1)), window_test::button_bit(PointerButton::left)));
+        burst &= application_media_picker_window_event(window_test::pointer_up(window_test::x_of(point(x, burst_y + 13)), window_test::y_of(point(x, burst_y + 13)), PointerButton::left));
         check(burst && g_app.frame_pending && !p.scrollbar_dragging && p.generation == generation &&
                   text_builds == builds_before_drag && ui_media_picker_scene_current(p.scene),
               "common picker: actual drag bursts publish current hit geometry without per-input glyph "
               "builds");
         const auto next = ui_media_picker_scene_scrollbar(p.scene);
-        check(application_media_picker_window_message(
-                  WM_LBUTTONDOWN, MK_LBUTTON, point(x, (next.thumb.top + next.thumb.bottom) * .5f)) &&
+        check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point(x, (next.thumb.top + next.thumb.bottom) * .5f)), window_test::y_of(point(x, (next.thumb.top + next.thumb.bottom) * .5f)))) &&
                   query(utf8_literal("smile")) && !p.scrollbar_dragging && !p.captured &&
-                  GetCapture() != g_app.window &&
-                  application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, point(x, y)) &&
+                  !window_pointer_captured(g_app.window) &&
+                  application_media_picker_window_event(window_test::pointer_move(window_test::x_of(point(x, y)), window_test::y_of(point(x, y)), window_test::button_bit(PointerButton::left))) &&
                   !p.scrollbar_dragging,
               "common picker: publication/query successor revokes scrollbar capture rather than "
               "retargeting it");
@@ -1486,8 +1479,12 @@ void run() noexcept {
           "common picker: arena retirement preserves per-tab query and scroll across reopen");
     application_media_picker_close();
     const auto route_pointer = [](UINT message, LPARAM point) noexcept {
-        return application_media_picker_window_message(message, 0, point) ||
-               application_button_pointer(message, point);
+        const float x = window_test::x_of(point), y = window_test::y_of(point);
+        const WindowEvent event = message == WM_LBUTTONDBLCLK ? window_test::pointer_double(x, y)
+                                  : message == WM_LBUTTONDOWN ? window_test::pointer_down(x, y)
+                                  : message == WM_LBUTTONUP ? window_test::pointer_up(x, y)
+                                                            : window_test::pointer_move(x, y);
+        return application_media_picker_window_event(event) || application_button_pointer(event);
     };
     const auto center = [](UiRect rectangle) noexcept {
         return MAKELPARAM(static_cast<short>((rectangle.left + rectangle.right) * .5f),
@@ -1502,7 +1499,7 @@ void run() noexcept {
         const bool initial_visibility = g_app.member_pane_visible;
         check(route_pointer(WM_LBUTTONDOWN, member_point) &&
                   g_app.button_pointer_owner == &g_app.shell_scene.widgets &&
-                  GetCapture() == g_app.window && route_pointer(WM_LBUTTONUP, member_point) &&
+                  window_pointer_captured(g_app.window) && route_pointer(WM_LBUTTONUP, member_point) &&
                   member_activations == before_member + 1 &&
                   g_app.member_pane_visible != initial_visibility,
               "button host: owned HWND member press/release activates exactly once");
@@ -1510,7 +1507,7 @@ void run() noexcept {
                   g_app.button_pointer_owner == &g_app.shell_scene.widgets &&
                   route_pointer(WM_LBUTTONUP, member_point) && member_activations == before_member + 2 &&
                   g_app.member_pane_visible == initial_visibility && !g_app.button_pointer_owner &&
-                  GetCapture() != g_app.window,
+                  !window_pointer_captured(g_app.window),
               "button host: native double-click second press/release toggles once without a delay");
     }
     const auto* gif_node =
@@ -1538,7 +1535,7 @@ void run() noexcept {
                   launcher_activations == before_launcher + 4,
               "button host: other launcher changes tab on one release without dismiss/reopen");
         const auto outside = MAKELPARAM(4, 4);
-        check(!application_media_picker_window_message(WM_LBUTTONDOWN, 0, outside) && !p.active &&
+        check(!application_media_picker_window_event(window_test::pointer_down(window_test::x_of(outside), window_test::y_of(outside))) && !p.active &&
                   launcher_activations == before_launcher + 4,
               "button host: ordinary outside press still dismisses without activating a launcher");
     }
@@ -1650,10 +1647,8 @@ void run() noexcept {
           "reaction popout: the composer Emoji tab returns with its own query and selector");
     const auto saves_before_close = preference_saves;
     const float close_resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
-    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                  pointer(p.scene.panel.left, close_resize_y)) &&
-              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                      pointer(p.scene.panel.left - 32, close_resize_y)) &&
+    check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(pointer(p.scene.panel.left, close_resize_y)), window_test::y_of(pointer(p.scene.panel.left, close_resize_y)))) &&
+              application_media_picker_window_event(window_test::pointer_move(window_test::x_of(pointer(p.scene.panel.left - 32, close_resize_y)), window_test::y_of(pointer(p.scene.panel.left - 32, close_resize_y)), window_test::button_bit(PointerButton::left))) &&
               p.resizing && preference_saves == saves_before_close,
           "picker runtime: an unfinished resize has no preference writes");
     application_media_picker_close();
@@ -1661,7 +1656,7 @@ void run() noexcept {
     const auto saves_before_release = preference_saves;
     application_media_picker_close();
     check(saves_before_release == saves_before_close + 1 && preference_saves == saves_before_release &&
-              persisted_width == p.preferred_width && !p.resizing && GetCapture() != g_app.window,
+              persisted_width == p.preferred_width && !p.resizing && !window_pointer_captured(g_app.window),
           "picker runtime: close ends an active resize and saves exactly once before teardown");
     application_media_picker_release();
     check(persisted_width != 0 && application_media_picker_open(UiMediaPickerKind::gif) &&
@@ -1693,13 +1688,7 @@ namespace app_detail {
 void reset_message_composer_caret_timing(bool) noexcept {}
 bool stop_local_typing(u64) noexcept { return true; }
 bool application_thread_header_activate_target(UiThreadHeader*, const UiThreadHeaderTarget&) noexcept { return false; }
-float client_dip_x(LPARAM point) noexcept {
-    return static_cast<short>(LOWORD(point)) * (96.f / maximum<u32>(g_app.renderer.dpi, 1));
-}
-float client_dip_y(LPARAM point) noexcept {
-    return static_cast<short>(HIWORD(point)) * (96.f / maximum<u32>(g_app.renderer.dpi, 1));
-}
-bool handle_shell_click(LPARAM point) noexcept {
+bool handle_shell_click(const WindowEvent& point) noexcept {
     const auto handle =
         ui_widget_manager_hit_test(g_app.shell_scene.widgets, client_dip_x(point), client_dip_y(point));
     const auto* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, handle);
@@ -1709,7 +1698,7 @@ bool handle_shell_click(LPARAM point) noexcept {
     g_app.member_pane_visible = !g_app.member_pane_visible;
     return true;
 }
-bool handle_composer_click(LPARAM point) noexcept {
+bool handle_composer_click(const WindowEvent& point) noexcept {
     const auto control = message_composer_scene_hit_test(g_app.message_composer_scene, client_dip_x(point),
                                                          client_dip_y(point));
     UiMediaPickerKind kind{};

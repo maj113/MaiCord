@@ -5,6 +5,7 @@
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 
@@ -89,7 +90,7 @@ void settings_layer_shake(SettingsLayer*) noexcept;
 void settings_layer_tick(SettingsLayer*, u64 now_ms) noexcept;
 u64 settings_layer_next_wake(const SettingsLayer&) noexcept;
 bool settings_layer_input(SettingsLayer*, UiInputKind, u32 key, bool repeated) noexcept;
-bool settings_layer_window_message(SettingsLayer*, UINT, WPARAM, LPARAM) noexcept;
+bool settings_layer_window_event(SettingsLayer*, const WindowEvent&) noexcept;
 // Releases capture and pointer state; keeps focus.
 void settings_layer_cancel_pointer(SettingsLayer*) noexcept;
 // Native text input glue for the focused editor.

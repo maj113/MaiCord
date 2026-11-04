@@ -134,15 +134,17 @@ bool video_surface_available() noexcept {
 }
 UiPoint video_pointer_position() noexcept {
     POINT pointer{};
-    if (!GetCursorPos(&pointer) || WindowFromPoint(pointer) != g_app.window ||
-        !application_screen_to_content(&pointer))
+    const WindowMetrics client = window_metrics(g_app.window);
+    if (!application_cursor_client(&pointer) || pointer.x < 0 || pointer.y < 0 ||
+        pointer.x >= static_cast<LONG>(client.width_px) || pointer.y >= static_cast<LONG>(client.height_px))
         return {-kMaximumUiCoordinate, -kMaximumUiCoordinate};
+    application_client_to_content(&pointer);
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     return {pointer.x * scale, pointer.y * scale};
 }
-void note_video_pointer(ApplicationVideo& video, UINT message, UiPoint point) noexcept {
+void note_video_pointer(ApplicationVideo& video, VideoPointer kind, UiPoint point) noexcept {
     // Windows repeats WM_MOUSEMOVE without motion; only real movement is activity.
-    if (message == WM_MOUSEMOVE && video.pointer.x == point.x && video.pointer.y == point.y)
+    if (kind == VideoPointer::move && video.pointer.x == point.x && video.pointer.y == point.y)
         return;
     video.pointer = point;
     if (!video.source.audio && ui_video_scene_activity(&video.ui.video, clock_monotonic_milliseconds()))
@@ -163,7 +165,7 @@ void acquire_video_focus(ApplicationVideo& video) noexcept {
     g_app.context_focus = nullptr;
     g_app.message_composer.focused = false;
     message_action_bar_close(&g_app.message_action_bar);
-    SetFocus(g_app.window);
+    window_focus(g_app.window);
 }
 
 } // namespace video_detail

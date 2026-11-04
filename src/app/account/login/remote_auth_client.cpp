@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/login/remote_auth_client.hpp"
+#include "maicord/core/time.hpp"
 
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
 #include "maicord/core/byte_queue.hpp"
@@ -12,8 +13,6 @@
 #include "maicord/platform/net/tls_client.hpp"
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
-
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {
@@ -143,7 +142,7 @@ void publish_event(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
                                    static_cast<LONG>(RemoteAuthClientError::none));
         publish_phase(client, RemoteAuthClientPhase::failed);
     }
-    SetEvent(client->notification_event);
+    event_set(client->notification_event);
 }
 
 void publish_failure(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
@@ -183,12 +182,12 @@ bool accept_receive(RemoteAuthClientRuntime* runtime, const NetworkCompletion& c
 
 WaitResult wait_for(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, NetworkOperationKind kind,
                     u32 timeout_ms, bool retain_receive) noexcept {
-    const u64 deadline = deadline_after(GetTickCount64(), timeout_ms);
+    const u64 deadline = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
     for (;;) {
         if (stop_requested(client)) {
             return WaitResult{{}, 0, WaitState::stopped};
         }
-        const u64 now_ms = GetTickCount64();
+        const u64 now_ms = clock_monotonic_milliseconds();
         if (now_ms >= deadline) {
             return WaitResult{{}, WAIT_TIMEOUT, WaitState::timeout};
         }
@@ -283,7 +282,7 @@ bool start_receive(RemoteAuthClientRuntime* runtime, u32* native_error) noexcept
 
 PlaintextResult receive_plaintext(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
                                   u32 timeout_ms) noexcept {
-    const u64 deadline = deadline_after(GetTickCount64(), timeout_ms);
+    const u64 deadline = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
     for (;;) {
         if (byte_queue_size(runtime->encrypted_input) != 0) {
             const ConstSlice<u8> readable = byte_queue_readable(runtime->encrypted_input);
@@ -308,7 +307,7 @@ PlaintextResult receive_plaintext(RemoteAuthClient* client, RemoteAuthClientRunt
         if (!start_receive(runtime, &native_error)) {
             return PlaintextResult{{}, native_error, PlaintextState::error};
         }
-        const u64 now_ms = GetTickCount64();
+        const u64 now_ms = clock_monotonic_milliseconds();
         if (now_ms >= deadline) {
             return PlaintextResult{{}, WAIT_TIMEOUT, PlaintextState::timeout};
         }
@@ -341,7 +340,7 @@ bool connect_socket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
     const WaitResult resolved =
         wait_for(client, runtime, NetworkOperationKind::resolve, kPhaseTimeoutMs, false);
     if (resolved.state != WaitState::completion || resolved.completion.resolver != &runtime->resolver ||
-        resolved.completion.stale || !resolved.completion.succeeded || !runtime->resolver.results) {
+        resolved.completion.stale || !resolved.completion.succeeded || runtime->resolver.address_count == 0) {
         *native_error = resolved.native_error != 0 ? resolved.native_error
                                                    : static_cast<u32>(resolved.completion.native_error);
         *error = resolved.state == WaitState::stopped ? RemoteAuthClientError::cancelled
@@ -352,13 +351,9 @@ bool connect_socket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
 
     publish_phase(client, RemoteAuthClientPhase::connecting);
     bool connected = false;
-    for (ADDRINFOEXW* address = runtime->resolver.results; address && !connected && !stop_requested(client);
-         address = address->ai_next) {
-        if (address->ai_addrlen > sizeof(sockaddr_storage)) {
-            continue;
-        }
+    for (u32 index = 0; index < runtime->resolver.address_count && !connected && !stop_requested(client); ++index) {
         const NetworkResult started = network_connection_connect(
-            &runtime->loop, &runtime->connection, address->ai_addr, static_cast<i32>(address->ai_addrlen));
+            &runtime->loop, &runtime->connection, runtime->resolver.addresses[index]);
         if (!started.ok()) {
             *native_error = static_cast<u32>(started.native_error);
             network_connection_close(&runtime->connection);
@@ -464,7 +459,7 @@ bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntim
     SecureZeroMemory(request, sizeof(request));
     if (!sent)
         return false;
-    const u64 deadline = deadline_after(GetTickCount64(), kPhaseTimeoutMs);
+    const u64 deadline = deadline_after(clock_monotonic_milliseconds(), kPhaseTimeoutMs);
     for (;;) {
         const WebSocketHandshakeValidation validation = websocket_validate_opening_response(
             byte_queue_readable(runtime->websocket_input), client_key, kWebSocketInputBytes, 64);
@@ -474,7 +469,7 @@ bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntim
             *native_error = ERROR_INVALID_DATA;
             return false;
         }
-        const u64 now_ms = GetTickCount64();
+        const u64 now_ms = clock_monotonic_milliseconds();
         if (now_ms >= deadline) {
             *native_error = WAIT_TIMEOUT;
             return false;
@@ -625,7 +620,7 @@ bool handle_message(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
     *failure = remote_auth_handshake_handle(
         &runtime->handshake,
         Utf8View{reinterpret_cast<const char*>(runtime->message_storage), runtime->message_bytes},
-        Slice<u32>{runtime->structural_scratch, kStructuralCount}, 8, GetTickCount64(),
+        Slice<u32>{runtime->structural_scratch, kStructuralCount}, 8, clock_monotonic_milliseconds(),
         Slice<char>{command, static_cast<u32>(sizeof(command))},
         Slice<char>{data, static_cast<u32>(sizeof(data))}, &event);
     SecureZeroMemory(runtime->message_storage, sizeof(runtime->message_storage));
@@ -747,7 +742,7 @@ bool tick_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
     }
     char command[kRemoteAuthMaximumCommandBytes]{};
     RemoteAuthHandshakeEvent event{};
-    *failure = remote_auth_handshake_tick(&runtime->handshake, GetTickCount64(),
+    *failure = remote_auth_handshake_tick(&runtime->handshake, clock_monotonic_milliseconds(),
                                           Slice<char>{command, static_cast<u32>(sizeof(command))}, &event);
     if (!failure->ok()) {
         SecureZeroMemory(command, sizeof(command));
@@ -796,19 +791,19 @@ void release_transport(RemoteAuthClientRuntime* runtime) noexcept {
     byte_queue_clear(&runtime->websocket_input, true);
 }
 
-DWORD WINAPI remote_auth_thread(void* parameter) noexcept {
+u32 remote_auth_thread(void* parameter) noexcept {
     auto* client = static_cast<RemoteAuthClient*>(parameter);
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
     const NetworkResult loop = network_loop_initialize(&runtime->loop);
     if (!loop.ok()) {
         publish_failure(client, runtime, RemoteAuthClientError::network,
                         static_cast<u32>(loop.native_error));
-        SetEvent(client->ready_event);
+        event_set(client->ready_event);
         return 1;
     }
     InterlockedExchange(&runtime->loop_ready, 1);
     publish_phase(client, RemoteAuthClientPhase::resolving);
-    SetEvent(client->ready_event);
+    event_set(client->ready_event);
 
     u32 native_error = 0;
     RemoteAuthClientError error = RemoteAuthClientError::none;
@@ -833,7 +828,7 @@ DWORD WINAPI remote_auth_thread(void* parameter) noexcept {
     }
     if (connected) {
         publish_phase(client, RemoteAuthClientPhase::awaiting_qr);
-        runtime->phase_deadline_ms = deadline_after(GetTickCount64(), kPhaseTimeoutMs);
+        runtime->phase_deadline_ms = deadline_after(clock_monotonic_milliseconds(), kPhaseTimeoutMs);
     }
 
     while (connected && !authenticated && !stop_requested(client)) {
@@ -852,7 +847,7 @@ DWORD WINAPI remote_auth_thread(void* parameter) noexcept {
             error = RemoteAuthClientError::handshake;
             break;
         }
-        const u64 now_ms = GetTickCount64();
+        const u64 now_ms = clock_monotonic_milliseconds();
         const u64 wake = handshake_wake(runtime->handshake, runtime->phase_deadline_ms);
         InterlockedExchange64(&client->next_wake_at_ms, static_cast<LONG64>(wake));
         const PlaintextResult received =
@@ -980,39 +975,37 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
         client->runtime = nullptr;
         return start_failure(client, RemoteAuthClientError::memory, native_error);
     }
-    client->ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->notification_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->cancel_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->captcha_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    client->ready_event = event_create(true, false);
+    client->notification_event = event_create(true, false);
+    client->cancel_event = event_create(true, false);
+    client->captcha_event = event_create(true, false);
     if (!client->ready_event || !client->notification_event || !client->cancel_event ||
         !client->captcha_event) {
         native_error = thread_last_error();
         if (client->captcha_event)
-            CloseHandle(client->captcha_event);
+            waitable_close(client->captcha_event);
         if (client->cancel_event)
-            CloseHandle(client->cancel_event);
+            waitable_close(client->cancel_event);
         if (client->notification_event)
-            CloseHandle(client->notification_event);
+            waitable_close(client->notification_event);
         if (client->ready_event)
-            CloseHandle(client->ready_event);
+            waitable_close(client->ready_event);
         release_runtime(runtime);
         reset_value<RemoteAuthClient>(client);
         return start_failure(client, RemoteAuthClientError::event, native_error);
     }
     constexpr usize kStackReserve = 256 * 1024;
-    client->thread = CreateThread(nullptr, kStackReserve, remote_auth_thread, client,
-                                  STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    client->thread = thread_start(remote_auth_thread, client, kStackReserve, &native_error);
     if (!client->thread) {
-        native_error = thread_last_error();
-        CloseHandle(client->captcha_event);
-        CloseHandle(client->cancel_event);
-        CloseHandle(client->notification_event);
-        CloseHandle(client->ready_event);
+        waitable_close(client->captcha_event);
+        waitable_close(client->cancel_event);
+        waitable_close(client->notification_event);
+        waitable_close(client->ready_event);
         release_runtime(runtime);
         reset_value<RemoteAuthClient>(client);
         return start_failure(client, RemoteAuthClientError::thread, native_error);
     }
-    const DWORD ready = WaitForSingleObject(client->ready_event, 5'000);
+    const DWORD ready = wait_one(client->ready_event, 5'000);
     if (ready != WAIT_OBJECT_0) {
         remote_auth_client_stop(client, kPhaseTimeoutMs);
         RemoteAuthClientResult value{};
@@ -1036,7 +1029,7 @@ RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexc
     }
     publish_phase(client, RemoteAuthClientPhase::cancelling);
     InterlockedExchange(&client->stop_requested, 1);
-    SetEvent(client->cancel_event);
+    event_set(client->cancel_event);
     ReleaseSRWLockExclusive(client->snapshot_lock.native());
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
     if (read_acquire(&runtime->loop_ready) != 0) {
@@ -1055,21 +1048,20 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
         auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
         secure_buffer_clear(&runtime->ticket_exchange.credential);
     }
-    if (WaitForSingleObject(client->thread, 0) == WAIT_TIMEOUT) {
+    if (!thread_wait(client->thread, 0)) {
         publish_phase(client, RemoteAuthClientPhase::stopping);
         InterlockedExchange(&client->stop_requested, 1);
-        SetEvent(client->cancel_event);
+        event_set(client->cancel_event);
         auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
         if (read_acquire(&runtime->loop_ready) != 0) {
             network_signal_post(&runtime->loop, &runtime->cancel_signal, kCancelSignalValue);
         }
     }
     ReleaseSRWLockExclusive(client->snapshot_lock.native());
-    const DWORD waited = WaitForSingleObject(client->thread, timeout_ms);
-    if (waited != WAIT_OBJECT_0) {
+    if (!thread_wait(client->thread, timeout_ms)) {
         RemoteAuthClientResult value = client_result(client);
         value.error = RemoteAuthClientError::stop;
-        value.native_error = waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT;
+        value.native_error = WAIT_TIMEOUT;
         return value;
     }
     // Joining the outer QR thread does not prove its nested REST worker has
@@ -1104,11 +1096,11 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
         value.native_error = ERROR_INVALID_STATE;
         return value;
     }
-    CloseHandle(client->thread);
-    CloseHandle(client->captcha_event);
-    CloseHandle(client->cancel_event);
-    CloseHandle(client->notification_event);
-    CloseHandle(client->ready_event);
+    thread_close(client->thread);
+    waitable_close(client->captcha_event);
+    waitable_close(client->cancel_event);
+    waitable_close(client->notification_event);
+    waitable_close(client->ready_event);
     reset_value<RemoteAuthClient>(client);
     RemoteAuthClientResult value{};
     value.phase = RemoteAuthClientPhase::stopped;
@@ -1126,9 +1118,9 @@ bool remote_auth_client_pop_event(RemoteAuthClient* client, RemoteAuthClientEven
         return false;
     }
     if (spsc_queue_size(runtime->events) == 0) {
-        ResetEvent(client->notification_event);
+        event_reset(client->notification_event);
         if (spsc_queue_size(runtime->events) != 0) {
-            SetEvent(client->notification_event);
+            event_set(client->notification_event);
         }
     }
     return true;
@@ -1150,7 +1142,7 @@ SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,
         client && client->runtime ? static_cast<RemoteAuthClientRuntime*>(client->runtime) : nullptr;
     if (!runtime || !output || !output->data || !output->locked || output->capacity == 0 ||
         load_phase(client) != RemoteAuthClientPhase::authenticated ||
-        WaitForSingleObject(client->thread, 0) != WAIT_OBJECT_0) {
+        !thread_wait(client->thread, 0)) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     }
     if (InterlockedCompareExchange(&client->token_taken, 1, 0) != 0) {
@@ -1198,7 +1190,7 @@ RemoteAuthClientResult remote_auth_client_submit_captcha(RemoteAuthClient* clien
 HANDLE remote_auth_client_notification_handle(const RemoteAuthClient* client) noexcept {
     if (client && client->thread && load_phase(client) == RemoteAuthClientPhase::authenticated &&
         read_acquire(&client->token_taken) == 0)
-        return client->thread;
+        return thread_waitable(client->thread);
     return client ? client->notification_event : nullptr;
 }
 

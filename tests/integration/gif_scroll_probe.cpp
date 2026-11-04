@@ -117,7 +117,7 @@ bool gif_scroll_probe(D3D11Renderer& r, bool unpaced) noexcept {
     for (u32 step = 0; ok && step < steps; ++step) {
         // Like the application loop: acquire the slot before sampling scroll
         // and collecting all three independent animation completions.
-        ok = unpaced || d3d11_device_owner_wait(r.graphics, 1000) == WAIT_OBJECT_0;
+        ok = unpaced || gpu_frame_wait(&r.graphics.surface, 1000);
         renderer_accept_begin_frame(&r);
         QueryPerformanceCounter(&start);
         bool changed = false;

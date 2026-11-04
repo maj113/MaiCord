@@ -2,9 +2,6 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
-
-#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {
@@ -26,58 +23,50 @@ constexpr u32 pcg(u32 index) noexcept {
     return (word >> 22u) ^ word;
 }
 
-HRESULT make_view(ID3D11Device* device, u32 width, u32 height, DXGI_FORMAT format, const void* pixels,
-                  u32 pitch, ID3D11ShaderResourceView** view) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = width;
-    description.Height = height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = format;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_IMMUTABLE;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    const D3D11_SUBRESOURCE_DATA data{pixels, pitch, 0};
-    ID3D11Texture2D* texture = nullptr;
-    HRESULT result = device->CreateTexture2D(&description, &data, &texture);
+GpuStatus make_view(GpuDevice* device, u32 width, u32 height, GpuFormat format, const void* pixels, u32 pitch,
+                    GpuSrv** view) noexcept {
+    const GpuInitialData data{pixels, pitch};
+    GpuTexture* texture = nullptr;
+    GpuStatus result = gpu_texture_create(device, {width, height, format, GpuUsage::immutable, gpu_bind_srv}, &data,
+                                          &texture);
     if (SUCCEEDED(result))
-        result = device->CreateShaderResourceView(texture, nullptr, view);
-    com_release(texture);
+        result = gpu_srv_create(device, texture, {GpuViewKind::texture, format}, view);
+    gpu_release(texture);
     return result;
 }
 
-HRESULT make_noise(ID3D11Device* device, ID3D11ShaderResourceView** view) noexcept {
+GpuStatus make_noise(GpuDevice* device, GpuSrv** view) noexcept {
     constexpr u32 count = kNoiseExtent * kNoiseExtent;
     auto* pixels = commit_pages<u32>(count * sizeof(u32));
     if (!pixels)
         return E_OUTOFMEMORY;
     for (u32 i = 0; i < count; ++i)
         pixels[i] = pcg(i);
-    const HRESULT result =
-        make_view(device, kNoiseExtent, kNoiseExtent, DXGI_FORMAT_R8G8B8A8_UNORM, pixels, kNoiseExtent * 4, view);
+    const GpuStatus result =
+        make_view(device, kNoiseExtent, kNoiseExtent, GpuFormat::rgba8, pixels, kNoiseExtent * 4, view);
     pages_release(pixels);
     return result;
 }
 
-HRESULT make_package_texture(ID3D11Device* device, const EffectTexturePixels& texture,
-                             ID3D11ShaderResourceView** view) noexcept {
+GpuStatus make_package_texture(GpuDevice* device, const EffectTexturePixels& texture,
+                               GpuSrv** view) noexcept {
     // A declared texture the package did not ship reads as opaque black.
     constexpr u32 black = 0xFF000000u;
     const bool shipped = texture.pixels && texture.width && texture.height && texture.width <= kEffectTextureMaximumExtent &&
                          texture.height <= kEffectTextureMaximumExtent;
     if (!shipped)
-        return make_view(device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &black, 4, view);
+        return make_view(device, 1, 1, GpuFormat::rgba8, &black, 4, view);
     return make_view(device, texture.width, texture.height,
-                     texture.rgba32f ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM, texture.pixels,
+                     texture.rgba32f ? GpuFormat::rgba32f : GpuFormat::rgba8, texture.pixels,
                      texture.width * (texture.rgba32f ? 16u : 4u), view);
 }
 
 } // namespace
 
-HRESULT effect_inputs_create(ID3D11Device* device, const BackgroundEffectSpec& spec,
-                             ID3D11ShaderResourceView* glyph,
-                             ID3D11ShaderResourceView* (&views)[kD3D11EffectInputs]) noexcept {
-    HRESULT result = S_OK;
+GpuStatus effect_inputs_create(GpuDevice* device, const BackgroundEffectSpec& spec,
+                               GpuSrv* glyph,
+                               GpuSrv* (&views)[kD3D11EffectInputs]) noexcept {
+    GpuStatus result = kGpuOk;
     if (spec.uses & effect_use_noise)
         result = make_noise(device, &views[0]);
     if (SUCCEEDED(result) && (spec.uses & effect_use_glyphs)) {
@@ -87,7 +76,7 @@ HRESULT effect_inputs_create(ID3D11Device* device, const BackgroundEffectSpec& s
             views[1] = glyph;
     }
     if (SUCCEEDED(result) && (spec.uses & effect_use_blue_noise))
-        result = make_view(device, kBlueExtent, kBlueExtent, DXGI_FORMAT_R8_UNORM, kBlueNoise, kBlueExtent,
+        result = make_view(device, kBlueExtent, kBlueExtent, GpuFormat::r8, kBlueNoise, kBlueExtent,
                            &views[2]);
     // TEXTURE0..3 at t3..t6.
     for (u32 i = 0; SUCCEEDED(result) && i < kEffectTextureCount; ++i)
@@ -99,7 +88,7 @@ HRESULT effect_inputs_create(ID3D11Device* device, const BackgroundEffectSpec& s
             if (i == 1)
                 views[i] = nullptr;
             else
-                com_release(views[i]);
+                gpu_release(views[i]);
         }
     return result;
 }

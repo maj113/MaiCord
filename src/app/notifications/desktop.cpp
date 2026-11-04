@@ -8,6 +8,7 @@
 #include "../voice/voice.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "../account/account_ui_runtime.hpp"
@@ -30,10 +31,9 @@ struct Desktop {
     SystemTray tray;
     TrayIconPalette window_palette;
     HANDLE mutex, published;
-    HICON window_icons[2];
     u64 link_queued_ms, link_account_ms, tray_retry_ms;
     wchar_t tooltip[128];
-    bool owns_mutex, tray_initialized, quit_requested, link_pending;
+    bool owns_mutex, tray_initialized, quit_requested, link_pending, window_icons_set;
 };
 Desktop g_desktop{};
 
@@ -75,25 +75,31 @@ TrayInput tray_input() noexcept {
 }
 // The window and taskbar button carry MaiCord's mark in the theme's colours.
 void update_window_icons(const TrayIconPalette& colors) noexcept {
-    if (!g_app.window || (g_desktop.window_icons[0] && same_palette(colors, g_desktop.window_palette)))
+    if (!g_app.window || (g_desktop.window_icons_set && same_palette(colors, g_desktop.window_palette)))
         return;
     const u32 dpi = maximum(g_app.renderer.dpi, 96u);
     const int metrics[2] = {GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CXICON, dpi)};
+    constexpr u32 kPlane = kTrayIconMaximumExtent * kTrayIconMaximumExtent;
+    ScratchPages<u32[2 * kPlane]> pixels;
+    if (!pixels.data)
+        return;
+    IconImage images[2]{};
+    u32 count = 0;
     for (u32 i = 0; i < 2; ++i) {
         const u32 extent = static_cast<u32>(metrics[i] < 16 ? 16 : metrics[i] > 64 ? 64 : metrics[i]);
-        const HICON icon = system_tray_create_icon(TrayIconState::normal, 0, colors, extent);
-        if (!icon)
-            continue;
-        SendMessageW(g_app.window, WM_SETICON, i ? ICON_BIG : ICON_SMALL, reinterpret_cast<LPARAM>(icon));
-        if (g_desktop.window_icons[i])
-            DestroyIcon(g_desktop.window_icons[i]);
-        g_desktop.window_icons[i] = icon;
+        u32* plane = *pixels.data + i * kPlane;
+        if (tray_icon_render(TrayIconState::normal, 0, colors, extent, {plane, extent * extent}))
+            images[count++] = {plane, extent};
     }
+    if (!count)
+        return;
+    window_set_icon(g_app.window, images, count);
+    g_desktop.window_icons_set = true;
     g_desktop.window_palette = colors;
 }
 void tick_tray(u64 now_ms) noexcept {
     if (!g_desktop.tray_initialized)
-        g_desktop.tray_initialized = system_tray_initialize(&g_desktop.tray, g_app.window, kTrayMessage);
+        g_desktop.tray_initialized = system_tray_initialize(&g_desktop.tray, win32_hwnd(g_app.window), kTrayMessage);
     if (!g_desktop.tray_initialized || now_ms < g_desktop.tray_retry_ms)
         return;
     const auto input = tray_input();
@@ -118,7 +124,7 @@ void tick_tray(u64 now_ms) noexcept {
     }
 }
 void reveal() noexcept {
-    desktop_window_reveal(g_app.window);
+    desktop_window_reveal(win32_hwnd(g_app.window));
     application_request_frame();
 }
 void tray_command(u32 command) noexcept {
@@ -136,7 +142,7 @@ void tray_command(u32 command) noexcept {
         break;
     case tray_command_quit:
         application_desktop_request_quit();
-        PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+        window_request_close(g_app.window);
         break;
     default:
         break;
@@ -247,7 +253,7 @@ int application_desktop_initial_show() noexcept {
 void application_desktop_window_created() noexcept {
     wchar_t mutex_name[kNameCapacity], window_name[kNameCapacity];
     if (g_app.window && !g_desktop.published && instance_names(mutex_name, window_name))
-        g_desktop.published = desktop_instance_publish(window_name, g_app.window);
+        g_desktop.published = desktop_instance_publish(window_name, win32_hwnd(g_app.window));
 }
 
 void application_desktop_tick(u64 now_ms) noexcept {
@@ -298,7 +304,7 @@ bool application_desktop_close_to_tray() noexcept {
     if (!g_app.window || desktop_close_action(g_app.preferences.minimize_to_tray, g_desktop.tray.added,
                                               g_desktop.quit_requested) != DesktopCloseAction::hide)
         return false;
-    ShowWindow(g_app.window, SW_HIDE);
+    window_show(g_app.window, ShowMode::hide);
     return true;
 }
 
@@ -326,11 +332,6 @@ bool application_desktop_open_link(const ConstSlice<wchar_t>& url) noexcept {
 void application_desktop_release() noexcept {
     if (g_desktop.tray_initialized)
         system_tray_release(&g_desktop.tray);
-    for (HICON& icon : g_desktop.window_icons)
-        if (icon) {
-            DestroyIcon(icon);
-            icon = nullptr;
-        }
     if (g_desktop.published)
         CloseHandle(g_desktop.published);
     if (g_desktop.mutex) {

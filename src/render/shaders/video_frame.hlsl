@@ -1,6 +1,14 @@
+#if defined(__spirv__)
+// OpenGL ES: a decoder publishes plain 2D plane textures (dma-buf images, CPU planes).
+Texture2D<float> Luma : register(t0);
+Texture2D<float2> Chroma : register(t1);
+#define PLANE_TEXEL(position) int3(position, 0)
+#else
 // One-slice array views: decoder arrays are read in place.
 Texture2DArray<float> Luma : register(t0);
 Texture2DArray<float2> Chroma : register(t1);
+#define PLANE_TEXEL(position) int4(position, 0, 0)
+#endif
 #if defined(__spirv__)
 [[vk::image_format("rgba8")]]
 #endif
@@ -31,12 +39,12 @@ cbuffer VideoConstants : register(b0) {
 };
 
 int3 chroma_terms(uint2 position) {
-    int2 uv = int2(Chroma.Load(int4(position / 2, 0, 0)) * 255.0 + 0.5) - 128;
+    int2 uv = int2(Chroma.Load(PLANE_TEXEL(position / 2)) * 255.0 + 0.5) - 128;
     return int3(RedCr * uv.y, -GreenCb * uv.x - GreenCr * uv.y, BlueCb * uv.x);
 }
 
 float3 convert_luma(uint2 position, int3 terms) {
-    int luma = int(Luma.Load(int4(position, 0, 0)) * 255.0 + 0.5);
+    int luma = int(Luma.Load(PLANE_TEXEL(position)) * 255.0 + 0.5);
     int y = (luma - YOffset) * YScale;
     return float3(clamp((y + terms + 128) >> 8, 0, 255));
 }

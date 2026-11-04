@@ -53,8 +53,8 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
         returned_profile->metadata.profile_id != 0 || !initial_runtime->user) {
         return invalid_input_result();
     }
-    if (WaitForSingleObject(client->worker.thread, 0) == WAIT_TIMEOUT) {
-        SetEvent(initial_runtime->mailbox_cancel);
+    if (!thread_wait(static_cast<Thread*>(client->worker.thread), 0)) {
+        event_set(initial_runtime->mailbox_cancel);
         network_worker_request_stop(&client->worker);
     }
     const NetworkWorkerResult joined = network_worker_join(&client->worker, timeout_milliseconds);
@@ -65,11 +65,11 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
         return value;
     }
     if (client->notification_event) {
-        CloseHandle(client->notification_event);
+        waitable_close(client->notification_event);
     }
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    CloseHandle(runtime->mailbox_space);
-    CloseHandle(runtime->mailbox_cancel);
+    waitable_close(runtime->mailbox_space);
+    waitable_close(runtime->mailbox_cancel);
     voice_receive_stop(&runtime->voice_receive);
     // Decode threads must stop asking a freed receive path for keyframes.
     if (runtime->video_frames.bind_keyframes)
@@ -208,7 +208,7 @@ bool gateway_client_request_guild_members(GatewayClient* client,
         return false;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const auto prior = runtime->member_requests;
-    bool admitted = gateway_member_request_admit(&runtime->member_requests, request, GetTickCount64());
+    bool admitted = gateway_member_request_admit(&runtime->member_requests, request, clock_monotonic_milliseconds());
     if (admitted && !wake_worker(client, &runtime->subscription_signal)) {
         runtime->member_requests = prior;
         admitted = false;

@@ -2,6 +2,7 @@
 #include "maicord/core/slice.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord {
 
@@ -60,7 +61,7 @@ struct PluginCallOutcome {
 // so neither side costs a system call and the record survives a process crash.
 // budget_us and lifecycle_budget_us are the gesture and lifecycle budgets.
 struct PluginCallLedger {
-    HANDLE file, mapping;
+    HANDLE file;
     volatile u8* view;
     wchar_t path[1024];
     i64 frequency;
@@ -69,7 +70,8 @@ struct PluginCallLedger {
     u32 overrun_limit;
     // The hang watchdog (call_watchdog.cpp): its thread, the event that stops it, its settings, and
     // the function close calls to stop it. Null until plugin_call_watchdog_start.
-    HANDLE watchdog, watchdog_stop;
+    Thread* watchdog;
+    Waitable watchdog_stop;
     u32 hang_limit_ms, hang_poll_ms;
     void (*close_watchdog)(PluginCallLedger*) noexcept;
     PluginCallLedgerEntry entries[kPluginCallLedgerOwners];

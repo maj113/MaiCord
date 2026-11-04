@@ -1,5 +1,6 @@
 // Exercise the shipping owner directly without adding production test hooks.
 #include "../../../../src/app/chat/messages/pinned_messages.cpp"
+#include "../../../support/window_fixture.hpp"
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -52,11 +53,11 @@ LPARAM point(UiRect bounds) noexcept {
 bool header_click() noexcept {
     const auto bounds = ui_scene_header_geometry(g_app.shell_scene).pins;
     if (!ui_rect_has_area(bounds) ||
-        !application_pinned_messages_window_message(WM_LBUTTONDOWN, 0, point(bounds))) return false;
-    application_pinned_messages_window_message(WM_MOUSEMOVE, 0, point(bounds));
+        !application_pinned_messages_window_event(window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds))))) return false;
+    application_pinned_messages_window_event(window_test::pointer_move(window_test::x_of(point(bounds)), window_test::y_of(point(bounds))));
     if (application_pinned_messages_active() || !application_pinned_messages_synchronize() ||
         !g_app.pinned_messages || !g_app.pinned_messages->captured) return false;
-    return application_pinned_messages_window_message(WM_LBUTTONUP, 0, point(bounds));
+    return application_pinned_messages_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left));
 }
 UiRect action_bounds(UiPinnedMessagesAction action, u64 message) noexcept {
     const auto* scene = g_app.renderer.pinned_messages_scene;
@@ -93,9 +94,9 @@ bool initialize() noexcept {
     BYTE clean_keyboard[256]{};
     keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
     if (!keyboard_saved || !SetKeyboardState(clean_keyboard)) return false;
-    g_app.window = CreateWindowExW(0, L"STATIC", L"MaiCord pins runtime fixture", WS_POPUP,
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord pins runtime fixture", WS_POPUP,
                                    -16000, -16000, 1280, 720, nullptr, nullptr,
-                                   GetModuleHandleW(nullptr), nullptr);
+                                   GetModuleHandleW(nullptr), nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_app.window || !g_app.account_ui) return false;
@@ -142,7 +143,7 @@ bool initialize() noexcept {
 void release() noexcept {
     application_pinned_messages_release();
     ui_scene_release(&g_app.shell_scene);
-    if (g_app.window) DestroyWindow(g_app.window);
+    if (win32_hwnd(g_app.window)) DestroyWindow(win32_hwnd(g_app.window));
     if (g_app.account_ui) {
         application_history_decode_storage_release(*g_app.account_ui);
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
@@ -165,11 +166,11 @@ void run() noexcept {
     permit();
     const auto initial_header = ui_scene_header_geometry(g_app.shell_scene).pins;
     const bool scope_press = ui_rect_has_area(initial_header) &&
-        application_pinned_messages_window_message(WM_LBUTTONDOWN, 0, point(initial_header));
+        application_pinned_messages_window_event(window_test::pointer_down(window_test::x_of(point(initial_header)), window_test::y_of(point(initial_header))));
     ++g_app.plugin_account_scope_serial;
     check(scope_press && application_pinned_messages_synchronize() &&
           g_app.pinned_messages && !g_app.pinned_messages->captured &&
-          !application_pinned_messages_window_message(WM_LBUTTONUP, 0, point(initial_header)) &&
+          !application_pinned_messages_window_event(window_test::pointer_up(window_test::x_of(point(initial_header)), window_test::y_of(point(initial_header)), PointerButton::left)) &&
           !application_pinned_messages_active() && !account.submissions,
           "pins runtime: account scope change between header press and release cancels activation");
     check(header_click() && application_pinned_messages_active() &&
@@ -185,7 +186,7 @@ void run() noexcept {
     g_app.context_focus = nullptr;
     g_app.message_composer.focused = true;
     const bool composer_passes = owner.scene.viewport.bottom <= composer_bounds.top &&
-        !application_pinned_messages_window_message(WM_LBUTTONDOWN, 0, point(composer_bounds)) &&
+        !application_pinned_messages_window_event(window_test::pointer_down(window_test::x_of(point(composer_bounds)), window_test::y_of(point(composer_bounds)))) &&
         !application_pinned_messages_input(UiInputKind::character, 'a', false) &&
         !application_pinned_messages_input(UiInputKind::key_down, key::enter, false) &&
         g_app.message_composer.focused;
@@ -235,9 +236,9 @@ void run() noexcept {
     check(!application_pinned_messages_can_pin(901), "pins runtime: foreign-channel timeline target is rejected");
     const auto jump_bounds = action_bounds(UiPinnedMessagesAction::jump, 300);
     check(ui_rect_has_area(jump_bounds) &&
-          application_pinned_messages_window_message(WM_LBUTTONDOWN, 0, point(jump_bounds)) &&
-          application_pinned_messages_window_message(WM_MOUSEMOVE, 0, point(jump_bounds)) &&
-          application_pinned_messages_window_message(WM_LBUTTONUP, 0, point(jump_bounds)) && navigations == 1,
+          application_pinned_messages_window_event(window_test::pointer_down(window_test::x_of(point(jump_bounds)), window_test::y_of(point(jump_bounds)))) &&
+          application_pinned_messages_window_event(window_test::pointer_move(window_test::x_of(point(jump_bounds)), window_test::y_of(point(jump_bounds)))) &&
+          application_pinned_messages_window_event(window_test::pointer_up(window_test::x_of(point(jump_bounds)), window_test::y_of(point(jump_bounds)), PointerButton::left)) && navigations == 1,
           "pins runtime: native press survives hover-only scene revision before original-message Jump");
     check(ui_pinned_messages_scene_focus(&owner.scene, {UiPinnedMessagesAction::jump, 70, 300}) &&
           application_pinned_messages_input(UiInputKind::key_down, key::enter, false) &&

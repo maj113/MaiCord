@@ -1,5 +1,8 @@
 #include "maicord/app/update/package.hpp"
 #include "signed_fixture_helpers.hpp"
+#include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -65,43 +68,50 @@ void rename(u8* bytes, const ZipLayout& z, const char* name) noexcept {
     copy_bytes(bytes + z.central + 46, name, kNameBytes);
 }
 u32 characters(const wchar_t* text) noexcept { u32 n = 0; while (text[n]) ++n; return n; }
+#if defined(_WIN32)
+constexpr wchar_t kSeparator = L'\\';
+#else
+constexpr wchar_t kSeparator = L'/';
+#endif
 void append(wchar_t* out, const wchar_t* parent, const wchar_t* name) noexcept {
     u32 n = 0; while (parent[n]) { out[n] = parent[n]; ++n; }
-    out[n++] = L'\\'; u32 j = 0; do { out[n + j] = name[j]; } while (name[j++]);
+    out[n++] = kSeparator; u32 j = 0; do { out[n + j] = name[j]; } while (name[j++]);
 }
 bool write(const wchar_t* path, const u8* bytes, u32 count) noexcept {
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = file_open(path, {FileAccess::write, FileCreate::create_always, 0, 0});
     if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD written = 0; const bool ok = WriteFile(file, bytes, count, &written, nullptr) && written == count;
-    return CloseHandle(file) && ok;
+    u32 written = 0; const bool ok = file_write(file, bytes, count, &written) && written == count;
+    return file_close(file) && ok;
 }
-bool present(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
+bool present(const wchar_t* path) noexcept { FileStat stat{}; return file_path_stat(path, &stat); }
 // The file at path holds exactly count bytes equal to expected. A held
 // stage's file object keeps its creating write access, so a reader must
 // share writing as well.
 bool holds(const wchar_t* path, const u8* expected, u32 count) noexcept {
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    HANDLE file = file_open(path, {FileAccess::read, FileCreate::existing,
+                                   kFileShareRead | kFileShareWrite | kFileShareDelete, 0});
     if (file == INVALID_HANDLE_VALUE) return false;
     u8 buffer[1024]{}; bool ok = true; u32 offset = 0;
     while (ok) {
-        DWORD got = 0;
-        ok = ReadFile(file, buffer, sizeof(buffer), &got, nullptr) != FALSE;
+        u32 got = 0;
+        ok = file_read(file, buffer, sizeof(buffer), &got);
         if (!ok || !got) break;
         ok = offset + got <= count && bytes_equal(buffer, expected + offset, got);
         offset += got;
     }
-    return CloseHandle(file) && ok && offset == count;
+    return file_close(file) && ok && offset == count;
 }
 } // namespace
 
 void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t temporary[MAX_PATH]{}, directory[MAX_PATH]{}, artifact[MAX_PATH]{}, acceptance_path[MAX_PATH]{}, lock_path[MAX_PATH]{};
-    wchar_t staged[MAX_PATH]{}, missing_parent[MAX_PATH]{};
+    wchar_t staged[MAX_PATH]{}, missing_directory[MAX_PATH]{}, missing_parent[MAX_PATH]{};
     const DWORD n = GetTempPathW(MAX_PATH, temporary);
     if (!n || n >= MAX_PATH || !GetTempFileNameW(temporary, L"MPP", 0, directory)) { check(false, "package: owned isolated fixture path"); return; }
     if (!DeleteFileW(directory) || !CreateDirectoryW(directory, nullptr)) { check(false, "package: owned fixture directory"); return; }
     append(artifact, directory, L"artifact.zip"); append(acceptance_path, directory, L"acceptance.bin");
-    append(staged, directory, L"MaiCord.exe.update"); append(missing_parent, directory, L"missing\\MaiCord.exe.update");
+    append(staged, directory, L"MaiCord.exe.update"); append(missing_directory, directory, L"missing");
+    append(missing_parent, missing_directory, L"MaiCord.exe.update");
     u32 lock_count = characters(acceptance_path); copy_bytes(lock_path, acceptance_path, lock_count * sizeof(wchar_t));
     copy_bytes(lock_path + lock_count, L".lock", 6 * sizeof(wchar_t));
     KdfSha256Workspace workspace{}; P256Key signer{}, key{}; UpdatePreparationContext preparation{};
@@ -145,14 +155,17 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
         holds(staged, bytes + z.data, kImageBytes),
         "package: a signed stored ZIP of MaiCord.exe extracts the verified executable to the stage path");
     if (!package.file) return;
-    DWORD written = 0; const u8 changed = 1;
-    check(!WriteFile(package.file, &changed, 1, &written, nullptr) && GetLastError() == ERROR_ACCESS_DENIED,
+    u32 written = 0; const u8 changed = 1;
+    check(!file_write(package.file, &changed, 1, &written),
         "package: the staged executable's handle cannot write");
+#if defined(_WIN32)
+    // Windows denies a writer's open and the stage's deletion by sharing mode; on Linux sharing is advisory.
     HANDLE writer = CreateFileW(staged, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
     const DWORD writer_error = writer == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
     check(writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION && !DeleteFileW(staged) && present(staged),
         "package: while held, the stage denies other writers and deletion");
+#endif
     const auto saved = package;
     check(update_package_extract(&preparation.artifact, offer, key, workspace, policy, preparation.acceptance,
         {reinterpret_cast<u32*>(&package), 8}, destination, &package).error == UpdatePackageError::invalid_input &&
@@ -168,18 +181,17 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     // No handle or hash supplied by a caller can authenticate different bytes.
     wchar_t damaged_path[MAX_PATH]{}; append(damaged_path, directory, L"damaged.zip");
     bytes[z.data + 600] ^= 1;
-    HANDLE damaged = CreateFileW(damaged_path, GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ, nullptr,
-        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE damaged = file_open(damaged_path, {FileAccess::read_write, FileCreate::create_new, kFileShareRead,
+                                              kFileDeletable});
     if (damaged != INVALID_HANDLE_VALUE) {
-        DWORD wrote = 0;
-        const bool written_ok = WriteFile(damaged, bytes, z.bytes, &wrote, nullptr) && wrote == z.bytes;
+        u32 wrote = 0;
+        const bool written_ok = file_write(damaged, bytes, z.bytes, &wrote) && wrote == z.bytes;
         UpdateArtifact forged = preparation.artifact; forged.file = damaged;
         const auto refused = update_package_extract(&forged, offer, key, workspace, policy, preparation.acceptance,
             {scratch, 256}, destination, &package);
         check(written_ok && refused.error == UpdatePackageError::digest && !package.file && !present(staged),
             "package: copied caller hashes and a foreign handle cannot authenticate modified package bytes");
-        FILE_DISPOSITION_INFO disposition{TRUE};
-        check(SetFileInformationByHandle(damaged, FileDispositionInfo, &disposition, sizeof(disposition)) && CloseHandle(damaged),
+        check(file_mark_delete_on_close(damaged) && file_close(damaged),
             "package: damaged fixture source disposed by its handle");
     } else check(false, "package: damaged source fixture CREATE_NEW");
     fixture(bytes);
@@ -220,7 +232,7 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
         case 10: rename(bytes, layout, "MaiCord.dll"); break;
         case 11: put32(bytes + 18, 0xffffffff); put32(bytes + 22, 0xffffffff); break; // ZIP64 sentinel
         case 12: put16(bytes + layout.central + 4, 0x0314); put32(bytes + layout.central + 38, 0xa0000000); break; // Unix symlink
-        case 13: put32(bytes + layout.central + 38, FILE_ATTRIBUTE_REPARSE_POINT); break;
+        case 13: put32(bytes + layout.central + 38, 0x400u); break; // FILE_ATTRIBUTE_REPARSE_POINT
         case 14: put16(bytes + 26, 0); put16(bytes + layout.central + 28, 0); break; // empty name
         case 15: bytes[layout.data + 3] ^= 1; expected = UpdatePackageError::crc; break;
         case 16: put16(bytes + layout.data + 132, 0x14c); repair_crc(bytes, layout); expected = UpdatePackageError::pe; break; // i386
@@ -237,7 +249,7 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     // An executable longer than one read chunk: reads continue across chunks
     // without reseeking, the final chunk is short and a fault in it is caught.
     constexpr u32 kOverlay = 2 * kUpdatePackageReadBufferBytes + 5000;
-    u8* const long_bytes = static_cast<u8*>(VirtualAlloc(nullptr, kOverlay + 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    u8* const long_bytes = commit_pages<u8>(u64{kOverlay} + 4096);
     if (!long_bytes) { check(false, "package: multi-chunk fixture memory"); return; }
     bytes = long_bytes; policy.maximum_artifact_bytes = u64{kOverlay} + 4096;
     const auto lz = fixture(bytes, kOverlay);
@@ -246,6 +258,6 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     bytes[lz.data + lz.size - 1] ^= 1;
     check(admit(lz.bytes) && !extract() && extracted.error == UpdatePackageError::crc && !package.file && !present(staged),
         "package: a fault in the last read chunk fails the CRC before the stage is created");
-    bytes = storage; policy.maximum_artifact_bytes = 65536; VirtualFree(long_bytes, 0, MEM_RELEASE);
+    bytes = storage; policy.maximum_artifact_bytes = 65536; pages_release(long_bytes);
 }
 } // namespace maicord

@@ -17,11 +17,10 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/ui/widgets/button.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/render/text/form_surface.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
 namespace maicord::app_detail {
@@ -273,7 +272,7 @@ bool copy_image() noexcept {
     const bool read = renderer_read_media_rgba(&g_app.renderer, viewer.key, {pixels, capacity}, &width, &height) ||
                       renderer_read_media_rgba(&g_app.renderer, viewer.fallback, {pixels, capacity}, &width, &height);
     const bool copied =
-        read && clipboard_write_image(g_app.window, pixels, width, height, width * 4, current_url());
+        read && clipboard_write_image(pixels, width, height, width * 4, current_url());
     pages_release(pixels);
     application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
     if (copied) {
@@ -412,7 +411,7 @@ bool begin(const OpenRequest& request) noexcept {
         application_image_viewer_close();
         return false;
     }
-    SetFocus(g_app.window);
+    window_focus(g_app.window);
     application_request_frame();
     return true;
 }
@@ -902,26 +901,26 @@ bool application_image_viewer_open_video(u64 message_id, u32 revision, bool embe
     }
     return true;
 }
-bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_image_viewer_event(const WindowEvent& event) noexcept {
     auto& viewer = g_app.image_viewer;
     auto& scene = viewer.scene;
     auto& held = viewer.held_key;
     auto& pointer_tail = viewer.pointer_tail;
-    if (message == WM_LBUTTONUP && pointer_tail) { pointer_tail = false; return true; }
+    if (input_release(event) && pointer_tail) { pointer_tail = false; return true; }
     if (held) {
-        if (message == WM_KEYUP && wparam == held) {
+        if (input_plain_key_up(event) && event.key.key == held) {
             held = 0;
             return true;
         }
-        if (message == WM_CHAR || message == WM_SYSCHAR || (message == WM_KEYDOWN && wparam == held))
+        if (event.type == EventType::character || (input_plain_key_down(event) && event.key.key == held))
             return true;
     }
     if (!scene.active)
         return false;
     const bool video = current_video();
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         // Idle fullscreen-style playback hides the pointer with the controls.
-        if (LOWORD(lparam) != HTCLIENT || !application_video_viewer_hidden_cursor())
+        if (!application_video_viewer_hidden_cursor())
             return false;
         application_set_cursor(UiCursor::hidden);
         return true;
@@ -929,65 +928,64 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
     // The exit motion is presentation only; input already belongs underneath
     // once it completes, so it is neither handled nor forwarded meanwhile.
     if (viewer.closing)
-        return (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN ||
-               message == WM_KEYUP || message == WM_CHAR;
-    if ((message == WM_KEYDOWN || message == WM_KEYUP) && wparam == key::ctrl) {
+        return input_pointer(event) || input_plain_key(event) ||
+               (event.type == EventType::character && (event.flags & ev_system) == 0);
+    if (input_plain_key(event) && event.key.key == key::ctrl) {
         UiPoint cursor{};
         if (application_pointer_dip(&cursor))
             application_image_zoom_viewer_pointer(cursor, over_image(scene, cursor), g_app.image_zoom.held);
     }
-    if (message == WM_MOUSELEAVE || message == WM_KILLFOCUS)
+    if (event.type == EventType::pointer_leave || input_focus_lost(event))
         application_image_zoom_end();
 
-    const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
-    if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN)
+    const UiPoint point = input_pointer(event) ? UiPoint{client_dip_x(event), client_dip_y(event)} : UiPoint{};
+    if (input_pointer(event) || input_plain_key_down(event))
         application_video_viewer_activity();
     // A double click on an image toggles fit and actual size; elsewhere it is
     // another press.
-    if (message == WM_LBUTTONDBLCLK) {
+    if (input_double(event)) {
         const auto hit = ui_widget_manager_hit_test(scene.widgets, point.x, point.y);
         if (!hit.generation && !video && ui_rect_contains(scene.image, point.x, point.y) &&
             ui_rect_contains(scene.body, point.x, point.y)) {
             ui_image_viewer_toggle_zoom(&scene, point);
             scene.dragging = true;
             scene.pointer = point;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             application_request_frame();
             return true;
         }
-        message = WM_LBUTTONDOWN;
     }
-    switch (message) {
-    case WM_LBUTTONDOWN:
+    if (input_down(event)) {
         pointer_tail = false;
         scene.keyboard_focus = false;
         if (const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::press, point);
             button.handled) {
             scene.focus = static_cast<u8>(scene.widgets.storage[button.target.slot].id - 10);
             ++scene.revision;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             application_request_frame();
             return true;
         }
-        if (video && application_video_viewer_pointer(message, point))
+        if (video && application_video_viewer_pointer(VideoPointer::down, point))
             return true;
         if (!video && ui_rect_contains(scene.image, point.x, point.y) &&
             ui_rect_contains(scene.body, point.x, point.y)) {
             scene.dragging = true;
             scene.pointer = point;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             application_image_zoom_viewer_pointer(point, true, fitted_zoom(scene));
         } else {
             pointer_tail = true;
             application_image_viewer_dismiss();
         }
         return true;
-    case WM_MOUSEMOVE:
+    }
+    if (event.type == EventType::pointer_move) {
         if (const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, point);
             button.changed)
             ++scene.revision;
         if (video)
-            application_video_viewer_pointer(message, point);
+            application_video_viewer_pointer(VideoPointer::move, point);
         if (scene.dragging) {
             ui_image_viewer_pan(&scene, {point.x - scene.pointer.x, point.y - scene.pointer.y});
             scene.pointer = point;
@@ -995,10 +993,11 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         application_image_zoom_viewer_pointer(point, over_image(scene, point), g_app.image_zoom.held);
         application_request_frame();
         return true;
-    case WM_LBUTTONUP: {
+    }
+    if (input_release(event)) {
         const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::release, point);
         if (video && !button.handled)
-            application_video_viewer_pointer(message, point);
+            application_video_viewer_pointer(VideoPointer::up, point);
         scene.dragging = false;
         application_release_capture();
         application_image_zoom_viewer_pointer(point, over_image(scene, point), false);
@@ -1009,8 +1008,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         application_request_frame();
         return true;
     }
-    case WM_CAPTURECHANGED:
-    case WM_CANCELMODE:
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
         scene.dragging = false;
         application_image_zoom_end();
         if (video)
@@ -1018,24 +1016,24 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         if (ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
             ++scene.revision;
         return false;
-    case WM_MOUSEWHEEL: {
+    }
+    if (input_vertical_wheel(event)) {
         // Plain and Ctrl+wheel both zoom about the pointer.
         if (video)
             return true;
-        if (application_image_zoom_wheel(wparam))
+        if (application_image_zoom_wheel(static_cast<i16>(event.wheel.dy120), input_shift(event)))
             return true;
-        UiPoint cursor{};
-        application_wheel_point(lparam, &cursor);
-        ui_image_viewer_wheel(&scene, static_cast<short>(HIWORD(wparam)), cursor);
+        ui_image_viewer_wheel(&scene, static_cast<i16>(event.wheel.dy120), client_wheel_dip(event));
         application_request_frame();
         return true;
     }
-    case WM_KEYDOWN: {
-        const bool repeat = (lparam & (1ll << 30)) != 0;
+    if (input_plain_key_down(event)) {
+        const u32 code = event.key.key;
+        const bool repeat = input_repeated(event);
         const UiImageViewerKeyModifiers modifiers{application_control_down(), application_shift_down(),
                                                   application_alt_down()};
         UiImageViewerKey key = UiImageViewerKey::other;
-        switch (wparam) {
+        switch (code) {
         case key::escape: key = UiImageViewerKey::escape; break;
         case key::tab: key = UiImageViewerKey::tab; break;
         case key::enter: key = UiImageViewerKey::enter; break;
@@ -1058,8 +1056,8 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         // Keys that close or act stay swallowed until released, so their
         // key-up and character never reach the surface underneath.
         if (command == UiImageViewerCommand::dismiss || command == UiImageViewerCommand::save ||
-            command == UiImageViewerCommand::copy || wparam == key::enter)
-            held = static_cast<u32>(wparam);
+            command == UiImageViewerCommand::copy || code == key::enter)
+            held = code;
         switch (command) {
         case UiImageViewerCommand::dismiss:
             application_image_viewer_dismiss();
@@ -1097,13 +1095,13 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         case UiImageViewerCommand::activate: {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets,
-                                       wparam == key::enter ? UiButtonKey::enter : UiButtonKey::space, true, repeat);
+                                       code == key::enter ? UiButtonKey::enter : UiButtonKey::space, true, repeat);
             if (button.activate)
                 activate(scene.widgets.storage[button.target.slot].id - 10);
             break;
         }
         case UiImageViewerCommand::video:
-            application_video_key(static_cast<UINT>(wparam), modifiers.shift, repeat);
+            application_video_key(code, modifiers.shift, repeat);
             break;
         default:
             ui_image_viewer_apply(&scene, command);
@@ -1112,8 +1110,8 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         application_request_frame();
         return true;
     }
-    case WM_KEYUP:
-        if (wparam == key::space && !video) {
+    if (input_plain_key_up(event)) {
+        if (event.key.key == key::space && !video) {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets, UiButtonKey::space, false);
             if (button.activate)
@@ -1121,27 +1119,24 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             application_request_frame();
         }
         return true;
-    case WM_RBUTTONDOWN:
+    }
+    if (input_press(event, PointerButton::right)) {
         // A right press holds the lens at any zoom.
         if (over_image(scene, point) && g_app.preferences.image_zoom) {
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             application_image_zoom_viewer_pointer(point, true, true);
         }
         return true;
-    case WM_RBUTTONUP:
+    }
+    if (input_release(event, PointerButton::right)) {
         if (g_app.image_zoom.held) {
             application_release_capture();
             application_image_zoom_viewer_pointer(point, over_image(scene, point), false);
         }
         return true;
-    case WM_CHAR:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
-    case WM_CONTEXTMENU:
-    case WM_MOUSEHWHEEL:
-        return true;
-    default:
-        return false;
     }
+    return (event.type == EventType::character && (event.flags & ev_system) == 0) ||
+           input_press(event, PointerButton::middle) || input_release(event, PointerButton::middle) ||
+           event.type == EventType::context_menu || input_horizontal_wheel(event);
 }
 } // namespace maicord::app_detail

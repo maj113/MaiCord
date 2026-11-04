@@ -23,6 +23,7 @@ static u64 poll_fixture_unix() noexcept {
 #define clock_monotonic_milliseconds poll_fixture_now
 #define clock_unix_milliseconds poll_fixture_unix
 #include "../../../../src/app/chat/polls/poll.cpp"
+#include "../../../support/window_fixture.hpp"
 #undef clock_monotonic_milliseconds
 #undef clock_unix_milliseconds
 
@@ -381,8 +382,8 @@ bool click(UiPollTarget t) noexcept {
     if (!ui_rect_has_area(r))
         return false;
     const LPARAM at = point_of(r);
-    const bool down = application_poll_window_message(WM_LBUTTONDOWN, 0, at);
-    return application_poll_window_message(WM_LBUTTONUP, 0, at) && down;
+    const bool down = application_poll_window_event(window_test::pointer_down(window_test::x_of(at), window_test::y_of(at)));
+    return application_poll_window_event(window_test::pointer_up(window_test::x_of(at), window_test::y_of(at), PointerButton::left)) && down;
 }
 UiPollTarget answer(u32 index) noexcept {
     return {UiPollControl::answer, 100 + index * 3};
@@ -423,10 +424,10 @@ void scene_cases() noexcept {
           "poll lockup: a vote event before the row converges keeps synchronizing and reprojects the card");
     // Busy poll: a vote event between press and release keeps the press.
     const LPARAM vote_at = point_of(target({UiPollControl::vote}));
-    application_poll_window_message(WM_LBUTTONDOWN, 0, vote_at);
+    application_poll_window_event(window_test::pointer_down(window_test::x_of(vote_at), window_test::y_of(vote_at)));
     own_vote({70, 900, 78, 7, 42, true, true});
     application_poll_synchronize();
-    application_poll_window_message(WM_LBUTTONUP, 0, vote_at);
+    application_poll_window_event(window_test::pointer_up(window_test::x_of(vote_at), window_test::y_of(vote_at), PointerButton::left));
     check(owner->controller.desired_active && application_poll_submit(300, now) &&
               submitted.operation == PollOperation::vote && submitted.answer_ids[0] == 7,
           "poll busy: a release after another user's vote still sends the vote");

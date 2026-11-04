@@ -1,35 +1,23 @@
 #include "maicord/render/effects/colr_paint.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/render/d3d11/shader_bytecode.hpp"
+#include "maicord/gpu/api.hpp"
 
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
 
 namespace maicord {
 namespace {
 // Resources are created once per atlas: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, u16 height, bool surface) noexcept {
-    D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
-    g->append_upload =
-        SUCCEEDED(device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
-        options.MapNoOverwriteOnDynamicBufferSRV;
-    D3D11_TEXTURE2D_DESC d{};
-    d.Width = extent;
-    d.Height = height;
-    d.MipLevels = d.ArraySize = d.SampleDesc.Count = 1;
-    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    d.Usage = D3D11_USAGE_DEFAULT;
-    d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-    D3D11_BUFFER_DESC c{};
-    c.ByteWidth = sizeof(ColrPaintJob) * kColrPaintBatchJobs;
-    c.Usage = D3D11_USAGE_DYNAMIC;
-    c.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    c.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if ((surface && !g->texture && (FAILED(device->CreateTexture2D(&d, nullptr, &g->texture)) ||
-        FAILED(device->CreateShaderResourceView(g->texture, nullptr, &g->view)) ||
-        FAILED(device->CreateUnorderedAccessView(g->texture, nullptr, &g->uav)))) ||
-        (!g->constants && FAILED(device->CreateBuffer(&c, nullptr, &g->constants)))) {
+bool initialize(ColrPaintGpu* g, GpuDevice* device, u16 extent, u16 height, bool surface) noexcept {
+    g->append_upload = gpu_caps(device).map_no_overwrite_on_srv;
+    if ((surface && !g->texture &&
+         (FAILED(gpu_texture_create(device, {extent, height, GpuFormat::rgba8, GpuUsage::default_, gpu_bind_srv | gpu_bind_uav},
+                                    nullptr, &g->texture)) ||
+          FAILED(gpu_srv_create(device, g->texture, {GpuViewKind::texture, GpuFormat::rgba8}, &g->view)) ||
+          FAILED(gpu_uav_create(device, g->texture, &g->uav)))) ||
+        (!g->constants &&
+         FAILED(gpu_buffer_create(device, {sizeof(ColrPaintJob) * kColrPaintBatchJobs, GpuUsage::dynamic, gpu_bind_constant, false},
+                                  nullptr, &g->constants)))) {
         colr_paint_gpu_release(g);
         return false;
     }
@@ -103,22 +91,22 @@ u32 write_layer_plan(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 pa
 // resource creation, the queue and its dispatch are D3D calls: compiled for size
 // (the job-extent loop stays scalar).
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-void unbind_colr(ID3D11DeviceContext* context) noexcept {
-    ID3D11UnorderedAccessView* uav=nullptr;
-    ID3D11ShaderResourceView* views[2]{};
-    ID3D11Buffer* buffer=nullptr;
-    context->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
-    context->CSSetShaderResources(0,2,views);
-    context->CSSetConstantBuffers(0,1,&buffer);
-    context->CSSetShader(nullptr,nullptr,0);
+void unbind_colr(GpuContext* context) noexcept {
+    GpuUav* uav=nullptr;
+    GpuSrv* views[2]{};
+    GpuBuffer* buffer=nullptr;
+    gpu_set_uavs(context,0,1,&uav);
+    gpu_set_srvs(context,GpuStage::compute,0,2,views);
+    gpu_set_constants(context,GpuStage::compute,0,1,&buffer);
+    gpu_set_shader(context,static_cast<GpuComputeShader*>(nullptr));
 }
-ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u32 bytes,bool general,u16 extent,u16 height,bool external_target=false,bool layers=false) noexcept {
+GpuComputeShader* ensure_colr(ColrPaintGpu* g,GpuContext* context,u32 bytes,bool general,u16 extent,u16 height,bool external_target=false,bool layers=false) noexcept {
     auto** shader = layers ? &g->layers_shader : general ? &g->wide_shader : &g->shader;
     const bool initialize_resources = !g->constants || (!external_target && !g->texture);
     const bool resize = initialize_resources || bytes > g->capacity || !*shader;
-    ID3D11Device* device = nullptr;
+    GpuDevice* device = nullptr;
     if (resize)
-        context->GetDevice(&device);
+        device = gpu_context_device(context);
     bool ok = !resize || device;
     if (ok && initialize_resources)
         ok = initialize(g, device, extent, height, !external_target);
@@ -127,58 +115,46 @@ ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u3
         // Programs are bounded by the eight-MiB compilation arena.
         const u32 quantum = 256 * 1024;
         const u32 capacity = (bytes + quantum - 1) & ~(quantum - 1);
-        D3D11_BUFFER_DESC d{};
-        d.ByteWidth = capacity;
-        d.Usage = D3D11_USAGE_DYNAMIC;
-        d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-        ID3D11Buffer* buffer = nullptr;
-        ID3D11ShaderResourceView* view = nullptr;
-        D3D11_SHADER_RESOURCE_VIEW_DESC v{};
-        v.Format = DXGI_FORMAT_R32_TYPELESS;
-        v.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-        v.BufferEx.NumElements = capacity / 4;
-        v.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-        ok = SUCCEEDED(device->CreateBuffer(&d, nullptr, &buffer)) &&
-             SUCCEEDED(device->CreateShaderResourceView(buffer, &v, &view));
+        GpuBuffer* buffer = nullptr;
+        GpuSrv* view = nullptr;
+        ok = SUCCEEDED(gpu_buffer_create(device, {capacity, GpuUsage::dynamic, gpu_bind_srv, true}, nullptr, &buffer)) &&
+             SUCCEEDED(gpu_srv_create(device, buffer, {GpuViewKind::buffer_raw, GpuFormat::r32_uint, capacity / 4}, &view));
         if (ok) {
-            com_release(g->program_view);
-            com_release(g->program);
+            gpu_release(g->program_view);
+            gpu_release(g->program);
             g->program = buffer;
             g->program_view = view;
             g->capacity = capacity;
             g->upload_cursor = 0;
         } else {
-            com_release(view);
-            com_release(buffer);
+            gpu_release(view);
+            gpu_release(buffer);
         }
     }
     if (ok && !*shader)
-        ok = SUCCEEDED(shader_create_compute(device, layers ? ShaderId::colr_layers_compute :
+        ok = SUCCEEDED(gpu_compute_shader_create(device, layers ? ShaderId::colr_layers_compute :
             general ? ShaderId::colr_wide_compute : ShaderId::colr_compute, shader));
-    com_release(device);
     return ok ? *shader : nullptr;
 }
 // One dispatch for `count` jobs: group z selects the job, and groups past a
 // smaller job's extent return at once.
-bool dispatch_jobs(ColrPaintGpu* g, ID3D11DeviceContext* context, ID3D11ComputeShader* shader,
-                   const ColrPaintJob* jobs, u32 count, ID3D11UnorderedAccessView* output) noexcept {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(context->Map(g->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+bool dispatch_jobs(ColrPaintGpu* g, GpuContext* context, GpuComputeShader* shader,
+                   const ColrPaintJob* jobs, u32 count, GpuUav* output) noexcept {
+    void* mapped = gpu_map(context, g->constants, GpuMap::discard, nullptr);
+    if (!mapped)
         return false;
-    CopyMemory(mapped.pData, jobs, count * sizeof(ColrPaintJob));
-    context->Unmap(g->constants, 0);
+    CopyMemory(mapped, jobs, count * sizeof(ColrPaintJob));
+    gpu_unmap(context, g->constants);
     u32 columns = 0, rows = 0;
     for (u32 i = 0; i < count; ++i) {
         columns = maximum(columns, (jobs[i].width + 7) / 8);
         rows = maximum(rows, (jobs[i].height + 7) / 8);
     }
-    context->CSSetConstantBuffers(0, 1, &g->constants);
-    context->CSSetShaderResources(0, 1, &g->program_view);
-    context->CSSetShader(shader, nullptr, 0);
-    context->CSSetUnorderedAccessViews(0, 1, &output, nullptr);
-    context->Dispatch(columns, rows, count);
+    gpu_set_constants(context, GpuStage::compute, 0, 1, &g->constants);
+    gpu_set_srvs(context, GpuStage::compute, 0, 1, &g->program_view);
+    gpu_set_shader(context, shader);
+    gpu_set_uavs(context, 0, 1, &output);
+    gpu_dispatch(context, columns, rows, count);
     return true;
 }
 } // namespace
@@ -196,9 +172,9 @@ void ColrPaintBatch::reset() noexcept {
     gpu=nullptr;shader=nullptr;pending=0;bound=false;
 }
 #pragma clang attribute pop
-static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const ColrPaintProgram& p,
+static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaintProgram& p,
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& a, float scale,
-                          u16 extent, u16 target_height, u16 padding, ColrPaintBatch* batch, ID3D11UnorderedAccessView* target) noexcept {
+                          u16 extent, u16 target_height, u16 padding, ColrPaintBatch* batch, GpuUav* target) noexcept {
     if (!g || !context || !p.storage.base || !p.nodes || p.stack != 1 || p.peak_stack > 64 ||
         p.first >= p.storage.offset || !a.ok() || a.width != bounds.width || a.height != bounds.height ||
         a.x < padding || a.y < padding || a.x + a.width + padding > extent ||
@@ -232,21 +208,19 @@ static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const 
     }
     auto* shader=ensure_colr(g,context,bytes,general,extent,target_height,target!=nullptr,layers);
     if(!shader)return false;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
     // Append disjoint ranges until full. DISCARD renames the entire resource,
     // so doing it for every tiny glyph after a large one wastes driver memory.
     if (!g->append_upload || bytes > g->capacity - g->upload_cursor)
         g->upload_cursor = 0;
     const u32 program_base = g->upload_cursor;
-    if (FAILED(context->Map(g->program, 0,
-                            program_base ? D3D11_MAP_WRITE_NO_OVERWRITE : D3D11_MAP_WRITE_DISCARD, 0,
-                            &mapped)))
+    void* mapped = gpu_map(context, g->program, program_base ? GpuMap::no_overwrite : GpuMap::discard, nullptr);
+    if (!mapped)
         return false;
-    auto* upload=static_cast<u8*>(mapped.pData)+program_base;
+    auto* upload=static_cast<u8*>(mapped)+program_base;
     CopyMemory(upload,p.storage.base,p.storage.offset);
     const u32 plan_bytes=plan_capacity?write_layer_plan(p,bounds,padding,upload):0;
     if(plan_capacity)++g->spatial_jobs;
-    context->Unmap(g->program, 0);
+    gpu_unmap(context, g->program);
     g->upload_cursor = (program_base + static_cast<u32>(p.storage.offset) + plan_bytes + 15) & ~15u;
     job.program_base = program_base;
     ++g->dispatches;
@@ -260,7 +234,7 @@ static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const 
     unbind_colr(context);
     return dispatched;
 }
-bool colr_paint_rasterize(ColrPaintGpu* g, ID3D11DeviceContext* context, const ColrPaintProgram& p,
+bool colr_paint_rasterize(ColrPaintGpu* g, GpuContext* context, const ColrPaintProgram& p,
     const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation, float scale,
     u16 atlas_width, u16 atlas_height, u16 padding, ColrPaintBatch* batch) noexcept {
     // A texture made at another size must be resized first (glyph_atlas_texture_resize).
@@ -268,12 +242,48 @@ bool colr_paint_rasterize(ColrPaintGpu* g, ID3D11DeviceContext* context, const C
         return false;
     return rasterize_colr(g,context,p,bounds,allocation,scale,atlas_width,atlas_height,padding,batch,nullptr);
 }
+#if !defined(_WIN32)
+bool colr_paint_upload_pixels(ColrPaintGpu* g, GpuContext* context, const GlyphAtlasAllocation& a, u16 atlas_width,
+                              u16 atlas_height, u16 padding, const u32* pixels, Arena* scratch,
+                              ColrPaintBatch* batch) noexcept {
+    if (!g || !context || !pixels || !scratch || !scratch->base || !a.ok() || a.x < padding || a.y < padding ||
+        a.x + a.width + padding > atlas_width || a.y + a.height + padding > atlas_height ||
+        (batch && batch->context != context))
+        return false;
+    if (g->texture && (g->width != atlas_width || g->height != atlas_height))
+        return false;
+    GpuDevice* device = gpu_context_device(context);
+    if (!g->texture && !initialize(g, device, atlas_width, atlas_height, true))
+        return false;
+    // Queued paint jobs write this texture too.
+    if (batch && batch->pending && !batch->flush())
+        return false;
+    const u32 width = a.width + 2u * padding;
+    const u32 height = a.height + 2u * padding;
+    const ArenaMark mark = arena_mark(scratch);
+    u32* padded = arena_allocate_zero<u32>(scratch, width * height);
+    if (!padded)
+        return false;
+    for (u32 y = 0; y < a.height; ++y)
+        copy_bytes(padded + (y + padding) * width + padding, pixels + y * a.width, a.width * 4u);
+    GpuTexture* staged = nullptr;
+    const GpuInitialData initial{padded, width * 4u};
+    const bool created =
+        !FAILED(gpu_texture_create(device, {width, height, GpuFormat::rgba8, GpuUsage::immutable, gpu_bind_srv}, &initial,
+                                   &staged));
+    if (created)
+        gpu_copy_region(context, g->texture, a.x - padding, a.y - padding, staged, {0, 0, width, height});
+    gpu_release(staged);
+    arena_rewind(scratch, mark);
+    return created;
+}
+#endif
 // Target bakes and release run once per image: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool colr_paint_rasterize_target(ColrPaintGpu* g, ID3D11DeviceContext* context,
+bool colr_paint_rasterize_target(ColrPaintGpu* g, GpuContext* context,
     const ColrPaintProgram& p, const GlyphRasterBounds& bounds,
     const GlyphAtlasAllocation& allocation, float scale,
-    u16 target_width, u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept {
+    u16 target_width, u16 target_height, u16 padding, GpuUav* target) noexcept {
     if (!target || p.storage.offset > 8 * 1024 * 1024)
         return false;
     return rasterize_colr(g,context,p,bounds,allocation,scale,target_width,target_height,padding,nullptr,target);
@@ -281,15 +291,15 @@ bool colr_paint_rasterize_target(ColrPaintGpu* g, ID3D11DeviceContext* context,
 void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     if (!g)
         return;
-    com_release(g->wide_shader);
-    com_release(g->layers_shader);
-    com_release(g->shader);
-    com_release(g->constants);
-    com_release(g->program_view);
-    com_release(g->program);
-    com_release(g->uav);
-    com_release(g->view);
-    com_release(g->texture);
+    gpu_release(g->wide_shader);
+    gpu_release(g->layers_shader);
+    gpu_release(g->shader);
+    gpu_release(g->constants);
+    gpu_release(g->program_view);
+    gpu_release(g->program);
+    gpu_release(g->uav);
+    gpu_release(g->view);
+    gpu_release(g->texture);
     reset_value(g);
 }
 #pragma clang attribute pop

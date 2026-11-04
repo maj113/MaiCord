@@ -1,5 +1,6 @@
 #include "account_module_internal.hpp"
 #include "maicord/app/guild/account_guild_community.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/app/voice/log.hpp"
 #include "maicord/app/chat/threads/account_thread_actions.hpp"
 #include "maicord/app/chat/polls/account_message_poll.hpp"
@@ -278,7 +279,7 @@ bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_soundboard_command(&runtime->soundboard,
                                                  user_account_coordinator_gateway(&runtime->coordinator), command,
-                                                 GetTickCount64());
+                                                 clock_monotonic_milliseconds());
 }
 bool WINAPI module_voice_message(void* instance, const VoiceMessageCommand* command,
                                  VoiceMessageStatus* status) noexcept {

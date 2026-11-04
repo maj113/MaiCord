@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 
 namespace maicord {
 namespace {
@@ -121,8 +122,7 @@ void test_voice_media_dispatch(Check check) noexcept {
         ready.port = ntohs(peer_address.sin_port);
         ready.recognized_modes = 1;
         ok = voice_connection_ready(&connection, ready) == VoiceMediaSetupError::none &&
-             network_datagram_open(&loop, &connection.udp.socket,
-                                   reinterpret_cast<const sockaddr*>(&peer_address), peer_bytes)
+             network_datagram_open(&loop, &connection.udp.socket, test_network_address(&peer_address, peer_bytes))
                  .ok();
         check(ok, "mapped media retained-socket fixture");
         if (ok) {

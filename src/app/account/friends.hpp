@@ -4,6 +4,7 @@
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct RestClientResponse;
@@ -30,7 +31,7 @@ void application_friends_hide() noexcept;
 void application_friends_release() noexcept;
 bool application_friends_synchronize() noexcept;
 bool application_friends_input(UiInputKind, u32 code, bool repeated) noexcept;
-bool application_friends_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_friends_window_event(const WindowEvent&) noexcept;
 bool application_friends_pending(u64 now_ms) noexcept;
 bool application_friends_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_friends_response(const RestClientResponse&, Utf8View body) noexcept;

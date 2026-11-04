@@ -47,7 +47,7 @@ inline bool probe_cjk_pixels(D3D11Renderer& renderer,const wchar_t* options,
             if(!content.quad_count)return false;
             for(u32 i=0;i<content.quad_count;++i){const auto& q=content.quads[i];const float factor=dpi[scale]/96.f;
                 if(q.left<0||q.top<0||q.right*factor>1200||q.bottom*factor>970)return false;}
-            const float clear[]{0,0,0,1};context->ClearRenderTargetView(renderer.graphics.target,clear);
+            const float clear[]{0,0,0,1};context->ClearRenderTargetView(renderer.graphics.surface.target,clear);
             wchar_t filename[]=L"cjk-d0-o0.bmp";filename[5]=static_cast<wchar_t>('0'+scale);filename[8]=static_cast<wchar_t>('0'+origin);
             if(!capture(filename))return false;++frames;
         }

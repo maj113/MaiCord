@@ -30,8 +30,8 @@ struct VoiceUdpDiscovery {
 // Worker-only, one discovery per Ready/SSRC. No allocation or helper thread.
 // Success leaves the SAME connected UDP socket open for subsequent RTP/media,
 // preserving the discovered NAT mapping. It does not select an encryption mode.
-bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const sockaddr* peer, i32 peer_bytes,
-                     u32 ssrc, u64 now_ms) noexcept;
+bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const NetworkAddress& peer, u32 ssrc,
+                     u64 now_ms) noexcept;
 void voice_udp_completion(VoiceUdpDiscovery* discovery, const NetworkCompletion& completion,
                           u64 now_ms) noexcept;
 void voice_udp_tick(VoiceUdpDiscovery* discovery, u64 now_ms) noexcept;

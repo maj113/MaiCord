@@ -71,7 +71,7 @@ void align_stems(const IconPack& pack, u32 index, IconPlacement* placement) noex
 }
 } // namespace
 
-bool icon_atlas_initialize(IconAtlas* atlas, ID3D11Device* device) noexcept {
+bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept {
     if (!atlas || !device || atlas->ready)
         return false;
     if (!glyph_atlas_initialize(&atlas->allocator, kIconAtlasExtent, kIconAtlasExtent, kPadding,
@@ -97,7 +97,7 @@ bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept {
     return atlas.ready && (atlas.resolved_dpi != dpi || atlas.resolved_weight != weight);
 }
 
-bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const PaintQuad* source,
+bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* source,
                         PaintQuad* destination, u32 count, u32 dpi, float weight) noexcept {
     if (!source || !destination)
         return false;

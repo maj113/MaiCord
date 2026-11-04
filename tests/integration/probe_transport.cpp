@@ -56,19 +56,15 @@ bool connect_socket(ProbeTransport* transport, const wchar_t* hostname) noexcept
 
     const NetworkPollResult resolved = wait_for(&transport->loop, NetworkOperationKind::resolve);
     if (resolved.state != NetworkPollState::completion || !resolved.completion.succeeded ||
-        resolved.completion.stale || resolved.completion.resolver != &resolver || !resolver.results) {
+        resolved.completion.stale || resolved.completion.resolver != &resolver || !resolver.address_count) {
         network_resolver_release(&resolver);
         return false;
     }
 
     bool connected = false;
-    for (ADDRINFOEXW* current = resolver.results; current && !connected; current = current->ai_next) {
-        if (current->ai_addrlen > sizeof(sockaddr_storage)) {
-            continue;
-        }
+    for (u32 index = 0; index < resolver.address_count && !connected; ++index) {
         const NetworkResult started =
-            network_connection_connect(&transport->loop, &transport->connection, current->ai_addr,
-                                       static_cast<i32>(current->ai_addrlen));
+            network_connection_connect(&transport->loop, &transport->connection, resolver.addresses[index]);
         if (!started.ok()) {
             network_connection_close(&transport->connection);
             continue;

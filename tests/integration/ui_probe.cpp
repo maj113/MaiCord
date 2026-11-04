@@ -2628,7 +2628,7 @@ int run_probe() noexcept {
     }
     // Empty-owner contract: waiting is immediate and releasing is idempotent.
     D3D11DeviceOwner invalid_owner{};
-    if (d3d11_device_owner_wait(invalid_owner, 0) != WAIT_OBJECT_0) {
+    if (!gpu_frame_wait(&invalid_owner.surface, 0)) {
         return 9;
     }
     d3d11_device_owner_release(&invalid_owner);
@@ -4029,7 +4029,7 @@ bool application_quick_switcher_edit_focused() noexcept { return false; }
 TextInputTarget application_quick_switcher_edit_target() noexcept { return {}; }
 UiRect application_quick_switcher_edit_bounds() noexcept { return {}; }
 bool application_quick_switcher_edit_changed(bool) noexcept { return true; }
-bool application_quick_switcher_filter(const MSG&) noexcept { return false; }
+bool application_quick_switcher_filter(const WindowEvent&) noexcept { return false; }
 void application_quick_switcher_edit_cancel_native_group(const TextInputTarget&) noexcept {}
 bool application_message_forward_active() noexcept { return false; }
 MessageComposer* application_message_forward_edit_model() noexcept { return nullptr; }
@@ -4038,7 +4038,7 @@ bool application_message_forward_caption_focused() noexcept { return false; }
 TextInputTarget application_message_forward_edit_target() noexcept { return {}; }
 UiRect application_message_forward_edit_bounds() noexcept { return {}; }
 bool application_message_forward_edit_changed(bool) noexcept { return true; }
-bool application_message_forward_filter(const MSG&) noexcept { return false; }
+bool application_message_forward_filter(const WindowEvent&) noexcept { return false; }
 void application_message_forward_edit_cancel_native_group(const TextInputTarget&) noexcept {}
 
 } // namespace maicord::app_detail

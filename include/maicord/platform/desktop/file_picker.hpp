@@ -3,6 +3,8 @@
 #include "maicord/platform/desktop/file_identity.hpp"
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/dropped_files.hpp"
+#include "maicord/platform/window/window.hpp"
 namespace maicord {
 inline constexpr u32 kNativeFilePickerMaximumFiles = 64;
 inline constexpr u32 kNativeFilePickerMaximumPathUnits = 32767;
@@ -32,22 +34,21 @@ struct NativeFileSaveSelection {
 };
 // Reuses the dedicated dialog STA. An existing destination has already passed
 // the native overwrite prompt; the worker snapshots the chosen file.
-NativeFilePickerError native_file_picker_save_start(NativeFilePicker*, HWND owner,
+NativeFilePickerError native_file_picker_save_start(NativeFilePicker*, Window owner,
     Utf8View default_filename, Utf8View title = {}) noexcept;
 bool native_file_picker_save_selection(const NativeFilePicker*, NativeFileSaveSelection*) noexcept;
 // A dedicated STA thread runs the Windows dialog and holds its COM objects. The
 // calling thread starts/polls/cancels/releases this object; no filesystem/Shell work runs there.
 // Every selected absolute UTF-16 path is kept until release. Selection is
 // all-or-nothing: exceeding maximum_files returns capacity, never a partial list.
-NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, HWND owner,
+NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, Window owner,
     u32 maximum_files, Utf8View title = {}) noexcept;
-// Accepts a WM_DROPFILES HDROP without enumerating paths or opening files on
-// the caller thread. Success transfers the handle to the worker, which calls
-// DragFinish once. On failure the caller still owns the drop handle.
+// Accepts dropped files without enumerating paths or opening files on the caller thread. Success transfers them to
+// the worker, which releases them once (dropped_files_release). On failure the caller still owns them.
 // Uses the same batch result/cancel/release contract as the dialog.
-NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, HANDLE drop,
+NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, DroppedFiles* drop,
     u32 maximum_files) noexcept;
-NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardAttachmentData* input,
+NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardCapture* input,
     u32 maximum_files, u64 maximum_bytes) noexcept;
 // Virtual clipboard files expose a filename and borrowed source instead of a path.
 ConstSlice<wchar_t> native_file_picker_filename(const NativeFilePicker* picker, u32 index) noexcept;

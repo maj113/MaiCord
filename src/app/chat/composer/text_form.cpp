@@ -14,7 +14,7 @@
 #include "../../shell/input.hpp"
 #include "../threads/forum_form.hpp"
 #include "../../account/login/ui.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -22,7 +22,6 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -233,16 +232,17 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     const auto* field = text_form_node(form->scene, TextFormElement::edit);
     if (!field)
         return false;
-    return text_store_screen_geometry(field->content_rectangle, output);
+    return text_store_geometry(field->content_rectangle, output);
 }
-bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* inside) noexcept {
+bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
     if (form != g_app.text_form || !g_app.renderer.dpi || !form->surface.layout.active ||
         form->surface.layout.text_signature !=
             text_edit_signature(
-                {reinterpret_cast<const char*>(form->edit.storage.data), form->edit.storage.bytes}) ||
-        !application_screen_to_content(&point))
+                {reinterpret_cast<const char*>(form->edit.storage.data), form->edit.storage.bytes}))
         return false;
+    POINT point{client.x, client.y};
+    application_client_to_content(&point);
     const float scale = 96.0f / g_app.renderer.dpi;
     return text_edit_layout_point_geometry(form->surface.layout, point.x * scale, point.y * scale, round,
                                              position, inside);
@@ -392,7 +392,7 @@ bool apply(ApplicationTextForm* form, SecureEditResult result) noexcept {
 // Its own frame: the clipboard buffer must not weigh on every input event.
 __declspec(noinline) bool paste_clipboard(ApplicationTextForm* form) noexcept {
     char pasted[kApplicationTextFormBytes];
-    const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
+    const auto read = clipboard_read_utf8({pasted, sizeof(pasted)});
     const auto result = read.ok() ? secure_edit_insert_utf8(&form->edit, {pasted, read.bytes})
                         : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
                                                                      : SecureEditResult::unchanged;
@@ -522,7 +522,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
                 check_text(form);
         }
         initialized = initialized && secure_edit_enable_history(&form->edit, 32 * 1024);
-        form->blink_ms = GetCaretBlinkTime();
+        form->blink_ms = application_caret_blink_ms();
         if (!form->blink_ms)
             form->blink_ms = 500;
         form->caret_visible = true;
@@ -791,9 +791,7 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
         const auto first = minimum(form->edit.anchor, form->edit.caret),
                    last = maximum(form->edit.anchor, form->edit.caret);
         if (first != last &&
-            clipboard_write_utf8(
-                g_app.window,
-                {reinterpret_cast<const char*>(form->edit.storage.data + first), last - first}) &&
+            clipboard_write_utf8({reinterpret_cast<const char*>(form->edit.storage.data + first), last - first}) &&
             code == 'X')
             return apply(form, secure_edit_delete_forward(&form->edit));
         return true;
@@ -834,11 +832,9 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     }
 }
 
-bool application_text_form_filter_message(const MSG& message) noexcept {
-    if (message.hwnd != g_app.window)
-        return false;
+bool application_text_form_filter(const WindowEvent& event) noexcept {
     UiInputEvent held{};
-    if (application_held_key_event(g_app.text_form_held_key, message, &held))
+    if (application_held_key_event(g_app.text_form_held_key, event, &held))
         return application_text_form_input(held.kind, held.code, held.repeated);
     auto* form = g_app.text_form;
     if (!form)
@@ -849,16 +845,14 @@ bool application_text_form_filter_message(const MSG& message) noexcept {
     }
     if (!settle(form))
         return false;
-    return form->editable && !form->request.confirmation_only &&
-           secure_text_store_filter_message(&form->store, message);
+    return form->editable && !form->request.confirmation_only && secure_text_store_filter_key(&form->store, event);
 }
 
-bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lparam,
-                                          LRESULT* result) noexcept {
-    if (message == WM_KILLFOCUS || message == WM_CANCELMODE)
+bool application_text_form_window_event(const WindowEvent& event) noexcept {
+    if (input_focus_lost(event) || event.type == EventType::cancel_input)
         g_app.text_form_held_key = 0;
     auto* form = g_app.text_form;
-    if (!form || !result)
+    if (!form)
         return false;
     if (!valid(form)) {
         application_text_form_close(false);
@@ -866,11 +860,10 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
     }
     if (!settle(form))
         return true;
-    *result = 0;
-    const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
-    const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale;
-    const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale;
-    if (message == WM_KILLFOCUS) {
+    // Content-pixel position of a pointer event, in DIPs.
+    const float x = input_pointer(event) ? client_dip_x(event) : 0.f;
+    const float y = input_pointer(event) ? client_dip_y(event) : 0.f;
+    if (input_focus_lost(event)) {
         if (user_dismissible(*form)) {
             application_text_form_close(false);
             return true;
@@ -888,7 +881,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         refresh(form);
         return true; // Consume this dismissal; the parent overlay remains alive.
     }
-    if (message == WM_SETFOCUS) {
+    if (event.type == EventType::focus_changed) {
         if (!form->request.confirmation_only) {
             secure_edit_break_history_run(&form->edit);
             if (form->editable && text_form_focused(form->scene) == TextFormElement::edit)
@@ -899,8 +892,9 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         refresh(form);
         return false;
     }
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
-        if (message == WM_CANCELMODE)
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
+        const bool cancelled = event.type == EventType::cancel_input;
+        if (cancelled)
             end_capture(form);
         else {
             form->dragging = false;
@@ -908,7 +902,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
             ui_widget_manager_capture(&form->scene.widgets, ui_widget_invalid_handle());
         }
         ui_button_keyboard_cancel(&form->keyboard);
-        if (message == WM_CANCELMODE && !form->request.confirmation_only) {
+        if (cancelled && !form->request.confirmation_only) {
             secure_text_store_unbind(&form->store);
             reset_value(&form->composition);
             secure_edit_cancel_composition(&form->edit);
@@ -921,9 +915,13 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         }
         return !user_dismissible(*form);
     }
-    switch (message) {
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK: {
+    switch (event.type) {
+    case EventType::pointer_down: {
+        // The right button's press is swallowed; other buttons but the primary one pass.
+        if (input_press(event, PointerButton::right))
+            return true;
+        if (!input_down(event))
+            return false;
         const auto* panel = text_form_node(form->scene, TextFormElement::panel);
         if (panel && !ui_rect_contains(panel->rectangle, x, y)) {
             if (user_dismissible(*form))
@@ -943,10 +941,10 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
             if (element == TextFormElement::edit && !form->request.confirmation_only) {
                 // Double click: word; a third press within the double-click
                 // time/distance: line. An IME composition keeps its selection.
-                const u8 clicks = application_click_count(&form->scene, x, y, message == WM_LBUTTONDBLCLK);
+                const u8 clicks = application_click_count(event, &form->scene, x, y, input_double(event));
                 const bool composing = secure_text_store_composing(form->store);
                 if (!composing) {
-                    pointer_position(form, x, y, clicks == 1 && (wparam & MK_SHIFT) != 0);
+                    pointer_position(form, x, y, clicks == 1 && input_shift(event));
                     if (clicks == 2)
                         apply(form, secure_edit_select_word(&form->edit, form->edit.caret));
                     else if (clicks == 3)
@@ -960,8 +958,8 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         }
         return true;
     }
-    case WM_MOUSEMOVE: {
-        if (form->dragging && (wparam & MK_LBUTTON))
+    case EventType::pointer_move: {
+        if (form->dragging && input_held(event))
             pointer_position(form, x, y, true);
         // Footer buttons and the option row light up only under the pointer.
         const auto element = text_form_hit_test(form->scene, x, y);
@@ -979,27 +977,32 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         }
         return true;
     }
-    case WM_MOUSELEAVE:
+    case EventType::pointer_leave:
         if (form->scene.widgets.hovered.generation) {
             ui_widget_manager_hover(&form->scene.widgets, ui_widget_invalid_handle());
             refresh(form);
         }
         return false;
-    case WM_LBUTTONUP: {
-        const auto button = form->pointer_button;
-        const auto element = text_form_hit_test(form->scene, x, y);
-        const bool clicked =
-            element != TextFormElement::count &&
-            ui_widget_handle_matches(button, form->scene.elements[static_cast<u32>(element)]);
-        end_capture(form);
-        if (clicked)
-            activate(form, element);
-        return true;
+    case EventType::pointer_up: {
+        if (input_release(event)) {
+            const auto button = form->pointer_button;
+            const auto element = text_form_hit_test(form->scene, x, y);
+            const bool clicked =
+                element != TextFormElement::count &&
+                ui_widget_handle_matches(button, form->scene.elements[static_cast<u32>(element)]);
+            end_capture(form);
+            if (clicked)
+                activate(form, element);
+            return true;
+        }
+        // The right button's release is swallowed; the other buttons' pass.
+        return input_release(event, PointerButton::right);
     }
-    case WM_MOUSEWHEEL: {
-        UiPoint point{};
-        application_wheel_point(lparam, &point);
-        const float delta = -application_wheel_notches(wparam) * 48;
+    case EventType::wheel: {
+        if (input_horizontal_wheel(event))
+            return true;
+        const UiPoint point = client_wheel_dip(event);
+        const float delta = -input_wheel_notches(event) * 48;
         if (!form->request.confirmation_only &&
             text_form_hit_test(form->scene, point.x, point.y) == TextFormElement::edit)
             text_edit_layout_scroll(&form->surface.layout, delta);
@@ -1008,22 +1011,15 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         refresh(form);
         return true;
     }
-    case WM_MOUSEHWHEEL:
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_CONTEXTMENU:
+    case EventType::context_menu:
         return true;
-    case WM_SETCURSOR:
-        if (LOWORD(lparam) == HTCLIENT) {
-            // Buttons are hands and the editor an I-beam, from the widgets themselves.
-            UiPoint point{};
-            application_set_cursor(application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point)
-                                       ? ui_widget_manager_cursor(form->scene.widgets, point.x, point.y)
-                                       : UiCursor::arrow);
-            *result = TRUE;
-            return true;
-        }
-        return false;
+    case EventType::cursor_query: {
+        // Buttons are hands and the editor an I-beam, from the widgets themselves.
+        UiPoint point{};
+        application_set_cursor(client_cursor_dip(event, &point) ? ui_widget_manager_cursor(form->scene.widgets, point.x, point.y)
+                                                                : UiCursor::arrow);
+        return true;
+    }
     default:
         return false;
     }

@@ -3,6 +3,7 @@
 #include "caption.hpp"
 #include "state.hpp"
 #include "window_state.hpp"
+#include "window_events.hpp"
 #include "../account/account_presentation.hpp"
 #include "../settings/settings.hpp"
 #include "../account/friends.hpp"
@@ -629,23 +630,23 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
                     bool* reaction) noexcept {
     const u64 scope = application_account_scope();
     if (g_app.image_viewer.scene.active)
-        return viewer_available() && GetCapture() != g_app.window && scope &&
+        return viewer_available() && !window_pointer_captured(g_app.window) && scope &&
                (!keyboard || g_app.keyboard_focus_visible || g_app.image_viewer.scene.keyboard_focus) &&
                viewer_target(point, keyboard, scope, target);
     if (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active)
-        return profile_available() && GetCapture() != g_app.window && scope &&
+        return profile_available() && !window_pointer_captured(g_app.window) && scope &&
                (!keyboard || g_app.keyboard_focus_visible) &&
                profile_hint_target(*g_app.renderer.profile_scene, point, keyboard, scope, 0x5800u, target);
     // The command picker's rail entries name their sections at the right.
     if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::commands)
-        return g_app.renderer_ready && scope && GetCapture() != g_app.window && !application_window_minimized() &&
+        return g_app.renderer_ready && scope && !window_pointer_captured(g_app.window) && !application_window_minimized() &&
                command_rail_target(point, keyboard, scope, target);
     if (application_settings_scene() && !renderer_theme_editor_visible(g_app.renderer))
-        return g_app.renderer_ready && g_app.account_ui && !g_app.login.visible && scope && GetCapture() != g_app.window &&
+        return g_app.renderer_ready && g_app.account_ui && !g_app.login.visible && scope && !window_pointer_captured(g_app.window) &&
                !application_window_minimized() && (!keyboard || g_app.keyboard_focus_visible) &&
                settings_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
-    if (!content_available() || GetCapture() == g_app.window)
+    if (!content_available() || window_pointer_captured(g_app.window))
         return false;
     if (!scope)
         return false;
@@ -861,17 +862,31 @@ u64 application_tooltip_next_wake() noexcept {
 bool application_tooltip_synchronize(u64 now_ms) noexcept {
     return !g_app.tooltip || refresh(*g_app.tooltip, now_ms);
 }
-void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (message == WM_MOUSELEAVE || message == WM_KILLFOCUS || message == WM_CANCELMODE ||
-        message == WM_CAPTURECHANGED || message == WM_SIZE || message == WM_DPICHANGED ||
-        message == WM_ENTERSIZEMOVE || message == WM_EXITSIZEMOVE) {
+void application_tooltip_input(const WindowEvent& event) noexcept {
+    switch (event.type) {
+    case EventType::pointer_leave:
+    case EventType::capture_lost:
+    case EventType::cancel_input:
+    case EventType::resize:
+    case EventType::scale_changed:
+    case EventType::resize_begin:
+    case EventType::resize_end:
         application_tooltip_clear();
         return;
+    case EventType::focus_changed:
+        if (!event.focus.gained) {
+            application_tooltip_clear();
+            return;
+        }
+        break;
+    default:
+        break;
     }
-    const bool pointer = message == WM_MOUSEMOVE;
-    const bool keyboard = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
-    const bool press = message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN ||
-                       message == WM_MBUTTONDOWN || message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL;
+    const bool pointer = input_move(event);
+    const bool keyboard = input_key_down(event);
+    const bool press = ((input_press(event, PointerButton::left) || input_press(event, PointerButton::right) ||
+                         input_press(event, PointerButton::middle))) ||
+                       event.type == EventType::wheel;
     if (!pointer && !keyboard && !press)
         return;
     if (press) {
@@ -885,14 +900,14 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         return;
     }
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-    const UiPoint point{static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                        static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale};
+    const UiPoint point = pointer ? UiPoint{event.pointer.x * scale, event.pointer.y * scale} : UiPoint{};
     UiTooltipTarget candidate{};
     UiTooltipStyle candidate_style{};
     bool candidate_reaction = false;
+    const u32 code = keyboard ? event.key.key : 0;
     const bool navigation =
-        keyboard && (wparam == key::tab || wparam == key::up || wparam == key::down || wparam == key::left ||
-                     wparam == key::right || wparam == key::home || wparam == key::end);
+        keyboard && (code == key::tab || code == key::up || code == key::down || code == key::left ||
+                     code == key::right || code == key::home || code == key::end);
     // Retain the first eligible pointer observation even when dispatch has not
     // published its action bar/video control yet. Synchronize resolves the new
     // typed source after dispatch without requiring a second mouse movement.
@@ -913,9 +928,9 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         owner->pointer_valid = true;
         reset_value(&owner->dismissed);
     }
-    if (keyboard && (wparam == key::enter || wparam == key::space || wparam == key::escape)) {
+    if (keyboard && (code == key::enter || code == key::space || code == key::escape)) {
         application_reaction_tooltip_leave();
-        if (wparam == key::escape)
+        if (code == key::escape)
             application_interaction_card_close();
         owner->dismissed = owner->scene.key;
         ui_tooltip_clear(&owner->scene);

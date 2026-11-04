@@ -434,7 +434,7 @@ void focus(ApplicationSearch& s, bool value) noexcept {
     if (value) {
         g_app.message_composer.focused = false;
         g_app.context_focus = &s.scene.widgets;
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
         ui_widget_manager_focus(&s.scene.widgets, s.scene.edit);
     } else {
         const auto* rich = ui_search_scene_message_scene(s.scene);

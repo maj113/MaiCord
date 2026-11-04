@@ -23,7 +23,7 @@
 #include "../chat/application_link_trust.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
 #include "maicord/ui/plugins/slots.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/decimal.hpp"
@@ -734,7 +734,7 @@ bool application_profile_refresh_message() noexcept {
         p->note_text_revision = p->note.text_revision;
         application_user_note_edit(p->note_user, message_composer_text(p->note));
     }
-    const u32 blink = GetCaretBlinkTime();
+    const u32 blink = application_caret_blink_ms();
     p->message_blink_at =
         e.focused && blink && blink != INFINITE ? clock_monotonic_milliseconds() + blink : 0;
     ++p->scene.revision;
@@ -754,7 +754,7 @@ void application_profile_tick(u64 now) noexcept {
     if (!p || !p->scene.active || !p->message_blink_at || now < p->message_blink_at)
         return;
     p->scene.edit.caret_visible = !p->scene.edit.caret_visible;
-    p->message_blink_at = now + GetCaretBlinkTime();
+    p->message_blink_at = now + application_caret_blink_ms();
     repaint();
 }
 bool application_profile_conversation_ready() noexcept {
@@ -854,7 +854,7 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
         }
     if (event == UiButtonPointerEvent::press && bio_hit) {
         s.bio_pressed = bio_hit->source_offset + 1;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         return true;
     }
     if (event == UiButtonPointerEvent::release && s.bio_pressed) {
@@ -887,8 +887,8 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
             p->message_dragging = true;
             ui_widget_manager_focus(&s.widgets, s.message_field);
             ui_button_pointer(&s.widgets, UiButtonPointerEvent::cancel, {});
-            SetFocus(g_app.window);
-            SetCapture(g_app.window);
+            window_focus(g_app.window);
+            window_capture_pointer(g_app.window);
         }
         if (event == UiButtonPointerEvent::press || event == UiButtonPointerEvent::move) {
             auto& model = edit_model(*p);
@@ -917,8 +917,8 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
     const auto result = ui_button_pointer_target(&s.widgets, event,
         profile_scene_hit_test(s, point.x, point.y));
     if (event == UiButtonPointerEvent::press && result.handled) {
-        SetFocus(g_app.window);
-        SetCapture(g_app.window);
+        window_focus(g_app.window);
+        window_capture_pointer(g_app.window);
     }
     if (event == UiButtonPointerEvent::release)
         application_release_capture();
@@ -960,7 +960,7 @@ bool application_profile_double_click(UiPoint point) noexcept {
 // Out of line: the paste buffer would otherwise probe the stack on every key.
 __declspec(noinline) static MessageComposerResult paste_clipboard(MessageComposer* edit) noexcept {
     char text[kMessageComposerMaximumBytes];
-    const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+    const auto read = clipboard_read_utf8({text, sizeof(text)});
     return read.ok() ? message_composer_insert_utf8(edit, {text, read.bytes}) : MessageComposerResult::unchanged;
 }
 bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
@@ -1008,7 +1008,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         if (control && (key == 'C' || key == 'X')) {
             const auto first = minimum(edit->anchor, edit->caret),
                        last = maximum(edit->anchor, edit->caret);
-            if (first != last && clipboard_write_utf8(g_app.window, {edit->text + first, last - first}) &&
+            if (first != last && clipboard_write_utf8({edit->text + first, last - first}) &&
                 key == 'X')
                 result = message_composer_delete_forward(edit);
         } else if (control && key == 'V') {

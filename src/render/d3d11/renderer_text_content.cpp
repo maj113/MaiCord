@@ -8,7 +8,6 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/text/inline_flag_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {

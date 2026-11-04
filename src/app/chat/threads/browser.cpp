@@ -1,4 +1,6 @@
 #include "../../shell/overlay_input.hpp"
+#include "../../shell/input.hpp"
+#include "../../shell/window_events.hpp"
 #include "../../shell/owner.hpp"
 #include "browser.hpp"
 #include "maicord/core/memory.hpp"
@@ -26,7 +28,6 @@
 
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 
@@ -1029,16 +1030,16 @@ bool application_thread_browser_scroll_to(double offset) noexcept {
     if (ui_thread_browser_scene_scroll(&browser_owner->scene, static_cast<float>(offset))) application_request_frame();
     return true;
 }
-bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
-    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CONTEXTMENU && message != WM_MOUSELEAVE &&
-        message != WM_CAPTURECHANGED && message != WM_CANCELMODE && message != WM_KILLFOCUS)
+bool application_thread_browser_window_event(const WindowEvent& event) noexcept {
+    if (!input_pointer(event) && event.type != EventType::context_menu && event.type != EventType::pointer_leave &&
+        event.type != EventType::capture_lost && event.type != EventType::cancel_input && !input_focus_lost(event))
         return false;
-    const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-    const float client_x = static_cast<short>(LOWORD(lparam)) * scale;
-    const float client_y = static_cast<short>(HIWORD(lparam)) * scale;
+    const bool positioned = input_pointer(event) || event.type == EventType::context_menu;
+    const float client_x = positioned ? client_dip_x(event) : 0.f;
+    const float client_y = positioned ? client_dip_y(event) : 0.f;
     const bool header = ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).threads, client_x, client_y);
     const bool header_front = application_thread_browser_available() && !application_forum_form_active() && application_panel_uncovered();
-    if (message == WM_LBUTTONDOWN && header && header_front) {
+    if (input_press(event) && header && header_front) {
         if (!ensure_owner()) return true;
         auto& value = *browser_owner;
         const auto* parent = application_channel_record(default_parent());
@@ -1047,17 +1048,17 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
         value.pressed = {UiThreadBrowserAction::none, ~u64{0}, 0,
             g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::threads_toggle)]};
         value.captured = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         return true;
     }
     auto* value = browser_owner;
     if (!value) return false;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
         clear_capture(*value);
         return false;
     }
     if (value->captured && value->pressed.thread_id == ~u64{0}) {
-        if (message == WM_LBUTTONUP) {
+        if (input_release(event)) {
             const auto captured = value->pressed_scope;
             const auto* parent = application_channel_record(captured.parent);
             const bool accepted = header && header_front && actor_current(captured) && parent &&
@@ -1068,23 +1069,26 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
             if (accepted) application_thread_browser_toggle();
             return true;
         }
-        if (message == WM_MOUSEMOVE) return true;
+        if (event.type == EventType::pointer_move) return true;
     }
     if (!front()) return false;
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         bool changed{};
         ui_thread_browser_scene_set_hover(&value->scene, -1.f, -1.f, &changed);
         if (changed) application_request_frame();
         return false;
     }
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_CONTEXTMENU && lparam == -1) return g_app.context_focus == &value->scene.widgets;
-    if (message == WM_CONTEXTMENU || message == WM_MOUSEHWHEEL || message == WM_MOUSEWHEEL)
-        application_screen_to_content(&point);
-    const float x = point.x * scale;
-    const float y = point.y * scale;
+    if (event.type == EventType::context_menu && (event.flags & ev_keyboard) != 0)
+        return g_app.context_focus == &value->scene.widgets;
+    UiPoint point{client_x, client_y};
+    if (event.type == EventType::wheel)
+        point = client_wheel_dip(event);
+    else if (event.type == EventType::context_menu)
+        point = client_context_dip(event);
+    const float x = point.x;
+    const float y = point.y;
     const bool inside = ui_thread_browser_scene_contains(value->scene, x, y);
-    if (message == WM_LBUTTONUP && value->captured) {
+    if (input_release(event) && value->captured) {
         const auto pressed = value->pressed;
         const auto hit = inside ? ui_thread_browser_scene_hit_test(value->scene, x, y) : UiThreadBrowserTarget{};
         const bool drag = value->scrollbar_dragging;
@@ -1092,18 +1096,18 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
         if (!drag && ui_thread_browser_target_equal(pressed, hit)) application_thread_browser_activate(hit);
         return true;
     }
-    if (message == WM_MOUSEMOVE && value->captured && value->scrollbar_dragging) {
+    if (event.type == EventType::pointer_move && value->captured && value->scrollbar_dragging) {
         const auto bar = ui_scrollbar_geometry(value->scene.body, value->scene.scroll_dips,
             ui_rect_height(value->scene.body) + ui_thread_browser_scene_scroll_maximum(value->scene));
         application_thread_browser_scroll_to(ui_scrollbar_scroll_from_pointer(bar, y, value->thumb_grab));
         return true;
     }
     if (!inside) return false;
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         bool changed{}; ui_thread_browser_scene_set_hover(&value->scene, x, y, &changed);
         if (changed) application_request_frame(); return true;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (input_press(event)) {
         // The header search bar (this panel's search field) gives up focus
         // and any open suggestions to the panel.
         application_search_close_panel();
@@ -1119,10 +1123,11 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
         }
         ui_thread_browser_scene_focus(&value->scene, value->pressed);
         value->captured = true; g_app.context_focus = &value->scene.widgets;
-        SetFocus(g_app.window); SetCapture(g_app.window); application_request_frame(); return true;
+        window_focus(g_app.window); window_capture_pointer(g_app.window); application_request_frame(); return true;
     }
-    return message == WM_LBUTTONDBLCLK || message == WM_CONTEXTMENU || message == WM_MOUSEHWHEEL ||
-        message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP;
+    return input_double(event) || event.type == EventType::context_menu || input_horizontal_wheel(event) ||
+        input_press(event, PointerButton::right) || input_release(event, PointerButton::right) ||
+        input_press(event, PointerButton::middle) || input_release(event, PointerButton::middle);
 }
 bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* value = browser_owner;

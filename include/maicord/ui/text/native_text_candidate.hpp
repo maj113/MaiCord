@@ -62,7 +62,7 @@ NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem&) 
 ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const TextSystem&) noexcept;
 // Input and capacities must already be validated by the shared text entry point.
 // Handles an ASCII/resolved Latin paragraph, eligible mixed Latin/Common text with
-// overridden emoji (Segoe UI Emoji, normal weight/style, no added tracking), or a
+// overridden emoji (the platform's emoji family: Segoe UI Emoji, Noto Color Emoji; normal weight/style, no added tracking), or a
 // fitting homogeneous Arabic line. Mixed items need actual font cuts, resolved LTR
 // Latin/Common text and supported cluster boundaries. Latin needs original-scalar
 // coverage in one face, resolved LTR/en-US items and only the supported newline/tab

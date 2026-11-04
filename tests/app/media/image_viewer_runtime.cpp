@@ -12,6 +12,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord::image_viewer_runtime_test {
 using namespace app_detail;
@@ -274,7 +275,7 @@ bool seed_timeline(UiPoint* inside) noexcept {
 void run() noexcept {
     check_media_context();
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Search image fixture", WS_POPUP, 0, 0, 1200, 900, nullptr, nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Search image fixture", WS_POPUP, 0, 0, 1200, 900, nullptr, nullptr, nullptr, nullptr));
     check(g_app.account_ui && g_app.window, "Search viewer fixture owns a hidden native account window");
     if (!g_app.account_ui || !g_app.window) return;
     g_app.account.instance = &account_marker; g_app.account.status.profile_id = 4; g_app.plugin_account_scope_serial = 7;
@@ -411,20 +412,20 @@ void run() noexcept {
             !application_image_viewer_key_current(media_asset_attachment(902, MediaAttachmentFormat::png, MediaResolutionTier::px2048)),
             "Search viewer prefetches only its bounded neighbour with exact content scope");
         activate(ui_image_viewer_zoom_in);
-        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
+        application_image_viewer_event(window_test::key_down(key::right));
         check(viewer.item_index == 0 && viewer.scene.zoom > 1,
             "Search viewer arrows pan a zoomed image instead of browsing");
         activate(ui_image_viewer_fit);
-        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
+        application_image_viewer_event(window_test::key_down(key::right));
         check(viewer.item_index == 1 && application_image_viewer_synchronize() && !viewer.attachment_id &&
             !viewer.scene.can_save && viewer.scene.zoom == 1 && viewer.scene.pixels.width == 320 &&
             viewer.scene.pixels.height == 240 && media_asset_key_equal(viewer.key, viewer.items[1].key) &&
             ui_rect_has_area(ui_image_viewer_button(viewer.scene, ui_image_viewer_previous)),
             "Search viewer Right browses to embed media with its own size, reset zoom and no attachment Save");
-        application_image_viewer_message(WM_KEYDOWN, key::right, 0);
+        application_image_viewer_event(window_test::key_down(key::right));
         check(viewer.item_index == 0 && viewer.attachment_id == 901 && application_image_viewer_synchronize() &&
             viewer.scene.can_save, "Search viewer Right wraps to the first item and restores its Save authority");
-        application_image_viewer_message(WM_KEYDOWN, key::left, 0);
+        application_image_viewer_event(window_test::key_down(key::left));
         check(viewer.item_index == 1, "Search viewer Left wraps backwards");
         activate(ui_image_viewer_previous);
         check(viewer.item_index == 0 && viewer.attachment_id == 901, "Search viewer chevrons browse the gallery");
@@ -437,7 +438,7 @@ void run() noexcept {
     close_on_save = true;
     activate(4); g_app.image_viewer.held_key = 'S';
     check(saves == 2 && saved_attachment == 901 && saved_snapshot && !g_app.image_viewer.scene.active &&
-        application_image_viewer_message(WM_KEYUP, 'S', 0) && !g_app.image_viewer.held_key,
+        application_image_viewer_event(window_test::key_up('S')) && !g_app.image_viewer.held_key,
         "Search viewer Save overlay closure retains exact forwarded source and consumes its closing key tail");
     close_on_save = false;
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, true, preview) &&
@@ -456,20 +457,20 @@ void run() noexcept {
         "Search viewer source-retirement fixture opens");
     const UiRect save = ui_image_viewer_button(g_app.image_viewer.scene, 4);
     const LPARAM point = MAKELPARAM(static_cast<i16>((save.left + save.right) * .5f), static_cast<i16>((save.top + save.bottom) * .5f));
-    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
+    application_image_viewer_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     ++publication;
-    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && GetCapture() != g_app.window &&
+    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && !window_pointer_captured(g_app.window) &&
         !g_app.renderer.image_viewer && saves == before_embed,
         "Search viewer page replacement retires source and releases pending native Save capture");
-    check(application_image_viewer_message(WM_LBUTTONUP, 0, point) && !g_app.image_viewer.pointer_tail && saves == before_embed,
+    check(application_image_viewer_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !g_app.image_viewer.pointer_tail && saves == before_embed,
         "Search viewer retired Save press consumes its pointer release before restored Search can receive it");
     ticket.publication_revision = publication; check(seed(), "Search viewer publication replacement rebuilds owned fixture");
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
         "Search viewer keyboard-retirement fixture opens");
     ui_widget_manager_focus(&g_app.image_viewer.scene.widgets, g_app.image_viewer.scene.buttons[4]);
-    application_image_viewer_message(WM_KEYDOWN, key::space, 0); panel = false;
+    application_image_viewer_event(window_test::key_down(key::space)); panel = false;
     check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && g_app.image_viewer.held_key == key::space &&
-        application_image_viewer_message(WM_CHAR, key::space, 0) && application_image_viewer_message(WM_KEYUP, key::space, 0) &&
+        application_image_viewer_event(window_test::character(key::space)) && application_image_viewer_event(window_test::key_up(key::space)) &&
         !g_app.image_viewer.held_key && saves == before_embed,
         "Search viewer cancelled Space press consumes closing text and key tails without activating Save");
     for (u32 fence = 0; fence < 5; ++fence) {
@@ -511,43 +512,42 @@ void run() noexcept {
     const i16 px = static_cast<i16>((picture.left + picture.right) * .5f),
               py = static_cast<i16>((picture.top + picture.bottom) * .5f);
     const LPARAM on_image = MAKELPARAM(px, py);
-    const WPARAM wheel_up = static_cast<WPARAM>(120u << 16), wheel_up_shift = wheel_up | MK_SHIFT;
     check(zoom.lens.zoom == 2 && zoom.lens.size == 200 && !zoom.lens.active,
           "Viewer lens starts hidden with the stored zoom and size");
-    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
+    application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
     check(zoom.lens.active && zoom.held && zoom.lens.pointer.x == px && zoom.lens.pointer.y == py,
           "Viewer lens: a press on the fitted image shows the lens under the pointer");
-    application_image_viewer_message(WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(px + 5, py + 3));
+    application_image_viewer_event(window_test::pointer_move(px + 5, py + 3, window_test::button_bit(PointerButton::left)));
     check(zoom.lens.pointer.x == px + 5 && zoom.lens.pointer.y == py + 3,
           "Viewer lens: the lens follows the pointer while held");
     const float image_zoom = g_app.image_viewer.scene.zoom;
     g_app.renderer.zoom_lens_source.ready = false;
-    application_image_viewer_message(WM_MOUSEWHEEL, wheel_up, on_image);
+    application_image_viewer_event(window_test::wheel(window_test::x_of(on_image), window_test::y_of(on_image), 120));
     check(zoom.lens.zoom == 2 && g_app.image_viewer.scene.zoom > image_zoom,
           "Viewer lens: a lens with no picture to magnify leaves the wheel to the image");
     g_app.image_viewer.scene.zoom = image_zoom;
     ui_image_viewer_apply(&g_app.image_viewer.scene, UiImageViewerCommand::fit);
     g_app.renderer.zoom_lens_source.ready = true;
-    check(application_image_viewer_message(WM_MOUSEWHEEL, wheel_up, on_image) && zoom.lens.zoom == 2.5f &&
+    check(application_image_viewer_event(window_test::wheel(window_test::x_of(on_image), window_test::y_of(on_image), 120)) && zoom.lens.zoom == 2.5f &&
               g_app.image_viewer.scene.zoom == image_zoom && zoom.changed,
           "Viewer lens: the wheel zooms the lens by half a unit, not the image");
-    application_image_viewer_message(WM_MOUSEWHEEL, wheel_up_shift, on_image);
+    application_image_viewer_event(window_test::wheel(window_test::x_of(on_image), window_test::y_of(on_image), 120, 0, mod_shift));
     check(zoom.lens.size == 220 && zoom.lens.zoom == 2.5f, "Viewer lens: Shift+wheel resizes the lens");
-    application_image_viewer_message(WM_LBUTTONUP, 0, on_image);
+    application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::left));
     check(!zoom.lens.active && !zoom.held && !zoom.changed && g_app.preferences.image_zoom_factor == 5 &&
               g_app.preferences.image_zoom_size == 22,
           "Viewer lens: releasing hides it and stores the changed zoom and size");
     g_app.renderer.zoom_lens_source.ready = false;
-    application_image_viewer_message(WM_RBUTTONDOWN, 2 /* MK_RBUTTON */, on_image);
+    application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::right));
     check(zoom.lens.active && zoom.held, "Viewer lens: a right press shows the lens at any zoom");
-    application_image_viewer_message(WM_RBUTTONUP, 0, on_image);
+    application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::right));
     check(!zoom.lens.active && !zoom.held, "Viewer lens: releasing the right button hides it");
     g_app.preferences.image_zoom = false;
-    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
-    application_image_viewer_message(WM_LBUTTONUP, 0, on_image);
+    application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
+    application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::left));
     check(!zoom.lens.active && !zoom.held, "Viewer lens: a disabled lens never shows");
     g_app.preferences.image_zoom = true;
-    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
+    application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
     application_image_viewer_close();
     check(!zoom.lens.active && !zoom.held, "Viewer lens: closing the viewer hides the lens");
     application_release_capture();
@@ -557,18 +557,18 @@ void run() noexcept {
     application_image_zoom_configure();
     zoom.lens.active = true;
     g_app.renderer.zoom_lens_source.ready = false;
-    check(!application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0) && zoom.lens.zoom == 2,
+    check(!application_image_zoom_message(window_test::wheel(0, 0, 120)) && zoom.lens.zoom == 2,
           "Chat lens: the wheel scrolls the timeline while no picture sits under the lens");
     g_app.renderer.zoom_lens_source.ready = true;
-    check(application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0) && zoom.lens.zoom == 2.5f && zoom.changed,
+    check(application_image_zoom_message(window_test::wheel(0, 0, 120)) && zoom.lens.zoom == 2.5f && zoom.changed,
           "Chat lens: the wheel steps the zoom of a shown lens and is consumed");
-    check(!application_image_zoom_message(WM_KILLFOCUS, 0, 0) && !zoom.lens.active && !zoom.changed &&
+    check(!application_image_zoom_message(window_test::focus_changed(false)) && !zoom.lens.active && !zoom.changed &&
               g_app.preferences.image_zoom_factor == 5,
           "Chat lens: losing focus hides the lens and stores its zoom");
     g_app.renderer.zoom_lens_source.ready = false;
     g_app.preferences.image_zoom = false;
     zoom.lens.active = true;
-    check(!application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0),
+    check(!application_image_zoom_message(window_test::wheel(0, 0, 120)),
           "Chat lens: a disabled lens never takes the wheel");
     g_app.preferences.image_zoom = true;
     zoom.lens.active = false;
@@ -640,24 +640,24 @@ void run() noexcept {
                   !g_app.image_viewer.scene.active,
               "Chat lens: a held Ctrl and a message picture fixture are ready");
         const LPARAM at = MAKELPARAM(static_cast<i16>(over.x), static_cast<i16>(over.y));
-        application_image_zoom_message(WM_SETFOCUS, 0, 0);
+        application_image_zoom_message(window_test::focus_changed(true));
         settings_open = true;
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(!chat_zoom.lens.active, "Chat lens: Ctrl over a message picture does not start it while Settings is open");
         settings_open = false;
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(chat_zoom.lens.active && chat_zoom.lens.pointer.x == over.x && chat_zoom.lens.pointer.y == over.y,
               "Chat lens: Ctrl over the same picture starts it once Settings is closed");
         settings_open = true;
         application_image_zoom_synchronize();
         check(!chat_zoom.lens.active, "Chat lens: opening Settings ends an active lens");
         settings_open = false;
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(chat_zoom.lens.active, "Chat lens: closing Settings lets the lens start again");
         g_app.popup_scene.active = true;
         application_image_zoom_synchronize();
         check(!chat_zoom.lens.active, "Chat lens: a popup or menu ends an active lens");
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(!chat_zoom.lens.active, "Chat lens: nothing starts under an open popup or menu");
         g_app.popup_scene.active = false;
         g_app.renderer.popup_scene = &g_app.popup_scene;
@@ -671,11 +671,11 @@ void run() noexcept {
         const UiRect banner{over.x - 40, over.y - 40, over.x + 40, over.y + 40};
         check(message_action_bar_set_occluders(&g_app.message_action_bar, &banner, 1),
               "Chat lens: a banner publishes its occluder");
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(!chat_zoom.lens.active, "Chat lens: nothing starts under an unread banner or jump pill");
         check(message_action_bar_set_occluders(&g_app.message_action_bar, nullptr, 0),
               "Chat lens: the banner retires its occluder");
-        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(chat_zoom.lens.active, "Chat lens: the uncovered picture starts it again");
         application_image_zoom_end();
         check(!keys_saved || SetKeyboardState(saved_keys) != FALSE, "Chat lens: the thread keyboard state is restored");
@@ -685,7 +685,7 @@ void run() noexcept {
     hosted_video_key = {};
     ui_search_scene_release(&search_scene);
     g_app.renderer.search_scene = nullptr;
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr; g_app.account.instance = nullptr;
 }
@@ -723,7 +723,7 @@ bool application_video_open_viewer_item(u64, u32, bool, u8, bool, const Applicat
     return true;
 }
 void application_video_viewer_detach() noexcept {}
-bool application_video_viewer_pointer(UINT, UiPoint) noexcept { return false; }
+bool application_video_viewer_pointer(VideoPointer, UiPoint) noexcept { return false; }
 bool application_video_viewer_hidden_cursor() noexcept { return false; }
 void application_video_cancel_pointer() noexcept {}
 bool application_video_key(UINT, bool, bool) noexcept { return false; }
@@ -737,8 +737,6 @@ bool application_window_set_fullscreen(bool on) noexcept {
     return true;
 }
 void application_composer_text_input_suspend() noexcept { ++image_viewer_runtime_test::suspends; }
-float client_dip_x(LPARAM value) noexcept { return static_cast<i16>(LOWORD(value)); }
-float client_dip_y(LPARAM value) noexcept { return static_cast<i16>(HIWORD(value)); }
 bool application_settings_active() noexcept { return image_viewer_runtime_test::settings_open; }
 bool application_downloads_active() noexcept { return false; }
 bool application_downloads_available(u64, u64, bool) noexcept { return false; }

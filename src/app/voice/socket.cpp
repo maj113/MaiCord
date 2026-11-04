@@ -183,7 +183,7 @@ void opening(VoiceSocket* socket) noexcept {
 bool voice_socket_begin(VoiceSocket* socket, NetworkLoop* loop, const GatewayEndpoint& endpoint,
                         u64 setup_generation, u32 maximum_message_bytes, VoiceSocketHandler handler,
                         void* context, u64 now_ms, bool resume) noexcept {
-    if (!socket || !loop || !loop->completion_port || !setup_generation || !handler ||
+    if (!socket || !loop || !network_loop_ready(*loop) || !setup_generation || !handler ||
         (socket->phase != VoiceSocketPhase::empty && socket->phase != VoiceSocketPhase::closed) ||
         socket->storage.data || socket->json_storage.arena.base || !gateway_endpoint_validate(endpoint) ||
         endpoint.policy != GatewayEndpointPolicy::voice_v9_json || maximum_message_bytes < 4096)

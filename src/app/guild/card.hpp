@@ -5,6 +5,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct UiGuildCardScene;
@@ -23,7 +24,7 @@ void application_guild_card_close() noexcept;
 void application_guild_card_response(u64 guild_id, bool join, const RestClientResponse& response,
                                      Utf8View body) noexcept;
 // Pointer, wheel and Escape while open; true when consumed.
-bool application_guild_card_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_guild_card_window_event(const WindowEvent& event) noexcept;
 // Per frame: entrance, spinner phase, membership (a finished join navigates).
 void application_guild_card_synchronize(u64 now_ms) noexcept;
 // The popout's Join, which outlives the popout: the official client's lurking join

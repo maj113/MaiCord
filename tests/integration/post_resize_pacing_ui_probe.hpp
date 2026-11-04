@@ -77,7 +77,7 @@ inline bool post_resize_pacing_ui_probe(D3D11Renderer& r, HWND window, MessageSc
                 log_u64(LogLevel::error, "probe", "post_resize_pacing_failure_stage", stage);
         }
     } failure{stage};
-    if (!window || !shell || !model || !r.graphics.frame_latency_waitable || active)
+    if (!window || !shell || !model || !r.graphics.surface.frame_latency_waitable || active)
         return false;
     Session session{&r, shell, model};
     struct Restore {
@@ -106,11 +106,11 @@ inline bool post_resize_pacing_ui_probe(D3D11Renderer& r, HWND window, MessageSc
         if (!renderer_present(&r, kDefaultTheme))
             return false;
     }
-    if (d3d11_device_owner_wait(r.graphics, 200) != WAIT_OBJECT_0)
+    if (!gpu_frame_wait(&r.graphics.surface, 200))
         return false;
     renderer_set_live_resize(&r, false);
     renderer_accept_begin_frame(&r);
-    if (d3d11_device_owner_wait(r.graphics, 0) != WAIT_TIMEOUT) {
+    if (gpu_frame_wait(&r.graphics.surface, 0)) {
         log_write(LogLevel::error, "probe", "resize_accumulated_frame_latency_credits");
         return false;
     }
@@ -146,7 +146,7 @@ inline bool post_resize_pacing_ui_probe(D3D11Renderer& r, HWND window, MessageSc
         if (session.failed || r.live_resize ||
             r.width != static_cast<u32>(initial_width + shifts[pass][0]) ||
             r.height != static_cast<u32>(initial_height + shifts[pass][1]) ||
-            r.graphics.buffer_width != r.width || r.graphics.buffer_height != r.height ||
+            r.graphics.surface.buffer_width != r.width || r.graphics.surface.buffer_height != r.height ||
             r.begin_frame_permit || r.previous_buffer_damage_valid)
             return false;
         u32 row_index = ~0u;
@@ -165,10 +165,10 @@ inline bool post_resize_pacing_ui_probe(D3D11Renderer& r, HWND window, MessageSc
             if (clock_monotonic_milliseconds() - start > 30'000)
                 return false;
             const auto wait_start = clock_now();
-            const DWORD waited = d3d11_device_owner_wait(r.graphics, 200);
+            const bool waited = gpu_frame_wait(&r.graphics.surface, 200);
             const auto wait_us = clock_microseconds(clock, wait_start, clock_now());
             maximum_wait_us = maximum(maximum_wait_us, wait_us);
-            if (waited != WAIT_OBJECT_0) {
+            if (!waited) {
                 log_u64(LogLevel::error, "probe", "post_resize_wait_result", waited);
                 log_u64(LogLevel::error, "probe", "post_resize_wait_pass", pass);
                 log_u64(LogLevel::error, "probe", "post_resize_wait_frame", frame);

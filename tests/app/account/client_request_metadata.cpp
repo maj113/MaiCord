@@ -3,6 +3,17 @@
 #include "maicord/protocol/http/rest.hpp"
 #include "maicord/protocol/http/client_user_agent.hpp"
 
+// The preferred-language input of client_accept_language: Windows' REG_MULTI_SZ, Linux's NUL-ended UTF-8 tags.
+#if defined(_WIN32)
+#define TEST_LANGUAGES(text) L##text
+#define TEST_NO_LANGUAGES nullptr
+using TestLanguages = const wchar_t*;
+#else
+#define TEST_LANGUAGES(text) utf8_literal(text)
+#define TEST_NO_LANGUAGES Utf8View{}
+using TestLanguages = maicord::Utf8View;
+#endif
+
 namespace maicord {
 namespace {
 // Request-time super properties: the header the shared metadata copies out
@@ -137,21 +148,21 @@ void test_client_languages(void (*check)(bool, const char*) noexcept) noexcept {
               discord("sv", "sv-SE") && discord("pt-PT", "pt-BR") && discord("nb", "en-US") &&
               discord("sl", "en-US") && discord("zh-Hant-TW", "zh-TW"),
           "Discord's initial interface locale follows its own resolution of the host locale");
-    const auto accept = [&](const wchar_t* preferred, const char* expected) noexcept {
+    const auto accept = [&](TestLanguages preferred, const char* expected) noexcept {
         const u32 bytes = client_accept_language(utf8_literal("en-US"), preferred, {text, sizeof(text)});
         return utf8_equal({text, bytes}, {expected, c_string_length(expected)});
     };
     check(
-        accept(nullptr, "en-US") && accept(L"en-US\0", "en-US") &&
-            accept(L"en-US\0sl\0", "en-US,sl;q=0.9") &&
-            accept(L"sl\0en-US\0de-DE\0", "en-US,sl;q=0.9,de-DE;q=0.8") &&
-            accept(L"a\0b\0c\0d\0e\0f\0g\0h\0i\0j\0k\0",
+        accept(TEST_NO_LANGUAGES, "en-US") && accept(TEST_LANGUAGES("en-US\0"), "en-US") &&
+            accept(TEST_LANGUAGES("en-US\0sl\0"), "en-US,sl;q=0.9") &&
+            accept(TEST_LANGUAGES("sl\0en-US\0de-DE\0"), "en-US,sl;q=0.9,de-DE;q=0.8") &&
+            accept(TEST_LANGUAGES("a\0b\0c\0d\0e\0f\0g\0h\0i\0j\0k\0"),
                    "en-US,a;q=0.9,b;q=0.8,c;q=0.7,d;q=0.6,e;q=0.5,f;q=0.4,g;q=0.3,h;q=0.2,i;q=0.1,j;q=0.1,"
                    "k;q=0.1") &&
-            accept(L"bad tag\0sl\0", "en-US,sl;q=0.9"),
+            accept(TEST_LANGUAGES("bad tag\0sl\0"), "en-US,sl;q=0.9"),
         "Accept-Language lists the host locale first, then the other languages weighted down to 0.1");
     char tiny[12];
-    check(client_accept_language(utf8_literal("en-US"), L"sl\0", {tiny, sizeof(tiny)}) == 5,
+    check(client_accept_language(utf8_literal("en-US"), TEST_LANGUAGES("sl\0"), {tiny, sizeof(tiny)}) == 5,
           "a language that does not fit is left out whole");
 }
 } // namespace
@@ -195,27 +206,41 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
           "startup reports the native build and a v4 launch signature with every mod bit clear");
     const Utf8View os_version = reported.os_version;
     const Utf8View sdk = reported.os_sdk_version;
-    check(utf8_equal(reported.browser, utf8_literal("Discord Client")) &&
-              utf8_equal(reported.client_version, utf8_literal(kClientVersion)) &&
-              utf8_equal(reported.browser_version, utf8_literal(kClientElectronVersion)) &&
-              utf8_equal(reported.os_arch, utf8_literal("x64")) &&
-              utf8_equal(reported.app_arch, utf8_literal("x64")) && sdk.bytes != 0 &&
-              sdk.bytes < os_version.bytes && sdk.data + sdk.bytes == os_version.data + os_version.bytes &&
-              sdk.data[-1] == '.' && !contains(sdk, utf8_literal(".")),
+    const bool common_properties =
+        utf8_equal(reported.browser, utf8_literal("Discord Client")) &&
+        utf8_equal(reported.client_version, utf8_literal(kClientVersion)) &&
+        utf8_equal(reported.browser_version, utf8_literal(kClientElectronVersion)) &&
+        utf8_equal(reported.os_arch, utf8_literal("x64")) && utf8_equal(reported.app_arch, utf8_literal("x64")) &&
+        utf8_equal(reported.operating_system, utf8_literal(kClientOperatingSystem));
+#if defined(_WIN32)
+    check(common_properties && sdk.bytes != 0 && sdk.bytes < os_version.bytes &&
+              sdk.data + sdk.bytes == os_version.data + os_version.bytes && sdk.data[-1] == '.' &&
+              !contains(sdk, utf8_literal(".")),
           "startup reports the desktop client's properties with the Windows build as its SDK version");
+#else
+    check(common_properties && sdk.bytes == 0 && reported.linux_desktop && os_version.bytes != 0 &&
+              reported.window_manager.bytes != 0 && reported.runtime_environment.bytes != 0,
+          "startup reports the Linux desktop client's properties: no SDK version, the host's window manager");
+#endif
     char tiny[]{'x', 'y'};
     check(host_iana_timezone({tiny, 1}) == 0 && tiny[0] == 0 && tiny[1] == 'y',
           "timezone output is never truncated or written beyond its capacity");
 
     UserClientConfigurationStorage other_owner{};
-    check(user_client_configuration_initialize(&other_owner).ok() &&
+    const bool other_created = user_client_configuration_initialize(&other_owner).ok();
+#if defined(_WIN32)
+    const bool sdk_backed = other_owner.configuration.properties.os_sdk_version.data +
+                                other_owner.configuration.properties.os_sdk_version.bytes ==
+                            other_owner.os_version + other_owner.configuration.properties.os_version.bytes;
+#else
+    const bool sdk_backed = other_owner.configuration.properties.os_sdk_version.bytes == 0;
+#endif
+    check(other_created &&
               utf8_equal(configuration.configuration.properties.client_launch_id,
                          other_owner.configuration.properties.client_launch_id) &&
               other_owner.configuration.properties.client_launch_id.data == other_owner.client_launch_id &&
               other_owner.configuration.properties.client_launch_id.data != configuration.client_launch_id &&
-              other_owner.configuration.properties.os_sdk_version.data +
-                      other_owner.configuration.properties.os_sdk_version.bytes ==
-                  other_owner.os_version + other_owner.configuration.properties.os_version.bytes,
+              sdk_backed,
           "separate auth and account owners share a launch UUID with independently owned backing");
 
     u8 output[2048]{};

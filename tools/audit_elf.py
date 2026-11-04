@@ -30,6 +30,7 @@ ALLOWED_IMPORTS = {
     "pthread_attr_destroy",
     "clock_gettime",
     "malloc", "calloc", "free",
+    "getaddrinfo", "freeaddrinfo",
 }
 MAXIMUM_GLIBC = (2, 17)
 FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id", ".rela.dyn.text")

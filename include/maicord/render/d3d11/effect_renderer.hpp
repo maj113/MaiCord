@@ -28,9 +28,7 @@ union D3D11EffectStage {
 
 // One effect frame's timestamps; read with DONOTFLUSH a few frames later, never waited on.
 struct D3D11EffectTiming {
-    GpuQuery* disjoint;
-    GpuQuery* begin;
-    GpuQuery* end;
+    GpuTimer timer;
     u64 identity, frame_ms;
     bool begun, pending;
 };

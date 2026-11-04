@@ -6,6 +6,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/null.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -47,21 +48,18 @@ bool press(u64 id, u32 key = key::enter) noexcept {
     application_settings_input(UiInputKind::key_up, key, false);
     return consumed && application_settings_synchronize();
 }
-// Keys typed into the recorder with thread-local modifier state; nothing is
+// Keys typed into the recorder with the headless window's modifier state; nothing is
 // sent to the desktop session.
 bool type(u32 key, u8 modifiers) noexcept {
-    BYTE keys[256]{};
-    keys[key::ctrl] = (modifiers & C) ? 0x80 : 0;
-    keys[key::alt] = (modifiers & L) ? 0x80 : 0;
-    keys[key::shift] = (modifiers & H) ? 0x80 : 0;
-    if (!SetKeyboardState(keys))
-        return false;
-    const bool held = ((GetKeyState(key::ctrl) & 0x8000) != 0) == ((modifiers & C) != 0) &&
-                      ((GetKeyState(key::alt) & 0x8000) != 0) == ((modifiers & L) != 0);
+    null_window_release_keys();
+    null_window_set_key(key::ctrl, (modifiers & C) != 0);
+    null_window_set_key(key::alt, (modifiers & L) != 0);
+    null_window_set_key(key::shift, (modifiers & H) != 0);
+    const bool held = window_key_down(nullptr, key::ctrl) == ((modifiers & C) != 0) &&
+                      window_key_down(nullptr, key::alt) == ((modifiers & L) != 0);
     const bool consumed = held && application_settings_input(UiInputKind::key_down, key, false) &&
                           application_settings_input(UiInputKind::key_up, key, false);
-    BYTE clear[256]{};
-    SetKeyboardState(clear);
+    null_window_release_keys();
     return consumed && application_settings_synchronize();
 }
 bool chip(const UiSettingsControl* row, Utf8View text) noexcept {

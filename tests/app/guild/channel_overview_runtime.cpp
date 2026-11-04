@@ -1,9 +1,10 @@
 // Shipping host with fake account admission and renderer bindings. No live
 // account, network, GPU or shipping diagnostic hooks are involved.
+#include "../../support/window_fixture.hpp"
 #include "account/profile_editor.hpp"
 #include "../../../src/app/guild/channel_overview.cpp"
 #include "../../../src/app/guild/channel_overview_projection.cpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -111,8 +112,8 @@ void run() noexcept {
     const bool keyboard_saved = GetKeyboardState(saved) != FALSE;
     check(keyboard_saved && SetKeyboardState(clean),
           "Overview runtime: controlled native keyboard modifiers");
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Overview isolated hidden fixture", WS_POPUP, 0, 0, 1200,
-                                   900, nullptr, nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Overview isolated hidden fixture", WS_POPUP, 0, 0, 1200,
+                                   900, nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui,
@@ -265,8 +266,8 @@ void run() noexcept {
     const LPARAM point = MAKELPARAM(static_cast<i16>((nsfw.field.left + nsfw.field.right) * .5f),
                                     static_cast<i16>((nsfw.field.top + nsfw.field.bottom) * .5f));
     const bool before = owner->controller.draft.nsfw;
-    application_channel_overview_window_message(WM_LBUTTONDOWN, 0, point);
-    application_channel_overview_window_message(WM_LBUTTONUP, 0, point);
+    application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
+    application_channel_overview_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
     check(
         owner->controller.draft.nsfw != before && (owner->controller.dirty_fields & channel_overview_nsfw),
         "Overview runtime: actual mouse capture survives focus repaint and activates toggle exactly once");
@@ -291,17 +292,17 @@ void run() noexcept {
                                     static_cast<i16>((owner->scene.layout.modal.top + owner->scene.layout.modal.bottom) * .5f));
     const LPARAM inside = MAKELPARAM(static_cast<i16>((owner->scene.layout.modal.left + owner->scene.layout.modal.right) * .5f),
                                      static_cast<i16>(owner->scene.layout.modal.top + 8));
-    application_channel_overview_window_message(WM_LBUTTONDOWN, 0, scrim);
-    application_channel_overview_window_message(WM_LBUTTONUP, 0, inside);
+    application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim)));
+    application_channel_overview_window_event(window_test::pointer_up(window_test::x_of(inside), window_test::y_of(inside), PointerButton::left));
     const bool dragged_open = application_channel_overview_active() && !owner->layer.shake_started;
-    application_channel_overview_window_message(WM_LBUTTONDOWN, 0, scrim);
-    application_channel_overview_window_message(WM_LBUTTONUP, 0, scrim);
+    application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim)));
+    application_channel_overview_window_event(window_test::pointer_up(window_test::x_of(scrim), window_test::y_of(scrim), PointerButton::left));
     check(dialog && dragged_open && application_channel_overview_active() && owner->layer.shake_started,
           "Overview runtime: a scrim click on a dirty dialog shakes the bar and keeps it open");
     application_channel_overview_tick(owner->layer.shake_started + 2'000);
     activate({UiSettingsTargetKind::reset, page_key, 0});
-    application_channel_overview_window_message(WM_LBUTTONDOWN, 0, scrim);
-    application_channel_overview_window_message(WM_LBUTTONUP, 0, scrim);
+    application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim)));
+    application_channel_overview_window_event(window_test::pointer_up(window_test::x_of(scrim), window_test::y_of(scrim), PointerButton::left));
     check(!application_channel_overview_active() && g_app.context_focus == &g_app.shell_scene.widgets,
           "Overview runtime: a clean editor closes from the scrim and restores channel pane focus");
     ui_settings_scene_set_presentation(&owner->scene, UiSettingsPresentation::layer);
@@ -355,7 +356,7 @@ void run() noexcept {
     {
         // A wheel notch over a long dialog page glides through the shared
         // scroll host (intermediate offsets across frames), and jumps when
-        // smooth scrolling is off, through the real window-message path.
+        // smooth scrolling is off, through the window-event path.
         const u32 full_height = g_app.renderer.height;
         g_app.renderer.height = 320;
         g_app.clock = clock_initialize();
@@ -367,12 +368,11 @@ void run() noexcept {
         ok = ok && body && bar.maximum_scroll > 0;
         if (ok)
             ui_settings_scene_scroll(&owner->scene, false, -owner->scene.content_offset);
-        const LPARAM over_body =
-            body ? MAKELPARAM(static_cast<int>((body->rectangle.left + body->rectangle.right) * .5f),
-                              static_cast<int>((body->rectangle.top + body->rectangle.bottom) * .5f))
-                 : 0;
-        const WPARAM notch = MAKEWPARAM(0, static_cast<WORD>(static_cast<short>(-120)));
-        const bool handled = application_channel_overview_window_message(WM_MOUSEWHEEL, notch, over_body);
+        const WindowEvent notch = window_test::wheel(
+            body ? static_cast<float>(static_cast<int>((body->rectangle.left + body->rectangle.right) * .5f)) : 0.f,
+            body ? static_cast<float>(static_cast<int>((body->rectangle.top + body->rectangle.bottom) * .5f)) : 0.f,
+            -120);
+        const bool handled = application_channel_overview_window_event(notch);
         ok = ok && handled && owner->scene.content_offset == 0 && ui_scroll_host_active(g_app.scroll_host);
         const u64 start = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
         float previous = 0;
@@ -391,7 +391,7 @@ void run() noexcept {
               "Overview runtime: a wheel notch over the page glides across frames to its target");
         g_app.scroll_host.immediate = true;
         ui_settings_scene_scroll(&owner->scene, false, -owner->scene.content_offset);
-        check(application_channel_overview_window_message(WM_MOUSEWHEEL, notch, over_body) &&
+        check(application_channel_overview_window_event(notch) &&
                   owner->scene.content_offset == target && !ui_scroll_host_active(g_app.scroll_host),
               "Overview runtime: with smooth scrolling off the same notch jumps at once");
         g_app.scroll_host = {};
@@ -408,7 +408,7 @@ void run() noexcept {
     check(!owner && !g_app.renderer.settings_scene &&
               !application_channel_overview_next_wake() && !application_channel_overview_caret_wake(),
           "Overview runtime: release removes owner scene binding and all deadlines");
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -436,10 +436,10 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     *position = 0;
     return true;
 }
-bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
+bool clipboard_write_utf8(const Utf8View&) noexcept {
     return true;
 }
-ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
+ClipboardTextResult clipboard_read_utf8(const Slice<char>&) noexcept {
     return {0, ClipboardTextError::unavailable};
 }
 // The host's other modal owners are never open in this fixture. Each family
@@ -475,7 +475,7 @@ INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
 INACTIVE_MODAL_CORE(application_custom_status)
 INACTIVE_MODAL_CORE(application_plugin_settings)
 bool application_profile_editor_input(UiInputKind, u32, bool) noexcept { return false; }
-bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
+bool application_profile_editor_window_event(const WindowEvent&) noexcept { return false; }
 SettingsLayer* application_profile_editor_edit_layer() noexcept { return nullptr; }
 void application_guild_settings_tick(u64) noexcept {}
 #undef INACTIVE_MODAL_CORE
@@ -537,12 +537,6 @@ void application_text_form_close(bool restore, bool) noexcept {
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
     if (g_app.text_form && channel_overview_runtime_test::discard_request.valid == validator)
         application_text_form_close(false, false);
-}
-float client_dip_x(LPARAM value) noexcept {
-    return static_cast<float>(static_cast<i16>(LOWORD(value)));
-}
-float client_dip_y(LPARAM value) noexcept {
-    return static_cast<float>(static_cast<i16>(HIWORD(value)));
 }
 } // namespace app_detail
 } // namespace maicord

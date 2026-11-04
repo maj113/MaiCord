@@ -2,10 +2,11 @@
 #include "../chat/composer/text_edit_keys.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../settings/settings.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -447,12 +448,12 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
     if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(p->edit.anchor, p->edit.caret),
                   last = maximum(p->edit.anchor, p->edit.caret);
-        if (last > first && clipboard_write_utf8(g_app.window, {p->edit.text + first, last - first}) &&
+        if (last > first && clipboard_write_utf8({p->edit.text + first, last - first}) &&
             key == 'X')
             result = message_composer_replace_range(&p->edit, first, last, {});
     } else if (control && key == 'V') {
         char text[kMediaCatalogMaximumQueryBytes];
-        const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool valid = read.ok();
         for (u32 i = 0; valid && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
@@ -484,34 +485,33 @@ namespace {
 // hover highlights a result and drops the keyboard selection, a click sends it
 // or pages the strip, and the wheel scrolls the GIF strip sideways (vertical
 // wheel motion becomes horizontal scrolling).
-bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool inline_pointer(ApplicationMediaPicker& p, const WindowEvent& event) noexcept {
     if (!shown(&p) || !ui_media_picker_scene_current(p.scene))
         return false;
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         if (ui_widget_manager_hover(&p.scene.widgets, ui_widget_invalid_handle()))
             repaint(true);
         return false;
     }
-    if (!application_pointer_message(message))
+    if (!application_pointer_event(event))
         return false;
     UiPoint point{};
-    if (message == WM_SETCURSOR) {
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+    if (event.type == EventType::cursor_query) {
+        if (!client_cursor_dip(event, &point))
             return false;
-    } else if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
-        if (!application_wheel_point(lparam, &point))
-            return false;
+    } else if (event.type == EventType::wheel) {
+        point = client_wheel_dip(event);
     } else
-        point = {client_dip_x(lparam), client_dip_y(lparam)};
+        point = {client_dip_x(event), client_dip_y(event)};
     const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p.scene.panel, p.scene.viewport), x, y);
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         if (!inside)
             return false;
         application_set_cursor(ui_media_picker_scene_cursor(p.scene, x, y));
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         if (!inside) {
             if (ui_widget_manager_hover(&p.scene.widgets, ui_widget_invalid_handle()))
                 repaint(true);
@@ -524,7 +524,7 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
         }
         return true;
     }
-    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) {
+    if (input_down(event)) {
         if (!inside)
             return false;
         revoke_capture(p);
@@ -534,7 +534,7 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
         application_request_frame();
         return true;
     }
-    if (message == WM_LBUTTONUP) {
+    if (input_release(event)) {
         if (!p.captured && !inside)
             return false;
         const auto selected = inside ? ui_media_picker_scene_pointer_up(&p.scene, x, y) : UiMediaPickerTarget{};
@@ -545,35 +545,33 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
             application_request_frame();
         return true;
     }
-    if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
+    if (event.type == EventType::wheel) {
         if (!inside)
             return false;
-        const u32 lines = application_wheel_scroll_lines();
-        const float notches = application_wheel_notches(wparam);
+        const WheelScroll wheel_scroll = application_wheel_scroll();
+        const bool horizontal = input_horizontal_wheel(event);
+        const float notches = horizontal ? static_cast<float>(event.wheel.dx120) / 120.0f : input_wheel_notches(event);
         // Wheel up scrolls back; tilting right scrolls forward.
-        const float delta = (message == WM_MOUSEWHEEL ? -notches : notches) *
-                            (lines == WHEEL_PAGESCROLL ? ui_rect_width(p.scene.body) : lines * kUiScrollLineDips);
+        const float delta = (horizontal ? notches : -notches) *
+                            (wheel_scroll.page ? ui_rect_width(p.scene.body) : wheel_scroll.lines * kUiScrollLineDips);
         if (p.kind == UiMediaPickerKind::gif && ui_media_picker_scene_scroll(&p.scene, delta))
             repaint(true);
         return true;
     }
-    return inside && (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-                      message == WM_RBUTTONDBLCLK || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
-                      message == WM_MBUTTONDBLCLK || message == WM_XBUTTONDOWN || message == WM_XBUTTONUP ||
-                      message == WM_XBUTTONDBLCLK);
+    return inside && (event.type == EventType::context_menu || input_other_button(event));
 }
 
 } // namespace
 
-bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_media_picker_window_event(const WindowEvent& event) noexcept {
     auto* p = g_app.media_picker;
     if (!p)
         return false;
-    if (message == WM_CANCELMODE) {
+    if (event.type == EventType::cancel_input) {
         revoke_capture(*p);
         return false;
     }
-    if (message == WM_KILLFOCUS) {
+    if (input_focus_lost(event)) {
         focus(*p, false);
         revoke_capture(*p);
         p->hover_at = 0;
@@ -581,33 +579,34 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         application_request_frame();
         return false;
     }
-    if (message == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam) != g_app.window) {
+    if (event.type == EventType::capture_lost && event.focus.other != g_app.window) {
         revoke_capture(*p);
         return false;
     }
     if (p->inline_mode)
-        return inline_pointer(*p, message, wparam, lparam);
+        return inline_pointer(*p, event);
     if (!application_media_picker_active())
         return false;
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         p->hover_at = 0;
         if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()))
             repaint(true);
         return false;
     }
-    if (!application_pointer_message(message) && !p->scrollbar_dragging)
+    if (!application_pointer_event(event) && !p->scrollbar_dragging)
         return false;
     UiPoint point{};
-    if (message == WM_SETCURSOR) {
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+    if (event.type == EventType::cursor_query) {
+        if (!client_cursor_dip(event, &point))
             return false;
-    } else if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU) {
-        if (message == WM_CONTEXTMENU && lparam == -1)
+    } else if (event.type == EventType::wheel) {
+        point = client_wheel_dip(event);
+    } else if (event.type == EventType::context_menu) {
+        if ((event.flags & ev_keyboard) != 0)
             return true;
-        if (!application_wheel_point(lparam, &point))
-            return false;
+        point = client_context_dip(event);
     } else
-        point = {client_dip_x(lparam), client_dip_y(lparam)};
+        point = {client_dip_x(event), client_dip_y(event)};
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
     const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);
@@ -615,24 +614,24 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
                             ui_rect_contains(p->scene.viewport, x, y) &&
                             ui_splitter_hit(p->scene.panel, UiSplitterEdge::left, x, y);
     if (p->resizing) {
-        if (message == WM_SETCURSOR) {
+        if (event.type == EventType::cursor_query) {
             application_set_cursor(UiCursor::resize_we);
             return true;
         }
-        if (message == WM_MOUSEMOVE || message == WM_LBUTTONUP) {
+        if (event.type == EventType::pointer_move || input_release(event)) {
             const float maximum_width = p->resize_fixed_edge - p->scene.viewport.left -
                                         p->scene.style.metrics.viewport_inset;
             const UiSplitterLimits limits{minimum(p->scene.style.metrics.panel_width, maximum_width),
                                            maximum_width};
             p->preferred_width = ui_splitter_drag_width(
                 p->resize_fixed_edge, UiSplitterEdge::left, x - p->resize_pointer_offset, limits);
-            if (message == WM_LBUTTONUP)
+            if (input_release(event))
                 revoke_capture(*p);
             repaint(true);
             return true;
         }
     }
-    if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) && resize_hit) {
+    if (input_down(event) && resize_hit) {
         revoke_capture(*p);
         focus(*p, false);
         ui_scroll_host_cancel(&g_app.scroll_host);
@@ -644,7 +643,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         application_set_cursor(UiCursor::resize_we);
         return true;
     }
-    if (message == WM_SETCURSOR && resize_hit) {
+    if (event.type == EventType::cursor_query && resize_hit) {
         application_set_cursor(UiCursor::resize_we);
         return true;
     }
@@ -658,14 +657,14 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             application_request_frame();
             return true;
         }
-        if (message == WM_MOUSEMOVE) {
+        if (event.type == EventType::pointer_move) {
             // Followed once per presented frame (application_media_picker_drag_tick).
             p->scrollbar_pointer_y = y;
             p->scrollbar_follow_pending = true;
             application_request_frame();
             return true;
         }
-        if (message == WM_LBUTTONUP) {
+        if (input_release(event)) {
             const bool changed = scrollbar_follow(*p, geometry, y);
             revoke_capture(*p);
             if (changed)
@@ -675,8 +674,8 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             return true;
         }
     }
-    const bool primary_press = message == WM_LBUTTONDOWN ||
-                               (message == WM_LBUTTONDBLCLK && hit.action != UiMediaPickerAction::edit);
+    const bool primary_press = input_press(event) ||
+                               (input_double(event) && hit.action != UiMediaPickerAction::edit);
     if (primary_press && inside && ui_scrollbar_track_hit(geometry, x, y)) {
         focus(*p, false);
         ui_scroll_host_cancel(&g_app.scroll_host);
@@ -690,18 +689,18 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         repaint(true);
         return true;
     }
-    if (message == WM_SETCURSOR && inside) {
+    if (event.type == EventType::cursor_query && inside) {
         application_set_cursor(ui_media_picker_scene_cursor(p->scene, x, y));
         return true;
     }
-    if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && inside) {
+    if (event.type == EventType::wheel && inside) {
         const bool rail = ui_rect_contains(p->scene.rail, x, y);
-        if (message == WM_MOUSEWHEEL && (rail || ui_rect_contains(p->scene.body, x, y))) {
-            const u32 lines = application_wheel_scroll_lines();
+        if (!input_horizontal_wheel(event) && (rail || ui_rect_contains(p->scene.body, x, y))) {
+            const WheelScroll wheel_scroll = application_wheel_scroll();
             ui_scroll_host_wheel(&g_app.scroll_host,
                                  {p, p->scope, rail ? rail_scroll_read : body_scroll_read,
                                   rail ? rail_scroll_write : body_scroll_write},
-                                 {x, y}, static_cast<short>(HIWORD(wparam)), lines, lines == WHEEL_PAGESCROLL,
+                                 {x, y}, static_cast<i16>(event.wheel.dy120), wheel_scroll.lines, wheel_scroll.page,
                                  application_now_us(), scale);
             application_request_frame();
         }
@@ -723,7 +722,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         revoke_capture(*p);
         if (hit.action == UiMediaPickerAction::edit) {
             focus(*p, true);
-            edit_pointer(*p, x, y, (wparam & MK_SHIFT) != 0);
+            edit_pointer(*p, x, y, input_shift(event));
             p->dragging = true;
         } else {
             focus(*p, false);
@@ -739,11 +738,11 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         application_capture_pointer();
         return true;
     }
-    if (message == WM_MOUSEMOVE && p->dragging) {
+    if (event.type == EventType::pointer_move && p->dragging) {
         edit_pointer(*p, x, y, true);
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         if (inside) {
             if (ui_media_picker_scene_hover(&p->scene, x, y, clock_monotonic_milliseconds())) {
                 p->hover_at = hit.action == UiMediaPickerAction::item ||
@@ -761,7 +760,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         }
         return inside || p->captured;
     }
-    if (message == WM_LBUTTONUP && (p->captured || inside)) {
+    if (input_release(event) && (p->captured || inside)) {
         const bool drag = p->dragging;
         const auto selected =
             !drag && inside ? ui_media_picker_scene_pointer_up(&p->scene, x, y) : UiMediaPickerTarget{};
@@ -770,17 +769,14 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             activate(*p, selected);
         return true;
     }
-    if (message == WM_LBUTTONDBLCLK && hit.action == UiMediaPickerAction::edit) {
+    if (input_double(event) && hit.action == UiMediaPickerAction::edit) {
         focus(*p, true);
         edit_pointer(*p, x, y, false);
         message_composer_select_word(&p->edit, p->edit.caret);
         application_media_picker_edit_changed(false);
         return true;
     }
-    return inside && (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-                      message == WM_RBUTTONDBLCLK || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
-                      message == WM_MBUTTONDBLCLK || message == WM_XBUTTONDOWN || message == WM_XBUTTONUP ||
-                      message == WM_XBUTTONDBLCLK || message == WM_LBUTTONDBLCLK);
+    return inside && (event.type == EventType::context_menu || input_other_button(event) || input_double(event));
 }
 
 } // namespace maicord::app_detail

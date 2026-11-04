@@ -7,6 +7,13 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
     if(!output)return SfntStatus::invalid_input;reset_value(output);auto& font=*output;font.face=face;
     const bool cff=face.version==sfnt_tag('O','T','T','O');font.kind=cff?FontGeometryKind::cff:FontGeometryKind::truetype;
     auto status=cff?cff_open(face,&font.outline.cff):sfnt_truetype_open(face,&font.outline.truetype,true);
+#if !defined(_WIN32)
+    // A colour bitmap font (CBLC/CBDT: Noto Color Emoji on Debian, Ubuntu and nixpkgs) has no outlines; its cmap, layout
+    // tables and horizontal metrics are everything the text engine reads of it, and bitmap_color.hpp the images.
+    if(!cff&&status==SfntStatus::missing_table){ConstSlice<u8> locations{},data{};
+        if(sfnt_table(face,sfnt_tag('C','B','L','C'),&locations)==SfntStatus::ok&&sfnt_table(face,sfnt_tag('C','B','D','T'),&data)==SfntStatus::ok){
+            reset_value(&font.outline.truetype);font.kind=FontGeometryKind::bitmap;status=sfnt_horizontal_metrics_open(face,&font.outline.truetype.metrics);}}
+#endif
     // Paint/layout variation axes exist independently of outline deltas.
     if(status==SfntStatus::ok)status=font_axes_open(face,&font.axes);
     if(status==SfntStatus::ok&&!cff&&font.outline.truetype.gvar.data)
@@ -23,6 +30,9 @@ SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     if(cff_metrics)reset_value(cff_metrics);
     if(!instance.font || !output || (!scratch && instance.font->kind==FontGeometryKind::truetype)){if(output)clear(output);return SfntStatus::invalid_input;}
     const auto& font=*instance.font;
+#if !defined(_WIN32)
+    if(font.kind==FontGeometryKind::bitmap){clear(output);return SfntStatus::unsupported;}
+#endif
     if(bold&&font.kind==FontGeometryKind::cff){clear(output);output->rejected=1;return SfntStatus::unsupported;}
     if(font.kind==FontGeometryKind::cff)return cff_outline(font.outline.cff,glyph,output,work,cff_metrics,oblique);
     scratch->truetype.work_limit=work;

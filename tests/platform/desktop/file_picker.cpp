@@ -2,6 +2,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/win32.hpp"
 
 
 namespace maicord {
@@ -45,7 +46,7 @@ void test_file_picker(void (*check)(bool, const char*) noexcept) noexcept {
     const HWND owner = CreateWindowExW(0, L"STATIC", L"MaiCord picker cancellation fixture", WS_OVERLAPPED,
         0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!owner) { check(false, "picker cancellation fixture creates hidden owner"); return; }
-    const auto started = native_file_picker_start(&picker, owner, 10, utf8_literal("MaiCord cancellation fixture"));
+    const auto started = native_file_picker_start(&picker, win32_window(owner), 10, utf8_literal("MaiCord cancellation fixture"));
     check(started == NativeFilePickerError::none, "native picker starts a dedicated dialog apartment");
     native_file_picker_cancel(&picker);
     const u64 deadline = GetTickCount64() + 10000;
@@ -62,10 +63,10 @@ void test_file_picker(void (*check)(bool, const char*) noexcept) noexcept {
         "picker nonblocking reap clears every caller-owned handle after thread exit");
     NativeFileSaveSelection saved{};
     check(!native_file_picker_save_selection(&picker, &saved) &&
-        native_file_picker_save_start(&picker, owner, utf8_literal("../bad.exe")) == NativeFilePickerError::invalid_input &&
-        native_file_picker_save_start(&picker, owner, utf8_literal("bad:stream.txt")) == NativeFilePickerError::invalid_input &&
+        native_file_picker_save_start(&picker, win32_window(owner), utf8_literal("../bad.exe")) == NativeFilePickerError::invalid_input &&
+        native_file_picker_save_start(&picker, win32_window(owner), utf8_literal("bad:stream.txt")) == NativeFilePickerError::invalid_input &&
         !picker.runtime, "save picker rejects path and stream defaults without dialog work");
-    const auto save_started = native_file_picker_save_start(&picker, owner, utf8_literal("original.bin"), utf8_literal("Save cancellation fixture"));
+    const auto save_started = native_file_picker_save_start(&picker, win32_window(owner), utf8_literal("original.bin"), utf8_literal("Save cancellation fixture"));
     check(save_started == NativeFilePickerError::none, "native Save starts its dedicated dialog STA");
     native_file_picker_cancel(&picker);
     const u64 save_deadline = GetTickCount64() + 10000;

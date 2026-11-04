@@ -152,7 +152,7 @@ bool draw_grid(D3D11Renderer& renderer,PopupScene& scene,UiScene& title,u32 dpi,
     renderer.menu_paint_first_batch=renderer.paint_stream.batch_count;
     renderer.menu_media_first_batch=renderer.media_batch_count;
     const float clear[]{.03f,.03f,.03f,1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target,clear);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target,clear);
     if (!d3d11_renderer_draw_stream(&renderer,kDefaultTheme,true,true,nullptr,10000)) return fail(__LINE__);
     if (renderer.media_draws_last_frame!=4) {
         log_u64(LogLevel::error,"probe","regional_flag_grid_media_draws",renderer.media_draws_last_frame);return fail(__LINE__);}

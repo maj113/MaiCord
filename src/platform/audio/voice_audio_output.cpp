@@ -1,5 +1,5 @@
 #include "maicord/platform/audio/voice_audio_output.hpp"
-#include "endpoint_watch.hpp"
+#include "wasapi_endpoint_watch.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/wasapi.hpp"

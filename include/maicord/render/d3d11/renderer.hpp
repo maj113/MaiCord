@@ -27,6 +27,8 @@
 #include "maicord/core/win32_records.hpp"
 #include <stddef.h>
 #include "maicord/gpu/gpu.hpp"
+#include "maicord/gpu/surface.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 
@@ -669,11 +671,13 @@ struct D3D11Renderer {
     bool device_lost;
     u32 device_generation;
     // What a recovery re-creates the device from, and the adapter per-GPU records are keyed by.
-    HWND window;
+    NativeWindow window;
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
+#if defined(_WIN32)
 static_assert(sizeof(D3D11Renderer) == 121992);
+#endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -682,7 +686,13 @@ void renderer_prestart() noexcept;
 void renderer_prestart_cancel() noexcept;
 // content_text: content text (kRendererContentGlyphCapacity glyph quads)
 // binds before the first frame; its glyph ring is created up front.
-bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text = false) noexcept;
+bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface, bool content_text = false) noexcept;
+// The surface a window needs: its native handle, client size (at least one pixel each way) and DPI.
+inline GpuSurfaceDesc renderer_window_surface(Window window) noexcept {
+    const WindowMetrics metrics = window_metrics(window);
+    return GpuSurfaceDesc{window_surface_native(window), maximum<u32>(1, metrics.width_px),
+                          maximum<u32>(1, metrics.height_px), metrics.dpi == 0 ? 96 : metrics.dpi};
+}
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept;
 // The top `height` pixels of the swap chain hold the window caption; width,
 // height and every content coordinate exclude them. Before renderer_initialize

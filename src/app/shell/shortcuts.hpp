@@ -3,6 +3,7 @@
 #include "maicord/ui/core/input_router.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // Window side of the shortcut registry: the focus context, dispatch of
@@ -27,7 +28,7 @@ bool application_shortcuts_overlay_active() noexcept;
 bool application_shortcuts_overlay_open() noexcept;
 void application_shortcuts_overlay_close() noexcept;
 bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeated) noexcept;
-bool application_shortcuts_overlay_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_shortcuts_overlay_window_event(const WindowEvent& event) noexcept;
 bool application_shortcuts_overlay_synchronize() noexcept;
 void application_shortcuts_overlay_release() noexcept;
 } // namespace maicord::app_detail

@@ -8,8 +8,8 @@ namespace maicord {
 
 using namespace media_atlas_gpu_detail;
 
-MediaAtlasGpuResult media_atlas_gpu_begin_apng(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                               ID3D11DeviceContext1* context, MediaAssetKey key,
+MediaAtlasGpuResult media_atlas_gpu_begin_apng(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+                                               GpuContext1* context, MediaAssetKey key,
                                                u16 canvas_width, u16 canvas_height, const ApngFrame& frame,
                                                const PngImage& frame_image,
                                                ConstSlice<u8> reconstructed_scanlines) noexcept {
@@ -19,7 +19,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_apng(MediaAtlasGpu* gpu, MediaAtlas* a
         !png_scanlines_reconstructed(frame_image, reconstructed_scanlines)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    HRESULT result = upload_png_inputs(gpu, device, context, frame_image, reconstructed_scanlines);
+    GpuStatus result = upload_png_inputs(gpu, device, context, frame_image, reconstructed_scanlines);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
@@ -44,7 +44,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_apng(MediaAtlasGpu* gpu, MediaAtlas* a
 }
 
 MediaAtlasGpuResult media_atlas_gpu_advance_apng(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                                 ID3D11Device* device, ID3D11DeviceContext1* context,
+                                                 GpuDevice* device, GpuContext1* context,
                                                  MediaAssetKey key, const ApngFrame& previous_frame,
                                                  const ApngFrame& frame, const PngImage& frame_image,
                                                  ConstSlice<u8> reconstructed_scanlines) noexcept {
@@ -55,7 +55,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_apng(MediaAtlasGpu* gpu, MediaAtlas*
         !png_scanlines_reconstructed(frame_image, reconstructed_scanlines)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
-    HRESULT result = upload_png_inputs(gpu, device, context, frame_image, reconstructed_scanlines);
+    GpuStatus result = upload_png_inputs(gpu, device, context, frame_image, reconstructed_scanlines);
     if (SUCCEEDED(result) &&
         (previous_frame.dispose == ApngDispose::previous || frame.dispose == ApngDispose::previous)) {
         result = ensure_apng_backup(gpu, device, context, atlas, static_cast<u32>(allocation.y) + allocation.height);
@@ -86,8 +86,8 @@ MediaAtlasGpuResult media_atlas_gpu_advance_apng(MediaAtlasGpu* gpu, MediaAtlas*
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_begin_gif(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                              ID3D11DeviceContext1* context, MediaAssetKey key,
+MediaAtlasGpuResult media_atlas_gpu_begin_gif(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+                                              GpuContext1* context, MediaAssetKey key,
                                               u16 canvas_width, u16 canvas_height, const GifFrame& frame,
                                               const GifPalette& palette, ConstSlice<u8> indices) noexcept {
     if (!animation_target_ready(gpu, atlas, device, context, key) ||
@@ -95,7 +95,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_gif(MediaAtlasGpu* gpu, MediaAtlas* at
         !gif_frame_valid(frame, canvas_width, canvas_height, palette, indices)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    HRESULT result = upload_gif_inputs(gpu, device, context, frame, palette, indices);
+    GpuStatus result = upload_gif_inputs(gpu, device, context, frame, palette, indices);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
@@ -119,8 +119,8 @@ MediaAtlasGpuResult media_atlas_gpu_begin_gif(MediaAtlasGpu* gpu, MediaAtlas* at
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_advance_gif(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                                ID3D11DeviceContext1* context, MediaAssetKey key,
+MediaAtlasGpuResult media_atlas_gpu_advance_gif(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+                                                GpuContext1* context, MediaAssetKey key,
                                                 const GifFrame& previous_frame, const GifFrame& frame,
                                                 const GifPalette& palette,
                                                 ConstSlice<u8> indices) noexcept {
@@ -130,7 +130,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_gif(MediaAtlasGpu* gpu, MediaAtlas* 
         !gif_frame_valid(frame, allocation.width, allocation.height, palette, indices)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
-    HRESULT result = upload_gif_inputs(gpu, device, context, frame, palette, indices);
+    GpuStatus result = upload_gif_inputs(gpu, device, context, frame, palette, indices);
     if (SUCCEEDED(result) &&
         (previous_frame.dispose == GifDispose::previous || frame.dispose == GifDispose::previous)) {
         result = ensure_apng_backup(gpu, device, context, atlas, static_cast<u32>(allocation.y) + allocation.height);
@@ -161,7 +161,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_gif(MediaAtlasGpu* gpu, MediaAtlas* 
 }
 
 MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                                        ID3D11Device* device, ID3D11DeviceContext1* context,
+                                                        GpuDevice* device, GpuContext1* context,
                                                         MediaAssetKey key, u16 canvas_width,
                                                         u16 canvas_height, u32 background_rgba,
                                                         const AnimatedWebpFrame& frame,
@@ -171,7 +171,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp(MediaAtlasGpu* gpu, Medi
         !animated_webp_frame_valid(frame, canvas_width, canvas_height, straight_rgba8)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    const HRESULT uploaded = upload_animated_webp_inputs(gpu, device, context, frame, straight_rgba8);
+    const GpuStatus uploaded = upload_animated_webp_inputs(gpu, device, context, frame, straight_rgba8);
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded);
     }
@@ -189,7 +189,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp(MediaAtlasGpu* gpu, Medi
 }
 
 MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device, ID3D11DeviceContext1* context,
+    MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u32 background_rgba, const AnimatedWebpFrame& previous_frame,
     const AnimatedWebpFrame& frame, ConstSlice<u8> straight_rgba8) noexcept {
     const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
@@ -198,7 +198,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp(
         !animated_webp_frame_valid(frame, allocation.width, allocation.height, straight_rgba8)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
-    const HRESULT uploaded = upload_animated_webp_inputs(gpu, device, context, frame, straight_rgba8);
+    const GpuStatus uploaded = upload_animated_webp_inputs(gpu, device, context, frame, straight_rgba8);
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded, allocation);
     }

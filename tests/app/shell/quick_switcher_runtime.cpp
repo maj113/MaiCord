@@ -1,4 +1,5 @@
 #include "shell/shortcuts.hpp"
+#include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/application_downloads_inactive.hpp"
 #include "../../support/application_inbox_inactive.hpp"
@@ -17,7 +18,7 @@
 #include "chat/application_private_conversation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/protocol/gateway/client_status.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/shell/quick_switcher_scene.hpp"
@@ -181,14 +182,14 @@ void run() noexcept {
     BYTE saved[256]{};
     const bool saved_keyboard = GetKeyboardState(saved) != FALSE;
     modifiers();
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Quick isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Quick isolated fixture", WS_POPUP, 0, 0, 1200, 900,
+                                   nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Quick runtime: hidden host and scoped account fixture");
     if (!g_app.window || !g_app.account_ui)
         return;
-    SetFocus(g_app.window);
+    SetFocus(win32_hwnd(g_app.window));
     g_window_state.keyboard_focus = true;
     g_app.renderer_ready = true;
     g_app.renderer.dpi = 96;
@@ -362,13 +363,8 @@ void run() noexcept {
     private_allowed = true;
     picker();
     modifiers(true);
-    MSG native_open{};
-    native_open.hwnd = g_app.window;
-    native_open.message = WM_KEYDOWN;
-    native_open.wParam = 'K';
-    const bool filtered_open = application_quick_switcher_filter(native_open);
-    native_open.message = WM_KEYUP;
-    application_quick_switcher_filter(native_open);
+    const bool filtered_open = application_quick_switcher_filter(window_test::key_down('K'));
+    application_quick_switcher_filter(window_test::key_up('K'));
     modifiers();
     check(filtered_open && application_quick_switcher_active(),
           "Quick runtime: native TSF prefilter owns Ctrl K before document dispatch");
@@ -435,7 +431,7 @@ void run() noexcept {
     settings = false;
     scoped_shortcut_routing();
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_window_state.keyboard_focus = false;
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);

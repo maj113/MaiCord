@@ -10,6 +10,8 @@
 #include "../shell/surface_motion.hpp"
 #include "../shell/tooltip.hpp"
 #include "../shell/modal_scroll.hpp"
+#include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/overlay_input.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/core/time.hpp"
@@ -18,7 +20,6 @@
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -533,7 +534,7 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
     }
     return true;
 }
-bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_theme_editor_window_event(const WindowEvent& event) noexcept {
     auto* e = g_app.theme_editor;
     if (!e)
         return false;
@@ -543,12 +544,10 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
     }
     // The optional hex editor is a separate text form. Drawer controls use
     // ordinary press/release semantics for both clicks of a rapid pair.
-    if (message == WM_LBUTTONDBLCLK)
-        message = WM_LBUTTONDOWN;
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         // The drawer is modal: its controls declare hands; the scrollbar stays an arrow.
         UiPoint point{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+        if (!client_cursor_dip(event, &point))
             return false;
         application_set_cursor(e->dragging ? UiCursor::hand
                                : ui_theme_editor_hit_test(e->scene, point) == UiThemeEditorElement::scrollbar
@@ -556,30 +555,27 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
                                    : ui_widget_manager_cursor(e->scene.widgets, point.x, point.y));
         return true;
     }
-    if (message == WM_CANCELMODE || message == WM_CAPTURECHANGED || message == WM_KILLFOCUS ||
-        message == WM_SIZE || message == WM_DPICHANGED) {
+    if (event.type == EventType::cancel_input || event.type == EventType::capture_lost || input_focus_lost(event) ||
+        event.type == EventType::resize || event.type == EventType::scale_changed) {
         cancel_capture(*e);
         return false;
     }
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         ui_button_pointer(&e->scene.widgets, UiButtonPointerEvent::move, {-1, -1});
         application_request_frame();
         return true;
     }
-    if (message == WM_MOUSEWHEEL) {
-        UiPoint point{};
-        if (application_wheel_point(lparam, &point))
-            application_modal_scroll_wheel(application_theme_editor_scroll_binding(), point, wparam);
+    if (input_vertical_wheel(event)) {
+        application_modal_scroll_wheel(application_theme_editor_scroll_binding(), client_wheel_dip(event), event);
         application_request_frame();
         return true;
     }
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP)
-        return message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_CONTEXTMENU ||
-               message == WM_MOUSEHWHEEL;
-    const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-    const UiPoint p{static_cast<short>(LOWORD(lparam)) * scale, static_cast<short>(HIWORD(lparam)) * scale};
+    const PointerStep step = input_pointer_step(event);
+    if (step == PointerStep::none)
+        return input_side_button(event) || event.type == EventType::context_menu || input_horizontal_wheel(event);
+    const UiPoint p{client_dip_x(event), client_dip_y(event)};
     const auto hit = ui_theme_editor_hit_test(e->scene, p);
-    if (message == WM_MOUSEMOVE) {
+    if (step == PointerStep::move) {
         if (e->scrollbar_dragging && e->captured_generation == e->scene.widgets.generation &&
             application_pointer_captured()) {
             const auto geometry = ui_theme_editor_scrollbar(e->scene);
@@ -602,7 +598,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
             application_request_frame();
         return true;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (step == PointerStep::press) {
         application_focus_window();
         if (g_app.theme_editor != e || !current(*e))
             return true;

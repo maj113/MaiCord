@@ -132,7 +132,7 @@ bool reply_draft_ui_adapter_begin(HWND window, u32 dpi, bool (*refresh)(void*) n
     next->context = context;
     adapter = next;
     g_app = {};
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.account_ui = next->ui;
     g_app.account.instance = next;
     g_app.account.status.running = true;

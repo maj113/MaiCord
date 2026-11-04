@@ -6,6 +6,7 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/app/shell/navigation_shortcuts.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct MessageProfileHit;
@@ -32,16 +33,16 @@ bool application_received_attachment_open(u64 message_id, u64 attachment_id,
 // was accepted; absent metadata is hydrated by the Search navigation owner.
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept;
 bool select_content_guild(u64 guild) noexcept;
-bool handle_navigation_click(LPARAM lparam) noexcept;
+bool handle_navigation_click(const WindowEvent& event) noexcept;
 // The click a navigation press performs (selection, folder toggle, voice
 // join), replayed by drag-and-drop on a release without a drag.
-bool activate_navigation_press(LPARAM lparam) noexcept;
+bool activate_navigation_press(const WindowEvent& event) noexcept;
 // Moves the selection for a registry navigation shortcut (Alt+arrows and friends).
 bool handle_navigation_shortcut(NavigationShortcut shortcut) noexcept;
 bool activate_focused_navigation() noexcept;
-bool handle_message_action_bar_click(LPARAM lparam) noexcept;
-bool handle_message_click(LPARAM lparam) noexcept;
-bool handle_content_click(LPARAM lparam) noexcept;
+bool handle_message_action_bar_click(const WindowEvent& event) noexcept;
+bool handle_message_click(const WindowEvent& event) noexcept;
+bool handle_content_click(const WindowEvent& event) noexcept;
 // Reveals a spoiler or explicit-blurred preview under the pointer; true when
 // the click was consumed by the reveal.
 bool application_message_media_reveal_at(float x, float y) noexcept;
@@ -50,7 +51,7 @@ MessageProfileHit application_message_profile_hit_test(float x, float y) noexcep
 bool application_message_guild_tag_hit(float x, float y) noexcept;
 // The slash command chip of a "<user> used <command>" header (a click opens its command card).
 bool application_message_command_chip_hit(float x, float y) noexcept;
-bool handle_content_hover(LPARAM lparam) noexcept;
+bool handle_content_hover(const WindowEvent& event) noexcept;
 // Message pane targets a click would activate: inline players, polls, image
 // previews, replies, file cards and declared rich buttons. False defers to
 // links, author names and selectable text.

@@ -465,13 +465,13 @@ SettingsLayer* application_channel_overview_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
 }
 
-bool application_channel_overview_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_channel_overview_window_event(const WindowEvent& event) noexcept {
     auto* layer = modal_layer();
     if (layer && layer == application_profile_editor_settings_layer())
-        return application_profile_editor_window_message(message, wparam, lparam);
+        return application_profile_editor_window_event(event);
     if (!layer && owner && owner->scene.active)
         layer = &owner->layer;
-    return layer && settings_layer_window_message(layer, message, wparam, lparam);
+    return layer && settings_layer_window_event(layer, event);
 }
 
 } // namespace maicord::app_detail

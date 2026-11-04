@@ -9,6 +9,7 @@
 #include "maicord/ui/chat/inbox_avatar_media.hpp"
 #include "maicord/ui/chat/polls/voters_avatar_media.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
 #include "maicord/ui/media/picker_presentation.hpp"
@@ -296,12 +297,12 @@ bool composer_chip_geometry(const D3D11Renderer& renderer, Slice<MessageComposer
     }
     return true;
 }
-D3D11_RECT physical_damage_rect(const D3D11Renderer& renderer, const PresentationDamageRect& rectangle) noexcept {
+RECT physical_damage_rect(const D3D11Renderer& renderer, const PresentationDamageRect& rectangle) noexcept {
     const float pixel_scale = static_cast<float>(maximum(renderer.dpi, 1u)) / 96.0f;
     const RasterClipRect clip =
         raster_clip_rectangle(UiRect{rectangle.left, rectangle.top, rectangle.right, rectangle.bottom},
                               pixel_scale, renderer.width, renderer.height);
-    return D3D11_RECT{clip.left, clip.top, clip.right, clip.bottom};
+    return RECT{clip.left, clip.top, clip.right, clip.bottom};
 }
 
 bool physical_rect_has_area(const RECT& rectangle) noexcept {
@@ -737,7 +738,7 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
     // Effects composite above card glyphs, separately from banner/avatar media.
     *effect_first_batch = renderer->media_batch_count;
     first = true;
-    const u64 effect_now_ms = profile.effect && profile.effect_started_ms ? GetTickCount64() : 0;
+    const u64 effect_now_ms = profile.effect && profile.effect_started_ms ? clock_monotonic_milliseconds() : 0;
     for (u32 i = 0; profile.effect && (profile.reduced_motion || profile.effect_started_ms) &&
                     i < maximum<u8>(1, profile.effect->count);
          ++i) {
@@ -2281,7 +2282,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
             renderer->present_dirty_rect = {0, 0, 1, 1};
         }
     }
-    const D3D11_RECT* scissor = renderer->present_full ? nullptr : renderer->present_dirty_rect.native();
+    const RECT* scissor = renderer->present_full ? nullptr : renderer->present_dirty_rect.native();
     return d3d11_renderer_draw_stream(renderer, theme, !retained, !retained || media_source_changed,
                                       scissor) &&
            d3d11_renderer_caption_draw(renderer, theme);

@@ -3,8 +3,10 @@
 #include "settings/settings.hpp"
 #include "plugins/plugins.hpp"
 #include "settings_runtime_internal.hpp"
+#include "../../support/window_fixture.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "shell/window_state.hpp"
+#include "shell/window_events.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "settings_runtime_keys.hpp"
 
@@ -22,29 +24,30 @@ struct Fixture {
     PopupRowWidget rows[34];
     UiWidget widgets[70];
     UiLayoutNode nodes[70];
-    HWND window, previous_window;
+    Window window, previous_window;
     u32 capture_cancellations;
     u32 background_pointer_events;
     wchar_t preferences_path[MAX_PATH];
-    ATOM window_class;
     bool replace_on_capture, account_owned;
     bool preferences_owned;
     u64 previous_preferences_revision;
     bool previous_preferences_pending, previous_preferences_failed;
 } fixture{};
-constexpr wchar_t window_class_name[] = L"MaiCordSettingsChoiceRuntimeFixture";
-LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP ||
-        message == WM_LBUTTONDBLCLK || message == WM_MOUSELEAVE) {
-        if (application_settings_window_message(message, wparam, lparam))
-            return 0;
+// The client's window procedure, as far as Settings goes: pointer events try Settings first and count what falls
+// through; cancellations reach it and the lost capture is counted.
+void window_sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
+    if (input_pointer_step(event) != PointerStep::none || event.type == EventType::pointer_leave) {
+        if (application_settings_window_event(event)) {
+            result->handled = true;
+            return;
+        }
         ++fixture.background_pointer_events;
-        if (message == WM_LBUTTONDOWN)
+        if (input_press(event))
             g_app.message_text_pointer_selection = true;
     }
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
-        application_settings_window_message(message, wparam, lparam);
-        if (message == WM_CAPTURECHANGED) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
+        application_settings_window_event(event);
+        if (event.type == EventType::capture_lost) {
             ++fixture.capture_cancellations;
             if (fixture.replace_on_capture) {
                 fixture.replace_on_capture = false;
@@ -56,7 +59,12 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             }
         }
     }
-    return DefWindowProcW(window, message, wparam, lparam);
+}
+// The event of a packed client point, delivered through the window service as the system would.
+bool inject(const WindowEvent& event) noexcept {
+    WindowEventResult result{};
+    window_inject(g_app.window, event, &result);
+    return result.handled;
 }
 bool press_key(u32 code) noexcept {
     return application_settings_input(UiInputKind::key_down, code, false) &&
@@ -138,21 +146,12 @@ bool initialize() noexcept {
     g_app.settings_held_key = 0;
     application_plugins_account_scope_invalidated();
     fixture.previous_window = g_app.window;
-    WNDCLASSW window_class{};
-    window_class.lpfnWndProc = window_proc;
-    window_class.hInstance = GetModuleHandleW(nullptr);
-    window_class.lpszClassName = window_class_name;
-    fixture.window_class = RegisterClassW(&window_class);
-    if (!fixture.window_class)
-        return false;
-    fixture.window = CreateWindowExW(0, window_class_name, L"Settings choice fixture", WS_POPUP, 0, 0, 1000,
-                                     700, nullptr, nullptr, window_class.hInstance, nullptr);
+    fixture.window = window_test::open(window_sink);
     if (!fixture.window)
         return false;
-    g_app.window = fixture.window; // Owned hidden window; no desktop input or ShowWindow.
-    SetFocus(fixture.window);
-    g_window_state.keyboard_focus = GetFocus() == fixture.window;
-    if (GetFocus() != fixture.window)
+    g_app.window = fixture.window; // The headless window: no desktop input or ShowWindow.
+    g_window_state.keyboard_focus = window_focus(fixture.window);
+    if (!g_window_state.keyboard_focus)
         return false;
     return popup_scene_initialize(&g_app.popup_scene, {fixture.items, 34}, {fixture.rows, 34},
                                   {fixture.widgets, 70}, {fixture.nodes, 70});
@@ -174,16 +173,12 @@ void cleanup() noexcept {
     application_settings_release();
     popup_scene_release(&g_app.popup_scene);
     g_app.popup_scene = {};
-    if (GetCapture() == fixture.window)
-        ReleaseCapture();
-    if (fixture.window)
-        DestroyWindow(fixture.window);
+    if (window_pointer_captured(fixture.window))
+        window_release_capture(fixture.window);
+    window_test::close();
     g_window_state.keyboard_focus = false;
     g_app.window = fixture.previous_window;
     fixture.window = nullptr;
-    if (fixture.window_class)
-        UnregisterClassW(window_class_name, GetModuleHandleW(nullptr));
-    fixture.window_class = 0;
     g_app.context_focus = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -234,12 +229,12 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
             }
     }
     if (found_card) {
-        SendMessageW(f.window, WM_MOUSEMOVE, 0, card_point);
-        SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, card_point);
-        native_palette = native_palette && GetCapture() == f.window;
-        SendMessageW(f.window, WM_LBUTTONUP, 0, card_point);
+        inject(window_test::pointer_move(window_test::x_of(card_point), window_test::y_of(card_point)));
+        inject(window_test::pointer_down(window_test::x_of(card_point), window_test::y_of(card_point)));
+        native_palette = native_palette && window_pointer_captured(f.window);
+        inject(window_test::pointer_up(window_test::x_of(card_point), window_test::y_of(card_point), PointerButton::left));
         native_palette =
-            native_palette && GetCapture() != f.window && g_app.preferences.theme == ClientTheme::amoled &&
+            native_palette && !window_pointer_captured(f.window) && g_app.preferences.theme == ClientTheme::amoled &&
             g_app.preferences_request_revision == preference_revision + 1 && !g_app.popup_scene.active;
     }
     check(native_palette && found_card, "choice runtime: native Theme swatches activate the exact swatch "
@@ -253,16 +248,16 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const auto revision = scene->revision;
         const auto generation = scene->widgets.generation;
         g_app.frame_pending = false;
-        SendMessageW(f.window, WM_MOUSEMOVE, 0, section_point);
+        inject(window_test::pointer_move(window_test::x_of(section_point), window_test::y_of(section_point)));
         // Hovering repaints (the option a swatch row left hovered clears, a paint-only revision step) but never relays out.
         pointer_settings = scene->widgets.hovered.generation && scene->revision - revision <= 1 &&
                            scene->widgets.generation == generation && g_app.frame_pending;
-        SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, section_point);
+        inject(window_test::pointer_down(window_test::x_of(section_point), window_test::y_of(section_point)));
         pointer_settings =
-            pointer_settings && scene->widgets.captured.generation && GetCapture() == f.window;
-        SendMessageW(f.window, WM_LBUTTONUP, 0, section_point);
+            pointer_settings && scene->widgets.captured.generation && window_pointer_captured(f.window);
+        inject(window_test::pointer_up(window_test::x_of(section_point), window_test::y_of(section_point), PointerButton::left));
         pointer_settings = pointer_settings && ui_page_key_equal(scene->selected_page, kAccessibilityPage) &&
-                           !scene->widgets.captured.generation && GetCapture() != f.window;
+                           !scene->widgets.captured.generation && !window_pointer_captured(f.window);
         // Smooth scrolling sits below Visual Density; bring it into view.
         if (pointer_settings)
             ui_settings_scene_reveal(scene, smooth);
@@ -270,10 +265,10 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     }
     const bool smooth_before = g_app.preferences.smooth_scroll;
     if (pointer_settings) {
-        SendMessageW(f.window, WM_MOUSEMOVE, 0, toggle_point);
-        SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, toggle_point);
-        SendMessageW(f.window, WM_MOUSEMOVE, MK_LBUTTON, toggle_point);
-        SendMessageW(f.window, WM_LBUTTONUP, 0, toggle_point);
+        inject(window_test::pointer_move(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
+        inject(window_test::pointer_down(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
+        inject(window_test::pointer_move(window_test::x_of(toggle_point), window_test::y_of(toggle_point), window_test::button_bit(PointerButton::left)));
+        inject(window_test::pointer_up(window_test::x_of(toggle_point), window_test::y_of(toggle_point), PointerButton::left));
         pointer_settings = g_app.preferences.smooth_scroll != smooth_before;
     }
     check(pointer_settings && !f.background_pointer_events && !g_app.message_text_pointer_selection,
@@ -281,26 +276,26 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
           "message text layer");
     if (pointer_settings) {
         const bool before_cancel = g_app.preferences.smooth_scroll;
-        SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, toggle_point);
-        SendMessageW(f.window, WM_CANCELMODE, 0, 0);
-        SendMessageW(f.window, WM_LBUTTONUP, 0, toggle_point);
+        inject(window_test::pointer_down(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
+        inject(window_test::cancel_input());
+        inject(window_test::pointer_up(window_test::x_of(toggle_point), window_test::y_of(toggle_point), PointerButton::left));
         auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
         check(g_app.preferences.smooth_scroll == before_cancel && !scene->widgets.captured.generation &&
-                  GetCapture() != f.window && !f.background_pointer_events,
+                  !window_pointer_captured(f.window) && !f.background_pointer_events,
               "settings pointer: native capture cancellation cannot activate or pass release to underlying "
               "content");
-        SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, toggle_point);
+        inject(window_test::pointer_down(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
         const auto* selected = ui_page_registry_selected(*scene->registry);
         if (selected && selected->context)
             ++static_cast<UiSettingsPageContent*>(selected->context)->revision;
         const bool synchronized = application_settings_synchronize();
-        SendMessageW(f.window, WM_LBUTTONUP, 0, toggle_point);
+        inject(window_test::pointer_up(window_test::x_of(toggle_point), window_test::y_of(toggle_point), PointerButton::left));
         check(synchronized && g_app.preferences.smooth_scroll == before_cancel &&
-                  !scene->widgets.captured.generation && GetCapture() != f.window &&
+                  !scene->widgets.captured.generation && !window_pointer_captured(f.window) &&
                   !f.background_pointer_events,
               "settings pointer: revised content invalidates held widget admission before native release");
-        SendMessageW(f.window, WM_MOUSEMOVE, 0, toggle_point);
-        SendMessageW(f.window, WM_MOUSELEAVE, 0, 0);
+        inject(window_test::pointer_move(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
+        inject(window_test::pointer_leave());
         check(!scene->widgets.hovered.generation && !f.background_pointer_events,
               "settings pointer: native leave clears hover while preserving modal ownership");
     }
@@ -310,7 +305,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     if (pointer_settings) {
         auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
         scene->palette_hovered_index = 2;
-        SendMessageW(f.window, WM_MOUSEMOVE, 0, toggle_point);
+        inject(window_test::pointer_move(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
         check(scene->palette_hovered_index == ~u32{0},
               "settings pointer: moving onto another control clears the option a previous row left hovered");
     }
@@ -336,9 +331,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     // Real mouse dispatch follows its window's activation/focus transition.
     // Establish that state before opening; a loss during a live picker must
     // continue to cancel it, including the nested hidden-window focus messages.
-    SetFocus(f.window);
-    g_window_state.keyboard_focus = GetFocus() == f.window;
-    const bool focused = GetFocus() == f.window;
+    const bool focused = window_focus(f.window);
+    g_window_state.keyboard_focus = focused;
     check(focused, "choice runtime: owned hidden window focus is established before pointer picker opens");
     bool mouse = focused && application_settings_synchronize() && open() &&
                  popup_scene_resolve_item_layout(g_app.popup_scene, 2, &item) && item.visible;
@@ -346,11 +340,11 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const LPARAM point = MAKELPARAM(
             static_cast<short>((item.visible_rectangle.left + item.visible_rectangle.right) * .5f),
             static_cast<short>((item.visible_rectangle.top + item.visible_rectangle.bottom) * .5f));
-        mouse = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
-        mouse = mouse && application_settings_window_message(WM_LBUTTONUP, 0, point);
+        mouse = application_settings_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
+        mouse = mouse && application_settings_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
     }
     const bool mouse_passed = mouse && effect() == 2 && !g_app.popup_scene.active &&
-                              f.capture_cancellations > cancellations && GetCapture() != f.window;
+                              f.capture_cancellations > cancellations && !window_pointer_captured(f.window);
     check(mouse_passed, "choice runtime: mouse release synchronously cancels real hidden-window capture "
                         "before the chosen index is applied");
     bool replaced = open() && popup_scene_resolve_item_layout(g_app.popup_scene, 1, &item) && item.visible;
@@ -358,9 +352,9 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const LPARAM point = MAKELPARAM(
             static_cast<short>((item.visible_rectangle.left + item.visible_rectangle.right) * .5f),
             static_cast<short>((item.visible_rectangle.top + item.visible_rectangle.bottom) * .5f));
-        replaced = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
+        replaced = application_settings_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
         f.replace_on_capture = true;
-        replaced = replaced && application_settings_window_message(WM_LBUTTONUP, 0, point);
+        replaced = replaced && application_settings_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
     }
     const bool replacement_passed = replaced && effect() == 2 && g_app.popup_scene.active &&
                                     g_app.popup_scene.items[0].action == 731;
@@ -393,7 +387,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
           "choice runtime: reopened popup identity invalidates the old selection even with unchanged "
           "content");
     check(open(), "choice runtime: popup identity can be recaptured");
-    check(application_settings_window_message(WM_KILLFOCUS, 0, 0) == false && !g_app.popup_scene.active &&
+    check(application_settings_window_event(window_test::focus_changed(false)) == false && !g_app.popup_scene.active &&
               application_settings_active(),
           "choice runtime: focus cancellation closes borrowed picker while retaining settings");
     check(open(), "choice runtime: the dropdown opens again after the focus loss");

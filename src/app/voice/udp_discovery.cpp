@@ -1,8 +1,8 @@
 #include "maicord/app/voice/udp_discovery.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
-
-#include "maicord/sys/winsock.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -44,11 +44,11 @@ void voice_udp_close(VoiceUdpDiscovery* discovery) noexcept {
     network_datagram_close(&discovery->socket);
     finish(discovery);
 }
-bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const sockaddr* peer, i32 peer_bytes,
-                     u32 ssrc, u64 now_ms) noexcept {
+bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const NetworkAddress& peer, u32 ssrc,
+                     u64 now_ms) noexcept {
     if (!discovery || !voice_udp_drained(*discovery) || !ssrc)
         return false;
-    const auto opened = network_datagram_open(loop, &discovery->socket, peer, peer_bytes);
+    const auto opened = network_datagram_open(loop, &discovery->socket, peer);
     if (!opened.ok()) {
         fail(discovery, VoiceUdpError::open, static_cast<u32>(opened.native_error));
         return false;
@@ -108,12 +108,10 @@ void voice_udp_completion(VoiceUdpDiscovery* discovery, const NetworkCompletion&
         return;
     }
     VoiceDiscoveryAddress external{};
-    IN_ADDR v4{};
-    IN6_ADDR v6{};
+    NetworkAddress parsed{};
     if (voice_discovery_response({discovery->response, completion.transferred}, discovery->ssrc,
                                  &external) &&
-        (InetPtonA(AF_INET, external.address, &v4) == 1 ||
-         InetPtonA(AF_INET6, external.address, &v6) == 1)) {
+        network_address_parse(external.address, 0, &parsed)) {
         discovery->external = external;
         discovery->received = true;
         SecureZeroMemory(discovery->response, sizeof(discovery->response));

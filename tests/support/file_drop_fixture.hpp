@@ -3,7 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/shell.hpp"
 namespace maicord::file_drop_fixture {
-inline HDROP make(ConstSlice<ConstSlice<wchar_t>> paths) noexcept {
+// The files of a drop as the window delivers them: on Windows the DroppedFiles is the HDROP itself.
+inline DroppedFiles* make(ConstSlice<ConstSlice<wchar_t>> paths) noexcept {
     usize bytes = sizeof(DROPFILES) + sizeof(wchar_t);
     for (u32 i = 0; i < paths.count; ++i) bytes += (static_cast<usize>(paths[i].count) + 1) * sizeof(wchar_t);
     const HGLOBAL block = GlobalAlloc(GHND, bytes);
@@ -16,7 +17,7 @@ inline HDROP make(ConstSlice<ConstSlice<wchar_t>> paths) noexcept {
         copy_bytes(text, path.data, path.count * sizeof(wchar_t)); text += path.count + 1;
     }
     GlobalUnlock(block);
-    return reinterpret_cast<HDROP>(block);
+    return reinterpret_cast<DroppedFiles*>(block);
 }
 inline bool seed(wchar_t* path, u32* units, FileSnapshot* snapshot) noexcept {
     wchar_t directory[MAX_PATH]{};

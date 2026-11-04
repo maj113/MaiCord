@@ -134,40 +134,54 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
                                             kGatewayUserLaunchIdBytes, false};
     // An app state the request-time object lacks follows its other properties.
     const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes && !fast;
-    PropertySegment segments[] = {
-        {utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes,
-         false},
-        {utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes, false},
-        {utf8_literal(",\"release_channel\":"), properties.release_channel,
-         kGatewayUserMaximumReleaseChannelBytes, false},
-        {utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes,
-         false},
-        {utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes, false},
-        {utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes, false},
-        {utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes, false},
-        {utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes,
-         false},
-        {utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), properties.client_launch_id,
-         kGatewayUserLaunchIdBytes, false},
-        {utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent,
-         kGatewayUserMaximumUserAgentBytes, false},
-        {utf8_literal(",\"browser_version\":"), properties.browser_version, kGatewayUserMaximumVersionBytes,
-         false},
-        {utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
-         false},
-        {utf8_literal(",\"client_build_number\":"), build_text, 0, true},
-        {utf8_literal(",\"native_build_number\":"), native_text, 0, true},
-        {utf8_literal(",\"client_event_source\":"), utf8_literal("null"), 0, true},
-        {utf8_literal(",\"launch_signature\":"), fast ? Utf8View{} : properties.launch_signature,
-         kGatewayUserLaunchIdBytes, false},
-        app_state_first ? app_state_segment : heartbeat_segment,
-        app_state_first ? heartbeat_segment : app_state_segment,
-        markers,
-    };
-    constexpr u32 segment_count = static_cast<u32>(sizeof(segments) / sizeof(segments[0]));
-    // Fields before client_build_number are required; later ones are omitted when empty.
-    constexpr u32 required_count = 13;
-    EncodedString encoded[segment_count]{};
+    // Windows: os_version, os_arch ... browser_version, os_sdk_version, client_build_number. Linux desktop: the live
+    // web client's order, with os_version_is_release after os_version, no os_sdk_version and the host's window
+    // manager, distro, runtime environment and display server after browser_version.
+    constexpr u32 segment_capacity = 24;
+    PropertySegment segments[segment_capacity];
+    u32 segment_count = 0;
+    const auto add = [&](const PropertySegment& segment) { segments[segment_count++] = segment; };
+    add({utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes, false});
+    add({utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes, false});
+    add({utf8_literal(",\"release_channel\":"), properties.release_channel, kGatewayUserMaximumReleaseChannelBytes,
+         false});
+    add({utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes, false});
+    add({utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes, false});
+    if (properties.linux_desktop)
+        add({utf8_literal(",\"os_version_is_release\":"), utf8_literal("true"), 0, true});
+    add({utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes, false});
+    add({utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes, false});
+    add({utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes, false});
+    add({utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), properties.client_launch_id,
+         kGatewayUserLaunchIdBytes, false});
+    add({utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent, kGatewayUserMaximumUserAgentBytes,
+         false});
+    add({utf8_literal(",\"browser_version\":"), properties.browser_version, kGatewayUserMaximumVersionBytes, false});
+    // Fields before client_build_number are required on Windows, the ones before the host's own on Linux; later
+    // ones are omitted when empty.
+    u32 required_count = segment_count;
+    if (properties.linux_desktop) {
+        add({utf8_literal(",\"window_manager\":"), properties.window_manager, kGatewayUserMaximumHostBytes, false});
+        add({utf8_literal(",\"distro\":"), properties.distro, kGatewayUserMaximumHostBytes, false});
+        add({utf8_literal(",\"runtime_environment\":"), properties.runtime_environment,
+             kGatewayUserMaximumRuntimeBytes, false});
+        add({utf8_literal(",\"display_server\":"), properties.display_server, kGatewayUserMaximumRuntimeBytes,
+             false});
+    } else {
+        add({utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
+             false});
+    }
+    add({utf8_literal(",\"client_build_number\":"), build_text, 0, true});
+    if (!properties.linux_desktop)
+        required_count = segment_count;
+    add({utf8_literal(",\"native_build_number\":"), native_text, 0, true});
+    add({utf8_literal(",\"client_event_source\":"), utf8_literal("null"), 0, true});
+    add({utf8_literal(",\"launch_signature\":"), fast ? Utf8View{} : properties.launch_signature,
+         kGatewayUserLaunchIdBytes, false});
+    add(app_state_first ? app_state_segment : heartbeat_segment);
+    add(app_state_first ? heartbeat_segment : app_state_segment);
+    add(markers);
+    EncodedString encoded[segment_capacity]{};
     u32 required = 1;
     for (u32 index = 0; index < segment_count; ++index) {
         const PropertySegment& segment = segments[index];

@@ -3,7 +3,11 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/d2d1.hpp"
+#else
+#include "maicord/os/linux/d2d1.hpp"
+#endif
 #include "maicord/sys/crt.hpp"
 namespace maicord {
 namespace {
@@ -65,6 +69,7 @@ float number(const JsonValue& v, float fallback = 0) noexcept {
         return fallback;
     return static_cast<float>(negative ? -value : value);
 }
+#if defined(_WIN32)
 // Stack-allocated sinks: no reference counting, and segment flags are ignored.
 struct SinkBase : ID2D1SimplifiedGeometrySink {
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
@@ -86,6 +91,13 @@ struct SinkBase : ID2D1SimplifiedGeometrySink {
     void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
     }
 };
+#else
+// The in-house geometry's sinks carry no reference counts or interface lookup.
+struct SinkBase : ID2D1SimplifiedGeometrySink {
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
+    }
+};
+#endif
 // Signed area (exact for cubics), an upper bound of the length (L1 norm of the control polygon) and of
 // the winding of a simplified outline; open figures are closed as a fill does.
 struct AreaSink final : SinkBase {
@@ -1359,9 +1371,14 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
         else if(c=='}'||c==']'){if(!depth)return false;doc->ends[stack[--depth]]=i;}
     }
     doc->frame = frame;
+#if defined(_WIN32)
     if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
                                  reinterpret_cast<void**>(&doc->factory))))
         return false;
+#else
+    if (!maicord::geometry::factory_create(&doc->factory))
+        return false;
+#endif
     const JsonValue root{text, 0, JsonValueKind::object};
     doc->assets = doc->get(root, "assets");
     const float w = number(doc->get(root, "w")), h = number(doc->get(root, "h"));

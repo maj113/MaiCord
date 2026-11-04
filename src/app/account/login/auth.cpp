@@ -203,7 +203,7 @@ bool begin_webauthn() noexcept {
     if (!present(LoginStatus::webauthn_required, LoginControl::submit)) {
         return false;
     }
-    if (!PostMessageW(g_app.window, kBeginWebAuthnMessage, static_cast<WPARAM>(g_app.login.webauthn_post_epoch), 0)) {
+    if (!window_post({window_surface_native(g_app.window), wake_begin_webauthn}, g_app.login.webauthn_post_epoch, 0)) {
         log_u64(LogLevel::error, "auth", "webauthn_post_native_error", thread_last_error());
         return webauthn_failed();
     }
@@ -402,7 +402,7 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
         return false;
     }
     const WindowsWebAuthnResult asserted =
-        windows_webauthn_authenticate(g_app.window, request, &credential);
+        windows_webauthn_authenticate(win32_hwnd(g_app.window), request, &credential);
     secure_clear_bytes(&request, sizeof(request));
     if (application_account_logout_locked() || application_login_auth_cooldown_active() ||
         host.login_instance != owner || host.module != module ||
@@ -1108,15 +1108,15 @@ bool activate_login_control(LoginControl control) noexcept {
 
 } // namespace
 
-bool application_login_handle_click(LPARAM position) noexcept {
+bool application_login_handle_click(const WindowEvent& event) noexcept {
     if (application_account_logout_locked())
         return true;
     if (!g_app.login.visible) {
         return false;
     }
     if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
-    const i32 x = static_cast<short>(LOWORD(position));
-    const i32 y = static_cast<short>(HIWORD(position));
+    const i32 x = static_cast<short>(event.pointer.x);
+    const i32 y = static_cast<short>(event.pointer.y);
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     if (login_password_reveal_hit_test(g_app.login_scene, static_cast<float>(x) * scale,
                                        static_cast<float>(y) * scale)) {
@@ -1148,7 +1148,7 @@ bool application_login_handle_click(LPARAM position) noexcept {
     return true;
 }
 
-bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
+bool application_login_handle_key(u32 key, bool repeated) noexcept {
     if (application_account_logout_locked())
         return true;
     if (!g_app.login.visible) {

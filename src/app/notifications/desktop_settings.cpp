@@ -1,5 +1,6 @@
 #include "desktop.hpp"
 #include "../shell/state.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -17,7 +18,7 @@ DesktopRegistryScope scope() noexcept {
 }
 // Refreshes the registry view at most once a second while settings render.
 void observe(bool force) noexcept {
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (!force && g_registered.known && now - g_registered.checked_ms < 1000)
         return;
     wchar_t executable[1024];

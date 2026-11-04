@@ -66,7 +66,7 @@ bool draw(D3D11Renderer& renderer, const Theme& theme, const Color* scrim = null
     if (!renderer_present(&renderer, theme))
         return false;
     const float black[4]{0, 0, 0, 1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, black);
     d3d11_renderer_caption_invalidate(&renderer);
     if (!d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr))
         return false;
@@ -144,7 +144,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
     const u32 icon_extent = static_cast<u32>(theme.scale.caption_icon * scale + .5f);
     static u32 icon[kAppIconLargestExtent * kAppIconLargestExtent];
     if (!renderer_set_caption(&renderer, {}, utf8_literal("Native Lab")) ||
-        !app_icon_decode(GetModuleHandleW(nullptr), icon_extent, icon) ||
+        !app_icon_decode(icon_extent, icon) ||
         !renderer_set_caption_icon(&renderer, icon, icon_extent))
         return fail(3);
 

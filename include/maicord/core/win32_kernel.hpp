@@ -149,6 +149,7 @@
 
 // <winbase.h>
 #define FILE_BEGIN 0
+#define FILE_CURRENT 1
 #define FILE_END 2
 #define WAIT_FAILED ((DWORD)0xFFFFFFFF)
 #define WAIT_OBJECT_0 ((STATUS_WAIT_0 ) + 0 )

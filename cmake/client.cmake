@@ -35,7 +35,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/effects/effects.cpp src/app/packages/packages.cpp
     src/app/plugins/compose.cpp src/app/plugins/menus.cpp src/app/plugins/ui_host.cpp
     src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
-    src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/input_routing.cpp
+    src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/window_dispatch.cpp
+    src/app/shell/input_routing.cpp
     src/app/shell/caption.cpp src/app/shell/app_icon.cpp
     src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
     src/app/account/application_account_logout.cpp
@@ -378,7 +379,7 @@ maicord_compact_sources(
         src/app/media/account_media.cpp src/app/media/account_media_fetch.cpp src/app/media/account_media_requests.cpp
         src/app/media/account_media_local_preview.cpp src/app/media/account_media_worker.cpp
         src/app/media/account_media_worker_lanes.cpp src/app/media/regional_flag_assets.cpp
-        src/app/account/game_detection.cpp src/app/net/file_persistence.cpp src/core/log.cpp src/ui/text/clipboard.cpp
+        src/app/account/game_detection.cpp src/app/net/file_persistence.cpp src/core/log.cpp src/platform/window/win32/clipboard.cpp
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
@@ -444,7 +445,8 @@ maicord_compact_sources(
         src/platform/uia/provider.cpp src/platform/uia/provider_patterns.cpp src/platform/uia/provider_text.cpp
         src/ui/text/secure_text_store.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_history.cpp
         src/ui/text/secure_edit_target.cpp src/app/shell/shortcut_registry.cpp
-        src/platform/audio/notification_audio.cpp src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
+        src/platform/audio/notification_audio.cpp src/platform/audio/notification_audio_mixer.cpp
+        src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
         src/app/voice/account_stage.cpp src/app/gateway/stage_dispatch.cpp src/app/gateway/stream_control.cpp
         src/app/gateway/stream_session.cpp src/app/gateway/voice_control.cpp
         src/app/guild/account_guild_assets.cpp src/media/image/regional_flag_svg.cpp
@@ -493,6 +495,7 @@ maicord_compact_sources(
         # Audio endpoint and decoder surface setup, device enumeration and the
         # worker loops that wait on them (the sample paths live elsewhere).
         src/platform/audio/voice_audio_capture.cpp src/platform/audio/voice_audio_output.cpp src/platform/audio/media_audio.cpp
+        src/platform/audio/media_audio_ring.cpp
         src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/h264_gpu_configuration.cpp
         src/app/media/guild_image.cpp src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
         src/app/media/local_video_poster.cpp

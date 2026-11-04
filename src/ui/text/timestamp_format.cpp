@@ -4,6 +4,8 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/date_format.hpp"
+#include "maicord/os/local_time.hpp"
 
 namespace maicord {
 namespace {
@@ -44,17 +46,37 @@ bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 u
         *used += units;
         return true;
     }
-    const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
-                                             nullptr, 0, nullptr, nullptr);
-    if (required <= 0 || static_cast<u32>(required) > output.count - *used) {
-        return false;
+    // UTF-16 to UTF-8 as WideCharToMultiByte(WC_ERR_INVALID_CHARS) does it: a lone surrogate fails the whole text.
+    u32 bytes = 0;
+    for (u32 index = 0; index < units; ++index) {
+        u32 point = static_cast<u16>(value[index]);
+        if (point >= 0xD800 && point < 0xDC00 && index + 1 < units && static_cast<u16>(value[index + 1]) >= 0xDC00 &&
+            static_cast<u16>(value[index + 1]) < 0xE000)
+            point = 0x10000 + ((point - 0xD800) << 10) + (static_cast<u16>(value[++index]) - 0xDC00);
+        else if (point >= 0xD800 && point < 0xE000)
+            return false;
+        const u32 length = point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4;
+        if (length > output.count - *used - bytes)
+            return false;
+        char* at = output.data + *used + bytes;
+        if (length == 1) {
+            at[0] = static_cast<char>(point);
+        } else if (length == 2) {
+            at[0] = static_cast<char>(0xC0 | (point >> 6));
+            at[1] = static_cast<char>(0x80 | (point & 0x3F));
+        } else if (length == 3) {
+            at[0] = static_cast<char>(0xE0 | (point >> 12));
+            at[1] = static_cast<char>(0x80 | ((point >> 6) & 0x3F));
+            at[2] = static_cast<char>(0x80 | (point & 0x3F));
+        } else {
+            at[0] = static_cast<char>(0xF0 | (point >> 18));
+            at[1] = static_cast<char>(0x80 | ((point >> 12) & 0x3F));
+            at[2] = static_cast<char>(0x80 | ((point >> 6) & 0x3F));
+            at[3] = static_cast<char>(0x80 | (point & 0x3F));
+        }
+        bytes += length;
     }
-    const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
-                                            output.data + *used, required, nullptr, nullptr);
-    if (written != required) {
-        return false;
-    }
-    *used += static_cast<u32>(written);
+    *used += bytes;
     return true;
 }
 
@@ -63,31 +85,26 @@ bool unix_seconds_convertible(u64 seconds) noexcept {
            seconds + kWindowsToUnixSeconds <= ~0ull / kFileTimeTicksPerSecond;
 }
 
-bool unix_to_local(u64 seconds, SYSTEMTIME* local) noexcept {
-    if (!unix_seconds_convertible(seconds))
-        return false;
-    const u64 ticks = (seconds + kWindowsToUnixSeconds) * kFileTimeTicksPerSecond;
-    FILETIME file_time{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
-    SYSTEMTIME utc{};
-    return FileTimeToSystemTime(&file_time, &utc) && SystemTimeToTzSpecificLocalTime(nullptr, &utc, local);
+bool unix_to_local(u64 seconds, CalendarTime* local) noexcept {
+    return unix_seconds_convertible(seconds) && local_time_from_unix(static_cast<i64>(seconds), local);
 }
 
-bool append_date(Slice<char> output, u32* used, const SYSTEMTIME& time, DWORD flags) noexcept {
+bool append_date(Slice<char> output, u32* used, const CalendarTime& time, u32 flags) noexcept {
     wchar_t formatted[96]{};
-    const int units = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, flags, &time, nullptr, formatted,
-                                      static_cast<int>(sizeof(formatted) / sizeof(formatted[0])), nullptr);
+    const int units = format_date(LOCALE_NAME_USER_DEFAULT, flags, &time, nullptr, formatted,
+                                  static_cast<int>(sizeof(formatted) / sizeof(formatted[0])));
     return units > 1 && append_wide_utf8(output, used, formatted, static_cast<u32>(units - 1));
 }
 
-bool append_time(Slice<char> output, u32* used, const SYSTEMTIME& time, bool seconds) noexcept {
+bool append_time(Slice<char> output, u32* used, const CalendarTime& time, bool seconds) noexcept {
     wchar_t formatted[64]{};
-    const DWORD flags = seconds ? 0 : TIME_NOSECONDS;
+    const u32 flags = seconds ? 0 : TIME_NOSECONDS;
     // An explicit picture keeps the locale's AM/PM designators and digits.
     const wchar_t* picture = g_hour_cycle == HourCycle::h12   ? (seconds ? L"h:mm:ss tt" : L"h:mm tt")
                              : g_hour_cycle == HourCycle::h23 ? (seconds ? L"HH:mm:ss" : L"HH:mm")
                                                                      : nullptr;
-    int units = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, picture ? 0 : flags, &time, picture, formatted,
-                                static_cast<int>(sizeof(formatted) / sizeof(formatted[0])));
+    int units = format_time(LOCALE_NAME_USER_DEFAULT, picture ? 0 : flags, &time, picture, formatted,
+                            static_cast<int>(sizeof(formatted) / sizeof(formatted[0])));
     while (picture && units > 1 && formatted[units - 2] == L' ')
         --units; // locales without AM/PM designators
     return units > 1 && append_wide_utf8(output, used, formatted, static_cast<u32>(units - 1));
@@ -131,23 +148,23 @@ HourCycle timestamp_hour_cycle() noexcept {
 
 TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output,
                                                          const wchar_t* locale) noexcept {
-    SYSTEMTIME time{};
+    CalendarTime time{};
     wchar_t text[96]{};
     u32 used = 0;
     if (!unix_to_local(seconds, &time))
         return {};
-    const int count = GetDateFormatEx(locale, 0, &time, L"MMM d, yyyy", text, 96, nullptr);
+    const int count = format_date(locale, 0, &time, L"MMM d, yyyy", text, 96);
     const bool valid = count > 1 && append_wide_utf8(output, &used, text, static_cast<u32>(count - 1));
     return {0, valid ? used : 0, valid};
 }
 
 TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_seconds,
                                                 Slice<char> output) noexcept {
-    SYSTEMTIME local{}, now{}, neighbour{};
+    CalendarTime local{}, now{}, neighbour{};
     if (!output.data || output.count == 0 || !unix_to_local(unix_seconds, &local) ||
         !unix_to_local(now_unix_seconds, &now) || !unix_seconds_convertible(now_unix_seconds + 86'400))
         return TimestampFormatResult{};
-    const auto same_day = [](const SYSTEMTIME& a, const SYSTEMTIME& b) noexcept {
+    const auto same_day = [](const CalendarTime& a, const CalendarTime& b) noexcept {
         return a.wYear == b.wYear && a.wMonth == b.wMonth && a.wDay == b.wDay;
     };
     u32 used = 0;
@@ -189,7 +206,7 @@ TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
     if (style == 'R') {
         return format_relative(unix_seconds, now_unix_seconds, output);
     }
-    SYSTEMTIME local{};
+    CalendarTime local{};
     if (!unix_to_local(unix_seconds, &local)) {
         return TimestampFormatResult{};
     }

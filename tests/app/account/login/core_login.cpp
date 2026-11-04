@@ -998,8 +998,8 @@ bool secure_text_store_test_geometry(void* opaque, SecureTextStoreGeometry* geom
         return false;
     }
     ++context->geometry_queries;
-    geometry->text_screen = {120, 240, 520, 284};
-    geometry->window_screen = {100, 200, 900, 700};
+    geometry->text = {120, 240, 520, 284};
+    geometry->window = {100, 200, 900, 700};
     return true;
 }
 

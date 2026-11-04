@@ -1,7 +1,7 @@
 #include "maicord/render/media/animation_frame_cache_gpu.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/gpu/api.hpp"
 #include "maicord/render/media/atlas.hpp"
 
 namespace maicord {
@@ -19,41 +19,35 @@ void release_storage(AnimationFrameCacheGpuStorage* storage) noexcept {
     reset_value<AnimationFrameCacheGpuStorage>(storage);
 }
 
-void unbind_media_resources(ID3D11DeviceContext1* context) noexcept {
-    ID3D11ShaderResourceView* null_views[2]{};
-    ID3D11UnorderedAccessView* null_uav = nullptr;
-    context->PSSetShaderResources(0, 2, null_views);
-    context->CSSetShaderResources(0, 2, null_views);
-    context->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
+void unbind_media_resources(GpuContext1* context) noexcept {
+    GpuSrv* null_views[2]{};
+    GpuUav* null_uav = nullptr;
+    gpu_set_srvs(context, GpuStage::pixel, 0, 2, null_views);
+    gpu_set_srvs(context, GpuStage::compute, 0, 2, null_views);
+    gpu_set_uavs(context, 0, 1, &null_uav);
 }
 
-void copy_tile(ID3D11DeviceContext1* context, ID3D11Texture2D* to, u32 to_x, u32 to_y, ID3D11Texture2D* from,
-               u32 x, u32 y, u32 width, u32 height, UINT padding) noexcept {
+void copy_tile(GpuContext1* context, GpuTexture* to, u32 to_x, u32 to_y, GpuTexture* from,
+               u32 x, u32 y, u32 width, u32 height, u32 padding) noexcept {
     unbind_media_resources(context);
-    const D3D11_BOX box{x - padding, y - padding, 0, x + width + padding, y + height + padding, 1};
-    context->CopySubresourceRegion(to, 0, to_x - padding, to_y - padding, 0, from, 0, &box);
+    const GpuBox box{x - padding, y - padding, x + width + padding, y + height + padding};
+    gpu_copy_region(context, to, to_x - padding, to_y - padding, from, box);
 }
 
-bool ensure_texture(AnimationFrameCacheGpu* gpu, ID3D11Device* device) noexcept {
+bool ensure_texture(AnimationFrameCacheGpu* gpu, GpuDevice* device) noexcept {
     if (gpu->texture && gpu->texture_view) {
         return true;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = gpu->cache.allocations.width;
-    description.Height = gpu->cache.allocations.height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    HRESULT result = device->CreateTexture2D(&description, nullptr, &gpu->texture);
+    GpuStatus result = gpu_texture_create(device,
+                                          {gpu->cache.allocations.width, gpu->cache.allocations.height, GpuFormat::rgba8,
+                                           GpuUsage::default_, gpu_bind_srv},
+                                          nullptr, &gpu->texture);
     if (SUCCEEDED(result)) {
-        result = device->CreateShaderResourceView(gpu->texture, nullptr, &gpu->texture_view);
+        result = gpu_srv_create(device, gpu->texture, {GpuViewKind::texture, GpuFormat::rgba8}, &gpu->texture_view);
     }
     if (FAILED(result)) {
-        com_release(gpu->texture_view);
-        com_release(gpu->texture);
+        gpu_release(gpu->texture_view);
+        gpu_release(gpu->texture);
         animation_frame_cache_reset(&gpu->cache);
         return false;
     }
@@ -62,30 +56,28 @@ bool ensure_texture(AnimationFrameCacheGpu* gpu, ID3D11Device* device) noexcept 
 
 // Taller cache texture keeping rows [0, old_height); frame handles and
 // coordinates are unchanged, so no presentation needs refreshing.
-bool grow_texture(AnimationFrameCacheGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
+bool grow_texture(AnimationFrameCacheGpu* gpu, GpuDevice* device, GpuContext1* context,
                   u16 old_height) noexcept {
     if (!gpu->texture) {
         return true;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    gpu->texture->GetDesc(&description);
-    description.Height = gpu->cache.allocations.height;
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11ShaderResourceView* view = nullptr;
-    HRESULT result = device->CreateTexture2D(&description, nullptr, &texture);
+    GpuTextureInfo info{};
+    gpu_texture_info(gpu->texture, &info);
+    GpuTexture* texture = nullptr;
+    GpuSrv* view = nullptr;
+    GpuStatus result = gpu_texture_create_from_info(device, info, gpu->cache.allocations.height, false, &texture);
     if (SUCCEEDED(result)) {
-        result = device->CreateShaderResourceView(texture, nullptr, &view);
+        result = gpu_srv_create(device, texture, {GpuViewKind::texture, GpuFormat::rgba8, 0}, &view);
     }
     if (FAILED(result)) {
-        com_release(view);
-        com_release(texture);
+        gpu_release(view);
+        gpu_release(texture);
         return false;
     }
     unbind_media_resources(context);
-    const D3D11_BOX box{0, 0, 0, description.Width, old_height, 1};
-    context->CopySubresourceRegion(texture, 0, 0, 0, 0, gpu->texture, 0, &box);
-    com_release(gpu->texture_view);
-    com_release(gpu->texture);
+    gpu_copy_region(context, texture, 0, 0, gpu->texture, {0, 0, gpu_texture_info_width(info), old_height});
+    gpu_release(gpu->texture_view);
+    gpu_release(gpu->texture);
     gpu->texture = texture;
     gpu->texture_view = view;
     return true;
@@ -93,8 +85,8 @@ bool grow_texture(AnimationFrameCacheGpu* gpu, ID3D11Device* device, ID3D11Devic
 
 // Allocation that keeps recently replayed frames: below capacity, a request
 // that could only evict recent tiles grows the texture instead.
-AnimationFrameCacheResult allocate_frame(AnimationFrameCacheGpu* gpu, ID3D11Device* device,
-                                         ID3D11DeviceContext1* context,
+AnimationFrameCacheResult allocate_frame(AnimationFrameCacheGpu* gpu, GpuDevice* device,
+                                         GpuContext1* context,
                                          const AnimationFrameCacheDescriptor& descriptor) noexcept {
     GlyphAtlasAllocator& allocations = gpu->cache.allocations;
     for (u32 attempt = 0;; ++attempt) {
@@ -250,8 +242,8 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
     if (!gpu) {
         return;
     }
-    com_release(gpu->texture_view);
-    com_release(gpu->texture);
+    gpu_release(gpu->texture_view);
+    gpu_release(gpu->texture);
     animation_frame_cache_reset(&gpu->cache);
     AnimationFramePresentation* values = presentations(gpu);
     for (u32 index = 0; values && index < gpu->storage.presentations.capacity; ++index) {
@@ -263,8 +255,8 @@ void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept {
     if (!gpu) {
         return;
     }
-    com_release(gpu->texture_view);
-    com_release(gpu->texture);
+    gpu_release(gpu->texture_view);
+    gpu_release(gpu->texture);
     release_storage(&gpu->storage);
     reset_value<AnimationFrameCacheGpu>(gpu);
 }
@@ -275,9 +267,9 @@ void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noe
     }
 }
 
-bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, ID3D11Device* device,
-                                       ID3D11DeviceContext1* context, MediaAtlas* media_atlas,
-                                       ID3D11Texture2D* media_texture,
+bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* device,
+                                       GpuContext1* context, MediaAtlas* media_atlas,
+                                       GpuTexture* media_texture,
                                        const AnimationFrameCacheDescriptor& descriptor,
                                        MediaAtlasHandle* presented_media) noexcept {
     if (presented_media) {
@@ -385,8 +377,8 @@ bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaA
     return true;
 }
 
-bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, ID3D11DeviceContext1* context,
-                                           MediaAtlas* media_atlas, ID3D11Texture2D* media_texture,
+bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuContext1* context,
+                                           MediaAtlas* media_atlas, GpuTexture* media_texture,
                                            MediaAssetKey key) noexcept {
     if (!gpu || !context || !media_atlas || !media_texture) {
         return false;

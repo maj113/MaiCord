@@ -1,4 +1,5 @@
 // The Windows bodies of maicord/os/thread.hpp: inline forwarders to the Win32 calls. Included by thread.hpp only.
+#include "maicord/sys/com.hpp"
 
 namespace maicord {
 
@@ -34,6 +35,22 @@ __forceinline bool thread_exit_code(Thread* thread, u32* code) noexcept {
 
 __forceinline void thread_close(Thread* thread) noexcept {
     CloseHandle(reinterpret_cast<HANDLE>(thread));
+}
+
+__forceinline Waitable thread_waitable(Thread* thread) noexcept {
+    return reinterpret_cast<HANDLE>(thread);
+}
+
+__forceinline void thread_cancel_synchronous_io(Thread* thread) noexcept {
+    CancelSynchronousIo(reinterpret_cast<HANDLE>(thread));
+}
+
+__forceinline bool thread_com_enter() noexcept {
+    return SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+}
+
+__forceinline void thread_com_leave() noexcept {
+    CoUninitialize();
 }
 
 __forceinline void thread_boost_realtime() noexcept {

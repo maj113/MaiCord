@@ -7,6 +7,7 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord {
 namespace emoji_tooltip_test {
@@ -48,20 +49,12 @@ bool select_content_guild(u64 guild) noexcept {
     expression_card_test::selected_guild = guild;
     return true;
 }
-float client_dip_x(LPARAM lparam) noexcept {
-    return static_cast<float>(static_cast<short>(LOWORD(lparam)));
-}
-float client_dip_y(LPARAM lparam) noexcept {
-    return static_cast<float>(static_cast<short>(HIWORD(lparam)));
-}
 namespace {
 // The pointer rests on the hit's centre until the tooltip is due; the label
 // shown then, or nothing.
 Utf8View hover(UiRect at, u64* deadline, u64* started) noexcept {
     *started = clock_monotonic_milliseconds();
-    application_tooltip_input(WM_MOUSEMOVE, 0,
-                              MAKELPARAM(static_cast<short>((at.left + at.right) * .5f),
-                                         static_cast<short>((at.top + at.bottom) * .5f)));
+    application_tooltip_input(window_test::pointer_move(static_cast<short>((at.left + at.right) * .5f), static_cast<short>((at.top + at.bottom) * .5f)));
     *deadline = application_tooltip_next_wake();
     const auto& tip = *g_app.renderer.tooltip_scene;
     if (!*deadline || !application_tooltip_synchronize(*deadline) || !tip.visible)
@@ -165,7 +158,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
                utf8_equal(shown, expected);
     };
     // The first eligible pointer creates the host's single tooltip owner.
-    application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(990, 690));
+    application_tooltip_input(window_test::pointer_move(990, 690));
     if (!g_app.renderer.tooltip_scene) {
         check(false, "emoji tooltip: the pointer creates the tooltip owner");
         return;
@@ -227,10 +220,10 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
     ui.active_channel_id = 8;
 
     check(shows(unicode(1, 4, 660), utf8_literal(":joy:")), "emoji tooltip: shown before a click");
-    application_tooltip_input(WM_LBUTTONDOWN, 0, MAKELPARAM(671, 111));
+    application_tooltip_input(window_test::pointer_down(671, 111));
     check(!tip.visible && !application_tooltip_next_wake(), "emoji tooltip: a click hides it, as the official client");
     check(shows(unicode(1, 4, 690), utf8_literal(":joy:")), "emoji tooltip: shown before the pointer leaves");
-    application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(701, 200));
+    application_tooltip_input(window_test::pointer_move(701, 200));
     check(!tip.visible && !application_tooltip_next_wake(), "emoji tooltip: leaving the emoji hides it at once");
 
     // The popout. Reduced motion settles it at once so its controls sit where they end.
@@ -255,8 +248,8 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
         return UiPoint{s.settled.left + (r.left + r.right) * .5f, s.settled.top + (r.top + r.bottom) * .5f};
     };
     const auto press = [&](UiPoint p) noexcept {
-        const bool down = application_expression_card_window_message(WM_LBUTTONDOWN, MK_LBUTTON, lparam(p));
-        return down && application_expression_card_window_message(WM_LBUTTONUP, 0, lparam(p));
+        const bool down = application_expression_card_window_event(window_test::pointer_down(window_test::x_of(lparam(p)), window_test::y_of(lparam(p))));
+        return down && application_expression_card_window_event(window_test::pointer_up(window_test::x_of(lparam(p)), window_test::y_of(lparam(p)), PointerButton::left));
     };
     application_tooltip_clear();
     const auto joy = unicode(1, 4, 420);
@@ -279,10 +272,10 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
     check(!application_emoji_tooltip_target(centre(joy.rectangle), 7, &suppressed, &suppressed_style) &&
               !application_emoji_tooltip_target(centre(popout.settled), 7, &suppressed, &suppressed_style),
           "expression card: no tooltip for its source or under the open popout");
-    check(application_expression_card_window_message(WM_MOUSEMOVE, 0, lparam(centre(popout.settled))) &&
-              !application_expression_card_window_message(WM_MOUSEMOVE, 0, lparam({5, 5})),
+    check(application_expression_card_window_event(window_test::pointer_move(window_test::x_of(lparam(centre(popout.settled))), window_test::y_of(lparam(centre(popout.settled))))) &&
+              !application_expression_card_window_event(window_test::pointer_move(window_test::x_of(lparam({5, 5})), window_test::y_of(lparam({5, 5})))),
           "expression card: the pointer over the popout belongs to it, elsewhere to the view");
-    check(application_expression_card_window_message(WM_LBUTTONDOWN, MK_LBUTTON, lparam(centre(joy.rectangle))) &&
+    check(application_expression_card_window_event(window_test::pointer_down(window_test::x_of(lparam(centre(joy.rectangle))), window_test::y_of(lparam(centre(joy.rectangle))))) &&
               !popout.active && !g_app.renderer.expression_card_scene,
           "expression card: a second click on its source closes it and is consumed");
     application_expression_card_pointer_up(centre(joy.rectangle));
@@ -306,14 +299,14 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
 
     // Escape, the wheel and a click elsewhere close it; only Escape is consumed.
     click(joy);
-    const bool escape = popout.active && application_expression_card_window_message(WM_KEYDOWN, key::escape, 0) &&
+    const bool escape = popout.active && application_expression_card_window_event(window_test::key_down(key::escape)) &&
                         !popout.active;
     click(joy);
-    const bool wheel = popout.active && !application_expression_card_window_message(WM_MOUSEWHEEL, 0, 0) &&
+    const bool wheel = popout.active && !application_expression_card_window_event(window_test::wheel(0, 0, 120)) &&
                        !popout.active;
     click(joy);
     const bool outside = popout.active &&
-                         !application_expression_card_window_message(WM_LBUTTONDOWN, MK_LBUTTON, lparam({5, 5})) &&
+                         !application_expression_card_window_event(window_test::pointer_down(window_test::x_of(lparam({5, 5})), window_test::y_of(lparam({5, 5})))) &&
                          !popout.active;
     check(escape && wheel && outside,
           "expression card: Escape, the wheel and an outside click (which still acts) close it");
@@ -444,7 +437,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
               ui_expression_card_hit(popout, control(popout, popout.previews[0]).x,
                                      control(popout, popout.previews[0]).y) == UiExpressionCardControl::none,
           "expression card: View More Stickers is the pack popout's one control");
-    check(application_expression_card_window_message(WM_KEYDOWN, key::enter, 0) && card::opened_pack == 42 &&
+    check(application_expression_card_window_event(window_test::key_down(key::enter)) && card::opened_pack == 42 &&
               !popout.active,
           "expression card: Enter presses View More Stickers: the picker opens at the pack");
     const u32 before = card::submissions;

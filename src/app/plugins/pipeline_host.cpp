@@ -39,7 +39,6 @@
 #include "maicord/protocol/gateway/typing_events.hpp"
 #include "maicord/protocol/user/self_status_settings.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -815,11 +814,11 @@ u32 application_plugins_wait_timeout(u64 now_ms) noexcept {
     return wait;
 }
 
-bool application_plugins_message_click(LPARAM lparam, bool middle, u32 count) noexcept {
+bool application_plugins_message_click(const WindowEvent& event, bool middle, u32 count) noexcept {
     if (!plugin_hook_subscribed(PluginHook::message_click) || !g_app.account_ui || !g_app.message_scene.active ||
         g_app.login.visible)
         return false;
-    const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    const float x = client_dip_x(event), y = client_dip_y(event);
     if (!ui_rect_contains(g_app.message_scene.viewport, x, y)) return false;
     const MessageSceneHit hit = message_scene_hit_test(g_app.message_scene, x, y);
     Utf8View content{};

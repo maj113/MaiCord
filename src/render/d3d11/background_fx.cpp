@@ -3,43 +3,31 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/render/d3d11/shader_bytecode.hpp"
-
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {
 
-bool create_resources(D3D11BackgroundFxOwner* owner, ID3D11Device* device) noexcept {
+bool create_resources(D3D11BackgroundFxOwner* owner, GpuDevice* device) noexcept {
     if (owner->vertex_shader && owner->builtin_shader && owner->constant_buffer && owner->blend_state)
         return true;
     bool layout_failed = false;
     HRESULT result = owner->vertex_shader
                          ? S_OK
-                         : shader_create_vertex(device, ShaderId::fx_vertex, {}, &owner->vertex_shader, nullptr,
-                                                &layout_failed);
+                         : gpu_vertex_shader_create(device, ShaderId::fx_vertex, {}, &owner->vertex_shader, nullptr,
+                                                    &layout_failed);
     if (SUCCEEDED(result) && !owner->builtin_shader)
-        result = shader_create_pixel(device, ShaderId::fx_builtin, &owner->builtin_shader);
+        result = gpu_pixel_shader_create(device, ShaderId::fx_builtin, &owner->builtin_shader);
     if (SUCCEEDED(result) && !owner->constant_buffer) {
-        D3D11_BUFFER_DESC description{};
-        description.ByteWidth = sizeof(BackgroundFxConstants);
-        description.Usage = D3D11_USAGE_DEFAULT;
-        description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        result = device->CreateBuffer(&description, nullptr, &owner->constant_buffer);
+        result = gpu_buffer_create(device, {sizeof(BackgroundFxConstants), GpuUsage::default_, gpu_bind_constant, false},
+                                   nullptr, &owner->constant_buffer);
     }
     if (SUCCEEDED(result) && !owner->blend_state) {
         // Premultiplied over: dst = src * opacity + dst * (1 - src.a).
-        D3D11_BLEND_DESC description{};
-        auto& target = description.RenderTarget[0];
-        target.BlendEnable = TRUE;
-        target.SrcBlend = D3D11_BLEND_BLEND_FACTOR;
-        target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-        target.BlendOp = D3D11_BLEND_OP_ADD;
-        target.SrcBlendAlpha = D3D11_BLEND_BLEND_FACTOR;
-        target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-        target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-        target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-        result = device->CreateBlendState(&description, &owner->blend_state);
+        result = gpu_blend_create(device,
+                                  {true, GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_alpha,
+                                   GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_alpha},
+                                  &owner->blend_state);
     }
     if (FAILED(result)) {
         log_u64(LogLevel::error, "render", "background_fx_resource_error", static_cast<u32>(result));
@@ -50,8 +38,8 @@ bool create_resources(D3D11BackgroundFxOwner* owner, ID3D11Device* device) noexc
 
 } // namespace
 
-bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, ID3D11Device* device,
-                                     ID3D11DeviceContext* context, const Theme& theme, float phase_seconds,
+bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, GpuDevice* device,
+                                     GpuContext* context, const Theme& theme, float phase_seconds,
                                      u32 width, u32 height, u32 dpi, bool suppressed) noexcept {
     if (!owner || !device || !context)
         return false;
@@ -78,7 +66,7 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, ID3D11Device
     return true;
 }
 
-bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext* context, UiRect canvas,
+bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context, UiRect canvas,
                               u32 quad_index) noexcept {
     if (!owner || !context || owner->source == BackgroundFxSource::none)
         return false;
@@ -106,21 +94,21 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
     frame.resolution[1] = (canvas.bottom - canvas.top) * scale;
     frame.origin[0] = canvas.left * scale;
     frame.origin[1] = canvas.top * scale;
-    context->UpdateSubresource(owner->constant_buffer, 0, nullptr, &frame, 0, 0);
+    gpu_update_buffer(context, owner->constant_buffer, &frame, sizeof(frame));
     // The strip topology and the bound input layout stay: the vertex shader reads only SV_VertexID and SV_InstanceID.
-    context->VSSetShader(owner->vertex_shader, nullptr, 0);
+    gpu_set_shader(context, owner->vertex_shader);
     // VS b2 is the effect's alone: bound once per frame.
     if (!owner->vertex_constants_bound) {
-        context->VSSetConstantBuffers(2, 1, &owner->constant_buffer);
+        gpu_set_constants(context, GpuStage::vertex, 2, 1, &owner->constant_buffer);
         owner->vertex_constants_bound = true;
     }
-    context->PSSetShader(owner->builtin_shader, nullptr, 0);
-    context->PSSetConstantBuffers(0, 1, &owner->constant_buffer);
+    gpu_set_shader(context, owner->builtin_shader);
+    gpu_set_constants(context, GpuStage::pixel, 0, 1, &owner->constant_buffer);
     const float opacity = owner->layer_opacity;
     const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
     const float blend_factor[4]{factor, factor, factor, factor};
-    context->OMSetBlendState(owner->blend_state, blend_factor, 0xFFFFFFFFu);
-    context->DrawInstanced(4, instances, 0, 0);
+    gpu_set_blend(context, owner->blend_state, blend_factor);
+    gpu_draw_instanced(context, 4, instances, 0, 0);
     ++owner->draws_last_frame;
     return true;
 }
@@ -128,10 +116,10 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
 void d3d11_background_fx_release(D3D11BackgroundFxOwner* owner) noexcept {
     if (!owner)
         return;
-    com_release(owner->blend_state);
-    com_release(owner->constant_buffer);
-    com_release(owner->builtin_shader);
-    com_release(owner->vertex_shader);
+    gpu_release(owner->blend_state);
+    gpu_release(owner->constant_buffer);
+    gpu_release(owner->builtin_shader);
+    gpu_release(owner->vertex_shader);
     reset_value(owner);
 }
 

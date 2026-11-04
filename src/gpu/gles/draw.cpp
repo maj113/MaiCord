@@ -51,7 +51,15 @@ void bind_resources(GpuContext& context, const GlesShader& shader, u32 stage) no
         case GlesBindingKind::uniform_buffer: {
             const GpuBuffer* buffer = row.slot < kGlesConstantSlots ? context.constants[stage][row.slot] : nullptr;
             const u32 name = buffer ? buffer->name : 0;
-            if (row.binding < kGlesUniformBindings * 2 && context.applied_uniform_buffer[row.binding] != name) {
+            if (row.binding >= kGlesUniformBindings * 2)
+                break;
+            if (buffer && stage == 2 && context.compute_range_count[row.slot] != 0) {
+                // A ranged binding is rebound every time: the applied cache knows names, not offsets.
+                gl.glBindBufferRange(gl::kUniformBuffer, row.binding, name,
+                                     static_cast<gl::Intptr>(context.compute_range_first[row.slot]) * 16,
+                                     static_cast<gl::Sizeiptr>(context.compute_range_count[row.slot]) * 16);
+                context.applied_uniform_buffer[row.binding] = 0xFFFFFFFFu;
+            } else if (context.applied_uniform_buffer[row.binding] != name) {
                 gl.glBindBufferBase(gl::kUniformBuffer, row.binding, name);
                 context.applied_uniform_buffer[row.binding] = name;
             }
@@ -62,9 +70,12 @@ void bind_resources(GpuContext& context, const GlesShader& shader, u32 stage) no
             const GpuSampler* sampler = row.sampler != kGlesNoSampler && row.sampler < kGlesResourceSlots
                                             ? context.samplers[stage][row.sampler]
                                             : nullptr;
-            bind_unit(context, row.binding,
-                      view && view->kind == GpuViewKind::texture ? view->texture->name : 0,
-                      sampler ? sampler->name : 0);
+            const GpuTexture* texture = view && view->kind == GpuViewKind::texture ? view->texture : nullptr;
+            u32 sampler_name = sampler ? sampler->name : 0;
+            // Float32 texels are not filtered on a device without float_linear: the sampler's point twin.
+            if (sampler && sampler->nearest_name && texture && texture->format == GpuFormat::rgba32f)
+                sampler_name = sampler->nearest_name;
+            bind_unit(context, row.binding, texture ? texture->name : 0, sampler_name);
             break;
         }
         case GlesBindingKind::storage_srv: {
@@ -88,7 +99,7 @@ void bind_resources(GpuContext& context, const GlesShader& shader, u32 stage) no
     }
 }
 
-bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
+bool apply_graphics(GpuContext& context, u32 first_instance, u32 pass = 0) noexcept {
     GpuDevice& d = gles::device();
     gl::Api& gl = d.gl;
     if (!context.vertex_shader || !context.pixel_shader || !context.target) {
@@ -98,7 +109,7 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
         }
         return false;
     }
-    const u32 program = graphics_program(&context);
+    const u32 program = graphics_program(&context, pass == 3 ? 2 : pass);
     if (!program)
         return false;
     const u32 framebuffer = texture_framebuffer(context.target->texture);
@@ -123,12 +134,23 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
         context.applied_scissor = context.scissor;
         context.applied_scissor_valid = true;
     }
-    if (!context.applied_blend_valid || context.applied_blend != context.blend ||
+    const bool emulated = pass == 1 || pass == 2;
+    if (emulated || !context.applied_blend_valid || context.applied_blend != context.blend ||
         (context.blend && context.blend->desc.enable &&
          !bytes_equal(context.blend_factor, context.applied_blend_factor, sizeof(float) * 4))) {
         if (context.blend && context.blend->desc.enable) {
             gl::Enum source, destination, source_alpha, destination_alpha;
             blend_factors(context.blend->desc, &source, &destination, &source_alpha, &destination_alpha);
+            if (pass == 1) {
+                // dst * weight: the colour weight is the shader's only output, read back as the source colour.
+                source = gl::kZero;
+                destination = gl::kSrcColor;
+                source_alpha = gl::kZero;
+            } else if (pass == 2) {
+                // + colour * the blend's source factor: the destination is already weighted.
+                destination = gl::kOne;
+                destination_alpha = gl::kOne;
+            }
             gl.glEnable(gl::kBlend);
             gl.glBlendEquationSeparate(gl::kFuncAdd, gl::kFuncAdd);
             gl.glBlendFuncSeparate(source, destination, source_alpha, destination_alpha);
@@ -139,7 +161,7 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
             gl.glDisable(gl::kBlend);
         }
         context.applied_blend = context.blend;
-        context.applied_blend_valid = true;
+        context.applied_blend_valid = !emulated;
     }
     if (context.applied_program != program) {
         gl.glUseProgram(program);
@@ -166,22 +188,47 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
     return true;
 }
 
+// A blend whose colour destination factor is the pixel shader's second output.
+bool blend_reads_second_output(const GpuBlend* blend) noexcept {
+    return blend && blend->desc.enable && blend->desc.destination == GpuBlendFactor::src1_color;
+}
+
+// The composite pixel shader of a device without dual-source blending is two shaders (weight, colour): drawn one
+// after the other when the blend reads the second output, else just the colour half. False when `context`'s pixel
+// shader is not such a pair (the caller draws it as it is).
+template <typename Draw>
+bool draw_halves(GpuContext& context, u32 first_instance, Draw draw) noexcept {
+    const GpuPixelShader* pixel = context.pixel_shader;
+    if (!pixel || !pixel->weight_name)
+        return false;
+    if (blend_reads_second_output(context.blend)) {
+        for (u32 pass = 1; pass <= 2; ++pass)
+            if (apply_graphics(context, first_instance, pass))
+                draw();
+    } else if (apply_graphics(context, first_instance, 3)) {
+        draw();
+    }
+    return true;
+}
 } // namespace
 
 namespace gles {
 
-u32 graphics_program(GpuContext* context) noexcept {
+u32 graphics_program(GpuContext* context, u32 variant) noexcept {
     GpuDevice& d = device();
     gl::Api& gl = d.gl;
     const GpuVertexShader* vertex = context->vertex_shader;
     const GpuPixelShader* pixel = context->pixel_shader;
     for (u32 index = 0; index < d.program_count; ++index)
-        if (d.programs[index].vertex == vertex && d.programs[index].pixel == pixel)
+        if (d.programs[index].vertex == vertex && d.programs[index].pixel == pixel && d.programs[index].variant == variant)
             return d.programs[index].name;
-    GlesProgram entry{vertex, pixel, 0};
+    GlesProgram entry{vertex, pixel, 0, variant};
+    const u32 pixel_name = variant == 1 ? pixel->weight_name : variant == 2 ? pixel->color_name : pixel->name;
+    if (!pixel_name)
+        return 0;
     const u32 program = gl.glCreateProgram();
     gl.glAttachShader(program, vertex->name);
-    gl.glAttachShader(program, pixel->name);
+    gl.glAttachShader(program, pixel_name);
     gl.glLinkProgram(program);
     gl::Int linked = 0;
     gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
@@ -193,6 +240,8 @@ u32 graphics_program(GpuContext* context) noexcept {
         gl.glGetProgramInfoLog(program, sizeof(log) - 1, &length, log);
         log[length < 0 ? 0 : length] = 0;
         log_write(LogLevel::error, "gpu", "a shader pair did not link");
+        log_u64(LogLevel::error, "gpu", "vertex_slot", static_cast<u64>(vertex - d.vertex_shaders.items));
+        log_u64(LogLevel::error, "gpu", "pixel_slot", static_cast<u64>(pixel - d.pixel_shaders.items));
         log_write(LogLevel::error, "gpu", log);
         gl.glDeleteProgram(program);
     }
@@ -259,9 +308,23 @@ void gpu_set_shader(GpuContext* context, GpuComputeShader* shader) {
 }
 
 void gpu_set_constants(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuBuffer* const* buffers) {
-    for (u32 index = 0; index < count && first + index < kGlesConstantSlots; ++index)
+    for (u32 index = 0; index < count && first + index < kGlesConstantSlots; ++index) {
         context->constants[stage_index(stage)][first + index] = buffers[index];
+        if (stage == GpuStage::compute)
+            context->compute_range_count[first + index] = 0; // the whole buffer, as on Direct3D 11
+    }
 }
+
+void gpu_set_constants_range(GpuContext* context, u32 slot, GpuBuffer* buffer, u32 first_constant,
+                             u32 constant_count) {
+    if (slot >= kGlesConstantSlots)
+        return;
+    context->constants[stage_index(GpuStage::compute)][slot] = buffer;
+    context->compute_range_first[slot] = first_constant;
+    context->compute_range_count[slot] = constant_count;
+}
+
+void gpu_set_strip_topology(GpuContext*) {}
 
 void gpu_set_srvs(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuSrv* const* views) {
     for (u32 index = 0; index < count && first + index < kGlesResourceSlots; ++index)
@@ -279,16 +342,29 @@ void gpu_set_uavs(GpuContext* context, u32 first, u32 count, GpuUav* const* view
 }
 
 void gpu_draw(GpuContext* context, u32 vertices, u32 first_vertex) {
-    if (apply_graphics(*context, 0))
+    const auto draw = [&]() noexcept {
         api().glDrawArrays(gl::kTriangleStrip, static_cast<gl::Int>(first_vertex), static_cast<gl::Sizei>(vertices));
+        if (gles::device().debug_checks)
+            check_error("draw");
+    };
+    if (!draw_halves(*context, 0, draw) && apply_graphics(*context, 0))
+        draw();
 }
 
 void gpu_draw_instanced(GpuContext* context, u32 vertices, u32 instances, u32 first_vertex, u32 first_instance) {
     // ES 3.1 has no base instance: apply_graphics moves the vertex buffer binding by first_instance records, which
     // leaves SV_InstanceID counting from zero in every API.
-    if (apply_graphics(*context, first_instance))
+    const auto draw = [&]() noexcept {
         api().glDrawArraysInstanced(gl::kTriangleStrip, static_cast<gl::Int>(first_vertex),
                                     static_cast<gl::Sizei>(vertices), static_cast<gl::Sizei>(instances));
+        if (gles::device().debug_checks && !gpu_ok(check_error("draw"))) {
+            log_u64(LogLevel::error, "gpu", "framebuffer_status", api().glCheckFramebufferStatus(gl::kFramebuffer));
+            log_u64(LogLevel::error, "gpu", "target_format", static_cast<u32>(context->target->texture->format));
+            log_u64(LogLevel::error, "gpu", "target_width", context->target->texture->width);
+        }
+    };
+    if (!draw_halves(*context, first_instance, draw) && apply_graphics(*context, first_instance))
+        draw();
 }
 
 void gpu_dispatch(GpuContext* context, u32 x, u32 y, u32 z) {

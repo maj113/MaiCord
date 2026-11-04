@@ -977,8 +977,8 @@ bool device_loss_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     const u32 generation = r.device_generation;
     if (!renderer_recover_device(&r))
         return failure(194);
-    if (r.device_generation != generation + 1 || r.device_lost || !r.graphics.device || !r.graphics.target ||
-        !r.graphics.swap_chain || !r.effect.selected || r.effect.shader || r.effect.verdict != EffectVerdict::device_removed ||
+    if (r.device_generation != generation + 1 || r.device_lost || !r.graphics.device || !r.graphics.surface.target ||
+        !r.graphics.surface.swap_chain || !r.effect.selected || r.effect.shader || r.effect.verdict != EffectVerdict::device_removed ||
         r.effect.verdict_identity != spec.identity)
         return failure(195);
     log_u64(LogLevel::info, "probe", "effect_device_recovery_new_device", r.graphics.device != before);

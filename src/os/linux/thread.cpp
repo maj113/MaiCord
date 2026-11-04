@@ -20,6 +20,7 @@ struct Thread {
     void* argument;
     volatile u32 state;
     u32 result;
+    Waitable done;
     volatile u32 in_use;
 };
 
@@ -53,12 +54,15 @@ Thread* acquire_record() noexcept {
 }
 
 void release_record(Thread* record) noexcept {
+    waitable_close(record->done);
+    record->done = nullptr;
     __atomic_store_n(&record->in_use, 0u, __ATOMIC_RELEASE);
 }
 
 void* thread_main(void* argument) noexcept {
     auto* record = static_cast<Thread*>(argument);
     record->result = record->procedure(record->argument);
+    event_set(record->done);
     u32 expected = kRunning;
     if (__atomic_compare_exchange_n(&record->state, &expected, kFinished, false, __ATOMIC_ACQ_REL,
                                     __ATOMIC_ACQUIRE)) {
@@ -112,6 +116,7 @@ Thread* thread_start(ThreadProc procedure, void* argument, u32 stack_reserve_byt
     record->argument = argument;
     record->state = kRunning;
     record->result = 0;
+    record->done = event_create(true, false);
     const u32 stack = stack_reserve_bytes < kMinimumStackBytes ? kMinimumStackBytes : stack_reserve_bytes;
     PthreadAttribute attribute;
     int error = pthread_attr_init(&attribute);
@@ -170,6 +175,14 @@ void thread_close(Thread* thread) noexcept {
     pthread_join(thread->id, nullptr);
     release_record(thread);
 }
+
+void thread_cancel_synchronous_io(Thread*) noexcept {}
+
+bool thread_com_enter() noexcept {
+    return true;
+}
+
+void thread_com_leave() noexcept {}
 
 void thread_boost_realtime() noexcept {
     const SchedParam parameter{1};

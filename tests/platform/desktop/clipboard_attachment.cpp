@@ -112,7 +112,7 @@ HGLOBAL global_copy(const void* data, u32 bytes) noexcept {
 }
 // Runs one paste through the real worker and returns the picked attachment.
 bool paste(Provider& provider, NativeFilePicker* picker) noexcept {
-    ClipboardAttachmentData input{};
+    ClipboardCapture input{};
     return SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &input.object)) &&
            native_file_picker_take_clipboard(picker, &input, 10, 1u << 20) == NativeFilePickerError::none &&
            file_drop_fixture::await(picker) && native_file_picker_status(picker).ok();
@@ -313,7 +313,7 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
     settle(provider, &picker);
     // A pasted screenshot over the allowance reports its size and image.png; a copied file its own name.
     provider.raws[0] = {png_format, good_png, true}; provider.raw_count = 1;
-    ClipboardAttachmentData refused_input{};
+    ClipboardCapture refused_input{};
     check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &refused_input.object)) &&
               native_file_picker_take_clipboard(&picker, &refused_input, 10, png_bytes - 1) == NativeFilePickerError::none &&
               file_drop_fixture::await(&picker),
@@ -326,7 +326,7 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
     settle(provider, &picker);
     if (seeded) {
         provider.raws[0] = provider.raws[2]; provider.raw_count = 1;
-        ClipboardAttachmentData listed_input{};
+        ClipboardCapture listed_input{};
         check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &listed_input.object)) &&
                   native_file_picker_take_clipboard(&picker, &listed_input, 10, 7) == NativeFilePickerError::none &&
                   file_drop_fixture::await(&picker),
@@ -362,7 +362,7 @@ void test_clipboard_attachment(void (*check)(bool, const char*) noexcept) noexce
     constexpr wchar_t name[] = L"report-\u017e.pdf";
     copy_bytes(metadata->fgd[0].cFileName, name, sizeof(name));
     copy_bytes(payload, "pdfbytes", 8);
-    ClipboardAttachmentData input{};
+    ClipboardCapture input{};
     NativeFilePicker picker{};
     check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &input.object)) &&
         native_file_picker_take_clipboard(&picker, &input, 10, 1024) == NativeFilePickerError::none && await(&picker) &&

@@ -195,7 +195,7 @@ bool thread_membership_ui_adapter_begin(HWND window, bool (*refresh)(void*) noex
     fixture->prior_popup_owner = g_app.popup_owner_kind;
     fixture->prior_request_owner = g_app.message_history_request_owner;
     fixture->prior_details_owner = g_app.details_request_owner;
-    fixture->prior_window = g_app.window;
+    fixture->prior_window = win32_hwnd(g_app.window);
     fixture->prior_scope = g_app.plugin_account_scope_serial;
     fixture->prior_request = g_app.primary_request_id;
     fixture->prior_details_request = g_app.details_request_id;
@@ -210,7 +210,7 @@ bool thread_membership_ui_adapter_begin(HWND window, bool (*refresh)(void*) noex
     g_app.account.status.profile_id = 96020;
     g_app.account.api.thread_action = submit_thread;
     g_app.plugin_account_scope_serial = 96010;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.login.visible = false;
     g_app.message_view = {};
     g_app.popup_scene = {};
@@ -251,7 +251,7 @@ void thread_membership_ui_adapter_end() noexcept {
     g_app.details_request_owner = fixture->prior_details_owner;
     g_app.details_request_id = fixture->prior_details_request;
     g_app.plugin_account_scope_serial = fixture->prior_scope;
-    g_app.window = fixture->prior_window;
+    g_app.window = win32_window(fixture->prior_window);
     g_app.login.visible = fixture->prior_login_visible;
     thread_adapter = nullptr;
     VirtualFree(fixture->ui, 0, MEM_RELEASE);

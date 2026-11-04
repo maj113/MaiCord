@@ -1,5 +1,7 @@
 #include "loopback_server.hpp"
 #include "maicord/app/account/login/browser_sign_in_receiver.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
@@ -48,7 +50,7 @@ void terminal(Runtime* runtime, BrowserSignInReceiverPhase phase, BrowserSignInR
 bool step(LoopbackServer* server, LoopbackState* state) noexcept {
     auto* runtime = static_cast<Runtime*>(server);
     const auto current = loopback_snapshot(runtime);
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (!live(current.phase)) return false;
     if (deadline_due(now, current.deadline_ms)) { terminal(runtime, BrowserSignInReceiverPhase::expired, BrowserSignInReceiverError::none); return false; }
     *state = {now, current.deadline_ms, true, current.phase == BrowserSignInReceiverPhase::waiting};
@@ -72,7 +74,7 @@ LoopbackRequest request(LoopbackServer* server) noexcept {
     bool candidate = false;
     if (parsed.request.has_token) {
         AcquireSRWLockExclusive(&runtime->lock);
-        if (runtime->status.phase == BrowserSignInReceiverPhase::waiting && !deadline_due(GetTickCount64(), runtime->status.deadline_ms) && runtime->status.candidate_id != ~u64{0}) {
+        if (runtime->status.phase == BrowserSignInReceiverPhase::waiting && !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms) && runtime->status.candidate_id != ~u64{0}) {
             const auto decoded = json_string_decode_utf8(parsed.request.token,
                 {reinterpret_cast<char*>(runtime->storage.data + kTokenOffset), kBrowserSignInMaximumTokenBytes});
             if (decoded.ok() && decoded.bytes) {
@@ -97,7 +99,7 @@ BrowserSignInReceiverStatus invalid(BrowserSignInReceiverError error = BrowserSi
 }
 bool admit(Runtime* runtime, u64 generation, BrowserSignInReceiverPhase phase, u64 candidate = 0) noexcept {
     return generation && runtime->status.generation == generation && runtime->status.phase == phase &&
-        (!candidate || runtime->status.candidate_id == candidate) && !deadline_due(GetTickCount64(), runtime->status.deadline_ms);
+        (!candidate || runtime->status.candidate_id == candidate) && !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms);
 }
 } // namespace
 
@@ -106,7 +108,7 @@ BrowserSignInReceiverStatus browser_sign_in_receiver_start(BrowserSignInReceiver
     auto* runtime = static_cast<Runtime*>(commit_pages(kOwnerBytes));
     if (!runtime) return invalid(BrowserSignInReceiverError::memory);
     receiver->runtime = runtime;
-    runtime->status.generation = generation; runtime->status.deadline_ms = deadline_after(GetTickCount64(), timeout_ms);
+    runtime->status.generation = generation; runtime->status.deadline_ms = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
     runtime->status.phase = BrowserSignInReceiverPhase::starting;
     auto secured = secure_buffer_initialize(&runtime->storage, kStorageBytes);
     if (!secured.ok()) { const u32 native = secured.native_error; loopback_release<Runtime>(receiver); auto status = invalid(BrowserSignInReceiverError::memory); status.native_error = native; return status; }
@@ -160,7 +162,7 @@ BrowserSignInReceiverStatus browser_sign_in_receiver_finish_exchange(BrowserSign
     clear_candidate(runtime); runtime->status.phase = accepted ? BrowserSignInReceiverPhase::complete : BrowserSignInReceiverPhase::waiting;
     if (accepted) clear_key(runtime);
     const auto status = runtime->status;
-    ReleaseSRWLockExclusive(&runtime->lock); SetEvent(runtime->wake_event); loopback_notify(runtime); return status;
+    ReleaseSRWLockExclusive(&runtime->lock); event_set(runtime->wake_event); loopback_notify(runtime); return status;
 }
 BrowserSignInReceiverStatus browser_sign_in_receiver_stop(BrowserSignInReceiver* receiver, u32 timeout_ms) noexcept {
     if (!receiver || timeout_ms > 5000) return invalid(); auto* runtime = runtime_of(receiver); if (!runtime) return {};

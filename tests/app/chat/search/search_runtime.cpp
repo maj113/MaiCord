@@ -11,6 +11,7 @@
 #include "../../../support/test_output.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../../support/window_fixture.hpp"
 
 namespace maicord::search_runtime_test {
 
@@ -176,13 +177,13 @@ u32 browser_searches, browser_closes;
 char browser_query[128];
 u32 browser_query_bytes;
 
-bool click(UiSearchAction action, UINT press) noexcept {
+bool click(UiSearchAction action, bool second_press) noexcept {
     const auto bounds = action_bounds(action);
     if (bounds.left >= bounds.right || bounds.top >= bounds.bottom) {
         return false;
     }
-    return application_search_window_message(press, 0, point(bounds)) &&
-           application_search_window_message(WM_LBUTTONUP, 0, point(bounds));
+    return application_search_window_event(second_press ? window_test::pointer_double(window_test::x_of(point(bounds)), window_test::y_of(point(bounds))) : window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)))) &&
+           application_search_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left));
 }
 
 bool response(u64 request_id, u16 status, Utf8View body, u64 retry_at,
@@ -197,8 +198,8 @@ bool response(u64 request_id, u16 status, Utf8View body, u64 retry_at,
 
 bool initialize() noexcept {
     keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    g_app.window = CreateWindowExW(0, L"STATIC", L"MaiCord search runtime fixture", WS_POPUP, -16000,
-                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord search runtime fixture", WS_POPUP, -16000,
+                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!keyboard_saved || !g_app.window || !g_app.account_ui || !modifiers()) {
@@ -270,7 +271,7 @@ bool initialize() noexcept {
     g_app.plugin_account_scope_serial = 1;
     g_app.account.api.message_search = submit;
     g_app.account.api.message_ack = acknowledge;
-    SetFocus(g_app.window);
+    SetFocus(win32_hwnd(g_app.window));
     g_window_state.keyboard_focus = true;
     return application_search_synchronize();
 }
@@ -278,11 +279,11 @@ bool initialize() noexcept {
 void release() noexcept {
     application_search_release();
     ui_scene_release(&g_app.shell_scene);
-    if (GetCapture() == g_app.window) {
+    if (GetCapture() == win32_hwnd(g_app.window)) {
         ReleaseCapture();
     }
     if (g_app.window) {
-        DestroyWindow(g_app.window);
+        DestroyWindow(win32_hwnd(g_app.window));
         g_window_state.keyboard_focus = false;
     }
     if (g_app.account_ui) {
@@ -387,9 +388,9 @@ void run() noexcept {
           "search runtime: Escape dismisses query suggestions without closing retained results or "
           "submitting");
     const auto result_bounds = action_bounds(UiSearchAction::result);
-    check(application_search_window_message(WM_MOUSEMOVE, 0, point(result_bounds)) &&
+    check(application_search_window_event(window_test::pointer_move(window_test::x_of(point(result_bounds)), window_test::y_of(point(result_bounds)))) &&
               g_app.search->scene.widgets.hovered.generation != 0 &&
-              !application_search_window_message(WM_MOUSELEAVE, 0, 0) &&
+              !application_search_window_event(window_test::pointer_leave()) &&
               !g_app.search->scene.widgets.hovered.generation,
           "search runtime: real pointer hover and leave update retained targets without a timer");
     check(
@@ -541,19 +542,19 @@ void run() noexcept {
     check(open(true), "search runtime: actual keyboard ownership restores editor");
     const auto edit_bounds = application_search_edit_bounds();
     hit_position = 0;
-    check(application_search_window_message(WM_LBUTTONDOWN, 0, point(edit_bounds)) &&
-              GetCapture() == g_app.window && g_app.search->dragging,
+    check(application_search_window_event(window_test::pointer_down(window_test::x_of(point(edit_bounds)), window_test::y_of(point(edit_bounds)))) &&
+              GetCapture() == win32_hwnd(g_app.window) && g_app.search->dragging,
           "search runtime: edit press owns actual native selection capture");
     settings = true;
     check(
         application_search_synchronize() && !application_search_input(UiInputKind::character, 'x', false) &&
             !application_search_edit_focused() && !g_app.search->focused && !g_app.search->dragging &&
-            !g_app.search->captured && GetCapture() != g_app.window,
+            !g_app.search->captured && GetCapture() != win32_hwnd(g_app.window),
         "search runtime: modal front retires native capture and keyboard ownership before blocking input");
-    application_search_window_message(WM_CAPTURECHANGED, 0, 0);
+    application_search_window_event(window_test::capture_lost());
     ReleaseCapture();
     settings = false;
-    application_search_window_message(WM_KILLFOCUS, 0, 0);
+    application_search_window_event(window_test::focus_changed(false));
     check(!g_app.search->dragging && !application_search_edit_focused() &&
               !application_search_edit_next_wake(),
           "search runtime: capture and native focus loss retire editor drag and caret deadlines");
@@ -575,7 +576,7 @@ void run() noexcept {
           "search runtime: checked Sort owns keyboard choices and Enter commits the selected order");
     check(click(UiSearchAction::sort) && g_app.search->sort_menu && !g_app.search->focused,
           "search runtime: pointer Sort opens independently of query editor focus");
-    check(click(UiSearchAction::sort, WM_LBUTTONDBLCLK) && !g_app.search->sort_menu &&
+    check(click(UiSearchAction::sort, true) && !g_app.search->sort_menu &&
               !g_app.search->captured && click(UiSearchAction::sort) && g_app.search->sort_menu,
           "search runtime: rapid Sort second press closes the menu once and releases capture");
     settings = true;
@@ -591,9 +592,9 @@ void run() noexcept {
     const auto* dismissed_bank = g_app.search->bank;
     const u32 navigations_before_dismiss = navigations;
     check(
-        application_search_window_message(WM_LBUTTONDOWN, 0, point(dismiss_bounds)) &&
+        application_search_window_event(window_test::pointer_down(window_test::x_of(point(dismiss_bounds)), window_test::y_of(point(dismiss_bounds)))) &&
             !g_app.search->suggestions && !g_app.search->focused &&
-            application_search_window_message(WM_LBUTTONUP, 0, point(dismiss_bounds)) &&
+            application_search_window_event(window_test::pointer_up(window_test::x_of(point(dismiss_bounds)), window_test::y_of(point(dismiss_bounds)), PointerButton::left)) &&
             g_app.search->bank == dismissed_bank && navigations == navigations_before_dismiss,
         "search runtime: a covered result-pane click dismisses suggestions without background activation");
     check(open(true) && key(key::escape) && !g_app.search->suggestions && key(key::escape) &&

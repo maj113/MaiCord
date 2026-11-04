@@ -34,7 +34,7 @@ maicord_test_bundle(MaiCordCodecUnitTests
     LIBS maicord_core maicord_media_codec kernel32
     INCLUDES src/platform)
 maicord_test_bundle(MaiCordGpuUnitTests
-    LIBS maicord_atlas_gpu maicord_core d3d11 kernel32 maicord_shader_bytecode maicord_compression maicord_media_codec
+    LIBS maicord_atlas_gpu maicord_core d3d11 kernel32 maicord_gpu_d3d11 maicord_compression maicord_media_codec
         maicord_renderer maicord_render_core maicord_ui
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 maicord_test_bundle(MaiCordTextUnitTests
@@ -72,7 +72,8 @@ maicord_test(MaiCordNotificationAudioTests ENTRY maicord_notification_audio_test
 # shipping library excludes the seam completely; fixtures never open an
 # actual endpoint even if no hook has been installed.
 maicord_test(MaiCordNotificationAudioFaultTests ENTRY maicord_notification_audio_faults_tests_entry
-    SOURCES src/platform/audio/notification_audio.cpp tests/platform/audio/native_notification_audio_faults.cpp
+    SOURCES src/platform/audio/notification_audio.cpp src/platform/audio/notification_audio_mixer.cpp
+        tests/platform/audio/native_notification_audio_faults.cpp
     LIBS maicord_core kernel32 ole32 user32
     DEFINES MAICORD_NOTIFICATION_AUDIO_FIXTURE=1
     TEST maicord_notification_audio_faults)
@@ -164,6 +165,10 @@ maicord_test(MaiCordPluginPipelineTests ENTRY maicord_plugin_pipeline_tests_entr
     DEPENDS MaiCordPluginRuntimeFullFixture MaiCordPluginRuntimePipelineFixture MaiCordPluginRuntimePipelineAutoFixture
         MaiCordPluginRuntimePipelineBareFixture MaiCordClearUrlsPlugin MaiCordSilentTogglePlugin MaiCordTranslatePlugin
     TIMEOUT 15 TEST maicord_plugin_pipeline)
+# The network layer against sockets of this machine: streams, datagrams, lookups, signals, files and the worker.
+maicord_test(MaiCordNetworkLoopTests ENTRY maicord_network_loop_entry SOURCES tests/platform/net/network_loop.cpp
+    LIBS maicord_core maicord_platform kernel32 ws2_32 bcrypt maicord_sspicli crypt32
+    TIMEOUT 20 TEST maicord_network_loop)
 # Context menus (targets, a submenu, checkbox, visibility), typed slash commands against the composer's own
 # option parsing, banners, modals and the navigation actions, against the UI fixture and a recording host.
 maicord_plugin(MaiCordPluginUiFixture tests/fixtures/plugin_ui_fixture.c $<TARGET_OBJECTS:maicord_runtime>)
@@ -301,8 +306,8 @@ set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
 maicord_test(MaiCordAccountVideoSessionProbe ENTRY maicord_account_video_session_probe_entry
     SOURCES tests/integration/account_video_session_probe.cpp src/app/media/account_video_session.cpp
         src/app/media/account_video_session_audio.cpp
-        src/platform/decode/hevc_gpu_decoder.cpp src/render/media/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}
-    LIBS maicord_account_media maicord_platform maicord_model maicord_shader_bytecode d3d11 dxgi ole32 kernel32 user32
+        src/platform/decode/hevc_gpu_decoder.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+    LIBS maicord_account_media maicord_platform maicord_model maicord_gpu_d3d11 d3d11 dxgi ole32 kernel32 user32
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     DEFINES MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1)
 if(MAICORD_TEST_AUDIO_PLAYBACK)
@@ -430,7 +435,7 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/app/store/store_source.cpp src/app/store/store_projection.cpp src/app/store/store_page.cpp
         src/app/store/store_detail.cpp src/app/store/store_dialogs.cpp src/app/store/store_act.cpp
         src/app/store/store_preview_pump.cpp src/app/store/store_preview_decode.cpp src/app/media/local_preview_thumbnail.cpp
-    LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_platform maicord_app_core
+    LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_window_null maicord_platform maicord_app_core
         maicord_ui maicord_client_preferences maicord_plugin_runtime
         maicord_message_media maicord_ui_input maicord_packages maicord_media_core kernel32 user32 shell32 ole32
     INCLUDES src/app
@@ -601,6 +606,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/app/chat/composer/history.cpp tests/app/chat/composer/commands.cpp tests/app/chat/composer/command_autocomplete.cpp
         tests/model/guild/composer_mentions.cpp tests/protocol/messages/command_argument_editing.cpp tests/ui/account/auth_transition.cpp
         tests/protocol/auth/account_requirement.cpp tests/media/compression/http_compression_workers.cpp tests/app/account/client_request_metadata.cpp
+        tests/app/account/client_identity.cpp
         tests/protocol/messages/composer_edit_menu.cpp tests/ui/chat/composer/spellcheck.cpp src/app/chat/composer/edit_menu.cpp
         tests/app/chat/messages/send_response.cpp tests/platform/net/file.cpp tests/platform/net/worker_async.cpp tests/platform/desktop/file_picker.cpp
         tests/platform/desktop/clipboard_attachment.cpp tests/media/image/image_decode_corpus.cpp tests/ui/media/image_viewer.cpp tests/app/shell/history_scrollback.cpp
@@ -1108,8 +1114,8 @@ maicord_test(MaiCordH264StreamGpuTests ENTRY maicord_h264_stream_gpu_tests_entry
         tests/media/video/av1_stream_gpu_test.cpp src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
         src/app/voice/video_stream_decoders.cpp tests/platform/decode/h264_attachment_gpu_test.cpp src/platform/decode/mp4_decoder.cpp
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
-        src/platform/decode/gpu_decoder_surfaces.cpp src/render/media/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}
-    LIBS maicord_core maicord_media_codec maicord_shader_bytecode kernel32 d3d11 dxguid
+        src/platform/decode/gpu_decoder_surfaces.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+    LIBS maicord_core maicord_media_codec maicord_gpu_d3d11 kernel32 d3d11 dxguid
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_h264_stream_gpu)
 maicord_test(MaiCordGlyphEffectTests ENTRY maicord_glyph_effect_entry SOURCES tests/render/text/glyph_effect_ordinal_test.cpp
@@ -1130,6 +1136,22 @@ maicord_test(MaiCordShaderBytecodeProbe ENTRY maicord_shader_bytecode_probe_entr
 maicord_test(MaiCordGpuUiQuadsProbe ENTRY maicord_gpu_ui_quads_windows_entry
     SOURCES tests/gpu/ui_quads_windows.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_ui_quads)
+# The glyph scene (compute rasterization into an R8 atlas, then the glyph shaders' draw) against
+# tests/gpu/golden/glyph_atlas.png and glyph_draw.png, which tests/gpu/glyphs.cpp reproduces on Linux.
+maicord_test(MaiCordGpuGlyphsProbe ENTRY maicord_gpu_glyphs_windows_entry
+    SOURCES tests/gpu/glyphs_windows.cpp
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_glyphs)
+# The media scene (PNG, VP8 and JPEG compute into an RGBA8 atlas with over-blends, then the media shaders' draw)
+# against tests/gpu/golden/media_atlas.png and media_draw.png, which tests/gpu/media.cpp reproduces on Linux.
+maicord_test(MaiCordGpuMediaProbe ENTRY maicord_gpu_media_windows_entry
+    SOURCES tests/gpu/media_windows.cpp
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_media)
+# Every sample effect and Silk Waves (tests/gpu/effects/*.mcfx, interface 4) through the real pass executor on Direct3D 11:
+# the same source runs on Linux against what this captures (tools/update_gpu_goldens.py --scene effects).
+maicord_test(MaiCordGpuEffectsProbe ENTRY maicord_gpu_effects_entry
+    SOURCES tests/gpu/effects.cpp
+    LIBS maicord_packages maicord_app_core maicord_platform
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 60 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_effects)
 maicord_shader(MAICORD_GLYPH_LIST_VERTEX_HEADER maicord_glyph_list_vs.hpp vs_4_0 glyph_vertex
         g_maicord_glyph_list_vertex_shader src/render/shaders/glyph_draw.hlsl
         MAICORD_GLYPH_TRIANGLE_LIST_REFERENCE=1)
@@ -1179,6 +1201,10 @@ maicord_font_test(MaiCordArabicMarksTests maicord_arabic_marks_tests_entry text/
 maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry SOURCES tests/text/unicode/bidi_test.cpp
     LIBS maicord_core maicord_unicode kernel32
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_bidi)
+# The TZif reader and POSIX rules (pure; the same test runs in the Linux suite) against zic's output and Python's zoneinfo.
+maicord_test(MaiCordTzifTests ENTRY maicord_tzif_entry SOURCES tests/platform/time/tzif_test.cpp src/platform/time/tzif.cpp
+    LIBS maicord_core kernel32
+    BUNDLE MaiCordCoreUnitTests STANDALONE TEST maicord_tzif)
 # Real Windows spell checker (read-only); CI may pass -ExcludeTestLabels system_spellcheck.
 maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry SOURCES tests/platform/desktop/system_spellcheck.cpp
     LIBS maicord_platform ole32
@@ -1323,11 +1349,31 @@ maicord_test(MaiCordGpuTypesTests ENTRY maicord_gpu_types_entry SOURCES tests/gp
 # The window vocabulary (include/maicord/platform/window): key numbering, event layout, headers compile.
 maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
     SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
+# The Windows key-state service against the thread's synthetic keyboard state.
+maicord_test(MaiCordWindowWin32KeysTests ENTRY maicord_window_win32_keys_entry
+    SOURCES tests/platform/window/win32_keys.cpp
+    LIBS maicord_core maicord_window_win32 kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_keys)
+# Windows behaviours the window seam relies on (capture notification timing, context-menu keys), captured in a hidden
+# harness window.
+maicord_test(MaiCordWindowWin32BehaviourTests ENTRY maicord_window_win32_behaviour_entry
+    SOURCES tests/platform/window/win32_behaviour.cpp
+    LIBS maicord_core kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_behaviour)
+# The Windows backend's event translation and window procedure (hooks, sink answers, post-actions).
+maicord_test(MaiCordWindowWin32EventsTests ENTRY maicord_window_win32_events_entry
+    SOURCES tests/platform/window/win32_events.cpp
+    LIBS maicord_core maicord_window_win32 kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_events)
+# The headless backend: capture timing as Windows reports it, key and pointer state, probes, injected events.
+maicord_test(MaiCordWindowNullTests ENTRY maicord_window_null_entry
+    SOURCES tests/platform/window/null_window.cpp
+    LIBS maicord_core maicord_window_null kernel32 TIMEOUT 10 TEST maicord_window_null)
 # The neutral os layer (include/maicord/os): events, timers and waits, threads, and SRW lock contention.
 maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wait.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_wait)
 maicord_test(MaiCordOsThreadTests ENTRY maicord_os_thread_entry SOURCES tests/os/thread.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_thread)
+# Files, directories and mappings (include/maicord/os/file.hpp); file_snapshot_read comes from maicord_platform.
+maicord_test(MaiCordOsFileTests ENTRY maicord_os_file_entry SOURCES tests/os/file.cpp
+    LIBS maicord_core kernel32 maicord_platform TIMEOUT 10 TEST maicord_os_file)
 maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 # The inline TEB/PEB reads in core/win32_process.hpp against the public APIs, on two threads.
@@ -1562,6 +1608,10 @@ maicord_font_test(MaiCordTtOutlineTests maicord_tt_outline_entry text/opentype/t
     TEST maicord_native_tt_positioning position)
 maicord_font_test(MaiCordFontInstanceTests maicord_font_store_entry text/fonts/store_test STANDALONE TIMEOUT 5
     LABELS native-text-font-instance TEST maicord_native_font_instances)
+# The font store, catalog check and handle stamp over real files, through the files seam.
+maicord_test(MaiCordFontStoreFilesTests ENTRY maicord_font_store_files_entry SOURCES
+        tests/text/fonts/store_files_test.cpp
+    LIBS maicord_core maicord_font kernel32 TIMEOUT 5 TEST maicord_native_font_store_files)
 maicord_font_test(MaiCordGposTests maicord_gpos_tests_entry text/opentype/gpos_test STANDALONE)
 # Basic, mark, cursive and ligature placement corpora in one run.
 maicord_font_test(MaiCordGposExecuteTests maicord_gpos_execute_tests_entry text/opentype/gpos_execute_test STANDALONE TIMEOUT 5
@@ -1582,6 +1632,18 @@ maicord_test(MaiCordColrProgramTests ENTRY maicord_colr_program_tests_entry
     SOURCES tests/render/effects/colr_program_test.cpp tests/render/effects/colr_source_test.cpp
     LIBS maicord_core maicord_font maicord_paint_program kernel32
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_colr_program)
+# The geometry engine that stands in for Direct2D off Windows against Direct2D itself (and the answers the Linux build
+# compares it with: MAICORD_LOTTIE_GEOMETRY_CAPTURE=<file> writes tests/render/effects/golden/lottie_geometry.bin).
+maicord_test(MaiCordLottieGeometryTests ENTRY maicord_lottie_geometry_entry
+    SOURCES tests/render/effects/lottie_geometry_test.cpp
+    LIBS maicord_vector_geometry maicord_core d2d1 kernel32
+    TIMEOUT 20 TEST maicord_lottie_geometry)
+# The Lottie compiler end to end on the generated corpus, against the digests of its compiled masks that Direct2D's
+# geometry produced (MAICORD_LOTTIE_PROGRAM_CAPTURE=<file> writes tests/render/effects/golden/lottie_program.bin).
+maicord_test(MaiCordLottieProgramTests ENTRY maicord_lottie_program_entry
+    SOURCES tests/render/effects/lottie_program_test.cpp
+    LIBS maicord_core maicord_font maicord_paint_program kernel32
+    TIMEOUT 20 TEST maicord_lottie_program)
 maicord_shader(maicord_vp8_reference_reconstruct_header vp8_reference_reconstruct.hpp cs_5_0 vp8_reconstruct
         g_vp8_reference_reconstruct tests/fixtures/vp8_reconstruct_reference.hlsl)
 maicord_shader(maicord_vp8_reference_idct_header vp8_reference_idct.hpp cs_5_0 vp8_inverse_dct
@@ -1705,6 +1767,13 @@ set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_inp
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
     maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media)
 set(maicord_scene_probe_system_libs kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32 d3d11 dxgi dcomp shell32)
+# The renderer scenes of tests/render/scenes.cpp, which the Linux build runs on an offscreen surface.
+maicord_test(MaiCordRenderScenesTests ENTRY maicord_render_scenes_entry
+    SOURCES tests/render/scenes.cpp src/core/log.cpp
+    LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src src/app
+    TIMEOUT 20 LABELS gpu RESOURCE_LOCK native_gpu
+    TEST maicord_render_scenes)
 maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/message_link_ui_probe.cpp src/app/shell/content_input.cpp
         src/app/chat/search/navigation.cpp src/app/chat/messages/mutation_notice.cpp

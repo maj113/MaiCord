@@ -2,6 +2,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/core/input_router.hpp"
+#include "maicord/platform/window/event.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/app/chat/messages/send_tracker.hpp"
 
@@ -14,8 +15,8 @@ void application_message_forward_close() noexcept;
 void application_message_forward_release() noexcept;
 bool application_message_forward_synchronize() noexcept;
 bool application_message_forward_input(UiInputKind, u32 key, bool repeated) noexcept;
-bool application_message_forward_filter(const MSG&) noexcept;
-bool application_message_forward_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_message_forward_filter(const WindowEvent&) noexcept;
+bool application_message_forward_window_event(const WindowEvent&) noexcept;
 void application_message_forward_tick(u64 now_ms) noexcept;
 u64 application_message_forward_caret_wake() noexcept;
 MessageComposer* application_message_forward_edit_model() noexcept;

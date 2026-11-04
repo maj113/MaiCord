@@ -129,7 +129,7 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
         message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&
         popup_scene_initialize_owned(&g_app.popup_scene, 16, {widgets, 40}, {nodes, 40});
     check(ready, "composer edit-menu application fixture initializes");
-    g_app.account_ui = account; g_app.window = reinterpret_cast<HWND>(1);
+    g_app.account_ui = account; g_app.window = win32_window(reinterpret_cast<HWND>(1));
     if (ready) {
         auto& composer = g_app.message_composer;
         message_composer_reset(&composer, 7, false);

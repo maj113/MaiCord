@@ -5,6 +5,7 @@
 // allocation calls, private working set and committed memory by owner on standard
 // output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe_internal.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/app/account/account_paths.hpp"
 #include "../../src/app/chat/channel_session.hpp"
 #include "../../src/app/shell/content_input.hpp"
@@ -86,7 +87,7 @@ HANDLE g_tick_thread = nullptr;
 volatile LONG g_tick_stop = 0;
 DWORD WINAPI probe_ticker(void*) noexcept {
     while (WaitForSingleObject(g_tick_timer, INFINITE) == WAIT_OBJECT_0 && !g_tick_stop)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        PostMessageW(win32_hwnd(g_app.window), WM_NULL, 0, 0);
     return 0;
 }
 
@@ -236,18 +237,18 @@ bool select_channel(u64 guild, u64 channel) noexcept {
 void post_wheel(float x_dip, float y_dip, i32 delta) noexcept {
     const float scale = static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.0f;
     POINT point{static_cast<LONG>(x_dip * scale), static_cast<LONG>(y_dip * scale)};
-    ClientToScreen(g_app.window, &point);
-    PostMessageW(g_app.window, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<u16>(static_cast<i16>(delta))),
+    ClientToScreen(win32_hwnd(g_app.window), &point);
+    PostMessageW(win32_hwnd(g_app.window), WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<u16>(static_cast<i16>(delta))),
                  MAKELPARAM(static_cast<u16>(point.x), static_cast<u16>(point.y)));
 }
 float client_width_dip() noexcept {
     RECT client{};
-    GetClientRect(g_app.window, &client);
+    GetClientRect(win32_hwnd(g_app.window), &client);
     return static_cast<float>(client.right) * 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
 }
 float client_height_dip() noexcept {
     RECT client{};
-    GetClientRect(g_app.window, &client);
+    GetClientRect(win32_hwnd(g_app.window), &client);
     return static_cast<float>(client.bottom) * 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
 }
 float message_x() noexcept {
@@ -1029,14 +1030,14 @@ bool probe_step_phases(int* exit_code) noexcept {
             // End-of-session memory before minimizing (which may trim the working set).
             end_phase();
             RECT client{};
-            GetClientRect(g_app.window, &client);
+            GetClientRect(win32_hwnd(g_app.window), &client);
             g_probe.client_width = static_cast<u32>(client.right);
             g_probe.client_height = static_cast<u32>(client.bottom);
             take_snapshot(2);
             collect_threads(false);
             report_account_ui_fields();
             begin_phase(Phase::idle_hidden);
-            ShowWindow(g_app.window, SW_SHOWMINNOACTIVE);
+            ShowWindow(win32_hwnd(g_app.window), SW_SHOWMINNOACTIVE);
             // A minimized client may not wake for many seconds; the phase
             // tick posts one message at its end (counted as one message wake).
         }

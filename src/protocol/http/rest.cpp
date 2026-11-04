@@ -630,7 +630,7 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
         writer.put("Content-Length: 0\r\n");
     if (page)
         writer.put("sec-ch-ua: ", Utf8View{kClientBrandList.text, kClientBrandList.bytes},
-                   "\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n");
+                   "\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: ", kClientSecChUaPlatform, "\r\n");
     if (request.authorization != RestAuthorization::none)
         writer.put("Authorization: ", request.token, "\r\n");
     if (page) {

@@ -7,6 +7,7 @@
 #   tools/test_wayland_window.sh --compositor nested      sway as a window inside the running compositor (WSLg's Weston)
 #   tools/test_wayland_window.sh --compositor current     the running compositor as it is: the lifecycle test only
 #   tools/test_wayland_window.sh --scale 1.5              sway output scale (fractional-scale and viewporter path)
+#   tools/test_wayland_window.sh --scale 2 --integer      the window ignores fractional-scale and viewporter: the integer buffer-scale path
 #   tools/test_wayland_window.sh --out DIR                logs and screenshots (default ~/mc-wayland-test)
 #
 # Headless and nested sway give the window every protocol MaiCord uses (xdg-decoration, fractional-scale, cursor-shape,
@@ -23,6 +24,8 @@
 set -uo pipefail
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=tools/dbus_test_bus.sh
+source "$repository/tools/dbus_test_bus.sh"
 compositor=headless
 binary=""
 scale=1
@@ -33,6 +36,7 @@ while [ "$#" -gt 0 ]; do
         --compositor) compositor="$2"; shift 2 ;;
         --binary) binary="$2"; shift 2 ;;
         --scale) scale="$2"; shift 2 ;;
+        --integer) export MAICORD_WAYLAND_NO_FRACTIONAL=1; shift ;;
         --out) out="$2"; shift 2 ;;
         -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -41,17 +45,24 @@ done
 case "$compositor" in headless|nested|current) ;; *) echo "Unknown compositor: $compositor" >&2; exit 2 ;; esac
 
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-export XDG_RUNTIME_DIR="$runtime"
 export LANG="${LANG:-C.UTF-8}"
 sync="$out/sync"
 rm -rf "$out"
-mkdir -p "$sync/lifecycle" "$sync/input"
+mkdir -p "$sync/lifecycle" "$sync/input" "$sync/egl"
+# A machine without a login session (a container, a CI runner) has no /run/user/<uid>: the compositor gets a private one.
+if [ ! -d "$runtime" ] || [ ! -w "$runtime" ]; then
+    runtime="$out/runtime"
+    mkdir -p "$runtime"
+    chmod 700 "$runtime"
+fi
+export XDG_RUNTIME_DIR="$runtime"
 
 sway_pid=""
 injector_pid=""
 cleanup() {
     [ -n "$injector_pid" ] && kill "$injector_pid" 2>/dev/null
     [ -n "$sway_pid" ] && kill "$sway_pid" 2>/dev/null
+    dbus_test_stop
     return 0
 }
 trap cleanup EXIT
@@ -63,8 +74,11 @@ if [ "$compositor" != current ]; then
         command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }
     done
     config="$out/sway.conf"
+    # The output has 1280x720 logical pixels at any scale, so the windows have the same room.
+    width="$(awk "BEGIN { print int(1280 * $scale) }")"
+    height="$(awk "BEGIN { print int(720 * $scale) }")"
     cat > "$config" <<EOF
-output * resolution 1280x720 scale $scale
+output * resolution ${width}x${height} scale $scale
 default_border none
 default_floating_border none
 focus_follows_mouse no
@@ -133,11 +147,51 @@ print(origin[0], origin[1], layout["width"], layout["height"])'
 
 shot() { grim "$out/$1.png" 2> "$out/grim.log" || echo "grim failed: $(cat "$out/grim.log")"; }
 
+# The EGL test draws green; the pixel in the middle of its window, from the screenshot, is the answer (`pixel`).
+drive_egl() {
+    wait_for "$sync/egl/ready" 30 || return
+    sleep 0.6
+    shot "$compositor-egl"
+    geometry="$(window_geometry)" || { echo "no maicord window in sway's tree" >&2; return; }
+    python3 - "$out/$compositor-egl.png" "$geometry" "$scale" > "$sync/egl/pixel.tmp" <<'EOF' && mv "$sync/egl/pixel.tmp" "$sync/egl/pixel"
+import sys
+from PIL import Image
+path, geometry, scale = sys.argv[1], sys.argv[2].split(), float(sys.argv[3])
+origin_x, origin_y = int(geometry[0]), int(geometry[1])
+image = Image.open(path).convert("RGB")
+print(*image.getpixel((int((origin_x + 320) * scale), int((origin_y + 200) * scale))))
+EOF
+    touch "$sync/egl/injected"
+}
+
 drive_lifecycle() {
     wait_for "$sync/lifecycle/ready" 30 || return
     sleep 0.6
     shot "$compositor-lifecycle"
     touch "$sync/lifecycle/injected"
+}
+
+# 1 when sway's tree says the maicord window holds an idle inhibitor, else 0.
+idle_state() {
+    swaymsg -t get_tree | python3 -c '
+import json, sys
+def walk(node):
+    if node.get("app_id") == "maicord":
+        return 1 if node.get("inhibit_idle") else 0
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        found = walk(child)
+        if found is not None:
+            return found
+    return None
+print(walk(json.load(sys.stdin)) or 0)'
+}
+
+# The input test asks (a file `idle-on`, then `idle-off`) and gets the answer in `<name>.result`.
+drive_idle() {
+    wait_for "$sync/input/idle-on" 120 || return
+    idle_state > "$sync/input/idle-on.tmp" && mv "$sync/input/idle-on.tmp" "$sync/input/idle-on.result"
+    wait_for "$sync/input/idle-off" 60 || return
+    idle_state > "$sync/input/idle-off.tmp" && mv "$sync/input/idle-off.tmp" "$sync/input/idle-off.result"
 }
 
 drive_input() {
@@ -151,8 +205,20 @@ drive_input() {
 
 if [ "$compositor" != current ]; then
     # Concurrent: ctest runs the cases in an order of its own choosing, and each waits for its own files.
-    ( drive_lifecycle & drive_input & wait ) > "$out/driver.log" 2>&1 &
+    ( drive_lifecycle & drive_input & drive_idle & drive_egl & wait ) > "$out/driver.log" 2>&1 &
     injector_pid=$!
+fi
+
+# --- the desktop settings ----------------------------------------------------------------------------------------
+
+# The lifecycle test also checks that the portal's settings reach the window; it needs a private session bus with the
+# mock portal (tools/dbus_test_bus.sh), and skips that stage without one.
+if dbus_test_available && dbus_test_start_bus "$out" dbus && dbus_test_start_mock "$out" "$DBUS_TEST_ADDRESS"; then
+    export DBUS_SESSION_BUS_ADDRESS="$DBUS_TEST_ADDRESS"
+    export MAICORD_DBUS_TEST_ADDRESS="$DBUS_TEST_ADDRESS"
+    export MAICORD_DBUS_TEST_BUS=mock
+else
+    echo "No private D-Bus bus with the mock portal (dbus-daemon, python3-dbus, python3-gi): the settings stage is skipped."
 fi
 
 # --- the tests ---------------------------------------------------------------------------------------------------
@@ -164,10 +230,12 @@ if [ -n "$binary" ]; then
     if [ "$compositor" != current ]; then
         echo "== input"
         MAICORD_WAYLAND_SYNC_DIR="$sync/input" "$binary" --input || { rc=$?; [ "$rc" = 77 ] || status=1; }
+        echo "== egl"
+        MAICORD_WAYLAND_SYNC_DIR="$sync/egl" "$binary" --egl || { rc=$?; [ "$rc" = 77 ] || status=1; }
     fi
 else
     names="maicord_wayland_window_lifecycle"
-    [ "$compositor" != current ] && names="$names maicord_wayland_window_input"
+    [ "$compositor" != current ] && names="$names maicord_wayland_window_input maicord_wayland_window_egl"
     MAICORD_WAYLAND_INTEGRATION=1 MAICORD_WAYLAND_SYNC_DIR="$sync" \
         "$repository/tools/build_linux.sh" --keep --test $names || status=1
 fi

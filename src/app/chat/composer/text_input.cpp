@@ -6,6 +6,7 @@
 #include "composer.hpp"
 #include "../../shell/state.hpp"
 #include "../../shell/window_state.hpp"
+#include "../../shell/window_events.hpp"
 #include "../../account/friends.hpp"
 #include "../search/search.hpp"
 #include "../../media/picker.hpp"
@@ -21,8 +22,8 @@
 #include "maicord/render/text/forum_post_surface.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
@@ -205,7 +206,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     const auto bounds = edit_bounds();
     if (!ui_rect_has_area(bounds) || !g_app.renderer.dpi)
         return false;
-    return text_store_screen_geometry(bounds, output);
+    return text_store_geometry(bounds, output);
 }
 void changed(void* context) noexcept {
     auto* input = static_cast<ApplicationComposerTextInput*>(context);
@@ -235,15 +236,17 @@ void changed(void* context) noexcept {
         log_write(LogLevel::warning, "ui", "composer_native_text_refresh_failed");
     application_request_frame();
 }
-bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* inside) noexcept {
+bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
         return false;
     const auto& scene = g_app.message_composer_scene;
     const auto& layout = edit_layout();
     const auto model = message_composer_text(edit_model());
     const bool plain = plain_edit();
-    if (!g_app.renderer.dpi || !application_screen_to_content(&point))
+    if (!g_app.renderer.dpi)
         return false;
+    POINT point{client.x, client.y};
+    application_client_to_content(&point);
     const float scale = 96.0f / g_app.renderer.dpi;
     u32 hit = 0, byte = 0;
     const auto display = plain ? model : message_composer_scene_display_text(scene);
@@ -254,7 +257,7 @@ bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* 
         byte = message_composer_scene_model_offset_from_display(scene, byte);
     return utf8_utf16_position_for_byte_offset(model, byte, position);
 }
-bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipped) noexcept {
+bool range_geometry(void* opaque, u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
     if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
         return false;
     const auto& scene = g_app.message_composer_scene;
@@ -298,13 +301,12 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
         return false;
     *clipped = *clipped || !ui_rect_equal(rectangle, visible);
     POINT origin{};
-    if (!application_content_to_screen(&origin))
-        return false;
+    application_content_to_client(&origin);
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96.0f;
-    output->left = origin.x + static_cast<LONG>(visible.left * scale);
-    output->top = origin.y + static_cast<LONG>(visible.top * scale);
-    output->right = origin.x + static_cast<LONG>(visible.right * scale + 0.999f);
-    output->bottom = origin.y + static_cast<LONG>(visible.bottom * scale + 0.999f);
+    output->left = origin.x + static_cast<i32>(visible.left * scale);
+    output->top = origin.y + static_cast<i32>(visible.top * scale);
+    output->right = origin.x + static_cast<i32>(visible.right * scale + 0.999f);
+    output->bottom = origin.y + static_cast<i32>(visible.bottom * scale + 0.999f);
     return true;
 }
 } // namespace
@@ -318,13 +320,12 @@ bool application_composer_text_input_range_bounds(Utf8View text, u32 begin, u32 
         !utf8_utf16_position_for_byte_offset(model, minimum(begin, model.bytes), &first) ||
         !utf8_utf16_position_for_byte_offset(model, minimum(end, model.bytes), &last))
         return false;
-    RECT screen{};
+    SecureTextRect screen{};
     bool clipped = false;
     if (!range_geometry(input, first, last, &screen, &clipped))
         return false;
     POINT origin{};
-    if (!application_content_to_screen(&origin))
-        return false;
+    application_content_to_client(&origin);
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     *output = {(screen.left - origin.x) * scale, (screen.top - origin.y) * scale, (screen.right - origin.x) * scale,
                (screen.bottom - origin.y) * scale};
@@ -433,38 +434,39 @@ bool application_composer_text_input_composing() noexcept {
     auto* input = g_app.composer_text_input;
     return current_owner(input) && secure_text_store_composing(input->store);
 }
-bool application_composer_text_input_filter(const MSG& message) noexcept {
-    if (application_downloads_filter(message))
+bool application_composer_text_input_filter(const WindowEvent& event) noexcept {
+    if (application_downloads_filter(event))
         return true;
-    if (application_message_forward_filter(message))
+    if (application_message_forward_filter(event))
         return true;
-    if (application_quick_switcher_filter(message))
+    if (application_quick_switcher_filter(event))
         return true;
-    if (message.hwnd != g_app.window || (message.message != WM_KEYDOWN && message.message != WM_KEYUP))
+    if (!input_plain_key(event))
         return false;
     application_composer_text_input_synchronize();
     auto* input = g_app.composer_text_input;
     if (!input)
         return false;
-    const bool down = message.message == WM_KEYDOWN;
-    if (down && !(message.lParam & (1ll << 30)))
+    const bool down = event.type == EventType::key_down;
+    if (down && !input_key_was_down(event))
         input->held_key = 0;
-    const bool held = input->held_key && input->held_key == message.wParam;
+    const bool held = input->held_key && input->held_key == event.key.key;
     if (!down && held)
         input->held_key = 0;
     if (!input->target || input->failed)
         return held;
     const bool composing = application_composer_text_input_composing();
-    const bool eaten = secure_text_store_filter_message(&input->store, message);
+    const bool eaten = secure_text_store_filter_key(&input->store, event);
     // Enter may finish composition during TestKeyDown without being marked
     // eaten. Do not translate that same key into the application's send action.
+    const u32 code = event.key.key;
     const bool command =
-        message.wParam == key::enter || message.wParam == key::escape || message.wParam == key::tab ||
-        ((message.wParam == 'Z' || message.wParam == 'Y' || message.wParam == key::backspace ||
-          message.wParam == key::del || message.wParam == key::left || message.wParam == key::right) &&
-         (GetKeyState(key::ctrl) & 0x8000) && !(GetKeyState(key::alt) & 0x8000));
+        code == key::enter || code == key::escape || code == key::tab ||
+        ((code == 'Z' || code == 'Y' || code == key::backspace ||
+          code == key::del || code == key::left || code == key::right) &&
+         window_key_down(nullptr, key::ctrl) && !window_key_down(nullptr, key::alt));
     if (down && command && (composing || eaten) && input == g_app.composer_text_input)
-        input->held_key = static_cast<u32>(message.wParam);
+        input->held_key = code;
     return eaten || held || (composing && command);
 }
 } // namespace maicord::app_detail

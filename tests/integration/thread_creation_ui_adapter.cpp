@@ -8,6 +8,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
+#include "../support/window_fixture.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -155,9 +156,8 @@ bool thread_creation_ui_adapter_pointer(TextFormElement element) noexcept {
         const auto r = node->rectangle;
         const auto p = MAKELPARAM(static_cast<u16>((r.left + r.right) * .5f * g_app.renderer.dpi / 96.f),
             static_cast<u16>((r.top + r.bottom) * .5f * g_app.renderer.dpi / 96.f));
-        LRESULT result = 0;
-        return application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, p, &result) &&
-            application_text_form_window_message(WM_LBUTTONUP, 0, p, &result);
+        return application_text_form_window_event(window_test::pointer_down(window_test::x_of(p), window_test::y_of(p))) &&
+            application_text_form_window_event(window_test::pointer_up(window_test::x_of(p), window_test::y_of(p), PointerButton::left));
     }, &element);
 }
 bool thread_creation_ui_adapter_pointer_down(TextFormElement element) noexcept {
@@ -168,14 +168,12 @@ bool thread_creation_ui_adapter_pointer_down(TextFormElement element) noexcept {
         const auto r = node->rectangle;
         creation_adapter->pressed = MAKELPARAM(static_cast<u16>((r.left + r.right) * .5f * g_app.renderer.dpi / 96.f),
             static_cast<u16>((r.top + r.bottom) * .5f * g_app.renderer.dpi / 96.f));
-        LRESULT result = 0;
-        return application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, creation_adapter->pressed, &result);
+        return application_text_form_window_event(window_test::pointer_down(window_test::x_of(creation_adapter->pressed), window_test::y_of(creation_adapter->pressed)));
     }, &element);
 }
 bool thread_creation_ui_adapter_pointer_up() noexcept {
     return call(+[](void*) noexcept {
-        LRESULT result = 0;
-        return application_text_form_window_message(WM_LBUTTONUP, 0, creation_adapter->pressed, &result);
+        return application_text_form_window_event(window_test::pointer_up(window_test::x_of(creation_adapter->pressed), window_test::y_of(creation_adapter->pressed), PointerButton::left));
     });
 }
 bool thread_creation_ui_adapter_synchronize() noexcept {

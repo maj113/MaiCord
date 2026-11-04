@@ -13,8 +13,12 @@
 namespace maicord {
 // The app shake moves the composition visual; the fixture counts the moves.
 u32 shake_offsets, shake_rests;
-HRESULT d3d11_device_owner_set_offset(D3D11DeviceOwner*, float x, float y) noexcept {
+GpuStatus gpu_surface_set_offset(GpuSurface*, float x, float y, bool* needs_present) {
+    *needs_present = false;
     ++(x == 0 && y == 0 ? shake_rests : shake_offsets);
+    return 0;
+}
+GpuStatus gpu_surface_present(GpuSurface*, u32, const GpuRect*, u32) {
     return 0;
 }
 

@@ -302,7 +302,7 @@ void application_release_account_ui(Application& application) noexcept {
     application.message_composer_caret_blink_at_ms = 0;
     application.message_composer_caret_visible = false;
     const bool composer_had_capture =
-        application.message_composer_pointer_selection && GetCapture() == application.window;
+        application.message_composer_pointer_selection && window_pointer_captured(application.window);
     application.message_composer_pointer_selection = false;
     ui_widget_manager_capture(&application.message_composer_scene.widgets, ui_widget_invalid_handle());
     application.message_text_pointer_selection = false;
@@ -311,7 +311,7 @@ void application_release_account_ui(Application& application) noexcept {
     application.message_text_selection_caret = 0;
     renderer_clear_message_text_selection(&application.renderer);
     if (composer_had_capture) {
-        ReleaseCapture();
+        window_release_capture(application.window);
     }
     message_composer_scene_set_caret_visible(&application.message_composer_scene, false);
     message_event_pump_reset(&application.message_pump);

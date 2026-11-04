@@ -10,7 +10,10 @@
 #include "maicord/ui/chat/threads/header.hpp"
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
@@ -285,15 +288,33 @@ constexpr FontAsset text_fonts[]{{L"Segoe UI", nullptr, 0},
                                  {L"New Rocker", L"NewRocker.ttf", 0},
                                  {L"Kalam", L"Kalam.ttf", 0}};
 static_assert(sizeof(text_fonts) / sizeof(text_fonts[0]) == static_cast<u32>(UiTextFace::count));
+// The family of face `index`. The six system faces take the platform's own names: Windows names them in the table
+// above; Linux resolves the interface, display, serif, rounded, monospace and handwriting roles to installed families
+// (maicord/platform/font/default_fonts.hpp).
+__forceinline const wchar_t* text_font_family(const FontAsset& asset, u32 index) noexcept {
+#if defined(_WIN32)
+    (void)index;
+    return asset.family;
+#else
+    static constexpr DefaultFont roles[]{DefaultFont::ui,   DefaultFont::display,   DefaultFont::serif,
+                                         DefaultFont::rounded, DefaultFont::monospace, DefaultFont::handwriting};
+    return index < sizeof(roles) / sizeof(roles[0]) ? default_font_family(roles[index]) : asset.family;
+#endif
+}
+// Whether a file or directory exists at `path`.
+bool file_path_exists(const wchar_t* path) noexcept {
+    FileStat stat;
+    return file_path_stat(path, &stat);
+}
 bool profile_font_path(u32 index, wchar_t* path) noexcept {
     const auto* file_name = text_fonts[index].file;
     if (!file_name)
         return false;
-    const DWORD count = GetModuleFileNameW(nullptr, path, 1024);
+    const u32 count = executable_path(path, 1024);
     if (!count || count >= 900)
         return false;
     u32 at = count;
-    while (at && path[at - 1] != L'\\')
+    while (at && path[at - 1] != L'\\' && path[at - 1] != L'/')
         --at;
     const wchar_t prefix[] = L"fonts\\";
     for (u32 i = 0; i < 6; ++i)
@@ -332,14 +353,13 @@ bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u3
     const auto& asset = text_fonts[index];
     wchar_t path[1024]{};
     const bool private_font = asset.file != nullptr;
-    if (private_font &&
-        (!profile_font_path(index, path) || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES))
+    if (private_font && (!profile_font_path(index, path) || !file_path_exists(path)))
         return false;
     if (!system.native_text)
         return false;
     u32 scope{};
     return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
-           create_face_format(system, asset.family, scope, native_format);
+           create_face_format(system, text_font_family(asset, index), scope, native_format);
 }
 TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
     auto system = renderer->glyph_text.system;
@@ -361,9 +381,9 @@ TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcep
         u32 scope = 0;
         // Missing optional assets retain system-family fallback; existing files
         // are registered directly.
-        const bool available = private_path && GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
+        const bool available = private_path && file_path_exists(path);
         if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
-            create_face_format(system, text_fonts[index].family, scope, &system.native_format))
+            create_face_format(system, text_font_family(text_fonts[index], index), scope, &system.native_format))
             renderer->native_text_faces[index] = system.native_format;
     }
     system.tracking = text_fonts[index].tracking;

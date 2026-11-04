@@ -7,20 +7,21 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord {
 
 struct ClientPreferencesWriter {
     SrwLock lock;
-    HANDLE work_event;
-    HANDLE completion_event;
-    HANDLE thread;
+    Waitable work_event;
+    Waitable completion_event;
+    Thread* thread;
     ClientPreferences pending;
     ClientPreferencesResult completed_result;
     u64 requested_revision;
     u64 completed_revision;
     bool pending_ready;
-    long completion_ready;
+    Atomic32 completion_ready;
     bool stopping;
     bool explicit_path;
     wchar_t path[kAccountProfileMaximumPathCharacters];
@@ -35,13 +36,13 @@ bool reject(u32 error) noexcept {
 }
 
 void release_writer(ClientPreferencesWriter* writer) noexcept {
-    if (writer->thread) CloseHandle(writer->thread);
-    if (writer->completion_event) CloseHandle(writer->completion_event);
-    if (writer->work_event) CloseHandle(writer->work_event);
+    if (writer->thread) thread_close(writer->thread);
+    if (writer->completion_event) waitable_close(writer->completion_event);
+    if (writer->work_event) waitable_close(writer->work_event);
     heap_free(writer);
 }
 
-DWORD WINAPI write_preferences(void* context) noexcept {
+u32 write_preferences(void* context) noexcept {
     auto* writer = static_cast<ClientPreferencesWriter*>(context);
     for (;;) {
         ClientPreferences preferences{};
@@ -57,7 +58,7 @@ DWORD WINAPI write_preferences(void* context) noexcept {
         }
         ReleaseSRWLockExclusive(writer->lock.native());
         if (revision == 0) {
-            if (WaitForSingleObject(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
+            if (wait_one(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
             continue;
         }
 
@@ -70,7 +71,7 @@ DWORD WINAPI write_preferences(void* context) noexcept {
         writer->completed_revision = revision;
         writer->completed_result = result;
         write_release(&writer->completion_ready, 1);
-        SetEvent(writer->completion_event);
+        event_set(writer->completion_event);
         ReleaseSRWLockExclusive(writer->lock.native());
     }
 }
@@ -87,16 +88,15 @@ bool client_preferences_writer_create(ClientPreferencesWriter** output,
     if (!writer) return reject(ERROR_NOT_ENOUGH_MEMORY);
     writer->explicit_path = path != nullptr;
     for (u32 i = 0; i < length; ++i) writer->path[i] = path[i];
-    writer->work_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    writer->work_event = event_create(false, false);
     if (writer->work_event)
-        writer->completion_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        writer->completion_event = event_create(true, false);
     if (!writer->work_event || !writer->completion_event) {
         const u32 error = thread_last_error();
         release_writer(writer);
         return reject(error);
     }
-    writer->thread = CreateThread(nullptr, 64u * 1024u, write_preferences, writer,
-                                  STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    writer->thread = thread_start(write_preferences, writer, 64u * 1024u, nullptr);
     if (!writer->thread) {
         const u32 error = thread_last_error();
         release_writer(writer);
@@ -122,7 +122,7 @@ bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
     ReleaseSRWLockExclusive(writer->lock.native());
     // The worker rechecks pending_ready under the lock before it waits, and the event stays
     // signaled until it does.
-    SetEvent(writer->work_event);
+    event_set(writer->work_event);
     return true;
 }
 
@@ -145,7 +145,7 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
     *completed_revision = writer->completed_revision;
     *result = writer->completed_result;
     write_release(&writer->completion_ready, 0);
-    ResetEvent(writer->completion_event);
+    event_reset(writer->completion_event);
     ReleaseSRWLockExclusive(writer->lock.native());
     return true;
 }
@@ -156,11 +156,10 @@ bool client_preferences_writer_stop(ClientPreferencesWriter** output, u32 timeou
     if (!writer) return true;
     AcquireSRWLockExclusive(writer->lock.native());
     writer->stopping = true;
-    SetEvent(writer->work_event);
+    event_set(writer->work_event);
     ReleaseSRWLockExclusive(writer->lock.native());
-    const DWORD waited = WaitForSingleObject(writer->thread, timeout_ms);
-    if (waited != WAIT_OBJECT_0)
-        return reject(waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT);
+    if (!thread_wait(writer->thread, timeout_ms))
+        return reject(WAIT_TIMEOUT);
     release_writer(writer);
     *output = nullptr;
     return true;

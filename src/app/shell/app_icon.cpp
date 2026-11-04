@@ -1,34 +1,16 @@
 #include "app_icon.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/media/image/png.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 
-bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
+bool app_icon_decode(u32 extent, u32* pixels) noexcept {
     constexpr u32 kLargest = kAppIconLargestExtent;
-    const HRSRC group = module ? FindResourceW(module, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(14)) : nullptr;
-    const HGLOBAL group_data = group ? LoadResource(module, group) : nullptr;
-    const auto* directory = group_data ? static_cast<const u8*>(LockResource(group_data)) : nullptr;
-    const u32 directory_bytes = group ? SizeofResource(module, group) : 0;
-    if (!directory || directory_bytes < 6 || !pixels || !extent || extent > kLargest)
-        return false;
-    // GRPICONDIR: three WORDs, then 14-byte entries ending in the RT_ICON id.
-    const u32 count = minimum<u32>(directory[4] | directory[5] << 8, (directory_bytes - 6) / 14);
-    u32 best = 0, best_id = 0;
-    for (u32 i = 0; i < count; ++i) {
-        const u8* entry = directory + 6 + i * 14;
-        const u32 size = entry[0] ? entry[0] : 256;
-        if (size >= extent && size <= kLargest && (!best || size < best))
-            best = size, best_id = static_cast<u32>(entry[12] | entry[13] << 8);
-    }
-    const HRSRC image =
-        best ? FindResourceW(module, MAKEINTRESOURCEW(best_id), MAKEINTRESOURCEW(3)) : nullptr;
-    const HGLOBAL image_data = image ? LoadResource(module, image) : nullptr;
-    const auto* encoded = image_data ? static_cast<const u8*>(LockResource(image_data)) : nullptr;
-    if (!encoded)
+    u32 best = 0;
+    const ConstSlice<u8> encoded = window_app_icon_png(extent, kLargest, &best);
+    if (!encoded.data || !pixels || !extent || extent > kLargest)
         return false;
     struct Scratch {
         PngImage png;
@@ -40,7 +22,7 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
         return false;
     PngImage& png = scratch.data->png;
     const u8* scanlines = scratch.data->scanlines;
-    const auto decoded = png_decode_scanlines({encoded, SizeofResource(module, image)}, &png,
+    const auto decoded = png_decode_scanlines(encoded, &png,
                                               &scratch.data->workspace,
                                               {scratch.data->scanlines, static_cast<u32>(sizeof(Scratch::scanlines))});
     if (!decoded.ok() || png.width != best || png.height != best || png.color_type != 3 ||

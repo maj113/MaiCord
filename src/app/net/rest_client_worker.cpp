@@ -458,11 +458,11 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         destroy_client_storage(client, nullptr);
         return invalid_result();
     }
-    client->response_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    client->response_event = event_create(FALSE, FALSE);
     if (!client->response_event)
         return fail_start(client, RestClientError::event, thread_last_error());
     if (credential && !secure_buffer_transfer(&runtime->credential, credential)) {
-        CloseHandle(client->response_event);
+        waitable_close(client->response_event);
         client->response_event = nullptr;
         destroy_client_storage(client, nullptr);
         return invalid_result();
@@ -474,7 +474,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         if (credential && runtime->credential.data) {
             secure_buffer_transfer(credential, &runtime->credential);
         }
-        CloseHandle(client->response_event);
+        waitable_close(client->response_event);
         client->response_event = nullptr;
         return fail_start(client, RestClientError::worker, started.native_error);
     }

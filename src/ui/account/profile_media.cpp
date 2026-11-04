@@ -13,7 +13,6 @@
 #include "maicord/ui/guild/member_list_scene.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/media/core/asset.hpp"
 namespace maicord {
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {

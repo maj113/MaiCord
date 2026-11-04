@@ -401,11 +401,11 @@ void test_log_buffered_flush() noexcept {
     SetEnvironmentVariableW(L"LOCALAPPDATA", previous_length && previous_length < 1024 ? previous : nullptr);
 }
 #else
-// The same contract on the Linux log, whose file is <XDG_DATA_HOME>/maicord/logs/maicord.log and whose lines end in
-// "\n". The harness gives every test a private XDG_DATA_HOME ("test-profile" in its path); the test refuses any
+// The same contract on the Linux log, whose file is <XDG_STATE_HOME>/maicord/logs/maicord.log and whose lines end in
+// "\n". The harness gives every test a private XDG_STATE_HOME ("test-profile" in its path); the test refuses any
 // other, so it never deletes the user's log.
 void test_log_buffered_flush() noexcept {
-    const char* data_home = environment_get("XDG_DATA_HOME");
+    const char* data_home = environment_get("XDG_STATE_HOME");
     bool private_home = false;
     for (u32 start = 0; data_home && data_home[start] && !private_home; ++start) {
         const char* name = "test-profile";
@@ -415,7 +415,7 @@ void test_log_buffered_flush() noexcept {
     }
     wchar_t file[768]{};
     char path[2304]{};
-    bool ok = private_home && data_path(file, 768, L"logs/maicord.log", true).ok() &&
+    bool ok = private_home && state_path(file, 768, L"logs/maicord.log", true).ok() &&
               path_to_utf8(file, path, sizeof(path)) != 0 && log_open();
     const auto file_text = [&](char* output, u32 capacity) noexcept -> u32 {
         const long handle = sys_open(path, kOpenReadOnly);

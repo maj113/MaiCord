@@ -53,7 +53,10 @@ void run() noexcept {
         if (created) {
             context->vertex_shader = vertex;
             context->pixel_shader = pixel;
-            check(gles::graphics_program(context) != 0, pair.name);
+            // Without dual-source blending the composite pixel shader is its weight and colour halves, two programs.
+            check(pixel->name ? gles::graphics_program(context) != 0
+                              : gles::graphics_program(context, 1) != 0 && gles::graphics_program(context, 2) != 0,
+                  pair.name);
         }
         gpu_release(pixel);
         gpu_release(layout);

@@ -6,6 +6,7 @@
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -75,38 +76,41 @@ bool delete_effect_files(const wchar_t* root, Utf8View slug, const wchar_t* keep
     u32 length = 0;
     if (!folder_path(root, PackageLinkKind::effect, folder, &length))
         return false;
-    wchar_t pattern[560];
-    u32 pattern_length = 0;
-    pattern[0] = 0;
-    if (!wide_append(pattern, 560, &pattern_length, folder) || !wide_append(pattern, 560, &pattern_length, L"\\") ||
-        !append_ascii(pattern, 560, &pattern_length, slug.data, slug.bytes) ||
-        !wide_append(pattern, 560, &pattern_length, L"-*.mcfx"))
-        return false;
-    WIN32_FIND_DATAW found{};
-    const HANDLE search = FindFirstFileW(pattern, &found);
-    if (search == INVALID_HANDLE_VALUE)
-        return GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND;
+    DirIter search{};
+    if (!dir_open(&search, folder)) {
+        const u32 error = thread_last_error();
+        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+    }
     bool clean = true;
-    do {
+    DirEntry found{};
+    while (dir_next(&search, &found)) {
+        if (found.kind == FileKind::directory)
+            continue;
         // "<slug>-<16 hex>.mcfx" exactly: a longer slug that shares the prefix is another effect.
-        if (wide_length(found.cFileName, 200) != slug.bytes + 1 + 16 + 5)
+        if (wide_length(found.name, 200) != slug.bytes + 1 + 16 + 5)
             continue;
         bool digits = true;
+        for (u32 i = 0; i < slug.bytes; ++i)
+            digits = digits && ascii_lower(found.name[i]) == ascii_lower(static_cast<wchar_t>(static_cast<u8>(slug.data[i])));
+        digits = digits && found.name[slug.bytes] == L'-';
         for (u32 i = 0; i < 16; ++i) {
-            const wchar_t c = found.cFileName[slug.bytes + 1 + i];
+            const wchar_t c = found.name[slug.bytes + 1 + i];
             digits = digits && ((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'));
         }
+        static constexpr wchar_t kExtension[] = L".mcfx";
+        for (u32 i = 0; i < 5; ++i)
+            digits = digits && ascii_lower(found.name[slug.bytes + 1 + 16 + i]) == kExtension[i];
         wchar_t path[600];
         u32 path_length = 0;
         path[0] = 0;
         if (!digits || !wide_append(path, 600, &path_length, folder) || !wide_append(path, 600, &path_length, L"\\") ||
-            !wide_append(path, 600, &path_length, found.cFileName))
+            !wide_append(path, 600, &path_length, found.name))
             continue;
         if (keep && wide_length(keep, 600) == path_length && bytes_equal(keep, path, path_length * sizeof(wchar_t)))
             continue;
-        clean = DeleteFileW(path) && clean;
-    } while (FindNextFileW(search, &found));
-    FindClose(search);
+        clean = file_remove(path) && clean;
+    }
+    dir_close(&search);
     return clean;
 }
 } // namespace
@@ -135,7 +139,7 @@ bool package_uninstall(const wchar_t* root, PackageLinkKind kind, Utf8View slug)
     wchar_t path[512];
     u32 units = 0;
     return package_file_path(root, kind, slug, nullptr, {path, 512}, &units) &&
-           (DeleteFileW(path) || GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND);
+           (file_remove(path) || thread_last_error() == ERROR_FILE_NOT_FOUND || thread_last_error() == ERROR_PATH_NOT_FOUND);
 }
 
 } // namespace maicord

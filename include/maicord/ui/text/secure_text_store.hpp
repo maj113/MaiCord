@@ -3,7 +3,8 @@
 #include "maicord/ui/text/secure_edit.hpp"
 #include "maicord/ui/text/composition.hpp"
 
-#include "maicord/core/win32_records.hpp"
+#include "maicord/platform/window/event.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 
@@ -15,23 +16,32 @@ enum class SecureTextInputScope : u8 {
     digits,
 };
 
+// Client-space pixels of the window the store is attached to (origin: top-left of the client area, caption rows
+// included). The platform's text service turns them into what it needs (the Windows store makes screen rectangles,
+// a Wayland input method wants surface-local ones).
+struct SecureTextRect {
+    i32 left, top, right, bottom;
+};
+struct SecureTextPoint {
+    i32 x, y;
+};
 struct SecureTextStoreGeometry {
-    Win32Rect text_screen;
-    Win32Rect window_screen;
+    SecureTextRect text;    // the text area
+    SecureTextRect window;  // the area the text may appear in
 };
 
 // Geometry, range and point callbacks always receive non-null output pointers.
 using SecureTextStoreGeometryFunction = bool (*)(void* context, SecureTextStoreGeometry* geometry) noexcept;
 using SecureTextStoreChangedFunction = void (*)(void* context) noexcept;
 using SecureTextStoreRangeGeometryFunction = bool (*)(void* context, u32 first, u32 last,
-    RECT* rectangle, bool* clipped) noexcept;
+    SecureTextRect* rectangle, bool* clipped) noexcept;
 
-// Screen point to model UTF-16. Outside text, return the nearest edge and inside=false.
-using SecureTextStorePointFunction = bool (*)(void*, POINT, bool round_nearest,
+// Client point to model UTF-16. Outside text, return the nearest edge and inside=false.
+using SecureTextStorePointFunction = bool (*)(void*, SecureTextPoint, bool round_nearest,
     u32* position, bool* inside) noexcept;
 
 struct SecureTextStoreConfig {
-    HWND window;
+    NativeWindow window;  // the platform's window handle (window_surface_native)
     SecureTextStoreGeometryFunction geometry;
     SecureTextStoreChangedFunction changed;
     void* context;
@@ -71,9 +81,15 @@ bool secure_text_store_process_deferred() noexcept;
 bool secure_text_store_attach(SecureTextStore* store) noexcept;
 void secure_text_store_detach(SecureTextStore* store) noexcept;
 bool secure_text_store_attached(const SecureTextStore& store) noexcept;
-// Call before TranslateMessage/DispatchMessage. Consumed TSF key events must
-// not also reach application editing or generate a second WM_CHAR.
-bool secure_text_store_filter_message(SecureTextStore* store, const MSG& message) noexcept;
+// Call with a key_down or key_up event before the application handles it (WindowPumpHooks::key_prefilter).
+// Consumed key events must not also reach application editing or generate a second character event. Only a
+// text service that sees keys first (WindowCaps::key_prefilter: TSF) consumes any; the Windows store reads the
+// system message in event.native, the others return false.
+bool secure_text_store_filter_key(SecureTextStore* store, const WindowEvent& event) noexcept;
+// An input method's transaction (ime_preedit, ime_commit, ime_delete_surrounding): applied to the bound target and
+// shown through secure_text_store_composition like a TSF composition. True when the store took the event. Only the
+// stores of platforms whose input method talks through events take any; the Windows store never does.
+bool secure_text_store_ime_event(SecureTextStore* store, const WindowEvent& event) noexcept;
 
 // Binding a different windowless field rebuilds the TSF context. This ends any
 // prior composition and makes the new ITfInputScope value current.

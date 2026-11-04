@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/text/secure_edit.hpp"
+#include "maicord/ui/text/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/render/text/edit_layout.hpp"
@@ -160,8 +161,8 @@ inline void application_login_code_edited(LoginStatus* status) noexcept {
         *status = LoginStatus::recovery_phone_required;
 }
 
-// Device-pixel rectangle covering a DIP rectangle at `dpi`, offset by `origin`.
-inline RECT application_login_pixel_rect(const UiRect& rectangle, u32 dpi, POINT origin) noexcept {
+// Device-pixel rectangle covering a DIP rectangle at `dpi`, offset by `origin` (the content origin in client pixels).
+inline SecureTextRect application_login_pixel_rect(const UiRect& rectangle, u32 dpi, POINT origin) noexcept {
     const float scale = static_cast<float>(dpi) / 96.0f;
     const auto floor_pixel = [](float value) noexcept {
         const LONG pixel = static_cast<LONG>(value);
@@ -176,7 +177,7 @@ inline RECT application_login_pixel_rect(const UiRect& rectangle, u32 dpi, POINT
 }
 
 inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect bounds, u32 dpi,
-    POINT origin, u32 first, u32 last, RECT* output, bool* clipped, const UiRect* visible_bounds = nullptr) noexcept {
+    POINT origin, u32 first, u32 last, SecureTextRect* output, bool* clipped, const UiRect* visible_bounds = nullptr) noexcept {
     if (!output || !clipped || !dpi || !application_phone_edit_ready(&edit) || first > last || last > kLoginPhoneCodeDigits) return false;
     const auto original = login_phone_range_rectangle(bounds, first, last);
     if (!ui_rect_has_area(original)) return false;
@@ -191,8 +192,8 @@ inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect boun
 // relative to its scalar-safe 48-codepoint display window. This helper owns no
 // state and is shared by the production TSF callback and its geometry fixture.
 inline bool application_login_range_geometry(const SecureEdit& edit,
-    const TextEditLayoutOwner& layout, UiRect bounds, u32 dpi, POINT screen_origin,
-    u32 first, u32 last, RECT* output, bool* clipped) noexcept {
+    const TextEditLayoutOwner& layout, UiRect bounds, u32 dpi, POINT origin,
+    u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
     if (!output || !clipped || edit.password || !dpi || !layout.active ||
         !ui_rect_has_area(bounds) || first > last ||
         layout.viewport_left != bounds.left || layout.viewport_top != bounds.top ||
@@ -246,7 +247,7 @@ inline bool application_login_range_geometry(const SecureEdit& edit,
     const auto visible = ui_rect_intersection(rectangle, bounds);
     range_clipped = range_clipped || !ui_rect_equal(rectangle, visible);
     if (!ui_rect_has_area(visible)) { reset_value(output); *clipped = true; return true; }
-    *output = application_login_pixel_rect(visible, dpi, screen_origin);
+    *output = application_login_pixel_rect(visible, dpi, origin);
     *clipped = range_clipped;
     return true;
 }

@@ -22,7 +22,6 @@
 #include "../account/account_ui_runtime.hpp"
 #include "../plugins/pipeline_host.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -55,7 +54,7 @@ bool scope_current() noexcept {
 }
 ChatStateStore& state() noexcept { return g_app.account_ui->chat_state; }
 void wake() noexcept {
-    if (g_app.window) PostMessageW(g_app.window, WM_NULL, 0, 0);
+    if (g_app.window) window_wake(g_app.window);
 }
 Utf8View title(u64 channel_id, const Slice<char>& storage) noexcept {
     const auto* channel = chat_state_store_find_channel(state(), channel_id);

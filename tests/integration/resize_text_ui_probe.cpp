@@ -146,7 +146,7 @@ bool draw_with_caption(D3D11Renderer& renderer, const Theme& theme) noexcept {
     if (!renderer_present(&renderer, theme))
         return false;
     const float black[4]{0, 0, 0, 1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, black);
     d3d11_renderer_caption_invalidate(&renderer);
     if (!d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr))
         return false;
@@ -394,7 +394,7 @@ bool capture_words(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noex
     renderer.content_text = &content;
     renderer.overlay_text_first_batch = 1;
     const float black[4]{0, 0, 0, 1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, black);
     return capture(L"spacing-words.bmp");
 }
 

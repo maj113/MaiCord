@@ -853,7 +853,7 @@ bool shot(Fixture& f, D3D11Renderer& r, const wchar_t* name, float phase = 6.f) 
         !probe_present(&r, f.theme))
         return check(false, "present_failed");
     const float black[4]{0, 0, 0, 1};
-    r.graphics.context->ClearRenderTargetView(r.graphics.target, black);
+    r.graphics.context->ClearRenderTargetView(r.graphics.surface.target, black);
     if (!renderer_set_background_phase(&r, phase) ||
         !d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000))
         return check(false, "draw_failed");
@@ -887,7 +887,7 @@ bool size_window(Fixture& f, D3D11Renderer& r, u32 dpi) noexcept {
                                  static_cast<u32>(kHeight * scale) - caption) &&
                      renderer_set_caption(&r, state, utf8_literal("MaiCord Lab")) &&
                      icon <= kAppIconLargestExtent &&
-                     app_icon_decode(GetModuleHandleW(nullptr), icon, g_caption_icon) &&
+                     app_icon_decode(icon, g_caption_icon) &&
                      renderer_set_caption_icon(&r, g_caption_icon, icon),
                  "window_size_failed");
 }

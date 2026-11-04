@@ -6,7 +6,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/com.hpp"
 
 namespace maicord {
 struct AccountMediaVideoRuntime {
@@ -44,19 +43,17 @@ u32 progressive_refresh_delay(const ProgressiveVideoFetch* video, const Progress
         return kInfiniteWaitMilliseconds;
     return minimum(segmented_video_refresh_delay(video, now), segmented_video_refresh_delay(audio, now));
 }
-DWORD wait_video_events(const HANDLE* events, DWORD count, HANDLE timer, DWORD delay_ms) noexcept {
+DWORD wait_video_events(const Waitable* events, DWORD count, Waitable timer, DWORD delay_ms) noexcept {
     if (timer && delay_ms && delay_ms != INFINITE) {
-        Win32LargeInteger due{};
-        due.QuadPart = -static_cast<i64>(delay_ms) * 10000;
-        if (SetWaitableTimer(timer, due.native(), 0, nullptr, nullptr, FALSE)) {
-            HANDLE handles[]{events[0], events[1], count == 3 ? events[2] : timer, timer};
-            const DWORD result = WaitForMultipleObjects(count + 1, handles, FALSE, INFINITE);
+        if (timer_arm(timer, delay_ms, 0)) {
+            Waitable handles[]{events[0], events[1], count == 3 ? events[2] : timer, timer};
+            const DWORD result = wait_any(handles, count + 1, INFINITE);
             if (result != WAIT_OBJECT_0 + count)
-                CancelWaitableTimer(timer);
+                timer_cancel(timer);
             return result == WAIT_OBJECT_0 + count ? WAIT_TIMEOUT : result;
         }
     }
-    return WaitForMultipleObjects(count, events, FALSE, delay_ms);
+    return wait_any(events, count, delay_ms);
 }
 bool changed(const AccountVideoStatus& a, const AccountVideoStatus& b) noexcept {
     return a.kind != b.kind || a.live != b.live || a.duration_100ns != b.duration_100ns || a.has_audio != b.has_audio ||
@@ -92,14 +89,14 @@ void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fe
     v.snapshot.playback = status;
     ReleaseSRWLockExclusive(&v.lock);
     if (notify)
-        SetEvent(v.worker->output_event);
+        event_set(v.worker->output_event);
 }
 void publish_error(AccountMediaVideoRuntime& v, const AccountVideoResult& result) noexcept {
     AcquireSRWLockExclusive(&v.lock);
     v.snapshot.playback.error = result.error;
     v.snapshot.playback.native_error = result.native_error;
     ReleaseSRWLockExclusive(&v.lock);
-    SetEvent(v.worker->output_event);
+    event_set(v.worker->output_event);
 }
 bool selection_valid(const AccountVideoSelection& s) noexcept {
     return media_asset_key_valid(s.key) && s.identity.account_serial && s.identity.message_id &&
@@ -115,7 +112,7 @@ void publish_buffered(AccountMediaVideoRuntime& v, const AccountVideoBuffered& b
     v.snapshot.buffered = buffered;
     ReleaseSRWLockExclusive(&v.lock);
     if (notify)
-        SetEvent(v.worker->output_event);
+        event_set(v.worker->output_event);
 }
 bool consume_range(void* context, const CdnClientResponse& response, ConstSlice<u8> body) noexcept {
     account_media_accept_progressive(static_cast<AccountMedia*>(context), response, body);
@@ -170,7 +167,7 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
         v.snapshot.source_refresh = true;
     ReleaseSRWLockExclusive(&v.lock);
     if (notify)
-        SetEvent(v.worker->output_event);
+        event_set(v.worker->output_event);
     const u64 now = clock_monotonic_milliseconds();
     const u64 generation = progressive_video_fetch_generation(fetch) + progressive_video_fetch_generation(media.progressive_audio);
     if (generation != v.buffered_generation && now - v.buffered_at_ms >= kBufferedRefreshMs) {
@@ -236,7 +233,7 @@ bool account_media_video_offer_url(AccountMediaWorker* worker, MediaAssetKey key
     }
     ReleaseSRWLockExclusive(&v.lock);
     if (wanted)
-        SetEvent(worker->lanes[lane].command_event);
+        event_set(worker->lanes[lane].command_event);
     return wanted;
 }
 bool account_media_video_reserved(const AccountMediaWorker* worker, u32 lane) noexcept {
@@ -316,7 +313,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
         WriteRelease(&v.command_pending, 0); // every write is under v.lock; the lock-free readers need only a whole value
         WriteRelease(&v.selected_lane, static_cast<LONG>(index));
         ReleaseSRWLockExclusive(&v.lock);
-        if (!SetEvent(lane.command_event)) {
+        if (!event_set(lane.command_event)) {
             AcquireSRWLockExclusive(&v.lock);
             v.snapshot.playback.error = AccountVideoError::event;
             v.snapshot.playback.native_error = GetLastError();
@@ -325,7 +322,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
             ReleaseSRWLockExclusive(&v.lock);
             return failed(AccountVideoError::event, GetLastError());
         }
-        SetEvent(worker->output_event);
+        event_set(worker->output_event);
         return {AccountVideoError::none, 0, true, false};
     }
     ReleaseSRWLockExclusive(&v.lock);
@@ -360,7 +357,7 @@ AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker
     v.snapshot.playback.desired_command = command.command_serial;
     WriteRelease(&v.command_pending, 1);
     ReleaseSRWLockExclusive(&v.lock);
-    if (!SetEvent(worker->lanes[lane].command_event))
+    if (!event_set(worker->lanes[lane].command_event))
         return failed(AccountVideoError::event, GetLastError());
     return {AccountVideoError::none, 0, true, false};
 }
@@ -405,16 +402,15 @@ bool account_media_worker_video_acknowledge(AccountMediaWorker* worker,
     v.ack_serial = frame.frame_serial;
     v.ack_pending = true;
     ReleaseSRWLockExclusive(&v.lock);
-    return SetEvent(worker->lanes[lane].command_event) != FALSE;
+    return event_set(worker->lanes[lane].command_event) != FALSE;
 }
 bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) noexcept {
     if (!lane || !stopped || !account_media_video_reserved(lane->owner, lane->index))
         return false;
     auto& v = *lane->owner->video_runtime;
     *stopped = false;
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool owns_apartment = SUCCEEDED(apartment);
-    AccountVideoResult initialized = failed(AccountVideoError::decoder, static_cast<u32>(apartment));
+    const bool owns_apartment = thread_com_enter();
+    AccountVideoResult initialized = failed(AccountVideoError::decoder, owns_apartment ? 0u : ERROR_INVALID_STATE);
     auto* fetch = lane->media.progressive;
     if (owns_apartment) {
         if (account_media_audio_matches(&lane->media, v.selection.key,
@@ -466,11 +462,11 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     bool exit_selection = !initialized.ok();
     // Only queued video frames need precise deadlines. This one-shot timer is
     // never armed for paused playback, audio-only playback, or network waits.
-    const HANDLE frame_timer = initialized.ok() && v.session.video
-        ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS) : nullptr;
+    const Waitable frame_timer = initialized.ok() && v.session.video
+        ? timer_create_waitable(false, true) : nullptr;
     bool stopping = false;
     for (;;) {
-        stopping = WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+        stopping = wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
         AccountVideoControl command{};
         bool has_command = false, ack = false, discard = false;
         u64 ack_epoch = 0, ack_serial = 0;
@@ -512,7 +508,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
                 v.snapshot.playback.error = AccountVideoError::decoder;
                 v.snapshot.playback.release_pending = true;
                 ReleaseSRWLockExclusive(&v.lock);
-                SetEvent(lane->owner->output_event);
+                event_set(lane->owner->output_event);
                 exit_selection = true;
             }
         }
@@ -542,14 +538,14 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             v.snapshot.playback.release_pending = true;
             ReleaseSRWLockExclusive(&v.lock);
             if (notify)
-                SetEvent(lane->owner->output_event);
+                event_set(lane->owner->output_event);
             // worker_exited signals this borrowed event before the thread
             // handle becomes signaled. A bounded retry closes that race.
             const DWORD waited =
-                WaitForSingleObject(lane->command_event, released.error == AccountVideoError::release &&
-                                                                 released.native_error == WAIT_TIMEOUT
-                                                             ? 10
-                                                             : INFINITE);
+                wait_one(lane->command_event, released.error == AccountVideoError::release &&
+                                                       released.native_error == WAIT_TIMEOUT
+                                                   ? 10
+                                                   : INFINITE);
             if (waited != WAIT_OBJECT_0 && waited != WAIT_TIMEOUT)
                 break;
             continue;
@@ -582,7 +578,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             const u64 now = clock_unix_milliseconds() / 1000;
             delay = minimum<DWORD>(delay, progressive_refresh_delay(lane->media.progressive, lane->media.progressive_audio, now));
         }
-        const DWORD waited = stopping ? WaitForSingleObject(lane->command_event, delay)
+        const DWORD waited = stopping ? wait_one(lane->command_event, delay)
             : wait_video_events(handles, range_event ? 3 : 2,
                 v.session.held && !v.session.published && !v.session.status.buffering &&
                     delay == service.next_service_delay_ms ? frame_timer : nullptr, delay);
@@ -590,18 +586,18 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             exit_selection = true;
     }
     if (frame_timer)
-        CloseHandle(frame_timer);
+        waitable_close(frame_timer);
     // Only successful release allows the borrowed decoder/lane/module to retire.
     const bool retained = v.session.initialized || v.session.workspace;
     if (!retained) {
         if (fetch)
             progressive_retire(lane);
         if (owns_apartment)
-            CoUninitialize();
+            thread_com_leave();
         AcquireSRWLockExclusive(&v.lock);
         // Audio retirement may signal this borrowed event after the last wait.
         // Drain that wake while selection still excludes new generic work.
-        while (WaitForSingleObject(lane->command_event, 0) == WAIT_OBJECT_0) {
+        while (wait_one(lane->command_event, 0) == WAIT_OBJECT_0) {
         }
         v.snapshot.selected = false;
         v.snapshot.playback.playing = false;
@@ -615,7 +611,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         InterlockedExchange(&lane->phase, static_cast<LONG>(stopping ? AccountMediaWorkerPhase::stopped
                                                                      : AccountMediaWorkerPhase::idle));
         ReleaseSRWLockExclusive(&v.lock);
-        SetEvent(lane->owner->output_event);
+        event_set(lane->owner->output_event);
         *stopped = stopping;
     }
     if (retained) {
@@ -623,7 +619,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         // The lane terminates without freeing retained audio/source state.
         // Joined account stop still rejects destroy and quarantines the module.
         *stopped = true;
-        SetEvent(lane->owner->output_event);
+        event_set(lane->owner->output_event);
     }
     return true;
 }

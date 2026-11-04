@@ -5,6 +5,7 @@
 #include "maicord/ui/account/profile_dialog_scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct RestClientResponse;
@@ -30,7 +31,7 @@ bool application_profile_editor_synchronize() noexcept;
 bool application_profile_editor_input(UiInputKind, u32, bool) noexcept;
 struct SettingsLayer;
 SettingsLayer* application_profile_editor_settings_layer() noexcept;
-bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_profile_editor_window_event(const WindowEvent&) noexcept;
 bool application_profile_editor_submit(u64 now) noexcept;
 bool application_profile_editor_owns_response(u64 request_id) noexcept;
 bool application_profile_editor_response(const RestClientResponse&, Utf8View) noexcept;

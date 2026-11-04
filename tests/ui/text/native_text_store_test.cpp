@@ -175,12 +175,12 @@ struct Fixture {
                 {0, 0, 2000, 2000}};
         return true;
     }
-    static bool point(void* opaque, POINT p, bool round, u32* position, bool* inside) noexcept {
+    static bool point(void* opaque, SecureTextPoint p, bool round, u32* position, bool* inside) noexcept {
         auto& f = *static_cast<Fixture*>(opaque);
         return text_edit_layout_point_geometry(f.layout, (p.x - 100) / f.scale, (p.y - 200) / f.scale,
                                                  round, position, inside);
     }
-    static bool range(void* opaque, u32 first, u32 last, RECT* out, bool* clipped) noexcept {
+    static bool range(void* opaque, u32 first, u32 last, SecureTextRect* out, bool* clipped) noexcept {
         auto& f = *static_cast<Fixture*>(opaque);
         TextEditMetric metrics[48]{};
         u32 count = 0;
@@ -204,8 +204,8 @@ struct Fixture {
                 100 + static_cast<LONG>(right * f.scale), 200 + static_cast<LONG>(bottom * f.scale)};
         SecureTextStoreGeometry view{};
         bounds(opaque, &view);
-        *clipped = out->left < view.text_screen.left || out->top < view.text_screen.top ||
-                   out->right > view.text_screen.right || out->bottom > view.text_screen.bottom;
+        *clipped = out->left < view.text.left || out->top < view.text.top ||
+                   out->right > view.text.right || out->bottom > view.text.bottom;
         return true;
     }
 };
@@ -290,13 +290,13 @@ struct Sink final : ITextStoreACPSink {
         }
         SecureTextStoreGeometry view{};
         Fixture::bounds(fixture, &view);
-        const LONG columns = (view.text_screen.right - view.text_screen.left + 6) / 7 + 1;
-        const LONG rows = (view.text_screen.bottom - view.text_screen.top + 6) / 11 + 1;
+        const LONG columns = (view.text.right - view.text.left + 6) / 7 + 1;
+        const LONG rows = (view.text.bottom - view.text.top + 6) / 11 + 1;
         expected_records += static_cast<u32>(columns * rows * 4);
         const DWORD point_flags[]{0, GXFPF_NEAREST, GXFPF_ROUND_NEAREST,
                                   GXFPF_NEAREST | GXFPF_ROUND_NEAREST};
-        for (LONG y = view.text_screen.top - 3; y <= view.text_screen.bottom + 3; y += 11)
-            for (LONG x = view.text_screen.left - 3; x <= view.text_screen.right + 3; x += 7)
+        for (LONG y = view.text.top - 3; y <= view.text.bottom + 3; y += 11)
+            for (LONG x = view.text.left - 3; x <= view.text.right + 3; x += 7)
                 for (DWORD flags : point_flags) {
                     POINT point{x, y};
                     LONG position = -1;

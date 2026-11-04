@@ -3,6 +3,7 @@
 #include "../shell/log_fields.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
@@ -906,16 +907,17 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     if (path[builder.used - 1] != L'\\')
         builder.append(L"\\");
     builder.append(L"MaiCord");
-    CreateDirectoryW(path, nullptr);
+    dir_create(path);
     builder.append(L"\\notification-avatars");
-    CreateDirectoryW(path, nullptr);
+    dir_create(path);
     builder.append(L"\\");
     builder.append_hex(user_id, 16);
     builder.append(L"-");
     builder.append_hex(variant, 8);
     builder.append(L".png");
     // One file per user and avatar hash: an existing file already holds these pixels.
-    if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
+    FileStat cached{};
+    if (!file_path_stat(path, &cached)) {
         const u32 pixels_bytes = resident.width * resident.height * 4u;
         const u64 png_bytes = clipboard_image_png_bytes(resident.width, resident.height);
         if (!png_bytes || png_bytes > 1u << 20)
@@ -929,16 +931,15 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
                                                   {memory + pixels_bytes, static_cast<u32>(png_bytes)}) ==
                            clipboard_image_png_bytes(width, height);
         if (written) {
-            const HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL,
-                                            nullptr);
-            DWORD count = 0;
-            const DWORD bytes = static_cast<DWORD>(clipboard_image_png_bytes(width, height));
+            const HANDLE file = file_open(path, {FileAccess::write, FileCreate::create_new, 0, 0});
+            u32 count = 0;
+            const u32 bytes = static_cast<u32>(clipboard_image_png_bytes(width, height));
             written = file != INVALID_HANDLE_VALUE &&
-                      WriteFile(file, memory + pixels_bytes, bytes, &count, nullptr) && count == bytes;
+                      file_write(file, memory + pixels_bytes, bytes, &count) && count == bytes;
             if (file != INVALID_HANDLE_VALUE)
-                CloseHandle(file);
+                file_close(file);
             if (!written)
-                DeleteFileW(path);
+                file_remove(path);
         }
         pages_release(memory);
         if (!written)

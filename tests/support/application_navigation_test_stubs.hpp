@@ -20,10 +20,10 @@ void renderer_bind_focus_owner(D3D11Renderer* r, const UiWidgetManager* owner) n
     if (r)
         r->focus_owner = owner;
 }
-bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
+bool clipboard_write_utf8(const Utf8View&) noexcept {
     return true;
 }
-ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
+ClipboardTextResult clipboard_read_utf8(const Slice<char>&) noexcept {
     return {0, ClipboardTextError::unavailable};
 }
 namespace app_detail {
@@ -149,19 +149,19 @@ bool application_account_menu_key(u32) noexcept {
 bool application_voice_message_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool application_login_handle_key(WPARAM, bool) noexcept {
+bool application_login_handle_key(u32, bool) noexcept {
     return true;
 }
-bool application_login_handle_character(WPARAM) noexcept {
+bool application_login_handle_character(u32) noexcept {
     return true;
 }
 bool application_account_switch_login_escape() noexcept {
     return false;
 }
-bool handle_reaction_viewer_key(WPARAM) noexcept {
+bool handle_reaction_viewer_key(u32) noexcept {
     return true;
 }
-bool handle_popup_key(WPARAM) noexcept {
+bool handle_popup_key(u32) noexcept {
     return false;
 }
 bool application_profile_key(u32, bool, bool) noexcept {
@@ -199,18 +199,18 @@ bool handle_composer_button_key(u32, bool, bool) noexcept {
 bool application_attachment_strip_key(u32) noexcept {
     return false;
 }
-bool handle_composer_character(WPARAM) noexcept {
+bool handle_composer_character(u32) noexcept {
     ++navigation_runtime_test::underlying_input;
     return true;
 }
-bool handle_composer_key(WPARAM) noexcept {
+bool handle_composer_key(u32) noexcept {
     ++navigation_runtime_test::underlying_input;
     return true;
 }
 bool application_message_action_bar_modifiers_changed() noexcept {
     return false;
 }
-bool handle_message_key(WPARAM) noexcept {
+bool handle_message_key(u32) noexcept {
     ++navigation_runtime_test::underlying_input;
     return true;
 }

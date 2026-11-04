@@ -8,6 +8,7 @@
 #include "maicord/os/wait.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/wayland/click.hpp"
+#include "maicord/platform/window/wayland/post_queue.hpp"
 #include "maicord/platform/window/wayland/repeat.hpp"
 #include "maicord/platform/window/wayland/xkb.hpp"
 #include "maicord/platform/window/window.hpp"
@@ -67,6 +68,8 @@ struct PointerState {
     wl_surface* cursor_surface;  // the wl_cursor fallback
     CursorTheme* theme;
     u32 theme_scale;
+    u32 theme_size;       // the nominal size the theme was loaded for
+    char theme_name[64];  // empty: the library's default theme
 };
 
 struct KeyboardState {
@@ -88,15 +91,103 @@ struct KeyboardState {
     i32 repeat_delay;  // milliseconds
     KeyRepeat repeat;
     Waitable repeat_timer;
-    // The text a repeating key produced when it went down.
-    u16 repeat_text[4];
-    u32 repeat_text_units;
-    u8 repeat_key;
-    u8 repeat_flags;
     // Keys currently down: per evdev code the portable key it was pressed as (0 = up).
     u8 down_key[768];
     u8 down_specific[768];
     u8 held_count[256];  // by Key, generic and side-specific
+};
+
+// The frame the app draws (client-side decorations): what the last hit_test said and which presses were taken.
+struct FrameState {
+    FrameHit hover;
+    u8 consumed_buttons;  // 1 << PointerButton: presses the window took, whose releases it takes too
+};
+
+// The Linux mime types the clipboard and drag-and-drop code recognises, as bits of an offer.
+enum MimeBit : u32 {
+    mime_text_utf8 = 1,   // text/plain;charset=utf-8
+    mime_text_plain = 2,  // text/plain
+    mime_utf8_string = 4, // UTF8_STRING
+    mime_png = 8,         // image/png
+    mime_html = 16,       // text/html
+    mime_uri_list = 32,   // text/uri-list
+    mime_gnome_files = 64, // x-special/gnome-copied-files
+    mime_any_text = mime_text_utf8 | mime_text_plain | mime_utf8_string,
+};
+
+inline constexpr u32 kMaxOffers = 8;
+
+struct OfferSlot {
+    void* offer;  // wl_data_offer* or zwp_primary_selection_offer_v1*
+    u32 mimes;    // MimeBit
+    bool primary;
+};
+
+// What a selection we own offers; freed when the source is cancelled or replaced.
+struct Payload {
+    u8* text;
+    u32 text_bytes;
+    u8* png;
+    u32 png_bytes;
+    u8* html;
+    u32 html_bytes;
+};
+
+struct DataState {
+    wl_data_device* device;
+    zwp_primary_selection_device_v1* primary_device;
+    OfferSlot offers[kMaxOffers];
+    OfferSlot* selection;          // the clipboard, as announced
+    OfferSlot* primary_selection;  // the primary selection
+    OfferSlot* drag;               // the offer being dragged over the window
+    u32 drag_serial;
+    bool drag_accepts;
+    bool drop_target;              // window_set_drop_target
+    wl_data_source* source;                       // the clipboard we own
+    Payload* payload;
+    zwp_primary_selection_source_v1* primary_source;
+    Payload* primary_payload;
+};
+
+inline constexpr u32 kImeUnits = 8192;
+inline constexpr u32 kImeBytes = 4096;
+
+// zwp_text_input_v3 (IME): what the app asked for and the transaction being collected until `done`.
+struct TextState {
+    zwp_text_input_v3* input;
+    bool entered;  // the compositor gave the text input the window's focus
+    bool wanted;   // the app has text input enabled (applied on enter if not entered yet)
+    bool had_preedit;  // the last done left a preedit on screen: the next one must clear it
+    bool enabled;  // enable was sent for this focus
+    u32 commits;   // commit requests sent: done(serial) is for the latest when equal
+    // The surrounding text last sent, to turn UTF-8 byte counts of delete_surrounding_text into UTF-16 units.
+    char surrounding[4004];
+    u32 surrounding_bytes;
+    u32 cursor_byte;
+    // The pending transaction.
+    char preedit[kImeBytes];
+    u32 preedit_bytes;
+    bool preedit_present;
+    i32 preedit_begin, preedit_end;  // bytes, -1 when there is no cursor
+    char commit[kImeBytes];
+    u32 commit_bytes;
+    bool commit_present;
+    u32 delete_before, delete_after;  // bytes
+    // Text of ime events lives here until the pump hands it to the sink (ring of units).
+    u16 units[kImeUnits];
+    u32 unit_cursor;
+};
+
+struct ExtrasState {
+    xdg_activation_token_v1* token;
+    u32 tokens_done;
+    zwp_idle_inhibitor_v1* inhibitor;
+    EglWindow* egl;
+    // wl_output scales, for compositors without fractional scale.
+    wl_output* outputs[8];
+    u32 output_scale[8];
+    bool output_entered[8];
+    u32 preferred_integer;  // wl_surface.preferred_buffer_scale, 0 until sent
 };
 
 struct WindowState {
@@ -161,6 +252,19 @@ struct Backend {
     bool quit;
     int exit_code;
     u32 wake_pending;  // atomic: window_wake was called since the last pump
+    u32 input_serial;  // the serial of the latest key or button press: what selections and activation ask for
+
+    wl_data_device_manager* data_manager;
+    zwp_primary_selection_device_manager_v1* primary_manager;
+    zwp_text_input_manager_v3* text_input_manager;
+    xdg_activation_v1* activation_manager;
+    zwp_idle_inhibit_manager_v1* idle_manager;
+    FrameState frame;
+    DataState data;
+    TextState text;
+    ExtrasState extras;
+    PostQueue post;
+    u32 post_ready;  // atomic: the queue is initialised (window_create ran)
 };
 
 extern Backend g;
@@ -183,6 +287,10 @@ u32 dpi_of_scale(u32 scale_120) noexcept;
 // Client pixels per logical unit.
 float pixel_scale() noexcept;
 void present_clear() noexcept;
+// The viewport destination or integer buffer scale of the surface (applied by the next commit).
+void apply_surface_geometry() noexcept;
+// A new scale from an integer source (wl_output, preferred_buffer_scale) or fractional-scale: scale_120.
+void window_scale_changed(u32 scale_120) noexcept;
 // Dispatches until `done()` is true, the connection fails or `timeout_ms` passes.
 bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept;
 void connection_check() noexcept;
@@ -220,5 +328,37 @@ Waitable keyboard_repeat_waitable() noexcept;
 
 void global_keys_set(Key key, bool down) noexcept;
 void global_keys_clear() noexcept;
+
+// frame.cpp ----------------------------------------------------------------------------------------------------------
+
+// Cursor codes at or above this are frame hits (kFrameCursorBase + FrameHit); below are UiCursor values.
+inline constexpr u8 kFrameCursorBase = 32;
+// Client-side decorations: asks the app where a pointer event lies (hit_test) and takes the presses that start a move,
+// a resize, a maximize or the window menu. True when the window took the event and the app must not see it. Also
+// records the hit under the pointer for the cursor.
+bool frame_filter(const WindowEvent& event) noexcept;
+
+// data.cpp -----------------------------------------------------------------------------------------------------------
+
+// Creates the data and primary-selection devices once the seat and the managers are bound.
+void data_attach() noexcept;
+void data_shutdown() noexcept;
+
+// text_input.cpp -----------------------------------------------------------------------------------------------------
+
+void text_attach() noexcept;
+void text_shutdown() noexcept;
+
+// extras.cpp ---------------------------------------------------------------------------------------------------------
+
+// The wl_surface listener (enter/leave an output, preferred buffer scale), idle inhibitor and activation state.
+void extras_attach_surface() noexcept;
+void extras_output_added(wl_output* output) noexcept;
+void extras_shutdown() noexcept;
+// Keeps the wl_egl_window and the surface's scale state in step with the window size.
+void egl_sync() noexcept;
+
+// pump.cpp: the queue behind window_post, drained into wake events.
+void post_drain() noexcept;
 
 } // namespace maicord::wayland

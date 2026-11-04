@@ -2,6 +2,7 @@
 #include "maicord/protocol/media/attachment_upload.hpp"
 #include "maicord/app/chat/composer/message_attachment_drafts.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/dropped_files.hpp"
 
 namespace maicord {
 struct UiRect;
@@ -15,8 +16,8 @@ namespace maicord::app_detail {
 bool application_pick_attachments() noexcept;
 // Upload a file or Create poll; the file picker directly when polls are unavailable.
 bool application_attachment_add_menu() noexcept;
-// Consumes the WM_DROPFILES handle on every path, including rejection.
-bool application_drop_attachments(HANDLE drop) noexcept;
+// Consumes the dropped files on every path, including rejection.
+bool application_drop_attachments(DroppedFiles* drop) noexcept;
 bool application_paste_attachments() noexcept;
 u64 application_attachment_limit(u64 channel_id) noexcept;
 void application_sync_attachment_drop_target() noexcept;

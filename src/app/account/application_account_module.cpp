@@ -77,6 +77,7 @@
 #include "../shell/log_fields.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -901,7 +902,7 @@ bool application_account_return_to_login(bool rejected) noexcept {
         if (account_paths_resolve(&paths).ok()) {
             const wchar_t* invalidated[] = {paths.profile, paths.session, paths.shell};
             for (const auto* path : invalidated)
-                if (!DeleteFileW(path) && !win32_error_is_missing_file(thread_last_error()))
+                if (!file_remove(path) && !win32_error_is_missing_file(thread_last_error()))
                     log_write(LogLevel::warning, "auth", "invalidated_session_removal_failed");
         }
     }
@@ -1060,9 +1061,9 @@ bool application_account_prestart() noexcept {
     // Pending logout recovery and every diagnostic path need the UI; attach
     // repeats these probes with logging when this early start declines.
     const AccountCredentialForgetResult forget = account_credential_forget_probe(early.paths);
-    const DWORD attributes = GetFileAttributesW(early.paths.profile);
-    if (!forget.ok() || forget.pending || attributes == INVALID_FILE_ATTRIBUTES ||
-        (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    FileStat profile{};
+    const bool profile_found = file_path_stat(early.paths.profile, &profile);
+    if (!forget.ok() || forget.pending || !profile_found || profile.kind == FileKind::directory)
         return false;
     early.failed = true;
     if (!application_account_module_load())
@@ -1135,8 +1136,8 @@ bool application_account_attach_if_present() noexcept {
     }
     if (!application_account_logout_prepare_startup(&paths))
         return true;
-    const DWORD profile_attributes = GetFileAttributesW(paths.profile);
-    if (profile_attributes == INVALID_FILE_ATTRIBUTES) {
+    FileStat profile{};
+    if (!file_path_stat(paths.profile, &profile)) {
         const u32 error = thread_last_error();
         if (win32_error_is_missing_file(error)) {
             log_write(LogLevel::info, "account", "normal_user_profile_absent");
@@ -1145,7 +1146,7 @@ bool application_account_attach_if_present() noexcept {
         log_u64(LogLevel::warning, "account", "profile_probe_native_error", error);
         return true;
     }
-    if ((profile_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    if (profile.kind == FileKind::directory) {
         log_write(LogLevel::error, "account", "profile_path_is_directory");
         return true;
     }

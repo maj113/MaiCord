@@ -27,6 +27,9 @@ namespace maicord {
 // one. Null and false when the system refuses.
 void* pages_map(usize bytes, bool committed) noexcept;
 bool pages_unmap(void* base, usize hint_bytes) noexcept;
+// The base of the recorded range that holds `address` (what VirtualQuery reports as AllocationBase), or null when
+// the address is in none. Linear in the table: for diagnostics and tests, not for hot paths.
+void* pages_range_base(const void* address) noexcept;
 #endif
 
 __forceinline void* pages_reserve(usize bytes) noexcept {
@@ -57,12 +60,16 @@ __forceinline bool pages_commit(void* address, usize bytes) noexcept {
 }
 
 // pages_commit for a caller that tests or compares the result as VirtualAlloc's: `address` on success, null when
-// the system refuses.
+// the system refuses. Like VirtualAlloc it commits whole pages: an address inside a page commits that page and a size
+// that ends inside one commits through its end.
 __forceinline void* pages_commit_at(void* address, usize bytes) noexcept {
 #if defined(_WIN32)
     return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE);
 #else
-    return pages_commit(address, bytes) ? address : nullptr;
+    const usize page = process_startup().page_size;
+    const usize start = reinterpret_cast<usize>(address) & ~(page - 1);
+    const usize end = (reinterpret_cast<usize>(address) + bytes + page - 1) & ~(page - 1);
+    return pages_commit(reinterpret_cast<void*>(start), end - start) ? address : nullptr;
 #endif
 }
 

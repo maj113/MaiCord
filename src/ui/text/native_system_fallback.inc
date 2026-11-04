@@ -1,8 +1,15 @@
 namespace {
+#if defined(_WIN32)
 #include "generated/system_fallback_data.inc"
+constexpr u32 fallback_route_limit=system_fallback_max_families;
+const NativeFallbackCascade& fallback_policy(const NativeTextCatalogs&) noexcept {return system_fallback_policy;}
+#else
+#include "generated/linux_fallback_data.inc"
+#include "native_system_fallback_routes.inc"
+#endif
 constexpr u32 fallback_candidate_mask=0x1fffffu;
 struct BaseCoverage {const NativeFontFace* font;u32 candidate;};
-struct RoutingTargets {const FamilyOrder* values[system_fallback_max_families];};
+struct RoutingTargets {const FamilyOrder* values[fallback_route_limit];};
 static_assert(sizeof(BaseCoverage)<=sizeof(RoutingTargets));
 struct SystemMapping {
     NativeTextCatalogs* owner;Arena* scratch;NativeFontProperties properties;const FamilyOrder* base;
@@ -69,17 +76,26 @@ SfntStatus system_base(void* context,u32 cp,u32* output) noexcept {
     auto& m=*static_cast<SystemMapping*>(context);return system_family(m,*m.base,cp,output);
 }
 SfntStatus system_route(void* context,u32 cp,u32* output) noexcept {
-    auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_cascade_find(system_fallback_policy,cp);
+    auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_cascade_find(fallback_policy(*m.owner),cp);
     if(!m.bound){m.targets={};m.route=*output;m.bound=true;}return SfntStatus::ok;
 }
 SfntStatus system_font(void* context,u32 cp,u32* output) noexcept {
     auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_missing;if(!m.bound)return SfntStatus::invalid_input;
-    if(m.route==native_fallback_missing)return SfntStatus::ok;const auto& range=system_fallback_policy.ranges[m.route];
+    if(m.route==native_fallback_missing)return SfntStatus::ok;
+#if defined(_WIN32)
+    const auto& range=system_fallback_policy.ranges[m.route];
     for(u32 i=0;i<range.count;++i){auto*& family=m.targets.values[i];if(!family){const auto& name=system_fallback_families[system_fallback_policy.tokens[range.offset+i]];u16 wide[64];
             for(u32 j=0;j<name.count;++j)wide[j]=static_cast<u8>(system_fallback_names[name.offset+j]);
             if(!family_order(*m.owner,{0,{wide,name.count},m.properties},*m.scratch,&family))return SfntStatus::invalid_input;}
         const auto status=system_family(m,*family,cp,output);if(status!=SfntStatus::ok||*output!=native_fallback_missing)return status;
     }return SfntStatus::ok;
+#else
+    const auto* route=route_families(*m.owner,m.route);if(!route)return SfntStatus::invalid_input;
+    for(u32 i=0;i<route->count;++i){auto*& family=m.targets.values[i];
+        if(!family&&!family_order(*m.owner,{0,route->names[i],m.properties},*m.scratch,&family))return SfntStatus::invalid_input;
+        const auto status=system_family(m,*family,cp,output);if(status!=SfntStatus::ok||*output!=native_fallback_missing)return status;
+    }return SfntStatus::ok;
+#endif
 }
 // Tokens come from system_family in this same query, so their scope and candidate exist.
 SfntStatus system_cover(void* context,u32 font,u32 cp,bool* output) noexcept {
@@ -90,6 +106,9 @@ SfntStatus system_cover(void* context,u32 font,u32 cp,bool* output) noexcept {
 }
 bool native_text_catalog_range(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
     if(output)*output={{native_fallback_missing,{},0},0,0,native_fallback_missing};
+#if !defined(_WIN32)
+    LocatorIdle idle{owner};
+#endif
     if(!owner||!output||!session||!scratch||!scratch->base||query.scope>=owner->count||!query.family.data||!query.family.count||query.family.count>32767||!text.data||!text.bytes)return false;
     const auto props=query.properties;
     if(props.width!=5||(props.weight!=400&&props.weight!=600)||(props.style!=0&&props.style!=2))return false;

@@ -25,7 +25,7 @@
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/sys/shell.hpp"
 
@@ -93,11 +93,11 @@ bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift
     const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (control && (key == 'C' || key == 'X')) {
-        if (last > first && clipboard_write_utf8(g_app.window, {model.text + first, last - first}) && key == 'X')
+        if (last > first && clipboard_write_utf8({model.text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(&model, first, last, {});
     } else if (control && key == 'V') {
         char text[kSettingsSearchBytes];
-        const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        const auto read = clipboard_read_utf8({text, sizeof(text)});
         u32 kept = 0;
         // One line: stop at the first control character, like a pasted query.
         while (read.ok() && kept < read.bytes) {
@@ -331,7 +331,7 @@ void application_media_auth_poll() noexcept {
             auto* text = reinterpret_cast<wchar_t*>(wide.data);
             for (u32 i = 0; i < url.bytes; ++i) text[i] = static_cast<wchar_t>(url.data[i]);
             text[url.bytes] = 0;
-            opened = reinterpret_cast<usize>(ShellExecuteW(g_app.window, L"open", text, nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+            opened = reinterpret_cast<usize>(ShellExecuteW(win32_hwnd(g_app.window), L"open", text, nullptr, nullptr, SW_SHOWNORMAL)) > 32;
         }
         secure_buffer_release(&wide); secure_buffer_release(&url);
         account.launched = true;

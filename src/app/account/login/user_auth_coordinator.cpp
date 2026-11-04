@@ -1,5 +1,6 @@
 #include "user_auth_coordinator_internal.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/protocol/auth/browser_sign_in.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -365,7 +366,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_reset(UserAuthCoordinator
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     if (coordinator->state.phase == UserAuthCoordinatorPhase::failed ||
         coordinator->state.phase == UserAuthCoordinatorPhase::stopping ||
-        (runtime->continuation_retry_at_ms && GetTickCount64() < runtime->continuation_retry_at_ms))
+        (runtime->continuation_retry_at_ms && clock_monotonic_milliseconds() < runtime->continuation_retry_at_ms))
         return fail(coordinator, UserAuthCoordinatorError::state);
     const bool retry = token == nullptr;
     if (retry ? !runtime->reset_prefix_retry || !runtime->continuation_token_bytes :
@@ -415,7 +416,7 @@ static UserAuthCoordinatorResult submit_reset_mfa(UserAuthCoordinator* coordinat
         runtime->flow.phase != UserAuthPhase::mfa_required || !runtime->continuation_base_bytes ||
         !runtime->ticket_bytes || !(runtime->mfa_capabilities & login_mfa_capability(input.type)) ||
         input.captcha_key || !locked_input(input.code, user_auth_mfa_data_maximum(input.type)) ||
-        (runtime->continuation_retry_at_ms && GetTickCount64() < runtime->continuation_retry_at_ms))
+        (runtime->continuation_retry_at_ms && clock_monotonic_milliseconds() < runtime->continuation_retry_at_ms))
         return fail(coordinator, UserAuthCoordinatorError::state);
     UserAuthState next = runtime->flow;
     if (!user_auth_state_begin_mfa(&next, input.type).ok()) return fail(coordinator, UserAuthCoordinatorError::state);
@@ -520,7 +521,7 @@ static UserAuthCoordinatorResult submit_phone(UserAuthCoordinator* coordinator, 
     if (!runtime || runtime->reset_owner || runtime->transport_stopped || !runtime->phone_context_active ||
         runtime->active_request_id || runtime->flow.phase != UserAuthPhase::recovery_phone_required ||
         !runtime->continuation_base_bytes || runtime->continuation_base_bytes > kPhoneTokenOffset ||
-        runtime->continuation_token_bytes || (runtime->continuation_retry_at_ms && GetTickCount64() < runtime->continuation_retry_at_ms))
+        runtime->continuation_token_bytes || (runtime->continuation_retry_at_ms && clock_monotonic_milliseconds() < runtime->continuation_retry_at_ms))
         return fail(coordinator, UserAuthCoordinatorError::state);
     if (verify && (!locked_input(code, kUserAuthPhoneCodeBytes) ||
         overlaps_auth_owner(coordinator, runtime, code, sizeof(*code)) ||
@@ -716,7 +717,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_sms_send(UserAuthCoordina
         !runtime->ticket_bytes || runtime->active_request_id ||
         (runtime->reset_context_active && (!runtime->continuation_base_bytes ||
             !(runtime->mfa_capabilities & user_auth_mfa_capability_sms))) ||
-        (runtime->continuation_retry_at_ms && GetTickCount64() < runtime->continuation_retry_at_ms))
+        (runtime->continuation_retry_at_ms && clock_monotonic_milliseconds() < runtime->continuation_retry_at_ms))
         return fail(coordinator, UserAuthCoordinatorError::state);
     const u32 offset = runtime->reset_context_active ? runtime->continuation_base_bytes : 0;
     const auto written = user_auth_write_mfa_sms_send_request(

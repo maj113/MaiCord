@@ -22,9 +22,9 @@ bool dispatch_fixture_decoder_acknowledge(Mp4Decoder*) noexcept;
 bool dispatch_fixture_matches(const AccountMedia*, MediaAssetKey, u16) noexcept;
 bool dispatch_fixture_audio_matches(const AccountMedia*, MediaAssetKey, u16) noexcept;
 AccountMediaCollectionState dispatch_fixture_collection(const AccountMedia*, MediaAssetKey, bool = true) noexcept;
-BOOL dispatch_fixture_arm(HANDLE, const LARGE_INTEGER*, LONG, PTIMERAPCROUTINE, LPVOID, BOOL) noexcept;
-BOOL dispatch_fixture_cancel(HANDLE) noexcept;
-DWORD dispatch_fixture_wait(DWORD, const HANDLE*, BOOL, DWORD) noexcept;
+bool dispatch_fixture_arm(Waitable, u64, u32) noexcept;
+bool dispatch_fixture_cancel(Waitable) noexcept;
+u32 dispatch_fixture_wait(const Waitable*, u32, u32) noexcept;
 } // namespace maicord
 #define account_media_video_reserved dispatch_fixture_reserved
 #define account_media_worker_video_select dispatch_fixture_select
@@ -46,13 +46,13 @@ DWORD dispatch_fixture_wait(DWORD, const HANDLE*, BOOL, DWORD) noexcept;
 #define account_media_video_matches dispatch_fixture_matches
 #define account_media_audio_matches dispatch_fixture_audio_matches
 #define account_media_collection_state dispatch_fixture_collection
-#define SetWaitableTimer dispatch_fixture_arm
-#define CancelWaitableTimer dispatch_fixture_cancel
-#define WaitForMultipleObjects dispatch_fixture_wait
+#define timer_arm dispatch_fixture_arm
+#define timer_cancel dispatch_fixture_cancel
+#define wait_any dispatch_fixture_wait
 #include "../../../src/app/media/account_media_video.cpp"
-#undef SetWaitableTimer
-#undef CancelWaitableTimer
-#undef WaitForMultipleObjects
+#undef timer_arm
+#undef timer_cancel
+#undef wait_any
 #undef account_media_video_reserved
 #undef account_media_worker_video_select
 #undef account_media_worker_video_control
@@ -247,22 +247,21 @@ struct DispatchWaitProbe {
 };
 DispatchWaitProbe* wait_probe;
 }
-BOOL dispatch_fixture_arm(HANDLE timer, const LARGE_INTEGER* due, LONG period, PTIMERAPCROUTINE callback,
-                          LPVOID argument, BOOL resume) noexcept {
-    if (!wait_probe) return SetWaitableTimer(timer, due, period, callback, argument, resume);
+bool dispatch_fixture_arm(Waitable timer, u64 due_ms, u32 tolerance_ms) noexcept {
+    if (!wait_probe) return timer_arm(timer, due_ms, tolerance_ms);
     auto& probe = *wait_probe;
-    ++probe.arms; probe.armed = timer; probe.due = due->QuadPart; probe.period = period;
-    probe.callback = callback || argument; probe.resume = resume != FALSE;
+    ++probe.arms; probe.armed = timer; probe.due = -static_cast<i64>(due_ms) * 10000; probe.period = 0;
+    probe.callback = false; probe.resume = false;
     return probe.arm_ok;
 }
-BOOL dispatch_fixture_cancel(HANDLE timer) noexcept {
-    if (!wait_probe) return CancelWaitableTimer(timer);
-    ++wait_probe->cancels; wait_probe->cancelled = timer; return TRUE;
+bool dispatch_fixture_cancel(Waitable timer) noexcept {
+    if (!wait_probe) return timer_cancel(timer);
+    ++wait_probe->cancels; wait_probe->cancelled = timer; return true;
 }
-DWORD dispatch_fixture_wait(DWORD count, const HANDLE* handles, BOOL all, DWORD timeout) noexcept {
-    if (!wait_probe) return WaitForMultipleObjects(count, handles, all, timeout);
+u32 dispatch_fixture_wait(const Waitable* handles, u32 count, u32 timeout) noexcept {
+    if (!wait_probe) return wait_any(handles, count, timeout);
     auto& probe = *wait_probe;
-    ++probe.waits; probe.count = count; probe.timeout = timeout; probe.wait_all = all != FALSE;
+    ++probe.waits; probe.count = count; probe.timeout = timeout; probe.wait_all = false;
     for (u32 i = 0; i < count && i < 4; ++i) probe.handles[i] = handles[i];
     return probe.result;
 }

@@ -1,13 +1,13 @@
 #include "maicord/app/net/https_file_upload.hpp"
 #include "https_transfer_owner.hpp"
 #include "maicord/platform/net/tls_stream.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/protocol/http/http1.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/com.hpp"
 
 namespace maicord {
 namespace {
@@ -70,9 +70,9 @@ NetworkWorkerStep finish(HttpsFileUpload* upload, Runtime* r) noexcept {
         SecureZeroMemory(r->path, sizeof(r->path));
         r->draining = false;
         phase(upload, HttpsFileUploadPhase::complete);
-        SetEvent(upload->notification);
+        event_set(upload->notification);
     }
-    if (r->stopping && r->com_initialized) { CoUninitialize(); r->com_initialized = false; }
+    if (r->stopping && r->com_initialized) { thread_com_leave(); r->com_initialized = false; }
     return {INFINITE, r->stopping};
 }
 void committed(void* context, ConstSlice<u8> bytes) noexcept {
@@ -95,7 +95,7 @@ void read_next(HttpsFileUpload* upload, Runtime* r) noexcept {
 void drive(HttpsFileUpload* upload, Runtime* r, TlsStreamEvent event) noexcept {
     for (;;) {
         if (cancelled(upload)) { drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED); return; }
-        if (GetTickCount64() >= r->deadline) { drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT); return; }
+        if (clock_monotonic_milliseconds() >= r->deadline) { drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT); return; }
         if (!event.ok()) {
             drain(upload, r, r->response_failed ? HttpsFileUploadError::http : HttpsFileUploadError::tls, event.native_error);
             return;
@@ -149,7 +149,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
             drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED);
             return finish(upload, r);
         }
-        if (r->content.context) r->com_initialized = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+        if (r->content.context) r->com_initialized = thread_com_enter();
         const auto opened = r->content.context ? NetworkResult{} : network_file_open(loop, &r->file, r->path);
         if (!opened.ok()) drain(upload, r, HttpsFileUploadError::file_open, static_cast<u32>(opened.native_error));
         else if (r->content.context && !r->com_initialized) drain(upload, r, HttpsFileUploadError::worker);
@@ -164,7 +164,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
         else {
             r->tls_initialized = true;
             if (cancelled(upload)) drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED);
-            else if (GetTickCount64() >= r->deadline) drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT);
+            else if (clock_monotonic_milliseconds() >= r->deadline) drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT);
             else {
                 phase(upload, HttpsFileUploadPhase::connecting);
                 drive(upload, r, tls_stream_begin_connect(&r->tls, loop));
@@ -204,11 +204,11 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
         else if (event.now_ms >= r->deadline) drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT);
     }
     if (r->draining || r->stopping || current == HttpsFileUploadPhase::complete) return finish(upload, r);
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     return {now >= r->deadline ? 0u : static_cast<u32>(minimum<u64>(r->deadline - now, 1000)), false};
 }
 void destroy(HttpsFileUpload* upload) noexcept {
-    if (upload->notification) CloseHandle(upload->notification);
+    if (upload->notification) waitable_close(upload->notification);
     if (upload->runtime) {
         upload_source_release(static_cast<Runtime*>(upload->runtime)->content);
         SecureZeroMemory(upload->runtime, sizeof(Runtime));
@@ -238,8 +238,8 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
     if (!r->head_bytes) { destroy(upload); return HttpsFileUploadError::invalid_input; }
     r->expected_bytes = expected_bytes;
     if (expected_identity) { r->expected_identity = *expected_identity; r->has_expected_identity = true; }
-    r->deadline = GetTickCount64() + timeout_ms;
-    upload->notification = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    r->deadline = clock_monotonic_milliseconds() + timeout_ms;
+    upload->notification = event_create(TRUE, FALSE);
     if (!upload->notification) { destroy(upload); return HttpsFileUploadError::event; }
     phase(upload, HttpsFileUploadPhase::opening);
     const auto started = network_worker_start_async(&upload->worker, worker, upload);

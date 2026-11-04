@@ -7,6 +7,7 @@
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/model/guild/channel_settings_model.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "../../account/account_access.hpp"
@@ -1116,29 +1117,28 @@ bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32
         return false;
     copy_bytes(name, path.data, path.count * sizeof(wchar_t));
     name[path.count] = 0;
-    const HANDLE file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    const HANDLE file = file_open(name, {FileAccess::read, FileCreate::existing, kFileShareRead, kFileSequential});
     pages_release(name);
     if (file == INVALID_HANDLE_VALUE)
         return false;
-    Win32LargeInteger size{};
-    bool ok = GetFileSizeEx(file, size.native()) && size.QuadPart > 0;
-    if (ok && size.QuadPart > kGuildImageSourceMaximumBytes) {
-        *error = application_file_over_limit_text(path, static_cast<u64>(size.QuadPart), kGuildImageSourceMaximumBytes,
+    u64 size = 0;
+    bool ok = file_size(file, &size) && size > 0;
+    if (ok && size > kGuildImageSourceMaximumBytes) {
+        *error = application_file_over_limit_text(path, size, kGuildImageSourceMaximumBytes,
                                                   error_storage);
         ok = false;
     }
-    u8* contents = ok ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(size.QuadPart)))
+    u8* contents = ok ? static_cast<u8*>(commit_pages(static_cast<SIZE_T>(size)))
                       : nullptr;
     u32 total = 0;
-    while (contents && total < size.QuadPart) {
-        DWORD read = 0;
-        if (!ReadFile(file, contents + total, static_cast<DWORD>(size.QuadPart - total), &read, nullptr) || !read)
+    while (contents && total < size) {
+        u32 read = 0;
+        if (!file_read(file, contents + total, static_cast<u32>(size - total), &read) || !read)
             break;
         total += read;
     }
-    CloseHandle(file);
-    if (!contents || total != size.QuadPart) {
+    file_close(file);
+    if (!contents || total != size) {
         if (contents)
             pages_release(contents);
         return false;

@@ -1,11 +1,13 @@
 #include "search_internal.hpp"
 #include "../../shell/overlay_input.hpp"
+#include "../../shell/input.hpp"
+#include "../../shell/window_events.hpp"
 #include "../../shell/click_count.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../composer/text_input.hpp"
 #include "../composer/text_edit_keys.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/platform/window/key.hpp"
 
@@ -226,12 +228,12 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     if (control && (key == 'C' || key == 'X')) {
         const auto first = minimum(s->edit.anchor, s->edit.caret),
                    last = maximum(s->edit.anchor, s->edit.caret);
-        if (last > first && clipboard_write_utf8(g_app.window, {s->edit.text + first, last - first}) &&
+        if (last > first && clipboard_write_utf8({s->edit.text + first, last - first}) &&
             key == 'X')
             result = message_composer_replace_range(&s->edit, first, last, {});
     } else if (control && key == 'V') {
         char text[kMessageSearchContentBytes];
-        const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool line = read.ok();
         for (u32 i = 0; line && i < read.bytes; ++i)
             line = static_cast<u8>(text[i]) >= 32;
@@ -243,73 +245,77 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         application_search_edit_changed(revision != s->edit.text_revision);
     return true;
 }
-bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_search_window_event(const WindowEvent& event) noexcept {
     auto* s = g_app.search;
     if (!s)
         return false;
-    if (message == WM_KILLFOCUS) {
+    if (input_focus_lost(event)) {
         menus_close(*s);
         focus(*s, false);
         release_pointer(*s);
         return false;
     }
-    if (message == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam) != g_app.window) {
+    if (event.type == EventType::capture_lost && event.focus.other != g_app.window) {
         release_pointer(*s);
         return false;
     }
-    if (!front() || !((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_SETCURSOR ||
-                      message == WM_CONTEXTMENU || message == WM_MOUSELEAVE))
+    if (!front() || !(input_pointer(event) || event.type == EventType::cursor_query ||
+                      event.type == EventType::context_menu || event.type == EventType::pointer_leave))
         return false;
     const float scale = 96.f / g_app.renderer.dpi;
     float x = 0, y = 0;
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         UiPoint cursor{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &cursor))
+        if (!client_cursor_dip(event, &cursor))
             return false;
         x = cursor.x;
         y = cursor.y;
-    } else {
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
-            if (message == WM_CONTEXTMENU && lparam == -1)
-                return g_app.context_focus == &s->scene.widgets;
-            application_screen_to_content(&point);
-        }
-        x = point.x * scale;
-        y = point.y * scale;
+    } else if (event.type == EventType::wheel) {
+        const UiPoint wheel = client_wheel_dip(event);
+        x = wheel.x;
+        y = wheel.y;
+    } else if (event.type == EventType::context_menu) {
+        if ((event.flags & ev_keyboard) != 0)
+            return g_app.context_focus == &s->scene.widgets;
+        const UiPoint context = client_context_dip(event);
+        x = context.x;
+        y = context.y;
+    } else if (input_pointer(event)) {
+        x = client_dip_x(event);
+        y = client_dip_y(event);
     }
     const bool inside = ui_search_scene_contains(s->scene, x, y);
     const auto hit = ui_search_scene_hit_test(s->scene, x, y);
-    if (message == WM_LBUTTONDBLCLK && hit.action != UiSearchAction::edit)
-        message = WM_LBUTTONDOWN;
-    if (message == WM_SETCURSOR && inside) {
+    // A second press anywhere but the field is another press.
+    const bool edit_double = input_double(event) && hit.action == UiSearchAction::edit;
+    const bool press = input_press(event) || (input_double(event) && !edit_double);
+    if (event.type == EventType::cursor_query && inside) {
         application_set_cursor(ui_search_scene_cursor(s->scene, x, y));
         return true;
     }
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         if (ui_widget_manager_hover(&s->scene.widgets, ui_widget_invalid_handle()))
             application_request_frame();
         return false;
     }
-    if (message == WM_MOUSEWHEEL && inside) {
+    if (input_vertical_wheel(event) && inside) {
         if (choices_current(s)) {
-            choice_move(*s, static_cast<short>(HIWORD(wparam)) > 0);
+            choice_move(*s, event.wheel.dy120 > 0);
             return true;
         }
         if (s->panel && ui_rect_contains(s->scene.body, x, y) && !s->filters && !s->suggestions &&
             !s->sort_menu) {
-            const i32 delta = static_cast<short>(HIWORD(wparam));
-            u32 lines = 3;
-            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+            const i32 delta = static_cast<i16>(event.wheel.dy120);
+            const WheelScroll wheel_scroll = application_wheel_scroll();
             ui_scroll_host_wheel(&g_app.scroll_host,
                                  {s, s->edit.document_identity, scroll_read, scroll_write}, {x, y}, delta,
-                                 lines, lines == WHEEL_PAGESCROLL,
+                                 wheel_scroll.lines, wheel_scroll.page,
                                  application_now_us(), scale);
             application_request_frame();
         }
         return true;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (press) {
         if (!inside) {
             const bool popup = s->suggestions || s->filters || s->sort_menu;
             menus_close(*s);
@@ -330,7 +336,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             repaint();
             return true;
         }
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
         if (hit.action == UiSearchAction::scope) {
             // The chip acts on press, like the field it sits in: the press
             // itself would blur the field and retire a release target.
@@ -352,7 +358,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
                                        s->scene.scroll_dips + (y < scrollbar.thumb.top ? -1 : 1) *
                                                                   ui_rect_height(s->scene.body));
             s->captured = true;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             repaint();
             return true;
         }
@@ -360,7 +366,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             suggestions_open(*s);
             focus(*s, true);
             // A third press after a double click selects the whole query.
-            const bool triple = application_click_count(&s->edit, x, y, false) == 3;
+            const bool triple = application_click_count(event, &s->edit, x, y, false) == 3;
             u32 position = 0;
             if (triple)
                 message_composer_select_all(&s->edit);
@@ -402,16 +408,16 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         }
         s->pressed_revision = s->scene.revision;
         s->captured = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         return true;
     }
-    if (message == WM_MOUSEMOVE && s->scrollbar_dragging) {
+    if (event.type == EventType::pointer_move && s->scrollbar_dragging) {
         const auto geometry = body_scrollbar(*s);
         ui_search_scene_scroll(&s->scene, ui_scrollbar_scroll_from_pointer(geometry, y, s->thumb_grab));
         repaint();
         return true;
     }
-    if (message == WM_MOUSEMOVE && s->dragging) {
+    if (event.type == EventType::pointer_move && s->dragging) {
         u32 position = 0, byte = 0;
         if (text_edit_layout_hit_test(g_app.renderer.search_layout, x, y, &position) &&
             utf8_byte_offset_for_utf16_position(message_composer_text(s->edit), position, &byte)) {
@@ -420,13 +426,13 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         }
         return true;
     }
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         const auto h =
             inside ? ui_widget_manager_hit_test(s->scene.widgets, x, y) : ui_widget_invalid_handle();
         if (ui_widget_manager_hover(&s->scene.widgets, h))
             application_request_frame();
     }
-    if (message == WM_LBUTTONUP && (s->captured || inside)) {
+    if (input_release(event) && (s->captured || inside)) {
         const auto pressed = s->pressed;
         const bool drag = s->dragging || s->scrollbar_dragging;
         release_pointer(*s);
@@ -434,16 +440,15 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             activate(*s, pressed);
         return true;
     }
-    if (message == WM_LBUTTONDBLCLK && hit.action == UiSearchAction::edit) {
+    if (edit_double) {
         focus(*s, true);
-        application_click_count(&s->edit, x, y, true);
+        application_click_count(event, &s->edit, x, y, true);
         message_composer_select_word(&s->edit, s->edit.caret);
         application_search_edit_changed(false);
         return true;
     }
-    return inside && (message == WM_MOUSEMOVE || message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN ||
-                      message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
-                      message == WM_LBUTTONDBLCLK);
+    return inside && (event.type == EventType::pointer_move || event.type == EventType::context_menu ||
+                      input_side_button(event) || input_double(event));
 }
 
 } // namespace maicord::app_detail

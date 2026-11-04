@@ -9,6 +9,7 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord {
@@ -114,11 +115,12 @@ struct Slot {
 
 struct PluginHttp {
     SrwLock lock;
-    HANDLE thread, notify;
+    Thread* thread;
+    Waitable notify;
     PluginHttpTransport transport;
     // The HTTPS transport a request is using, so that close can cancel it.
     UpdateHttpsTransport* volatile active;
-    volatile long stopping;
+    volatile Atomic32 stopping;
     // Guarded by lock: a worker thread is alive and will look for queued slots before it exits.
     bool worker_running;
     Slot slots[kSlots];
@@ -140,7 +142,7 @@ PluginHttp* http_of(PluginRuntime* runtime, bool create) noexcept {
     if (runtime->http || !create) return runtime->http;
     auto* http = commit_pages<PluginHttp>();
     if (!http) return nullptr;
-    http->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    http->notify = event_create(false, false);
     if (!http->notify) {
         pages_release(http);
         return nullptr;
@@ -332,7 +334,7 @@ Slot* take(PluginHttp* http, bool leave) noexcept {
     return slot;
 }
 
-DWORD WINAPI worker_main(void* parameter) noexcept {
+u32 worker_main(void* parameter) noexcept {
     auto* http = static_cast<PluginHttp*>(parameter);
     const PluginHttpTransport injected = http->transport;
     UpdateHttpsTransport* https = nullptr;
@@ -375,7 +377,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         AcquireSRWLockExclusive(http->lock.native());
         slot->state = State::done;
         ReleaseSRWLockExclusive(http->lock.native());
-        SetEvent(http->notify);
+        event_set(http->notify);
     }
     return 0;
 }
@@ -388,8 +390,8 @@ bool ensure_worker(PluginHttp* http) noexcept {
     ReleaseSRWLockExclusive(http->lock.native());
     if (alive) return true;
     // The previous worker has left its loop (worker_running was cleared under the lock); its handle only needs closing.
-    if (http->thread) CloseHandle(http->thread);
-    http->thread = CreateThread(nullptr, 512 * 1024, worker_main, http, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (http->thread) thread_close(http->thread);
+    http->thread = thread_start(worker_main, http, 512 * 1024, nullptr);
     if (!http->thread) {
         AcquireSRWLockExclusive(http->lock.native());
         http->worker_running = false;
@@ -555,7 +557,7 @@ void plugin_http_cancel(PluginRuntime* runtime, const PluginBinding* binding, bo
         }
     }
     ReleaseSRWLockExclusive(http->lock.native());
-    if (woke) SetEvent(http->notify);
+    if (woke) event_set(http->notify);
 }
 
 void plugin_http_close(PluginRuntime* runtime) noexcept {
@@ -565,11 +567,11 @@ void plugin_http_close(PluginRuntime* runtime) noexcept {
     AcquireSRWLockExclusive(http->lock.native());
     if (UpdateHttpsTransport* https = http->active) update_https_cancel(https);
     ReleaseSRWLockExclusive(http->lock.native());
-    if (http->thread && WaitForSingleObject(http->thread, kStopWaitMilliseconds) != WAIT_OBJECT_0) return;
+    if (http->thread && !thread_wait(http->thread, kStopWaitMilliseconds)) return;
     // A worker that does not stop keeps its memory; nothing else touches it.
     runtime->http = nullptr;
-    if (http->thread) CloseHandle(http->thread);
-    CloseHandle(http->notify);
+    if (http->thread) thread_close(http->thread);
+    waitable_close(http->notify);
     for (Slot& slot : http->slots) release_response(slot);
     pages_release(http);
 }

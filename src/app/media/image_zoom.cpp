@@ -7,7 +7,6 @@
 #include "../shell/state.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -68,48 +67,51 @@ void application_image_zoom_configure() noexcept {
                            preferences.image_zoom_square);
 }
 
-bool application_image_zoom_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_image_zoom_message(const WindowEvent& event) noexcept {
     if (!g_app.preferences.image_zoom)
         return false;
     auto& zoom = g_app.image_zoom;
-    const bool key = message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN ||
-                     message == WM_SYSKEYUP;
+    const bool keyboard = event.type == EventType::key_down || event.type == EventType::key_up;
+    const u32 code = keyboard ? event.key.key : 0;
     // Ctrl is read at key and focus events, so a mouse move costs a load.
-    if ((key && (wparam == key::ctrl || wparam == key::alt)) || message == WM_SETFOCUS ||
-        (message == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE))
+    if ((keyboard && (code == key::ctrl || code == key::alt)) ||
+        (event.type == EventType::focus_changed && event.focus.gained) ||
+        (event.type == EventType::activation_changed && event.focus.gained))
         zoom.ctrl = application_control_down();
     // The viewer keeps its own lens.
     if (g_app.image_viewer.scene.active)
         return false;
-    switch (message) {
-    case WM_MOUSEMOVE:
+    switch (event.type) {
+    case EventType::pointer_move:
         if (zoom.lens.active || zoom.ctrl)
-            refresh_chat({client_dip_x(lparam), client_dip_y(lparam)});
+            refresh_chat({client_dip_x(event), client_dip_y(event)});
         return false;
-    case WM_KEYDOWN:
-    case WM_KEYUP:
-    case WM_SYSKEYDOWN:
-    case WM_SYSKEYUP:
-        if (wparam == key::ctrl || wparam == key::alt) {
+    case EventType::key_down:
+    case EventType::key_up:
+        if (code == key::ctrl || code == key::alt) {
             UiPoint point{};
             if (application_pointer_dip(&point))
                 refresh_chat(point);
         }
         return false;
-    case WM_MOUSEWHEEL:
-        return application_image_zoom_wheel(wparam);
-    case WM_LBUTTONDOWN:
-    case WM_RBUTTONDOWN:
-    case WM_MOUSELEAVE:
-    case WM_CANCELMODE:
+    case EventType::wheel:
+        return input_vertical_wheel(event) && application_image_zoom_wheel(event.wheel.dy120, input_shift(event));
+    case EventType::pointer_down:
+        if (input_press(event, PointerButton::left) || input_press(event, PointerButton::right))
+            application_image_zoom_end();
+        return false;
+    case EventType::pointer_leave:
+    case EventType::cancel_input:
         application_image_zoom_end();
         return false;
-    case WM_KILLFOCUS:
-        zoom.ctrl = false;
-        application_image_zoom_end();
+    case EventType::focus_changed:
+        if (!event.focus.gained) {
+            zoom.ctrl = false;
+            application_image_zoom_end();
+        }
         return false;
-    case WM_ACTIVATE:
-        if (LOWORD(wparam) == WA_INACTIVE) {
+    case EventType::activation_changed:
+        if (!event.focus.gained) {
             zoom.ctrl = false;
             application_image_zoom_end();
         }
@@ -128,11 +130,11 @@ void application_image_zoom_viewer_pointer(UiPoint point, bool over_image, bool 
         application_image_zoom_end();
 }
 
-bool application_image_zoom_wheel(WPARAM wparam) noexcept {
+bool application_image_zoom_wheel(i32 delta120, bool shift) noexcept {
     auto& zoom = g_app.image_zoom;
     if (!zoom.lens.active || !g_app.renderer.zoom_lens_source.ready)
         return false;
-    if (ui_zoom_lens_wheel(&zoom.lens, static_cast<short>(HIWORD(wparam)), (LOWORD(wparam) & MK_SHIFT) != 0)) {
+    if (ui_zoom_lens_wheel(&zoom.lens, static_cast<short>(delta120), shift)) {
         zoom.changed = true;
         application_request_frame();
     }

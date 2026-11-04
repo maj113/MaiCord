@@ -1,5 +1,7 @@
 #include "account_media_worker_internal.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/app/media/embed_resolver.hpp"
 
 namespace maicord {
@@ -65,24 +67,22 @@ namespace {
 // deliver its actual event; a fence value check does not consume that event.
 void release_poster_resources(AccountMediaWorkerLane* lane) noexcept {
     if (lane->poster_fence) {
-        lane->poster_fence->Release();
-        lane->poster_fence = nullptr;
+        gpu_release(lane->poster_fence);
     }
     if (lane->poster_context) {
-        lane->poster_context->Release();
-        lane->poster_context = nullptr;
+        gpu_release(lane->poster_context);
     }
 }
 
 bool finish_poster_release(AccountMediaWorkerLane* lane) noexcept {
     account_media_release_video(&lane->media);
     release_poster_resources(lane);
-    const bool stopped = WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+    const bool stopped = wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
     store_phase(lane, stopped ? AccountMediaWorkerPhase::stopped : AccountMediaWorkerPhase::idle);
     // A resident tile needs no UI wake. Notify only admission blocked by a
     // held poster lane. This does not request a frame or start a retry timer.
     if (!stopped && InterlockedExchange(&lane->owner->poster_admission_waiter, 0))
-        SetEvent(lane->owner->output_event);
+        event_set(lane->owner->output_event);
     return stopped;
 }
 
@@ -197,11 +197,8 @@ bool read_local_preview(void* opaque, u64 offset, Slice<u8> output) noexcept {
             done += part.count;
             continue;
         }
-        LARGE_INTEGER position{};
-        position.QuadPart = static_cast<LONGLONG>(offset + done);
-        DWORD copied = 0;
-        if (!SetFilePointerEx(reader.file, position, nullptr, FILE_BEGIN) ||
-            !ReadFile(reader.file, output.data + done, output.count - done, &copied, nullptr) || !copied)
+        u32 copied = 0;
+        if (!file_read_at(reader.file, offset + done, output.data + done, output.count - done, &copied) || !copied)
             return false;
         done += copied;
     }
@@ -214,13 +211,13 @@ struct LocalPreviewScope {
     bool apartment = false;
     void close_file() noexcept {
         if (file != INVALID_HANDLE_VALUE)
-            CloseHandle(file);
+            file_close(file);
         file = INVALID_HANDLE_VALUE;
     }
     ~LocalPreviewScope() noexcept {
         close_file();
         if (apartment)
-            CoUninitialize();
+            thread_com_leave();
     }
 };
 
@@ -242,13 +239,13 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         0};
     const bool video = media_asset_catalog_format(work.key) == MediaAttachmentFormat::mp4;
     LocalPreviewScope scope;
-    scope.apartment = work.local_content.context && SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+    scope.apartment = work.local_content.context && thread_com_enter();
     bool valid = !work.local_content.context || scope.apartment;
     FileSnapshot found{};
     if (valid && !work.local_content.context) {
-        scope.file = CreateFileW(reinterpret_cast<const wchar_t*>(work.text), GENERIC_READ, FILE_SHARE_READ,
-                                 nullptr, OPEN_EXISTING,
-                                 video ? FILE_FLAG_RANDOM_ACCESS : FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        scope.file = file_open(reinterpret_cast<const wchar_t*>(work.text),
+                               {FileAccess::read, FileCreate::existing, kFileShareRead,
+                                video ? kFileRandom : kFileSequential});
         valid = scope.file != INVALID_HANDLE_VALUE && file_snapshot_read(scope.file, &found) &&
                 local_draft_preview_snapshot_equal(found, work.local_snapshot);
     }
@@ -305,8 +302,8 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
                 offset += part.count;
             }
         } else {
-            DWORD copied = 0;
-            valid = ReadFile(scope.file, bytes + offset, count, &copied, nullptr) && copied == count;
+            u32 copied = 0;
+            valid = file_read(scope.file, bytes + offset, count, &copied) && copied == count;
             if (valid)
                 offset += copied;
         }
@@ -335,7 +332,7 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWork
             if (!resolver) return request_result(AccountMediaRequestState::failed, AccountMediaError::memory);
             InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&lane->media.provider_resolver), resolver);
         }
-        if (WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0) embed_resolver_cancel(resolver);
+        if (wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0) embed_resolver_cancel(resolver);
         MediaTrackTitle title{}; EmbedResolveResult fetched{};
         if (work.title_batch) {
             SoundcloudTitleBatch batch{};
@@ -435,7 +432,7 @@ bool wait_for_network(AccountMediaWorkerLane* lane, AccountMediaRequestResult* r
             return false;
         }
         HANDLE handles[2]{lane->owner->stop_event, notification};
-        const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, lane->media.progressive_continue ? 0 : INFINITE);
+        const DWORD waited = wait_any(handles, 2, lane->media.progressive_continue ? 0 : INFINITE);
         if (waited == WAIT_OBJECT_0) {
             return false;
         }
@@ -487,14 +484,15 @@ void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed
     lane->completed = completed;
     lane->completed_result = result;
     store_phase(lane, AccountMediaWorkerPhase::output_ready);
-    SetEvent(lane->owner->output_event);
+    event_set(lane->owner->output_event);
 }
 
-DWORD WINAPI media_worker_entry(void* opaque) noexcept {
+u32 media_worker_entry(void* opaque) noexcept {
     auto* lane = static_cast<AccountMediaWorkerLane*>(opaque);
+    lane->thread_id = current_thread_id();
     HANDLE handles[2]{lane->owner->stop_event, lane->command_event};
     for (;;) {
-        const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        const DWORD waited = wait_any(handles, 2, INFINITE);
         if (account_media_video_reserved(lane->owner, lane->index)) {
             bool stopped = false;
             if (account_media_video_dispatch(lane, &stopped)) {
@@ -512,11 +510,11 @@ DWORD WINAPI media_worker_entry(void* opaque) noexcept {
                 // it until this wait consumes the notification, including when
                 // stop and GPU completion become ready at the same time.
                 const DWORD completion = waited == WAIT_OBJECT_0
-                                             ? WaitForSingleObject(lane->command_event, INFINITE)
+                                             ? wait_one(lane->command_event, INFINITE)
                                              : waited == WAIT_OBJECT_0 + 1 ? WAIT_OBJECT_0 : WAIT_FAILED;
                 if (completion != WAIT_OBJECT_0) {
                     store_phase(lane, AccountMediaWorkerPhase::failed);
-                    SetEvent(lane->owner->output_event);
+                    event_set(lane->owner->output_event);
                     return ERROR_INVALID_STATE;
                 }
                 AcquireSRWLockExclusive(lane->poster_lock.native());
@@ -554,7 +552,7 @@ DWORD WINAPI media_worker_entry(void* opaque) noexcept {
             release_poster_resources(lane);
             store_phase(lane, AccountMediaWorkerPhase::failed);
             release_local_source(lane);
-            SetEvent(lane->owner->output_event);
+            event_set(lane->owner->output_event);
             return ERROR_INVALID_STATE;
         }
 
@@ -571,7 +569,7 @@ DWORD WINAPI media_worker_entry(void* opaque) noexcept {
         if (result.state == AccountMediaRequestState::queued ||
             result.state == AccountMediaRequestState::pending) {
             if (!wait_for_network(lane, &result) &&
-                WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0) {
+                wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0) {
                 account_media_release_audio_source(&lane->media);
                 account_media_release_video(&lane->media);
                 store_phase(lane, AccountMediaWorkerPhase::stopped);
@@ -609,12 +607,9 @@ AccountMediaRequestResult start_lane(AccountMediaWorker* worker, AccountMediaWor
             return initialized;
     }
     if (!lane.thread) {
-        DWORD thread_id = 0;
-        lane.thread = CreateThread(nullptr, kAccountMediaWorkerStackBytes, media_worker_entry, &lane,
-                                   STACK_SIZE_PARAM_IS_A_RESERVATION, &thread_id);
+        lane.thread = thread_start(media_worker_entry, &lane, kAccountMediaWorkerStackBytes, nullptr);
         if (!lane.thread)
             return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
-        lane.thread_id = static_cast<u32>(thread_id);
     }
     return request_result(AccountMediaRequestState::ready);
 }
@@ -792,7 +787,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                                            phase_value(AccountMediaWorkerPhase::idle)) !=
                 phase_value(AccountMediaWorkerPhase::idle))
                 return request_result(AccountMediaRequestState::busy);
-            if (!SetEvent(lane.command_event)) {
+            if (!event_set(lane.command_event)) {
                 store_phase(&lane, AccountMediaWorkerPhase::failed);
                 return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
             }
@@ -914,7 +909,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                 release_local_source(&lane);
                 continue;
             }
-            if (!SetEvent(lane.command_event)) {
+            if (!event_set(lane.command_event)) {
                 store_phase(&lane, AccountMediaWorkerPhase::failed);
                 release_local_source(&lane);
                 return request_result(AccountMediaRequestState::failed, AccountMediaError::client);

@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 
 namespace maicord {
 namespace {
@@ -52,9 +53,7 @@ bool boundary(VoiceConnection& connection, VoiceConnectionSetup& setup, NetworkL
     ready.ssrc = 7;
     ready.recognized_modes = modes;
     if (voice_connection_ready(&connection, ready) != VoiceMediaSetupError::none ||
-        !network_datagram_open(&loop, &connection.udp.socket, reinterpret_cast<const sockaddr*>(&peer),
-                               sizeof(peer))
-             .ok())
+        !network_datagram_open(&loop, &connection.udp.socket, test_network_address(&peer, sizeof(peer))).ok())
         return false;
     connection.udp.phase = VoiceUdpPhase::ready;
     connection.udp_revision = connection.ready_revision;

@@ -56,6 +56,25 @@ bool bind_wildcard(SOCKET socket_value, i32 family) noexcept {
     return false;
 }
 
+// Moves the answers of a finished lookup out of the system's list into the resolver, and frees the list. Entries
+// that are not IPv4 or IPv6 socket addresses are skipped, as the connect loops always did.
+void publish_addresses(NetworkResolver* resolver) noexcept {
+    resolver->address_count = 0;
+    for (ADDRINFOEXW* entry = resolver->results;
+         entry && resolver->address_count < kNetworkResolverMaximumAddresses; entry = entry->ai_next) {
+        if (entry->ai_addr && entry->ai_addrlen != 0 && entry->ai_addrlen <= sizeof(sockaddr_storage) &&
+            (entry->ai_family == AF_INET || entry->ai_family == AF_INET6) &&
+            network_address_from_socket(entry->ai_addr, entry->ai_addrlen,
+                                        &resolver->addresses[resolver->address_count])) {
+            ++resolver->address_count;
+        }
+    }
+    if (resolver->results) {
+        FreeAddrInfoExW(resolver->results);
+        resolver->results = nullptr;
+    }
+}
+
 } // namespace
 
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
@@ -100,17 +119,18 @@ void network_loop_release(NetworkLoop* loop) noexcept {
 }
 
 NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* connection,
-                                         const sockaddr* address, i32 address_bytes) noexcept {
-    if (!loop || !loop->completion_port || !connection || !address || address_bytes <= 0 ||
-        (address->sa_family != AF_INET && address->sa_family != AF_INET6)) {
+                                         const NetworkAddress& address) noexcept {
+    sockaddr_storage target;
+    const i32 address_bytes = socket_address(address, &target);
+    if (!loop || !loop->completion_port || !connection || address_bytes <= 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
+    const i32 family = target.ss_family;
 
     reset_value<NetworkConnection>(connection);
     connection->socket = INVALID_SOCKET;
     connection->generation = 1;
-    const SOCKET socket_value =
-        WSASocketW(address->sa_family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    const SOCKET socket_value = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_value == INVALID_SOCKET) {
         return failure(NetworkError::socket_create, WSAGetLastError());
     }
@@ -142,7 +162,7 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
         network_connection_close(connection);
         return failure(NetworkError::connect_extension, native_error);
     }
-    if (!bind_wildcard(socket_value, address->sa_family)) {
+    if (!bind_wildcard(socket_value, family)) {
         const i32 native_error = WSAGetLastError();
         network_connection_close(connection);
         return failure(NetworkError::bind_local, native_error);
@@ -152,7 +172,8 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
                          connection->generation);
     connection->state = NetworkConnectionState::connecting;
     connection->connect_pending = true;
-    const BOOL started = connect_ex(socket_value, address, address_bytes, nullptr, 0, nullptr,
+    const BOOL started = connect_ex(socket_value, reinterpret_cast<const sockaddr*>(&target), address_bytes, nullptr, 0,
+                                    nullptr,
                                     native(&connection->connect_operation.overlapped));
     if (!started) {
         const i32 native_error = WSAGetLastError();
@@ -355,6 +376,7 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         resolver->cancel_handle = nullptr;
         if (resolver->native_error == 0) {
             resolver->state = NetworkResolverState::resolved;
+            publish_addresses(resolver);
         } else if (resolver->native_error == WSA_E_CANCELLED) {
             resolver->state = NetworkResolverState::cancelled;
         } else {
@@ -439,6 +461,43 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         break;
     }
     return result;
+}
+
+void network_connection_reset(NetworkConnection* connection) noexcept {
+    connection->socket = INVALID_SOCKET;
+}
+
+bool network_connection_has_socket(const NetworkConnection& connection) noexcept {
+    return connection.socket != INVALID_SOCKET && connection.socket != 0;
+}
+
+i32 network_last_error() noexcept {
+    return WSAGetLastError();
+}
+
+bool network_address_parse(const char* text, u16 port, NetworkAddress* address) noexcept {
+    clear_bytes(address, sizeof(*address));
+    IN_ADDR v4{};
+    IN6_ADDR v6{};
+    if (!text) {
+        return false;
+    }
+    if (InetPtonA(AF_INET, text, &v4) == 1) {
+        address->family = 4;
+        copy_bytes(address->ip, &v4, 4);
+    } else if (InetPtonA(AF_INET6, text, &v6) == 1) {
+        address->family = 6;
+        copy_bytes(address->ip, &v6, 16);
+    } else {
+        return false;
+    }
+    address->port = port;
+    return true;
+}
+
+bool network_address_is_ipv6_literal(const wchar_t* text) noexcept {
+    IN6_ADDR address{};
+    return text && InetPtonW(AF_INET6, text, &address) == 1;
 }
 
 } // namespace maicord

@@ -1,5 +1,6 @@
 #include "maicord/app/voice/account_voice_message.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -79,7 +80,7 @@ bool start(AccountVoiceMessage* v) noexcept {
     if (v->state == VoiceMessageState::recording || v->state == VoiceMessageState::finished)
         return false;
     discard(v);
-    const auto begun = voice_message_recorder_begin(&v->recorder, ++v->serial ^ static_cast<u32>(GetTickCount64()),
+    const auto begun = voice_message_recorder_begin(&v->recorder, ++v->serial ^ static_cast<u32>(clock_monotonic_milliseconds()),
                                                     v->input_gain_percent);
     if (begun != VoiceMessageRecorderError::none) {
         fail(v, begun == VoiceMessageRecorderError::memory ? VoiceMessageFailure::memory : VoiceMessageFailure::encoder);

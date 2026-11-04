@@ -9,9 +9,6 @@
 #include "maicord/render/text/native_glyph_outlines.hpp"
 #include "maicord/text/fonts/run.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/d3d11.hpp"
-
 namespace maicord {
 namespace {
 
@@ -44,7 +41,7 @@ u16 face_id(GridFaces* faces, NativeFontRunHandle run, NativeGlyphOutlines** out
 // The 16x16 glyph grid (mc_glyph_tex): Latin-1 code points rasterized once from the code face (the user's
 // monospace face, a bundled one or Consolas) by the text system's own outline rasterizer into a 512x512 R8 texture,
 // 32x32 pixels per cell, cell = code point. Controls and anything the face lacks stay empty.
-bool effect_glyph_grid_build(D3D11Renderer* renderer, ID3D11ShaderResourceView** view) noexcept {
+bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
     *view = nullptr;
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context || !renderer->glyph_text.ready)
         return false;
@@ -123,8 +120,9 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, ID3D11ShaderResourceView**
     native_glyph_outlines_release(&outlines);
     pages_release(commands);
     if (ok && gpu.texture_view) {
-        gpu.texture_view->AddRef();
+        // The caller takes the view's reference; the atlas keeps the texture it samples.
         *view = gpu.texture_view;
+        gpu.texture_view = nullptr;
     }
     glyph_atlas_gpu_release(&gpu);
     return ok && *view;

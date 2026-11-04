@@ -12,17 +12,17 @@
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
-bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
+bool application_button_pointer(const WindowEvent& input) noexcept {
     UiButtonPointerEvent event{};
-    if (message == WM_MOUSEMOVE)
+    if (input_move(input))
         event = UiButtonPointerEvent::move;
-    else if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK)
+    else if (input_down(input))
         // Windows replaces the second down in a rapid click pair with DBLCLK.
         // Button activation still belongs to each matching press/release pair.
         event = UiButtonPointerEvent::press;
-    else if (message == WM_LBUTTONUP)
+    else if (input_release(input))
         event = UiButtonPointerEvent::release;
-    else if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS)
+    else if (input.type == EventType::capture_lost || input.type == EventType::cancel_input || input_focus_lost(input))
         event = UiButtonPointerEvent::cancel;
     else
         return false;
@@ -39,7 +39,7 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
         event = UiButtonPointerEvent::cancel;
     const bool cancel = event == UiButtonPointerEvent::cancel;
     UiWidgetManager* owners[]{&g_app.message_composer_scene.widgets, &g_app.shell_scene.widgets};
-    const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
+    const UiPoint point{client_dip_x(input), client_dip_y(input)};
     if (!captured_owner || captured_owner == &g_app.shell_scene.widgets) {
         const auto thread = ui_thread_header_pointer(&g_app.thread_header, event, point);
         if (thread.changed)
@@ -125,9 +125,9 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
         }
         if (result.activate) {
             if (owner == &g_app.message_composer_scene.widgets)
-                handle_composer_click(lparam);
+                handle_composer_click(input);
             else
-                handle_shell_click(lparam);
+                handle_shell_click(input);
         }
     }
     return settings_pointer || (!cancel && consumed);

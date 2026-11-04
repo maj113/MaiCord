@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/core/win32_types.hpp"
+#include "maicord/os/wait.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 inline constexpr u32 kMediaAudioMinimumRingFrames=2048;
@@ -27,7 +28,7 @@ bool media_audio_ring_native_queue_empty(const MediaAudioRing&,u32 padding) noex
 void media_audio_ring_rewind(MediaAudioRing*) noexcept;
 bool media_audio_gain_valid(float) noexcept;
 // Overflow-checked conversion of clock units to source time; no clock unit is
-// assumed to be a sample. GetPosition and GetFrequency share native units.
+// assumed to be a sample. Position and frequency share the transport's native units.
 bool media_audio_clock_time(u64 position,u64 frequency,u64* time_100ns) noexcept;
 // Converts native clock units straight to source frames with one floor, not via 100 ns.
 // This keeps the sample endpoint correct even when its 100 ns time is fractional.
@@ -35,13 +36,15 @@ bool media_audio_clock_time(u64 position,u64 frequency,u64* time_100ns) noexcept
 bool media_audio_clock_frames(u64 position,u64 frequency,u32 source_rate,u64* frames) noexcept;
 struct MediaAudioConfig {
     Slice<float> pcm{};u32 sample_rate{},channels{};u64 initial_epoch{1};
-    i64 source_origin_100ns{};float volume{1.0f};HWND wake_window{};u32 wake_message{};
+    i64 source_origin_100ns{};float volume{1.0f};
+    // Posted (window_post) on a status change, coalesced until the next status call. A null window posts nothing.
+    Waker wake{};
     // Borrowed decode-worker event. Set only when rendering consumes data and frees
     // refill room. The caller resets and coalesces it until release.
-    HANDLE refill_event{};
+    Waitable refill_event{};
     // Optional borrowed event signaled on state transitions, not on each hardware
     // clock tick. The caller resets it until release.
-    HANDLE status_event{};
+    Waitable status_event{};
 };
 struct MediaAudioStatus {
     u64 desired_epoch,observed_epoch,written_frames,submitted_frames,consumed_frames;
@@ -51,7 +54,7 @@ struct MediaAudioStatus {
     bool playing,paused,buffering,ended,stream_open,worker_started,worker_exited,clock_valid;
 };
 struct MediaAudio {MediaAudioConfig config{};MediaAudioRing ring{};void* runtime{};u64 epoch{};bool initialized{};};
-// Only records the configuration: no allocation, COM, endpoint, worker or ring write.
+// Only records the configuration: no allocation, endpoint, worker or ring write.
 MediaAudioResult media_audio_initialize(MediaAudio*,const MediaAudioConfig&) noexcept;
 // Playback starts one render worker. Pause/volume/reset only change the
 // requested state; the status reports what the native stream has actually done.
@@ -69,7 +72,7 @@ MediaAudioResult media_audio_end(MediaAudio*,u64 epoch) noexcept;
 // borrowed ring is no longer in use.
 MediaAudioResult media_audio_reset(MediaAudio*,u64 epoch,i64 origin_100ns) noexcept;
 MediaAudioStatus media_audio_status(const MediaAudio*) noexcept;
-// A successful join means the PCM/context is no longer in use. On timeout or handle
+// A successful join means the PCM/context is no longer in use. On timeout or wait
 // failure the runtime stays attached. No idle polling, forced termination or device open in default tests.
 MediaAudioResult media_audio_release(MediaAudio*,u32 timeout_ms) noexcept;
 } // namespace maicord

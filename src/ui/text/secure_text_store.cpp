@@ -7,13 +7,10 @@
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
 #include "maicord/sys/crt.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include <stddef.h>
 
 namespace maicord {
-static_assert(sizeof(Win32Rect) == sizeof(RECT) && alignof(Win32Rect) == alignof(RECT) &&
-              offsetof(Win32Rect, top) == offsetof(RECT, top) &&
-              offsetof(Win32Rect, right) == offsetof(RECT, right) &&
-              offsetof(Win32Rect, bottom) == offsetof(RECT, bottom));
 namespace {
 
 inline constexpr TsViewCookie kSecureTextView = 1;
@@ -52,9 +49,9 @@ InputScope native_scope(SecureTextInputScope scope) noexcept {
     }
 }
 
-bool point_in_rectangle(const POINT& point, const RECT& rectangle) noexcept {
-    return point.x >= rectangle.left && point.x < rectangle.right && point.y >= rectangle.top &&
-           point.y < rectangle.bottom;
+RECT screen_rectangle(const SecureTextRect& rectangle, const POINT& origin) noexcept {
+    return {rectangle.left + origin.x, rectangle.top + origin.y, rectangle.right + origin.x,
+            rectangle.bottom + origin.y};
 }
 
 TextCompositionLineStyle composition_line_style(TF_DA_LINESTYLE style) noexcept {
@@ -596,16 +593,20 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return TS_E_NOLOCK;
         }
         SecureTextStoreGeometry geometry{};
-        if (!get_geometry(&geometry)) {
+        POINT origin{};
+        if (!get_geometry(&geometry) || !client_origin(&origin)) {
             return TS_E_NOLAYOUT;
         }
-        const bool visible = point_in_rectangle(*point, *geometry.text_screen.native());
+        // TSF gives screen points; the store's callbacks work in client pixels.
+        const SecureTextPoint client{point->x - origin.x, point->y - origin.y};
+        const bool visible = client.x >= geometry.text.left && client.x < geometry.text.right &&
+                             client.y >= geometry.text.top && client.y < geometry.text.bottom;
         if (!visible && (flags & GXFPF_NEAREST) == 0) {
             return TS_E_INVALIDPOINT;
         }
         u32 hit = 0;
         bool inside = false;
-        if (!config.point || !config.point(config.context, *point,
+        if (!config.point || !config.point(config.context, client,
                 !visible || (flags & GXFPF_ROUND_NEAREST) != 0, &hit, &inside))
             return TS_E_NOLAYOUT;
         if ((!inside || !visible) && (flags & GXFPF_NEAREST) == 0)
@@ -627,10 +628,16 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!position_valid(end)) {
             return TS_E_INVALIDPOS;
         }
+        POINT origin{};
+        if (!client_origin(&origin)) {
+            return TS_E_NOLAYOUT;
+        }
         if (config.range_geometry) {
             bool range_clipped = false;
+            SecureTextRect range{};
             if (!config.range_geometry(config.context, static_cast<u32>(start), static_cast<u32>(end),
-                rectangle, &range_clipped)) return TS_E_NOLAYOUT;
+                &range, &range_clipped)) return TS_E_NOLAYOUT;
+            *rectangle = screen_rectangle(range, origin);
             *clipped = range_clipped ? TRUE : FALSE;
             return S_OK;
         }
@@ -638,11 +645,9 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!get_geometry(&geometry)) {
             return TS_E_NOLAYOUT;
         }
-        *rectangle = *geometry.text_screen.native();
-        *clipped = rectangle->left < geometry.window_screen.left ||
-                           rectangle->top < geometry.window_screen.top ||
-                           rectangle->right > geometry.window_screen.right ||
-                           rectangle->bottom > geometry.window_screen.bottom
+        *rectangle = screen_rectangle(geometry.text, origin);
+        *clipped = geometry.text.left < geometry.window.left || geometry.text.top < geometry.window.top ||
+                           geometry.text.right > geometry.window.right || geometry.text.bottom > geometry.window.bottom
                        ? TRUE
                        : FALSE;
         return S_OK;
@@ -653,10 +658,11 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return E_INVALIDARG;
         }
         SecureTextStoreGeometry geometry{};
-        if (!get_geometry(&geometry)) {
+        POINT origin{};
+        if (!get_geometry(&geometry) || !client_origin(&origin)) {
             return TS_E_NOLAYOUT;
         }
-        *rectangle = *geometry.window_screen.native();
+        *rectangle = screen_rectangle(geometry.window, origin);
         return S_OK;
     }
 
@@ -664,7 +670,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (view != kSecureTextView || !window) {
             return E_INVALIDARG;
         }
-        *window = config.window;
+        *window = static_cast<HWND>(config.window);
         return S_OK;
     }
 
@@ -851,7 +857,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool attach(bool draining = false) noexcept {
-        if (!edit || !IsWindow(config.window)) return false;
+        if (!edit || !IsWindow(static_cast<HWND>(config.window))) return false;
         if (!draining && (unsafe_teardown() || deferred_queued)) { queue_deferred(deferred_reset | deferred_attach); return true; }
         if (thread_manager) {
             return true;
@@ -879,14 +885,14 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return false;
         }
         ITfDocumentMgr* previous = nullptr;
-        if (FAILED(thread_manager->AssociateFocus(config.window, document_manager, &previous))) {
+        if (FAILED(thread_manager->AssociateFocus(static_cast<HWND>(config.window), document_manager, &previous))) {
             com_release(previous);
             detach();
             return false;
         }
         previous_document_manager = previous;
         focus_associated = true;
-        if (GetFocus() == config.window && FAILED(thread_manager->SetFocus(document_manager))) {
+        if (GetFocus() == static_cast<HWND>(config.window) && FAILED(thread_manager->SetFocus(document_manager))) {
             detach();
             return false;
         }
@@ -905,7 +911,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (focus_associated && thread_manager) {
             ITfDocumentMgr* replaced = nullptr;
             if (SUCCEEDED(
-                    thread_manager->AssociateFocus(config.window, previous_document_manager, &replaced))) {
+                    thread_manager->AssociateFocus(static_cast<HWND>(config.window), previous_document_manager, &replaced))) {
                 com_release(replaced);
             }
         }
@@ -1313,6 +1319,14 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         return config.geometry && config.geometry(config.context, geometry);
     }
 
+    // The screen position of the window's client origin, to turn the callbacks' client pixels into TSF's screen ones.
+    // A handle the system does not know (a test's) has its client at the screen origin.
+    bool client_origin(POINT* origin) const noexcept {
+        *origin = {};
+        ClientToScreen(static_cast<HWND>(config.window), origin);
+        return true;
+    }
+
     void clear_sink() noexcept {
         com_release(sink);
         com_release(sink_identity);
@@ -1512,11 +1526,19 @@ bool secure_text_store_composing(const SecureTextStore& store) noexcept {
     return value && value->composition.active;
 }
 
-bool secure_text_store_filter_message(SecureTextStore* store, const MSG& message) noexcept {
+bool secure_text_store_ime_event(SecureTextStore*, const WindowEvent&) noexcept {
+    // TSF delivers the composition through the store's own interfaces; there is no event to apply.
+    return false;
+}
+
+bool secure_text_store_filter_key(SecureTextStore* store, const WindowEvent& event) noexcept {
+    const auto* message_pointer = static_cast<const MSG*>(event.native);
+    if (!message_pointer) return false;
+    const MSG& message = *message_pointer;
     if (message.message != WM_KEYDOWN && message.message != WM_KEYUP) return false;
     auto* value = implementation(store);
-    if (!value || !value->edit || !value->keystroke_manager || message.hwnd != value->config.window ||
-        GetFocus() != value->config.window) return false;
+    if (!value || !value->edit || !value->keystroke_manager || message.hwnd != static_cast<HWND>(value->config.window) ||
+        GetFocus() != static_cast<HWND>(value->config.window)) return false;
     // Native text services may call back into the host. Keep this object and
     // its loaded TSF module alive if that callback closes or rebinds the field.
     value->AddRef();
@@ -1526,7 +1548,7 @@ bool secure_text_store_filter_message(SecureTextStore* store, const MSG& message
     const bool down = message.message == WM_KEYDOWN;
     const HRESULT tested = down ? value->keystroke_manager->TestKeyDown(message.wParam, message.lParam, &eaten) :
         value->keystroke_manager->TestKeyUp(message.wParam, message.lParam, &eaten);
-    bool consumed = value->detach_after_key || value->edit != edit || GetFocus() != value->config.window;
+    bool consumed = value->detach_after_key || value->edit != edit || GetFocus() != static_cast<HWND>(value->config.window);
     if (!consumed && tested == S_OK && eaten) {
         eaten = FALSE;
         const HRESULT dispatched = down ? value->keystroke_manager->KeyDown(message.wParam, message.lParam, &eaten) :

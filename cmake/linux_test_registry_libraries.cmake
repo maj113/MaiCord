@@ -206,6 +206,10 @@ maicord_test(MaiCordFontTests ENTRY maicord_font_tests_entry SOURCES tests/text/
     LIBS maicord_core maicord_font
     BUNDLE MaiCordTextUnitTests
     TEST maicord_native_font)
+# The font store, catalog check and handle stamp over real files, through the files seam.
+maicord_test(MaiCordFontStoreFilesTests ENTRY maicord_font_store_files_entry SOURCES
+        tests/text/fonts/store_files_test.cpp
+    LIBS maicord_core maicord_font TIMEOUT 5 TEST maicord_native_font_store_files)
 maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_reference_tests_entry SOURCES
         tests/media/image/media_decode_reference.cpp
     BUNDLE MaiCordCodecUnitTests TIMEOUT 10
@@ -280,22 +284,9 @@ maicord_test(MaiCordAmazonMusicPlayerTests ENTRY maicord_amazon_music_player_ent
     BUNDLE MaiCordProtocolTests TIMEOUT 5
     TEST maicord_amazon_music_player)
 
-# Tests of these libraries that need what the Linux build has not ported (the file units of the font store, the
-# Windows memory queries, the system fonts):
+# Tests of these libraries that need what the Linux build has not ported (the Windows memory queries, the file
+# metadata of the Windows suite; cmake/linux_font_tests.cmake registers the font tests that read files):
 # Not registered: MaiCordReactionPreferencesStorageTests (queries the Windows memory state (VirtualQuery) and maps a read-only file to refuse a commit)
 # Not registered: MaiCordRoleManagerTests (links the settings UI scene)
-# Not registered: MaiCordArabicPlanTests (queries page protection with VirtualQuery)
-# Not registered: MaiCordSinhalaShapeTests (shapes with a system font from the Windows directory)
-# Not registered: MaiCordKhmerShapeTests (shapes with a system font from the Windows directory)
-# Not registered: MaiCordTibetanShapeTests (shapes with a system font from the Windows directory)
-# Not registered: MaiCordMyanmarShapeTests (shapes with a system font from the Windows directory)
-# Not registered: MaiCordFontCatalogTests (font store and catalog (file units left out))
-# Not registered: MaiCordFontCatalogCoverageTests (font catalog (file unit left out), handle counts)
-# Not registered: MaiCordRunPlanTests (font store (file unit left out) and VirtualQuery)
-# Not registered: MaiCordSimulationPlanTests (font store (file unit left out))
-# Not registered: MaiCordLatinRunTests (font store (file unit left out))
-# Not registered: MaiCordEmojiRunTests (system font through the Windows directory and MultiByteToWideChar)
-# Not registered: MaiCordEmojiLineTests (system font through the Windows directory and MultiByteToWideChar)
-# Not registered: MaiCordEmojiParagraphTests (system font through the Windows directory and MultiByteToWideChar)
-# Not registered: MaiCordFontSessionTests (font store, process handle counts and VirtualQuery)
-# Not registered: MaiCordFontInstanceTests (font store (file unit left out), process handle counts)
+# Not registered: MaiCordFontCatalogTests (the handle stamp units read Windows file information classes; tests/text/fonts/store_files_test.cpp covers the stamp on both systems)
+# Not registered: MaiCordFontCatalogCoverageTests (sets a file's metadata change time, which Linux cannot set)

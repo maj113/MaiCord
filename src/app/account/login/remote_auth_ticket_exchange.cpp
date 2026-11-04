@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
+#include "maicord/os/wait.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -43,7 +44,7 @@ bool locked_output(const SecureBuffer* output) noexcept {
            output->bytes <= output->capacity;
 }
 bool cancelled(HANDLE cancel_event) noexcept {
-    return WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0;
+    return wait_one(cancel_event, 0) == WAIT_OBJECT_0;
 }
 
 bool consume_response(void* context, const RestClientResponse& response,
@@ -247,7 +248,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
         // response or human solution must not revive a dismissed login.
         HANDLE response_waits[] = {cancel_event,
                                    rest_client_notification_handle(&exchange->transport)};
-        const DWORD waited = WaitForMultipleObjects(2, response_waits, FALSE, kTicketTimeoutMs);
+        const DWORD waited = wait_any(response_waits, 2, kTicketTimeoutMs);
         if (waited != WAIT_OBJECT_0 + 1) {
             if (waited == WAIT_OBJECT_0) {
                 rest_client_cancel(&exchange->transport, request_id);
@@ -316,13 +317,13 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
         result.captcha_invisible = snapshot.invisible;
         secure_buffer_clear(&exchange->captcha_solution);
         InterlockedExchange(&exchange->captcha_submitted, 0);
-        ResetEvent(captcha_event);
+        event_reset(captcha_event);
         if (event_function) {
             event_function(event_context, RemoteAuthTicketExchangeEvent{
                                               result, RemoteAuthTicketExchangeEventKind::captcha_required});
         }
         HANDLE captcha_waits[] = {cancel_event, captcha_event};
-        const DWORD captcha_waited = WaitForMultipleObjects(2, captcha_waits, FALSE, kCaptchaTimeoutMs);
+        const DWORD captcha_waited = wait_any(captcha_waits, 2, kCaptchaTimeoutMs);
         if (captcha_waited != WAIT_OBJECT_0 + 1) {
             result.error = captcha_waited == WAIT_OBJECT_0 ? RemoteAuthTicketExchangeError::cancelled
                                                                : RemoteAuthTicketExchangeError::captcha;
@@ -415,7 +416,7 @@ SecureBufferResult remote_auth_ticket_exchange_submit_captcha(RemoteAuthTicketEx
         InterlockedExchange(&exchange->captcha_submitted, 0);
         return assigned;
     }
-    if (!SetEvent(captcha_event)) {
+    if (!event_set(captcha_event)) {
         const u32 native_error = thread_last_error();
         secure_buffer_clear(&exchange->captcha_solution);
         InterlockedExchange(&exchange->captcha_submitted, 0);

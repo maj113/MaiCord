@@ -696,9 +696,8 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
             if (!voice_udp_drained(connection->udp) || !voice_udp_media_drained(connection->media_io))
                 return;
             connection->udp_revision = connection->ready_revision;
-            if (!voice_udp_begin(
-                    &connection->udp, loop, reinterpret_cast<const sockaddr*>(&connection->media.endpoint),
-                    static_cast<i32>(connection->media.endpoint_bytes), connection->media.ssrc, now_ms)) {
+            if (!voice_udp_begin(&connection->udp, loop, connection->media.endpoint, connection->media.ssrc,
+                                 now_ms)) {
                 abort_call(connection, VoiceConnectionError::datagram, "udp_begin_failed");
                 return;
             }

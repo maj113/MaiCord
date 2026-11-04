@@ -20,8 +20,8 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -651,13 +651,13 @@ bool application_soundboard_menu_activate(u32 action, bool preview) noexcept {
 }
 
 bool application_soundboard_menu_key(u32 key) noexcept {
-    if (!picker_open() || (GetKeyState(key::ctrl) & 0x8000) || (GetKeyState(key::alt) & 0x8000))
+    if (!picker_open() || window_key_down(nullptr, key::ctrl) || window_key_down(nullptr, key::alt))
         return false;
     auto& p = board.picker;
     char typed = 0;
     if (key >= 'A' && key <= 'Z')
-        typed = static_cast<char>((GetKeyState(key::shift) & 0x8000) ? key : key + 32);
-    else if (key >= '0' && key <= '9' && !(GetKeyState(key::shift) & 0x8000))
+        typed = static_cast<char>(window_key_down(nullptr, key::shift) ? key : key + 32);
+    else if (key >= '0' && key <= '9' && !window_key_down(nullptr, key::shift))
         typed = static_cast<char>(key);
     else if (key == key::space && p.query_bytes)
         typed = ' ';

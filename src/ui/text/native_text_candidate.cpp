@@ -4,6 +4,8 @@
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/font/default_fonts.hpp"
+#include "maicord/os/ordinal.hpp"
 #include "native_text_span.hpp"
 #include "native_text_script.hpp"
 #include "maicord/text/unicode/bidi_ltr.hpp"
@@ -130,7 +132,10 @@ constexpr usize binding_region_bytes=(sizeof(NativeTextContext)+sizeof(Binding)*
 constexpr usize context_reserved_bytes=binding_region_bytes+plan_region_bytes+arabic_region_bytes;
 static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
-static_assert(sizeof(NativeTextCatalogScope)==112&&sizeof(NativeTextContext)==2552);
+static_assert(sizeof(NativeTextCatalogScope)==112);
+#if defined(_WIN32)
+static_assert(sizeof(NativeTextContext)==2552);
+#endif
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
     page_bytes(sizeof(NativeTextContext)+sizeof(Binding)*32)==4096&&
@@ -246,6 +251,7 @@ NativeTextFontQuery font_query(const NativeTextContext& owner,const NativeFormat
     NativeTextFontQuery query{format->font.scope,format->font.family,format->font.properties};
     if(font_flags&text_style_bold)query.properties.weight=600;
     if(font_flags&text_style_italic)query.properties.style=2;
+#if defined(_WIN32)
     static constexpr u16 mono[]{'C','o','n','s','o','l','a','s'};
     if(font_flags&text_style_monospace){
         const auto* code=owner.code_format?format_at(owner,owner.code_format):nullptr;
@@ -255,6 +261,15 @@ NativeTextFontQuery font_query(const NativeTextContext& owner,const NativeFormat
     static constexpr u16 emoji[]{'S','e','g','o','e',' ','U','I',' ','E','m','o','j','i'};
     // Emoji spans use Segoe UI Emoji at regular weight and style; the requested stretch is kept.
     if(font_flags==emoji_font_flag){query.scope=0;query.family={emoji,14};query.properties.weight=400;query.properties.style=0;}
+#else
+    if(font_flags&text_style_monospace){
+        const auto* code=owner.code_format?format_at(owner,owner.code_format):nullptr;
+        if(code){query.scope=code->font.scope;query.family=code->font.family;}
+        else query.family=default_font_name(DefaultFont::monospace);
+    }
+    // Emoji spans use the platform's emoji family (Noto Color Emoji) at regular weight and style; the requested stretch is kept.
+    if(font_flags==emoji_font_flag){query.scope=0;query.family=default_font_name(DefaultFont::emoji);query.properties.weight=400;query.properties.style=0;}
+#endif
     return query;
 }
 bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,NativeRunPlanHandle* output,NativeFontRunHandle* font,u32* key,const NativeTextFontRange* face=nullptr) noexcept {

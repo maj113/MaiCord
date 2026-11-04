@@ -1,4 +1,5 @@
 #include "shell/state.hpp"
+#include "../../../support/window_fixture.hpp"
 #include "account/login/auth.hpp"
 #include "account/login/browser_auth.hpp"
 #include "maicord/platform/desktop/webauthn.hpp"
@@ -673,7 +674,7 @@ void run_logout_fences() noexcept {
               "logout login fence: direct user admissions refuse without starting any credential QR "
               "browser recovery reset phone or MFA owner");
         check(application_login_handle_key(key::enter) && application_login_handle_key(key::escape) &&
-                  application_login_handle_click(0) && application_login_cancel_blocked() &&
+                  application_login_handle_click(window_test::pointer_down(window_test::x_of(0), window_test::y_of(0))) && application_login_cancel_blocked() &&
                   application_login_run_phone_verify(epoch, mfa_revision) &&
                   application_login_run_webauthn(epoch) && application_login_pump() &&
                   g_app.login.status == LoginStatus::idle && g_app.login.application_auth_epoch == epoch &&

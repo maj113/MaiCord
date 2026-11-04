@@ -119,4 +119,19 @@ bool pages_unmap(void* base, usize hint_bytes) noexcept {
     return bytes != 0 && !syscall_failed(sys_munmap(base, bytes));
 }
 
+void* pages_range_base(const void* address) noexcept {
+    const u64 target = reinterpret_cast<u64>(address);
+    void* found = nullptr;
+    lock();
+    for (u32 slot = 0; slot < kSlots; ++slot) {
+        const Range& range = g_ranges[slot];
+        if (range.base != 0 && target >= range.base && target - range.base < range.bytes) {
+            found = reinterpret_cast<void*>(range.base);
+            break;
+        }
+    }
+    unlock();
+    return found;
+}
+
 } // namespace maicord

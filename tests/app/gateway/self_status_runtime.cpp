@@ -2,6 +2,7 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/user/self_status_settings.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/os/wait.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -147,7 +148,7 @@ void run() noexcept {
                                            observation(GatewayUserStatus::online, json, true, true)) &&
               gateway_client_self_status_snapshot(&client).settings_revision == revision,
           "self status runtime: partial unrelated group never destroys saved status");
-    HANDLE settings_notification = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    Waitable settings_notification = event_create(true, false);
     check(settings_notification != nullptr, "typed settings runtime: isolated notification event creates");
     client.notification_event = settings_notification;
     const auto saved_status = gateway_client_self_status_snapshot(&client);
@@ -160,11 +161,11 @@ void run() noexcept {
                   saved_status.settings_revision &&
               gateway_client_self_status_snapshot(&client).confirmed_status ==
                   saved_status.confirmed_status &&
-              (!settings_notification || WaitForSingleObject(settings_notification, 0) == WAIT_OBJECT_0),
+              (!settings_notification || wait_one(settings_notification, 0) == WAIT_OBJECT_0),
           "typed settings runtime: shipping classifier bumps Favorites revision and notifies without "
           "changing self status");
     if (settings_notification)
-        ResetEvent(settings_notification);
+        event_reset(settings_notification);
     constexpr Utf8View malformed_settings[]{
         utf8_literal("{\"settings\":{\"type\":\"2\",\"proto\":\"EgA=\"},\"partial\":true}"),
         utf8_literal("{\"settings\":{\"type\":2},\"partial\":true}"),
@@ -183,7 +184,7 @@ void run() noexcept {
                   frecency_revision + 1 &&
               gateway_client_self_status_snapshot(&client).settings_revision ==
                   saved_status.settings_revision &&
-              (!settings_notification || WaitForSingleObject(settings_notification, 0) == WAIT_TIMEOUT),
+              (!settings_notification || wait_one(settings_notification, 0) == WAIT_TIMEOUT),
           "typed settings runtime: missing malformed duplicate or untyped protobuf cannot bump revision or "
           "signal");
     check(!gateway_self_status_test_observe(
@@ -195,7 +196,7 @@ void run() noexcept {
               &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"GgA=\"},\"partial\":true}")) &&
               InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
                   frecency_revision + 1 &&
-              (!settings_notification || WaitForSingleObject(settings_notification, 0) == WAIT_TIMEOUT),
+              (!settings_notification || wait_one(settings_notification, 0) == WAIT_TIMEOUT),
           "typed settings runtime: valid unrelated partial frecency group preserves Favorites revision "
           "without notification");
     check(gateway_self_status_test_observe(
@@ -205,27 +206,27 @@ void run() noexcept {
                   frecency_revision + 2,
           "typed settings runtime: full typed2 versions and empty Favorites snapshot bumps exactly once");
     if (settings_notification)
-        ResetEvent(settings_notification);
+        event_reset(settings_notification);
     check(gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"GgA=\"},\"partial\":false}")) &&
               InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
                   frecency_revision + 3 &&
-              (!settings_notification || WaitForSingleObject(settings_notification, 0) == WAIT_OBJECT_0),
+              (!settings_notification || wait_one(settings_notification, 0) == WAIT_OBJECT_0),
           "typed settings runtime: full snapshot without Favorites invalidates cached authority and "
           "signals refresh");
     if (settings_notification)
-        ResetEvent(settings_notification);
+        event_reset(settings_notification);
     check(
         gateway_self_status_test_observe(
             &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"CgIYAg==\"},\"partial\":true}")) &&
             InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
                 frecency_revision + 4 &&
-            (!settings_notification || WaitForSingleObject(settings_notification, 0) == WAIT_OBJECT_0),
+            (!settings_notification || wait_one(settings_notification, 0) == WAIT_OBJECT_0),
         "typed settings runtime: Versions-only partial invalidates conditional-write freshness and "
         "signals refresh");
     client.notification_event = nullptr;
     if (settings_notification)
-        CloseHandle(settings_notification);
+        waitable_close(settings_notification);
     check(gateway_client_self_status_submit(&client, &rest, 7, 9, SelfStatusSettingsOperation::update,
                                             GatewayUserStatus::online, 3, 125)
               .ok(),
@@ -325,7 +326,7 @@ void run() noexcept {
 }
 } // namespace
 } // namespace maicord
-extern "C" __declspec(noreturn) void WINAPI maicord_gateway_self_status_runtime_entry() noexcept {
+MAICORD_TEST_ENTRY(maicord_gateway_self_status_runtime_entry) {
     maicord::run();
     maicord::test_exit(maicord::failures, "gateway self status runtime");
 }

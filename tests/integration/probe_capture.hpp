@@ -43,7 +43,7 @@ struct ProbeTargetReadback {
     u32 read_target(D3D11Renderer& renderer, D3D11_TEXTURE2D_DESC& description) noexcept {
         ID3D11Resource* resource{};
         ID3D11Texture2D* source{};
-        renderer.graphics.target->GetResource(&resource);
+        renderer.graphics.surface.target->GetResource(&resource);
         const bool texture = resource && SUCCEEDED(resource->QueryInterface(
             __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source)));
         com_release(resource);
@@ -72,7 +72,7 @@ struct ProbeTargetReadback {
 inline u32 probe_target_readback(D3D11Renderer& r, ProbeTargetReadback* out) noexcept {
     ID3D11Resource* resource{};
     ID3D11Texture2D* source{};
-    r.graphics.target->GetResource(&resource);
+    r.graphics.surface.target->GetResource(&resource);
     const bool texture =
         SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source)));
     com_release(resource);

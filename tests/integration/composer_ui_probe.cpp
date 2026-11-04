@@ -1,4 +1,5 @@
 #include "settings/emoji_preferences.hpp"
+#include "../support/window_fixture.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
@@ -199,7 +200,7 @@ bool project() noexcept {
 
 bool initialize(HWND window) noexcept {
     auto& ui = *g_app.account_ui;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.account.instance = fixture;
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 9;
@@ -674,7 +675,7 @@ bool pointer(MessageComposerControl control) noexcept {
             g_app.message_composer_scene, static_cast<short>(LOWORD(point)) * 96.f / g_app.renderer.dpi,
             static_cast<short>(HIWORD(point)) * 96.f / g_app.renderer.dpi) != control)
         return false;
-    const bool result = handle_composer_click(point);
+    const bool result = handle_composer_click(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     end_message_composer_pointer_selection();
     return result && fixture->refresh_ok;
 }
@@ -690,7 +691,7 @@ bool disabled_send() noexcept {
     const auto queued = g_app.account_ui->message_composer_controller.queued;
     const auto history = fixture->history_calls;
     if (g_app.message_composer.bytes || message_composer_scene_can_send(g_app.message_composer_scene) ||
-        handle_composer_click(center(MessageComposerControl::send)) ||
+        handle_composer_click(window_test::pointer_down(window_test::x_of(center(MessageComposerControl::send)), window_test::y_of(center(MessageComposerControl::send)))) ||
         focus_message_composer_control(MessageComposerControl::send))
         return false;
     Keyboard keyboard;
@@ -718,7 +719,7 @@ bool compact160_routes() noexcept {
     // The final wrapped Send target must be reachable, but this viewport
     // case cancels its held key instead of adding another queue request.
     Keyboard keyboard;
-    if (!require(keyboard.valid && handle_composer_hover(center(MessageComposerControl::send)) &&
+    if (!require(keyboard.valid && handle_composer_hover(window_test::pointer_move(window_test::x_of(center(MessageComposerControl::send)), window_test::y_of(center(MessageComposerControl::send)))) &&
                      focus_message_composer_control(MessageComposerControl::send) &&
                      handle_composer_button_key(key::space, true, false) &&
                      handle_composer_button_key(key::space, true, true) &&
@@ -894,7 +895,7 @@ bool typing_dots_steps() noexcept {
     // under test. Each takes its slot as an accepted BeginFrame would, so a
     // slowly composing desktop (a software adapter) cannot time the wait out.
     const auto present = [&]() noexcept {
-        if (r.graphics.frame_latency_waitable)
+        if (r.graphics.surface.frame_latency_waitable)
             r.begin_frame_permit = true;
         return probe_present(&r, theme);
     };
@@ -1296,7 +1297,7 @@ bool composer_ui_probe() noexcept {
     application_window_observe_position(window);
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(GetFocus() == window, 100, "focus") ||
-        !require(renderer_initialize(&g_app.renderer, window), 100, "renderer_initialize") ||
+        !require(renderer_initialize(&g_app.renderer, probe_window_surface(window)), 100, "renderer_initialize") ||
         !require(initialize(window), 100, "initialize"))
         return false;
     if (scenarios())

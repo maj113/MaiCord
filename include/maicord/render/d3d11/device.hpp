@@ -1,13 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_types.hpp"
-#include "maicord/gpu/gpu.hpp"
-
-struct IDCompositionDevice;
-struct IDCompositionTarget;
-struct IDCompositionVisual;
-struct IDXGISwapChain1;
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 
@@ -16,20 +10,14 @@ enum class D3D11DeviceOwnerError : u8 {
     invalid_input,
     hardware_device,
     context_11_1,
-    dxgi_factory,
-    composition_swap_chain,
-    frame_latency,
-    render_target,
-    resize,
+    // The surface could not be created; the backend logged which step failed.
+    surface,
 };
 
 struct D3D11DeviceOwnerResult {
-    u32 width;
-    u32 height;
-    u32 dpi;
-    HRESULT native_error;
+    GpuStatus native_error;
     D3D11DeviceOwnerError error;
-    // Initialization adopted the d3d11_device_prestart worker's device.
+    // Initialization adopted the gpu_device_prestart worker's device.
     bool prestarted;
     // Identifies the adapter (vendor, device, revision and LUID): what a per-GPU record is keyed by.
     u64 adapter_key;
@@ -39,52 +27,22 @@ struct D3D11DeviceOwnerResult {
     }
 };
 
-// Owns the platform D3D11/DXGI/DirectComposition lifetime graph. Logical UI
-// dimensions, paint policy and shader resources remain renderer concerns.
+// Owns the device, its immediate context and the surface frames are presented on. Logical UI dimensions, paint
+// policy and shader resources remain renderer concerns.
 struct D3D11DeviceOwner {
     GpuDevice* device;
     GpuContext* context;
     GpuContext1* context1;
-    IDXGISwapChain1* swap_chain;
-    IDCompositionDevice* composition_device;
-    IDCompositionTarget* composition_target;
-    IDCompositionVisual* composition_visual;
-    GpuRtv* target;
-    HANDLE frame_latency_waitable;
-    u32 buffer_width;
-    u32 buffer_height;
-    u32 resize_buffer_reallocations;
+    GpuSurface surface;
 };
 
+#if defined(_WIN32)
 static_assert(sizeof(D3D11DeviceOwner) == 88);
+#endif
 
-// Runs on the prestart worker with its new device and immediate context. The
-// worker owns the context (protected for several threads) until
-// d3d11_device_prestart_finish returns: neither the owner nor any other thread
-// may use it before then. Device object creation is free-threaded.
-using D3D11DevicePrestartContinuation = void (*)(GpuDevice* device, GpuContext* context) noexcept;
-// Starts hardware device creation on a worker thread so user-mode driver
-// initialization overlaps the rest of startup, then runs the continuation on
-// it. The next owner initialization adopts that device as soon as it exists,
-// or creates one itself when none was started or the worker failed. Main
-// thread only.
-void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation) noexcept;
-// Waits for the worker and its continuation; releases a device no owner adopted.
-void d3d11_device_prestart_finish() noexcept;
-D3D11DeviceOwnerResult d3d11_device_owner_initialize(
-    D3D11DeviceOwner* owner, HWND window) noexcept;
-D3D11DeviceOwnerResult d3d11_device_owner_resize(
-    D3D11DeviceOwner* owner, u32 width, u32 height) noexcept;
-DWORD d3d11_device_owner_wait(const D3D11DeviceOwner& owner,
-                              u32 timeout_ms) noexcept;
-// A null dirty_rectangles presents the whole buffer.
-HRESULT d3d11_device_owner_present(D3D11DeviceOwner* owner,
-                                   u32 sync_interval,
-                                   const RECT* dirty_rectangles,
-                                   u32 dirty_count = 1) noexcept;
-// Moves the whole window content by (x, y) physical pixels on the composition
-// visual, without presenting a new frame (the app shake).
-HRESULT d3d11_device_owner_set_offset(D3D11DeviceOwner* owner, float x, float y) noexcept;
+// Makes the device (adopting the prestart worker's when there is one), then the surface for `surface`'s window.
+D3D11DeviceOwnerResult d3d11_device_owner_initialize(D3D11DeviceOwner* owner, const GpuSurfaceDesc& surface) noexcept;
+// Releases the surface, then the context and device. An empty owner is left empty.
 void d3d11_device_owner_release(D3D11DeviceOwner* owner) noexcept;
 
 } // namespace maicord

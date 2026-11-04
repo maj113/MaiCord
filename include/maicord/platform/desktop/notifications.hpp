@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/window.hpp"
 
 #include "maicord/sys/com.hpp"
 
@@ -26,8 +27,8 @@ struct DesktopNotificationXml { char bytes[kDesktopNotificationXmlBytes]; u32 co
 struct DesktopNotificationConfig {
     ConstSlice<wchar_t> app_id;
     GUID activator_id{};
-    HWND wake_window{};
-    u32 wake_message{};
+    // Posted when an activation or history request is queued for the UI thread (wake_notifications).
+    Waker wake{};
     // True only after durable identity enrollment. False selects a fully
     // in-memory factory/queue mode, which cannot deliver any desktop toast.
     bool register_activator{};
@@ -69,7 +70,7 @@ bool desktop_notifications_history_pending(const DesktopNotifications*) noexcept
 DesktopNotificationResult desktop_notifications_remove_profile(DesktopNotifications*, u64 profile) noexcept;
 // OS NotificationSetting enum value; Enabled does not promise a visible banner.
 DesktopNotificationResult desktop_notifications_setting(DesktopNotifications*, u32*) noexcept;
-DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications*, HWND, u32 message) noexcept;
+DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications*, const Waker& wake) noexcept;
 bool desktop_notifications_take_activation(DesktopNotifications*, DesktopNotificationActivation*) noexcept;
 void desktop_notifications_discard_activations(DesktopNotifications*) noexcept;
 // Call on the same UI thread. Clears the wake target/queue, revokes the factory and

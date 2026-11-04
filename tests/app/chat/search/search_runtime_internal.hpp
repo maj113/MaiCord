@@ -122,7 +122,7 @@ extern char browser_query[128];
 
 extern u32 browser_query_bytes;
 
-bool click(UiSearchAction action, UINT press = WM_LBUTTONDOWN) noexcept;
+bool click(UiSearchAction action, bool second_press = false) noexcept;
 
 bool response(u64 request_id, u16 status, Utf8View body = {}, u64 retry_at = 0,
               u64 retry_after_ms = 0) noexcept;

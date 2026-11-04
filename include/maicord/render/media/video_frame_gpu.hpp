@@ -4,8 +4,6 @@
 #include "maicord/core/win32_types.hpp"
 #include "maicord/gpu/gpu.hpp"
 
-struct ID3D11Multithread;
-
 namespace maicord {
 
 // Converts from the frame's source-owned NV12 plane views (one-slice array
@@ -15,7 +13,7 @@ namespace maicord {
 struct VideoFrameGpu {
     GpuComputeShader* shader;
     GpuBuffer* constants;
-    ID3D11Multithread* multithread;
+    void* context_lock; // the backend's lock on the shared context (Direct3D 11: its ID3D11Multithread)
     u64 converted_pixels;
     u32 frames;
 };

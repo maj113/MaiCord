@@ -6,8 +6,10 @@
 
 namespace maicord::app_detail {
 
-void application_apply_minimum_window_track(HWND window, MINMAXINFO* limits) noexcept;
-bool application_create_main_window(WNDPROC window_proc) noexcept;
+// The smallest outer size (frame included) the window may be sized to, in pixels at its DPI.
+void application_minimum_window_frame(HWND window, u32* width, u32* height) noexcept;
+// Creates the main window; its messages reach application_window_event (window_runtime.hpp).
+bool application_create_main_window() noexcept;
 // Borderless main window covering its monitor; off restores the saved
 // placement and style. Returns false when the state did not change.
 bool application_window_set_fullscreen(bool on) noexcept;

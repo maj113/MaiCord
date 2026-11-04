@@ -19,6 +19,9 @@
 #include "maicord/ui/theme/background_color_math.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -244,12 +247,12 @@ void join_worker() noexcept {
     InterlockedExchange(&s.cancelled, 1);
     if (auto* https = s.https)
         update_https_cancel(https);
-    if (WaitForSingleObject(s.thread, 10'000) != WAIT_OBJECT_0) {
+    if (!thread_wait(static_cast<Thread*>(s.thread), 10'000)) {
         // The worker still owns the buffer: leave it to the process exit.
         s.candidate = nullptr;
         log_write(LogLevel::warning, "packages", "fetch_join_timeout");
     }
-    CloseHandle(s.thread);
+    thread_close(static_cast<Thread*>(s.thread));
     s.thread = nullptr;
 }
 
@@ -282,7 +285,7 @@ bool start_session() noexcept {
     return true;
 }
 
-DWORD WINAPI fetch_main(void*) noexcept {
+u32 fetch_main(void*) noexcept {
     auto& s = g.session;
     auto* https = commit_pages<UpdateHttpsTransport>();
     if (https && update_https_initialize(https)) {
@@ -301,7 +304,7 @@ DWORD WINAPI fetch_main(void*) noexcept {
     if (https)
         pages_release(https);
     InterlockedExchange(&s.finished, 1);
-    SetEvent(g.notify);
+    event_set(g.notify);
     return 0;
 }
 
@@ -317,8 +320,8 @@ PackageError map_fetch(const UpdateFetchResult& result) noexcept {
 void finish_fetch() noexcept {
     auto& s = g.session;
     if (s.thread) {
-        WaitForSingleObject(s.thread, 5'000);
-        CloseHandle(s.thread);
+        thread_wait(static_cast<Thread*>(s.thread), 5'000);
+        thread_close(static_cast<Thread*>(s.thread));
         s.thread = nullptr;
     }
     s.finished = 0;
@@ -340,7 +343,7 @@ bool begin_url(const PackageLink& link, bool open_when_done) noexcept {
         return false;
     auto& s = g.session;
     if (!g.notify)
-        g.notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        g.notify = event_create(false, false);
     s.link = link;
     s.sink = {s.candidate->file, kMcfxMaximumBytes, 0};
     s.fetched = {};
@@ -349,7 +352,7 @@ bool begin_url(const PackageLink& link, bool open_when_done) noexcept {
     s.open_when_done = open_when_done;
     s.phase = PackagePhase::working;
     s.card = {};
-    s.thread = g.notify ? CreateThread(nullptr, 256 * 1024, fetch_main, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)
+    s.thread = g.notify ? thread_start(fetch_main, nullptr, 256 * 1024, nullptr)
                         : nullptr;
     if (!s.thread) {
         set_failed(PackageError::unreachable);
@@ -387,7 +390,7 @@ void application_packages_library_changed() noexcept {
     // The theme list scans on the UI thread's next poll; an event keeps this callable from any thread.
     InterlockedExchange(&g.changed, 1);
     if (g.notify)
-        SetEvent(g.notify);
+        event_set(g.notify);
 }
 
 // ---- Sessions: link, file, drop -------------------------------------------------------------------------------
@@ -484,14 +487,15 @@ PackageError application_packages_commit() noexcept {
     if (!data_root(root) || !package_sha256({s.candidate->file, s.size}, hash) ||
         !package_file_path(root, s.card.kind, slug, hash, {path, 512}, &units))
         return PackageError::storage;
-    const bool existed = GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
+    FileStat existing{};
+    const bool existed = file_path_stat(path, &existing);
     if (!package_install(root, s.card.kind, slug, {s.candidate->file, s.size}, hash))
         return PackageError::storage;
     const char* version = effect ? s.candidate->workspace.package.version : "";
     if (!application_catalog_record_unreviewed(static_cast<CatalogKind>(s.card.kind), slug, hash,
                                                {version, c_string_length(version)})) {
         if (!existed)
-            DeleteFileW(path);
+            file_remove(path);
         return PackageError::storage;
     }
     if (effect)
@@ -547,7 +551,7 @@ void application_packages_tick(u64 now_ms) noexcept {
 
 HANDLE application_packages_notification() noexcept {
     if (!g.notify)
-        g.notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        g.notify = event_create(false, false);
     return g.notify;
 }
 
@@ -574,7 +578,7 @@ void application_packages_poll() noexcept {
 void application_packages_release() noexcept {
     application_packages_cancel();
     if (g.notify) {
-        CloseHandle(g.notify);
+        waitable_close(g.notify);
         g.notify = nullptr;
     }
 }
@@ -603,13 +607,13 @@ void application_packages_drop_enable(bool wanted) noexcept {
     application_sync_attachment_drop_target();
 }
 
-bool application_packages_drop(HANDLE drop) noexcept {
+bool application_packages_drop(DroppedFiles* drop) noexcept {
     if (!g_install_drop_wanted || !drop)
         return false;
     wchar_t path[kPathUnits];
-    const UINT units = DragQueryFileW(static_cast<HDROP>(drop), 0, path, kPathUnits);
-    DragFinish(static_cast<HDROP>(drop));
-    if (units && units < kPathUnits)
+    const u32 units = dropped_files_path(drop, 0, {path, kPathUnits});
+    dropped_files_release(drop);
+    if (units)
         application_packages_begin_file({path, units});
     return true;
 }

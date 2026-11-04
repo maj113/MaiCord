@@ -236,7 +236,7 @@ void synchronize_icon(u32 dpi) noexcept {
     if (extent == g_caption.icon_extent || !g_app.renderer_ready)
         return;
     ScratchPages<u32[kAppIconLargestExtent * kAppIconLargestExtent]> pixels;
-    if (pixels.data && app_icon_decode(g_app.instance, extent, *pixels.data) &&
+    if (pixels.data && app_icon_decode(extent, *pixels.data) &&
         renderer_set_caption_icon(&g_app.renderer, *pixels.data, extent))
         g_caption.icon_extent = extent;
 }
@@ -309,7 +309,7 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
     case WM_SETCURSOR:
         if (LOWORD(lparam) == HTCLIENT) {
             POINT point{};
-            if (application_cursor_client(window, &point) &&
+            if (application_cursor_client(&point) &&
                 point.y < static_cast<LONG>(g_app.renderer.caption_height)) {
                 application_set_cursor(UiCursor::arrow);
                 return true;
@@ -387,7 +387,7 @@ UiCaptionBarState application_caption_state() noexcept {
             application_update_badge(updates),
             g_app.login.visible,
             application_update_progress(updates),
-            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi(g_app.window)),
+            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi(win32_hwnd(g_app.window))),
             tooltip ? g_caption.hovered : UiCaptionPart::none};
 }
 
@@ -408,7 +408,7 @@ UiCaptionBarLayout application_caption_layout() noexcept {
 }
 
 bool application_caption_command(UiCaptionPart part) noexcept {
-    const HWND window = g_app.window;
+    const HWND window = win32_hwnd(g_app.window);
     if (!window)
         return false;
     WPARAM command = 0;
@@ -443,22 +443,22 @@ void application_caption_set_hidden(bool hidden) noexcept {
     if (!g_caption.enabled || g_caption.hidden == hidden)
         return;
     g_caption.hidden = hidden;
-    renderer_set_caption_height(&g_app.renderer, caption_pixels(window_dpi(g_app.window)));
+    renderer_set_caption_height(&g_app.renderer, caption_pixels(window_dpi(win32_hwnd(g_app.window))));
 }
 
 void application_caption_synchronize() noexcept {
     if (!g_caption.enabled || !g_app.window)
         return;
-    const u32 height = caption_pixels(window_dpi(g_app.window));
+    const u32 height = caption_pixels(window_dpi(win32_hwnd(g_app.window)));
     if (height != g_app.renderer.caption_height) {
         // A theme changed the band: the content below it resizes.
         renderer_set_caption_height(&g_app.renderer, height);
         application_resize_client();
     }
     if (g_caption.side_frame_stale)
-        measure_side_frame(g_app.window);
+        measure_side_frame(win32_hwnd(g_app.window));
     if (height && renderer_set_caption(&g_app.renderer, application_caption_state(), caption_title()))
-        synchronize_icon(window_dpi(g_app.window));
+        synchronize_icon(window_dpi(win32_hwnd(g_app.window)));
 }
 
 bool application_caption_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam,

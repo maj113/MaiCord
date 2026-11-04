@@ -3,6 +3,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -73,7 +74,8 @@ AccountCredentialForgetProbeResult probe(const AccountCredentialForgetIo* io,
                                          const wchar_t* path) noexcept {
     if (io)
         return io->probe(io->context, path);
-    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+    FileStat found{};
+    if (file_path_stat(path, &found))
         return {0, AccountCredentialForgetPresence::present};
     const u32 error = thread_last_error();
     return {error, win32_error_is_missing_file(error) ? AccountCredentialForgetPresence::missing
@@ -81,7 +83,7 @@ AccountCredentialForgetProbeResult probe(const AccountCredentialForgetIo* io,
 }
 
 u32 remove(const AccountCredentialForgetIo* io, const wchar_t* path) noexcept {
-    const u32 error = io ? io->remove(io->context, path) : (DeleteFileW(path) ? 0u : thread_last_error());
+    const u32 error = io ? io->remove(io->context, path) : (file_remove(path) ? 0u : thread_last_error());
     return win32_error_is_missing_file(error) ? 0u : error;
 }
 

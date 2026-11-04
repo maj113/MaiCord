@@ -3,6 +3,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // Call view: participant tiles for the current voice or DM call over the
@@ -27,7 +28,7 @@ void application_call_voice_pump() noexcept;
 HANDLE application_call_video_notification() noexcept;
 void application_call_video_signaled() noexcept;
 u64 application_call_next_wake() noexcept;
-bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_call_window_event(const WindowEvent& event) noexcept;
 // Text in voice: the call's share of the content column while its chat shows
 // beside it (zero otherwise). The shell layout reserves it from `available`.
 float application_call_chat_split(float available) noexcept;

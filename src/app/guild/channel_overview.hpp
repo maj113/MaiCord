@@ -5,6 +5,7 @@
 namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 bool application_channel_overview_open(u64 channel_id) noexcept;
@@ -19,7 +20,7 @@ bool application_channel_overview_input(UiInputKind, u32, bool) noexcept;
 // Inline editor engine while the page is open (accessibility SetValue).
 struct SettingsLayer;
 SettingsLayer* application_channel_overview_settings_layer() noexcept;
-bool application_channel_overview_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_channel_overview_window_event(const WindowEvent&) noexcept;
 bool application_channel_overview_edit_focused() noexcept;
 MessageComposer* application_channel_overview_edit_model() noexcept;
 TextInputTarget application_channel_overview_edit_target() noexcept;

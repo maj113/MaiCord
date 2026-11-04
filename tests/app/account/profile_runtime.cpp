@@ -11,7 +11,7 @@
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "../../../src/app/chat/messages/history_decode.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -351,11 +351,11 @@ void run() noexcept {
 } // namespace maicord::profile_runtime_test
 
 namespace maicord {
-ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
+ClipboardTextResult clipboard_read_utf8(const Slice<char>&) noexcept {
     profile_runtime_test::check(false, "profile runtime: role actions do not read the clipboard");
     return {0, ClipboardTextError::unavailable};
 }
-bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
+bool clipboard_write_utf8(const Utf8View&) noexcept {
     profile_runtime_test::check(false, "profile runtime: role actions do not write the clipboard");
     return false;
 }

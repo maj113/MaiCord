@@ -4,6 +4,7 @@
 #include "../shell/cursor.hpp"
 #include "picker.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/state.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/app/media/account_media_catalog.hpp"
@@ -20,7 +21,6 @@
 #include "maicord/ui/media/expression_card_scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -457,61 +457,60 @@ bool application_expression_card_contains(UiPoint point) noexcept {
     return open_now() && ui_expression_card_contains(g_card->scene, point.x, point.y);
 }
 
-bool application_expression_card_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_expression_card_window_event(const WindowEvent& event) noexcept {
     if (!open_now())
         return false;
     auto& c = *g_card;
-    switch (message) {
-    case WM_KEYDOWN:
-        if (wparam == key::escape) {
+    if (event.type == EventType::key_down) {
+        if ((event.flags & ev_system) != 0)
+            return false;
+        if (event.key.key == key::escape) {
             application_expression_card_close();
             return true;
         }
         // The popout focuses its button: Enter and Space press it.
-        if ((wparam == key::enter || wparam == key::space) && c.view_pack) {
+        if ((event.key.key == key::enter || event.key.key == key::space) && c.view_pack) {
             activate(UiExpressionCardControl::button);
             return true;
         }
         return false;
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-    case WM_SIZE:
-    case WM_CANCELMODE:
-    case WM_KILLFOCUS:
+    }
+    if (event.type == EventType::wheel || event.type == EventType::resize ||
+        event.type == EventType::cancel_input || input_focus_lost(event)) {
         // Emoji popouts close when their message scrolls.
         application_expression_card_close();
         return false;
-    case WM_MOUSELEAVE:
+    }
+    if (event.type == EventType::pointer_leave) {
         if (ui_expression_card_set_hover(&c.scene, -1e7f, -1e7f))
             application_request_frame();
         return false;
-    default:
-        break;
     }
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP &&
-        message != WM_LBUTTONDBLCLK && message != WM_SETCURSOR && message != WM_RBUTTONDOWN &&
-        message != WM_RBUTTONUP)
+    const bool move = event.type == EventType::pointer_move, cursor = event.type == EventType::cursor_query;
+    const bool press = input_down(event), release = input_release(event);
+    const bool secondary_press = input_press(event, PointerButton::right);
+    if (!move && !cursor && !press && !release && !secondary_press && !input_release(event, PointerButton::right))
         return false;
     UiPoint point{};
-    if (message == WM_SETCURSOR) {
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+    if (cursor) {
+        if (!client_cursor_dip(event, &point))
             return false;
     } else
-        point = {client_dip_x(lparam), client_dip_y(lparam)};
+        point = {client_dip_x(event), client_dip_y(event)};
     const bool over = ui_expression_card_contains(c.scene, point.x, point.y);
     const auto hit = ui_expression_card_hit(c.scene, point.x, point.y);
-    switch (message) {
-    case WM_MOUSEMOVE:
+    if (move) {
         if (ui_expression_card_set_hover(&c.scene, point.x, point.y))
             application_request_frame();
         return over;
-    case WM_SETCURSOR:
+    }
+    if (cursor) {
         if (!over)
             return false;
         application_set_cursor(ui_action_cursor(hit != UiExpressionCardControl::none));
         return true;
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK: {
+    }
+    if (press) {
         if (over) {
             c.control_pressed = hit != UiExpressionCardControl::none;
             c.pressed_control = hit;
@@ -527,7 +526,7 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
         application_expression_card_close();
         return source;
     }
-    case WM_LBUTTONUP: {
+    if (release) {
         const bool pressed = c.control_pressed;
         const auto control = c.pressed_control;
         c.control_pressed = false;
@@ -540,13 +539,9 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
             activate(hit);
         return true;
     }
-    case WM_RBUTTONDOWN:
-        if (!over)
-            application_expression_card_close();
-        return over;
-    default:
-        return over;
-    }
+    if (secondary_press && !over)
+        application_expression_card_close();
+    return over;
 }
 
 void application_expression_card_synchronize(u64 now_ms) noexcept {

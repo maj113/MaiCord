@@ -14,24 +14,20 @@ void operation(NetworkOperation* output, NetworkDatagram* owner, NetworkOperatio
     output->kind = kind;
 }
 } // namespace
-NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram, const sockaddr* peer,
-                                    i32 peer_bytes) noexcept {
+NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram,
+                                    const NetworkAddress& peer) noexcept {
+    sockaddr_storage target;
+    const i32 peer_bytes = socket_address(peer, &target);
     if (!loop || !loop->completion_port || !datagram || datagram->open || !network_datagram_idle(*datagram) ||
-        datagram->generation == ~u32{0} || !peer ||
-        static_cast<u64>(peer_bytes) < sizeof(ADDRESS_FAMILY))
+        datagram->generation == ~u32{0} || peer_bytes == 0 || !peer.port)
         return fail(NetworkError::invalid_argument);
-    const bool v4 = peer->sa_family == AF_INET && peer_bytes == sizeof(sockaddr_in) &&
-                    reinterpret_cast<const sockaddr_in*>(peer)->sin_port;
-    const bool v6 = peer->sa_family == AF_INET6 && peer_bytes == sizeof(sockaddr_in6) &&
-                    reinterpret_cast<const sockaddr_in6*>(peer)->sin6_port;
-    if (!v4 && !v6)
-        return fail(NetworkError::invalid_argument);
-    const SOCKET socket = WSASocketW(peer->sa_family, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0,
+    const SOCKET socket = WSASocketW(target.ss_family, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0,
                                      WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
     if (socket == INVALID_SOCKET)
         return fail(NetworkError::socket_create, WSAGetLastError());
     u_long nonblocking = 1;
-    if (ioctlsocket(socket, FIONBIO, &nonblocking) != 0 || connect(socket, peer, peer_bytes) != 0) {
+    if (ioctlsocket(socket, FIONBIO, &nonblocking) != 0 ||
+        connect(socket, reinterpret_cast<const sockaddr*>(&target), peer_bytes) != 0) {
         const auto error = WSAGetLastError();
         closesocket(socket);
         return fail(NetworkError::connect_start, error);

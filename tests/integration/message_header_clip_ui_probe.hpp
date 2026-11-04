@@ -175,7 +175,7 @@ inline bool message_header_clip_ui_probe(D3D11Renderer& renderer, MessageViewRun
         if (!renderer_rebuild_content_text(&renderer, theme) ||
             !d3d11_renderer_paint_layout(&renderer, theme, renderer_capture_presentation_stamp(renderer, theme)))
             return false;
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         return d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr, 10000) &&
                readback.read(renderer, index);
     };

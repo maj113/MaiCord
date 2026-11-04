@@ -13,7 +13,6 @@
 #include "../../account/account_access.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -1132,7 +1131,7 @@ bool application_commands_context_invoke(u8 type, u64 command_id, u64 target_id)
     queue_command(found->application_id, echo_author(found->application_id, app), found->name,
                   message_type_context_command);
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
     return true;
 }
 bool application_commands_retry(u64 message_id) noexcept {
@@ -1158,7 +1157,7 @@ bool application_commands_retry(u64 message_id) noexcept {
     echo_remove(*echo);
     queue_command(application, author, {name, name_bytes}, type);
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
     return true;
 }
 void application_commands_interaction(GatewayClientDispatchKind kind, Utf8View body) noexcept {

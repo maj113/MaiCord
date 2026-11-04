@@ -61,6 +61,14 @@ bool colr_paint_rasterize(ColrPaintGpu* gpu, GpuContext* context, const ColrPain
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation,
                           float pixels_per_em, u16 atlas_width, u16 atlas_height, u16 padding,
                           ColrPaintBatch* batch=nullptr) noexcept;
+#if !defined(_WIN32)
+// Writes the premultiplied RGBA8 pixels of a decoded colour bitmap glyph (bitmap_color_glyph_build) into the colour
+// atlas at `allocation`, its padding gutter transparent, as a paint program would have left it. `scratch` supplies the
+// padded copy and is rewound; queued paint jobs are dispatched first. The same size rules as colr_paint_rasterize.
+bool colr_paint_upload_pixels(ColrPaintGpu* gpu, GpuContext* context, const GlyphAtlasAllocation& allocation,
+                              u16 atlas_width, u16 atlas_height, u16 padding, const u32* pixels, Arena* scratch,
+                              ColrPaintBatch* batch=nullptr) noexcept;
+#endif
 void colr_paint_gpu_release(ColrPaintGpu* gpu) noexcept;
 // Bakes immediately into a caller-provided RGBA UAV; the program, shader and
 // upload buffers are shared with color text. The renderer's owned target remains unchanged.

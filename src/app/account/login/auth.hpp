@@ -4,6 +4,7 @@
 #include "maicord/protocol/auth/user_auth.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 enum class LoginRemoteStatus : u8;
@@ -46,7 +47,7 @@ bool application_login_submit_mfa() noexcept;
 bool application_login_pump() noexcept;
 bool application_login_begin_remote_auth() noexcept;
 bool application_login_cancel_blocked() noexcept;
-bool application_login_handle_click(LPARAM position) noexcept;
-bool application_login_handle_key(WPARAM key, bool repeated = false) noexcept;
+bool application_login_handle_click(const WindowEvent& event) noexcept;
+bool application_login_handle_key(u32 key, bool repeated = false) noexcept;
 
 } // namespace maicord::app_detail

@@ -1,0 +1,118 @@
+#include "maicord/core/log.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/platform/dbus/session.hpp"
+
+namespace maicord::dbus {
+namespace {
+
+constexpr u32 kMaxHooks = 8;
+constexpr u32 kRetryMs = 10000;
+
+Connection* g_session;
+bool g_wanted;
+bool g_failure_logged;
+u32 g_generation;
+u64 g_retry_at;  // monotonic ms before which no new connection is tried
+SessionBusHook g_hooks[kMaxHooks];
+u32 g_hook_count;
+
+void drop_connection(u64 now) noexcept {
+    connection_close(g_session);
+    g_session = nullptr;
+    g_retry_at = now + kRetryMs;
+    log_write(LogLevel::warning, "dbus", "the session bus connection ended");
+}
+
+bool try_open(u64 now) noexcept {
+    if (g_session)
+        return true;
+    if (now < g_retry_at)
+        return false;
+    g_session = connection_open_session();
+    if (!g_session) {
+        g_retry_at = now + kRetryMs;
+        if (!g_failure_logged) {
+            g_failure_logged = true;
+            log_write(LogLevel::info, "dbus", "no session bus: desktop settings, notifications and portals are unavailable");
+        }
+        return false;
+    }
+    g_failure_logged = false;
+    ++g_generation;
+    for (u32 i = 0; i < g_hook_count; ++i)
+        g_hooks[i](g_session);
+    return true;
+}
+
+} // namespace
+
+bool session_bus_open() noexcept {
+    g_wanted = true;
+    return try_open(clock_monotonic_milliseconds());
+}
+
+Connection* session_bus() noexcept {
+    return g_session && connection_alive(g_session) ? g_session : nullptr;
+}
+
+u32 session_bus_generation() noexcept {
+    return g_generation;
+}
+
+bool session_bus_add_hook(SessionBusHook hook) noexcept {
+    if (g_hook_count == kMaxHooks)
+        return false;
+    g_hooks[g_hook_count++] = hook;
+    if (g_session)
+        hook(g_session);
+    return true;
+}
+
+Waitable session_bus_waitable() noexcept {
+    return session_bus() ? connection_waitable(g_session) : nullptr;
+}
+
+u32 session_bus_wait_ms(u64 now_ms) noexcept {
+    if (g_session)
+        return connection_wait_ms(g_session, now_ms);
+    if (!g_wanted)
+        return kNoTimeout;
+    return now_ms >= g_retry_at ? 0 : static_cast<u32>(g_retry_at - now_ms);
+}
+
+void session_bus_process(u64 now_ms) noexcept {
+    if (g_session) {
+        connection_process(g_session, now_ms);
+        if (!connection_alive(g_session))
+            drop_connection(now_ms);
+    } else if (g_wanted) {
+        try_open(now_ms);
+    }
+}
+
+bool session_bus_wait_for(const volatile bool* done, u32 timeout_ms) noexcept {
+    const u64 deadline = clock_monotonic_milliseconds() + timeout_ms;
+    while (!*done) {
+        const u64 now = clock_monotonic_milliseconds();
+        if (now >= deadline || !session_bus())
+            break;
+        Waitable waitable = session_bus_waitable();
+        u32 wait = session_bus_wait_ms(now);
+        const u32 left = static_cast<u32>(deadline - now);
+        if (wait > left)
+            wait = left;
+        wait_many(&waitable, 1, wait, 0);
+        session_bus_process(clock_monotonic_milliseconds());
+    }
+    return *done;
+}
+
+void session_bus_close() noexcept {
+    connection_close(g_session);
+    g_session = nullptr;
+    g_wanted = false;
+    g_retry_at = 0;
+    g_failure_logged = false;
+}
+
+} // namespace maicord::dbus

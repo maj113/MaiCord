@@ -15,7 +15,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/widgets/button.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -179,7 +179,7 @@ bool replace_selection(SettingsLayer* layer, Utf8View text, bool multiline_allow
 // Out of line: the 4 KiB read buffer would otherwise probe the stack on every key.
 __declspec(noinline) bool paste_clipboard(SettingsLayer* layer) noexcept {
     char buffer[kEditBufferUnits];
-    const auto read = clipboard_read_utf8(g_app.window, {buffer, sizeof(buffer)});
+    const auto read = clipboard_read_utf8({buffer, sizeof(buffer)});
     return read.ok() && replace_selection(layer, {buffer, read.bytes}, true);
 }
 void dispatch(SettingsLayer* layer, const UiSettingsActivation& value, bool pointer, bool button) noexcept {
@@ -191,14 +191,14 @@ void dispatch(SettingsLayer* layer, const UiSettingsActivation& value, bool poin
     }
     layer->hooks->activate(layer, activation);
 }
-bool choose_pointer(SettingsLayer* layer, UINT message, float x, float y) noexcept {
+bool choose_pointer(SettingsLayer* layer, PointerStep step, float x, float y) noexcept {
     const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
-    if (message == WM_MOUSEMOVE) {
+    if (step == PointerStep::move) {
         bool changed = false;
         popup_scene_set_hover(&g_app.popup_scene, x, y, &changed);
         if (changed)
             repaint(layer);
-    } else if (message == WM_LBUTTONDOWN) {
+    } else if (step == PointerStep::press) {
         if (!hit.inside) {
             settings_layer_close_choice(layer);
             layer->hooks->choose(layer, 0);
@@ -207,7 +207,7 @@ bool choose_pointer(SettingsLayer* layer, UINT message, float x, float y) noexce
         }
         layer->popup_pressed = hit.enabled ? hit.action : 0;
         application_capture_pointer();
-    } else if (message == WM_LBUTTONUP) {
+    } else if (step == PointerStep::release) {
         const u32 pressed = layer->popup_pressed;
         application_release_capture();
         if (!hit.inside && !pressed)
@@ -578,7 +578,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
     }
     if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
-        if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
+        if (last > first && clipboard_write_utf8({model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
     } else if (control && key == 'V') {
         if (paste_clipboard(layer))
@@ -604,11 +604,11 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
     return true;
 }
 
-bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event) noexcept {
     if (!layer->scene || !layer->scene->active)
         return false;
     auto* scene = layer->scene;
-    if (message == WM_KILLFOCUS || message == WM_CANCELMODE || message == WM_CAPTURECHANGED) {
+    if (input_focus_lost(event) || event.type == EventType::cancel_input || event.type == EventType::capture_lost) {
         layer->backdrop_pressed = false;
         layer->selecting = layer->scrollbar_dragging = layer->slider_dragging = false;
         if (layer->dragging || layer->drag_armed) {
@@ -618,9 +618,9 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         reset_value(&layer->pressed);
         ui_button_pointer(&scene->widgets, UiButtonPointerEvent::cancel, {});
-        if (message != WM_CAPTURECHANGED)
+        if (event.type != EventType::capture_lost)
             application_release_capture();
-        if (message == WM_KILLFOCUS) {
+        if (input_focus_lost(event)) {
             if (layer->choice) {
                 settings_layer_close_choice(layer);
                 layer->hooks->choose(layer, 0);
@@ -629,17 +629,15 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         return false;
     }
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         bool changed = ui_button_pointer(&scene->widgets, UiButtonPointerEvent::move, {-1, -1}).changed;
         changed = ui_settings_scene_palette_hover(scene, {}, -1, -1) || changed;
         if (changed)
             repaint(layer);
         return true;
     }
-    if (message == WM_MOUSEWHEEL) {
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point))
-            return true;
+    if (input_vertical_wheel(event)) {
+        const UiPoint point = client_wheel_dip(event);
         if (layer->choice) {
             // The choice menu glides like every other list (and jumps when
             // smooth scrolling is off); each animated step repaints the layer.
@@ -657,29 +655,26 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                     if (*changed) repaint(static_cast<SettingsLayer*>(context));
                     return true;
                 }};
-            application_modal_scroll_wheel(choice, point, wparam);
+            application_modal_scroll_wheel(choice, point, event);
             return true;
         }
         application_modal_scroll_wheel(scroll_binding(layer, ui_rect_contains(scene->layout.sidebar, point.x, point.y)),
-                                       point, wparam);
+                                       point, event);
         return true;
     }
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP ||
-        message == WM_LBUTTONDBLCLK) {
-        if (message == WM_LBUTTONDBLCLK)
-            message = WM_LBUTTONDOWN;
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    if (const PointerStep step = input_pointer_step(event); step != PointerStep::none) {
+        const float x = client_dip_x(event), y = client_dip_y(event);
         if (layer->choice)
-            return choose_pointer(layer, message, x, y);
+            return choose_pointer(layer, step, x, y);
         if (layer->scrollbar_dragging) {
-            if (message == WM_MOUSEMOVE) {
+            if (step == PointerStep::move) {
                 const bool side = layer->scrollbar_sidebar;
                 const auto bar = ui_settings_scene_scrollbar(*scene, side);
                 ui_settings_scene_scroll(scene, side,
                                          ui_scrollbar_scroll_from_pointer(bar, y, layer->scrollbar_grab) -
                                              (side ? scene->sidebar_offset : scene->content_offset));
                 repaint(layer);
-            } else if (message == WM_LBUTTONUP) {
+            } else if (step == PointerStep::release) {
                 layer->scrollbar_dragging = false;
                 application_release_capture();
             }
@@ -687,10 +682,10 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         if (layer->slider_dragging) {
             UiSettingsActivation activation{};
-            if (message != WM_LBUTTONDOWN &&
+            if (step != PointerStep::press &&
                 ui_settings_scene_slider_pointer(*scene, layer->pressed, x, &activation))
                 dispatch(layer, activation, true, false);
-            if (message == WM_LBUTTONUP) {
+            if (step == PointerStep::release) {
                 layer->slider_dragging = false;
                 reset_value(&layer->pressed);
                 application_release_capture();
@@ -698,7 +693,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             return true;
         }
         if (layer->drag_armed) {
-            if (message == WM_MOUSEMOVE) {
+            if (step == PointerStep::move) {
                 if (!layer->dragging && (y - layer->press_y > 4 || layer->press_y - y > 4))
                     layer->dragging = true;
                 if (layer->dragging) {
@@ -717,7 +712,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                     }
                     repaint(layer);
                 }
-            } else if (message == WM_LBUTTONUP) {
+            } else if (step == PointerStep::release) {
                 const u64 dragged = layer->drag_id, target = layer->drop_target;
                 const bool after = layer->drop_below, moved = layer->dragging;
                 layer->drop_target = 0;
@@ -730,7 +725,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             }
             return true;
         }
-        if (message == WM_LBUTTONDOWN) {
+        if (step == PointerStep::press) {
             for (u32 side = 0; side < 2; ++side) {
                 const auto bar = ui_settings_scene_scrollbar(*scene, side != 0);
                 if (!ui_scrollbar_track_hit(bar, x, y))
@@ -753,7 +748,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         // The official client closes a dialog when a click lands on its scrim; the owner's
         // close path keeps its own unsaved-changes guard.
         if (layer->backdrop_pressed) {
-            if (message == WM_LBUTTONUP) {
+            if (step == PointerStep::release) {
                 layer->backdrop_pressed = false;
                 application_release_capture();
                 if (settings_layer_backdrop_hit(*scene, x, y))
@@ -761,15 +756,15 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             }
             return true;
         }
-        if (message == WM_LBUTTONDOWN && settings_layer_backdrop_hit(*scene, x, y)) {
+        if (step == PointerStep::press && settings_layer_backdrop_hit(*scene, x, y)) {
             layer->backdrop_pressed = true;
             application_capture_pointer();
             return true;
         }
         if (layer->selecting) {
-            if (message == WM_MOUSEMOVE)
+            if (step == PointerStep::move)
                 select_point(layer, x, y, true);
-            else if (message == WM_LBUTTONUP) {
+            else if (step == PointerStep::release) {
                 layer->selecting = false;
                 application_release_capture();
             }
@@ -779,16 +774,16 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         const bool editor = editable(layer) && ui_settings_scene_editor_hit(*scene, x, y, &field);
         const auto target = ui_settings_scene_hit_test(*scene, x, y);
         const auto pointer = ui_button_pointer(&scene->widgets,
-                                               message == WM_LBUTTONDOWN ? UiButtonPointerEvent::press
-                                               : message == WM_LBUTTONUP ? UiButtonPointerEvent::release
+                                               step == PointerStep::press ? UiButtonPointerEvent::press
+                                               : step == PointerStep::release ? UiButtonPointerEvent::release
                                                                          : UiButtonPointerEvent::move,
                                                {x, y});
         bool changed = pointer.changed;
-        if (message == WM_MOUSEMOVE)
+        if (step == PointerStep::move)
             changed = ui_settings_scene_palette_hover(scene, target, x, y) || changed;
         if (changed)
             repaint(layer);
-        if (message == WM_LBUTTONDOWN) {
+        if (step == PointerStep::press) {
             application_focus_window();
             if (!editor && ui_settings_scene_grip_hit(*scene, target, x, y)) {
                 layer->drop_target = 0;
@@ -801,7 +796,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             }
             settings_layer_focus(layer, editor ? field.target : target);
             if (editor) {
-                select_point(layer, x, y, (wparam & MK_SHIFT) != 0);
+                select_point(layer, x, y, input_shift(event));
                 layer->selecting = true;
             } else if (ui_settings_scene_slider_hit(*scene, target, x, y)) {
                 UiSettingsActivation activation{};
@@ -814,7 +809,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 layer->pressed_revision = scene->revision;
             }
             application_capture_pointer();
-        } else if (message == WM_LBUTTONUP) {
+        } else if (step == PointerStep::release) {
             const auto pressed = layer->pressed;
             reset_value(&layer->pressed);
             application_release_capture();
@@ -851,24 +846,24 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         return true;
     }
-    if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
         const bool popup = layer->choice && g_app.popup_scene.active;
-        application_set_cursor(!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point)
+        application_set_cursor(!client_cursor_dip(event, &point)
                                    ? UiCursor::arrow
                                : popup ? ui_popup_scene_cursor(g_app.popup_scene, point.x, point.y)
                                        : ui_settings_scene_cursor(*scene, point.x, point.y, layer->dragging));
         return true;
     }
-    if (message == WM_DROPFILES) {
-        DragFinish(reinterpret_cast<HDROP>(wparam));
+    if (event.type == EventType::drop_files) {
+        dropped_files_release(event.drop.files);
         return true;
     }
     // Pointer right-clicks anchor at the pointer; the menu key at the focused row.
-    const bool keyboard_menu = message == WM_CONTEXTMENU && lparam == -1;
-    if ((message == WM_RBUTTONUP || keyboard_menu) && layer->hooks->context && !layer->choice &&
+    const bool keyboard_menu = event.type == EventType::context_menu && (event.flags & ev_keyboard) != 0;
+    if ((input_release(event, PointerButton::right) || keyboard_menu) && layer->hooks->context && !layer->choice &&
         !layer->dragging && !application_pointer_captured()) {
-        const float x = keyboard_menu ? 0 : client_dip_x(lparam), y = keyboard_menu ? 0 : client_dip_y(lparam);
+        const float x = keyboard_menu ? 0 : client_dip_x(event), y = keyboard_menu ? 0 : client_dip_y(event);
         const auto target = keyboard_menu ? scene->focus : ui_settings_scene_hit_test(*scene, x, y);
         UiSettingsActivation activation{};
         UiSettingsControlGeometry geometry{};
@@ -882,8 +877,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         return true;
     }
-    return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-           message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL;
+    return event.type == EventType::context_menu || input_side_button(event) || input_horizontal_wheel(event);
 }
 
 } // namespace maicord::app_detail

@@ -1,6 +1,7 @@
 #include "maicord/platform/desktop/taskbar_attention.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/window/win32.hpp"
 
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/shell.hpp"
@@ -54,13 +55,10 @@ HICON create_icon(u8 badge, u32 extent) noexcept {
     ScratchPages<u32[kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent]> pixels;
     if (!pixels.data || !taskbar_attention_render_badge(badge, extent, {*pixels.data, extent * extent}))
         return nullptr;
-    return taskbar_attention_create_icon({*pixels.data, extent * extent}, extent);
+    return win32_create_icon({*pixels.data, extent * extent}, extent);
 }
 void flash(HWND window, bool start) noexcept {
-    FLASHWINFO info{sizeof(info), window, start ? static_cast<DWORD>(FLASHW_TRAY | FLASHW_TIMERNOFG)
-                                                : static_cast<DWORD>(FLASHW_STOP),
-                    start ? 3u : 0u, 0};
-    FlashWindowEx(&info);
+    window_request_attention(win32_window(window), start ? Attention::flash : Attention::stop);
 }
 // The shell's taskbar object is activated when the first badge is shown; a
 // session that never shows one never pays for it. One attempt per session.
@@ -136,33 +134,6 @@ bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noe
     else
         text(pixels, extent, single, 1);
     return true;
-}
-
-HICON taskbar_attention_create_icon(Slice<u32> pixels, u32 extent) noexcept {
-    if (!pixels.data || !extent || extent > kTaskbarBadgeMaximumExtent || pixels.count < extent * extent)
-        return nullptr;
-    ScratchPages<u8[sizeof(BITMAPINFOHEADER) + kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent * 4 +
-                    kTaskbarBadgeMaximumExtent * 8]>
-        scratch;
-    if (!scratch.data)
-        return nullptr;
-    u8* resource = *scratch.data;
-    BITMAPINFOHEADER header{};
-    header.biSize = sizeof(header);
-    header.biWidth = static_cast<LONG>(extent);
-    header.biHeight = static_cast<LONG>(extent * 2); // XOR image plus AND mask
-    header.biPlanes = 1;
-    header.biBitCount = 32;
-    header.biCompression = BI_RGB;
-    // Fresh scratch pages are zero, so the AND mask is already clear.
-    copy_bytes(resource, &header, sizeof(header));
-    u8* rows = resource + sizeof(header);
-    for (u32 y = 0; y < extent; ++y) // bottom-up
-        copy_bytes(rows + (extent - 1 - y) * extent * 4, pixels.data + y * extent, extent * 4);
-    const u32 mask_bytes = extent * ((extent + 31) / 32 * 4);
-    const u32 total = static_cast<u32>(sizeof(header)) + extent * extent * 4 + mask_bytes;
-    return CreateIconFromResourceEx(resource, total, TRUE, 0x00030000, static_cast<int>(extent),
-                                    static_cast<int>(extent), LR_DEFAULTCOLOR);
 }
 
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {

@@ -9,7 +9,6 @@
 #include "maicord/ui/accessibility/scenes.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace accessibility_detail {}

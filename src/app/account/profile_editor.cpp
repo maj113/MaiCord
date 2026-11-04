@@ -294,18 +294,18 @@ void dialog_action(UiProfileDialogAction action, u32 source) noexcept {
     }
     refresh_dialog();
 }
-bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool dialog_event(const WindowEvent& event) noexcept {
     auto& p = *owner;
     auto& d = p.dialog;
-    if (message == WM_MOUSEWHEEL) {
-        const float delta = -application_wheel_notches(wparam) * 48.f;
+    if (input_vertical_wheel(event)) {
+        const float delta = -input_wheel_notches(event) * 48.f;
         if (ui_profile_dialog_scroll(&d, delta))
             repaint();
         return true;
     }
-    if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
-        application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point);
+        client_cursor_dip(event, &point);
         const auto hit = ui_profile_dialog_hit_test(d, point.x, point.y);
         const auto action = ui_profile_dialog_action(d, hit);
         application_set_cursor(p.crop_dragging || action == UiProfileDialogAction::pan ? UiCursor::move
@@ -313,19 +313,18 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
                                                                                       : UiCursor::arrow);
         return true;
     }
-    if (message == WM_KILLFOCUS || message == WM_CANCELMODE || message == WM_CAPTURECHANGED) {
+    if (input_focus_lost(event) || event.type == EventType::cancel_input || event.type == EventType::capture_lost) {
         p.crop_dragging = p.zoom_dragging = false;
         ui_button_pointer(&d.widgets, UiButtonPointerEvent::cancel, {});
         return false;
     }
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP &&
-        message != WM_LBUTTONDBLCLK)
-        return message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MOUSELEAVE;
-    if (message == WM_LBUTTONDBLCLK)
-        message = WM_LBUTTONDOWN;
-    const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    const PointerStep step = input_pointer_step(event);
+    if (step == PointerStep::none)
+        return input_press(event, PointerButton::right) || input_release(event, PointerButton::right) ||
+               event.type == EventType::pointer_leave;
+    const float x = client_dip_x(event), y = client_dip_y(event);
     if (p.crop_dragging || p.zoom_dragging) {
-        if (message == WM_MOUSEMOVE) {
+        if (step == PointerStep::move) {
             if (p.crop_dragging) {
                 p.crop.offset_x = p.drag_offset_x + (x - p.drag_x);
                 p.crop.offset_y = p.drag_offset_y + (y - p.drag_y);
@@ -333,7 +332,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
             } else
                 set_zoom(x);
             refresh_dialog();
-        } else if (message == WM_LBUTTONUP) {
+        } else if (step == PointerStep::release) {
             p.crop_dragging = p.zoom_dragging = false;
             application_release_capture();
             refresh_dialog();
@@ -342,13 +341,13 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     }
     const auto hit = ui_profile_dialog_hit_test(d, x, y);
     const auto action = ui_profile_dialog_action(d, hit);
-    if (message == WM_LBUTTONDOWN && !ui_rect_contains(d.rectangle, x, y)) {
+    if (step == PointerStep::press && !ui_rect_contains(d.rectangle, x, y)) {
         // A click on the scrim closes the dialog like Cancel.
         close_dialog();
         repaint();
         return true;
     }
-    if (message == WM_LBUTTONDOWN && (action == UiProfileDialogAction::pan || action == UiProfileDialogAction::zoom)) {
+    if (step == PointerStep::press && (action == UiProfileDialogAction::pan || action == UiProfileDialogAction::zoom)) {
         application_capture_pointer();
         if (action == UiProfileDialogAction::pan) {
             p.crop_dragging = true;
@@ -364,13 +363,13 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         return true;
     }
     const auto result = ui_button_pointer_target(&d.widgets,
-                                                 message == WM_LBUTTONDOWN ? UiButtonPointerEvent::press
-                                                 : message == WM_LBUTTONUP ? UiButtonPointerEvent::release
+                                                 step == PointerStep::press ? UiButtonPointerEvent::press
+                                                 : step == PointerStep::release ? UiButtonPointerEvent::release
                                                                            : UiButtonPointerEvent::move,
                                                  hit);
-    if (message == WM_LBUTTONDOWN && result.handled)
+    if (step == PointerStep::press && result.handled)
         application_capture_pointer();
-    if (message == WM_LBUTTONUP)
+    if (step == PointerStep::release)
         application_release_capture();
     if (result.changed) {
         ++d.revision;
@@ -430,12 +429,12 @@ SettingsLayer* application_profile_editor_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
 }
 
-bool application_profile_editor_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_profile_editor_window_event(const WindowEvent& event) noexcept {
     if (!application_profile_editor_active())
         return false;
     if (owner->dialog_kind != Dialog::none && owner->dialog.active)
-        return dialog_message(message, wparam, lparam);
-    return settings_layer_window_message(&owner->layer, message, wparam, lparam);
+        return dialog_event(event);
+    return settings_layer_window_event(&owner->layer, event);
 }
 
 u64 application_profile_editor_next_wake() noexcept {

@@ -1,5 +1,6 @@
 #include "call.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
 #include "../shell/content_input.hpp"
@@ -10,6 +11,7 @@
 #include "../chat/search/search.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/shortcuts.hpp"
 #include "stage.hpp"
 #include "soundboard.hpp"
@@ -27,7 +29,6 @@
 #include "maicord/ui/chat/private_channel_title.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
 
@@ -385,7 +386,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
             // the previous line, at most every few seconds.
             static u64 next_log_ms = 0;
             static u32 suppressed = 0;
-            const u64 now = GetTickCount64();
+            const u64 now = clock_monotonic_milliseconds();
             if (now < next_log_ms) {
                 ++suppressed;
             } else {
@@ -540,7 +541,7 @@ bool application_call_open(u64 channel_id, u64 focus_user) noexcept {
     if (application_thread_browser_active())
         application_thread_browser_close();
     if (!view.open || view.channel_id != channel_id) {
-        view.opened_ms = GetTickCount64();
+        view.opened_ms = clock_monotonic_milliseconds();
         reset_value(&view.lifecycle);
     }
     view.open = true;
@@ -592,7 +593,7 @@ bool application_call_synchronize() noexcept {
         application_call_close();
         return true;
     }
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     const auto* s = session();
     const bool call = s && in_call(*s);
     // Leaving, a server disconnect or a connection that failed for good ends
@@ -674,14 +675,14 @@ HANDLE application_call_video_notification() noexcept {
 }
 
 void application_call_video_signaled() noexcept {
-    view.next_poll_ms = call_video_poll_signaled(view.next_poll_ms, GetTickCount64());
+    view.next_poll_ms = call_video_poll_signaled(view.next_poll_ms, clock_monotonic_milliseconds());
 }
 
 bool application_call_pump(bool* repaint_requested) noexcept {
     if (!g_app.account_ui)
         return true;
     application_stream_pump();
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     // Poll when due (or unscheduled); earlier pumps only reconcile wants, so
     // a busy frame loop never postpones the next poll.
     const bool poll = call_video_poll_due(view.next_poll_ms, now);
@@ -703,7 +704,7 @@ void application_call_voice_pump() noexcept {
     application_stream_pump();
     const auto result = synchronize_video(false);
     if (result.visible && !view.next_poll_ms)
-        view.next_poll_ms = GetTickCount64() + call_video_poll_interval(video_notification() != nullptr);
+        view.next_poll_ms = clock_monotonic_milliseconds() + call_video_poll_interval(video_notification() != nullptr);
     if (result.changed)
         application_repaint();
 }
@@ -724,9 +725,9 @@ u64 application_call_next_wake() noexcept {
     return wake;
 }
 
-bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
-        if (view.captured && (message != WM_CAPTURECHANGED || reinterpret_cast<HWND>(lparam) != g_app.window)) {
+bool application_call_window_event(const WindowEvent& event) noexcept {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
+        if (view.captured && (event.type != EventType::capture_lost || event.focus.other != g_app.window)) {
             view.captured = false;
             view.pressed = UiCallControl::none;
             view.pressed_user = 0;
@@ -737,21 +738,20 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     }
     if (!scene_visible())
         return false;
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         clear_hover();
         return false;
     }
     if (modal_open()) {
-        if (message == WM_MOUSEMOVE)
+        if (event.type == EventType::pointer_move)
             clear_hover();
         return false;
     }
     auto& scene = view.scene;
-    switch (message) {
-    case WM_KEYDOWN:
-    case WM_KEYUP: {
-        const u32 key = static_cast<u32>(wparam);
-        if (key == key::escape && message == WM_KEYDOWN && !application_control_down() && !application_shift_down() &&
+    if (input_plain_key(event)) {
+        const u32 key = event.key.key;
+        const bool down = event.type == EventType::key_down;
+        if (key == key::escape && down && !application_control_down() && !application_shift_down() &&
             !application_alt_down()) {
             if (view.fullscreen) {
                 set_fullscreen(false);
@@ -767,22 +767,21 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         if (!editing_key(key) || view.split_width > 0)
             return false;
         // Voice keybinds keep working on keys the hidden composer would take.
-        application_custom_keybind_input(message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up, key,
-                                         (lparam & (1ll << 30)) != 0);
+        application_custom_keybind_input(down ? UiInputKind::key_down : UiInputKind::key_up, key,
+                                         input_key_was_down(event));
         return true;
     }
-    case WM_CHAR:
+    if (event.type == EventType::character && (event.flags & ev_system) == 0)
         return view.split_width <= 0;
-    case WM_MOUSEMOVE: {
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    if (event.type == EventType::pointer_move) {
+        const float x = client_dip_x(event), y = client_dip_y(event);
         if (ui_call_scene_set_hover(&scene, x, y))
             application_repaint();
         return view.captured || ui_call_scene_contains(scene, x, y);
     }
-    case WM_SETCURSOR: {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point) ||
-            !ui_call_scene_contains(scene, point.x, point.y))
+        if (!client_cursor_dip(event, &point) || !ui_call_scene_contains(scene, point.x, point.y))
             return false;
         const auto hit = ui_call_scene_hit_test(scene, point.x, point.y);
         const bool actionable = hit.control != UiCallControl::none ? ui_call_control_enabled(scene, hit.control)
@@ -790,14 +789,13 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         application_set_cursor(ui_action_cursor(actionable));
         return true;
     }
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK: {
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    if (input_down(event)) {
+        const float x = client_dip_x(event), y = client_dip_y(event);
         if (!ui_call_scene_contains(scene, x, y))
             return false;
-        SetFocus(g_app.window);
+        window_focus(g_app.window);
         const auto hit = ui_call_scene_hit_test(scene, x, y);
-        if (message == WM_LBUTTONDBLCLK && hit.control == UiCallControl::none && hit.user_id) {
+        if (input_double(event) && hit.control == UiCallControl::none && hit.user_id) {
             activate(UiCallControl::tile_fullscreen, hit.user_id);
             return true;
         }
@@ -807,14 +805,14 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         view.pressed_user = hit.user_id;
         if (hit.control != UiCallControl::none || hit.user_id) {
             ui_call_scene_set_pressed(&scene, hit.control);
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
             view.captured = true;
             application_repaint();
         }
         return true;
     }
-    case WM_LBUTTONUP: {
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    if (input_release(event)) {
+        const float x = client_dip_x(event), y = client_dip_y(event);
         const bool pressed = view.pressed != UiCallControl::none || view.pressed_user;
         const auto control = view.pressed;
         const u64 user = view.pressed_user;
@@ -829,28 +827,23 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         application_repaint();
         return true;
     }
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL: {
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
+    if (event.type == EventType::wheel) {
+        const UiPoint point = client_wheel_dip(event);
+        if (!ui_call_scene_contains(scene, point.x, point.y))
             return false;
-        const float pixels = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80;
-        if (ui_call_scene_scroll(&scene, point.x, point.y, message == WM_MOUSEWHEEL ? -pixels : pixels))
+        const bool horizontal = input_horizontal_wheel(event);
+        const float pixels = static_cast<float>(horizontal ? event.wheel.dx120 : event.wheel.dy120) / 120.0f * 80;
+        if (ui_call_scene_scroll(&scene, point.x, point.y, horizontal ? pixels : -pixels))
             application_repaint();
         return true;
     }
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
-    case WM_XBUTTONDOWN:
-    case WM_XBUTTONUP:
-        return ui_call_scene_contains(scene, client_dip_x(lparam), client_dip_y(lparam));
-    case WM_CONTEXTMENU: {
-        if (lparam == -1)
+    if (input_other_button(event) && (event.flags & ev_double_click) == 0)
+        return ui_call_scene_contains(scene, client_dip_x(event), client_dip_y(event));
+    if (event.type == EventType::context_menu) {
+        if ((event.flags & ev_keyboard) != 0)
             return false;
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
+        const UiPoint point = client_context_dip(event);
+        if (!ui_call_scene_contains(scene, point.x, point.y))
             return false;
         // The watched stream's menu: volume, full screen, stop watching.
         const auto hit = ui_call_scene_hit_test(scene, point.x, point.y);
@@ -859,9 +852,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
                                          view.fullscreen && view.focus_user == hit.user_id);
         return true;
     }
-    default:
-        return false;
-    }
+    return false;
 }
 
 bool application_call_header_search(float width, UiRect* field) noexcept {

@@ -1,3 +1,4 @@
+#include "maicord/platform/window/window.hpp"
 #include "attachments_state.hpp"
 #include "../../shell/state.hpp"
 #include "../../account/account_presentation.hpp"
@@ -40,21 +41,8 @@ bool can_attach() noexcept {
     constexpr u32 actions = channel_action_send_messages | channel_action_attach_files;
     return channel && (channel->actions & actions) == actions;
 }
-// WS_EX_ACCEPTFILES as this module last set it. The style is read once per
-// window and written only on a change; nothing else touches it.
-HWND g_drop_window;
-bool g_drop_registered;
 void set_drop_registration(bool enabled) noexcept {
-    const HWND window = g_app.window;
-    if (!window) return;
-    if (g_drop_window != window) {
-        g_drop_window = window;
-        g_drop_registered = (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) != 0;
-    }
-    if (g_drop_registered == enabled) return;
-    const LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-    SetWindowLongPtrW(window, GWL_EXSTYLE, enabled ? style | WS_EX_ACCEPTFILES : style & ~LONG_PTR{WS_EX_ACCEPTFILES});
-    g_drop_registered = enabled;
+    window_set_drop_target(g_app.window, enabled);
 }
 bool description_owner_valid(TextFormOwnerKey key) noexcept {
     const auto* state = g_app.attachments;
@@ -260,9 +248,9 @@ void application_sync_attachment_drop_target() noexcept {
         message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id, {}) < kAttachmentUploadMaximumCount));
     set_drop_registration(enabled || g_install_drop_wanted);
 }
-bool application_drop_attachments(HANDLE drop) noexcept {
+bool application_drop_attachments(DroppedFiles* drop) noexcept {
     if (!drop) return true;
-    auto discard = [drop]() noexcept { DragFinish(static_cast<HDROP>(drop)); };
+    auto discard = [drop]() noexcept { dropped_files_release(drop); };
     if (!can_attach()) { discard(); return true; }
     auto* state = ensure();
     if (!state) { discard(); return false; }
@@ -288,16 +276,16 @@ bool application_paste_attachments() noexcept {
         notice(state, utf8_literal("You can only upload 10 files at a time."));
         return application_manage_attachments();
     }
-    ClipboardAttachmentData input{};
-    if (!clipboard_attachment_capture(&input)) {
+    ClipboardCapture* input = clipboard_capture_attachment();
+    if (!input) {
         notice(state, utf8_literal("Could not read the clipboard attachment. Try pasting again."));
         return application_manage_attachments();
     }
     state->picker_channel = g_app.account_ui->active_channel_id;
     state->picker_consumed = false; state->picker_cancel_requested = false;
-    const auto started = native_file_picker_take_clipboard(&state->picker, &input, kAttachmentUploadMaximumCount - count,
+    const auto started = native_file_picker_take_clipboard(&state->picker, input, kAttachmentUploadMaximumCount - count,
         application_attachment_limit(state->picker_channel));
-    clipboard_attachment_release(&input);
+    clipboard_capture_release(input);
     if (started != NativeFilePickerError::none) {
         notice(state, utf8_literal("Could not prepare the clipboard attachment.")); return application_manage_attachments();
     }
@@ -492,7 +480,7 @@ bool application_pump_attachments() noexcept {
     auto* state = g_app.attachments; if (!state) return true;
     if (!current(state)) {
         application_cancel_attachments(); const bool close = state->close_window;
-        if (reap(state) && close && g_app.window) PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+        if (reap(state) && close && g_app.window) window_request_close(g_app.window);
         return true;
     }
     bool changed = false, show_notice = false;
@@ -795,7 +783,7 @@ bool application_attachment_strip_key(u32 key) noexcept {
     auto& scene = g_app.message_composer_scene;
     const auto tiles = message_composer_scene_attachment_tiles(scene);
     if (!state || !tiles.count) return false;
-    const bool control = (GetKeyState(key::ctrl) & 0x8000) != 0 && (GetKeyState(key::alt) & 0x8000) == 0;
+    const bool control = window_key_down(nullptr, key::ctrl) && !window_key_down(nullptr, key::alt);
     u32 index = message_composer_scene_attachment_selected(scene);
     const bool selected = index < tiles.count;
     if (!selected) index = 0;

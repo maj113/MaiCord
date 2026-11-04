@@ -19,15 +19,13 @@
 #include "../messages/interaction.hpp"
 #include "../../shell/scrolling.hpp"
 #include "../../shell/input.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -268,17 +266,19 @@ bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
         return false;
     const auto* node = forum_post_node(field->owner->scene,
                                        field->index ? ForumPostElement::body : ForumPostElement::title);
-    return text_store_screen_geometry(node->content_rectangle, output);
+    return text_store_geometry(node->content_rectangle, output);
 }
-bool point_geometry(void* context, POINT point, bool round, u32* position, bool* inside) noexcept {
+bool point_geometry(void* context, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field) || !g_app.renderer.dpi || !application_screen_to_content(&point))
+    if (!current_layout(field) || !g_app.renderer.dpi)
         return false;
+    POINT point{client.x, client.y};
+    application_client_to_content(&point);
     const float scale = 96.f / g_app.renderer.dpi;
     return text_edit_layout_point_geometry(field->owner->surface.layouts[field->index], point.x * scale,
                                              point.y * scale, round, position, inside);
 }
-bool range_geometry(void* context, u32 first, u32 last, RECT* rectangle, bool* clipped) noexcept {
+bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangle, bool* clipped) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
     if (!current_layout(field))
         return false;
@@ -297,13 +297,12 @@ bool range_geometry(void* context, u32 first, u32 last, RECT* rectangle, bool* c
     bounds = {maximum(bounds.left, clip.left), maximum(bounds.top, clip.top),
               minimum(bounds.right, clip.right), minimum(bounds.bottom, clip.bottom)};
     POINT origin{};
-    if (!application_content_to_screen(&origin))
-        return false;
+    application_content_to_client(&origin);
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
-    *rectangle = {origin.x + static_cast<LONG>(bounds.left * scale),
-                  origin.y + static_cast<LONG>(bounds.top * scale),
-                  origin.x + static_cast<LONG>(bounds.right * scale),
-                  origin.y + static_cast<LONG>(bounds.bottom * scale)};
+    *rectangle = {origin.x + static_cast<i32>(bounds.left * scale),
+                  origin.y + static_cast<i32>(bounds.top * scale),
+                  origin.x + static_cast<i32>(bounds.right * scale),
+                  origin.y + static_cast<i32>(bounds.bottom * scale)};
     return true;
 }
 void changed(void* context) noexcept {
@@ -540,7 +539,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
         return false;
     f->ticket = ticket;
     f->surface_serial = ++next_surface_serial;
-    f->blink_ms = GetCaretBlinkTime();
+    f->blink_ms = application_caret_blink_ms();
     if (!f->blink_ms)
         f->blink_ms = 500;
     f->caret_visible = true;
@@ -735,7 +734,7 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return true;
     }
     if (kind == UiInputKind::key_down && ctrl && code == 'V' && f->editable &&
-        clipboard_attachment_available()) {
+        clipboard_has_attachment()) {
         if (!repeated) {
             application_forum_attachments_paste(f->ticket);
             if (owner == f)
@@ -787,15 +786,14 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         secure_edit_break_history_run(&edit);
         const auto first = minimum(edit.anchor, edit.caret), last = maximum(edit.anchor, edit.caret);
         if (first != last &&
-            clipboard_write_utf8(
-                g_app.window, {reinterpret_cast<const char*>(edit.storage.data + first), last - first}) &&
+            clipboard_write_utf8({reinterpret_cast<const char*>(edit.storage.data + first), last - first}) &&
             code == 'X')
             return apply(f, index, secure_edit_delete_forward(&edit));
         return true;
     }
     if (ctrl && code == 'V') {
         char pasted[kApplicationForumBodyBytes];
-        const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
+        const auto read = clipboard_read_utf8({pasted, sizeof(pasted)});
         const auto result = read.ok() ? secure_edit_insert_utf8(&edit, {pasted, read.bytes})
                             : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
                                                                          : SecureEditResult::unchanged;
@@ -835,11 +833,9 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return true;
     }
 }
-bool application_forum_form_filter_message(const MSG& message) noexcept {
-    if (message.hwnd != g_app.window)
-        return false;
+bool application_forum_form_filter(const WindowEvent& event) noexcept {
     UiInputEvent held{};
-    if (application_held_key_event(held_key, message, &held))
+    if (application_held_key_event(held_key, event, &held))
         return application_forum_form_input(held.kind, held.code, held.repeated);
     auto* f = owner;
     if (!f || f->child_suspended || application_text_form_forum_child(f->ticket) ||
@@ -847,35 +843,29 @@ bool application_forum_form_filter_message(const MSG& message) noexcept {
         return false;
     // Attachment clipboard formats belong to the post owner before TSF has
     // an opportunity to consume Ctrl+V for the focused text field.
-    if (f->editable && message.message == WM_KEYDOWN && message.wParam == 'V' &&
-        application_control_down() && clipboard_attachment_available())
-        return application_forum_form_input(UiInputKind::key_down, 'V',
-                                            (message.lParam & (1ll << 30)) != 0);
+    if (f->editable && input_plain_key_down(event) && event.key.key == 'V' && application_control_down() &&
+        clipboard_has_attachment())
+        return application_forum_form_input(UiInputKind::key_down, 'V', input_repeated(event));
     const i32 focused = focused_field(f);
-    return focused >= 0 && f->editable &&
-           secure_text_store_filter_message(&f->fields[focused].store, message);
+    return focused >= 0 && f->editable && secure_text_store_filter_key(&f->fields[focused].store, event);
 }
-bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM lparam,
-                                           LRESULT* result) noexcept {
-    if (message == WM_KILLFOCUS || message == WM_CANCELMODE)
+bool application_forum_form_window_event(const WindowEvent& event) noexcept {
+    if (input_focus_lost(event) || event.type == EventType::cancel_input)
         held_key = 0;
     auto* f = owner;
-    if (!f || !result || f->child_suspended || application_text_form_forum_child(f->ticket))
+    if (!f || f->child_suspended || application_text_form_forum_child(f->ticket))
         return false;
-    if (message == WM_DROPFILES) {
-        application_forum_attachments_drop(f->ticket, reinterpret_cast<HANDLE>(wparam));
+    if (event.type == EventType::drop_files) {
+        application_forum_attachments_drop(f->ticket, event.drop.files);
         if (owner == f && valid(f))
             refresh(f);
-        *result = 0;
         return true;
     }
     if (!application_forum_form_synchronize() || owner != f)
         return false;
-    *result = 0;
-    const float scale = 96.f / static_cast<float>(g_app.renderer.dpi);
-    const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                y = static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale;
-    if (message == WM_KILLFOCUS) {
+    const float x = input_pointer(event) ? client_dip_x(event) : 0.f;
+    const float y = input_pointer(event) ? client_dip_y(event) : 0.f;
+    if (input_focus_lost(event)) {
         end_capture(f);
         ui_button_keyboard_cancel(&f->keyboard);
         for (auto& field : f->fields) {
@@ -886,7 +876,7 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
         refresh(f);
         return false;
     }
-    if (message == WM_SETFOCUS) {
+    if (event.type == EventType::focus_changed) {
         const i32 focused = focused_field(f);
         if (focused >= 0)
             secure_text_store_set_window_focus(&f->fields[focused].store, true);
@@ -894,16 +884,20 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
         refresh(f);
         return false;
     }
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
         f->dragging = false;
         f->pointer_button = ui_widget_invalid_handle();
         ui_widget_manager_capture(&f->scene.widgets, ui_widget_invalid_handle());
         ui_button_keyboard_cancel(&f->keyboard);
         return false;
     }
-    switch (message) {
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK: {
+    switch (event.type) {
+    case EventType::pointer_down: {
+        // The right button's press is swallowed; other buttons but the primary one pass.
+        if (input_press(event, PointerButton::right))
+            return true;
+        if (!input_down(event))
+            return false;
         const auto* panel = forum_post_node(f->scene, ForumPostElement::panel);
         if (panel && !ui_rect_contains(panel->rectangle, x, y)) {
             application_forum_form_close();
@@ -919,10 +913,10 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
             if (index >= 0) {
                 // Double click: word; third press: line. A composition keeps its selection.
                 auto& field = f->fields[index];
-                const u8 clicks = application_click_count(&field, x, y, message == WM_LBUTTONDBLCLK);
+                const u8 clicks = application_click_count(event, &field, x, y, input_double(event));
                 const bool composing = secure_text_store_composing(field.store);
                 if (!composing) {
-                    pointer(f, static_cast<u32>(index), x, y, clicks == 1 && (wparam & MK_SHIFT) != 0);
+                    pointer(f, static_cast<u32>(index), x, y, clicks == 1 && input_shift(event));
                     if (clicks == 2)
                         apply(f, static_cast<u32>(index), secure_edit_select_word(&field.edit, field.edit.caret));
                     else if (clicks == 3)
@@ -942,14 +936,17 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
         }
         return true;
     }
-    case WM_MOUSEMOVE:
-        if (f->dragging && (wparam & MK_LBUTTON)) {
+    case EventType::pointer_move:
+        if (f->dragging && input_held(event)) {
             const i32 index = focused_field(f);
             if (index >= 0)
                 pointer(f, static_cast<u32>(index), x, y, true);
         }
         return true;
-    case WM_LBUTTONUP: {
+    case EventType::pointer_up: {
+        if (!input_release(event))
+            // The right button's release is swallowed; the other buttons' pass.
+            return input_release(event, PointerButton::right);
         const auto button = f->pointer_button;
         const auto target = forum_post_hit_test(f->scene, x, y);
         const auto handle =
@@ -966,10 +963,11 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
             activate(f, target);
         return true;
     }
-    case WM_MOUSEWHEEL: {
-        UiPoint point{};
-        application_wheel_point(lparam, &point);
-        const float delta = -application_wheel_notches(wparam) * 48;
+    case EventType::wheel: {
+        if (input_horizontal_wheel(event))
+            return true;
+        const UiPoint point = client_wheel_dip(event);
+        const float delta = -input_wheel_notches(event) * 48;
         const auto target = forum_post_hit_test(f->scene, point.x, point.y);
         if (target.element == ForumPostElement::body)
             text_edit_layout_scroll(&f->surface.layouts[1], delta);
@@ -978,22 +976,15 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
         refresh(f);
         return true;
     }
-    case WM_MOUSEHWHEEL:
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_CONTEXTMENU:
+    case EventType::context_menu:
         return true;
-    case WM_SETCURSOR:
-        if (LOWORD(lparam) == HTCLIENT) {
-            // Title/body editors, tags, attachment and action buttons declare themselves.
-            UiPoint point{};
-            application_set_cursor(application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point)
-                                       ? ui_widget_manager_cursor(f->scene.widgets, point.x, point.y)
-                                       : UiCursor::arrow);
-            *result = TRUE;
-            return true;
-        }
-        return false;
+    case EventType::cursor_query: {
+        // Title/body editors, tags, attachment and action buttons declare themselves.
+        UiPoint point{};
+        application_set_cursor(client_cursor_dip(event, &point) ? ui_widget_manager_cursor(f->scene.widgets, point.x, point.y)
+                                                                : UiCursor::arrow);
+        return true;
+    }
     default:
         return false;
     }

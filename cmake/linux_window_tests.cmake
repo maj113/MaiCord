@@ -10,7 +10,10 @@
 #
 #   maicord_wayland_window_lifecycle   the window opens, is configured and acked, answers frame callbacks, presents a
 #                                      wl_shm clear and closes; any compositor (sway, Weston, WSLg)
-#   maicord_wayland_window_input       pointer and key events injected into the window (sway: swaymsg and wtype)
+#   maicord_wayland_window_input       pointer, keyboard, client-side decorations, clipboard, primary selection, IME,
+#                                      window_post, attention and idle inhibit, driven through a virtual pointer and
+#                                      keyboard and two helper clients (sway and other wlroots compositors)
+#   maicord_wayland_window_egl         a real EGL window surface on the window's wl_egl_window, checked in a screenshot
 maicord_test(MaiCordWaylandInputTests ENTRY maicord_wayland_input_entry
     SOURCES tests/platform/window/wayland_input.cpp
     LIBS maicord_window_wayland maicord_core
@@ -26,17 +29,19 @@ maicord_test(MaiCordWaylandWindowTests ENTRY maicord_wayland_window_entry
     TIMEOUT 20 LABELS integration TEST maicord_wayland_window_lifecycle --lifecycle)
 maicord_add_tests(MaiCordWaylandWindowTests TIMEOUT 20 LABELS integration
     TEST maicord_wayland_window_input --input)
-foreach(maicord_wayland_case IN ITEMS maicord_wayland_window_lifecycle maicord_wayland_window_input)
+maicord_add_tests(MaiCordWaylandWindowTests TIMEOUT 20 LABELS integration
+    TEST maicord_wayland_window_egl --egl)
+foreach(maicord_wayland_case IN ITEMS maicord_wayland_window_lifecycle maicord_wayland_window_input
+        maicord_wayland_window_egl)
     # Status 77: no compositor to talk to. One window at a time on the compositor.
     set_tests_properties(${maicord_wayland_case} PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK wayland_compositor)
     if(NOT "$ENV{MAICORD_WAYLAND_INTEGRATION}")
         set_tests_properties(${maicord_wayland_case} PROPERTIES DISABLED TRUE)
     endif()
+    # The script's directory for the files it shares with a test: one subdirectory a case.
+    if(DEFINED ENV{MAICORD_WAYLAND_SYNC_DIR})
+        string(REPLACE "maicord_wayland_window_" "" maicord_wayland_name "${maicord_wayland_case}")
+        set_tests_properties(${maicord_wayland_case} PROPERTIES
+            ENVIRONMENT "MAICORD_WAYLAND_SYNC_DIR=$ENV{MAICORD_WAYLAND_SYNC_DIR}/${maicord_wayland_name}")
+    endif()
 endforeach()
-# The script's directory for the files it shares with a test: one subdirectory a case (lifecycle, input).
-if(DEFINED ENV{MAICORD_WAYLAND_SYNC_DIR})
-    set_tests_properties(maicord_wayland_window_lifecycle PROPERTIES
-        ENVIRONMENT "MAICORD_WAYLAND_SYNC_DIR=$ENV{MAICORD_WAYLAND_SYNC_DIR}/lifecycle")
-    set_tests_properties(maicord_wayland_window_input PROPERTIES
-        ENVIRONMENT "MAICORD_WAYLAND_SYNC_DIR=$ENV{MAICORD_WAYLAND_SYNC_DIR}/input")
-endif()

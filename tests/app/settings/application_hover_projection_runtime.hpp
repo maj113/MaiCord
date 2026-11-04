@@ -75,16 +75,16 @@ inline void test_retained_hover_projection() noexcept {
     const auto timeline_before = timeline;
     const auto store_before = store;
     const u16 generation = g_app.message_scene.widgets.generation;
-    check(handle_message_hover(point(0)) && g_app.message_action_bar.active &&
+    check(handle_message_hover(window_test::pointer_move(window_test::x_of(point(0)), window_test::y_of(point(0)))) && g_app.message_action_bar.active &&
               g_app.message_action_bar.message_id == 901 && g_app.frame_pending,
           "hover host: actual cursor dispatch publishes first row action target before the next frame");
     const u32 repeat_checks = observed.account_text_updates, repeat_text = observed.text_builds;
     bool stable = true;
     for (u32 i = 0; i < 64; ++i)
-        stable &= handle_message_hover(point(0));
+        stable &= handle_message_hover(window_test::pointer_move(window_test::x_of(point(0)), window_test::y_of(point(0))));
     check(stable && observed.account_text_updates == repeat_checks && observed.text_builds == repeat_text,
           "hover host: repeated same-row pointer events perform no account refresh or native text rebuild");
-    check(handle_message_hover(point(1)) && g_app.message_action_bar.message_id == 902 &&
+    check(handle_message_hover(window_test::pointer_move(window_test::x_of(point(1)), window_test::y_of(point(1)))) && g_app.message_action_bar.message_id == 902 &&
               observed.account_text_updates == account_checks + 2 &&
               observed.text_builds == text_updates + 2 &&
               observed.forced_account_text_updates == base_forces &&

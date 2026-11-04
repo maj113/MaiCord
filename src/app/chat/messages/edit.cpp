@@ -17,7 +17,6 @@
 #include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -130,7 +129,7 @@ void submit_edit(const MessageRecord& record, const Utf8View& content) noexcept 
     edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record.id).handle, record);
     application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id, edit.message_id);
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
 }
 
 } // namespace

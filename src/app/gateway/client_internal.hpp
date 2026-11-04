@@ -34,7 +34,11 @@
 #include "self_status_test.hpp"
 #endif
 
-#include "maicord/sys/winsock.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/interlocked.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord {
 namespace client_detail {}
@@ -174,7 +178,7 @@ struct GatewayClientRuntime {
     // Consecutive READY payloads that could not be projected.
     u32 ready_failures;
     u32 allocation_bytes;
-    ADDRINFOEXW* next_address;
+    u32 next_address; // The index in resolver.addresses of the next address to try.
     const u8* send_data;
     u64 deadline_ms;
     Clock clock;

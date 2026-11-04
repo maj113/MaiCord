@@ -5,6 +5,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct MessageActionBarHit;
@@ -16,9 +17,9 @@ struct ApplicationPluginMenuExtra;
 
 bool clear_message_text_selection(bool rebuild) noexcept;
 // `double_click` is true for WM_LBUTTONDBLCLK; a following third press selects the paragraph.
-bool begin_message_text_selection(LPARAM lparam, bool double_click = false) noexcept;
+bool begin_message_text_selection(const WindowEvent& event, bool double_click = false) noexcept;
 void end_message_text_selection() noexcept;
-bool handle_message_text_selection_drag(WPARAM buttons, LPARAM lparam) noexcept;
+bool handle_message_text_selection_drag(const WindowEvent& event) noexcept;
 bool copy_message_text_selection() noexcept;
 
 bool dismiss_popup() noexcept;
@@ -43,9 +44,9 @@ bool application_message_action_bar_activate(const MessageActionBarHit& hit, boo
 bool application_message_action_bar_modifiers_changed() noexcept;
 bool handle_reaction_viewer_hover(float pointer_x, float pointer_y) noexcept;
 bool handle_reaction_viewer_click(float pointer_x, float pointer_y) noexcept;
-bool handle_reaction_viewer_key(WPARAM key) noexcept;
-bool handle_popup_hover(LPARAM lparam) noexcept;
-bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept;
-bool handle_popup_key(WPARAM key) noexcept;
+bool handle_reaction_viewer_key(u32 key) noexcept;
+bool handle_popup_hover(const WindowEvent& event) noexcept;
+bool handle_popup_click(const WindowEvent& event) noexcept;
+bool handle_popup_key(u32 key) noexcept;
 
 } // namespace maicord::app_detail

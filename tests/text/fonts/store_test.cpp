@@ -99,8 +99,11 @@ bool run() noexcept {
     MEMORY_BASIC_INFORMATION memory{};CHECK(VirtualQuery(view->geometry.face.file.data,&memory,sizeof(memory))==sizeof(memory)&&memory.Type==MEM_MAPPED&&memory.Protect==PAGE_READONLY);
     CHECK(native_font_acquire(&store,paths[4],0,&alias).ok()&&same(a,alias)&&stats(1,1,2));
     CHECK(native_font_get(store,alias)==view&&native_font_retain(&store,a)&&stats(1,1,3));
+#if defined(_WIN32)
+    // Windows refuses a writer while the store holds the file; Linux sharing is advisory (os/file.hpp).
     HANDLE writer=CreateFileW(paths[0],GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
     const DWORD write_error=GetLastError();if(writer!=INVALID_HANDLE_VALUE)CloseHandle(writer);CHECK(writer==INVALID_HANDLE_VALUE&&write_error==ERROR_SHARING_VIOLATION);
+#endif
     CHECK(native_font_release(&store,a)&&native_font_release(&store,alias)&&stats(1,1,1)&&outline(view));
     CHECK(native_font_acquire(&store,paths[1],0,&b).ok()&&!same(a,b)&&stats(2,2,2));
     CHECK(native_font_acquire(&store,paths[2],0,&c).error==NativeFontError::capacity&&!c.slot&&stats(2,2,2));

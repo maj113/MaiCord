@@ -22,7 +22,7 @@ namespace maicord::app_detail {
 namespace {
 struct DragOwner {
     NavigationDrag drag;
-    LPARAM press; // replayed as an ordinary click when no drag happens
+    WindowEvent press; // replayed as an ordinary click when no drag happens
     u64 visual_source; // the row ID painted dimmed (folder header row IDs differ from folder IDs)
     u64 guild_id;      // channel drags: the guild whose list is shown
     u64 last_tick_ms;
@@ -167,10 +167,10 @@ void commit(const NavigationDragTarget& target, NavigationDragList list, u64 sou
 }
 } // namespace
 
-bool application_navigation_drag_press(LPARAM lparam) noexcept {
+bool application_navigation_drag_press(const WindowEvent& event) noexcept {
     if (!account_ready() || g_drag.drag.phase != NavigationDragPhase::idle)
         return false;
-    const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    const float x = client_dip_x(event), y = client_dip_y(event);
     const UiPoint point{x, y};
     const auto rail = guild_rail_scene_hit_test(g_app.guild_rail_scene, x, y);
     if (rail.id && ui_rect_contains(g_app.guild_rail_scene.viewport, x, y)) {
@@ -204,21 +204,21 @@ bool application_navigation_drag_press(LPARAM lparam) noexcept {
         reset_value(&g_drag);
         return false;
     }
-    g_drag.press = lparam;
+    g_drag.press = event;
     return true;
 }
 
-bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_navigation_drag_window_event(const WindowEvent& event) noexcept {
     if (g_drag.drag.phase == NavigationDragPhase::idle)
         return false;
-    switch (message) {
-    case WM_MOUSEMOVE: {
-        if (!(wparam & MK_LBUTTON)) {
+    switch (event.type) {
+    case EventType::pointer_move: {
+        if (!input_held(event)) {
             // The button came up outside the window: no click, no drop.
             application_navigation_drag_cancel();
             return false;
         }
-        const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
+        const UiPoint point{client_dip_x(event), client_dip_y(event)};
         if (navigation_drag_move(&g_drag.drag, point)) {
             application_capture_pointer();
             g_drag.captured = true;
@@ -230,15 +230,17 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         retarget();
         return true;
     }
-    case WM_LBUTTONUP: {
+    case EventType::pointer_up: {
+        if (!input_release(event))
+            return false;
         if (!navigation_drag_dragging(g_drag.drag)) {
             // A press without a drag is an ordinary click on its row.
-            const LPARAM press = g_drag.press;
+            const WindowEvent press = g_drag.press;
             reset_value(&g_drag);
             activate_navigation_press(press);
             return true;
         }
-        g_drag.drag.pointer = {client_dip_x(lparam), client_dip_y(lparam)};
+        g_drag.drag.pointer = {client_dip_x(event), client_dip_y(event)};
         retarget();
         const auto list = g_drag.drag.list;
         const auto kind = g_drag.drag.source_kind;
@@ -252,26 +254,31 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
             commit(target, list, source, kind, guild);
         return true;
     }
-    case WM_KEYDOWN:
-        if (wparam == key::escape && navigation_drag_dragging(g_drag.drag)) {
+    case EventType::key_down:
+        if (!input_plain_key_down(event))
+            return false;
+        if (event.key.key == key::escape && navigation_drag_dragging(g_drag.drag)) {
             application_navigation_drag_cancel();
             return true;
         }
         return navigation_drag_dragging(g_drag.drag);
-    case WM_RBUTTONDOWN:
+    case EventType::pointer_down:
+        if (!input_press(event, PointerButton::right))
+            return false;
         if (navigation_drag_dragging(g_drag.drag)) {
             application_navigation_drag_cancel();
             return true;
         }
         return false;
-    case WM_CAPTURECHANGED:
-        if (g_drag.captured && reinterpret_cast<HWND>(lparam) != g_app.window) {
+    case EventType::capture_lost:
+        if (g_drag.captured && event.focus.other != g_app.window) {
             g_drag.captured = false;
             application_navigation_drag_cancel();
         }
         return false;
-    case WM_KILLFOCUS:
-        application_navigation_drag_cancel();
+    case EventType::focus_changed:
+        if (!event.focus.gained)
+            application_navigation_drag_cancel();
         return false;
     default:
         return false;

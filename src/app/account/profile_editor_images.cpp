@@ -1,5 +1,6 @@
 #include "profile_editor_internal.hpp"
 #include "../media/file_over_limit.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "profile_editor.hpp"
 #include "application_account_logout.hpp"
@@ -19,34 +20,33 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
     copy_bytes(staged.path, path.data, path.count * static_cast<u32>(sizeof(wchar_t)));
     staged.path[path.count] = 0;
     staged.path_units = path.count;
-    const HANDLE file = CreateFileW(staged.path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    const HANDLE file = file_open(staged.path, {FileAccess::read, FileCreate::existing, kFileShareRead, kFileSequential});
     if (file == INVALID_HANDLE_VALUE) {
         release_picked(staged);
         return false;
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > kProfileImageSourceMaximumBytes) {
-        CloseHandle(file);
-        if (size.QuadPart > kProfileImageSourceMaximumBytes)
-            *error = application_file_over_limit_text(path, static_cast<u64>(size.QuadPart), kProfileImageSourceMaximumBytes,
+    u64 size = 0;
+    if (!file_size(file, &size) || size == 0 || size > kProfileImageSourceMaximumBytes) {
+        file_close(file);
+        if (size > kProfileImageSourceMaximumBytes)
+            *error = application_file_over_limit_text(path, size, kProfileImageSourceMaximumBytes,
                                                       {p.size_error, sizeof(p.size_error)});
         release_picked(staged);
         return false;
     }
     auto* data = static_cast<u8*>(
-        commit_pages(static_cast<SIZE_T>(size.QuadPart)));
+        commit_pages(static_cast<SIZE_T>(size)));
     u32 total = 0;
-    while (data && total < size.QuadPart) {
-        DWORD read = 0;
-        if (!ReadFile(file, data + total, static_cast<DWORD>(size.QuadPart - total), &read, nullptr) || !read)
+    while (data && total < size) {
+        u32 read = 0;
+        if (!file_read(file, data + total, static_cast<u32>(size - total), &read) || !read)
             break;
         total += read;
     }
     if (!snapshot.bytes)
         file_snapshot_read(file, &snapshot);
-    CloseHandle(file);
-    if (!data || total != size.QuadPart) {
+    file_close(file);
+    if (!data || total != size) {
         if (data)
             pages_release(data);
         release_picked(staged);

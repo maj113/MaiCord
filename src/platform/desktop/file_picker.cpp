@@ -9,6 +9,8 @@
 #include "maicord/core/module.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/win32_file_info.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/platform/window/win32.hpp"
 
 namespace maicord {
 namespace {
@@ -23,8 +25,8 @@ struct Runtime {
     wchar_t save_name[256];
     bool save, destination_exists, overwrite_authorized, overwrite_observed;
     HWND owner;
-    HDROP drop;
-    ClipboardAttachmentData clipboard;
+    DroppedFiles* drop;
+    ClipboardCapture clipboard;
     UploadSource sources[kNativeFilePickerMaximumFiles];
     ConstSlice<wchar_t> filenames[kNativeFilePickerMaximumFiles];
     u64 maximum_bytes;
@@ -81,11 +83,11 @@ void note_oversize(Runtime* runtime, ConstSlice<wchar_t> name, u64 bytes) noexce
 }
 bool snapshot_path(ConstSlice<wchar_t> path, FileSnapshot* snapshot, NativeFilePickerResult* outcome) noexcept {
     if (!native_file_picker_valid_path(path)) { outcome->error = NativeFilePickerError::path; return false; }
-    const HANDLE file = CreateFileW(path.data, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const HANDLE file = file_open(path.data, {FileAccess::attributes, FileCreate::existing,
+        kFileShareRead | kFileShareWrite | kFileShareDelete, 0});
     if (file == INVALID_HANDLE_VALUE) { outcome->error = NativeFilePickerError::path; outcome->native_error = thread_last_error(); return false; }
     const bool ok = file_snapshot_read(file, snapshot, &outcome->native_error);
-    CloseHandle(file);
+    file_close(file);
     if (!ok) outcome->error = NativeFilePickerError::path;
     return ok;
 }
@@ -130,15 +132,14 @@ NativeFilePickerResult collect(Runtime* runtime) noexcept {
     return outcome;
 }
 bool save_snapshot(const wchar_t* path, FileSnapshot* snapshot, u32* native_error) noexcept {
-    const HANDLE file = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const HANDLE file = file_open(path, {FileAccess::attributes, FileCreate::existing,
+        kFileShareRead | kFileShareWrite | kFileShareDelete, kFileNoFollow});
     if (file == INVALID_HANDLE_VALUE) { *native_error = thread_last_error(); return false; }
-    FILE_ATTRIBUTE_TAG_INFO attributes{};
-    bool ok = GetFileInformationByHandleEx(file, FileAttributeTagInfo, &attributes, sizeof(attributes)) != FALSE &&
-        !(attributes.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
+    FileStat attributes{};
+    bool ok = file_stat(file, &attributes) && attributes.kind != FileKind::directory && attributes.kind != FileKind::link;
     if (!ok) *native_error = ERROR_ACCESS_DENIED;
     else ok = file_snapshot_read(file, snapshot, native_error);
-    CloseHandle(file); return ok;
+    file_close(file); return ok;
 }
 struct SaveEvents final : IFileDialogEvents {
     Runtime* runtime; LONG refs = 1;
@@ -216,23 +217,24 @@ DWORD WINAPI drop_worker(void* context) noexcept {
     auto* picker = static_cast<NativeFilePicker*>(context);
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     NativeFilePickerResult outcome{};
-    const u32 count = cancelled(runtime) ? 0 : DragQueryFileW(runtime->drop, 0xffffffffu, nullptr, 0);
+    const u32 count = cancelled(runtime) ? 0 : dropped_files_count(runtime->drop);
     if (!count) outcome.error = NativeFilePickerError::path;
     else if (count > runtime->maximum_files) outcome.error = NativeFilePickerError::capacity;
     else for (u32 i = 0; i < count; ++i) {
         if (cancelled(runtime)) { outcome.error = NativeFilePickerError::cancelled; break; }
-        const u32 units = DragQueryFileW(runtime->drop, i, nullptr, 0);
+        const u32 units = dropped_files_path_length(runtime->drop, i);
         if (!units || units > kNativeFilePickerMaximumPathUnits) { outcome.error = NativeFilePickerError::path; break; }
         auto* path = arena_allocate<wchar_t>(&runtime->paths, units + 1);
         if (!path) { outcome.error = NativeFilePickerError::memory; break; }
-        if (DragQueryFileW(runtime->drop, i, path, units + 1) != units || path[units] != 0) {
+        if (dropped_files_path(runtime->drop, i, {path, units + 1}) != units) {
             outcome.error = NativeFilePickerError::path; break;
         }
+        path[units] = 0;
         if (!snapshot_path({path, units}, &runtime->snapshots[i], &outcome)) break;
         runtime->selected[i] = {path, units};
     }
     if (outcome.error == NativeFilePickerError::none) outcome.count = count;
-    DragFinish(runtime->drop); runtime->drop = nullptr;
+    dropped_files_release(runtime->drop); runtime->drop = nullptr;
     publish(picker, outcome);
     return 0;
 }
@@ -402,7 +404,8 @@ bool native_file_picker_valid_path(ConstSlice<wchar_t> path) noexcept {
     }
     return true;
 }
-NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, HWND owner, u32 maximum_files, Utf8View title) noexcept {
+NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, Window window, u32 maximum_files, Utf8View title) noexcept {
+    const HWND owner = win32_hwnd(window);
     if (!owner || !IsWindow(owner) || !title_plain(title)) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;
@@ -411,7 +414,8 @@ NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, HWND ow
     if (!launch(picker, worker)) { destroy(picker); return NativeFilePickerError::thread; }
     return NativeFilePickerError::none;
 }
-NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, HWND owner, Utf8View filename, Utf8View title) noexcept {
+NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, Window window, Utf8View filename, Utf8View title) noexcept {
+    const HWND owner = win32_hwnd(window);
     if (!owner || !IsWindow(owner) || !filename.data || !filename.bytes || filename.bytes > 1020 || !title_plain(title) ||
         !utf8_validate(filename).valid || !utf8_validate(title).valid) return NativeFilePickerError::invalid_input;
     for (u32 i = 0; i < filename.bytes; ++i) if (static_cast<u8>(filename.data[i]) < 32 || filename.data[i] == '/' || filename.data[i] == '\\' || filename.data[i] == ':' || filename.data[i] == 0)
@@ -434,16 +438,16 @@ bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFil
     if (!runtime->save || !runtime->selected[0].count) return false;
     *output = {runtime->selected[0], runtime->snapshots[0], runtime->destination_exists, runtime->overwrite_authorized}; return true;
 }
-NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, HANDLE drop, u32 maximum_files) noexcept {
+NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, DroppedFiles* drop, u32 maximum_files) noexcept {
     if (!drop) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime);
-    runtime->drop = static_cast<HDROP>(drop);
+    runtime->drop = drop;
     if (!launch(picker, drop_worker)) { runtime->drop = nullptr; destroy(picker); return NativeFilePickerError::thread; }
     return NativeFilePickerError::none;
 }
-NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardAttachmentData* input, u32 maximum_files, u64 maximum_bytes) noexcept {
+NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardCapture* input, u32 maximum_files, u64 maximum_bytes) noexcept {
     if (!input || !input->object || !maximum_bytes) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;

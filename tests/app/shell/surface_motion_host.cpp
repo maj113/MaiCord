@@ -184,7 +184,7 @@ void run() noexcept {
         UnregisterClassW(name, type.hInstance);
         return;
     }
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.renderer_ready = true;
     g_app.renderer.width = g_app.renderer.height = 640;
     g_app.renderer.dpi = 96;

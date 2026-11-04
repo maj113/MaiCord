@@ -9,7 +9,7 @@ namespace maicord {
 using namespace media_atlas_gpu_detail;
 
 MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-    ID3D11Device* device, ID3D11DeviceContext1* context, MediaAssetKey key,
+    GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent) noexcept {
     if (!gpu || !atlas || !device || !context || !media_asset_key_valid(key) ||
         !frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height)) {
@@ -26,19 +26,19 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
         width, height, key, static_cast<u16>(gpu_video_frame_output_width(frame, step)),
         static_cast<u16>(gpu_video_frame_output_height(frame, step)), false);
     if (!allocation.ok()) return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
-    const HRESULT status = video_frame_gpu_present(&gpu->video, device, context, frame, uav,
+    const GpuStatus status = video_frame_gpu_present(&gpu->video, device, context, frame, uav,
                                                    allocation.x, allocation.y, step);
     return SUCCEEDED(status) ? MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none}
                               : failure(MediaAtlasGpuError::device_failure, status, allocation);
 }
 
-MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, ID3D11Device* device,
-                                               ID3D11DeviceContext1* context, u16 width,
+MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, GpuDevice* device,
+                                               GpuContext1* context, u16 width,
                                                u16 height) noexcept {
     if (!gpu || !device || !context || !dimensions_valid(width, height) || gpu->texture) {
         return reject(gpu, MediaAtlasGpuError::invalid_input);
     }
-    const HRESULT result = create_media_surface(device, context, width, height, &gpu->texture,
+    const GpuStatus result = create_media_surface(device, context, width, height, &gpu->texture,
                                                 &gpu->texture_view, &gpu->target, &gpu->texture_uav);
 
     if (FAILED(result)) {
@@ -50,21 +50,21 @@ MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, ID3D11Device*
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D11Device* device,
-                                                       ID3D11DeviceContext1* context, u16 width,
+MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, GpuDevice* device,
+                                                       GpuContext1* context, u16 width,
                                                        u16 height) noexcept {
     if (!gpu || !device || !context || !gpu->texture || !dimensions_valid(width, height) ||
         gpu->preview_texture) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    const HRESULT result =
+    const GpuStatus result =
         create_media_surface(device, context, width, height, &gpu->preview_texture,
                              &gpu->preview_texture_view, &gpu->preview_target, &gpu->preview_texture_uav);
     if (FAILED(result)) {
-        com_release(gpu->preview_texture_uav);
-        com_release(gpu->preview_target);
-        com_release(gpu->preview_texture_view);
-        com_release(gpu->preview_texture);
+        gpu_release(gpu->preview_texture_uav);
+        gpu_release(gpu->preview_target);
+        gpu_release(gpu->preview_texture_view);
+        gpu_release(gpu->preview_texture);
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
     gpu->preview_width = width;
@@ -73,8 +73,8 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D1
 }
 
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, u16 width, u16 height,
+    MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+    GpuContext1* context, MediaAssetKey key, u16 width, u16 height,
     u32 row_pitch, ConstSlice<u8> straight_rgba8, bool preview) noexcept {
     const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
     const u64 minimum_pitch = static_cast<u64>(width) * 4;
@@ -90,7 +90,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
-    const HRESULT result = upload_png_shader_inputs(gpu, device, context, straight_rgba8,
+    const GpuStatus result = upload_png_shader_inputs(gpu, device, context, straight_rgba8,
                                                     static_cast<u32>(required), nullptr, 0);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
@@ -110,8 +110,8 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                               ID3D11DeviceContext1* context, MediaAssetKey key,
+MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+                                               GpuContext1* context, MediaAssetKey key,
                                                const PngImage& image, ConstSlice<u8> reconstructed_scanlines,
                                                bool preview) noexcept {
     const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
@@ -123,7 +123,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
         image.height + atlas->allocations.padding * 2u > atlas->allocations.height) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    const HRESULT result = upload_png_inputs(gpu, device, context, image, reconstructed_scanlines);
+    const GpuStatus result = upload_png_inputs(gpu, device, context, image, reconstructed_scanlines);
     if (FAILED(result)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
@@ -158,8 +158,8 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                                ID3D11DeviceContext1* context, MediaAssetKey key,
+MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
+                                                GpuContext1* context, MediaAssetKey key,
                                                 const JpegImage& image,
                                                 const JpegCoefficientWorkspace& coefficients,
                                                 bool preview) noexcept {
@@ -213,7 +213,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     const u32 quantization_and_curve_bytes = quantization_bytes + icc_curve_bytes;
     const u32 sample_bytes = sample_count * sizeof(u32);
 
-    HRESULT result = create_jpeg_resources(gpu, device);
+    GpuStatus result = create_jpeg_resources(gpu, device);
     if (SUCCEEDED(result)) {
         result = ensure_dynamic_raw_buffer(device, coefficient_bytes, &gpu->vp8_coefficient_buffer,
                                            &gpu->vp8_coefficient_view, &gpu->vp8_coefficient_capacity);
@@ -232,10 +232,9 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     result = upload_discard(context, gpu->vp8_coefficient_buffer, coefficients.blocks,
                             coefficient_bytes);
     if (SUCCEEDED(result)) {
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        result = context->Map(gpu->vp8_mode_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (SUCCEEDED(result)) {
-            u16* destination = static_cast<u16*>(mapped.pData);
+        void* mapped = gpu_map(context, gpu->vp8_mode_buffer, GpuMap::discard, &result);
+        if (mapped) {
+            u16* destination = static_cast<u16*>(mapped);
             for (u32 table = 0; table < kJpegTableMaximum; ++table) {
                 for (u32 index = 0; index < 64; ++index) {
                     destination[table * 64u + index] = image.tables->quantization[table].present
@@ -248,7 +247,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
                 CopyMemory(destination + curve_base, icc_profile->entries,
                            static_cast<usize>(icc_profile->entry_count) * sizeof(u16));
             }
-            context->Unmap(gpu->vp8_mode_buffer, 0);
+            gpu_unmap(context, gpu->vp8_mode_buffer);
         }
     }
     if (FAILED(result)) {
@@ -263,10 +262,10 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
 
-    context->UpdateSubresource(gpu->jpeg_idct_constants, 0, nullptr, &idct_constants, 0, 0);
+    gpu_update_buffer(context, gpu->jpeg_idct_constants, &idct_constants, sizeof(idct_constants));
     bind_compute_2srv(context, gpu->jpeg_idct_shader, gpu->jpeg_idct_constants,
                       gpu->vp8_coefficient_view, gpu->vp8_mode_view, gpu->vp8_yuv_uav);
-    context->Dispatch(image.coefficient_blocks, 1, 1);
+    gpu_dispatch(context, image.coefficient_blocks, 1, 1);
     unbind_compute_resources(context);
 
     atlas_constants.image_width = image.width;
@@ -315,10 +314,10 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
             }
         }
     }
-    context->UpdateSubresource(gpu->jpeg_atlas_constants, 0, nullptr, &atlas_constants, 0, 0);
+    gpu_update_buffer(context, gpu->jpeg_atlas_constants, &atlas_constants, sizeof(atlas_constants));
     bind_compute_2srv(context, gpu->jpeg_atlas_shader, gpu->jpeg_atlas_constants,
                       gpu->vp8_yuv_view, gpu->vp8_mode_view, texture_uav);
-    context->Dispatch((display_width + 7u) / 8u, (display_height + 7u) / 8u, 1);
+    gpu_dispatch(context, (display_width + 7u) / 8u, (display_height + 7u) / 8u, 1);
     unbind_compute(context);
 
     ++gpu->jpeg_uploads;
@@ -333,11 +332,11 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
 namespace {
 
 struct SurfaceSlot {
-    ID3D11Texture2D** texture;
-    ID3D11ShaderResourceView** view;
-    ID3D11RenderTargetView** target;
-    ID3D11UnorderedAccessView** uav;
-    ID3D11Texture2D** backup;
+    GpuTexture** texture;
+    GpuSrv** view;
+    GpuRtv** target;
+    GpuUav** uav;
+    GpuTexture** backup;
     u16* width;
     u16* height;
 };
@@ -352,11 +351,10 @@ SurfaceSlot surface_slot(MediaAtlasGpu* gpu, bool preview) noexcept {
 
 // Old -> new rows: the kept prefix, then each trim move (sources and
 // destinations already checked against both heights by the caller).
-void copy_rows(ID3D11DeviceContext1* context, ID3D11Texture2D* destination, ID3D11Texture2D* source, u32 width,
+void copy_rows(GpuContext1* context, GpuTexture* destination, GpuTexture* source, u32 width,
                u32 prefix, ConstSlice<GlyphAtlasRowMove> moves, u32 source_height, u32 destination_height) noexcept {
     if (prefix) {
-        const D3D11_BOX box{0, 0, 0, width, prefix, 1};
-        context->CopySubresourceRegion(destination, 0, 0, 0, 0, source, 0, &box);
+        gpu_copy_region(context, destination, 0, 0, source, {0, 0, width, prefix});
     }
     for (u32 index = 0; index < moves.count; ++index) {
         const GlyphAtlasRowMove& move = moves[index];
@@ -364,15 +362,15 @@ void copy_rows(ID3D11DeviceContext1* context, ID3D11Texture2D* destination, ID3D
             static_cast<u32>(move.destination_y) + move.height > destination_height) {
             continue;
         }
-        const D3D11_BOX box{0, move.source_y, 0, width, static_cast<UINT>(move.source_y + move.height), 1};
-        context->CopySubresourceRegion(destination, 0, 0, move.destination_y, 0, source, 0, &box);
+        gpu_copy_region(context, destination, 0, move.destination_y, source,
+                        {0, move.source_y, width, static_cast<u32>(move.source_y + move.height)});
     }
 }
 
 } // namespace
 
-MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, ID3D11Device* device,
-                                           ID3D11DeviceContext1* context, bool preview, u16 height,
+MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, GpuDevice* device,
+                                           GpuContext1* context, bool preview, u16 height,
                                            ConstSlice<GlyphAtlasRowMove> moves) noexcept {
     if (!gpu || !device || !context || (!moves.data && moves.count)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
@@ -389,44 +387,43 @@ MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, ID3D11Device* dev
     if (!dimensions_valid(width, height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11ShaderResourceView* view = nullptr;
-    ID3D11RenderTargetView* target = nullptr;
-    ID3D11UnorderedAccessView* uav = nullptr;
-    const HRESULT result = create_media_surface(device, context, width, height, &texture, &view, &target, &uav);
+    GpuTexture* texture = nullptr;
+    GpuSrv* view = nullptr;
+    GpuRtv* target = nullptr;
+    GpuUav* uav = nullptr;
+    const GpuStatus result = create_media_surface(device, context, width, height, &texture, &view, &target, &uav);
     if (FAILED(result)) {
-        com_release(uav);
-        com_release(target);
-        com_release(view);
-        com_release(texture);
+        gpu_release(uav);
+        gpu_release(target);
+        gpu_release(view);
+        gpu_release(texture);
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
     unbind_apng_atlas(context);
     copy_rows(context, texture, *slot.texture, width, minimum<u32>(old_height, height), moves, old_height, height);
     if (*slot.backup) {
-        D3D11_TEXTURE2D_DESC description{};
-        (*slot.backup)->GetDesc(&description);
-        const u32 backup_height = description.Height;
+        GpuTextureInfo info{};
+        gpu_texture_info(*slot.backup, &info);
+        const u32 backup_height = gpu_texture_info_height(info);
         u32 next_height = minimum<u32>(backup_height, height);
         for (u32 index = 0; index < moves.count; ++index) {
             if (static_cast<u32>(moves[index].source_y) + moves[index].height <= backup_height)
                 next_height = maximum<u32>(next_height, static_cast<u32>(moves[index].destination_y) + moves[index].height);
         }
         next_height = minimum<u32>(next_height, height);
-        ID3D11Texture2D* backup = nullptr;
-        description.Height = next_height;
-        if (next_height && SUCCEEDED(device->CreateTexture2D(&description, nullptr, &backup))) {
+        GpuTexture* backup = nullptr;
+        if (next_height && SUCCEEDED(gpu_texture_create_from_info(device, info, next_height, false, &backup))) {
             copy_rows(context, backup, *slot.backup, width, minimum(backup_height, next_height), moves, backup_height,
                       next_height);
         }
         // A failed backup allocation only loses one pending previous-disposal state.
-        com_release(*slot.backup);
+        gpu_release(*slot.backup);
         *slot.backup = backup;
     }
-    com_release(*slot.uav);
-    com_release(*slot.target);
-    com_release(*slot.view);
-    com_release(*slot.texture);
+    gpu_release(*slot.uav);
+    gpu_release(*slot.target);
+    gpu_release(*slot.view);
+    gpu_release(*slot.texture);
     *slot.texture = texture;
     *slot.view = view;
     *slot.target = target;
@@ -437,7 +434,7 @@ MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, ID3D11Device* dev
 
 void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept {
     if (gpu) {
-        com_release(*surface_slot(gpu, preview).backup);
+        gpu_release(*surface_slot(gpu, preview).backup);
     }
 }
 

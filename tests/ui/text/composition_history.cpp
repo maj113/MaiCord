@@ -7,8 +7,8 @@
 
 namespace maicord {
 namespace {
-bool range_geometry(void*, u32 first, u32 last, RECT* output, bool* clipped) noexcept {
-    *output = {static_cast<LONG>(first + 120), 240, static_cast<LONG>(last + 120), 260};
+bool range_geometry(void*, u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
+    *output = {static_cast<i32>(first + 120), 240, static_cast<i32>(last + 120), 260};
     *clipped = false;
     return true;
 }
@@ -61,7 +61,7 @@ struct WriteSink final : ITextStoreACPSink {
 bool point_bounds(void*, SecureTextStoreGeometry* out) noexcept {
     *out = {{100, 200, 160, 220}, {80, 180, 180, 240}}; return true;
 }
-bool point_hit(void*, POINT point, bool round, u32* position, bool* inside) noexcept {
+bool point_hit(void*, SecureTextPoint point, bool round, u32* position, bool* inside) noexcept {
     if (point.y == 999) return false;
     *inside = point.x >= 100 && point.x < 120 && point.y >= 200 && point.y < 220;
     *position = (round || !*inside) && point.x >= 110 ? 2 : 0;

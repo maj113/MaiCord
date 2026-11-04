@@ -8,7 +8,6 @@
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/media/image/jpeg.hpp"
 
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord {
@@ -386,8 +385,8 @@ static bool rgba_image_valid(const MediaAtlas& atlas, u32 width, u32 height, u32
            height + atlas.allocations.padding * 2u <= media_atlas_capacity_height(atlas);
 }
 
-using ProgramRasterizer = bool (*)(D3D11GlyphTextOwner*, ID3D11DeviceContext*, const ColrPaintProgram&,
-                                   const GlyphAtlasAllocation&, u16, u16, u16, ID3D11UnorderedAccessView*) noexcept;
+using ProgramRasterizer = bool (*)(D3D11GlyphTextOwner*, GpuContext*, const ColrPaintProgram&,
+                                   const GlyphAtlasAllocation&, u16, u16, u16, GpuUav*) noexcept;
 
 // Rasterizes a compiled program into its own extent-square atlas tile; a failed raster drops the atlas.
 static MediaAtlasGpuResult bake_program(D3D11Renderer* renderer, MediaAtlas* atlas, const MediaAssetKey& key,
@@ -693,34 +692,22 @@ bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<
     // Same domain selection as presentation: large previews live in the preview atlas.
     const bool preview = media_asset_large_preview(key) && renderer->preview_media_atlas;
     MediaAtlas* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
-    ID3D11Texture2D* source = preview ? renderer->media_gpu.preview_texture : renderer->media_gpu.texture;
+    GpuTexture* source = preview ? renderer->media_gpu.preview_texture : renderer->media_gpu.texture;
     if (!atlas || !source)
         return false;
     const MediaAtlasResult allocation = media_atlas_peek(atlas, key);
     if (!allocation.ok() || !allocation.width || !allocation.height ||
         u64{allocation.width} * allocation.height * 4 > rgba.count)
         return false;
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = allocation.width;
-    description.Height = allocation.height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    if (FAILED(renderer->graphics.device->CreateTexture2D(&description, nullptr, &staging)))
-        return false;
-    const D3D11_BOX box{allocation.x, allocation.y, 0, static_cast<UINT>(allocation.x + allocation.width),
-                        static_cast<UINT>(allocation.y + allocation.height), 1};
-    renderer->graphics.context->CopySubresourceRegion(staging, 0, 0, 0, 0, source, 0, &box);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const bool ok = SUCCEEDED(renderer->graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+    const GpuBox box{allocation.x, allocation.y, static_cast<u32>(allocation.x + allocation.width),
+                     static_cast<u32>(allocation.y + allocation.height)};
+    GpuReadback mapped{};
+    const bool ok = gpu_ok(gpu_readback_map(renderer->graphics.device, renderer->graphics.context, source,
+                                            GpuFormat::rgba8, box, &mapped));
     if (ok) {
         // Atlas texels are premultiplied; clipboard consumers expect straight alpha.
         for (u32 y = 0; y < allocation.height; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + u64{y} * mapped.RowPitch;
+            const u8* row = static_cast<const u8*>(mapped.data) + u64{y} * mapped.pitch;
             u8* out = rgba.data + u64{y} * allocation.width * 4;
             for (u32 x = 0; x < allocation.width; ++x) {
                 const u32 a = row[x * 4 + 3];
@@ -729,11 +716,10 @@ bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<
                 out[x * 4 + 3] = static_cast<u8>(a);
             }
         }
-        renderer->graphics.context->Unmap(staging, 0);
+        gpu_readback_unmap(renderer->graphics.context, &mapped);
         *width = allocation.width;
         *height = allocation.height;
     }
-    staging->Release();
     return ok;
 }
 
@@ -757,7 +743,7 @@ void release_media_surfaces(D3D11Renderer* renderer) noexcept {
     log_write(LogLevel::warning, "render", "media_atlas_trim_released_surfaces");
 }
 
-ID3D11Texture2D* disposal_backup(const D3D11Renderer& renderer, bool preview) noexcept {
+GpuTexture* disposal_backup(const D3D11Renderer& renderer, bool preview) noexcept {
     return preview ? renderer.media_gpu.preview_animation_backup_texture : renderer.media_gpu.apng_backup_texture;
 }
 

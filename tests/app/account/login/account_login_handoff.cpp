@@ -304,7 +304,7 @@ void run() noexcept {
     auto status = module_login_pump(owner);
     const HANDLE terminal = module_login_notification_handle(owner);
     check(status.ok() && !status.profile_saved && owner->authenticated_pending && !fixture.saves &&
-        terminal == owner->remote_auth.thread && WaitForSingleObject(terminal, 0) == WAIT_TIMEOUT &&
+        terminal == reinterpret_cast<HANDLE>(owner->remote_auth.thread) && WaitForSingleObject(terminal, 0) == WAIT_TIMEOUT &&
         !remote_credential_erased(owner->remote_auth),
         "login handoff: early QR event preserves credential and waits on worker terminal handle without rejecting auth");
     const auto repeated = module_login_pump(owner);
@@ -328,7 +328,7 @@ void run() noexcept {
         remote_credential_erased(owner->remote_auth) && !fixture.saves,
         "login handoff: cancel while QR worker exits erases credential and defers no profile commit");
     SetEvent(release);
-    check(WaitForSingleObject(owner->remote_auth.thread, 3000) == WAIT_OBJECT_0 &&
+    check(thread_wait(owner->remote_auth.thread, 3000) &&
         module_login_stop(&instance, 1000).ok() && !instance && !fixture.saves,
         "login handoff: QR stop retry releases quarantine without adopting late authentication");
     CloseHandle(release); reset();

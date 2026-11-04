@@ -1,6 +1,7 @@
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/desktop/taskbar_attention.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/shell/brand_mark.hpp"
 
@@ -231,7 +232,7 @@ HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalet
     ScratchPages<u32[kTrayIconMaximumExtent * kTrayIconMaximumExtent]> pixels;
     if (!pixels.data || !tray_icon_render(state, badge, palette, extent, {*pixels.data, extent * extent}))
         return nullptr;
-    return taskbar_attention_create_icon({*pixels.data, extent * extent}, extent);
+    return win32_create_icon({*pixels.data, extent * extent}, extent);
 }
 
 bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message) noexcept {

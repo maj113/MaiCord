@@ -9,7 +9,6 @@
 #include "maicord/render/d3d11/renderer_settings_visibility.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord::app_detail {
@@ -101,14 +100,14 @@ void application_guild_banner_project(u64 now_ms) noexcept {
         shell_navigation_scene_update(&scene, &g_app.account_ui->navigation_view, scene.viewport, scene.scroll_dips);
 }
 
-void application_guild_banner_pointer(UINT message, LPARAM lparam) noexcept {
+void application_guild_banner_pointer(const WindowEvent& event) noexcept {
     auto& b = g_banner;
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         b.pointer_inside = false;
-    } else if (message == WM_MOUSEMOVE) {
+    } else if (event.type == EventType::pointer_move) {
         b.pointer_inside = true;
-        b.pointer_x = client_dip_x(lparam);
-        b.pointer_y = client_dip_y(lparam);
+        b.pointer_x = client_dip_x(event);
+        b.pointer_y = client_dip_y(event);
     } else {
         return;
     }

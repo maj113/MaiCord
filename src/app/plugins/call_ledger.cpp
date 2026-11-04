@@ -2,7 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -26,9 +28,8 @@ PluginCallLedgerEntry* entry(PluginCallLedger* ledger, u64 owner, bool create) n
     return empty;
 }
 void initialize_timing(PluginCallLedger* ledger) noexcept {
-    Win32LargeInteger frequency{};
-    QueryPerformanceFrequency(frequency.native());
-    ledger->frequency = frequency.QuadPart > 0 ? frequency.QuadPart : 1;
+    const i64 frequency = clock_initialize().frequency;
+    ledger->frequency = frequency > 0 ? frequency : 1;
     if (!ledger->budget_us) ledger->budget_us = kPluginCallBudgetUs;
     if (!ledger->lifecycle_budget_us) ledger->lifecycle_budget_us = kPluginCallLifecycleBudgetUs;
     if (!ledger->decorate_budget_us) ledger->decorate_budget_us = kPluginCallDecorateBudgetUs;
@@ -62,16 +63,14 @@ bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, Plug
     if (!ledger || ledger->view) return false;
     initialize_timing(ledger);
     if (!path) return true;
-    HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    HANDLE file = file_open(path, {FileAccess::read_write, FileCreate::open_always, kFileShareRead, kFileNoFollow});
     if (file == INVALID_HANDLE_VALUE) return false;
-    HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READWRITE, 0, kMarkerBytes, nullptr);
-    void* view = mapping ? MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, kMarkerBytes) : nullptr;
-    if (!view) {
-        if (mapping) CloseHandle(mapping);
-        CloseHandle(file);
+    FileMap map{};
+    if (!file_map(file, true, kMarkerBytes, &map)) {
+        file_close(file);
         return false;
     }
+    void* view = map.data;
     auto* bytes = static_cast<volatile u8*>(view);
     u8 copy[24];
     for (u32 i = 0; i < 24; ++i) copy[i] = bytes[i];
@@ -84,7 +83,6 @@ bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, Plug
     }
     ledger->path[length] = 0;
     ledger->file = file;
-    ledger->mapping = mapping;
     ledger->view = bytes;
     return true;
 }
@@ -95,9 +93,7 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
     if (!ledger->frequency) initialize_timing(ledger);
     PluginCallTicket ticket{owner, 0, kind, call_class, ledger->depth == 0};
     ++ledger->depth;
-    Win32LargeInteger now{};
-    QueryPerformanceCounter(now.native());
-    ticket.started = now.QuadPart;
+    ticket.started = clock_now();
     // Only the outermost call owns the marker; nested host->plugin calls are
     // attributed to the plugin that is already on the stack.
     if (ticket.outer && ledger->view && owner) {
@@ -119,15 +115,14 @@ void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
     if (ledger->close_watchdog) ledger->close_watchdog(ledger);
     if (ledger->view) {
         store_idle(ledger->view);
-        UnmapViewOfFile(const_cast<u8*>(ledger->view));
+        FileMap map{const_cast<u8*>(ledger->view), kMarkerBytes};
+        file_unmap(&map);
     }
-    if (ledger->mapping) CloseHandle(ledger->mapping);
     if (ledger->file) {
-        CloseHandle(ledger->file);
-        if (ledger->path[0]) DeleteFileW(ledger->path);
+        file_close(ledger->file);
+        if (ledger->path[0]) file_remove(ledger->path);
     }
     ledger->view = nullptr;
-    ledger->mapping = nullptr;
     ledger->file = nullptr;
     ledger->path[0] = 0;
 }
@@ -135,15 +130,14 @@ void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
 PluginCallOutcome plugin_call_finish(PluginCallLedger* ledger, const PluginCallTicket& ticket_view) noexcept {
     const PluginCallTicket ticket = ticket_view; // the ledger is written below
     if (!ledger) return {};
-    Win32LargeInteger now{};
-    QueryPerformanceCounter(now.native());
+    const i64 now = clock_now();
     if (ledger->depth) --ledger->depth;
     if (ticket.outer && ledger->view) {
         ledger->view[20] = 0;
         ledger->view[21] = 0;
     }
     if (!ticket.owner_id) return {};
-    const i64 ticks = now.QuadPart > ticket.started ? now.QuadPart - ticket.started : 0;
+    const i64 ticks = now > ticket.started ? now - ticket.started : 0;
     PluginCallOutcome outcome{static_cast<u64>(ticks) * 1'000'000ull / static_cast<u64>(ledger->frequency), false, false};
     auto* record = entry(ledger, ticket.owner_id, true);
     if (!record) return outcome;

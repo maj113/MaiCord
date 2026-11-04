@@ -98,7 +98,7 @@ struct Readback {
         images = static_cast<u8*>(
             VirtualAlloc(nullptr, static_cast<usize>(bytes) * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
         ID3D11Resource* resource = nullptr;
-        r.graphics.target->GetResource(&resource);
+        r.graphics.surface.target->GetResource(&resource);
         ID3D11Texture2D* source = nullptr;
         const HRESULT hr =
             resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
@@ -123,7 +123,7 @@ struct Readback {
         if (!staging || index >= 4 || r.width != width || r.height != height)
             return false;
         ID3D11Resource* source = nullptr;
-        r.graphics.target->GetResource(&source);
+        r.graphics.surface.target->GetResource(&source);
         r.graphics.context->CopyResource(staging, source);
         source->Release();
         D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -187,7 +187,7 @@ struct Ranges {
 inline bool draw_fixed(D3D11Renderer& renderer) noexcept {
     const float clear[]{kDefaultTheme.base_lowest.red, kDefaultTheme.base_lowest.green,
                         kDefaultTheme.base_lowest.blue, 1.f};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
     return d3d11_renderer_draw_stream(&renderer, kDefaultTheme, false, false, nullptr, 10000);
 }
 inline Ranges ranges(const D3D11Renderer& r, RendererLayerSurface surface) noexcept {

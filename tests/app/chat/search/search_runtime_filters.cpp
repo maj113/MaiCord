@@ -3,6 +3,7 @@
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../../support/window_fixture.hpp"
 
 namespace maicord::search_runtime_test {
 
@@ -867,20 +868,20 @@ void filter_choices_runtime() noexcept {
     const bool geometry = ui_search_scene_filter_choice_geometry(g_app.search->scene, 0, &bounds, &clip);
     const auto before_pointer = g_app.search->edit.caret;
     check(geometry && ui_rect_has_area(ui_rect_intersection(bounds, clip)) &&
-              application_search_window_message(WM_LBUTTONDOWN, 0, point(bounds)) &&
+              application_search_window_event(window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)))) &&
               g_app.search->focused && g_app.search->edit.caret == before_pointer &&
-              application_search_window_message(WM_LBUTTONUP, 0, point(bounds)) &&
+              application_search_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left)) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:70 ")),
           "search choices: actual hidden-HWND press/release accepts the exact row while retaining editor "
           "focus");
     check(choice_draft(utf8_literal("in:")) &&
               ui_search_scene_filter_choice_geometry(g_app.search->scene, 0, &bounds, &clip) &&
-              application_search_window_message(WM_LBUTTONDOWN, 0, point(bounds)),
+              application_search_window_event(window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)))),
           "search choices: stale-release case captures a real current row");
     message_composer_set_selection(&g_app.search->edit, 0, 0);
     check(
         application_search_edit_changed(false) &&
-            application_search_window_message(WM_LBUTTONUP, 0, point(bounds)) &&
+            application_search_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left)) &&
             utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")),
         "search choices: selection movement retires pointer capture and cannot activate a replacement row");
     check(choice_draft(utf8_literal("from:")) && key(key::escape) && !g_app.search->suggestions &&
@@ -948,8 +949,8 @@ bool click_target(UiSearchAction action, u32 index) noexcept {
             continue;
         const auto* node = ui_widget_manager_layout_node(
             scene->widgets, {static_cast<u16>(slot), scene->widgets.generation});
-        return node && application_search_window_message(WM_LBUTTONDOWN, 0, point(node->rectangle)) &&
-               application_search_window_message(WM_LBUTTONUP, 0, point(node->rectangle));
+        return node && application_search_window_event(window_test::pointer_down(window_test::x_of(point(node->rectangle)), window_test::y_of(point(node->rectangle)))) &&
+               application_search_window_event(window_test::pointer_up(window_test::x_of(point(node->rectangle)), window_test::y_of(point(node->rectangle)), PointerButton::left));
     }
     return false;
 }
@@ -1005,8 +1006,8 @@ void tabs_and_recent() noexcept {
         ui_search_scene_visible_tile(*g_app.renderer.search_scene, 0, &tile) &&
         ui_search_scene_rich_preview_geometry(*g_app.renderer.search_scene, tile, &cover, &clip);
     const u32 opens = viewer_opens;
-    check(resolved && application_search_window_message(WM_LBUTTONDOWN, 0, point(clip)) &&
-              application_search_window_message(WM_LBUTTONUP, 0, point(clip)) &&
+    check(resolved && application_search_window_event(window_test::pointer_down(window_test::x_of(point(clip)), window_test::y_of(point(clip)))) &&
+              application_search_window_event(window_test::pointer_up(window_test::x_of(point(clip)), window_test::y_of(point(clip)), PointerButton::left)) &&
               viewer_opens == opens + 1 && viewer_index == 0 && ui_rect_equal(viewer_origin, cover),
           "search runtime: a media tile opens the viewer at that item from its tile");
     check(query(utf8_literal("legacy now")) && application_search_submit(404, 1) &&
@@ -1234,9 +1235,8 @@ void rich_scroll_runtime() noexcept {
         return -10000.f;
     };
     const float before_top = video_text_top(), before_scroll = s.scene.scroll_dips;
-    scrolled = scrolled && ClientToScreen(g_app.window, &wheel) &&
-        application_search_window_message(WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-120)),
-                                          MAKELPARAM(wheel.x, wheel.y));
+    scrolled = scrolled &&
+        application_search_window_event(window_test::wheel(static_cast<float>(wheel.x), static_cast<float>(wheel.y), -120));
     bool moved = false;
     scrolled = scrolled && ui_scroll_host_tick(&g_app.scroll_host, application_now_us() + 500000, &moved);
     const float after_top = video_text_top();

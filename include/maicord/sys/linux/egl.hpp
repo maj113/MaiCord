@@ -39,6 +39,9 @@ inline constexpr Int kContextOpenGlResetNotificationStrategy = 0x31BD;
 inline constexpr Int kLoseContextOnReset = 0x31BF;
 inline constexpr Int kPlatformSurfacelessMesa = 0x31DD;
 inline constexpr Int kPlatformDeviceExt = 0x313F;
+inline constexpr Int kPlatformWaylandKhr = 0x31D8;
+inline constexpr Int kWindowBit = 0x0004;
+inline constexpr Int kBufferAgeExt = 0x313D;
 inline constexpr Display kNoDisplay = nullptr;
 inline constexpr Context kNoContext = nullptr;
 inline constexpr Surface kNoSurface = nullptr;
@@ -59,7 +62,11 @@ inline constexpr Surface kNoSurface = nullptr;
     X(Boolean, eglMakeCurrent, (Display display, Surface draw, Surface read, Context context))                         \
     X(Boolean, eglDestroyContext, (Display display, Context context))                                                  \
     X(Boolean, eglDestroySurface, (Display display, Surface surface))                                                  \
-    X(Context, eglGetCurrentContext, ())
+    X(Context, eglGetCurrentContext, ())                                                                               \
+    X(Surface, eglCreateWindowSurface, (Display display, Config config, void* native_window, const Int* attributes))   \
+    X(Boolean, eglSwapBuffers, (Display display, Surface surface))                                                     \
+    X(Boolean, eglSwapInterval, (Display display, Int interval))                                                       \
+    X(Boolean, eglQuerySurface, (Display display, Surface surface, Int attribute, Int* value))
 
 struct Api {
 #define MAICORD_EGL_MEMBER(result, name, arguments) result(*name) arguments;
@@ -67,6 +74,9 @@ struct Api {
 #undef MAICORD_EGL_MEMBER
     // Optional (EGL 1.5, or EGL_EXT_platform_base): null when absent.
     Display (*eglGetPlatformDisplay)(Enum platform, void* native_display, const void* attributes);
+    // Optional (EGL_KHR_swap_buffers_with_damage or EGL_EXT_swap_buffers_with_damage): rectangles are x, y, width,
+    // height with a bottom-left origin.
+    Boolean (*eglSwapBuffersWithDamage)(Display display, Surface surface, const Int* rectangles, Int count);
 };
 
 } // namespace maicord::egl

@@ -31,6 +31,9 @@ bool clipboard_write_utf8(const Utf8View& text) noexcept;
 // Copy Image from straight RGBA rows; a source URL adds a linked-image HTML format where the platform has one.
 bool clipboard_write_image(const u8* rgba, u32 width, u32 height, u32 stride, const Utf8View& source_url = {}) noexcept;
 
+// Whether the clipboard holds an attachment (files or an image) clipboard_capture_attachment could take; cheap, and
+// never reads the payload.
+bool clipboard_has_attachment() noexcept;
 // The attachments (files, images) on the clipboard at one moment, retained without copying their payloads.
 struct ClipboardCapture;
 // Null when the clipboard holds no attachment.

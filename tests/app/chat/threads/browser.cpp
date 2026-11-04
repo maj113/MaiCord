@@ -163,8 +163,8 @@ bool action(UiThreadBrowserAction action) noexcept {
     return false;
 }
 bool initialize() noexcept {
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Thread browser fixture", WS_POPUP, -16000, -16000,
-        1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Thread browser fixture", WS_POPUP, -16000, -16000,
+        1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_app.window || !g_app.account_ui) return false;
     auto& state = g_app.account_ui->chat_state;
@@ -665,7 +665,7 @@ void run() noexcept {
     application_thread_browser_release();
     check(!browser_owner && !g_app.renderer.thread_browser_scene, "browser: idle release frees owner and both bounded banks");
     ui_scene_release(&g_app.shell_scene);
-    DestroyWindow(g_app.window); g_app.window = nullptr;
+    DestroyWindow(win32_hwnd(g_app.window)); g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr;
 }
 }

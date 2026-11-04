@@ -18,8 +18,8 @@
 #include "maicord/ui/settings/scene.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/win32_system_time.hpp"
-#include "maicord/sys/registry.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -189,7 +189,7 @@ DataPathResult knobs_path(wchar_t (&path)[512], const char* slug, bool create) n
 void delete_knob_file(const char* slug) noexcept {
     wchar_t path[512];
     if (knobs_path(path, slug, false).ok())
-        DeleteFileW(path);
+        file_remove(path);
 }
 
 u32 id_hash(const char* id) noexcept { return hash32_bytes(reinterpret_cast<const u8*>(id), c_string_length(id)); }
@@ -350,23 +350,23 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
     wchar_t folder[512];
     if (!folder_path(folder, developer))
         return;
-    wchar_t pattern[512];
-    u32 pattern_length = 0;
-    pattern[0] = 0;
-    if (!wide_append(pattern, 512, &pattern_length, folder) || !wide_append(pattern, 512, &pattern_length, L"\\*.mcfx"))
+    DirIter search{};
+    if (!dir_open(&search, folder))
         return;
-    WIN32_FIND_DATAW found;
-    const HANDLE search = FindFirstFileW(pattern, &found);
-    if (search == INVALID_HANDLE_VALUE)
-        return;
-    do {
-        if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    DirEntry found{};
+    while (dir_next(&search, &found)) {
+        static constexpr wchar_t kExtension[] = L".mcfx";
+        const u32 name_length = wide_length(found.name, 260);
+        bool mcfx = name_length > 5;
+        for (u32 i = 0; mcfx && i < 5; ++i)
+            mcfx = (found.name[name_length - 5 + i] | 0x20) == kExtension[i];
+        if (!mcfx || found.kind == FileKind::directory)
             continue;
         Entry entry{};
         u32 path_length = 0;
         if (!wide_append(entry.path, kPathUnits, &path_length, folder) ||
             !wide_append(entry.path, kPathUnits, &path_length, L"\\") ||
-            !wide_append(entry.path, kPathUnits, &path_length, found.cFileName))
+            !wide_append(entry.path, kPathUnits, &path_length, found.name))
             continue;
         const u32 bytes = read_file(entry.path, {buffer, kMcfxMaximumBytes});
         if (!bytes || !mcfx_parse({buffer, bytes}, workspace).ok()) {
@@ -375,7 +375,7 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         }
         const McfxPackage& package = workspace->package;
         auto& info = entry.info;
-        if (!developer && !installed_name(found.cFileName, package.slug)) {
+        if (!developer && !installed_name(found.name, package.slug)) {
             log_write(LogLevel::warning, "effects", "package_name_mismatch");
             continue;
         }
@@ -391,7 +391,7 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         entry.blend = package.blend;
         entry.requested_resolution = package.requested_resolution;
         entry.requested_frame_rate = package.requested_frame_rate;
-        entry.modified = static_cast<u64>(found.ftLastWriteTime.dwHighDateTime) << 32 | found.ftLastWriteTime.dwLowDateTime;
+        entry.modified = found.last_write;
         // One installed file per slug: the newer one wins (a catalog update removes the old one after writing).
         bool replaced = false;
         for (u32 i = 0; i < g.count && !developer; ++i)
@@ -404,8 +404,8 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         if (replaced || g.count == kEffectLibraryCapacity)
             continue;
         g.entries[g.count++] = entry;
-    } while (FindNextFileW(search, &found));
-    FindClose(search);
+    }
+    dir_close(&search);
 }
 
 Entry* find(u64 identity) noexcept {
@@ -630,18 +630,17 @@ void open_marker() noexcept {
     wchar_t path[512];
     if (!data_path(path, 512, kMarkerFile, true).ok())
         return;
-    const HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const HANDLE file = file_open(path, {FileAccess::read_write, FileCreate::open_always,
+                                         kFileShareRead | kFileShareWrite, 0});
     if (file == INVALID_HANDLE_VALUE)
         return;
-    // The mapping and the view live until the process exits: the renderer writes to them to its last frame.
-    const HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READWRITE, 0, 8, nullptr);
-    CloseHandle(file);
-    if (!mapping)
+    // The view lives until the process exits: the renderer writes to it to its last frame.
+    FileMap map{};
+    const bool mapped = file_map(file, true, 8, &map);
+    file_close(file);
+    if (!mapped)
         return;
-    auto* word = static_cast<volatile u64*>(MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 8));
-    if (!word)
-        return;
+    auto* word = static_cast<volatile u64*>(map.data);
     const u64 leftover = *word;
     *word = 0;
     d3d11_effect_set_marker(&g_app.renderer.effect, word);
@@ -733,7 +732,7 @@ void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
         sources.local = local_time(now);
     if ((uses & effect_use_appearance) || adapt) {
         if (!in.system_read) {
-            in.system_dark = application_effects_read_system_dark();
+            in.system_dark = platform_settings_read().dark_scheme;
             in.system_read = true;
         }
         sources.theme_dark = application_theme().appearance != ThemeAppearance::light;
@@ -825,7 +824,7 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
     glide_knobs(identity, package, spec.knobs);
     if ((package.uses & effect_use_pointer) && settings.pointer_allowed && g_app.window) {
         POINT cursor{};
-        if (GetCursorPos(&cursor) && ScreenToClient(g_app.window, &cursor))
+        if (GetCursorPos(&cursor) && ScreenToClient(win32_hwnd(g_app.window), &cursor))
             d3d11_effect_set_pointer(&g_app.renderer.effect, static_cast<float>(cursor.x), static_cast<float>(cursor.y));
     }
     // Textures are decoded only when the renderer has to build the shader again.
@@ -1049,7 +1048,7 @@ bool application_effects_activate(u32 choice, bool* result) noexcept {
 }
 
 void application_effects_note_input() noexcept {
-    g.last_input_ms = GetTickCount64();
+    g.last_input_ms = clock_monotonic_milliseconds();
 }
 
 bool application_effects_selected() noexcept {
@@ -1061,7 +1060,7 @@ bool application_effects_motion_allowed() noexcept {
         return true;
     if (g.file.user.unfocused == EffectUnfocused::pause && !application_window_focused())
         return false;
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     return !g.last_input_ms || now < g.last_input_ms || now - g.last_input_ms < kIdleMilliseconds;
 }
 
@@ -1078,14 +1077,6 @@ EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcep
     const EffectLocalTime local = local_time(now_ms);
     *next_ms = g.inputs.clock_next_ms;
     return local;
-}
-
-bool application_effects_read_system_dark() noexcept {
-    DWORD light = 1, bytes = sizeof(light);
-    const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                                        L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes);
-    // Without the value Windows draws apps light.
-    return status == ERROR_SUCCESS && light == 0;
 }
 
 void application_effects_set_system_dark(bool dark) noexcept {
@@ -1292,7 +1283,7 @@ bool application_effects_remove(const char* slug, u32 slug_bytes) noexcept {
         release(g.resident);
     close_opened();
     application_effects_deactivate(slug, slug_bytes);
-    const bool removed = DeleteFileW(path) != 0;
+    const bool removed = file_remove(path) != 0;
     delete_knob_file(text);
     g.library_loaded = false;
     load_library();

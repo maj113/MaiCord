@@ -27,8 +27,8 @@
 #include "../account/custom_status.hpp"
 #include "../account/friends.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -48,18 +48,6 @@ bool keybinds_blocked() noexcept {
            application_friends_requests_active() || application_keybinds_settings_recording() ||
            application_voice_settings_recording();
 }
-// Ctrl+Alt is AltGr on many layouts; in a text field it types instead.
-bool altgr_types(u8 key) noexcept {
-    BYTE state[256]{};
-    state[key::ctrl] = state[key::left_ctrl] = state[key::alt] = state[key::right_alt] = 0x80;
-    if (GetKeyState(key::shift) & 0x8000)
-        state[key::shift] = 0x80;
-    wchar_t output[4];
-    // Flag 4: leave the keyboard's dead-key state untouched.
-    const int produced = ToUnicodeEx(key, MapVirtualKeyW(key, MAPVK_VK_TO_VSC), state, output, 4, 4,
-                                     GetKeyboardLayout(0));
-    return produced < 0 || (produced > 0 && output[0] >= 0x20);
-}
 } // namespace
 
 bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept {
@@ -70,7 +58,7 @@ bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated
     const auto focus = application_shortcut_context().focus;
     const bool text_focus = focus == ShortcutFocus::text || focus == ShortcutFocus::composer;
     if (text_focus && (pressed.modifiers & (shortcut_ctrl | shortcut_alt)) == (shortcut_ctrl | shortcut_alt) &&
-        altgr_types(pressed.key))
+        window_layout_types_text(nullptr, pressed.key, pressed.modifiers))
         return false;
     return plugin_dispatch_keybind(pressed.key | (pressed.modifiers & shortcut_ctrl ? kPluginKeyControl : 0) |
                                    (pressed.modifiers & shortcut_shift ? kPluginKeyShift : 0) |

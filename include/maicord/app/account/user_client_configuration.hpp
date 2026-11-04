@@ -29,6 +29,12 @@ struct UserClientConfigurationStorage {
     char launch_signature[kGatewayUserLaunchIdBytes + 1];
     char timezone[kIanaTimezoneMaximumBytes + 1];
     u32 timezone_bytes;
+#if !defined(_WIN32)
+    // The Linux client's window_manager, distro and display_server properties.
+    char window_manager[kGatewayUserMaximumHostBytes + 1];
+    char distro[kGatewayUserMaximumHostBytes + 1];
+    char display_server[kGatewayUserMaximumRuntimeBytes + 1];
+#endif
 };
 
 struct UserClientConfigurationResult {
@@ -40,8 +46,8 @@ struct UserClientConfigurationResult {
     }
 };
 
-// Builds the Windows compatibility profile with one RFC 4122 launch UUID and
-// launch signature per process, shared by auth, REST and Gateway owners. Views
+// Builds the compatibility profile of the host's official desktop client (Windows or Linux) with one RFC 4122 launch
+// UUID and launch signature per process, shared by auth, REST and Gateway owners. Views
 // in configuration point into storage and are valid only while that storage
 // object stays in place.
 UserClientConfigurationResult user_client_configuration_initialize(
@@ -59,6 +65,11 @@ u32 client_discord_locale(Utf8View host_locale, Slice<char> output) noexcept;
 // Accept-Language from navigator.languages: the host locale, then the
 // preferred languages (a REG_MULTI_SZ list) other than it, the first plain
 // and the rest weighted 0.9 down to 0.1. Entries that do not fit are left out.
+#if defined(_WIN32)
 u32 client_accept_language(Utf8View host_locale, const wchar_t* preferred, Slice<char> output) noexcept;
+#else
+// The same for preferred languages given as UTF-8 tags, each ended by a NUL (linux_client_preferred_languages).
+u32 client_accept_language(Utf8View host_locale, Utf8View preferred, Slice<char> output) noexcept;
+#endif
 
 } // namespace maicord

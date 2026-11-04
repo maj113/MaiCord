@@ -3,6 +3,7 @@
 #include "maicord/media/core/asset_key.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // The selected server's banner above its channel list (the official client's
@@ -15,7 +16,7 @@ namespace maicord::app_detail {
 // changed and the scene is live.
 void application_guild_banner_project(u64 now_ms) noexcept;
 // Pointer observer (never consumes): the header and the hover strip.
-void application_guild_banner_pointer(UINT message, LPARAM lparam) noexcept;
+void application_guild_banner_pointer(const WindowEvent& event) noexcept;
 // When the timed play ends (0 when nothing is pending).
 u64 application_guild_banner_next_wake() noexcept;
 // The pictures to keep resident while shown: the animation first while it

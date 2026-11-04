@@ -101,6 +101,9 @@ inline constexpr u32 kGatewayUserMaximumVersionBytes = 64;
 inline constexpr u32 kGatewayUserMaximumReleaseChannelBytes = 32;
 inline constexpr u32 kGatewayUserMaximumArchitectureBytes = 16;
 inline constexpr u32 kGatewayUserLaunchIdBytes = 36;
+// The Linux desktop client's window_manager and distro text, and its runtime_environment and display_server.
+inline constexpr u32 kGatewayUserMaximumHostBytes = 256;
+inline constexpr u32 kGatewayUserMaximumRuntimeBytes = 32;
 
 enum class GatewayUserStatus : u8 {
     online,
@@ -124,9 +127,9 @@ constexpr Utf8View gateway_user_status_name(GatewayUserStatus status) noexcept {
     }
 }
 
-// The client properties a user session reports, in the order the Windows
-// desktop client sends them. Identify and the X-Super-Properties header carry
-// the same object.
+// The client properties a user session reports, in the order the desktop
+// client sends them (linux_desktop selects the Linux client's). Identify and the
+// X-Super-Properties header carry the same object.
 inline constexpr u32 kGatewayUserMaximumAppStateBytes = 16;
 struct GatewayUserProperties {
     Utf8View operating_system;
@@ -151,6 +154,13 @@ struct GatewayUserProperties {
     Utf8View client_heartbeat_session_id;
     Utf8View client_app_state;
     bool app_state_first;
+    // The Linux desktop client's object: os_version_is_release follows os_version, os_sdk_version is not sent, and
+    // window_manager, distro, runtime_environment and display_server follow browser_version (an empty one is omitted).
+    bool linux_desktop;
+    Utf8View window_manager;
+    Utf8View distro;
+    Utf8View runtime_environment;
+    Utf8View display_server;
 };
 
 // Writes the properties object, or with a null output measures it. Every

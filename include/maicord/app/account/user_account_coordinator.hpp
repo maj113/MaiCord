@@ -75,7 +75,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
 UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinator* coordinator,
                                                            u64 now_ms) noexcept;
 inline UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinator* coordinator) noexcept {
-    return user_account_coordinator_pump(coordinator, GetTickCount64());
+    return user_account_coordinator_pump(coordinator, clock_monotonic_milliseconds());
 }
 bool user_account_coordinator_gateway_restart_due(const UserAccountCoordinator* coordinator,
                                                   u64 now_ms) noexcept;

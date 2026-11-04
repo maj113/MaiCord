@@ -218,11 +218,11 @@ bool handle_scrollbar_begin(float pointer_x, float pointer_y) noexcept {
     return false;
 }
 
-bool handle_scrollbar_drag(WPARAM buttons, float pointer_y) noexcept {
+bool handle_scrollbar_drag(bool primary_held, float pointer_y) noexcept {
     if (g_app.scrollbar_drag == ScrollbarDragKind::none) {
         return false;
     }
-    if ((buttons & MK_LBUTTON) != 0) {
+    if (primary_held) {
         return apply_scrollbar_pointer(pointer_y);
     }
     end_scrollbar_drag();
@@ -237,7 +237,7 @@ void end_scrollbar_drag() noexcept {
         application_release_capture();
 }
 
-bool handle_message_key(WPARAM key) noexcept {
+bool handle_message_key(u32 key) noexcept {
     const u64 viewport = g_app.message_view.timeline.viewport_units;
     const u64 page = viewport > g_app.message_view.timeline.default_item_units
                          ? viewport - g_app.message_view.timeline.default_item_units

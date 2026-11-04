@@ -647,10 +647,10 @@ bool menu(ReadScopeKind kind, u64 id, bool keyboard) noexcept {
             g_app.context_focus = &g_app.shell_navigation_scene.widgets;
         }
         g_app.keyboard_focus_visible = true;
-        SendMessageW(g_app.window, WM_KEYDOWN, key::menu, 0);
+        SendMessageW(win32_hwnd(g_app.window), WM_KEYDOWN, key::menu, 0);
     } else {
         g_app.keyboard_focus_visible = false;
-        SendMessageW(g_app.window, WM_RBUTTONUP, 0, center(rectangle));
+        SendMessageW(win32_hwnd(g_app.window), WM_RBUTTONUP, 0, center(rectangle));
     }
     return SCOPED_READ_REQUIRE(g_app.popup_scene.active && g_app.popup_scene.owner_id == id &&
                                    g_app.popup_scene.feedback_reserved,
@@ -669,11 +669,11 @@ bool action(u32 action_id, bool keyboard) noexcept {
         if (!popup_scene_resolve_item_layout(popup, i, &layout) || !layout.visible)
             return fail_at(__LINE__);
         if (keyboard)
-            SendMessageW(g_app.window, WM_KEYDOWN, key::enter, 0);
+            SendMessageW(win32_hwnd(g_app.window), WM_KEYDOWN, key::enter, 0);
         else {
-            SendMessageW(g_app.window, WM_MOUSEMOVE, 0, center(layout.visible_rectangle));
-            SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, center(layout.visible_rectangle));
-            SendMessageW(g_app.window, WM_LBUTTONUP, 0, center(layout.visible_rectangle));
+            SendMessageW(win32_hwnd(g_app.window), WM_MOUSEMOVE, 0, center(layout.visible_rectangle));
+            SendMessageW(win32_hwnd(g_app.window), WM_LBUTTONDOWN, MK_LBUTTON, center(layout.visible_rectangle));
+            SendMessageW(win32_hwnd(g_app.window), WM_LBUTTONUP, 0, center(layout.visible_rectangle));
         }
         return project();
     }
@@ -982,8 +982,8 @@ bool click_header() noexcept {
     const auto r = header_rectangle();
     if (!SCOPED_READ_REQUIRE(ui_rect_has_area(r), 400))
         return false;
-    SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, center(r));
-    SendMessageW(g_app.window, WM_LBUTTONUP, 0, center(r));
+    SendMessageW(win32_hwnd(g_app.window), WM_LBUTTONDOWN, MK_LBUTTON, center(r));
+    SendMessageW(win32_hwnd(g_app.window), WM_LBUTTONUP, 0, center(r));
     application_guild_menu_synchronize();
     return project();
 }
@@ -1052,12 +1052,12 @@ bool server_menus() noexcept {
         !SCOPED_READ_REQUIRE(header_popout() && g_app.popup_scene.selected_index == 0, 404))
         return fail_at(__LINE__);
     for (u32 i = 0; i < 3; ++i)
-        SendMessageW(g_app.window, WM_KEYDOWN, key::down, 0);
-    SendMessageW(g_app.window, WM_KEYDOWN, key::enter, 0);
+        SendMessageW(win32_hwnd(g_app.window), WM_KEYDOWN, key::down, 0);
+    SendMessageW(win32_hwnd(g_app.window), WM_KEYDOWN, key::enter, 0);
     if (!SCOPED_READ_REQUIRE(f.creations == 1 && f.creation_type == 4 && !g_app.popup_scene.active, 405) ||
         !application_guild_menu_toggle(true))
         return fail_at(__LINE__);
-    SendMessageW(g_app.window, WM_KEYDOWN, key::escape, 0);
+    SendMessageW(win32_hwnd(g_app.window), WM_KEYDOWN, key::escape, 0);
     application_guild_menu_synchronize();
     if (!SCOPED_READ_REQUIRE(!g_app.popup_scene.active && !g_app.shell_scene.guild_menu_expanded, 406))
         return fail_at(__LINE__);
@@ -1183,7 +1183,7 @@ bool scenarios() noexcept {
     PopupItemLayout disabled{};
     if (!popup_scene_resolve_item_layout(g_app.popup_scene, 0, &disabled))
         return fail_at(__LINE__);
-    SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, center(disabled.visible_rectangle));
+    SendMessageW(win32_hwnd(g_app.window), WM_LBUTTONDOWN, MK_LBUTTON, center(disabled.visible_rectangle));
     if (!SCOPED_READ_REQUIRE(f.bulk_posts == posts && g_app.popup_scene.active &&
                                  !(g_app.popup_scene.items[0].flags & popup_item_enabled),
                              301))
@@ -1343,7 +1343,7 @@ bool scoped_read_ui_probe() noexcept {
                         nullptr, nullptr, instance, nullptr);
     if (!window)
         return fail_at(__LINE__);
-    g_app.window = window;
+    g_app.window = win32_window(window);
     struct Cleanup {
         HWND window;
         bool apartment;
@@ -1373,7 +1373,7 @@ bool scoped_read_ui_probe() noexcept {
     application_window_observe_position(window);
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!SCOPED_READ_REQUIRE(SUCCEEDED(apartment) &&
-                                 renderer_initialize(&g_app.renderer, window),
+                                 renderer_initialize(&g_app.renderer, probe_window_surface(window)),
                              100))
         return fail_at(__LINE__);
     g_app.renderer_ready = true;

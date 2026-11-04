@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/app/voice/packet_crypto.hpp"
+#include "maicord/platform/net/network.hpp"
 #include "maicord/protocol/voice/media_events.hpp"
 
 namespace maicord {
@@ -19,14 +20,11 @@ enum class VoiceMediaSetupError : u8 {
 // UDP negotiation state, not an active media connection. Owned numeric address
 // survives the receive document; the transport key is locked and erased. No raw
 // key, token, SDP or Session Description is suitable for a UI snapshot/log.
-// The SDK sockaddr_storage layout (checked in media_setup.cpp).
-struct VoiceEndpointAddress {
-    alignas(8) u8 bytes[128];
-};
+// `endpoint` is the media server's IP address and port (family 0 until Ready is decoded).
 struct VoiceMediaSetup {
     VoicePacketCrypto packets;
-    VoiceEndpointAddress endpoint;
-    u32 endpoint_bytes, ssrc, offered_modes, selected_mode;
+    NetworkAddress endpoint;
+    u32 ssrc, offered_modes, selected_mode;
     u32 keyframe_interval_ms; // Server-requested send keyframe interval; zero when unset.
     u16 dave_protocol_version;
     VoiceVideoCodec video_codec; // The call's negotiated video codec (op 4, then op 14).

@@ -19,8 +19,8 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -380,7 +380,7 @@ bool application_voice_message_input(UiInputKind kind, u32 code, bool repeated) 
         return true;
     if (kind != UiInputKind::key_down || repeated)
         return kind == UiInputKind::key_down && (code == key::escape || code == key::enter);
-    const bool modifiers = (GetKeyState(key::ctrl) & 0x8000) || (GetKeyState(key::alt) & 0x8000);
+    const bool modifiers = window_key_down(nullptr, key::ctrl) || window_key_down(nullptr, key::alt);
     if (code == key::escape) {
         apply(VoiceMessageEvent::cancel);
         return refresh_message_composer_ui();

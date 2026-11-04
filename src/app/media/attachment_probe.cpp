@@ -4,15 +4,15 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/com.hpp"
-#include "maicord/core/win32_threadpool.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord::app_detail {
 namespace {
 inline constexpr u32 kProbeSlots = 12;
 struct Probe {
-    PTP_WORK work;
+    Thread* work;
     u64 draft_id;
     u64 profile;
     FileSnapshot snapshot;
@@ -29,11 +29,8 @@ struct ProbeOwner {
 ProbeOwner* owner;
 
 bool read_file(void* context, u64 offset, Slice<u8> output) noexcept {
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    DWORD read = 0;
-    return SetFilePointerEx(static_cast<HANDLE>(context), position, nullptr, FILE_BEGIN) &&
-           ReadFile(static_cast<HANDLE>(context), output.data, output.count, &read, nullptr) && read == output.count;
+    u32 read = 0;
+    return file_read_at(static_cast<HANDLE>(context), offset, output.data, output.count, &read) && read == output.count;
 }
 bool read_content(void* context, u64 offset, Slice<u8> output) noexcept {
     const auto& source = *static_cast<const UploadSource*>(context);
@@ -48,32 +45,32 @@ bool read_content(void* context, u64 offset, Slice<u8> output) noexcept {
     }
     return true;
 }
-void CALLBACK run(PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) noexcept {
+u32 run(void* context) noexcept {
     auto* probe = static_cast<Probe*>(context);
     u32 duration = 0;
     if (probe->content.context) {
         // Upload sources read on MTA worker threads only.
-        const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (SUCCEEDED(apartment)) {
+        if (thread_com_enter()) {
             attachment_mp4_duration(probe->content.bytes, read_content, &probe->content, &duration);
-            CoUninitialize();
+            thread_com_leave();
         }
         probe->duration_ms = duration;
         InterlockedExchange(&probe->done, 1);
-        return;
+        return 0;
     }
-    const HANDLE file = CreateFileW(probe->path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                    OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, nullptr);
+    const HANDLE file = file_open(probe->path, {FileAccess::read, FileCreate::existing,
+                                                kFileShareRead | kFileShareWrite, kFileRandom});
     if (file != INVALID_HANDLE_VALUE) {
         FileSnapshot found{};
         // The draft uploads this exact file identity; a replaced file is not probed.
         if (file_snapshot_read(file, &found) && found.bytes == probe->snapshot.bytes &&
             file_identity_equal(found.identity, probe->snapshot.identity))
             attachment_mp4_duration(found.bytes, read_file, file, &duration);
-        CloseHandle(file);
+        file_close(file);
     }
     probe->duration_ms = duration;
     InterlockedExchange(&probe->done, 1);
+    return 0;
 }
 bool probeable(Utf8View filename) noexcept {
     char extension[8];
@@ -83,8 +80,8 @@ bool probeable(Utf8View filename) noexcept {
 }
 void retire(Probe& probe) noexcept {
     if (probe.work) {
-        WaitForThreadpoolWorkCallbacks(probe.work, TRUE);
-        CloseThreadpoolWork(probe.work);
+        thread_wait(probe.work, INFINITE);
+        thread_close(probe.work);
     }
     upload_source_release(probe.content);
     SecureZeroMemory(&probe, sizeof(probe));
@@ -105,8 +102,8 @@ bool application_attachment_probe_synchronize() noexcept {
                 continue;
             }
             if (probe.done == 1 && probe.work) {
-                WaitForThreadpoolWorkCallbacks(probe.work, FALSE);
-                CloseThreadpoolWork(probe.work);
+                thread_wait(probe.work, INFINITE);
+                thread_close(probe.work);
                 probe.work = nullptr;
                 probe.done = 2;
                 changed = changed || probe.duration_ms != 0;
@@ -155,10 +152,8 @@ bool application_attachment_probe_synchronize() noexcept {
             copy_bytes(probe->path, path.data, path.count * sizeof(wchar_t));
             probe->path[path.count] = 0;
         }
-        probe->work = CreateThreadpoolWork(run, probe, nullptr);
-        if (probe->work)
-            SubmitThreadpoolWork(probe->work);
-        else
+        probe->work = thread_start(run, probe, 512 * 1024, nullptr);
+        if (!probe->work)
             probe->done = 2;
     }
     return changed;

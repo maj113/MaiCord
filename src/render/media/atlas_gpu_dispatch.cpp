@@ -4,21 +4,21 @@
 
 namespace maicord::media_atlas_gpu_detail {
 
-HRESULT upload_discard(ID3D11DeviceContext1* context, ID3D11Buffer* buffer, const void* source,
-                       u32 bytes) noexcept {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const HRESULT result = context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (SUCCEEDED(result)) {
-        CopyMemory(mapped.pData, source, bytes);
-        context->Unmap(buffer, 0);
+GpuStatus upload_discard(GpuContext1* context, GpuBuffer* buffer, const void* source,
+                         u32 bytes) noexcept {
+    GpuStatus result = kGpuOk;
+    void* mapped = gpu_map(context, buffer, GpuMap::discard, &result);
+    if (mapped) {
+        CopyMemory(mapped, source, bytes);
+        gpu_unmap(context, buffer);
     }
     return result;
 }
 
-HRESULT upload_png_shader_inputs(MediaAtlasGpu* gpu, ID3D11Device* device,
-                                 ID3D11DeviceContext1* context, ConstSlice<u8> source,
-                                 u32 source_bytes, const u32* palette, u32 palette_count) noexcept {
-    HRESULT result = create_png_resources(gpu, device);
+GpuStatus upload_png_shader_inputs(MediaAtlasGpu* gpu, GpuDevice* device,
+                                   GpuContext1* context, ConstSlice<u8> source,
+                                   u32 source_bytes, const u32* palette, u32 palette_count) noexcept {
+    GpuStatus result = create_png_resources(gpu, device);
     if (SUCCEEDED(result)) {
         result = ensure_dynamic_raw_buffer(device, source_bytes, &gpu->png_scanline_buffer,
                                            &gpu->png_scanline_view, &gpu->png_scanline_capacity);
@@ -32,69 +32,69 @@ HRESULT upload_png_shader_inputs(MediaAtlasGpu* gpu, ID3D11Device* device,
                : result;
 }
 
-HRESULT upload_png_inputs(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
-                          const PngImage& image, ConstSlice<u8> scanlines) noexcept {
+GpuStatus upload_png_inputs(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
+                            const PngImage& image, ConstSlice<u8> scanlines) noexcept {
     const bool indexed = image.color_type == 3;
     return upload_png_shader_inputs(gpu, device, context, scanlines, image.inflated_bytes,
                                     indexed ? image.palette_rgba : nullptr,
                                     indexed ? image.palette_count : 0);
 }
 
-HRESULT upload_gif_inputs(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
-                          const GifFrame& frame, const GifPalette& palette,
-                          ConstSlice<u8> indices) noexcept {
+GpuStatus upload_gif_inputs(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
+                            const GifFrame& frame, const GifPalette& palette,
+                            ConstSlice<u8> indices) noexcept {
     return upload_png_shader_inputs(gpu, device, context, indices, static_cast<u32>(frame.width) * frame.height,
                                     palette.rgba, palette.count);
 }
 
-HRESULT upload_animated_webp_inputs(MediaAtlasGpu* gpu, ID3D11Device* device,
-                                    ID3D11DeviceContext1* context, const AnimatedWebpFrame& frame,
-                                    ConstSlice<u8> rgba8) noexcept {
+GpuStatus upload_animated_webp_inputs(MediaAtlasGpu* gpu, GpuDevice* device,
+                                      GpuContext1* context, const AnimatedWebpFrame& frame,
+                                      ConstSlice<u8> rgba8) noexcept {
     return upload_png_shader_inputs(gpu, device, context, rgba8,
                                      static_cast<u32>(frame.width) * frame.height * 4u, nullptr, 0);
 }
 
-void bind_compute_2srv(ID3D11DeviceContext1* context, ID3D11ComputeShader* shader,
-                       ID3D11Buffer* constants, ID3D11ShaderResourceView* resource0,
-                       ID3D11ShaderResourceView* resource1,
-                       ID3D11UnorderedAccessView* target) noexcept {
-    ID3D11ShaderResourceView* resources[2] = {resource0, resource1};
-    context->CSSetShader(shader, nullptr, 0);
-    context->CSSetConstantBuffers(0, 1, &constants);
-    context->CSSetShaderResources(0, 2, resources);
-    context->CSSetUnorderedAccessViews(0, 1, &target, nullptr);
+void bind_compute_2srv(GpuContext1* context, GpuComputeShader* shader,
+                       GpuBuffer* constants, GpuSrv* resource0,
+                       GpuSrv* resource1,
+                       GpuUav* target) noexcept {
+    GpuSrv* resources[2] = {resource0, resource1};
+    gpu_set_shader(context, shader);
+    gpu_set_constants(context, GpuStage::compute, 0, 1, &constants);
+    gpu_set_srvs(context, GpuStage::compute, 0, 2, resources);
+    gpu_set_uavs(context, 0, 1, &target);
 }
 
-void unbind_compute_resources(ID3D11DeviceContext1* context) noexcept {
-    ID3D11UnorderedAccessView* null_uav = nullptr;
-    ID3D11ShaderResourceView* null_resources[2] = {nullptr, nullptr};
-    ID3D11Buffer* null_buffer = nullptr;
-    context->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
-    context->CSSetShaderResources(0, 2, null_resources);
-    context->CSSetConstantBuffers(0, 1, &null_buffer);
+void unbind_compute_resources(GpuContext1* context) noexcept {
+    GpuUav* null_uav = nullptr;
+    GpuSrv* null_resources[2] = {nullptr, nullptr};
+    GpuBuffer* null_buffer = nullptr;
+    gpu_set_uavs(context, 0, 1, &null_uav);
+    gpu_set_srvs(context, GpuStage::compute, 0, 2, null_resources);
+    gpu_set_constants(context, GpuStage::compute, 0, 1, &null_buffer);
 }
 
-void unbind_compute(ID3D11DeviceContext1* context) noexcept {
+void unbind_compute(GpuContext1* context) noexcept {
     unbind_compute_resources(context);
-    context->CSSetShader(nullptr, nullptr, 0);
+    gpu_set_shader(context, static_cast<GpuComputeShader*>(nullptr));
 }
 
-void unbind_media_pixel_resources(ID3D11DeviceContext1* context) noexcept {
-    ID3D11ShaderResourceView* null_views[3]{};
-    context->PSSetShaderResources(0, 3, null_views);
+void unbind_media_pixel_resources(GpuContext1* context) noexcept {
+    GpuSrv* null_views[3]{};
+    gpu_set_srvs(context, GpuStage::pixel, 0, 3, null_views);
 }
 
-void dispatch_png_shader(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
-                         const PngAtlasConstants& constants, ID3D11UnorderedAccessView* target,
+void dispatch_png_shader(MediaAtlasGpu* gpu, GpuContext1* context,
+                         const PngAtlasConstants& constants, GpuUav* target,
                          u32 width, u32 height) noexcept {
-    context->UpdateSubresource(gpu->png_constants, 0, nullptr, &constants, 0, 0);
+    gpu_update_buffer(context, gpu->png_constants, &constants, sizeof(constants));
     bind_compute_2srv(context, gpu->png_shader, gpu->png_constants, gpu->png_scanline_view,
                       gpu->png_palette_view, target);
-    context->Dispatch((width + 7u) / 8u, (height + 7u) / 8u, 1);
+    gpu_dispatch(context, (width + 7u) / 8u, (height + 7u) / 8u, 1);
     unbind_compute(context);
 }
 
-void dispatch_png(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const PngImage& image,
+void dispatch_png(MediaAtlasGpu* gpu, GpuContext1* context, const PngImage& image,
                   u32 destination_x, u32 destination_y, ApngBlend blend) noexcept {
     const PngAtlasConstants constants{
         image.row_stride,       image.width,             image.height, image.bit_depth,
@@ -105,7 +105,7 @@ void dispatch_png(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const PngIm
     dispatch_png_shader(gpu, context, constants, gpu->texture_uav, image.width, image.height);
 }
 
-void dispatch_gif(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const GifFrame& frame,
+void dispatch_gif(MediaAtlasGpu* gpu, GpuContext1* context, const GifFrame& frame,
                   const GifPalette& palette, u32 destination_x, u32 destination_y) noexcept {
     const PngAtlasConstants constants{
         frame.width, frame.width, frame.height, 8, 8, destination_x, destination_y, palette.count, 0, 0,
@@ -114,7 +114,7 @@ void dispatch_gif(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const GifFr
     dispatch_png_shader(gpu, context, constants, gpu->texture_uav, frame.width, frame.height);
 }
 
-void dispatch_animated_webp(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
+void dispatch_animated_webp(MediaAtlasGpu* gpu, GpuContext1* context,
                             const AnimatedWebpFrame& frame, u32 destination_x, u32 destination_y) noexcept {
     const PngAtlasConstants constants{
         static_cast<u32>(frame.width) * 4u,
@@ -134,73 +134,67 @@ void dispatch_animated_webp(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
     dispatch_png_shader(gpu, context, constants, gpu->texture_uav, frame.width, frame.height);
 }
 
-HRESULT ensure_apng_backup(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
-                           MediaAtlas* atlas, u32 required_bottom) noexcept {
+GpuStatus ensure_apng_backup(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
+                             MediaAtlas* atlas, u32 required_bottom) noexcept {
     if (atlas) {
         atlas->disposal_backup_used_ms = atlas->growth.now_ms;
     }
-    D3D11_TEXTURE2D_DESC description{};
     u32 current = 0;
+    GpuTextureInfo info{};
     if (gpu->apng_backup_texture) {
-        gpu->apng_backup_texture->GetDesc(&description);
-        current = description.Height;
+        gpu_texture_info(gpu->apng_backup_texture, &info);
+        current = gpu_texture_info_height(info);
     }
     if (current >= required_bottom) {
         return S_OK;
     }
-    gpu->texture->GetDesc(&description);
-    const u32 height = minimum<u32>(description.Height, (required_bottom + 255u) & ~255u);
+    gpu_texture_info(gpu->texture, &info);
+    const u32 height = minimum<u32>(gpu_texture_info_height(info), (required_bottom + 255u) & ~255u);
     if (height < required_bottom) {
         return E_INVALIDARG;
     }
-    description.Height = height;
-    description.BindFlags = 0;
-    description.CPUAccessFlags = 0;
-    description.MiscFlags = 0;
-    ID3D11Texture2D* replacement = nullptr;
-    const HRESULT result = device->CreateTexture2D(&description, nullptr, &replacement);
+    GpuTexture* replacement = nullptr;
+    const GpuStatus result = gpu_texture_create_from_info(device, info, height, true, &replacement);
     if (FAILED(result)) {
         return result;
     }
     if (current) {
-        const D3D11_BOX box{0, 0, 0, description.Width, current, 1};
-        context->CopySubresourceRegion(replacement, 0, 0, 0, 0, gpu->apng_backup_texture, 0, &box);
+        gpu_copy_region(context, replacement, 0, 0, gpu->apng_backup_texture,
+                        {0, 0, gpu_texture_info_width(info), current});
     }
-    com_release(gpu->apng_backup_texture);
+    gpu_release(gpu->apng_backup_texture);
     gpu->apng_backup_texture = replacement;
     return S_OK;
 }
 
-void unbind_apng_atlas(ID3D11DeviceContext1* context) noexcept {
-    ID3D11UnorderedAccessView* null_uav = nullptr;
+void unbind_apng_atlas(GpuContext1* context) noexcept {
+    GpuUav* null_uav = nullptr;
     unbind_media_pixel_resources(context);
-    context->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
+    gpu_set_uavs(context, 0, 1, &null_uav);
 }
 
-void copy_animation_region(ID3D11DeviceContext1* context, ID3D11Texture2D* destination,
-                           ID3D11Texture2D* source, const MediaAtlasResult& allocation,
+void copy_animation_region(GpuContext1* context, GpuTexture* destination,
+                           GpuTexture* source, const MediaAtlasResult& allocation,
                            u32 x_offset, u32 y_offset, u32 width, u32 height) noexcept {
-    const D3D11_BOX box{
+    const GpuBox box{
         allocation.x + x_offset,
         allocation.y + y_offset,
-        0,
         allocation.x + x_offset + width,
         allocation.y + y_offset + height,
-        1,
     };
-    context->CopySubresourceRegion(destination, 0, box.left, box.top, 0, source, 0, &box);
+    gpu_copy_region(context, destination, box.left, box.top, source, box);
 }
 
-void clear_animation_region(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
+void clear_animation_region(MediaAtlasGpu* gpu, GpuContext1* context,
                             const MediaAtlasResult& allocation, u32 x_offset, u32 y_offset,
                             u32 width, u32 height, const float* color) noexcept {
-    const D3D11_RECT rectangle{
-        static_cast<LONG>(allocation.x + x_offset),
-        static_cast<LONG>(allocation.y + y_offset),
-        static_cast<LONG>(allocation.x + x_offset + width),
-        static_cast<LONG>(allocation.y + y_offset + height),
+    const GpuRect rectangle{
+        static_cast<i32>(allocation.x + x_offset),
+        static_cast<i32>(allocation.y + y_offset),
+        static_cast<i32>(allocation.x + x_offset + width),
+        static_cast<i32>(allocation.y + y_offset + height),
     };
-    context->ClearView(gpu->target, color, &rectangle, 1);
+    gpu_clear_rtv_rect(context, gpu->target, color, rectangle);
 }
 
 void account_apng_dispatch(MediaAtlasGpu* gpu, const ApngFrame& frame, const PngImage& image) noexcept {
@@ -230,14 +224,14 @@ void premultiplied_clear_color(u32 rgba, float* color) noexcept {
     color[3] = static_cast<float>(alpha) / 255.0f;
 }
 
-void clear_animated_webp_canvas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
+void clear_animated_webp_canvas(MediaAtlasGpu* gpu, GpuContext1* context,
                                 const MediaAtlasResult& allocation, u32 background_rgba) noexcept {
     float color[4]{};
     premultiplied_clear_color(background_rgba, color);
     clear_animation_region(gpu, context, allocation, 0, 0, allocation.width, allocation.height, color);
 }
 
-void clear_animated_webp_region(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
+void clear_animated_webp_region(MediaAtlasGpu* gpu, GpuContext1* context,
                                 const MediaAtlasResult& allocation, const AnimatedWebpFrame& frame,
                                 u32 background_rgba) noexcept {
     float color[4]{};
@@ -269,9 +263,9 @@ bool vp8_atlas_frame_ready(const MediaAtlasGpu* gpu, const Vp8Keyframe& frame,
            (alpha.count == 0 || (alpha.data && alpha.count == pixel_count));
 }
 
-HRESULT upload_vp8_alpha(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
-                         ConstSlice<u8> alpha) noexcept {
-    HRESULT result = create_vp8_atlas_resources(gpu, device);
+GpuStatus upload_vp8_alpha(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
+                           ConstSlice<u8> alpha) noexcept {
+    GpuStatus result = create_vp8_atlas_resources(gpu, device);
     if (SUCCEEDED(result) && alpha.count != 0) {
         result = ensure_dynamic_raw_buffer(device, static_cast<u32>(alpha.count), &gpu->png_scanline_buffer,
                                            &gpu->png_scanline_view, &gpu->png_scanline_capacity);
@@ -282,9 +276,9 @@ HRESULT upload_vp8_alpha(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceC
     return result;
 }
 
-void dispatch_vp8_atlas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const Vp8Keyframe& frame,
+void dispatch_vp8_atlas(MediaAtlasGpu* gpu, GpuContext1* context, const Vp8Keyframe& frame,
                         ConstSlice<u8> alpha, u32 destination_x, u32 destination_y,
-                        bool blend_over, ID3D11UnorderedAccessView* texture_uav) noexcept {
+                        bool blend_over, GpuUav* texture_uav) noexcept {
     const u32 luma_samples = static_cast<u32>(gpu->vp8_luma_stride) * gpu->vp8_luma_rows;
     const u32 chroma_samples = static_cast<u32>(gpu->vp8_chroma_stride) * gpu->vp8_chroma_rows;
     const Vp8AtlasConstants constants{
@@ -301,11 +295,11 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const
         blend_over ? 1u : 0u,
         {0, 0, 0, 0, 0},
     };
-    context->UpdateSubresource(gpu->vp8_atlas_constants, 0, nullptr, &constants, 0, 0);
+    gpu_update_buffer(context, gpu->vp8_atlas_constants, &constants, sizeof(constants));
     bind_compute_2srv(context, gpu->vp8_atlas_shader, gpu->vp8_atlas_constants,
                       gpu->vp8_yuv_view, alpha.count != 0 ? gpu->png_scanline_view : nullptr,
                       texture_uav);
-    context->Dispatch((frame.width + 7u) / 8u, (frame.height + 7u) / 8u, 1);
+    gpu_dispatch(context, (frame.width + 7u) / 8u, (frame.height + 7u) / 8u, 1);
     unbind_compute(context);
 
     gpu->vp8_last_atlas_reconstruction = gpu->vp8_reconstructions;

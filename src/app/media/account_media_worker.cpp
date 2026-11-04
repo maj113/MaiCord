@@ -1,5 +1,6 @@
 #include "account_media_worker_internal.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 
 namespace maicord {
@@ -21,14 +22,14 @@ void cleanup_failed_initialize(AccountMediaWorker* worker) noexcept {
             account_media_stop(&lane.media, 5'000);
         }
         if (lane.command_event) {
-            CloseHandle(lane.command_event);
+            waitable_close(lane.command_event);
         }
     }
     if (worker->output_event) {
-        CloseHandle(worker->output_event);
+        waitable_close(worker->output_event);
     }
     if (worker->stop_event) {
-        CloseHandle(worker->stop_event);
+        waitable_close(worker->stop_event);
     }
     SecureZeroMemory(worker, sizeof(*worker));
 }
@@ -36,10 +37,10 @@ void cleanup_failed_initialize(AccountMediaWorker* worker) noexcept {
 } // namespace
 
 bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept {
-    const LONG tick = static_cast<LONG>(GetTickCount64());
+    const LONG tick = static_cast<LONG>(clock_monotonic_milliseconds());
     if (ReadAcquire(&worker->stop_checked_tick) == tick)
         return false;
-    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+    if (wait_one(worker->stop_event, 0) == WAIT_OBJECT_0)
         return true;
     WriteRelease(&worker->stop_checked_tick, tick);
     return false;
@@ -101,8 +102,8 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
     SecureZeroMemory(worker, sizeof(*worker));
-    worker->stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    worker->output_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    worker->stop_event = event_create(true, false);
+    worker->output_event = event_create(false, false);
     worker->preferred_lane = -1;
     if (!worker->stop_event || !worker->output_event) {
         cleanup_failed_initialize(worker);
@@ -113,7 +114,7 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
         AccountMediaWorkerLane& lane = worker->lanes[index];
         lane.owner = worker;
         lane.index = index;
-        lane.command_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        lane.command_event = event_create(false, false);
         if (!lane.command_event) {
             cleanup_failed_initialize(worker);
             return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
@@ -305,7 +306,7 @@ AccountMediaRequestResult account_media_worker_retire_local_preview(
         if (phase == AccountMediaWorkerPhase::working || phase == AccountMediaWorkerPhase::command_ready) {
             pending = true;
             if (phase == AccountMediaWorkerPhase::working)
-                CancelSynchronousIo(lane.thread);
+                thread_cancel_synchronous_io(lane.thread);
             ReleaseSRWLockExclusive(lane.poster_lock.native());
             continue;
         }
@@ -327,7 +328,7 @@ AccountMediaRequestResult account_media_worker_retire_local_preview(
              phase == AccountMediaWorkerPhase::leased || phase == AccountMediaWorkerPhase::poster_present_pending) &&
             (account_media_local_video_resident(&lane.media) || lane.poster_fence || lane.poster_context)) {
             store_phase(&lane, AccountMediaWorkerPhase::poster_release_ready);
-            const bool signaled = SetEvent(lane.command_event) != FALSE;
+            const bool signaled = event_set(lane.command_event) != FALSE;
             if (!signaled)
                 store_phase(&lane, AccountMediaWorkerPhase::failed);
             ReleaseSRWLockExclusive(lane.poster_lock.native());
@@ -415,25 +416,15 @@ AccountMediaRequestResult account_media_worker_local_previews_presented(AccountM
             ReleaseSRWLockExclusive(lane.poster_lock.native());
             continue;
         }
-        ID3D11DeviceContext* context = nullptr;
-        ID3D11Device5* device5 = nullptr;
-        device->GetImmediateContext(&context);
-        HRESULT result = context ? context->QueryInterface(__uuidof(ID3D11DeviceContext4),
-            reinterpret_cast<void**>(&lane.poster_context)) : E_NOINTERFACE;
-        if (SUCCEEDED(result))
-            result = device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
-        if (SUCCEEDED(result))
-            result = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence),
-                                         reinterpret_cast<void**>(&lane.poster_fence));
-        if (device5) device5->Release();
-        if (context) context->Release();
+        // The fence and the context interface that signals it, made together on the presenting device.
+        HRESULT result = gpu_fence_create(device, &lane.poster_context, &lane.poster_fence);
         // The host called this only after a real successful Present. Signal
         // therefore does not split the pending conversion/draw command batch.
         if (SUCCEEDED(result))
-            result = lane.poster_context->Signal(lane.poster_fence, 1);
+            result = gpu_fence_signal(lane.poster_context, lane.poster_fence, 1);
         if (SUCCEEDED(result)) {
             store_phase(&lane, AccountMediaWorkerPhase::poster_fence_wait);
-            result = lane.poster_fence->SetEventOnCompletion(1, lane.command_event);
+            result = gpu_fence_notify(lane.poster_fence, 1, lane.command_event);
         }
         lane.poster_registered = SUCCEEDED(result);
         if (FAILED(result)) {
@@ -477,7 +468,7 @@ bool account_media_worker_take_frame(AccountMediaWorker* worker, AccountMediaFra
             frame->lease_serial = lane.completed.lease_serial;
         for (u32 remaining = 0; remaining < kAccountMediaDecodeLaneCount; ++remaining) {
             if (frame_available(&worker->lanes[remaining])) {
-                SetEvent(worker->output_event);
+                event_set(worker->output_event);
                 break;
             }
         }
@@ -539,7 +530,7 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
     }
     const u64 started_at_ms = clock_monotonic_milliseconds();
     const u64 deadline_ms = started_at_ms + timeout_ms;
-    if (!SetEvent(worker->stop_event)) {
+    if (!event_set(worker->stop_event)) {
         return false;
     }
     for (auto& lane : worker->lanes)
@@ -548,9 +539,9 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
     // manual-reset stop event has already been consumed.
     for (auto& lane : worker->lanes)
         if (lane.command_event && account_media_video_reserved(worker, lane.index))
-            SetEvent(lane.command_event);
+            event_set(lane.command_event);
     // Only started lanes have a thread to join.
-    HANDLE threads[kAccountMediaDecodeLaneCount]{};
+    Thread* threads[kAccountMediaDecodeLaneCount]{};
     u32 started = 0;
     for (const auto& lane : worker->lanes) {
         if (!lane.thread)
@@ -558,9 +549,9 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
         threads[started++] = lane.thread;
         if (load_phase(&lane) == AccountMediaWorkerPhase::working &&
             lane.command.kind == AccountMediaWorkKind::local_draft_preview)
-            CancelSynchronousIo(lane.thread);
+            thread_cancel_synchronous_io(lane.thread);
     }
-    if (started && WaitForMultipleObjects(started, threads, TRUE, timeout_ms) != WAIT_OBJECT_0) {
+    if (started && !threads_wait_all(threads, started, timeout_ms)) {
         return false;
     }
     // A wait failure cannot make a still-registered event safe to close.
@@ -580,11 +571,11 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
     for (const auto& lane : worker->lanes) {
         if (lane.collection_titles) pages_release(lane.collection_titles);
         if (lane.thread)
-            CloseHandle(lane.thread);
-        CloseHandle(lane.command_event);
+            thread_close(lane.thread);
+        waitable_close(lane.command_event);
     }
-    CloseHandle(worker->output_event);
-    CloseHandle(worker->stop_event);
+    waitable_close(worker->output_event);
+    waitable_close(worker->stop_event);
     SecureZeroMemory(worker, sizeof(*worker));
     return true;
 }

@@ -6,9 +6,10 @@ compiles the file to ps_5_0 bytecode, lints what the client will run (only b0, t
 4,096 instructions and 64 texture reads), keeps the `<slug>.effect` sidecar in step with the comments and packs the
 `.mcfx` container the client's mcfx_parse reads:
 
-  header   16 bytes: "MCFX", u16 format = 1, u16 section count (<= 9), u32 file bytes, u32 0
+  header   16 bytes: "MCFX", u16 format = 1, u16 section count (<= 10), u32 file bytes, u32 0
   table    count x 16 bytes: u32 type, u32 offset, u32 bytes, u32 0
-  types    1 MANIFEST, 2 DXBC, 3 TEXTURE0, 4 TEXTURE1, 5 SOURCE, 6 PREVIEW, 7 TEXTURE2, 8 TEXTURE3, 9 SHADERS;
+  types    1 MANIFEST, 2 DXBC, 3 TEXTURE0, 4 TEXTURE1, 5 SOURCE, 6 PREVIEW, 7 TEXTURE2, 8 TEXTURE3, 9 SHADERS,
+           10 GLSL (interface 4);
            ascending, each at most once
   sections packed back to back after the table; the last one ends at the end of the file
 
@@ -24,8 +25,12 @@ The cost class (light, medium, heavy) is measured on WARP by the catalog's CI; h
 an effect is likely to be refused.
 
 The manifest's "interface" is 1; 2 when the effect uses clock or appearance (mc_ambient, after mc_knobs); 3 with a
-pass graph, texture2/texture3 or a float data texture. A MaiCord before an interface refuses such a package instead
-of running it without what it needs. `effect preview` can stand in for the ambient inputs (--time, --date,
+pass graph, texture2/texture3 or a float data texture; 4 when the package also carries a GLSL section (type 10: the
+same shaders translated to GLSL ES 3.10, with their binding manifests, for the Linux client; the DXBC stays, so one file
+runs on both). The translation needs the pinned shader toolchain (`--glsl`, MAICORD_GLSL_TOOLCHAIN, or Linux inside a
+MaiCord checkout); without it the package is built as before. `--dxbc-from` adds the section to a package a Windows
+host compiled. A MaiCord before an interface refuses such a package instead of running it without what it needs.
+`effect preview` can stand in for the ambient inputs (--time, --date,
 --day-seconds, --appearance) through simulate-inputs.txt in the dev folder, which MaiCord reads in Developer Mode.
 """
 
@@ -40,6 +45,7 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
 import plugin_tool as core
@@ -66,7 +72,8 @@ BLENDS = ("normal", "screen", "add")
 RESOLUTIONS = (25, 35, 50, 75, 100)
 FRAME_RATES = (10, 15, 24, 30, 60)
 SECTION = {"MANIFEST": 1, "DXBC": 2, "TEXTURE0": 3, "TEXTURE1": 4, "SOURCE": 5, "PREVIEW": 6, "TEXTURE2": 7,
-           "TEXTURE3": 8, "SHADERS": 9}
+           "TEXTURE3": 8, "SHADERS": 9, "GLSL": 10}
+GLSL_MAX = 512 * 1024
 # The pass graph's limits (include/maicord/render/effects/background_effect.hpp).
 GRAPH_PASSES, GRAPH_TARGETS, GRAPH_SHADERS = 6, 4, 12
 TARGET_EXTENT, FIXED_BYTES, SCALED_BYTES = 512, 8 << 20, 16
@@ -535,6 +542,83 @@ def cost_hint(counts: dict) -> str:
     return "likely light" if share < 0.1 else "likely medium" if share < 0.4 else "likely heavy, may be refused"
 
 
+# ---- the GLSL payload (interface 4) ------------------------------------------------------------------------
+# The translation lives in tools/glsl_translate.py of a MaiCord checkout (it is also the Linux shader pack's); the
+# toolchain is the pinned DXC and tools/shadertool/mc_shadertool.
+TOOLS_DIRECTORY = Path(__file__).resolve().parents[1]
+
+
+def _glsl_module():
+    """tools/glsl_translate.py, or None when this tool runs without the checkout around it."""
+    if not (TOOLS_DIRECTORY / "glsl_translate.py").is_file():
+        return None
+    if str(TOOLS_DIRECTORY) not in sys.path:
+        sys.path.insert(0, str(TOOLS_DIRECTORY))
+    import glsl_translate
+    return glsl_translate
+
+
+def find_glsl_toolchain(mode: str):
+    """(dxc, mc_shadertool) for the GLSL section, or None. `mode` "no" never looks; "auto" takes what is there;
+    "yes" is an error when there is nothing. MAICORD_GLSL_TOOLCHAIN names a directory with dxc and mc_shadertool
+    (any host); on Linux in a checkout the pinned toolchain is fetched and built into its cache on first use."""
+    if mode == "no":
+        return None
+    suffix = ".exe" if os.name == "nt" else ""
+    configured = os.environ.get("MAICORD_GLSL_TOOLCHAIN")
+    if configured:
+        dxc, tool = Path(configured) / f"dxc{suffix}", Path(configured) / f"mc_shadertool{suffix}"
+        if dxc.is_file() and tool.is_file():
+            return dxc, tool
+        raise ToolError(f"MAICORD_GLSL_TOOLCHAIN={configured} has no dxc and mc_shadertool")
+    fetch = TOOLS_DIRECTORY / "fetch_linux_shader_toolchain.py"
+    if sys.platform.startswith("linux") and fetch.is_file() and _glsl_module():
+        import fetch_linux_shader_toolchain
+        try:
+            return fetch_linux_shader_toolchain.ensure_toolchain()
+        except SystemExit as error:
+            if mode == "yes":
+                raise ToolError(f"the shader toolchain cannot be made: {error}")
+            return None
+    if mode == "yes":
+        raise ToolError("no GLSL toolchain: set MAICORD_GLSL_TOOLCHAIN to a directory with dxc and mc_shadertool, "
+                        "or run on Linux inside a MaiCord checkout")
+    return None
+
+
+def glsl_section(effect: "Effect", graph, tools, include: Path, work: Path) -> tuple[bytes, int]:
+    """The GLSL section (u16 count, u16 0, then one entry per shader in the DXBC order) and its shader count."""
+    module = _glsl_module()
+    entries = []
+    try:
+        for index, (entry, profile) in enumerate(graph[2] if graph else [("main", "ps_5_0")]):
+            stage = "ps" if profile.startswith("ps") else "vs"
+            text, rows = module.translate_hlsl(tools, effect.hlsl, entry, stage, [], work,
+                                               f"{effect.slug}.{index}", [include])
+            entries.append(module.payload_entry(text, stage, rows))
+    except module.GlslError as error:
+        raise ToolError(f"the GLSL translation of {effect.hlsl.name} failed (--glsl no skips it):\n{error}")
+    body = struct.pack("<HH", len(entries), 0) + b"".join(entries)
+    if len(body) > GLSL_MAX:
+        raise ToolError(f"the GLSL section is {len(body)} bytes, over {GLSL_MAX}")
+    return body, len(entries)
+
+
+def read_sections(package: bytes) -> dict:
+    """The sections of a .mcfx by name (the container only; nothing is validated beyond its bounds)."""
+    if len(package) < 16 or package[:4] != b"MCFX":
+        raise ToolError("not a .mcfx package")
+    count = struct.unpack_from("<H", package, 6)[0]
+    names = {number: name for name, number in SECTION.items()}
+    sections = {}
+    for index in range(count):
+        kind, offset, size, _ = struct.unpack_from("<IIII", package, 16 + 16 * index)
+        if kind not in names or offset + size > len(package):
+            raise ToolError("the package's section table is broken")
+        sections[names[kind]] = package[offset:offset + size]
+    return sections
+
+
 # ---- the package --------------------------------------------------------------------------------------------------
 def interface_of(header: dict, data_textures: bool = False) -> int:
     """3 with a pass graph, TEXTURE2/3 or a float data texture; 2 when the effect reads mc_ambient (clock, appearance);
@@ -544,10 +628,12 @@ def interface_of(header: dict, data_textures: bool = False) -> int:
     return 2 if any(u in AMBIENT_USES for u in header["uses"]) else INTERFACE
 
 
-def manifest(slug: str, header: dict, sidecar: dict, version: str, data_textures: bool = False) -> dict:
+def manifest(slug: str, header: dict, sidecar: dict, version: str, data_textures: bool = False,
+             glsl: bool = False) -> dict:
     """The MANIFEST section, members in the order the client documents."""
     effect = header["effect"]
-    result = {"interface": interface_of(header, data_textures), "slug": slug, "name": effect["name"], "version": version,
+    result = {"interface": 4 if glsl else interface_of(header, data_textures), "slug": slug, "name": effect["name"],
+              "version": version,
               "authors": [{"name": a.strip()} for a in effect.get("authors", "").split(";") if a.strip()] or [{"name": "Unknown"}],
               "license": effect["license"]}
     if effect.get("derived_from"):
@@ -647,7 +733,8 @@ class Effect:
         self.output = self.directory / "build" / f"{self.slug}.mcfx"
 
 
-def build_effect(effect: Effect, include: Path, compiler: str = "auto") -> dict:
+def build_effect(effect: Effect, include: Path, compiler: str = "auto", glsl: str = "auto",
+                 dxbc_from: str | None = None) -> dict:
     source = effect.hlsl.read_text(encoding="utf-8")
     header = parse_header(source)
     name = header["effect"]["name"]
@@ -665,30 +752,45 @@ def build_effect(effect: Effect, include: Path, compiler: str = "auto") -> dict:
     work.mkdir(exist_ok=True)
     graph = graph_of(header)
     textures, data = texture_sections(effect.directory, header["uses"])
-    interface = interface_of(header, data)
-    # Every shader is compiled and linted on its own; a graph's are counted together for the cost hint.
-    codes, counts, used = [], {"instructions": 0, "samples": 0}, ""
-    for entry, profile in graph[2] if graph else [("main", "ps_5_0")]:
-        code, assembly, used = compile_effect(effect.hlsl, include, work, compiler, entry, profile)
-        check_bytecode(code, profile)
-        for key, value in lint(assembly, 10 if interface == 3 else 4).items():
-            counts[key] += value
-        codes.append(code)
-    write_text(effect.sidecar, sidecar_text(header, existing))
-    document = manifest(effect.slug, header, existing, version, data)
-    text = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     source_bytes = source.encode("utf-8")
-    if len(text) > MANIFEST_MAX or len(source_bytes) > SOURCE_MAX or sum(map(len, codes[1:])) > SHADERS_MAX:
+    # Every shader is compiled and linted on its own; a graph's are counted together for the cost hint. With
+    # dxbc_from the DXBC is another package's (of this very HLSL), and there is nothing to lint.
+    counts, used = {"instructions": 0, "samples": 0}, ""
+    if dxbc_from:
+        reused = read_sections(Path(dxbc_from).read_bytes())
+        if reused.get("SOURCE") != source_bytes or "DXBC" not in reused:
+            raise ToolError(f"{dxbc_from} was not built from {effect.hlsl.name} (its SOURCE section differs)")
+        dxbc, shaders_blob, counts, used = reused["DXBC"], reused.get("SHADERS"), None, f"the DXBC of {dxbc_from}"
+    else:
+        interface = interface_of(header, data)
+        codes = []
+        for entry, profile in graph[2] if graph else [("main", "ps_5_0")]:
+            code, assembly, used = compile_effect(effect.hlsl, include, work, compiler, entry, profile)
+            check_bytecode(code, profile)
+            for key, value in lint(assembly, 10 if interface == 3 else 4).items():
+                counts[key] += value
+            codes.append(code)
+        dxbc, shaders_blob = codes[0], b"".join(codes[1:]) or None
+    glsl_blob, glsl_shaders = b"", 0
+    tools = find_glsl_toolchain(glsl)
+    if tools:
+        glsl_blob, glsl_shaders = glsl_section(effect, graph, tools, include, work)
+    write_text(effect.sidecar, sidecar_text(header, existing))
+    document = manifest(effect.slug, header, existing, version, data, bool(glsl_blob))
+    text = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(text) > MANIFEST_MAX or len(source_bytes) > SOURCE_MAX or len(shaders_blob or b"") > SHADERS_MAX:
         raise ToolError("the manifest, the source or the graph's shaders are too large")
-    sections = {"MANIFEST": text, "DXBC": codes[0], "SOURCE": source_bytes, **textures}
-    if len(codes) > 1:
-        sections["SHADERS"] = b"".join(codes[1:])
+    sections = {"MANIFEST": text, "DXBC": dxbc, "SOURCE": source_bytes, **textures}
+    if shaders_blob:
+        sections["SHADERS"] = shaders_blob
+    if glsl_blob:
+        sections["GLSL"] = glsl_blob
     package = pack_mcfx(sections)
     effect.output.write_bytes(package)
     for leftover in (work / f"{effect.slug}.cso", work / f"{effect.slug}.asm"):
         leftover.unlink(missing_ok=True)
     return {"package": package, "manifest": document, "lint": counts, "compiler": used, "name": name,
-            "shaders": len(codes)}
+            "shaders": len(graph[2]) if graph else 1, "glsl": glsl_shaders}
 
 
 # ---- templates --------------------------------------------------------------------------------------------------
@@ -757,11 +859,19 @@ def command_effect_new(arguments) -> int:
 
 def command_effect_build(arguments) -> int:
     effect = Effect(arguments.dir, arguments.source)
-    result = build_effect(effect, core.sdk_include(arguments.sdk), arguments.compiler)
+    result = build_effect(effect, core.sdk_include(arguments.sdk), arguments.compiler, arguments.glsl,
+                          arguments.dxbc_from)
     counts = result["lint"]
     shaders = f" in {result['shaders']} shaders" if result["shaders"] > 1 else ""
-    say(f"{result['name']}: {len(result['package']):,} bytes, {counts['instructions']} instructions, "
-        f"{counts['samples']} texture reads{shaders} ({cost_hint(counts)}; the catalog measures the class on WARP).")
+    if counts:
+        say(f"{result['name']}: {len(result['package']):,} bytes, {counts['instructions']} instructions, "
+            f"{counts['samples']} texture reads{shaders} ({cost_hint(counts)}; the catalog measures the class on WARP).")
+    else:
+        say(f"{result['name']}: {len(result['package']):,} bytes{shaders}.")
+    if result["glsl"]:
+        say(f"GLSL section: {result['glsl']} shaders, interface {result['manifest']['interface']}.")
+    elif arguments.glsl == "auto":
+        say("No GLSL section (no pinned toolchain here): this package runs on Windows only.")
     say(f"Built {effect.output} with {result['compiler']}; {effect.sidecar.name} is up to date.")
     return 0
 
@@ -848,7 +958,7 @@ def command_effect_preview(arguments) -> int:
     folder = core.dev_folder("effect", arguments.dev_folder)
 
     def step() -> None:
-        build_effect(effect, include, arguments.compiler)
+        build_effect(effect, include, arguments.compiler, arguments.glsl, arguments.dxbc_from)
         core.deploy(effect.output, folder)
 
     step()
@@ -870,6 +980,13 @@ def add_commands(effect_parser, common) -> None:
     def compiler(p):
         p.add_argument("--compiler", choices=("auto", "fxc", "d3dcompiler"), default="auto",
                        help="auto: fxc.exe when the Windows SDK has it, else the in-box d3dcompiler_47.dll")
+        p.add_argument("--glsl", choices=("auto", "yes", "no"), default="auto",
+                       help="the GLSL section of interface 4 (Linux clients): auto adds it when the pinned toolchain "
+                            "is there (MAICORD_GLSL_TOOLCHAIN, or Linux in a MaiCord checkout), yes requires it, "
+                            "no builds interface 3 or below")
+        p.add_argument("--dxbc-from", metavar="MCFX",
+                       help="take the DXBC sections of this package of the same HLSL instead of compiling (a Linux "
+                            "runner adds the GLSL section to what a Windows one built)")
 
     p = commands.add_parser("new", help="create an effect project")
     p.add_argument("name", help="the effect's name, e.g. aurora or \"Soft Rain\"")

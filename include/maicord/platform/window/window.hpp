@@ -48,7 +48,9 @@ void window_destroy(Window window) noexcept;
 NativeWindow window_surface_native(Window window) noexcept;
 void window_show(Window window, ShowMode mode) noexcept;
 void window_set_title(Window window, Utf8View title) noexcept;
-void window_set_icon(Window window, const IconImage* icon) noexcept;
+// The window's icon at several sizes (taskbar and title bar; the smallest and the largest image are the small and
+// the large icon where the system has both). `count` of at least one.
+void window_set_icon(Window window, const IconImage* images, u32 count) noexcept;
 void window_minimize(Window window) noexcept;
 void window_toggle_maximize(Window window) noexcept;
 void window_request_close(Window window) noexcept;
@@ -71,6 +73,8 @@ void window_capture_pointer(Window window) noexcept;
 void window_release_capture(Window window) noexcept;
 bool window_pointer_captured(Window window) noexcept;
 bool window_focus(Window window) noexcept;
+// Key state belongs to the input device, not to a window: these four take a null Window (the main window) so code
+// without a window handle can read it. The state is as of the event being handled.
 u8 window_modifiers(Window window) noexcept;
 bool window_key_down(Window window, Key key) noexcept;
 bool window_toggle_state(Window window, Key key) noexcept;
@@ -89,9 +93,15 @@ using FrameListener = void (*)(void* context, u32 time_ms) noexcept;
 void window_set_frame_listener(Window window, FrameListener listener, void* context) noexcept;
 // Any thread.
 void window_wake(Window window) noexcept;
+// Hands an event to the window's sink as the backend would, synchronously and marked ev_synthetic: accessibility
+// actions and tests. UI thread only; false when the window has no sink. `result` may be null.
+bool window_inject(Window window, const WindowEvent& event, WindowEventResult* result) noexcept;
 
 // Fatal startup errors, before a window exists.
 void window_fatal_message(Utf8View title, Utf8View text) noexcept;
+// The application's own icon as stored in the program: the smallest PNG image (8-bit palette) whose side is at least
+// `extent` and at most `largest`. Empty when there is none.
+ConstSlice<u8> window_app_icon_png(u32 extent, u32 largest, u32* side) noexcept;
 
 // Cross-thread wake: the cause reaches the window as a wake event with a and b.
 struct Waker {

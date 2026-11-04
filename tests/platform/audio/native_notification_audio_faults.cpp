@@ -1,4 +1,5 @@
 #include "maicord/platform/audio/notification_audio.hpp"
+#include "maicord/platform/audio/wasapi/notification_audio_fixture.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
@@ -148,9 +149,9 @@ HRESULT create(void* p,IMMDeviceEnumerator** out) noexcept {
     auto& f=*static_cast<Fixture*>(p);worker_only(f.s);if(!out)return E_POINTER;*out=nullptr;InterlockedIncrement(&f.s.factories);
     for(u32 i=0;i<2;++i)if(read(f.enumerators[i].refs)==1){f.enumerators[i].AddRef();*out=f.enumerators+i;return S_OK;}return E_OUTOFMEMORY;
 }
-BOOL post(void* p,HWND,u32) noexcept {
+bool post(void* p,const Waker&) noexcept {
     auto& s=static_cast<Fixture*>(p)->s;InterlockedIncrement(&s.posts);
-    const LONG error=read(s.post_error);if(error){SetLastError(static_cast<DWORD>(error));return FALSE;}InterlockedIncrement(&s.post_successes);return TRUE;
+    const LONG error=read(s.post_error);if(error){SetLastError(static_cast<DWORD>(error));return false;}InterlockedIncrement(&s.post_successes);return true;
 }
 void before_wait(void* p,u32 handles) noexcept {auto& s=static_cast<Fixture*>(p)->s;InterlockedExchange(&s.wait_handles,static_cast<LONG>(handles));InterlockedIncrement(&s.waits);SetEvent(s.changed);}
 bool resolve(void* p,u32 id,NotificationAudioClip* clip) noexcept {
@@ -162,7 +163,7 @@ bool setup(Fixture& f) noexcept {
     f.s.changed=CreateEventW(nullptr,FALSE,FALSE,nullptr);f.s.entered=CreateEventW(nullptr,TRUE,FALSE,nullptr);f.s.unblock=CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if(!f.s.changed||!f.s.entered||!f.s.unblock){if(f.s.changed)CloseHandle(f.s.changed);if(f.s.entered)CloseHandle(f.s.entered);if(f.s.unblock)CloseHandle(f.s.unblock);return false;}
     const NotificationAudioFixtureHooks hooks{&f,initialize,uninitialize,create,post,before_wait};notification_audio_fixture_hooks(&hooks);
-    NotificationAudioConfig config{};config.resolve=resolve;config.context=&f;config.gain=gain;config.wake_window=reinterpret_cast<HWND>(usize{1});config.wake_message=WM_APP+71;
+    NotificationAudioConfig config{};config.resolve=resolve;config.context=&f;config.gain=gain;config.wake={reinterpret_cast<NativeWindow>(usize{1}),wake_notifications};
     return notification_audio_initialize(&f.owner,config).ok();
 }
 void arm(Fixture& f,Stage stage) noexcept {ResetEvent(f.s.entered);ResetEvent(f.s.unblock);InterlockedExchange(&f.s.block,stage);}

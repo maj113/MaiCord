@@ -1,7 +1,8 @@
-// The store pages inside Settings, driven the way the client drives them: pointer and wheel messages through a
-// window procedure that routes like the client's (application_settings_window_message, which hands the store its
+// The store pages inside Settings, driven the way the client drives them: pointer and wheel events through a
+// window sink that routes like the client's (application_settings_window_event, which hands the store its
 // share), keys through application_settings_input. The real store host, page and scene are linked.
 #include "../../support/ui_scene_fixtures.hpp"
+#include "../../support/window_fixture.hpp"
 #include "shell/state.hpp"
 #include "settings/settings.hpp"
 #include "store/store_host.hpp"
@@ -12,6 +13,7 @@
 #include "effects/effects.hpp"
 #include "store/store_source.hpp"
 #include "shell/window_state.hpp"
+#include "shell/window_events.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/store/store_scene.hpp"
@@ -41,25 +43,33 @@ struct Fixture {
     PopupRowWidget rows[34];
     UiWidget widgets[70];
     UiLayoutNode nodes[70];
-    HWND window, previous_window;
-    ATOM window_class;
+    Window window, previous_window;
     wchar_t preferences_path[MAX_PATH];
     bool account_owned, preferences_owned;
     u32 unrouted_pointer;
 } fixture{};
 StoreModel model{};
-constexpr wchar_t window_class_name[] = L"MaiCordStoreRoutingRuntimeFixture";
 
 // The client's order for the settings modal: Settings (and through it the store) first, anything left falls through.
-LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_MOUSELEAVE ||
-        message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
-        if (application_settings_window_message(message, wparam, lparam))
-            return 0;
-        if (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST)
+void window_sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
+    if (input_pointer(event) || event.type == EventType::pointer_leave || event.type == EventType::capture_lost ||
+        event.type == EventType::cancel_input || input_focus_lost(event)) {
+        if (application_settings_window_event(event)) {
+            result->handled = true;
+            return;
+        }
+        if (input_pointer(event))
             ++fixture.unrouted_pointer;
     }
-    return DefWindowProcW(window, message, wparam, lparam);
+}
+// An event through the window service, as the system would deliver it.
+void inject(const WindowEvent& event) noexcept {
+    WindowEventResult result{};
+    window_inject(g_app.window, event, &result);
+}
+// The system reports the pointer in whole pixels.
+float whole(float v) noexcept {
+    return static_cast<float>(static_cast<i16>(v));
 }
 
 bool initialize() noexcept {
@@ -86,21 +96,12 @@ bool initialize() noexcept {
     g_app.settings_held_key = 0;
     application_plugins_account_scope_invalidated();
     fixture.previous_window = g_app.window;
-    WNDCLASSW window_class{};
-    window_class.lpfnWndProc = window_proc;
-    window_class.hInstance = GetModuleHandleW(nullptr);
-    window_class.lpszClassName = window_class_name;
-    fixture.window_class = RegisterClassW(&window_class);
-    if (!fixture.window_class)
-        return false;
-    fixture.window = CreateWindowExW(0, window_class_name, L"Store routing fixture", WS_POPUP, 0, 0, 1000, 700,
-                                     nullptr, nullptr, window_class.hInstance, nullptr);
+    fixture.window = window_test::open(window_sink);
     if (!fixture.window)
         return false;
-    g_app.window = fixture.window; // Owned hidden window; no desktop input or ShowWindow.
-    SetFocus(fixture.window);
-    g_window_state.keyboard_focus = GetFocus() == fixture.window;
-    return GetFocus() == fixture.window &&
+    g_app.window = fixture.window; // The headless window: no desktop input or ShowWindow.
+    g_window_state.keyboard_focus = window_focus(fixture.window);
+    return g_window_state.keyboard_focus &&
            popup_scene_initialize(&g_app.popup_scene, {fixture.items, 34}, {fixture.rows, 34}, {fixture.widgets, 70},
                                   {fixture.nodes, 70});
 }
@@ -111,8 +112,8 @@ void cleanup() noexcept {
         popup_scene_release(&g_app.popup_scene);
         g_app.popup_scene = {};
         g_app.popup_owner_kind = PopupOwnerKind::none;
-        if (GetCapture() == fixture.window)
-            ReleaseCapture();
+        if (window_pointer_captured(fixture.window))
+            window_release_capture(fixture.window);
     }
     if (fixture.preferences_owned) {
         application_preferences_shutdown();
@@ -121,14 +122,10 @@ void cleanup() noexcept {
         fixture.preferences_owned = false;
         DeleteFileW(fixture.preferences_path);
     }
-    if (fixture.window)
-        DestroyWindow(fixture.window);
+    window_test::close();
     fixture.window = nullptr;
     g_window_state.keyboard_focus = false;
     g_app.window = fixture.previous_window;
-    if (fixture.window_class)
-        UnregisterClassW(window_class_name, GetModuleHandleW(nullptr));
-    fixture.window_class = 0;
     if (fixture.account_owned) {
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
         g_app.account_ui = nullptr;
@@ -141,9 +138,6 @@ const UiSettingsScene* scene() noexcept {
 }
 const UiStoreScene* store() noexcept {
     return application_store_active() ? g_app.renderer.settings_store : nullptr;
-}
-LPARAM pack(float x, float y) noexcept {
-    return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
 }
 // The centre of the visible widget the settings scene resolves to `target` (a sidebar entry, the close button).
 bool settings_point(UiSettingsTarget target, float* x, float* y) noexcept {
@@ -169,9 +163,11 @@ bool settings_point(UiSettingsTarget target, float* x, float* y) noexcept {
 }
 // A press and release through the window procedure, as a click arrives.
 void click(float x, float y) noexcept {
-    SendMessageW(fixture.window, WM_MOUSEMOVE, 0, pack(x, y));
-    SendMessageW(fixture.window, WM_LBUTTONDOWN, MK_LBUTTON, pack(x, y));
-    SendMessageW(fixture.window, WM_LBUTTONUP, 0, pack(x, y));
+    x = whole(x);
+    y = whole(y);
+    inject(window_test::pointer_move(x, y));
+    inject(window_test::pointer_down(x, y));
+    inject(window_test::pointer_up(x, y));
     application_settings_synchronize();
 }
 bool click_target(UiSettingsTarget target) noexcept {
@@ -211,12 +207,9 @@ bool sort_label(Utf8View label) noexcept {
             return utf8_equal(s->nodes[i].text2, label);
     return false;
 }
-// A notch of the wheel; the message carries screen coordinates.
+// A notch of the wheel at a content point.
 void wheel(float x, float y, i32 delta) noexcept {
-    POINT screen{static_cast<LONG>(x), static_cast<LONG>(y)};
-    ClientToScreen(fixture.window, &screen);
-    SendMessageW(fixture.window, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(static_cast<short>(delta))),
-                 MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y)));
+    inject(window_test::wheel(whole(x), whole(y), delta));
     application_settings_synchronize();
 }
 bool press_key(u32 code) noexcept {
@@ -523,7 +516,7 @@ bool ambient_inputs_follow_the_system() noexcept {
     own.light = 0;
     application_effects_set_shader_settings(own);
     g_app.renderer.reduced_motion = false;
-    application_effects_set_system_dark(application_effects_read_system_dark());
+    application_effects_set_system_dark(platform_settings_read().dark_scheme);
     application_effects_select_none();
     application_effects_remove("gamma", 5);
     application_effects_remove("delta", 5);
@@ -613,8 +606,8 @@ bool wheel_glides(UiPageKey plugins) noexcept {
     bool ok = open_store(plugins) && ui_store_scene_scroll_range(*store(), false, &pane, &offset, &most) && most > 0;
     if (ok && offset != 0)
         ok = ui_store_scene_scroll_to(const_cast<UiStoreScene*>(store()), 0) && application_settings_synchronize();
-    const u32 lines = application_wheel_scroll_lines();
-    const float step = lines == WHEEL_PAGESCROLL ? ui_rect_height(pane) : static_cast<float>(lines) * kUiScrollLineDips;
+    const WheelScroll wheel_scroll = application_wheel_scroll();
+    const float step = wheel_scroll.page ? ui_rect_height(pane) : static_cast<float>(wheel_scroll.lines) * kUiScrollLineDips;
     const float target = minimum(most, step), x = (pane.left + pane.right) * .5f, y = (pane.top + pane.bottom) * .5f;
     const u64 start = application_now_us();
     if (ok)
@@ -677,10 +670,10 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
         if (store_click && ui_settings_scene_host_rect(*scene(), &host, &clip)) {
             const float x = (clip.left + clip.right) * .5f, y = (clip.top + clip.bottom) * .5f;
             const u32 unrouted = fixture.unrouted_pointer;
-            SendMessageW(fixture.window, WM_LBUTTONDOWN, MK_LBUTTON, pack(x, y));
-            store_click = GetCapture() == fixture.window && scene()->focus.kind == UiSettingsTargetKind::host;
-            SendMessageW(fixture.window, WM_LBUTTONUP, 0, pack(x, y));
-            store_click = store_click && GetCapture() != fixture.window && fixture.unrouted_pointer == unrouted;
+            inject(window_test::pointer_down(whole(x), whole(y)));
+            store_click = window_pointer_captured(fixture.window) && scene()->focus.kind == UiSettingsTargetKind::host;
+            inject(window_test::pointer_up(whole(x), whole(y)));
+            store_click = store_click && !window_pointer_captured(fixture.window) && fixture.unrouted_pointer == unrouted;
         } else
             store_click = false;
         check(store_click, "store routing: a click in the store column is taken by the store");

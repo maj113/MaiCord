@@ -22,8 +22,8 @@
 #include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::app_detail {
@@ -330,8 +330,8 @@ bool application_account_menu_action(u32 value) noexcept {
 }
 bool application_account_menu_key(u32 key) noexcept {
     if ((key != key::enter && key != key::space) || !surface_available() || g_app.popup_scene.active ||
-        g_app.context_focus != &g_app.shell_scene.widgets || (GetKeyState(key::ctrl) & 0x8000) ||
-        (GetKeyState(key::alt) & 0x8000))
+        g_app.context_focus != &g_app.shell_scene.widgets || window_key_down(nullptr, key::ctrl) ||
+        window_key_down(nullptr, key::alt))
         return false;
     const auto source = g_app.shell_scene.widgets.focused;
     const auto* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, source);

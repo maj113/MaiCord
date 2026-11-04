@@ -2,7 +2,7 @@
 
 #include "state.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/ui/widgets/toast.hpp"
 
 namespace maicord::app_detail {
@@ -39,7 +39,7 @@ inline void application_toast_result(bool succeeded, const Utf8View& success,
 // Empty text is a failure. Returns whether the clipboard took it.
 inline bool application_copy_text(const Utf8View& text, const Utf8View& copied,
                                   const Utf8View& failed) noexcept {
-    const bool ok = text.bytes && clipboard_write_utf8(g_app.window, text);
+    const bool ok = text.bytes && clipboard_write_utf8(text);
     application_toast_result(ok, copied, failed);
     return ok;
 }

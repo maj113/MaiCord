@@ -20,6 +20,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
+#include "../support/window_fixture.hpp"
 
 namespace maicord::app_detail {
 u32 probe_button_actions;
@@ -51,22 +52,16 @@ void application_friends_search_cancel_native_group(const TextInputTarget& targe
         text_input_cancel(target);
     }
 }
-bool handle_composer_click(LPARAM) noexcept {
+bool handle_composer_click(const WindowEvent&) noexcept {
     ++probe_button_actions;
     return true;
 }
 // No voice message recording in this probe.
 void application_voice_message_pointer(UiButtonPointerEvent, bool, bool) noexcept {
 }
-bool handle_shell_click(LPARAM) noexcept {
+bool handle_shell_click(const WindowEvent&) noexcept {
     ++probe_button_actions;
     return true;
-}
-float client_dip_x(LPARAM value) noexcept {
-    return static_cast<short>(LOWORD(value)) * 96.0f / g_app.renderer.dpi;
-}
-float client_dip_y(LPARAM value) noexcept {
-    return static_cast<short>(HIWORD(value)) * 96.0f / g_app.renderer.dpi;
 }
 // The shipping form host runs against the probe's native renderer/window.
 // These unrelated conversation side effects are outside this form fixture.
@@ -199,7 +194,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
     ui->text_measure_cache = cache;
     ui->text_measure_cache.backend_context = &g_app.renderer;
     g_app.account_ui = ui;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.renderer_ready = true;
     Fixture local{true, false};
     fixture = &local;
@@ -271,13 +266,12 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             fixture_input(UiInputKind::key_up, key::escape, false);
     // The shipping host consumes one outside/focus dismissal, preserving its parent.
     valid = valid && fixture_open(request);
-    LRESULT dismissed = 0;
     const u32 before_dismiss_saves = local.saves;
     valid = valid &&
-            application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &dismissed) &&
+            application_text_form_window_event(window_test::pointer_down(1, 1)) &&
             !g_app.text_form && local.saves == before_dismiss_saves && g_app.context_focus == &previous;
     valid = valid && fixture_open(request) &&
-            application_text_form_window_message(WM_KILLFOCUS, 0, 0, &dismissed) && !g_app.text_form &&
+            application_text_form_window_event(window_test::focus_changed(false)) && !g_app.text_form &&
             local.saves == before_dismiss_saves;
     initial[0] = 'b';
     name[0] = 'p';
@@ -322,13 +316,11 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
         const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
         POINT point{static_cast<LONG>((field->content_rectangle.left + 8) * scale),
                     static_cast<LONG>((field->content_rectangle.top + 8) * scale)};
-        ClientToScreen(window, &point);
         const float before_scroll = form->surface.layout.scroll_y;
         const u32 before_caret = form->edit.caret;
-        LRESULT result = 0;
         valid = before_scroll > 0 &&
-                application_text_form_window_message(WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA),
-                                                     MAKELPARAM(point.x, point.y), &result) &&
+                application_text_form_window_event(
+                    window_test::wheel(static_cast<float>(point.x), static_cast<float>(point.y), WHEEL_DELTA)) &&
                 form->surface.layout.scroll_y < before_scroll && form->edit.caret == before_caret &&
                 fixture_input(UiInputKind::key_down, key::end, false) &&
                 form->surface.layout.scroll_y == before_scroll;
@@ -374,13 +366,12 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                     !form->dismissible && text_form_focused(form->scene) == TextFormElement::count && valid;
             const auto revision = form->edit.revision;
             const u32 saves = local.saves;
-            LRESULT consumed = 0;
             valid = fixture_input(UiInputKind::key_down, key::escape, false) &&
                     fixture_input(UiInputKind::key_up, key::escape, false) &&
-                    application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &consumed) &&
-                    application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &consumed) &&
-                    application_text_form_window_message(WM_KILLFOCUS, 0, 0, &consumed) &&
-                    application_text_form_window_message(WM_CANCELMODE, 0, 0, &consumed) &&
+                    application_text_form_window_event(window_test::pointer_down(1, 1)) &&
+                    application_text_form_window_event(window_test::pointer_up(1, 1, PointerButton::left)) &&
+                    application_text_form_window_event(window_test::focus_changed(false)) &&
+                    application_text_form_window_event(window_test::cancel_input()) &&
                     g_app.text_form == form && fixture_input(UiInputKind::character, 'x', false) &&
                     form->edit.revision == revision && form->edit.storage.bytes == 6 &&
                     local.saves == saves && !form->keyboard.pressed.manager &&
@@ -435,14 +426,8 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                 secure_text_store_attached(g_app.composer_text_input->store) && valid;
         if (g_app.composer_text_input) {
             g_app.composer_text_input->held_key = key::enter;
-            MSG repeat{};
-            repeat.hwnd = window;
-            repeat.message = WM_KEYDOWN;
-            repeat.wParam = key::enter;
-            repeat.lParam = 1ll << 30;
-            valid = application_composer_text_input_filter(repeat) && valid;
-            repeat.message = WM_KEYUP;
-            valid = application_composer_text_input_filter(repeat) &&
+            valid = application_composer_text_input_filter(window_test::key_down(key::enter, ev_repeat)) && valid;
+            valid = application_composer_text_input_filter(window_test::key_up(key::enter)) &&
                     !g_app.composer_text_input->held_key && valid;
             const auto old_target = g_app.composer_text_input->target;
             message_composer_restore(&g_app.message_composer, 123, utf8_literal("replacement"), 11, 11);
@@ -666,9 +651,9 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                                      static_cast<u16>((button_node->rectangle.top + 16) * scale))
                         : 0;
         probe_button_actions = 0;
-        valid = button_node && application_button_pointer(WM_LBUTTONDOWN, pointer) &&
+        valid = button_node && application_button_pointer(window_test::pointer_down(window_test::x_of(pointer), window_test::y_of(pointer))) &&
                 probe_button_actions == 0 && GetCapture() == window &&
-                application_button_pointer(WM_LBUTTONUP, pointer) && probe_button_actions == 1 &&
+                application_button_pointer(window_test::pointer_up(window_test::x_of(pointer), window_test::y_of(pointer), PointerButton::left)) && probe_button_actions == 1 &&
                 GetCapture() != window && !g_app.button_pointer_owner && valid;
         {
             UiSettingsScene cover{};
@@ -681,29 +666,29 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                 edit ? MAKELPARAM(static_cast<u16>((edit->rectangle.left + 16) * scale),
                                   static_cast<u16>((edit->rectangle.top + 16) * scale))
                      : 0;
-            valid = edit && application_button_pointer(WM_MOUSEMOVE, pointer) &&
-                    application_button_pointer(WM_LBUTTONDOWN, pointer) &&
-                    application_button_pointer(WM_LBUTTONUP, pointer) &&
-                    application_button_pointer(WM_LBUTTONDOWN, text_pointer) &&
-                    application_button_pointer(WM_LBUTTONUP, text_pointer) && probe_button_actions == 1 &&
+            valid = edit && application_button_pointer(window_test::pointer_move(window_test::x_of(pointer), window_test::y_of(pointer))) &&
+                    application_button_pointer(window_test::pointer_down(window_test::x_of(pointer), window_test::y_of(pointer))) &&
+                    application_button_pointer(window_test::pointer_up(window_test::x_of(pointer), window_test::y_of(pointer), PointerButton::left)) &&
+                    application_button_pointer(window_test::pointer_down(window_test::x_of(text_pointer), window_test::y_of(text_pointer))) &&
+                    application_button_pointer(window_test::pointer_up(window_test::x_of(text_pointer), window_test::y_of(text_pointer), PointerButton::left)) && probe_button_actions == 1 &&
                     !g_app.button_pointer_owner && GetCapture() != window && valid;
             g_app.renderer.settings_scene = previous_settings;
-            valid = application_button_pointer(WM_LBUTTONDOWN, pointer) && valid;
+            valid = application_button_pointer(window_test::pointer_down(window_test::x_of(pointer), window_test::y_of(pointer))) && valid;
             g_app.renderer.settings_scene = &cover;
-            valid = application_button_pointer(WM_LBUTTONUP, pointer) && probe_button_actions == 1 &&
+            valid = application_button_pointer(window_test::pointer_up(window_test::x_of(pointer), window_test::y_of(pointer), PointerButton::left)) && probe_button_actions == 1 &&
                     !g_app.button_pointer_owner && GetCapture() != window && valid;
             g_app.renderer.settings_scene = previous_settings;
             log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                       valid ? "settings_native_cover_blocks_buttons_text_and_prior_capture_passed"
                             : "settings_native_cover_blocks_buttons_text_and_prior_capture_failed");
         }
-        valid = application_button_pointer(WM_LBUTTONDOWN, pointer) && valid;
+        valid = application_button_pointer(window_test::pointer_down(window_test::x_of(pointer), window_test::y_of(pointer))) && valid;
         auto* emoji = ui_widget_manager_resolve(&g_app.message_composer_scene.widgets,
                                                 g_app.message_composer_scene.emoji);
         if (emoji)
             emoji->flags &= ~ui_widget_enabled;
         ui_widget_manager_reconcile_input(&g_app.message_composer_scene.widgets);
-        valid = application_button_pointer(WM_LBUTTONUP, pointer) && probe_button_actions == 1 &&
+        valid = application_button_pointer(window_test::pointer_up(window_test::x_of(pointer), window_test::y_of(pointer), PointerButton::left)) && probe_button_actions == 1 &&
                 GetCapture() != window && !g_app.button_pointer_owner && valid;
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "shipping_button_host_release_and_disabled_capture_passed"

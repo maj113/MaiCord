@@ -1,5 +1,6 @@
 #include "accessibility_internal.hpp"
 #include "accessibility.hpp"
+#include "maicord/core/time.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../account/friends.hpp"
 #include "../chat/messages/feedback.hpp"
@@ -88,7 +89,7 @@ void announce(const Utf8View& text, bool assertive,
               const Utf8View& activity = utf8_literal("MaiCord.Status")) noexcept {
     if (!ui_access_announce_admit(&g_access.announcer, text,
                                   assertive ? UiAccessPoliteness::assertive : UiAccessPoliteness::polite,
-                                  GetTickCount64()))
+                                  clock_monotonic_milliseconds()))
         return;
     uia_host_raise_notification(&g_access.host, 0, UiaNotificationKind::other,
                                 assertive ? UiaNotificationProcessing::important_all
@@ -290,7 +291,7 @@ void publish_events() noexcept {
     if (plan.focus_changed && application_window_keyboard_focus())
         uia_host_raise_focus(&g_access.host, event_key(*tree, plan.focus_node));
     announce_new_message(*tree);
-    observe_status(GetTickCount64());
+    observe_status(clock_monotonic_milliseconds());
 }
 
 bool sample_listening(u64 now_ms) noexcept {
@@ -303,7 +304,7 @@ bool sample_listening(u64 now_ms) noexcept {
 
 void arm_rebuild_timer(u64 now_ms) noexcept {
     const u64 delay = ui_access_throttle_delay(g_access.throttle, now_ms);
-    if (g_app.window && SetTimer(g_app.window, kRebuildTimer, static_cast<UINT>(delay ? delay : 1), nullptr))
+    if (win32_hwnd(g_app.window) && SetTimer(win32_hwnd(g_app.window), kRebuildTimer, static_cast<UINT>(delay ? delay : 1), nullptr))
         g_access.timer = true;
 }
 
@@ -349,10 +350,10 @@ bool application_accessibility_window_message(UINT message, WPARAM wparam, LPARA
     if (g_access.initialized && urgent_message(message))
         ui_access_throttle_mark_urgent(&g_access.throttle);
     if (message == WM_TIMER && wparam == kRebuildTimer) {
-        KillTimer(g_app.window, kRebuildTimer);
+        KillTimer(win32_hwnd(g_app.window), kRebuildTimer);
         g_access.timer = false;
         if (g_access.initialized && !g_access.shut_down && g_access.throttle.deferred) {
-            const u64 now = GetTickCount64();
+            const u64 now = clock_monotonic_milliseconds();
             const auto decision = ui_access_throttle_frame(&g_access.throttle, now, sample_listening(now));
             if (decision == UiAccessThrottleDecision::build)
                 publish_events();
@@ -374,7 +375,7 @@ bool application_accessibility_window_message(UINT message, WPARAM wparam, LPARA
         return false;
     if (!g_access.initialized) {
         const UiaHostCallbacks callbacks{nullptr, access_tree, access_act, access_scale, access_text_bounds};
-        if (!uia_host_initialize(&g_access.host, g_app.window, callbacks))
+        if (!uia_host_initialize(&g_access.host, win32_hwnd(g_app.window), callbacks))
             return false;
         g_access.initialized = true;
     }
@@ -389,7 +390,7 @@ void application_accessibility_frame_presented() noexcept {
     g_access.dirty = true;
     if (!g_access.initialized || g_access.shut_down)
         return;
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     switch (ui_access_throttle_frame(&g_access.throttle, now, sample_listening(now))) {
     case UiAccessThrottleDecision::build:
         publish_events();
@@ -411,7 +412,7 @@ void application_accessibility_shutdown() noexcept {
         return;
     g_access.shut_down = true;
     if (g_access.timer && g_app.window)
-        KillTimer(g_app.window, kRebuildTimer);
+        KillTimer(win32_hwnd(g_app.window), kRebuildTimer);
     g_access.timer = false;
     if (g_access.initialized)
         uia_host_shutdown(&g_access.host);

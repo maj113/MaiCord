@@ -4,7 +4,8 @@
 #include "maicord/app/update/service.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/platform/crypto/hash_stream.hpp"
 
 namespace maicord::signed_update_fixture {
 // Stream the complete shipping package with fewer fixture-only I/O calls.
@@ -19,17 +20,17 @@ inline void child(const wchar_t* root, const wchar_t* name, wchar_t* out) noexce
     u32 n = 0; while (root[n]) { out[n] = root[n]; ++n; } out[n++] = L'\\';
     for (u32 i = 0;; ++i) { out[n + i] = name[i]; if (!name[i]) return; }
 }
-inline bool close(HANDLE* h) noexcept { if (!*h) return true; if (!CloseHandle(*h)) return false; *h = nullptr; return true; }
+inline bool close(HANDLE* h) noexcept { if (!*h) return true; if (!file_close(*h)) return false; *h = nullptr; return true; }
 inline bool write(HANDLE h, const void* data, u32 bytes) noexcept {
     u32 done = 0;
-    while (done < bytes) { DWORD n = 0; if (!WriteFile(h, static_cast<const u8*>(data) + done, bytes - done, &n, nullptr) || !n || n > bytes - done) return false; done += n; }
+    while (done < bytes) { u32 n = 0; if (!file_write(h, static_cast<const u8*>(data) + done, bytes - done, &n) || !n || n > bytes - done) return false; done += n; }
     return true;
 }
-inline bool seek(HANDLE h) noexcept { LARGE_INTEGER zero{}; return SetFilePointerEx(h, zero, nullptr, FILE_BEGIN) != FALSE; }
+inline bool seek(HANDLE h) noexcept { return file_seek(h, 0, FileSeek::begin); }
 inline bool copy(HANDLE source, HANDLE destination, u64 bytes) noexcept {
     if (!seek(source)) return false; u8 buffer[kFixtureIoBufferBytes]{};
-    while (bytes) { DWORD got = 0; const DWORD wanted = static_cast<DWORD>(minimum<u64>(bytes, sizeof(buffer)));
-        if (!ReadFile(source, buffer, wanted, &got, nullptr) || !got || got > wanted || !write(destination, buffer, got)) return false; bytes -= got; }
+    while (bytes) { u32 got = 0; const u32 wanted = static_cast<u32>(minimum<u64>(bytes, sizeof(buffer)));
+        if (!file_read(source, buffer, wanted, &got) || !got || got > wanted || !write(destination, buffer, got)) return false; bytes -= got; }
     return true;
 }
 inline void put16(u8* p, u16 v) noexcept { p[0] = static_cast<u8>(v); p[1] = static_cast<u8>(v >> 8); }
@@ -63,38 +64,38 @@ inline u32 crc(u32 value, const u8* p, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i) value = (value >> 8) ^ table.v[(value ^ p[i]) & 255];
     return value;
 }
-inline bool hash_file(HANDLE h, u64 bytes, u8* digest, BCRYPT_HASH_HANDLE* owner) noexcept {
-    if (*owner || !seek(h) || BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, owner, nullptr, 0, nullptr, 0, 0) < 0) return false;
+inline bool hash_file(HANDLE h, u64 bytes, u8* digest, HashStream* owner) noexcept {
+    if (*owner || !seek(h) || hash_stream_begin(owner, HashAlgorithm::sha256) < 0) return false;
     u8 buffer[kFixtureIoBufferBytes]{}; bool ok = true;
-    while (ok && bytes) { DWORD got = 0; const DWORD wanted = static_cast<DWORD>(minimum<u64>(bytes, sizeof(buffer)));
-        ok = ReadFile(h, buffer, wanted, &got, nullptr) && got && got <= wanted && BCryptHashData(*owner, buffer, got, 0) >= 0;
+    while (ok && bytes) { u32 got = 0; const u32 wanted = static_cast<u32>(minimum<u64>(bytes, sizeof(buffer)));
+        ok = file_read(h, buffer, wanted, &got) && got && got <= wanted && hash_stream_update(*owner, buffer, got) >= 0;
         if (got <= bytes) bytes -= got; else ok = false; }
-    if (ok) ok = BCryptFinishHash(*owner, digest, 32, 0) >= 0;
-    if (BCryptDestroyHash(*owner) < 0) return false; *owner = nullptr; return ok;
+    if (ok) ok = hash_stream_finish(*owner, digest, 32) >= 0;
+    if (hash_stream_destroy(*owner) < 0) return false; *owner = nullptr; return ok;
 }
 // Stored regular members names[i] from paths[i], at most kFixtureMaximumMembers
 // (a release package has exactly one, MaiCord.exe). All failed file/CNG owners
 // stay explicit.
 inline constexpr u32 kFixtureMaximumMembers = 2;
 inline bool package(const wchar_t* destination, const wchar_t* const* paths, const char* const* names, u32 count, HANDLE* output,
-    HANDLE* sources, u64* package_bytes, u8* digest, BCRYPT_HASH_HANDLE* hash_owner) noexcept {
+    HANDLE* sources, u64* package_bytes, u8* digest, HashStream* hash_owner) noexcept {
     if (!count || count > kFixtureMaximumMembers) return false;
     u32 sizes[kFixtureMaximumMembers]{}, checksums[kFixtureMaximumMembers]{}, offsets[kFixtureMaximumMembers]{},
         counts[kFixtureMaximumMembers]{};
     u8 buffer[kFixtureIoBufferBytes]{};
     for (u32 i = 0; i < count; ++i) {
         while (names[i][counts[i]]) ++counts[i];
-        sources[i] = CreateFileW(paths[i], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        sources[i] = file_open(paths[i], {FileAccess::read, FileCreate::existing, kFileShareRead, kFileNoFollow});
         if (sources[i] == INVALID_HANDLE_VALUE) { sources[i] = nullptr; return false; }
-        BY_HANDLE_FILE_INFORMATION info{}; LARGE_INTEGER size{};
-        if (!GetFileInformationByHandle(sources[i], &info) || !GetFileSizeEx(sources[i], &size) || size.QuadPart <= 0 || size.QuadPart > 64 * 1024 * 1024 ||
-            info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) return false;
-        sizes[i] = static_cast<u32>(size.QuadPart); u32 remaining = sizes[i], checksum = ~u32{0};
-        while (remaining) { DWORD got = 0; const DWORD wanted = minimum(remaining, static_cast<u32>(sizeof(buffer)));
-            if (!ReadFile(sources[i], buffer, wanted, &got, nullptr) || !got || got > wanted) return false;
+        FileStat info{};
+        if (!file_stat(sources[i], &info) || info.bytes == 0 || info.bytes > 64 * 1024 * 1024 ||
+            info.kind != FileKind::regular) return false;
+        sizes[i] = static_cast<u32>(info.bytes); u32 remaining = sizes[i], checksum = ~u32{0};
+        while (remaining) { u32 got = 0; const u32 wanted = minimum(remaining, static_cast<u32>(sizeof(buffer)));
+            if (!file_read(sources[i], buffer, wanted, &got) || !got || got > wanted) return false;
             checksum = crc(checksum, buffer, got); remaining -= got; } checksums[i] = checksum ^ ~u32{0};
     }
-    *output = CreateFileW(destination, GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ, nullptr, CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    *output = file_open(destination, {FileAccess::read_write, FileCreate::create_new, kFileShareRead, kFileNoFollow | kFileDeletable});
     if (*output == INVALID_HANDLE_VALUE) { *output = nullptr; return false; }
     u32 next = 0;
     for (u32 i = 0; i < count; ++i) { offsets[i] = next; u8 local[30]{}; put32(local, 0x04034b50); put16(local + 4, 20);
@@ -107,7 +108,7 @@ inline bool package(const wchar_t* destination, const wchar_t* const* paths, con
         if (!write(*output, entry, sizeof(entry)) || !write(*output, names[i], counts[i])) return false; next += 46 + counts[i]; }
     u8 end[22]{}; put32(end, 0x06054b50); put16(end + 8, static_cast<u16>(count)); put16(end + 10, static_cast<u16>(count));
     put32(end + 12, next - central); put32(end + 16, central);
-    if (!write(*output, end, sizeof(end)) || !FlushFileBuffers(*output)) return false; *package_bytes = next + sizeof(end);
+    if (!write(*output, end, sizeof(end)) || !file_flush(*output)) return false; *package_bytes = next + sizeof(end);
     return hash_file(*output, *package_bytes, digest, hash_owner);
 }
 inline u32 decimal(char* out, u64 value) noexcept {

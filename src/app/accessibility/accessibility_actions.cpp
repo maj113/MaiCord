@@ -150,7 +150,7 @@ bool access_act(void*, u64 key, UiAccessAction action, double number, Utf8View t
         return false;
     g_access.pending[g_access.pending_count++] = {key, number, action};
     if (!g_access.posted)
-        g_access.posted = PostMessageW(g_app.window, kApplicationAccessibilityMessage, 0, 0) != FALSE;
+        g_access.posted = window_post({window_surface_native(g_app.window), wake_accessibility}, 0, 0);
     return true;
 }
 
@@ -158,22 +158,39 @@ bool access_act(void*, u64 key, UiAccessAction action, double number, Utf8View t
 namespace {
 
 // Activates through the same pointer route a mouse click takes.
-// Pointer messages carry client coordinates: content rows start below the caption.
+// Injected pointer events carry client coordinates: content rows start below the caption.
 bool click_at(float x, float y) noexcept {
     if (!g_app.window)
         return false;
     const float scale = access_scale(nullptr);
-    const int caption = static_cast<int>(g_app.renderer.caption_height);
-    const LPARAM point = MAKELPARAM(static_cast<int>(x * scale), static_cast<int>(y * scale) + caption);
-    SendMessageW(g_app.window, WM_MOUSEMOVE, 0, point);
-    SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, point);
-    SendMessageW(g_app.window, WM_LBUTTONUP, 0, point);
-    POINT cursor{};
-    RECT client{};
-    if (GetCursorPos(&cursor) && ScreenToClient(g_app.window, &cursor) && GetClientRect(g_app.window, &client) &&
-        cursor.x >= client.left && cursor.y >= client.top + caption && cursor.x < client.right &&
-        cursor.y < client.bottom)
-        SendMessageW(g_app.window, WM_MOUSEMOVE, 0, MAKELPARAM(cursor.x, cursor.y));
+    const float caption = static_cast<float>(g_app.renderer.caption_height);
+    const float client_x = static_cast<float>(static_cast<int>(x * scale));
+    const float client_y = static_cast<float>(static_cast<int>(y * scale)) + caption;
+    WindowEvent move{};
+    move.type = EventType::pointer_move;
+    move.pointer.x = client_x;
+    move.pointer.y = client_y;
+    WindowEvent press = move;
+    press.type = EventType::pointer_down;
+    press.button = static_cast<u8>(PointerButton::left);
+    press.pointer.buttons = static_cast<u8>(1u << static_cast<u8>(PointerButton::left));
+    WindowEvent release = press;
+    release.type = EventType::pointer_up;
+    release.pointer.buttons = 0;
+    window_inject(g_app.window, move, nullptr);
+    window_inject(g_app.window, press, nullptr);
+    window_inject(g_app.window, release, nullptr);
+    // The pointer where it really is again, so hover follows it after the activation moved things.
+    float cursor_x = 0, cursor_y = 0;
+    const WindowMetrics metrics = window_metrics(g_app.window);
+    if (window_pointer_position(g_app.window, &cursor_x, &cursor_y) && cursor_x >= 0 && cursor_y >= caption &&
+        cursor_x < static_cast<float>(metrics.width_px) && cursor_y < static_cast<float>(metrics.height_px)) {
+        WindowEvent back{};
+        back.type = EventType::pointer_move;
+        back.pointer.x = static_cast<float>(static_cast<int>(cursor_x));
+        back.pointer.y = static_cast<float>(static_cast<int>(cursor_y));
+        window_inject(g_app.window, back, nullptr);
+    }
     application_request_frame();
     return true;
 }
@@ -400,9 +417,12 @@ bool wheel_node(const UiAccessNode& node, UiAccessScroll amount) noexcept {
     const int delta = (large ? 5 : 1) * (up ? WHEEL_DELTA : -WHEEL_DELTA);
     const UiPoint point = center(node.visible);
     const float scale = access_scale(nullptr);
-    POINT screen{static_cast<LONG>(point.x * scale), static_cast<LONG>(point.y * scale)};
-    application_content_to_screen(&screen);
-    SendMessageW(g_app.window, WM_MOUSEWHEEL, MAKEWPARAM(0, delta), MAKELPARAM(screen.x, screen.y));
+    WindowEvent wheel{};
+    wheel.type = EventType::wheel;
+    wheel.wheel.x = static_cast<float>(static_cast<LONG>(point.x * scale));
+    wheel.wheel.y = static_cast<float>(static_cast<LONG>(point.y * scale) + static_cast<LONG>(g_app.renderer.caption_height));
+    wheel.wheel.dy120 = delta;
+    window_inject(g_app.window, wheel, nullptr);
     application_request_frame();
     return true;
 }
@@ -413,7 +433,7 @@ void focus_owner(UiWidgetManager* owner) noexcept {
         release_message_composer_focus();
     g_app.context_focus = owner;
     g_app.keyboard_focus_visible = true;
-    SetFocus(g_app.window);
+    window_focus(g_app.window);
     if (!refresh_account_frame(true))
         log_write(LogLevel::warning, "accessibility", "focus_refresh_failed");
 }

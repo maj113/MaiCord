@@ -14,6 +14,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord::app_detail {
@@ -239,31 +240,33 @@ void delete_plugin_file(const u8 (&sha256)[32]) noexcept {
     catalog_plugin_leaf(sha256, leaf);
     if (catalog_path(base(), L"plugins\\", path)) {
         u32 length = wide_length(path, 600);
-        if (wide_append(path, 600, &length, leaf)) DeleteFileW(path);
+        if (wide_append(path, 600, &length, leaf)) file_remove(path);
     }
 }
 // Plugin files nothing names any more: a crash between writing a file and recording it leaves one behind.
 void delete_unreferenced_plugins() noexcept {
-    wchar_t pattern[600];
-    u32 length = catalog_path(base(), L"plugins\\*.dll", pattern);
-    if (!length) return;
-    WIN32_FIND_DATAW found{};
-    const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan == INVALID_HANDLE_VALUE) return;
-    do {
-        if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) || wide_length(found.cFileName, 260) != 68)
-            continue;
+    wchar_t directory[600];
+    if (!catalog_path(base(), L"plugins\\", directory)) return;
+    DirIter scan{};
+    if (!dir_open(&scan, directory)) return;
+    DirEntry found{};
+    while (dir_next(&scan, &found)) {
+        if (found.kind != FileKind::regular || wide_length(found.name, 260) != 68) continue;
+        static constexpr wchar_t kExtension[] = L".dll";
+        bool dll = true;
+        for (u32 i = 0; i < 4; ++i) dll = dll && (found.name[64 + i] | 0x20) == kExtension[i];
+        if (!dll) continue;
         u8 sha[32];
         bool valid = true;
         for (u32 i = 0; i < 64 && valid; ++i) {
-            const wchar_t c = found.cFileName[i];
+            const wchar_t c = found.name[i];
             const i32 nibble = c >= L'0' && c <= L'9' ? c - L'0' : c >= L'a' && c <= L'f' ? c - L'a' + 10 : -1;
             valid = nibble >= 0;
             sha[i / 2] = static_cast<u8>(i % 2 ? sha[i / 2] << 4 | nibble : nibble);
         }
         if (valid) delete_plugin_file(sha);
-    } while (FindNextFileW(scan, &found));
-    FindClose(scan);
+    }
+    dir_close(&scan);
 }
 
 // ---- the index ------------------------------------------------------------------------------------------
@@ -756,35 +759,32 @@ bool dev_dll(const wchar_t* name, u32 length) noexcept {
 
 // The DLLs in the folder: new ones and ones whose time or size changed are pending (everything when force).
 void dev_scan(bool force) noexcept {
-    wchar_t pattern[600];
     u32 length = g->dev_folder_characters;
-    copy_bytes(pattern, g->dev_folder, (length + 1) * 2);
-    if (!wide_append(pattern, 600, &length, L"\\*.dll")) return;
+    if (!length || length >= 600) return;
     DevFile seen[8]{};
     u32 count = 0;
-    WIN32_FIND_DATAW found{};
-    const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan == INVALID_HANDLE_VALUE) {
+    DirIter scan{};
+    if (!dir_open(&scan, g->dev_folder)) {
         g->dev_count = 0; // an empty folder: a DLL that comes back is new
         return;
     }
-    do {
-        const u32 name_length = wide_length(found.cFileName, 64);
-        if ((found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) || !dev_dll(found.cFileName, name_length) ||
-            count == 8)
+    DirEntry found{};
+    while (dir_next(&scan, &found)) {
+        const u32 name_length = wide_length(found.name, 64);
+        if (found.kind != FileKind::regular || !dev_dll(found.name, name_length) || count == 8)
             continue;
         DevFile& file = seen[count++];
-        copy_bytes(file.name, found.cFileName, (name_length + 1) * 2);
-        file.modified = static_cast<u64>(found.ftLastWriteTime.dwHighDateTime) << 32 | found.ftLastWriteTime.dwLowDateTime;
-        file.bytes = found.nFileSizeLow;
+        copy_bytes(file.name, found.name, (name_length + 1) * 2);
+        file.modified = found.last_write;
+        file.bytes = static_cast<u32>(found.bytes);
         file.pending = true;
         for (u32 i = 0; i < g->dev_count && !force; ++i) {
             const DevFile& before = g->dev_files[i];
             if (wide_length(before.name, 64) == name_length && bytes_equal(before.name, file.name, name_length * 2))
                 file.pending = before.pending || before.modified != file.modified || before.bytes != file.bytes;
         }
-    } while (FindNextFileW(scan, &found));
-    FindClose(scan);
+    }
+    dir_close(&scan);
     copy_bytes(g->dev_files, seen, sizeof(seen));
     g->dev_count = count;
 }

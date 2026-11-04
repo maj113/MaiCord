@@ -2,8 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "path_stat.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/os/file.hpp"
 namespace maicord {namespace {
 bool valid(const NativeFontStore& s) noexcept {return s.files.data && s.files.count && s.faces.data && s.faces.count;}
 NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {
@@ -11,8 +12,8 @@ NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {
     auto& f=s.faces[h.slot-1];return f.references&&f.generation==h.generation?&f:nullptr;
 }
 void close(NativeFontFileSlot& f) noexcept {
-    if(f.bytes.data)UnmapViewOfFile(f.bytes.data);
-    if(f.file && f.file!=INVALID_HANDLE_VALUE)CloseHandle(f.file);
+    if(f.bytes.data){FileMap map{const_cast<u8*>(f.bytes.data),f.bytes.count};file_unmap(&map);}
+    file_close(f.file);
     reset_value(&f);
 }
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
@@ -24,14 +25,12 @@ NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
     struct Cleanup {NativeFontFileSlot& f;~Cleanup() noexcept {close(f);}} cleanup{opened};
     // Keep the read handle alive with no write/delete sharing. All borrowed
     // table spans refer to these same bytes until the last face is released.
-    opened.file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    opened.file=file_open(path,{FileAccess::read,FileCreate::existing,kFileShareRead,0});
     if(opened.file==INVALID_HANDLE_VALUE)return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
     NativeFontFileStamp stamp{};
-    if(!font_path_stat::read_handle(opened.file,&stamp)){LARGE_INTEGER length{};
-        if(GetFileType(opened.file)!=FILE_TYPE_DISK)return result(NativeFontError::io,SfntStatus::ok,ERROR_FILE_INVALID);
-        if(!GetFileSizeEx(opened.file,&length)||!GetFileInformationByHandleEx(opened.file,FileIdInfo,&stamp.identity,sizeof(stamp.identity)))
-            return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
-        stamp.bytes=static_cast<u64>(length.QuadPart);} // A negative size fails the limit below.
+    u32 stamp_error=0;
+    if(!font_path_stat::read_handle(opened.file,&stamp)&&!font_path_stat::read_fallback(opened.file,&stamp,&stamp_error))
+        return result(NativeFontError::io,SfntStatus::ok,stamp_error);
     if(!stamp.bytes || stamp.bytes>0xffffffffull)return result(NativeFontError::font,SfntStatus::unsupported);
     opened.identity=stamp.identity;
     u32 file_index=store->files.count,free_file=store->files.count,free_face=store->faces.count;
@@ -53,12 +52,9 @@ NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
     }
     ConstSlice<u8> bytes{};
     if(new_file){
-        const HANDLE mapping=CreateFileMappingW(opened.file,nullptr,PAGE_READONLY,0,0,nullptr);
-        if(!mapping)return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
-        const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));
-        const u32 error=data?0:thread_last_error();CloseHandle(mapping);
-        if(!data)return result(NativeFontError::io,SfntStatus::ok,error);
-        opened.bytes={data,static_cast<u32>(stamp.bytes)};bytes=opened.bytes;
+        FileMap map{};
+        if(!file_map(opened.file,false,stamp.bytes,&map))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
+        opened.bytes={static_cast<const u8*>(map.data),static_cast<u32>(stamp.bytes)};bytes=opened.bytes;
     }else bytes=store->files[file_index].bytes;
     auto& target=store->faces[free_face];SfntFace face{};auto status=sfnt_open(bytes,index,&face); // The slot's face is zero; failure clears it again.
     if(status==SfntStatus::ok)status=font_geometry_open(face,&target.face.geometry);

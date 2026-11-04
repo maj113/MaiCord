@@ -7,6 +7,7 @@
 #include "account/account_presentation.hpp"
 #include "chat/messages/interaction.hpp"
 #include "shell/scrolling.hpp"
+#include "../support/window_fixture.hpp"
 #include "shell/state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -27,17 +28,13 @@ namespace {
 u64 now_us() noexcept {
     return clock_microseconds(g_app.clock, g_app.process_start, clock_now());
 }
-// One wheel message as Windows posts it: delta in the high word and the
-// cursor in screen pixels.
+// One wheel notch event: the delta in 120ths and the cursor in content pixels (the caption's rows already off).
 bool wheel(i16 delta, UiPoint dips) noexcept {
     const float scale = g_app.renderer.dpi / 96.f;
-    POINT screen{static_cast<LONG>(dips.x * scale), static_cast<LONG>(dips.y * scale)};
-    if (!ClientToScreen(g_app.window, &screen))
-        return false;
-    const WPARAM wparam = static_cast<WPARAM>(static_cast<u32>(static_cast<u16>(delta)) << 16);
-    const LPARAM lparam = static_cast<LPARAM>(static_cast<u32>(static_cast<u16>(screen.x)) |
-                                              (static_cast<u32>(static_cast<u16>(screen.y)) << 16));
-    return handle_scroll_wheel(wparam, lparam);
+    return handle_scroll_wheel(window_test::wheel(static_cast<float>(static_cast<i32>(dips.x * scale)),
+                                                  static_cast<float>(static_cast<i32>(dips.y * scale)) -
+                                                      static_cast<float>(g_app.renderer.caption_height),
+                                                  delta));
 }
 // Samples 60 Hz frames after `start`; counts frames strictly between the
 // starting and settled offsets.

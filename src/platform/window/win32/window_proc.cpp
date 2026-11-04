@@ -1,0 +1,239 @@
+// The window class and window procedure of the main window: every message becomes a WindowEvent for the sink
+// (win32_translate), around the hooks the application keeps for what stays Windows-only (win32.hpp), with the
+// system's default procedure as the answer to anything the sink leaves unhandled.
+#include "maicord/platform/window/win32.hpp"
+
+#include "internal.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/core/win32_records.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
+
+namespace maicord {
+namespace {
+
+struct Backend {
+    WindowSink sink;
+    void* context;
+    Win32Hooks hooks;
+    HWND window;
+    // A TME_LEAVE request is outstanding; WM_MOUSELEAVE spends it.
+    bool leave_armed;
+    // The cursor of the WM_SETCURSOR being dispatched.
+    bool cursor_valid;
+    HWND cursor_window;
+    float cursor_x, cursor_y;
+} g{};
+
+// Messages of the input classes a modal blocks that the sink does not model (IME, clipboard commands, commands,
+// the odd key and mouse messages): swallowed while input_blocked.
+bool blocked_class(UINT message) noexcept {
+    return (message >= WM_KEYFIRST && message <= WM_KEYLAST) || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
+           (message >= WM_CUT && message <= WM_UNDO) ||
+           (message >= WM_IME_STARTCOMPOSITION && message <= WM_IME_COMPOSITION) ||
+           (message >= WM_IME_SETCONTEXT && message <= WM_IME_KEYUP) || message == WM_CONTEXTMENU ||
+           message == WM_COMMAND || message == WM_COPYDATA;
+}
+
+// Hover affordances end when the pointer leaves the client, as a DOM mouseleave would: the request is shared by
+// every layer and re-armed by the first move after each WM_MOUSELEAVE.
+void arm_pointer_leave(HWND window) noexcept {
+    if (g.leave_armed)
+        return;
+    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, window, 0};
+    g.leave_armed = TrackMouseEvent(&tracking) != FALSE;
+}
+
+} // namespace
+
+namespace win32_detail {
+
+void dispatch_cursor_begin(HWND window, float x, float y) noexcept {
+    g.cursor_valid = true;
+    g.cursor_window = window;
+    g.cursor_x = x;
+    g.cursor_y = y;
+}
+
+void dispatch_cursor_end() noexcept {
+    g.cursor_valid = false;
+}
+
+bool dispatch_cursor(HWND window, float* x, float* y) noexcept {
+    if (!g.cursor_valid || g.cursor_window != window)
+        return false;
+    *x = g.cursor_x;
+    *y = g.cursor_y;
+    return true;
+}
+
+bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept {
+    if (!g.sink)
+        return false;
+    WindowEventResult local{};
+    g.sink(g.context, event, result ? result : &local);
+    return true;
+}
+
+LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    WindowEvent event;
+    const bool modeled = win32_translate(window, message, wparam, lparam, &event);
+    struct CursorScope {
+        bool active;
+        ~CursorScope() {
+            if (active)
+                dispatch_cursor_end();
+        }
+    } cursor_scope{modeled && event.type == EventType::cursor_query};
+    if (cursor_scope.active)
+        dispatch_cursor_begin(window, event.pointer.x, event.pointer.y);
+    if (message == WM_MOUSEMOVE)
+        arm_pointer_leave(window);
+    else if (message == WM_MOUSELEAVE)
+        g.leave_armed = false;
+    else if (message == WM_SETTINGCHANGE) {
+        win32_cursor_handles_reset();
+        win32_settings_reset();
+    }
+    if (modeled && g.hooks.observe)
+        g.hooks.observe(g.hooks.context, event);
+    LRESULT result = 0;
+    // The frame the application draws owns the rows above the content and the non-client messages.
+    if (g.hooks.frame && g.hooks.frame(g.hooks.context, window, message, wparam, lparam, &result))
+        return result;
+    // UI Automation, tray icon callbacks, Explorer restarts and launches forwarded by a second instance.
+    if (g.hooks.shell && g.hooks.shell(g.hooks.context, window, message, wparam, lparam, &result))
+        return result;
+    switch (message) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_NCCALCSIZE: {
+        // Prepare the composition surface before Windows commits the HWND's new origin. Painting in
+        // WM_WINDOWPOSCHANGED lets DWM display the old width at the new origin for one frame when dragging the
+        // left edge.
+        result = DefWindowProcW(window, message, wparam, lparam);
+        if (wparam && lparam) {
+            const auto& client = reinterpret_cast<const NCCALCSIZE_PARAMS*>(lparam)->rgrc[0];
+            if (client.right > client.left && client.bottom > client.top) {
+                WindowEvent provisional{};
+                provisional.type = EventType::resize;
+                provisional.flags = ev_provisional;
+                provisional.time_ms = event.time_ms;
+                provisional.resize.width_px = static_cast<u32>(client.right - client.left);
+                provisional.resize.height_px = static_cast<u32>(client.bottom - client.top);
+                provisional.window = window;
+                WindowEventResult ignored{};
+                if (g.sink)
+                    g.sink(g.context, provisional, &ignored);
+            }
+        }
+        return result;
+    }
+    case WM_PAINT:
+        // The composition surface and caret are GPU-rendered. Acknowledge the update region without acquiring a
+        // GDI DC that no paint path uses.
+        ValidateRect(window, nullptr);
+        break;
+    default:
+        break;
+    }
+    if (!modeled) {
+        if (blocked_class(message) && g.hooks.input_blocked && g.hooks.input_blocked(g.hooks.context))
+            return 0;
+        return DefWindowProcW(window, message, wparam, lparam);
+    }
+    WindowEventResult answer{};
+    g.sink(g.context, event, &answer);
+    switch (event.type) {
+    case EventType::size_limits:
+        if (answer.handled) {
+            auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
+            if (limits) {
+                limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(answer.width_px));
+                limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(answer.height_px));
+            }
+        }
+        return 0;
+    case EventType::scale_changed:
+        if (const auto* suggested = reinterpret_cast<const RECT*>(lparam))
+            SetWindowPos(window, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                         suggested->bottom - suggested->top, SWP_NOACTIVATE | SWP_NOZORDER);
+        return 0;
+    case EventType::destroyed:
+        PostQuitMessage(0);
+        return 0;
+    case EventType::paint:
+    case EventType::state_changed:
+    case EventType::resize_begin:
+    case EventType::resize_end:
+        return 0;
+    default:
+        break;
+    }
+    if (!answer.handled)
+        return DefWindowProcW(window, message, wparam, lparam);
+    // A handled cursor query answers TRUE, which keeps the system from setting its own cursor; the rest answer 0.
+    return event.type == EventType::cursor_query ? TRUE : 0;
+}
+
+} // namespace win32_detail
+
+bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions& options, WindowSink sink,
+                         void* context, Window* out, const char** reason) noexcept {
+    static constexpr wchar_t kClassName[] = L"MaiCordMainWindow";
+    const char* reported = "";
+    const char** failure = reason ? reason : &reported;
+    if (!out || !sink || info.client_width_dips == 0 || info.client_height_dips == 0) {
+        *failure = "window_request_invalid";
+        return false;
+    }
+    g = {};
+    g.sink = sink;
+    g.context = context;
+    if (options.hooks)
+        g.hooks = *options.hooks;
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    WNDCLASSEXW window_class{};
+    window_class.cbSize = sizeof(window_class);
+    // A flip-model swap chain owns all client pixels. Class-wide redraws generate duplicate WM_PAINT traffic during
+    // the modal sizing loop, and CS_OWNDC only retains a GDI DC that this renderer never uses.
+    window_class.style = CS_DBLCLKS;
+    window_class.lpfnWndProc = win32_detail::window_proc;
+    window_class.hInstance = instance;
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.lpszClassName = kClassName;
+    if (!RegisterClassExW(&window_class)) {
+        *failure = "register_class_failed";
+        return false;
+    }
+    const DWORD extended_style = WS_EX_NOREDIRECTIONBITMAP | options.extra_extended_style;
+    RECT bounds{0, 0, static_cast<LONG>(info.client_width_dips), static_cast<LONG>(info.client_height_dips)};
+    if (!AdjustWindowRectExForDpi(&bounds, WS_OVERLAPPEDWINDOW, FALSE, extended_style, 96)) {
+        *failure = "adjust_initial_bounds_failed";
+        return false;
+    }
+    u16 title[128];
+    u32 written = 0, next = 0;
+    if (!utf8_copy_utf16_range(info.title, 0, info.title.bytes, {title, 127}, &written, &next))
+        written = 0;
+    title[written] = 0;
+    // The window keeps the system frame's outer size; the caption moves into the client (WM_NCCALCSIZE).
+    const HWND window = CreateWindowExW(extended_style, kClassName, reinterpret_cast<const wchar_t*>(title),
+                                        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left,
+                                        bounds.bottom - bounds.top, nullptr, nullptr, instance, nullptr);
+    if (!window) {
+        *failure = "create_window_failed";
+        return false;
+    }
+    g.window = window;
+    win32_detail::set_main_window(window);
+    *out = win32_window(window);
+    return true;
+}
+
+bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept {
+    return win32_window_create(info, {}, sink, context, out, nullptr);
+}
+
+} // namespace maicord

@@ -136,4 +136,9 @@ bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
     return false;
 }
 
+u32 executable_path(wchar_t* output, u32 capacity) noexcept {
+    const DWORD count = GetModuleFileNameW(nullptr, output, capacity);
+    return count < capacity ? count : 0;
+}
+
 } // namespace maicord

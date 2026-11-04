@@ -341,7 +341,7 @@ bool handle_reaction_viewer_click(float pointer_x, float pointer_y) noexcept {
     return true;
 }
 
-bool handle_reaction_viewer_key(WPARAM key) noexcept {
+bool handle_reaction_viewer_key(u32 key) noexcept {
     ReactionViewer& viewer = g_app.reaction_viewer;
     if (!viewer.active) {
         return false;
@@ -382,13 +382,13 @@ bool handle_reaction_viewer_key(WPARAM key) noexcept {
     return true;
 }
 
-bool handle_popup_hover(LPARAM lparam) noexcept {
+bool handle_popup_hover(const WindowEvent& event) noexcept {
     if (!g_app.popup_scene.active) {
         return false;
     }
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const float x = static_cast<short>(LOWORD(lparam)) * scale;
-    const float y = static_cast<short>(HIWORD(lparam)) * scale;
+    const float x = static_cast<short>(event.pointer.x) * scale;
+    const float y = static_cast<short>(event.pointer.y) * scale;
     if (application_voice_menu_pointer(x, y, false) || application_stream_menu_pointer(x, y, false))
         return true;
     // The editor owns its captured drag, even when it crosses the suggestions.
@@ -407,13 +407,13 @@ bool handle_popup_hover(LPARAM lparam) noexcept {
            popup_scene_hit_test(g_app.popup_scene, x, y).inside;
 }
 
-bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
+bool handle_popup_click(const WindowEvent& event) noexcept {
     if (!g_app.popup_scene.active) {
         return false;
     }
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const float x = static_cast<short>(LOWORD(lparam)) * scale;
-    const float y = static_cast<short>(HIWORD(lparam)) * scale;
+    const float x = static_cast<short>(event.pointer.x) * scale;
+    const float y = static_cast<short>(event.pointer.y) * scale;
     if (application_voice_menu_pointer(x, y, true) || application_stream_menu_pointer(x, y, true))
         return true;
     // A scrollable menu's bar drags like every other list's.
@@ -421,7 +421,7 @@ bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
         return true;
     const PopupHit hit = popup_scene_hit_test(g_app.popup_scene, x, y);
     if (hit.enabled) {
-        if (!activate_popup_action(hit.action, (wparam & MK_SHIFT) != 0))
+        if (!activate_popup_action(hit.action, input_shift(event)))
             log_write(LogLevel::warning, "ui", "popup_action_failed");
         return true;
     }
@@ -439,7 +439,7 @@ bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
     return profile || !autocomplete;
 }
 
-bool handle_popup_key(WPARAM key) noexcept {
+bool handle_popup_key(u32 key) noexcept {
     if (!g_app.popup_scene.active) {
         // A selected command without a list (only its option bar shows) still
         // hands its built-in's inline results their keys; Escape dismisses them.

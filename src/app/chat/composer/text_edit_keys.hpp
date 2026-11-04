@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 

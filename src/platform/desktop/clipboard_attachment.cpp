@@ -1,6 +1,7 @@
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/shell.hpp"
@@ -346,7 +347,7 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
     return failure;
 }
 } // namespace
-bool clipboard_attachment_available() noexcept {
+bool clipboard_has_attachment() noexcept {
 #if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
     if (clipboard_attachment_ui_fixture_provider())
         return true;
@@ -358,7 +359,7 @@ bool clipboard_attachment_available() noexcept {
            (png && IsClipboardFormatAvailable(png)) || IsClipboardFormatAvailable(CF_DIBV5) ||
            IsClipboardFormatAvailable(CF_DIB);
 }
-bool clipboard_attachment_capture(ClipboardAttachmentData* output) noexcept {
+bool clipboard_attachment_capture(ClipboardCapture* output) noexcept {
     if (!output || output->object)
         return false;
     if (!ole_initialized) {
@@ -382,15 +383,29 @@ bool clipboard_attachment_capture(ClipboardAttachmentData* output) noexcept {
     object->Release();
     return SUCCEEDED(result);
 }
-void clipboard_attachment_release(ClipboardAttachmentData* input) noexcept {
+void clipboard_attachment_release(ClipboardCapture* input) noexcept {
     if (input && input->object) {
         LARGE_INTEGER zero{};
         input->object->Seek(zero, STREAM_SEEK_SET, nullptr);
         CoReleaseMarshalData(input->object); input->object->Release(); reset_value(input);
     }
 }
+ClipboardCapture* clipboard_capture_attachment() noexcept {
+    auto* capture = static_cast<ClipboardCapture*>(heap_allocate(sizeof(ClipboardCapture), true));
+    if (capture && !clipboard_attachment_capture(capture)) {
+        heap_free(capture);
+        return nullptr;
+    }
+    return capture;
+}
+void clipboard_capture_release(ClipboardCapture* capture) noexcept {
+    if (!capture)
+        return;
+    clipboard_attachment_release(capture);
+    heap_free(capture);
+}
 void clipboard_attachment_shutdown() noexcept { if (ole_initialized) { OleUninitialize(); ole_initialized = false; } }
-DWORD clipboard_attachment_visit(ClipboardAttachmentData* input, u32 maximum, u64 limit,
+DWORD clipboard_attachment_visit(ClipboardCapture* input, u32 maximum, u64 limit,
     ClipboardAttachmentVisitor visitor, void* context, u32* count, ClipboardAttachmentOversize* oversize) noexcept {
     if (!input || !input->object || !maximum || !limit || !visitor || !count) return ERROR_INVALID_PARAMETER;
     IDataObject* object = nullptr; *count = 0;

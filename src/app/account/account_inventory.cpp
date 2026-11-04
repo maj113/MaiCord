@@ -1,4 +1,5 @@
 #include "maicord/app/account/account_inventory.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
@@ -189,14 +190,13 @@ AccountInventoryResult account_inventory_save(const wchar_t* path, const Account
 bool account_inventory_profile_user(const wchar_t* profile_path, u64* user_id) noexcept {
     if (!user_id || !wide_length(profile_path, kAccountProfileMaximumPathCharacters))
         return false;
-    HANDLE file = CreateFileW(profile_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = file_open(profile_path, {FileAccess::read, FileCreate::existing, kFileShareRead, 0});
     if (file == INVALID_HANDLE_VALUE)
         return false;
     u8 header[kProfileHeaderBytes]{};
     u32 native_error = 0;
     const bool read = file_persistence_read_complete(file, Slice<u8>{header, kProfileHeaderBytes}, &native_error);
-    CloseHandle(file);
+    file_close(file);
     if (!read || !bytes_equal(header, kProfileMagic, sizeof(kProfileMagic)) ||
         byte_load_le32(header + 12) != kProfileHeaderBytes)
         return false;

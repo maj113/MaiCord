@@ -249,7 +249,7 @@ bool alphabetic_scripts(NativeTextContext& owner, Utf8View text, u8* bytes) noex
 u32 requested_font(const TextSystem& system,u32 flags) noexcept {u32 result=flags&(text_style_bold|text_style_italic|text_style_monospace);if(text_system_fixed_weight(system,flags))result&=~text_style_bold;return result;}
 float span_size(const TextSystem& system,const NativeFormat* format,u32 flags) noexcept {const float size=text_system_font_size(system,flags);return size!=system.em_size?size:format->em;}
 bool same_query(const NativeTextFontQuery& a,const NativeTextFontQuery& b) noexcept {return a.scope==b.scope&&bytes_equal(&a.properties,&b.properties,4)&&a.family.count==b.family.count&&
-    CompareStringOrdinal(reinterpret_cast<const wchar_t*>(a.family.data),static_cast<int>(a.family.count),reinterpret_cast<const wchar_t*>(b.family.data),static_cast<int>(b.family.count),TRUE)==CSTR_EQUAL;}
+    ordinal_equal(reinterpret_cast<const wchar_t*>(a.family.data),static_cast<int>(a.family.count),reinterpret_cast<const wchar_t*>(b.family.data),static_cast<int>(b.family.count),true);}
 u32 font_span_end(ConstSlice<TextStyleSpan> styles,u32 at,u32 limit,u32 style,const TextSystem& system,const NativeFormat* format,u32 flags,bool decorations=true) noexcept {
     const auto query=font_query(*system.native_text,format,requested_font(system,flags));const float em=span_size(system,format,flags);
     while(at<limit){while(style<styles.count&&styles[style].byte_offset+styles[style].byte_count<=at)++style;u32 end=limit,value=0;

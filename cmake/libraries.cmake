@@ -135,11 +135,28 @@ endfunction()
 maicord_import_library(maicord_combase desktop/combase.def)
 maicord_import_library(maicord_sspicli net/sspicli.def)
 
+# window_post (include/maicord/platform/window/window.hpp) for Windows: the audio workers wake the UI thread through it.
+maicord_library(maicord_window_post src/platform/window/win32/post.cpp
+    LIBS maicord_core user32)
+
+# The Windows window backend (include/maicord/platform/window): key state and the window service. The null backend
+# for headless tests is maicord_window_null.
+maicord_library(maicord_window_win32 src/platform/window/win32/keys.cpp src/platform/window/win32/window.cpp
+    src/platform/window/win32/translate.cpp src/platform/window/win32/window_proc.cpp
+    src/platform/window/win32/icon.cpp src/platform/window/win32/create_icon.cpp src/platform/window/win32/settings.cpp
+    src/platform/window/win32/drop.cpp src/platform/window/win32/main_window.cpp src/platform/window/win32/pump.cpp
+    LIBS maicord_core maicord_window_post user32 advapi32 shell32)
+# The headless backend (src/platform/window/null) behind the same service, for tests: list it before maicord_platform in
+# LIBS so its definitions win over maicord_window_win32's, which an archive member only provides when still undefined.
+maicord_library(maicord_window_null src/platform/window/null/window.cpp
+    LIBS maicord_core)
+
 maicord_library(maicord_platform
     src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp src/platform/decode/aac_decoder.cpp
-    src/platform/audio/media_audio.cpp src/platform/crypto/aead.cpp src/platform/crypto/aes_gcm.cpp src/platform/crypto/aes_gcm64.cpp
+    src/platform/audio/media_audio.cpp src/platform/audio/media_audio_ring.cpp src/platform/crypto/aead.cpp
+    src/platform/crypto/aes_gcm.cpp src/platform/crypto/aes_gcm64.cpp
     src/platform/crypto/hkdf_sha256.cpp src/platform/crypto/p256.cpp src/platform/crypto/xchacha20_poly1305.cpp
-    src/platform/net/network.cpp src/platform/net/datagram.cpp src/platform/net/file.cpp
+    src/platform/net/network.cpp src/platform/net/datagram.cpp src/platform/net/file.cpp src/platform/net/socket.cpp
     src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp src/platform/desktop/clipboard_image.cpp
     src/platform/desktop/file_identity.cpp src/platform/net/worker.cpp src/platform/crypto/random.cpp
     src/platform/desktop/timezone.cpp src/platform/crypto/remote_auth_crypto.cpp src/platform/crypto/secure_buffer.cpp
@@ -151,12 +168,13 @@ maicord_library(maicord_platform
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/net/file_persistence.cpp
-    LIBS maicord_core ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
+    LIBS maicord_core maicord_window_win32 ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)
 maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
-    LIBS maicord_core kernel32 ole32 user32)
+    src/platform/audio/notification_audio_mixer.cpp
+    LIBS maicord_core maicord_window_post kernel32 ole32 user32)
 maicord_library(maicord_notification_sound_assets src/app/notifications/sound_assets.cpp
     LIBS maicord_notification_pcm maicord_notification_audio kernel32)
 
@@ -388,6 +406,12 @@ maicord_library(maicord_paint_program
     src/render/effects/lottie_program.cpp
     LIBS d2d1 maicord_compile_contract maicord_core maicord_render_core maicord_font maicord_media_core)
 
+# The geometry engine the Lottie compiler runs on without Direct2D (Linux). Nothing shipping on Windows links it; its
+# tests compare it with Direct2D.
+maicord_library(maicord_vector_geometry
+    src/render/effects/vector_geometry.cpp src/render/effects/vector_overlay.cpp src/render/effects/vector_stroke.cpp
+    LIBS maicord_compile_contract maicord_core)
+
 maicord_library(maicord_ui
     src/ui/chat/polls/controls.cpp src/ui/chat/polls/voters.cpp src/ui/chat/polls/presentation.cpp src/ui/voice/audio_controls.cpp
     src/ui/voice/audio_presentation.cpp src/ui/voice/video_controls.cpp src/ui/voice/video_scene.cpp src/ui/widgets/spinner.cpp
@@ -482,7 +506,7 @@ maicord_library(maicord_plugin_catalog
 maicord_library(maicord_edit_history src/model/chat/edit_history.cpp LIBS maicord_core maicord_platform)
 
 maicord_library(maicord_ui_input
-    src/ui/text/clipboard.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_target.cpp src/ui/text/secure_edit_history.cpp
+    src/platform/window/win32/clipboard.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_target.cpp src/ui/text/secure_edit_history.cpp
     src/ui/text/secure_text_store.cpp
     LIBS maicord_core maicord_platform maicord_edit_history user32)
 
@@ -530,13 +554,15 @@ maicord_library(maicord_message_media
     src/app/media/animation_visual_runtime.cpp src/app/media/message_media_controller.cpp
     LIBS maicord_core maicord_model maicord_ui maicord_message_runtime maicord_media_core maicord_render_core)
 
-# deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
-maicord_library(maicord_shader_bytecode src/render/d3d11/shader_bytecode.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
+# The Direct3D 11 backend of include/maicord/gpu/api.hpp. deflate.cpp checks gzip members with png_crc32 from
+# maicord_media_codec.
+maicord_library(maicord_gpu_d3d11
+    src/gpu/d3d11/shader_pack.cpp src/gpu/d3d11/device.cpp src/gpu/d3d11/surface.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
     LIBS maicord_core maicord_compression maicord_media_codec d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_atlas_gpu
-    src/render/media/video_frame_gpu.cpp "${MAICORD_VIDEO_FRAME_HEADER}" src/render/text/glyph_atlas_gpu.cpp
+    src/gpu/d3d11/video_frame.cpp "${MAICORD_VIDEO_FRAME_HEADER}" src/render/text/glyph_atlas_gpu.cpp
     src/render/media/atlas_gpu.cpp src/render/media/atlas_gpu_animation.cpp
     src/render/media/atlas_gpu_dispatch.cpp src/render/media/atlas_gpu_operations.cpp
     src/render/media/atlas_gpu_validation.cpp src/render/media/atlas_gpu_vp8.cpp "${MAICORD_VP8_IDCT_HEADER}"
@@ -544,7 +570,7 @@ maicord_library(maicord_atlas_gpu
     "${MAICORD_GLYPH_COMPUTE_HEADER}" "${MAICORD_GLYPH_CULLED_COMPUTE_HEADER}" "${MAICORD_PNG_COMPUTE_HEADER}" "${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "${MAICORD_VP8_FILTER_HEADER}" "${MAICORD_VP8_ATLAS_HEADER}" "${MAICORD_JPEG_IDCT_HEADER}"
     "${MAICORD_JPEG_ATLAS_HEADER}"
-    LIBS maicord_core maicord_render_core maicord_text maicord_shader_bytecode d3d11
+    LIBS maicord_core maicord_render_core maicord_text maicord_gpu_d3d11 d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_renderer
@@ -563,6 +589,6 @@ maicord_library(maicord_renderer
     src/render/d3d11/renderer_caption.cpp "${MAICORD_UI_VERTEX_HEADER}"
     "${MAICORD_UI_PIXEL_HEADER}" "${MAICORD_GLYPH_VERTEX_HEADER}" "${MAICORD_GLYPH_PIXEL_HEADER}"
     "${MAICORD_MEDIA_VERTEX_HEADER}" "${MAICORD_MEDIA_PIXEL_HEADER}"
-    LIBS maicord_media_core maicord_font maicord_paint_program maicord_shader_bytecode
+    LIBS maicord_media_core maicord_font maicord_paint_program maicord_gpu_d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
     DEPENDS maicord_atlas_gpu)

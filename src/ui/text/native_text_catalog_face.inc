@@ -29,8 +29,13 @@ NativeFontResult load_face(NativeTextCatalogs& owner,const wchar_t* path,u32 ind
     }
     if(!matched)return {};if(!found_default)return {NativeFontError::font,SfntStatus::unsupported,0};
     u32 path_units=0;while(path[path_units])++path_units;
+#if defined(_WIN32)
     const auto& opened=fonts->files[fonts->faces[handle.slot-1].file_slot];FILE_BASIC_INFO basic{};
     if(!GetFileInformationByHandleEx(opened.file,FileBasicInfo,&basic,sizeof(basic)))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+#else
+    const auto& opened=fonts->files[fonts->faces[handle.slot-1].file_slot];u64 write_time=0,change_time=0;
+    if(!file_times(opened.file,&write_time,&change_time))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+#endif
     const auto mark=arena_mark(&owner.storage);bool published=false;
     struct Rollback {Arena& storage;ArenaMark mark;bool& published;~Rollback() noexcept {if(!published)arena_rewind(&storage,mark);}} rollback{owner.storage,mark,published};
     // One block: settings, properties, then the path (with its NUL) and family name.
@@ -40,7 +45,11 @@ NativeFontResult load_face(NativeTextCatalogs& owner,const wchar_t* path,u32 ind
     auto* setting_data=reinterpret_cast<FontAxisSetting*>(block);auto* properties=reinterpret_cast<NativeFontProperties*>(setting_data+settings);auto* strings=reinterpret_cast<u16*>(properties+count);
     NativeFontCatalog catalog{{},reinterpret_cast<const wchar_t*>(strings),{strings+path_units+1,family.units},properties,setting_data,index,count,axes};
     copy_bytes(&catalog.stamp.identity,&opened.identity,sizeof(opened.identity));catalog.stamp.bytes=opened.bytes.count;
+#if defined(_WIN32)
     copy_bytes(&catalog.stamp.write,&basic.LastWriteTime,8);copy_bytes(&catalog.stamp.change,&basic.ChangeTime,8);
+#else
+    copy_bytes(&catalog.stamp.write,&write_time,8);copy_bytes(&catalog.stamp.change,&change_time,8);
+#endif
     copy_bytes(strings,path,(path_units+1)*2);copy_bytes(strings+path_units+1,name,family.units*2);
     for(u32 i=0;i<count;++i){const u32 selected=default_only?default_index:i;NativeFontCandidate candidate{};u32 actual=0;
         status=native_font_candidate(candidates,selected,&candidate);if(status!=SfntStatus::ok)return {NativeFontError::font,status,0};

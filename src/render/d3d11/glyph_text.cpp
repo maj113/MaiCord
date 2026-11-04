@@ -1,6 +1,7 @@
 #include "../text/glyph_effect_ordinals.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/gpu/api.hpp"
 #include "../text/d3d11_color_glyph_owner.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
@@ -12,12 +13,15 @@
 #include "maicord/render/text/native_glyph_outlines.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/sys/simd.hpp"
+#include "maicord/platform/font/default_fonts.hpp"
+#if !defined(_WIN32)
+#include "maicord/text/opentype/bitmap_color.hpp"
+#endif
 
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
 
 namespace maicord {
-ID3D11ShaderResourceView* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept {
+GpuSrv* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept {
     return owner.color ? owner.color->gpu.view : nullptr;
 }
 namespace {
@@ -29,10 +33,10 @@ D3D11ColorGlyphOwner* color_owner(D3D11GlyphTextOwner* owner) noexcept {
 }
 
 // Worker-compiled programs borrow account-module storage only for this call.
-bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool rasterize_program(D3D11GlyphTextOwner* owner, GpuContext* context,
                        const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation,
                        u16 extent, float pixels_per_unit, u16 target_width, u16 target_height,
-                       u16 padding, ID3D11UnorderedAccessView* target) noexcept {
+                       u16 padding, GpuUav* target) noexcept {
     if (!owner || !owner->gpu.width || !context || !target || allocation.width != extent ||
         allocation.height != extent)
         return false;
@@ -46,23 +50,27 @@ bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
                                        padding, target);
 }
 } // namespace
-bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, GpuContext* context,
                                              const ColrPaintProgram& program,
                                              const GlyphAtlasAllocation& allocation, u16 target_width,
                                              u16 target_height, u16 padding,
-                                             ID3D11UnorderedAccessView* target) noexcept {
+                                             GpuUav* target) noexcept {
     return rasterize_program(owner, context, program, allocation, 64, kRegionalFlagPixelsPerUnit,
                              target_width, target_height, padding, target);
 }
 // The frame was compiled at its tile's extent (lottie_raster_pixels).
-bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, GpuContext* context,
     const ColrPaintProgram& program,const GlyphAtlasAllocation& allocation,u16 target_width,
-    u16 target_height,u16 padding,ID3D11UnorderedAccessView* target) noexcept {
+    u16 target_height,u16 padding,GpuUav* target) noexcept {
     return rasterize_program(owner, context, program, allocation, static_cast<u16>(allocation.width),
                              static_cast<float>(allocation.width), target_width, target_height, padding, target);
 }
 namespace {
 constexpr u16 color_face_flag = 2;
+#if !defined(_WIN32)
+// A colour bitmap face (CBLC/CBDT): its glyphs are decoded images placed in the colour atlas, not paint programs.
+constexpr u16 bitmap_face_flag = 4;
+#endif
 
 // The nearest whole device pixel, also for the negative origins of text
 // scrolled above its clip.
@@ -127,10 +135,9 @@ enum class AtlasGrowth : u8 { none, grown, failed };
 
 // Recreates the mono and COLR atlas textures `height` rows tall, applying
 // trim's row moves from the old ones: both change or neither.
-bool resize_textures(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u16 height,
+bool resize_textures(D3D11GlyphTextOwner* owner, GpuContext* context, u16 height,
                      ConstSlice<GlyphAtlasRowMove> moves) noexcept {
-    ID3D11Device* device = nullptr;
-    context->GetDevice(&device);
+    GpuDevice* device = gpu_context_device(context);
     auto& mono = owner->gpu;
     const u16 before = mono.height;
     bool ok = device && SUCCEEDED(glyph_atlas_texture_resize(device, context, &mono.texture, &mono.texture_view,
@@ -150,7 +157,6 @@ bool resize_textures(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u
             }
         }
     }
-    com_release(device);
     return ok;
 }
 
@@ -159,7 +165,7 @@ bool resize_textures(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u
 // step (glyph_atlas_growth_prepare) and both textures are recreated taller,
 // keeping their rows. Queued COLR jobs and `raster` are dispatched into the
 // old textures first. A grown atlas invalidates every retained quad.
-AtlasGrowth grow_atlas(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u16 width, u16 height,
+AtlasGrowth grow_atlas(D3D11GlyphTextOwner* owner, GpuContext* context, u16 width, u16 height,
                        GlyphRasterBatch* raster) noexcept {
     auto& growth = atlas_growth(owner);
     const u16 before = owner->allocator.height;
@@ -246,7 +252,7 @@ bool reserve_font_record(D3D11GlyphTextOwner* owner) noexcept {
 }
 
 D3D11GlyphTextInitializeResult initialize_result(D3D11GlyphTextInitializeError error,
-                                                 HRESULT native_error = S_OK) noexcept {
+                                                 GpuStatus native_error = kGpuOk) noexcept {
     return D3D11GlyphTextInitializeResult{native_error, error};
 }
 
@@ -280,6 +286,10 @@ u16 retain_run_font(D3D11GlyphTextOwner* owner, const ShapedText& text, const Te
     if (font && sfnt_table(font->geometry.face, sfnt_tag('C', 'O', 'L', 'R'), &colr) == SfntStatus::ok &&
         colr.count)
         face.flags |= color_face_flag;
+#if !defined(_WIN32)
+    else if (font && font->geometry.kind == FontGeometryKind::bitmap)
+        face.flags |= color_face_flag | bitmap_face_flag;
+#endif
     return face.id;
 }
 
@@ -429,8 +439,75 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
     return false;
 }
 
+#if !defined(_WIN32)
+enum class BitmapGlyph : u8 { ready, absent, retry, failed };
+
+// The scratch of one bitmap glyph: the decode, the scaled tile and the padded copy of the upload.
+struct BitmapScratch {
+    Arena arena{};
+    BitmapScratch() noexcept { arena_initialize(&arena, 16u << 20, 0, 64u << 10); }
+    ~BitmapScratch() noexcept { arena_release(&arena); }
+    BitmapScratch(const BitmapScratch&) = delete;
+    BitmapScratch& operator=(const BitmapScratch&) = delete;
+};
+
+// A colour bitmap glyph that is not in the atlas: the image of the strike nearest the size, scaled to it, uploaded
+// like a painted glyph (same atlas allocation, same invalidation rules). `absent`: the face has no image for it.
+BitmapGlyph build_bitmap_glyph(D3D11GlyphTextOwner* owner, GpuContext* context,
+                               const D3D11GlyphTextAppendRequest& request, const TextRun& run, u64 key, u16 glyph,
+                               float pixels_per_em, GlyphAtlasAllocation* output) noexcept {
+    auto& color = *owner->color;
+    const auto* record = native_font_run_get(*native_font_session_runs(owner->system.native_fonts), run.native_face);
+    const auto* face =
+        record ? native_font_get(*native_font_session_fonts(owner->system.native_fonts), record->source.face) : nullptr;
+    CbdtFont font{};
+    if (!face || cbdt_open(face->geometry.face, &font) != SfntStatus::ok)
+        return BitmapGlyph::failed;
+    BitmapScratch scratch;
+    if (!scratch.arena.base)
+        return BitmapGlyph::failed;
+    BitmapColorGlyph tile{};
+    const SfntStatus built = bitmap_color_glyph_build(font, glyph, pixels_per_em, &scratch.arena, &tile);
+    if (built == SfntStatus::glyph_out_of_range)
+        return BitmapGlyph::absent;
+    if (built != SfntStatus::ok)
+        return BitmapGlyph::failed;
+    const GlyphRasterBounds bounds{tile.left,
+                                   tile.top,
+                                   tile.left + static_cast<i32>(tile.width),
+                                   tile.top + static_cast<i32>(tile.height),
+                                   static_cast<u16>(tile.width),
+                                   static_cast<u16>(tile.height)};
+    switch (grow_atlas(owner, context, bounds.width, bounds.height, nullptr)) {
+    case AtlasGrowth::grown:
+        *request.atlas_invalidated = true;
+        return BitmapGlyph::retry;
+    case AtlasGrowth::failed:
+        return BitmapGlyph::failed;
+    case AtlasGrowth::none:
+        break;
+    }
+    const auto allocation = allocate_protected(owner, key, bounds.width, bounds.height);
+    if (!allocation.ok())
+        return BitmapGlyph::failed;
+    if (!colr_paint_upload_pixels(&color.gpu, context, allocation, owner->allocator.width, owner->allocator.height,
+                                  owner->allocator.padding, tile.pixels, &scratch.arena, owner->color_batch)) {
+        log_u64(LogLevel::error, "render", "bitmap_glyph_upload_failed", glyph);
+        glyph_atlas_reset(&owner->allocator);
+        return BitmapGlyph::failed;
+    }
+    owner->atlas_origins[allocation.handle.slot] = {bounds.left, bounds.top};
+    ++owner->cache_builds;
+    *output = allocation;
+    if (allocation.evicted_entries || allocation.atlas_reset) {
+        *request.atlas_invalidated = true;
+        return BitmapGlyph::retry;
+    }
+    return BitmapGlyph::ready;
+}
+#endif
 // `origin_x`/`origin_y` are the block's origin on whole device pixels.
-bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool append_color_glyph_run(D3D11GlyphTextOwner* owner, GpuContext* context,
                             const D3D11GlyphTextAppendRequest& request, const TextRun& run,
                             const Color& foreground, float origin_x, float origin_y) noexcept {
     if (!color_owner(owner))
@@ -450,7 +527,22 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
         u64 key = (1ull << 63) | (static_cast<u64>(face_id) << 48) | (static_cast<u64>(request.dpi) << 32) |
                   (static_cast<u64>(em_fixed) << 16) | glyph.index;
         auto allocation = glyph_atlas_find_indexed(&owner->allocator, atlas_index(owner), key);
+#if defined(_WIN32)
         if (!allocation.ok()) {
+#else
+        const bool bitmap_face = (owner->font_faces[face_id - 1u].flags & bitmap_face_flag) != 0;
+        if (bitmap_face && !allocation.ok()) {
+            const BitmapGlyph state =
+                build_bitmap_glyph(owner, context, request, run, key, glyph.index, pixels_per_em, &allocation);
+            if (state == BitmapGlyph::absent) {
+                advance += glyph.advance;
+                continue;
+            }
+            if (state != BitmapGlyph::ready)
+                return false;
+        }
+        if (!allocation.ok() && !bitmap_face) {
+#endif
             const u32 identity = (static_cast<u32>(face_id) << 16) | glyph.index;
             auto& hint = color.foreground_hints[(glyph.index ^ (face_id * 31u)) & 255u];
             const u64 base_key = key;
@@ -580,7 +672,7 @@ bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origi
 
 // Caller-owned glyph buffers lend their reserved storage to effect preparation.
 // No geometry or cluster-map field changes, and no submitted quad keeps a tag.
-bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              const D3D11GlyphTextAppendRequest& request) noexcept {
     if (!owner || !context || !request.text || !request.output || !request.count ||
         !request.atlas_invalidated || *request.count > request.capacity) {
@@ -855,7 +947,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
     return true;
 }
 
-bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u32 dpi,
+bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* context, u32 dpi,
                                     bool reset_atlas) noexcept {
     if (!owner || !context || !owner->gpu.texture || !owner->title.glyphs) {
         return false;
@@ -895,8 +987,8 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceCont
     return d3d11_glyph_text_append(owner, context, request) && !invalidated && owner->title_quad_count != 0;
 }
 
-D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, ID3D11Device* device,
-                                                           ID3D11DeviceContext* context, u32 dpi,
+D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, GpuDevice* device,
+                                                           GpuContext* context, u32 dpi,
                                                            GlyphAtlasGpu* prestarted_atlas) noexcept {
     if (!owner || !device || !context || dpi == 0 || owner->storage.base || owner->system.native_text ||
         owner->gpu.texture || owner->color_glyphs) {
@@ -906,7 +998,12 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::shaped_storage, E_OUTOFMEMORY);
     }
+#if defined(_WIN32)
     const TextShapeResult system = text_system_initialize(&owner->system, L"Segoe UI", 16.0f);
+#else
+    const TextShapeResult system =
+        text_system_initialize(&owner->system, default_font_family(DefaultFont::ui), 16.0f);
+#endif
     if (!system.ok()) {
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::text_system, system.native_error);
@@ -959,7 +1056,7 @@ void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {
 
 // A lost device took the atlas textures with it: new ones at the height the allocator holds, an empty allocator
 // (every glyph is rasterized again on demand) and the stale-geometry flag so retained quads are rebuilt.
-bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, ID3D11Device* device) noexcept {
+bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, GpuDevice* device) noexcept {
     if (!owner || !device || !owner->atlas_origins)
         return false;
     if (owner->color_batch)
@@ -986,7 +1083,7 @@ u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept {
                : 0;
 }
 
-bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u64 now_ms) noexcept {
+bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 now_ms) noexcept {
     if (!owner || !context || !owner->atlas_origins)
         return false;
     auto& growth = atlas_growth(owner);

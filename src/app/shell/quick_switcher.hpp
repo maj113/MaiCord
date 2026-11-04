@@ -4,6 +4,7 @@
 #include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 bool application_quick_switcher_active() noexcept;
@@ -13,8 +14,8 @@ void application_quick_switcher_close() noexcept;
 void application_quick_switcher_release() noexcept;
 bool application_quick_switcher_synchronize() noexcept;
 bool application_quick_switcher_input(UiInputKind, u32 key, bool repeated) noexcept;
-bool application_quick_switcher_filter(const MSG&) noexcept;
-bool application_quick_switcher_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_quick_switcher_filter(const WindowEvent&) noexcept;
+bool application_quick_switcher_window_event(const WindowEvent&) noexcept;
 void application_quick_switcher_note_channel(u64 channel_id) noexcept;
 void application_quick_switcher_tick(u64 now_ms) noexcept;
 u64 application_quick_switcher_caret_wake() noexcept;

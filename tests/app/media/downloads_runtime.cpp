@@ -1,8 +1,10 @@
 // Shipping Save host with owned authoritative models and deterministic native
 // dialog/transport boundaries. No chooser, network or filesystem write occurs.
 #include "../../../src/app/media/downloads.cpp"
+#include "maicord/platform/window/win32_clipboard.hpp"
 #include "../../../src/app/media/downloads_input.cpp"
 #include "../../support/test_output.hpp"
+#include "../../support/window_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -286,7 +288,7 @@ struct CapturedClipboard {
     char text[512];
 };
 CapturedClipboard clipboard{};
-bool clipboard_open(void*, HWND) noexcept {
+bool clipboard_open(void*) noexcept {
     ++clipboard.opens;
     clipboard.publishes = 0;
     return true;
@@ -524,7 +526,7 @@ void save_target_tests() noexcept {
     const float x = (save.left + save.right) * .5f, y = (save.top + save.bottom) * .5f;
     const auto focused = scene.widgets.focused, captured = scene.widgets.captured;
     const bool lazy = !g_app.downloads;
-    check(application_downloads_save_target(x, y) && GetCapture() == nullptr &&
+    check(application_downloads_save_target(x, y) && !window_pointer_captured(g_app.window) &&
               scene.widgets.captured.slot == captured.slot &&
               scene.widgets.captured.generation == captured.generation &&
               scene.widgets.focused.slot == focused.slot &&
@@ -543,9 +545,8 @@ void save_target_tests() noexcept {
     moved->rectangle = laid_out;
     check(application_downloads_save_press(x, y) && g_app.downloads && g_app.downloads->inline_capture,
           "Downloads Save press alone captures the pointer for its click");
-    application_downloads_window_message(WM_LBUTTONUP, 0,
-                                         MAKELPARAM(static_cast<i16>(-500), static_cast<i16>(-500)));
-    check(GetCapture() == nullptr && g_app.downloads && !g_app.downloads->inline_capture,
+    application_downloads_window_event(window_test::pointer_up(static_cast<i16>(-500), static_cast<i16>(-500), PointerButton::left));
+    check(!window_pointer_captured(g_app.window) && g_app.downloads && !g_app.downloads->inline_capture,
           "Downloads Save press release outside the button returns the pointer");
     message_scene_release(&scene);
 }
@@ -660,8 +661,8 @@ void media_admission_tests() noexcept {
     scene = {};
 }
 void run() noexcept {
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Save isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Save isolated fixture", WS_POPUP, 0, 0, 1200, 900,
+                                   nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Downloads fixture creates hidden native owner");
@@ -852,7 +853,7 @@ void run() noexcept {
     const LPARAM cancel_point =
         MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
-    application_downloads_window_message(WM_LBUTTONDOWN, MK_LBUTTON, cancel_point);
+    application_downloads_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point)));
     const auto pressed_widget = q->scene.widgets.captured;
     transfer_result.committed_bytes = 3;
     application_downloads_pump();
@@ -860,7 +861,7 @@ void run() noexcept {
               q->scene.widgets.captured.generation == pressed_widget.generation,
           "Downloads progress-only update retains actual native button capture");
     const auto prior_cancels = cancels;
-    application_downloads_window_message(WM_LBUTTONUP, 0, cancel_point);
+    application_downloads_window_event(window_test::pointer_up(window_test::x_of(cancel_point), window_test::y_of(cancel_point), PointerButton::left));
     check(cancels == prior_cancels + 1 && q->jobs[0].cancel_requested,
           "Downloads Cancel remains usable while byte progress advances");
     finish(HttpsFileDownloadError::cancelled);
@@ -874,13 +875,13 @@ void run() noexcept {
     const LPARAM resized_point =
         MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
-    application_downloads_window_message(WM_LBUTTONDOWN, MK_LBUTTON, resized_point);
+    application_downloads_window_event(window_test::pointer_down(window_test::x_of(resized_point), window_test::y_of(resized_point)));
     fixture_viewport.right = 1000;
     application_downloads_synchronize();
     fixture_viewport.right = 1200;
     application_downloads_synchronize();
     const auto cancels_before_resize = cancels;
-    application_downloads_window_message(WM_LBUTTONUP, 0, resized_point);
+    application_downloads_window_event(window_test::pointer_up(window_test::x_of(resized_point), window_test::y_of(resized_point), PointerButton::left));
     check(cancels == cancels_before_resize && !q->jobs[0].cancel_requested &&
               !q->scene.widgets.captured.generation,
           "Downloads resize retires capture even when the old button geometry returns");
@@ -892,17 +893,17 @@ void run() noexcept {
     picker_ready = true;
     application_downloads_pump();
     const LPARAM backdrop = MAKELPARAM(10, 10);
-    application_downloads_window_message(WM_LBUTTONDOWN, MK_LBUTTON, backdrop);
-    application_downloads_window_message(WM_LBUTTONUP, 0, backdrop);
+    application_downloads_window_event(window_test::pointer_down(window_test::x_of(backdrop), window_test::y_of(backdrop)));
+    application_downloads_window_event(window_test::pointer_up(window_test::x_of(backdrop), window_test::y_of(backdrop), PointerButton::left));
     check(!q->active && q->jobs[0].admitted && !q->jobs[0].cancel_requested,
           "Downloads matching backdrop release hides the panel and retains admitted work");
     application_downloads_open();
-    application_downloads_window_message(WM_LBUTTONDOWN, MK_LBUTTON, backdrop);
+    application_downloads_window_event(window_test::pointer_down(window_test::x_of(backdrop), window_test::y_of(backdrop)));
     fixture_viewport.right = 1000;
     application_downloads_synchronize();
     fixture_viewport.right = 1200;
     application_downloads_synchronize();
-    application_downloads_window_message(WM_LBUTTONUP, 0, backdrop);
+    application_downloads_window_event(window_test::pointer_up(window_test::x_of(backdrop), window_test::y_of(backdrop), PointerButton::left));
     check(q->active && q->jobs[0].admitted,
           "Downloads backdrop capture retires when layout moves and returns");
     TextFormScene external_form{};
@@ -1156,9 +1157,9 @@ void run() noexcept {
     check(count == 8 && !q->jobs[7].admitted, "Downloads queue is bounded to eight owned receipts");
     const auto panel = q->scene.panel;
     const LPARAM point = MAKELPARAM(static_cast<i16>(panel.left + 2), static_cast<i16>(panel.top + 2));
-    application_downloads_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
+    application_downloads_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     application_downloads_close();
-    check(application_downloads_window_message(WM_LBUTTONUP, 0, point) && GetCapture() != g_app.window,
+    check(application_downloads_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !window_pointer_captured(g_app.window),
           "Downloads hiding releases capture and consumes pointer tail");
     application_downloads_prepare_account_stop();
     check(application_downloads_release() && !g_app.downloads &&
@@ -1171,14 +1172,14 @@ void run() noexcept {
     media_admission_tests();
     ui_search_scene_release(&search_scene);
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
 }
 } // namespace maicord::downloads_runtime_test
 namespace maicord {
-NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, HWND, Utf8View,
+NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, Window, Utf8View,
                                                     Utf8View) noexcept {
     using namespace downloads_runtime_test;
     ++picker_starts;

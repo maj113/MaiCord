@@ -1,6 +1,7 @@
 #include "maicord/app/update/prepare.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -21,12 +22,17 @@ bool write_fixture(const wchar_t* path, const u8* data, u32 count) noexcept {
     return CloseHandle(file) && ok;
 }
 bool read_abc(HANDLE file) noexcept {
-    LARGE_INTEGER zero{};
-    u8 bytes[4]{}; DWORD read = 0;
+    u8 bytes[4]{}; u32 read = 0;
     constexpr u8 abc[]{'a','b','c'};
-    return SetFilePointerEx(file, zero, nullptr, FILE_BEGIN) && ReadFile(file, bytes, sizeof(bytes), &read, nullptr) &&
+    return file_seek(file, 0, FileSeek::begin) && file_read(file, bytes, sizeof(bytes), &read) &&
         read == 3 && bytes_equal(bytes, abc, 3);
 }
+bool exists(const wchar_t* path) noexcept { FileStat stat{}; return file_path_stat(path, &stat); }
+#if defined(_WIN32)
+constexpr wchar_t kRecordLeaf[] = L"\\acceptance.bin", kArtifactLeaf[] = L"\\artifact.bin";
+#else
+constexpr wchar_t kRecordLeaf[] = L"/acceptance.bin", kArtifactLeaf[] = L"/artifact.bin";
+#endif
 } // namespace
 
 void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
@@ -39,8 +45,8 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
     const bool created = DeleteFileW(directory) && CreateDirectoryW(directory, nullptr);
     check(created, "prepare: create owned external acceptance and artifact fixture directory");
     if (!created) return;
-    append(directory, L"\\acceptance.bin", record_path);
-    append(directory, L"\\artifact.bin", artifact_path);
+    append(directory, kRecordLeaf, record_path);
+    append(directory, kArtifactLeaf, artifact_path);
     append(record_path, L".lock", lock_path); append(record_path, L".new", new_path);
     UpdatePreparationContext context{};
     UpdatePreparationResult prepared{};
@@ -102,15 +108,16 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
     check(alias.error == UpdatePreparationError::invalid_input && overflow.error == UpdatePreparationError::invalid_input &&
         path_alias.error == UpdatePreparationError::invalid_input &&
         bytes_equal(&context, &empty_context, sizeof(context)) && bytes_equal(&policy, &before_policy, sizeof(policy)) &&
-        GetFileAttributesW(lock_path) == INVALID_FILE_ATTRIBUTES,
+        !exists(lock_path),
         "prepare: scratch/context and path/context aliases and an overflowing path count fail before storage or authority mutation");
     signature[3] ^= 1;
     check(run() && prepared.error == UpdatePreparationError::acceptance &&
         prepared.phase == UpdatePreparationPhase::acceptance_commit &&
         prepared.acceptance.manifest_error == UpdateManifestError::signature && !prepared.acceptance_admitted &&
         context.acceptance.lock && !context.artifact.file && bytes_equal(&policy, &before_policy, sizeof(policy)) &&
-        GetFileAttributesW(record_path) == INVALID_FILE_ATTRIBUTES,
+        !exists(record_path),
         "prepare: bad publisher signature retains only caller-owned lock and admits no record or artifact");
+#if defined(_WIN32)
     // A failed release must not discard a real later owner. A real protected
     // event exercises CloseHandle failure without process pseudo-handle values.
     const HANDLE owned_lock = context.acceptance.lock;
@@ -128,6 +135,7 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         check(unprotected, "prepare: owned fixture protection is explicitly cleared before release retry");
         if (!unprotected) return;
     } else if (protected_owner) CloseHandle(protected_owner);
+#endif
     check(update_preparation_release(&context).ok() && !context.acceptance.lock,
         "prepare: explicit owner retry closes the still-owned lock and clears context");
 
@@ -136,17 +144,23 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         bytes_equal(context.artifact.sha256, kPreparedAbcDigest, 32) && read_abc(context.artifact.file),
         "prepare: durable current disk admission leads to the retained abc artifact and its expected digest");
     if (!prepared.ok() || !context.artifact.file) return;
-    DWORD written = 0;
+    u32 written = 0;
     const u8 byte = 'x';
-    check(!WriteFile(context.artifact.file, &byte, 1, &written, nullptr) && GetLastError() == ERROR_ACCESS_DENIED,
+    check(!file_write(context.artifact.file, &byte, 1, &written),
         "prepare: prepared artifact owner has no write capability");
+#if defined(_WIN32)
+    // Windows denies a writer's open by sharing mode; on Linux sharing is advisory and a writer that does not lock gets in.
     HANDLE writer = CreateFileW(artifact_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, 0, nullptr);
     const DWORD writer_error = writer == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
+    const bool writer_denied = writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION;
+#else
+    const bool writer_denied = true;
+#endif
     UpdateAcceptanceTransaction competitor{};
     const auto competing = update_acceptance_begin(storage, &competitor);
-    check(writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION &&
+    check(writer_denied &&
         competing.error == UpdateAcceptanceError::lock && !competitor.lock,
         "prepare: the artifact denies writers and preparation retains admission serialization until explicit release");
     const auto successful_policy = policy;

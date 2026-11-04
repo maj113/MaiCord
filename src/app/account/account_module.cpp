@@ -1,4 +1,5 @@
 #include "account_module_internal.hpp"
+#include "maicord/os/wait.hpp"
 #include "login/account_login_captcha.hpp"
 #include "maicord/app/account/account_user_social.hpp"
 #include "maicord/app/guild/account_guild_community.hpp"
@@ -482,7 +483,7 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
     }
     auto& transfer = runtime->download->transfer;
     if (transfer.notification)
-        ResetEvent(transfer.notification);
+        event_reset(transfer.notification);
     result.transfer = https_file_download_status(&transfer);
     return result;
 }

@@ -93,9 +93,12 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
         "acceptance: caller-authorized first-use enrollment captures empty storage under an owned lock");
     if (!begun.ok()) return;
     const auto blocked = update_acceptance_begin(storage, &peer, true);
-    check(blocked.error == UpdateAcceptanceError::lock && blocked.native_error == ERROR_SHARING_VIOLATION && !peer.lock &&
-        !DeleteFileW(lock_path) && GetLastError() == ERROR_SHARING_VIOLATION,
-        "acceptance: competing handle and lock deletion are denied through the entire transaction");
+    bool lock_denied = blocked.error == UpdateAcceptanceError::lock && blocked.native_error == ERROR_SHARING_VIOLATION && !peer.lock;
+#if defined(_WIN32)
+    // The lock file cannot be deleted while a handle without delete sharing is open; on Linux a name can always go.
+    lock_denied = lock_denied && !DeleteFileW(lock_path) && GetLastError() == ERROR_SHARING_VIOLATION;
+#endif
+    check(lock_denied, "acceptance: competing handle and lock deletion are denied through the entire transaction");
 
     KdfSha256Workspace workspace{};
     P256Key signer{}, trusted{};
@@ -147,6 +150,8 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
     const auto accepted_state = owner.state;
     const auto accepted_policy = policy;
     const auto accepted_manifest = approved;
+#if defined(_WIN32)
+    // Sharing modes deny a writer's open on Windows; on Linux sharing is advisory and only cooperating openers lock.
     HANDLE deny_read = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
     check(deny_read != INVALID_HANDLE_VALUE, "acceptance: noncooperating writer fixture prevents a stable record read");
     if (deny_read != INVALID_HANDLE_VALUE) {
@@ -159,6 +164,7 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
             "acceptance: read IO failure is distinct from missing and publishes no new artifact authority");
         CloseHandle(deny_read);
     }
+#endif
     check(write_fixture(new_path, record, 1), "acceptance: stale sibling fixture exists without being silently overwritten");
     check(sign(six) && admit(six).ok() && state_equal(owner.state, accepted_state),
         "acceptance: identical signed-document retry uses existing durable acceptance without another write");
@@ -168,6 +174,7 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
         state_equal(owner.state, accepted_state) && update_acceptance_load(storage, &decoded).ok() && state_equal(decoded, accepted_state),
         "acceptance: failed sibling creation preserves prior disk state, transaction, policy and artifact authority");
     check(DeleteFileW(new_path), "acceptance: test-owned stale sibling is removed explicitly");
+#if defined(_WIN32)
     HANDLE deny_replace = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     check(deny_replace != INVALID_HANDLE_VALUE, "acceptance: destination fixture denies rename while allowing complete reads");
     if (deny_replace != INVALID_HANDLE_VALUE) {
@@ -183,6 +190,7 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
             GetFileAttributesW(new_path) == INVALID_FILE_ATTRIBUTES,
             "acceptance: failed replacement retains complete old record and cleans only its own temporary sibling");
     }
+#endif
     char changed[kUpdateManifestMaximumBytes]{};
     copy_bytes(changed, six.data, six.bytes); changed[six.bytes] = ' ';
     const auto changed_result = sign({changed, six.bytes + 1}) ? admit({changed, six.bytes + 1}) :

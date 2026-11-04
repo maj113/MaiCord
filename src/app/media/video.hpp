@@ -4,12 +4,15 @@
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct UiSearchTarget;
 } // namespace maicord
 namespace maicord::app_detail {
 struct ApplicationVideo;
+// What a pointer did over a player: it moved, the primary button went down or up, or the pointer left the window.
+enum class VideoPointer : u8 { move, down, up, leave };
 struct ApplicationSearchSourceTicket;
 bool application_video_ordinary(const MediaAssetKey&) noexcept;
 bool application_video_search_active() noexcept;
@@ -22,7 +25,7 @@ bool application_video_pump(bool* repaint) noexcept;
 // the account, taking frames or submitting playback/network commands.
 bool application_video_synchronize() noexcept;
 u64 application_video_next_wake() noexcept;
-bool application_video_pointer(UINT message, LPARAM) noexcept;
+bool application_video_pointer(const WindowEvent& event) noexcept;
 bool application_video_key(UINT key, bool shift, bool repeat) noexcept;
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                       UiTooltipTarget* target) noexcept;
@@ -32,7 +35,7 @@ void application_video_close() noexcept;
 // Media viewer hosting: the one session moves between inline and viewer
 // geometry; position and play state stay with the session.
 void application_video_viewer_detach() noexcept;
-bool application_video_viewer_pointer(UINT message, UiPoint) noexcept;
+bool application_video_viewer_pointer(VideoPointer kind, UiPoint point) noexcept;
 bool application_video_viewer_hidden_cursor() noexcept;
 // Viewer toolbar opacity: it hides with the idle player's controls.
 float application_video_viewer_chrome() noexcept;

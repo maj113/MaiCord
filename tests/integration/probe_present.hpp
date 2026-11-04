@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/render/d3d11/renderer.hpp"
+#include "probe_surface.hpp"
 
 namespace maicord {
 // Integration assertions cover paint, damage, swaps and interaction. Desktop

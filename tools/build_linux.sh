@@ -6,16 +6,21 @@
 #   tools/build_linux.sh --test a b            only the ctest cases named a and b
 #   tools/build_linux.sh --test --keep         keep objects, ninja state and compile_commands.json (incremental)
 #   tools/build_linux.sh --check               configure and build only; no audit, no tests
+#   tools/build_linux.sh --sync | --in-place   copy the repository to ext4 first / build the checkout where it is
+#   tools/build_linux.sh --timeout-scale N     multiply every test timeout by N (slow hosted runners)
 #
 # From Windows use tools\build_linux.ps1, which runs this script inside WSL.
 #
 # Layout and decisions (docs/ is git-ignored, so the reference lives here):
 #
-#   Host      Ubuntu 22.04+ (WSL "Ubuntu-Preview" for local work) with clang and lld 23 from apt.llvm.org (clang,
-#             clang++, ld.lld and llvm-ar on PATH, llvm-ranlib beside llvm-ar), cmake >= 3.28, ninja, python3 and rsync. The
-#             Windows toolchain and tools/build.ps1 are unchanged; this is the only Linux entry point.
-#   Source    The repository is rsynced to ext4 (default ~/mc, MAICORD_LINUX_SOURCE): /mnt/d is a 9p mount whose
-#             metadata operations make ninja and git 50-700x slower. Never build in the /mnt tree.
+#   Host      Ubuntu 22.04+, Debian 12+ or the like (WSL "Ubuntu-Preview" for local work, ubuntu-24.04 in CI) with clang
+#             and lld 23 from apt.llvm.org (tools/install_linux_toolchain.sh installs them; /usr/lib/llvm-23/bin is
+#             put first on PATH when it exists, and any other clang major is refused), cmake >= 3.28, ninja, python3 and,
+#             to sync, rsync. The Windows toolchain and tools/build.ps1 are unchanged; this is the only Linux entry point.
+#   Source    On a native Linux file system (ext4, xfs, btrfs, tmpfs, overlay: a Linux checkout, GitHub Actions) the
+#             checkout is built where it is. Where it sits on a Windows or network mount (WSL's /mnt/d is 9p, whose metadata
+#             operations make ninja and git 50-700x slower) it is rsynced to ext4 first (default ~/mc,
+#             MAICORD_LINUX_SOURCE; setting that variable, or --sync, always copies; $CI and --in-place never do).
 #   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: stock clang and ld.lld, full LTO,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
@@ -41,9 +46,12 @@ usage() {
 }
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-source_directory="${MAICORD_LINUX_SOURCE:-$HOME/mc}"
+source_directory="${MAICORD_LINUX_SOURCE:-}"
 build_directory="${MAICORD_LINUX_BUILD:-$HOME/mc-build}"
 jobs="$(nproc)"
+sync_mode=auto
+timeout_scale="${MAICORD_TEST_TIMEOUT_SCALE:-1}"
+llvm_major="${MAICORD_LLVM_MAJOR:-23}"
 run_tests=0
 keep=0
 check_only=0
@@ -66,6 +74,9 @@ while [ "$#" -gt 0 ]; do
         --keep) keep=1; shift ;;
         --check) check_only=1; shift ;;
         --jobs) jobs="$2"; shift 2 ;;
+        --sync) sync_mode=sync; shift ;;
+        --in-place) sync_mode=in-place; shift ;;
+        --timeout-scale) timeout_scale="$2"; shift 2 ;;
         -h|--help) usage 0 ;;
         *) echo "Unknown argument: $1" >&2; usage 2 ;;
     esac
@@ -74,10 +85,45 @@ if [ "$check_only" = 1 ] && [ "$run_tests" = 1 ]; then
     echo "--check builds only; it cannot run tests." >&2
     exit 2
 fi
+if ! [[ "$timeout_scale" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid timeout scale: $timeout_scale" >&2
+    exit 2
+fi
 
-for tool in clang clang++ ld.lld llvm-ar cmake ninja python3 rsync; do
+# Where the source is built from: this checkout when it is on a native Linux file system or in CI, else its ext4 copy.
+if [ "$sync_mode" = auto ]; then
+    if [ -n "${MAICORD_LINUX_SOURCE:-}" ]; then
+        sync_mode=sync
+    elif [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        sync_mode=in-place
+    else
+        case "$(stat -f -c %T "$repository" 2>/dev/null || echo unknown)" in
+            9p|v9fs|drvfs|fuseblk|fuse|fuse.*|cifs|smb*|nfs*|virtiofs|vboxsf|ncpfs) sync_mode=sync ;;
+            *) sync_mode=in-place ;;
+        esac
+    fi
+fi
+if [ "$sync_mode" = sync ]; then
+    source_directory="${source_directory:-$HOME/mc}"
+else
+    source_directory="$repository"
+fi
+
+# The LLVM major this port is built with; a runner's own older clang (ubuntu-24.04 ships 18) must not win.
+if [ -d "/usr/lib/llvm-$llvm_major/bin" ]; then
+    export PATH="/usr/lib/llvm-$llvm_major/bin:$PATH"
+fi
+tools=(clang clang++ ld.lld llvm-ar cmake ninja python3)
+[ "$sync_mode" = sync ] && tools+=(rsync)
+for tool in "${tools[@]}"; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool (see the host notes in this script's header)." >&2; exit 1; }
 done
+clang_version="$(clang -dumpfullversion 2>/dev/null || clang -dumpversion)"
+if [ "${clang_version%%.*}" != "$llvm_major" ]; then
+    echo "clang $llvm_major is required; $(command -v clang) is $clang_version (tools/install_linux_toolchain.sh installs it)." >&2
+    exit 1
+fi
+echo "Toolchain: clang $clang_version, $(ld.lld --version | head -n 1), cmake $(cmake --version | head -n 1 | cut -d' ' -f3)"
 # apt.llvm.org installs llvm-ranlib in the LLVM directory without an unversioned alias on PATH.
 llvm_ar="$(command -v llvm-ar)"
 llvm_ranlib="$(command -v llvm-ranlib || echo "$(dirname "$(readlink -f "$llvm_ar")")/llvm-ranlib")"
@@ -90,8 +136,8 @@ if ! flock -n 9; then
     flock 9
 fi
 
-# The repository is built from its ext4 copy; a run from that copy builds it in place.
-if [ "$repository" != "$(cd "$source_directory" 2>/dev/null && pwd -P || true)" ]; then
+# A checkout on a slow mount is built from its ext4 copy; a run from that copy builds it in place.
+if [ "$sync_mode" = sync ] && [ "$repository" != "$(cd "$source_directory" 2>/dev/null && pwd -P || true)" ]; then
     mkdir -p "$source_directory"
     rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log' \
         "$repository/" "$source_directory/"
@@ -120,6 +166,7 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_AR="$llvm_ar" -DCMAKE_RANLIB="$llvm_ranlib" \
     -DCMAKE_BUILD_TYPE=Release \
     -DMAICORD_BUILD_TESTS="$([ "$run_tests" = 1 ] && echo ON || echo OFF)" \
+    -DMAICORD_TEST_TIMEOUT_SCALE="$timeout_scale" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS="$([ "$keep" = 1 ] && echo ON || echo OFF)"
 
 started="$(date +%s%N)"
@@ -142,6 +189,11 @@ if [ "$check_only" = 0 ]; then
 fi
 
 if [ "$run_tests" = 1 ]; then
+    # The Linux file seam holds a descriptor per open file (advisory sharing), and the font session test opens more than
+    # a thousand: a container's or a login shell's soft limit of 1024 is raised to the hard one, at most 65536.
+    hard_limit="$(ulimit -Hn)"
+    if [ "$hard_limit" = unlimited ] || [ "$hard_limit" -gt 65536 ]; then hard_limit=65536; fi
+    [ "$(ulimit -Sn)" = unlimited ] || [ "$(ulimit -Sn)" -ge "$hard_limit" ] || ulimit -Sn "$hard_limit" || true
     arguments=(--test-dir "$build_directory" --output-on-failure --parallel "$jobs")
     if [ "${#test_names[@]}" -gt 0 ]; then
         regex="^($(IFS='|'; echo "${test_names[*]}"))\$"

@@ -29,8 +29,14 @@ struct VoiceCodecOffer {
 constexpr u32 voice_video_codec_bit(VoiceVideoCodec codec) noexcept {
     return 1u << static_cast<u8>(codec);
 }
-// Decode-only offers for the decodable codec bits in Discord's priority order
-// (AV1, H265, H264); H.264 is always offered. Returns the count written.
+// Bits 16 and up of a decodable word mark codecs only a software decoder handles (Linux; the Windows decoders are
+// hardware and never set them). They are offered after every hardware codec, so Discord's priority (the order of the
+// offer) falls to a software codec only when no hardware one is common.
+constexpr u32 voice_video_software_bit(VoiceVideoCodec codec) noexcept {
+    return voice_video_codec_bit(codec) << 16;
+}
+// Decode-only offers for the decodable codec bits in Discord's priority order (AV1, H265, H264); on Windows
+// H.264 is always offered, on Linux only what a decoder handles. Returns the count written.
 u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept;
 struct VoiceSelectProtocolMedia {
     VoiceGatewaySelectProtocol transport;

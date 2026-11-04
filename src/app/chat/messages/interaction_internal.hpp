@@ -39,7 +39,6 @@
 #include "../threads/creation.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/chat/unread_context.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/chat/messages/received_attachment_menu.hpp"
 
 namespace maicord::app_detail {

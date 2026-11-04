@@ -354,7 +354,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         return settled(*settings, true);
     case SettingBinding::windows_notification_settings: {
         const HINSTANCE opened =
-            ShellExecuteW(g_app.window, L"open", L"ms-settings:notifications", nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(win32_hwnd(g_app.window), L"open", L"ms-settings:notifications", nullptr, nullptr, SW_SHOWNORMAL);
         settings->notifications_settings_failed = reinterpret_cast<usize>(opened) <= 32;
         return settled(*settings, true);
     }

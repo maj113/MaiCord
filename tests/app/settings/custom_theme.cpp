@@ -24,7 +24,7 @@ bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool*) noe
 bool custom_fixture_io_pending(ClientThemeIo*) noexcept;
 void custom_fixture_io_cancel(ClientThemeIo*, u64) noexcept;
 bool custom_fixture_io_stop(ClientThemeIo**, u32) noexcept;
-NativeFilePickerError custom_fixture_picker_start(NativeFilePicker*, HWND, u32, Utf8View) noexcept;
+NativeFilePickerError custom_fixture_picker_start(NativeFilePicker*, Window, u32, Utf8View) noexcept;
 NativeFilePickerResult custom_fixture_picker_status(const NativeFilePicker*) noexcept;
 ConstSlice<wchar_t> custom_fixture_picker_path(const NativeFilePicker*, u32) noexcept;
 bool custom_fixture_picker_snapshot(const NativeFilePicker*, u32, FileSnapshot*) noexcept;
@@ -208,7 +208,7 @@ bool custom_fixture_io_stop(ClientThemeIo** io, u32) noexcept {
     *io = nullptr;
     return true;
 }
-NativeFilePickerError custom_fixture_picker_start(NativeFilePicker* picker, HWND, u32 count,
+NativeFilePickerError custom_fixture_picker_start(NativeFilePicker* picker, Window, u32 count,
                                                   Utf8View) noexcept {
     if (count != 1)
         return NativeFilePickerError::capacity;

@@ -1,9 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/core/win32_types.hpp"
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-#include "maicord/sys/wasapi.hpp"
-#endif
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 inline constexpr u32 kNotificationAudioRate=44100;
@@ -37,7 +34,8 @@ struct NotificationAudioResult {
 };
 struct NotificationAudioConfig {
     NotificationAudioResolve resolve{};void* context{};
-    HWND wake_window{};u32 wake_message{};
+    // Posted (window_post) on a status change, coalesced until the next status call. A null window posts nothing.
+    Waker wake{};
     u64 initial_epoch{1};bool enabled{true};
     // Called on the worker only, after the clip is resolved and loaded. The voice
     // gain is fixed from then on. Null uses request.gain directly. Uses the same
@@ -55,7 +53,7 @@ struct NotificationAudio {
     NotificationAudioConfig config{};void* runtime{};
     u64 epoch{};bool initialized{},enabled{};
 };
-// Call on the UI thread only. Only records the configuration; no allocation, worker, COM or
+// Call on the UI thread only. Only records the configuration; no allocation, worker or
 // endpoint open happens until a request is accepted. The resolver runs on the worker,
 // must not block for long and must not call back into this object. PCM is never copied.
 NotificationAudioResult notification_audio_initialize(NotificationAudio*,const NotificationAudioConfig&) noexcept;
@@ -69,18 +67,18 @@ NotificationAudioResult notification_audio_submit(NotificationAudio*,const Notif
 // mean the PCM is no longer in use.
 NotificationAudioResult notification_audio_reset(NotificationAudio*,u64 new_epoch,bool enabled) noexcept;
 NotificationAudioStatus notification_audio_status(const NotificationAudio*) noexcept;
-// Status changes coalesce into one posted WM_APP. Call status after that wake;
+// Status changes coalesce into one wake post. Call status after that wake;
 // it clears the coalescing bit. No polling or timer.
 // A successful release/join means the bank/context is no longer in use. On timeout or
 // error the runtime, thread and handles stay attached and release can be retried.
-// Never calls TerminateThread; reset/submit are rejected once stopping begins.
+// Never terminates the thread; reset/submit are rejected once stopping begins.
 NotificationAudioResult notification_audio_release(NotificationAudio*,u32 timeout_ms) noexcept;
-// Counts the attached thread/event handles, including a callback's duplicate while
-// attached. A disarmed external COM callback can keep its own duplicate handle and
-// endpoint ID; neither refers to this object or the PCM.
+// Counts the attached thread, event and endpoint-observer handles, including an observer's duplicate while
+// attached. A disarmed external observer can keep its own duplicate handle and endpoint ID on Windows;
+// neither refers to this object or the PCM. Linux counts its thread and wake descriptors.
 u32 notification_audio_owned_handles(const NotificationAudio*) noexcept;
 
-// Offline source-rate mixer. No allocation/COM/device/thread.
+// Offline source-rate mixer. No allocation/device/thread.
 // The caller serializes these helpers. Voice descriptors stay valid even after
 // submission until played_rate() confirms padding consumption; this permits rewind
 // on a default-device switch. Padding does not give the exact audible position.
@@ -106,28 +104,13 @@ void notification_audio_mixer_reset(NotificationAudioMixer*,u64 epoch) noexcept;
 NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer*,u64 epoch,NotificationAudioClip,float gain) noexcept;
 // Mixes at most 512 frames per call, summing gain and saturating. Output must not
 // alias the mixer or any voice PCM. Invalid input changes nothing.
-// No software interpolation/resampling: WASAPI handles hardware conversion.
+// No software interpolation/resampling: the transport converts to the hardware rate.
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
 NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer*,Slice<i16>,u32 sample_rate) noexcept;
-// padding is source-format frames, per IAudioClient documentation.
+// padding is the source-rate frames submitted but not yet played, as the transport reports them.
 // Returns the number of finished voices; invalid/backwards padding leaves state unchanged.
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer*,u32 padding,u32 sample_rate) noexcept;
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer*,u32 sample_rate) noexcept;
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-// Test builds only. Install the hooks before the audio object is created; keep the
-// hooks/context unchanged until every worker has joined and the callback reference is released.
-// With no hook installed, COM creation fails; a real endpoint is never opened.
-struct NotificationAudioFixtureHooks {
-    void* context{};
-    HRESULT(*initialize)(void*) noexcept;
-    void(*uninitialize)(void*) noexcept;
-    HRESULT(*create)(void*,IMMDeviceEnumerator**) noexcept;
-    BOOL(*post_wake)(void*,HWND,u32) noexcept;
-    void(*before_wait)(void*,u32 handle_count) noexcept;
-};
-void notification_audio_fixture_hooks(const NotificationAudioFixtureHooks*) noexcept;
-// For inspection only, while the caller still holds a fixture callback reference.
-HANDLE notification_audio_fixture_callback_event(IMMNotificationClient*) noexcept;
-#endif
+// The Windows WASAPI test seam is maicord/platform/audio/wasapi/notification_audio_fixture.hpp.
 } // namespace maicord

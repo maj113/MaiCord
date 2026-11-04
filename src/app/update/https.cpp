@@ -1,4 +1,4 @@
-#include "maicord/sys/winsock.hpp"
+#include "maicord/platform/net/socket.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/interlocked.hpp"
@@ -13,21 +13,23 @@ using E = UpdateTransportError;
 
 bool cancelled(const UpdateHttpsTransport* t) noexcept { return read_acquire(&t->cancelled) != 0; }
 void close_socket(UpdateHttpsTransport* t) noexcept {
-    const auto s = static_cast<SOCKET>(InterlockedExchange64(&t->socket, static_cast<LONG64>(INVALID_SOCKET)));
-    if (s != INVALID_SOCKET) closesocket(s);
+    Socket s{static_cast<u64>(InterlockedExchange64(&t->socket, 0))};
+    if (!socket_valid(s)) return;
+    socket_interrupt(s);
+    socket_close(&s);
 }
-SOCKET current(const UpdateHttpsTransport* t) noexcept {
-    return static_cast<SOCKET>(read_acquire(&t->socket));
+Socket current(const UpdateHttpsTransport* t) noexcept {
+    return Socket{static_cast<u64>(read_acquire(&t->socket))};
 }
 // Records the first native code behind a failure for the updater log.
 E fail(UpdateHttpsTransport* t, E error, u32 native) noexcept {
     if (!t->native) t->native = native;
     return cancelled(t) ? E::cancelled : error;
 }
-E socket_failure(UpdateHttpsTransport* t, E error) noexcept { return fail(t, error, static_cast<u32>(WSAGetLastError())); }
+E socket_failure(UpdateHttpsTransport* t, E error) noexcept { return fail(t, error, static_cast<u32>(network_last_error())); }
 bool send_all(UpdateHttpsTransport* t, const u8* data, u32 bytes) noexcept {
     while (bytes) {
-        const int sent = send(current(t), reinterpret_cast<const char*>(data), static_cast<int>(bytes), 0);
+        const i32 sent = socket_send(current(t), data, bytes);
         if (sent <= 0 || cancelled(t)) return false;
         data += sent; bytes -= static_cast<u32>(sent);
     }
@@ -36,8 +38,8 @@ bool send_all(UpdateHttpsTransport* t, const u8* data, u32 bytes) noexcept {
 // Appends to the encrypted queue; 0 = orderly close, -1 = failure.
 int receive_more(UpdateHttpsTransport* t) noexcept {
     if (t->encrypted_bytes == sizeof(t->encrypted)) return -1;
-    const int got = recv(current(t), reinterpret_cast<char*>(t->encrypted + t->encrypted_bytes),
-        static_cast<int>(sizeof(t->encrypted) - t->encrypted_bytes), 0);
+    const i32 got = socket_receive(current(t), t->encrypted + t->encrypted_bytes,
+        static_cast<u32>(sizeof(t->encrypted) - t->encrypted_bytes));
     if (cancelled(t)) return -1;
     if (got > 0) t->encrypted_bytes += static_cast<u32>(got);
     return got > 0 ? 1 : got == 0 ? 0 : -1;
@@ -48,24 +50,21 @@ void drop(u8* buffer, u32* bytes, u32 consumed) noexcept {
     *bytes = rest;
 }
 E connect_host(UpdateHttpsTransport* t) noexcept {
-    ADDRINFOW hints{}; hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM; hints.ai_protocol = IPPROTO_TCP;
-    ADDRINFOW* addresses = nullptr;
-    const int resolved = GetAddrInfoW(t->host, L"443", &hints, &addresses);
-    if (resolved || !addresses) return fail(t, E::resolve, static_cast<u32>(resolved));
+    NetworkAddress addresses[kNetworkResolverMaximumAddresses];
+    u32 count = 0;
+    i32 native = 0;
+    if (!network_resolve_blocking(t->host, L"443", addresses, &count, &native) || !count)
+        return fail(t, E::resolve, static_cast<u32>(native));
     E error = E::connect;
-    for (auto* a = addresses; a && !cancelled(t); a = a->ai_next) {
-        const SOCKET s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (s == INVALID_SOCKET) { t->native = static_cast<u32>(WSAGetLastError()); continue; }
-        const DWORD timeout = kUpdateHttpsTimeoutMs;
-        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-        InterlockedExchange64(&t->socket, static_cast<LONG64>(s));
+    for (u32 i = 0; i < count && !cancelled(t); ++i) {
+        Socket s{};
+        if (!socket_create_stream(&s, addresses[i], kUpdateHttpsTimeoutMs, &native)) { t->native = static_cast<u32>(native); continue; }
+        InterlockedExchange64(&t->socket, static_cast<LONG64>(s.token));
         if (cancelled(t)) break;
-        if (!connect(s, a->ai_addr, static_cast<int>(a->ai_addrlen))) { error = E::none; t->native = 0; break; }
-        t->native = static_cast<u32>(WSAGetLastError());
+        if (socket_connect(s, addresses[i], &native)) { error = E::none; t->native = 0; break; }
+        t->native = static_cast<u32>(native);
         close_socket(t);
     }
-    FreeAddrInfoW(addresses);
     if (cancelled(t)) return E::cancelled;
     return error;
 }
@@ -285,9 +284,8 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
 
 bool update_https_initialize(UpdateHttpsTransport* t) noexcept {
     if (!t || t->winsock) return false;
-    InterlockedExchange64(&t->socket, static_cast<LONG64>(INVALID_SOCKET));
-    WSADATA data{};
-    t->winsock = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    InterlockedExchange64(&t->socket, 0);
+    t->winsock = socket_startup() == 0;
     return t->winsock;
 }
 void update_https_cancel(UpdateHttpsTransport* t) noexcept {
@@ -299,7 +297,7 @@ void update_https_release(UpdateHttpsTransport* t) noexcept {
     if (!t) return;
     close_socket(t);
     tls_client_release(&t->tls);
-    if (t->winsock) WSACleanup();
+    if (t->winsock) socket_cleanup();
     t->winsock = false;
 }
 UpdateTransport update_https_transport(UpdateHttpsTransport* t) noexcept { return {t, get}; }

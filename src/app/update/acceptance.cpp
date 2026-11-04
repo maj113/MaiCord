@@ -6,6 +6,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -132,7 +133,7 @@ UpdateAcceptanceResult update_acceptance_begin(const ConstSlice<wchar_t>& path,
     result = load(candidate.path, &candidate.state);
     candidate.record_present = result.ok();
     if (result.error == UpdateAcceptanceError::missing && allow_first_use) reset_value(&result);
-    if (!result.ok()) { CloseHandle(candidate.lock); return result; }
+    if (!result.ok()) { file_close(candidate.lock); return result; }
     *transaction = candidate;
     return {};
 }
@@ -204,7 +205,7 @@ UpdateAcceptanceResult update_acceptance_verify_commit(
 }
 UpdateAcceptanceResult update_acceptance_release(UpdateAcceptanceTransaction* transaction) noexcept {
     if (!transaction) return fail(UpdateAcceptanceError::invalid_input);
-    if (transaction->lock && !CloseHandle(transaction->lock)) return fail(UpdateAcceptanceError::release, GetLastError());
+    if (transaction->lock && !file_close(transaction->lock)) return fail(UpdateAcceptanceError::release, thread_last_error());
     secure_clear_bytes(transaction, sizeof(*transaction));
     return {};
 }

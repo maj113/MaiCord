@@ -1,9 +1,10 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/platform/net/worker.hpp"
 #include "worker_startup.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -18,19 +19,24 @@ NetworkWorkerResult failure(NetworkWorkerError error, u32 native_error) noexcept
     return NetworkWorkerResult{native_error, error};
 }
 
+// The worker keeps its thread and ready event in HANDLE-typed members: the Thread* and Waitable of the os layer.
+Thread* thread_of(const NetworkWorker* worker) noexcept {
+    return static_cast<Thread*>(worker->thread);
+}
+
 void close_worker(NetworkWorker* worker) noexcept {
-    CloseHandle(worker->thread);
-    CloseHandle(worker->ready_event);
+    thread_close(thread_of(worker));
+    waitable_close(worker->ready_event);
     reset_value<NetworkWorker>(worker);
 }
 
 NetworkWorkerStep dispatch(NetworkWorker* worker, NetworkWorkerEventKind kind,
                            const NetworkPollResult& poll) noexcept {
-    const NetworkWorkerEvent event{poll, GetTickCount64(), kind};
+    const NetworkWorkerEvent event{poll, clock_monotonic_milliseconds(), kind};
     return worker->handler(worker->context, &worker->loop, event);
 }
 
-DWORD WINAPI network_worker_main(void* parameter) noexcept {
+u32 network_worker_main(void* parameter) noexcept {
     auto* worker = static_cast<NetworkWorker*>(parameter);
     const NetworkResult initialized = network_loop_initialize(&worker->loop);
     if (!initialized.ok()) {
@@ -39,7 +45,7 @@ DWORD WINAPI network_worker_main(void* parameter) noexcept {
     }
 
     worker->started = true;
-    SetEvent(worker->ready_event);
+    event_set(worker->ready_event);
     NetworkPollResult empty{};
     NetworkWorkerStep step = dispatch(worker, NetworkWorkerEventKind::started, empty);
 
@@ -67,7 +73,7 @@ DWORD WINAPI network_worker_main(void* parameter) noexcept {
 void network_worker_detail::publish_startup_failure(NetworkWorker* worker, const NetworkResult& error) noexcept {
     worker->native_error = static_cast<u32>(error.native_error);
     worker->startup_error = NetworkWorkerError::network_initialize;
-    SetEvent(worker->ready_event);
+    event_set(worker->ready_event);
     if (worker->asynchronous_start) {
         NetworkPollResult failed{};
         failed.completion.native_error = error.native_error;
@@ -84,16 +90,16 @@ static NetworkWorkerResult launch_worker(NetworkWorker* worker, NetworkWorkerHan
     worker->handler = handler;
     worker->context = context;
     worker->asynchronous_start = asynchronous;
-    worker->ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    worker->ready_event = event_create(true, false);
     if (!worker->ready_event) {
         return failure(NetworkWorkerError::event_create, thread_last_error());
     }
-    constexpr usize kWorkerStackReserve = 256 * 1024;
-    worker->thread = CreateThread(nullptr, kWorkerStackReserve, network_worker_main, worker,
-                                  STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    constexpr u32 kWorkerStackReserve = 256 * 1024;
+    u32 thread_error = 0;
+    worker->thread = thread_start(network_worker_main, worker, kWorkerStackReserve, &thread_error);
     if (!worker->thread) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(worker->ready_event);
+        const u32 native_error = thread_error;
+        waitable_close(worker->ready_event);
         reset_value<NetworkWorker>(worker);
         return failure(NetworkWorkerError::thread_create, native_error);
     }
@@ -108,7 +114,7 @@ NetworkWorkerResult network_worker_start_async(NetworkWorker* worker, NetworkWor
 NetworkWorkerResult network_worker_startup_status(const NetworkWorker* worker) noexcept {
     if (!worker || !worker->thread || !worker->ready_event)
         return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
-    const DWORD ready = WaitForSingleObject(worker->ready_event, 0);
+    const u32 ready = wait_one(worker->ready_event, 0);
     if (ready == WAIT_TIMEOUT) return failure(NetworkWorkerError::startup_pending, 0);
     if (ready != WAIT_OBJECT_0) return failure(NetworkWorkerError::event_create, thread_last_error());
     return {worker->native_error, worker->startup_error};
@@ -118,7 +124,7 @@ NetworkWorkerResult network_worker_start(NetworkWorker* worker, NetworkWorkerHan
                                          void* context) noexcept {
     const auto launched = launch_worker(worker, handler, context, false);
     if (!launched.ok()) return launched;
-    const DWORD ready = WaitForSingleObject(worker->ready_event, 5'000);
+    const u32 ready = wait_one(worker->ready_event, 5'000);
     if (ready != WAIT_OBJECT_0) {
         const u32 native_error =
             ready == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT;
@@ -126,19 +132,17 @@ NetworkWorkerResult network_worker_start(NetworkWorker* worker, NetworkWorkerHan
         // worker/context storage. Network initialization is not cancellable,
         // so establish its outcome, stop a successfully initialized loop,
         // and join before handing ownership back to the caller.
-        const DWORD initialized =
-            WaitForSingleObject(worker->ready_event, INFINITE);
-        if (initialized == WAIT_OBJECT_0 && worker->started &&
-            WaitForSingleObject(worker->thread, 0) == WAIT_TIMEOUT) {
+        const u32 initialized = wait_one(worker->ready_event, INFINITE);
+        if (initialized == WAIT_OBJECT_0 && worker->started && !thread_wait(thread_of(worker), 0)) {
             network_worker_request_stop(worker);
         }
-        WaitForSingleObject(worker->thread, INFINITE);
+        thread_wait(thread_of(worker), INFINITE);
         close_worker(worker);
         return failure(NetworkWorkerError::startup_timeout,
                        native_error);
     }
     if (worker->startup_error != NetworkWorkerError::none) {
-        WaitForSingleObject(worker->thread, INFINITE);
+        thread_wait(thread_of(worker), INFINITE);
         const NetworkWorkerResult result = failure(worker->startup_error, worker->native_error);
         close_worker(worker);
         return result;
@@ -162,10 +166,8 @@ NetworkWorkerResult network_worker_join(NetworkWorker* worker, u32 timeout_milli
     if (!worker || !worker->thread) {
         return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    const DWORD waited = WaitForSingleObject(worker->thread, timeout_milliseconds);
-    if (waited != WAIT_OBJECT_0) {
-        return failure(NetworkWorkerError::join_timeout,
-                       waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT);
+    if (!thread_wait(thread_of(worker), timeout_milliseconds)) {
+        return failure(NetworkWorkerError::join_timeout, WAIT_TIMEOUT);
     }
     close_worker(worker);
     return success();

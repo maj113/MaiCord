@@ -244,7 +244,7 @@ bool gpu_replay_target(D3D11Renderer& renderer) noexcept {
     g_replay.target = nullptr;
     g_replay.texture = nullptr;
     ID3D11Resource* source = nullptr;
-    renderer.graphics.target->GetResource(&source);
+    renderer.graphics.surface.target->GetResource(&source);
     ID3D11Texture2D* back_buffer = nullptr;
     D3D11_TEXTURE2D_DESC description{};
     if (source && SUCCEEDED(source->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer)))) {
@@ -281,24 +281,24 @@ void gpu_replay(bool full) noexcept {
     QueryThreadCycleTime(GetCurrentThread(), &start);
     D3D11Renderer& renderer = g_app.renderer;
     ID3D11DeviceContext* context = renderer.graphics.context;
-    if (!renderer.graphics.target || !gpu_replay_target(renderer)) {
+    if (!renderer.graphics.surface.target || !gpu_replay_target(renderer)) {
         ++g_replay.skipped;
     } else {
         const RECT damage = *renderer.present_dirty_rect.native();
-        ID3D11RenderTargetView* presented = renderer.graphics.target;
+        ID3D11RenderTargetView* presented = renderer.graphics.surface.target;
         const u32 draws = renderer.draw_calls_last_frame, media = renderer.media_draws_last_frame;
         const u32 media_total = renderer.media_draws_total;
         const u64 effect_next = renderer.text_effect_next_ms;
         // The replay's own context calls stay out of the per-frame counts.
         const GpuApiCounters api = g_gpu_api;
-        renderer.graphics.target = g_replay.target;
+        renderer.graphics.surface.target = g_replay.target;
         const u32 origin = renderer.target_origin_y;
         renderer_bind_target_origin(&renderer, 0);
         const bool drawn = d3d11_renderer_draw_stream(&renderer, app_detail::application_theme(), false, false,
                                                       full ? nullptr : &damage);
-        renderer.graphics.target = presented;
+        renderer.graphics.surface.target = presented;
         renderer_bind_target_origin(&renderer, origin);
-        context->OMSetRenderTargets(1, &renderer.graphics.target, nullptr);
+        context->OMSetRenderTargets(1, &renderer.graphics.surface.target, nullptr);
         renderer.text_effect_next_ms = effect_next;
         g_gpu_api = api;
         ++g_replay.replays;

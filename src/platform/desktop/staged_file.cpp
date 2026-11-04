@@ -1,26 +1,29 @@
 #include "maicord/platform/desktop/staged_file.hpp"
 
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/ordinal.hpp"
 namespace maicord { namespace {
 bool same_path(const wchar_t* a, const wchar_t* b) noexcept {
-    return CompareStringOrdinal(a, -1, b, -1, TRUE) == CSTR_EQUAL;
+    return ordinal_equal(a, -1, b, -1, true);
 }
 bool current(StagedFile* owner, u32* native) noexcept {
     *native = 0;
-    const HANDLE file = CreateFileW(owner->destination_path, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    const HANDLE file = file_open(owner->destination_path, {FileAccess::attributes, FileCreate::existing,
+        kFileShareRead | kFileShareWrite | kFileShareDelete, 0});
     if (file == INVALID_HANDLE_VALUE) {
-        *native = GetLastError();
+        *native = thread_last_error();
         return !owner->destination_exists && *native == ERROR_FILE_NOT_FOUND;
     }
-    FileSnapshot found{}; const bool read = file_snapshot_read(file, &found, native); CloseHandle(file);
+    FileSnapshot found{}; const bool read = file_snapshot_read(file, &found, native); file_close(file);
     return read && owner->destination_exists && owner->overwrite_authorized &&
         found.bytes == owner->destination.bytes && file_identity_equal(found.identity, owner->destination.identity);
 }
 StagedFileResult fence(const volatile LONG* cancellation, u64 deadline) noexcept {
     if (cancellation && ReadAcquire(cancellation))
         return {ERROR_OPERATION_ABORTED, StagedFileError::cancelled};
-    if (GetTickCount64() >= deadline) return {WAIT_TIMEOUT, StagedFileError::timeout};
+    if (clock_monotonic_milliseconds() >= deadline) return {WAIT_TIMEOUT, StagedFileError::timeout};
     return {};
 }
 } // namespace
@@ -44,12 +47,13 @@ StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes, c
     FileSnapshot stage{}; u32 native = 0;
     if (acknowledged_bytes != owner->expected_bytes || !file_snapshot_read(owner->file.handle, &stage, &native) || stage.bytes != owner->expected_bytes)
         return {native, StagedFileError::size_mismatch};
-    if (!FlushFileBuffers(owner->file.handle)) return {GetLastError(), StagedFileError::flush};
+    if (!file_flush(owner->file.handle)) return {thread_last_error(), StagedFileError::flush};
     network_file_close(&owner->file);
     if (!current(owner, &native)) return {native, StagedFileError::destination_changed};
     allowed = fence(cancellation, deadline); if (!allowed.ok()) return allowed;
-    const DWORD flags = MOVEFILE_WRITE_THROUGH | (owner->destination_exists ? MOVEFILE_REPLACE_EXISTING : 0);
-    if (!MoveFileExW(owner->stage_path, owner->destination_path, flags)) return {GetLastError(), StagedFileError::commit};
+    const bool committed = owner->destination_exists ? file_replace(owner->stage_path, owner->destination_path, true)
+                                                     : file_rename_noreplace(owner->stage_path, owner->destination_path, true);
+    if (!committed) return {thread_last_error(), StagedFileError::commit};
     owner->stage_owned = false; return {};
 }
 StagedFileResult staged_file_discard(StagedFile* owner) noexcept {
@@ -57,8 +61,8 @@ StagedFileResult staged_file_discard(StagedFile* owner) noexcept {
     network_file_close(&owner->file);
     if (owner->file.pending) return {ERROR_IO_PENDING, StagedFileError::draining};
     if (owner->stage_owned) {
-        if (!DeleteFileW(owner->stage_path)) {
-            const u32 native = GetLastError();
+        if (!file_remove(owner->stage_path)) {
+            const u32 native = thread_last_error();
             if (native != ERROR_FILE_NOT_FOUND) return {native, StagedFileError::cleanup};
         }
         owner->stage_owned = false;

@@ -145,7 +145,7 @@ void publish_client_failure(CdnClient* client, CdnClientError error,
         InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
     }
     publish_phase(client, CdnClientPhase::failed);
-    SetEvent(client->response_event);
+    event_set(client->response_event);
 }
 
 const wchar_t* host_wide(CdnHost host) noexcept {
@@ -199,7 +199,7 @@ void recycle_request(CdnClient* client, CdnClientRuntime* runtime) noexcept {
     reset_value<CdnClientResponse>(&runtime->completed);
     runtime->request_started_counter = 0;
     runtime->redirects = 0;
-    ResetEvent(client->response_event);
+    event_reset(client->response_event);
     InterlockedExchange64(&client->current_request_id, 0);
     InterlockedExchange(&client->request_state, request_state_empty);
     publish_phase(client, CdnClientPhase::idle);
@@ -275,7 +275,7 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
     increment_single_writer(&client->responses); // worker thread only
     InterlockedExchange(&client->request_state, request_state_ready);
     publish_phase(client, CdnClientPhase::response_ready);
-    SetEvent(client->response_event);
+    event_set(client->response_event);
 }
 
 void publish_request_error(CdnClient* client, CdnClientRuntime* runtime,
@@ -793,7 +793,7 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
     runtime->storage_committed_bytes = initial;
     runtime->response_capacity = response_capacity;
     assign_storage(runtime);
-    client->response_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    client->response_event = event_create(FALSE, FALSE);
     if (!client->response_event) {
         const u32 native_error = thread_last_error();
         destroy_client_storage(client);
@@ -804,7 +804,7 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
     publish_phase(client, CdnClientPhase::starting);
     const NetworkWorkerResult started = network_worker_start(&client->worker, worker_handler, client);
     if (!started.ok()) {
-        CloseHandle(client->response_event);
+        waitable_close(client->response_event);
         client->response_event = nullptr;
         destroy_client_storage(client);
         InterlockedExchange(&client->error, static_cast<LONG>(CdnClientError::worker));
@@ -922,7 +922,7 @@ CdnClientResult cdn_client_wait_response(CdnClient* client, u32 timeout_ms) noex
         invalid.error = CdnClientError::invalid_input;
         return invalid;
     }
-    const DWORD waited = WaitForSingleObject(client->response_event, timeout_ms);
+    const DWORD waited = wait_one(client->response_event, timeout_ms);
     CdnClientResult value = client_result(client);
     if (waited != WAIT_OBJECT_0 && value.error == CdnClientError::none) {
         value.error =
@@ -965,7 +965,7 @@ CdnClientResult cdn_client_stop(CdnClient* client, u32 timeout_ms) noexcept {
         invalid.error = CdnClientError::invalid_input;
         return invalid;
     }
-    if (WaitForSingleObject(client->worker.thread, 0) == WAIT_TIMEOUT) {
+    if (!thread_wait(static_cast<Thread*>(client->worker.thread), 0)) {
         network_worker_request_stop(&client->worker);
     }
     const NetworkWorkerResult joined = network_worker_join(&client->worker, timeout_ms);
@@ -976,7 +976,7 @@ CdnClientResult cdn_client_stop(CdnClient* client, u32 timeout_ms) noexcept {
         return value;
     }
     if (client->response_event) {
-        CloseHandle(client->response_event);
+        waitable_close(client->response_event);
     }
     destroy_client_storage(client);
     reset_value<CdnClient>(client);

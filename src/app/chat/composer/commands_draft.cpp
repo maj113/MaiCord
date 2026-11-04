@@ -501,6 +501,13 @@ void shake_app() noexcept {
     c.shake_seed = static_cast<u32>(now) | 1;
     application_request_frame();
 }
+// Moves the picture; a backend that shows the move only with a new present gets one at once.
+void shake_offset(float x, float y) noexcept {
+    bool needs_present = false;
+    gpu_surface_set_offset(&g_app.renderer.graphics.surface, x, y, &needs_present);
+    if (needs_present)
+        gpu_surface_present(&g_app.renderer.graphics.surface, 0, nullptr, 0);
+}
 // One shake frame when due; the content returns to rest at the end.
 void shake_step(u64 now) noexcept {
     auto& c = *commands;
@@ -508,15 +515,14 @@ void shake_step(u64 now) noexcept {
         return;
     const float scale = static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f;
     if (now - c.shake_started > shake_duration_ms || !shake_motion()) {
-        d3d11_device_owner_set_offset(&g_app.renderer.graphics, 0, 0);
+        shake_offset(0, 0);
         c.shake_started = c.shake_next = 0;
         return;
     }
     if (c.shake_frame++ % 2) {
         c.shake_seed = c.shake_seed * 1664525u + 1013904223u;
         const float random = static_cast<float>(c.shake_seed >> 8) / static_cast<float>(1u << 24) * 2 - 1;
-        d3d11_device_owner_set_offset(&g_app.renderer.graphics, c.shake_direction * shake_intensity * scale,
-                                      random * shake_intensity * scale);
+        shake_offset(c.shake_direction * shake_intensity * scale, random * shake_intensity * scale);
         c.shake_direction = -c.shake_direction;
     }
     c.shake_next = now + shake_frame_ms;

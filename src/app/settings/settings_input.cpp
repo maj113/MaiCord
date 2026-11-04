@@ -2,6 +2,7 @@
 #include "../guild/channel_overview.hpp"
 #include "../shell/modal_scroll.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "keybinds_settings.hpp"
 #include "../store/store_host.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -200,24 +201,25 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
     }
     return true;
 }
-bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (application_channel_overview_window_message(message, wparam, lparam))
+bool application_settings_window_event(const WindowEvent& event) noexcept {
+    if (application_channel_overview_window_event(event))
         return true;
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
         return false;
-    if (application_store_window_message(message, wparam, lparam))
+    if (application_store_window_event(event))
         return true;
-    if (message == WM_XBUTTONDOWN || message == WM_MBUTTONDOWN) {
-        const u32 button = message == WM_MBUTTONDOWN               ? key::mbutton
-                           : GET_XBUTTON_WPARAM(wparam) == XBUTTON1 ? key::xbutton1
-                                                                    : key::xbutton2;
+    if (input_press(event, PointerButton::back) || input_press(event, PointerButton::forward) ||
+        input_press(event, PointerButton::middle)) {
+        const u32 button = input_press(event, PointerButton::middle) ? key::mbutton
+                           : input_press(event, PointerButton::back)   ? key::xbutton1
+                                                                     : key::xbutton2;
         if (application_voice_settings_capture(UiInputKind::key_down, button) ||
             application_keybinds_settings_capture(UiInputKind::key_down, button))
             return settled(*settings, true);
     }
-    if (message == WM_CHAR) {
-        const u32 character = static_cast<u32>(wparam);
+    if (event.type == EventType::character && (event.flags & ev_system) == 0) {
+        const u32 character = event.character.unit;
         if (application_store_character(character))
             return true;
         if (character < 0x20 || character == 0x7f || character > 0xffff || settings->choice.active)
@@ -229,12 +231,10 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             search_character(*settings, character);
         return true;
     }
-    // Native action controls receive a second press as DBLCLK, not DOWN.
+    // Native action controls receive a second press as a double press, not a press: both are presses here.
     // Inline text editors are routed above this settings-only controller.
-    if (message == WM_LBUTTONDBLCLK)
-        message = WM_LBUTTONDOWN;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS || message == WM_SIZE ||
-        message == WM_DPICHANGED) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event) ||
+        event.type == EventType::resize || event.type == EventType::scale_changed) {
         const bool was_choice = settings->choice.active;
         application_settings_cancel_pointer();
         settings->scrollbar_dragging = false;
@@ -244,7 +244,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             application_request_frame();
         return false;
     }
-    if (message == WM_MOUSELEAVE) {
+    if (event.type == EventType::pointer_leave) {
         if (settings->choice.active) {
             bool changed = false;
             popup_scene_set_hover(&g_app.popup_scene, -1, -1, &changed);
@@ -256,22 +256,20 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             application_request_frame();
         return true;
     }
-    if (message == WM_MOUSEWHEEL) {
+    if (input_vertical_wheel(event)) {
         if (settings->choice.active) {
-            choice_action(static_cast<short>(HIWORD(wparam)) > 0 ? kUiSettingsChoicePrevious : kUiSettingsChoiceNext);
+            choice_action(event.wheel.dy120 > 0 ? kUiSettingsChoicePrevious : kUiSettingsChoiceNext);
             return true;
         }
-        UiPoint point{};
-        if (!application_wheel_point(lparam, &point))
-            return true;
+        const UiPoint point = client_wheel_dip(event);
         application_modal_scroll_wheel(
             application_settings_scroll_binding(ui_rect_contains(settings->scene.layout.sidebar, point.x, point.y)),
-            point, wparam);
+            point, event);
         refresh();
         return true;
     }
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
-        const float x = client_dip_x(lparam), y = client_dip_y(lparam);
+    if (const PointerStep step = input_pointer_step(event); step != PointerStep::none) {
+        const float x = client_dip_x(event), y = client_dip_y(event);
         if (settings->slider_dragging) {
             const auto target = settings->pressed;
             const auto* control = ui_settings_scene_control(settings->scene, target);
@@ -286,12 +284,12 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 application_settings_cancel_pointer();
                 return true;
             }
-            if (message == WM_MOUSEMOVE) {
+            if (step == PointerStep::move) {
                 UiSettingsActivation value{};
                 if (ui_settings_scene_slider_pointer(settings->scene, target, x - settings->slider_grab, &value) &&
                     value.selected_choice != control->selected_choice)
                     activate(target, false, false, value.selected_choice, false);
-            } else if (message == WM_LBUTTONUP) {
+            } else if (step == PointerStep::release) {
                 settings->slider_preview = false;
                 application_settings_cancel_pointer();
                 application_settings_commit_preferences();
@@ -305,12 +303,12 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 return true;
             }
             const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
-            if (message == WM_MOUSEMOVE) {
+            if (step == PointerStep::move) {
                 bool changed = false;
                 popup_scene_set_hover(&g_app.popup_scene, x, y, &changed);
                 if (changed)
                     refresh();
-            } else if (message == WM_LBUTTONDOWN) {
+            } else if (step == PointerStep::press) {
                 if (!hit.inside) {
                     close_choice();
                     refresh();
@@ -346,7 +344,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                    ui_rect_contains(scene.viewport, x, y) && !ui_rect_contains(scene.layout.modal, x, y);
         };
         if (settings->backdrop_pressed) {
-            if (message == WM_LBUTTONUP) {
+            if (step == PointerStep::release) {
                 settings->backdrop_pressed = false;
                 application_release_capture();
                 if (backdrop())
@@ -354,16 +352,16 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
             return true;
         }
-        if (message == WM_LBUTTONDOWN && backdrop()) {
+        if (step == PointerStep::press && backdrop()) {
             ui_scroll_host_cancel(&g_app.scroll_host);
             settings->backdrop_pressed = true;
             application_capture_pointer();
             return true;
         }
         if (settings->search_selecting) {
-            if (message == WM_MOUSEMOVE)
+            if (step == PointerStep::move)
                 search_point(*settings, x, y, true);
-            else if (message == WM_LBUTTONUP) {
+            else if (step == PointerStep::release) {
                 settings->search_selecting = false;
                 reset_value(&settings->pressed);
                 ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {});
@@ -372,20 +370,20 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             return true;
         }
         if (settings->scrollbar_dragging) {
-            if (message == WM_MOUSEMOVE) {
+            if (step == PointerStep::move) {
                 const auto geometry = ui_settings_scene_scrollbar(settings->scene, settings->scrollbar_sidebar);
                 const float offset =
                     settings->scrollbar_sidebar ? settings->scene.sidebar_offset : settings->scene.content_offset;
                 const float desired = ui_scrollbar_scroll_from_pointer(geometry, y, settings->scrollbar_grab);
                 ui_settings_scene_scroll(&settings->scene, settings->scrollbar_sidebar, desired - offset);
                 refresh();
-            } else if (message == WM_LBUTTONUP) {
+            } else if (step == PointerStep::release) {
                 settings->scrollbar_dragging = false;
                 application_release_capture();
             }
             return true;
         }
-        if (message == WM_LBUTTONDOWN)
+        if (step == PointerStep::press)
             for (u32 i = 0; i < 2; ++i) {
                 const bool sidebar = i == 0;
                 const auto geometry = ui_settings_scene_scrollbar(settings->scene, sidebar);
@@ -410,21 +408,21 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
         const auto hit = ui_settings_scene_hit_test(settings->scene, x, y);
         const auto* control = ui_settings_scene_control(settings->scene, hit);
-        if (message == WM_LBUTTONDOWN && control && control->kind == UiSettingsControlKind::slider &&
+        if (step == PointerStep::press && control && control->kind == UiSettingsControlKind::slider &&
             !ui_settings_scene_slider_hit(settings->scene, hit, x, y))
             return true;
         // Every pointer move tracks the option under it (swatches, radios, segments, tabs, buttons, list parts) and
         // clears it elsewhere, so a row never paints the option a previous row left hovered.
-        if (message == WM_MOUSEMOVE && ui_settings_scene_palette_hover(&settings->scene, hit, x, y))
+        if (step == PointerStep::move && ui_settings_scene_palette_hover(&settings->scene, hit, x, y))
             application_request_frame();
         const auto pointer = ui_button_pointer(&settings->scene.widgets,
-                                               message == WM_LBUTTONDOWN ? UiButtonPointerEvent::press
-                                               : message == WM_LBUTTONUP ? UiButtonPointerEvent::release
+                                               step == PointerStep::press ? UiButtonPointerEvent::press
+                                               : step == PointerStep::release ? UiButtonPointerEvent::release
                                                                          : UiButtonPointerEvent::move,
                                                {x, y});
         if (pointer.changed)
             application_request_frame();
-        if (message == WM_LBUTTONDOWN) {
+        if (step == PointerStep::press) {
             const u64 account_serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
             settings->pressed = hit;
             ui_settings_scene_focus(&settings->scene, hit);
@@ -438,7 +436,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             // A press in the search field places the caret and may drag a selection.
             if (hit.kind == UiSettingsTargetKind::search && application_pointer_captured()) {
                 settings->search_selecting = true;
-                search_point(*settings, x, y, (wparam & MK_SHIFT) != 0);
+                search_point(*settings, x, y, input_shift(event));
                 return true;
             }
             settings->pressed_account_serial = account_serial;
@@ -464,7 +462,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 if (ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
                     application_request_frame();
             }
-        } else if (message == WM_LBUTTONUP) {
+        } else if (step == PointerStep::release) {
             const auto pressed = settings->pressed;
             const u32 revision = settings->pressed_revision;
             const u64 serial = settings->pressed_account_serial, profile = settings->pressed_profile;
@@ -498,12 +496,11 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         }
         return true;
     }
-    if (message == WM_DROPFILES) {
-        DragFinish(reinterpret_cast<HDROP>(wparam));
+    if (event.type == EventType::drop_files) {
+        dropped_files_release(event.drop.files);
         return true;
     }
-    return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-           message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL;
+    return event.type == EventType::context_menu || input_side_button(event) || input_horizontal_wheel(event);
 }
 
 } // namespace maicord::app_detail

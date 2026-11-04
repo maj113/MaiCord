@@ -4,18 +4,17 @@
 #include "maicord/ui/text/secure_text_store.hpp"
 
 namespace maicord::app_detail {
-// The native text store's rectangles for a text area given in content DIPs.
-__declspec(noinline) inline bool text_store_screen_geometry(const UiRect& bounds,
-                                                            SecureTextStoreGeometry* output) noexcept {
-    POINT origin{};
-    if (!application_content_to_screen(&origin) ||
-        !GetWindowRect(g_app.window, output->window_screen.native()))
+// The native text store's rectangles for a text area given in content DIPs: client pixels, the window being the
+// content area below the caption.
+__declspec(noinline) inline bool text_store_geometry(const UiRect& bounds, SecureTextStoreGeometry* output) noexcept {
+    if (!g_app.window)
         return false;
+    const WindowMetrics client = window_metrics(g_app.window);
+    const i32 caption = static_cast<i32>(g_app.renderer.caption_height);
+    output->window = {0, caption, static_cast<i32>(client.width_px), static_cast<i32>(client.height_px)};
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96.0f;
-    output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
-                           origin.y + static_cast<LONG>(bounds.top * scale),
-                           origin.x + static_cast<LONG>(bounds.right * scale),
-                           origin.y + static_cast<LONG>(bounds.bottom * scale)};
+    output->text = {static_cast<i32>(bounds.left * scale), caption + static_cast<i32>(bounds.top * scale),
+                    static_cast<i32>(bounds.right * scale), caption + static_cast<i32>(bounds.bottom * scale)};
     return true;
 }
 // The union of one range's per-line selection metrics (count is at least one).

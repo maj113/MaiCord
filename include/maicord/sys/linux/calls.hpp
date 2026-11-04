@@ -49,9 +49,170 @@ inline long sys_remove_directory(const char* path) noexcept {
     return syscall3(kSysUnlinkat, kAtCurrentDirectory, reinterpret_cast<long>(path), kAtRemoveDirectory);
 }
 
+inline long sys_renameat2(const char* from, const char* to, u32 flags) noexcept {
+    return syscall5(kSysRenameat2, kAtCurrentDirectory, reinterpret_cast<long>(from), kAtCurrentDirectory,
+                    reinterpret_cast<long>(to), static_cast<long>(flags));
+}
+
+inline long sys_link(const char* existing, const char* created) noexcept {
+    return syscall5(kSysLinkat, kAtCurrentDirectory, reinterpret_cast<long>(existing), kAtCurrentDirectory,
+                    reinterpret_cast<long>(created), 0);
+}
+
+// Sets the modification time of the file at `path` (the access time stays), as utimensat(2) with UTIME_OMIT.
+inline long sys_set_modification_time(const char* path, i64 seconds, i64 nanoseconds) noexcept {
+    constexpr i64 kTimeOmit = (1 << 30) - 2;
+    const TimeSpec times[2]{{0, kTimeOmit}, {seconds, nanoseconds}};
+    return syscall4(kSysUtimensat, kAtCurrentDirectory, reinterpret_cast<long>(path), reinterpret_cast<long>(times), 0);
+}
+
+// The length of the link target written to `buffer` (not NUL terminated), or a negated errno.
+inline long sys_readlink(const char* path, char* buffer, usize bytes) noexcept {
+    return syscall4(kSysReadlinkat, kAtCurrentDirectory, reinterpret_cast<long>(path), reinterpret_cast<long>(buffer),
+                    static_cast<long>(bytes));
+}
+
+// statx(2) of `path` relative to `directory`; with kAtEmptyPath and an empty path, of the descriptor `directory`.
+inline long sys_statx(int directory, const char* path, int flags, u32 mask, Statx* output) noexcept {
+    return syscall5(kSysStatx, directory, reinterpret_cast<long>(path), flags, static_cast<long>(mask),
+                    reinterpret_cast<long>(output));
+}
+
+inline long sys_pread(int fd, void* buffer, usize bytes, u64 offset) noexcept {
+    return syscall4(kSysPread64, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes),
+                    static_cast<long>(offset));
+}
+
+inline long sys_pwrite(int fd, const void* buffer, usize bytes, u64 offset) noexcept {
+    return syscall4(kSysPwrite64, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes),
+                    static_cast<long>(offset));
+}
+
+inline long sys_fsync(int fd) noexcept {
+    return syscall1(kSysFsync, fd);
+}
+
+inline long sys_ftruncate(int fd, u64 length) noexcept {
+    return syscall2(kSysFtruncate, fd, static_cast<long>(length));
+}
+
+inline long sys_flock(int fd, int operation) noexcept {
+    return syscall2(kSysFlock, fd, operation);
+}
+
+inline long sys_fadvise(int fd, int advice) noexcept {
+    return syscall4(kSysFadvise64, fd, 0, 0, advice);
+}
+
+inline long sys_fstatfs(int fd, StatFs* output) noexcept {
+    return syscall2(kSysFstatfs, fd, reinterpret_cast<long>(output));
+}
+
+// The kernel's name, release and machine (uname(2)).
+inline long sys_uname(Utsname* output) noexcept {
+    return syscall1(kSysUname, reinterpret_cast<long>(output));
+}
+
+// The bytes of directory records written to `buffer`, 0 at the end of the directory.
+inline long sys_getdents(int fd, void* buffer, usize bytes) noexcept {
+    return syscall3(kSysGetdents64, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes));
+}
+
+inline long sys_inotify_init(int flags) noexcept {
+    return syscall1(kSysInotifyInit1, flags);
+}
+
+inline long sys_inotify_add_watch(int fd, const char* path, u32 mask) noexcept {
+    return syscall3(kSysInotifyAddWatch, fd, reinterpret_cast<long>(path), static_cast<long>(mask));
+}
+
+inline long sys_socket(int domain, int type, int protocol) noexcept {
+    return syscall3(kSysSocket, domain, type, protocol);
+}
+
+inline long sys_socketpair(int domain, int type, int protocol, int* descriptors) noexcept {
+    return syscall4(kSysSocketpair, domain, type, protocol, reinterpret_cast<long>(descriptors));
+}
+
+inline long sys_connect(int fd, const void* address, u32 bytes) noexcept {
+    return syscall3(kSysConnect, fd, reinterpret_cast<long>(address), static_cast<long>(bytes));
+}
+
+inline long sys_bind(int fd, const void* address, u32 bytes) noexcept {
+    return syscall3(kSysBind, fd, reinterpret_cast<long>(address), static_cast<long>(bytes));
+}
+
+inline long sys_listen(int fd, int backlog) noexcept {
+    return syscall2(kSysListen, fd, backlog);
+}
+
+// The accepted descriptor; `address` and `bytes` (in: capacity, out: length) may be null.
+inline long sys_accept(int fd, void* address, u32* bytes, int flags) noexcept {
+    return syscall4(kSysAccept4, fd, reinterpret_cast<long>(address), reinterpret_cast<long>(bytes), flags);
+}
+
+inline long sys_getsockname(int fd, void* address, u32* bytes) noexcept {
+    return syscall3(kSysGetsockname, fd, reinterpret_cast<long>(address), reinterpret_cast<long>(bytes));
+}
+
+inline long sys_getpeername(int fd, void* address, u32* bytes) noexcept {
+    return syscall3(kSysGetpeername, fd, reinterpret_cast<long>(address), reinterpret_cast<long>(bytes));
+}
+
+inline long sys_setsockopt(int fd, int level, int name, const void* value, u32 bytes) noexcept {
+    return syscall5(kSysSetsockopt, fd, level, name, reinterpret_cast<long>(value), static_cast<long>(bytes));
+}
+
+inline long sys_getsockopt(int fd, int level, int name, void* value, u32* bytes) noexcept {
+    return syscall5(kSysGetsockopt, fd, level, name, reinterpret_cast<long>(value), reinterpret_cast<long>(bytes));
+}
+
+inline long sys_shutdown(int fd, int how) noexcept {
+    return syscall2(kSysShutdown, fd, how);
+}
+
+// send(2) and recv(2): sendto and recvfrom without an address.
+inline long sys_send(int fd, const void* buffer, usize bytes, int flags) noexcept {
+    return syscall6(kSysSendto, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes), flags, 0, 0);
+}
+
+inline long sys_recv(int fd, void* buffer, usize bytes, int flags) noexcept {
+    return syscall6(kSysRecvfrom, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes), flags, 0, 0);
+}
+
+// recvfrom(2) and sendto(2) with an address.
+inline long sys_recv_from(int fd, void* buffer, usize bytes, int flags, void* address, u32* address_bytes) noexcept {
+    return syscall6(kSysRecvfrom, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes), flags,
+                    reinterpret_cast<long>(address), reinterpret_cast<long>(address_bytes));
+}
+
+inline long sys_send_to(int fd, const void* buffer, usize bytes, int flags, const void* address,
+                        u32 address_bytes) noexcept {
+    return syscall6(kSysSendto, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes), flags,
+                    reinterpret_cast<long>(address), static_cast<long>(address_bytes));
+}
+
+inline long sys_epoll_create(int flags) noexcept {
+    return syscall1(kSysEpollCreate1, flags);
+}
+
+inline long sys_epoll_ctl(int epoll, int operation, int fd, EpollEvent* event) noexcept {
+    return syscall4(kSysEpollCtl, epoll, operation, fd, reinterpret_cast<long>(event));
+}
+
+// The count of events written to `events`, 0 on timeout (milliseconds, -1 waits forever).
+inline long sys_epoll_wait(int epoll, EpollEvent* events, int capacity, int timeout_ms) noexcept {
+    return syscall4(kSysEpollWait, epoll, reinterpret_cast<long>(events), capacity, timeout_ms);
+}
+
 // The address of the new mapping, or a negated errno.
 inline long sys_mmap(void* address, usize bytes, int protection, int flags) noexcept {
     return syscall6(kSysMmap, reinterpret_cast<long>(address), static_cast<long>(bytes), protection, flags, -1, 0);
+}
+
+// Maps `bytes` of the file `fd` from offset 0.
+inline long sys_mmap_file(int fd, usize bytes, int protection, int flags) noexcept {
+    return syscall6(kSysMmap, 0, static_cast<long>(bytes), protection, flags, fd, 0);
 }
 
 inline long sys_munmap(void* address, usize bytes) noexcept {

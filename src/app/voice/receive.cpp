@@ -1,5 +1,6 @@
 #include "maicord/app/voice/receive.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -9,12 +10,12 @@ DaveMediaResult connection_decrypt(void* context, const VoiceReceivedPacket& pac
                                    Slice<u8> scratch, Slice<u8> output) noexcept {
     // DAVE epochs are timed on the worker's GetTickCount64 clock.
     return voice_connection_dave_decrypt(static_cast<VoiceConnection*>(context), packet, frame, scratch, output,
-                                         GetTickCount64());
+                                         clock_monotonic_milliseconds());
 }
 DaveMediaResult connection_decrypt_frame(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
                                          Slice<u8> scratch, Slice<u8> output) noexcept {
     return voice_connection_dave_decrypt_frame(static_cast<VoiceConnection*>(context), user_id, ssrc, frame, scratch,
-                                               output, GetTickCount64());
+                                               output, clock_monotonic_milliseconds());
 }
 bool transport_receive(void* context, ConstSlice<u8> bytes, const VoiceReceivedPacket& packet) noexcept {
     auto& receive = *static_cast<VoiceReceive*>(context);

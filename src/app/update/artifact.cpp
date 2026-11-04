@@ -1,17 +1,22 @@
 #include "maicord/app/update/artifact.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
 UpdateArtifactResult result(UpdateArtifactError error, DWORD native = 0, i32 crypto = 0) noexcept {
     return {error, native, crypto};
 }
+// An absolute path the artifact check accepts: a drive or UNC path on Windows, a rooted one elsewhere. Wildcards and
+// control characters never pass.
 bool valid_path(ConstSlice<wchar_t> path) noexcept {
     if (!path.data || !path.count || path.count > kUpdateArtifactMaximumPathCharacters) return false;
     for (u32 index = 0; index < path.count; ++index)
-        if (!path[index] || path[index] < 32 || path[index] == L'/' || path[index] == L'*' || path[index] == L'?') return false;
+        if (!path[index] || path[index] < 32 || path[index] == L'*' || path[index] == L'?') return false;
+#if defined(_WIN32)
+    for (u32 index = 0; index < path.count; ++index)
+        if (path[index] == L'/') return false;
     const wchar_t drive = path[0] >= L'A' && path[0] <= L'Z' ?
         static_cast<wchar_t>(path[0] + L'a' - L'A') : path[0];
     if (path.count > 3 && drive >= L'a' && drive <= L'z' && path[1] == L':' && path[2] == L'\\') {
@@ -28,6 +33,11 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     if (share_end + 1 >= path.count) return false;
     for (u32 index = 2; index < path.count; ++index) if (path[index] == L':') return false;
     return true;
+#else
+    for (u32 index = 0; index < path.count; ++index)
+        if (path[index] == L'\\') return false;
+    return path.count > 1 && path[0] == L'/';
+#endif
 }
 struct Temporary {
     HANDLE file = INVALID_HANDLE_VALUE;
@@ -35,7 +45,7 @@ struct Temporary {
     u8 digest[32]{};
     ~Temporary() noexcept {
         if (hash) hash_stream_destroy(hash);
-        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        if (file != INVALID_HANDLE_VALUE) file_close(file);
         SecureZeroMemory(digest, sizeof(digest));
     }
 };
@@ -58,33 +68,29 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
     for (u32 index = 0; index < absolute_path.count; ++index) terminated[index] = absolute_path[index];
     terminated[absolute_path.count] = 0;
     Temporary temporary{};
-    temporary.file = CreateFileW(terminated, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-        FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (temporary.file == INVALID_HANDLE_VALUE) return result(UpdateArtifactError::open, GetLastError());
-    if (GetFileType(temporary.file) != FILE_TYPE_DISK) return result(UpdateArtifactError::file);
-    BY_HANDLE_FILE_INFORMATION information{};
-    if (!GetFileInformationByHandle(temporary.file, &information)) return result(UpdateArtifactError::file, GetLastError());
-    if (information.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
-        return result(UpdateArtifactError::file);
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(temporary.file, &size)) return result(UpdateArtifactError::file, GetLastError());
-    if (size.QuadPart < 0 || static_cast<u64>(size.QuadPart) != approved.artifact_bytes)
+    temporary.file = file_open(terminated, {FileAccess::read, FileCreate::existing, kFileShareRead,
+        kFileSequential | kFileNoFollow});
+    if (temporary.file == INVALID_HANDLE_VALUE) return result(UpdateArtifactError::open, thread_last_error());
+    FileStat information{};
+    if (!file_stat(temporary.file, &information)) return result(UpdateArtifactError::file, thread_last_error());
+    if (information.kind != FileKind::regular) return result(UpdateArtifactError::file);
+    if (information.bytes != approved.artifact_bytes)
         return result(UpdateArtifactError::size);
-    NTSTATUS status = hash_stream_begin(&temporary.hash, HashAlgorithm::sha256);
+    i32 status = hash_stream_begin(&temporary.hash, HashAlgorithm::sha256);
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
     u8 buffer[kUpdateArtifactReadBufferBytes];
     u64 remaining = approved.artifact_bytes;
     while (remaining) {
-        const DWORD wanted = static_cast<DWORD>(minimum<u64>(remaining, sizeof(buffer)));
-        DWORD read = 0;
-        if (!ReadFile(temporary.file, buffer, wanted, &read, nullptr)) return result(UpdateArtifactError::read, GetLastError());
+        const u32 wanted = static_cast<u32>(minimum<u64>(remaining, sizeof(buffer)));
+        u32 read = 0;
+        if (!file_read(temporary.file, buffer, wanted, &read)) return result(UpdateArtifactError::read, thread_last_error());
         if (!read || read > wanted) return result(UpdateArtifactError::size);
         status = hash_stream_update(temporary.hash, buffer, read);
         if (status < 0) return result(UpdateArtifactError::hash, 0, status);
         remaining -= read;
     }
-    DWORD trailing = 0;
-    if (!ReadFile(temporary.file, buffer, 1, &trailing, nullptr)) return result(UpdateArtifactError::read, GetLastError());
+    u32 trailing = 0;
+    if (!file_read(temporary.file, buffer, 1, &trailing)) return result(UpdateArtifactError::read, thread_last_error());
     if (trailing) return result(UpdateArtifactError::size);
     status = hash_stream_finish(temporary.hash, temporary.digest, sizeof(temporary.digest));
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
@@ -93,8 +99,7 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
     status = hash_stream_destroy(temporary.hash);
     if (status < 0) return result(UpdateArtifactError::hash, 0, status);
     temporary.hash = nullptr;
-    LARGE_INTEGER zero{};
-    if (!SetFilePointerEx(temporary.file, zero, nullptr, FILE_BEGIN)) return result(UpdateArtifactError::read, GetLastError());
+    if (!file_seek(temporary.file, 0, FileSeek::begin)) return result(UpdateArtifactError::read, thread_last_error());
     UpdateArtifact candidate{};
     candidate.file = temporary.file;
     candidate.bytes = approved.artifact_bytes;
@@ -108,7 +113,7 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
 
 UpdateArtifactResult update_artifact_release(UpdateArtifact* artifact) noexcept {
     if (!artifact) return result(UpdateArtifactError::invalid_input);
-    if (artifact->file && !CloseHandle(artifact->file)) return result(UpdateArtifactError::release, GetLastError());
+    if (artifact->file && !file_close(artifact->file)) return result(UpdateArtifactError::release, thread_last_error());
     SecureZeroMemory(artifact, sizeof(*artifact));
     return result(UpdateArtifactError::none);
 }

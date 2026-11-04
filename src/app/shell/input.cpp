@@ -116,16 +116,6 @@ PaneResizeKind pane_resize_hit(float x, float y) noexcept {
 
 } // namespace
 
-float client_dip_x(LPARAM lparam) noexcept {
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    return static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale;
-}
-
-float client_dip_y(LPARAM lparam) noexcept {
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    return static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale;
-}
-
 namespace {
 // Every client cursor is resolved here in the same front-to-back order as
 // input routing. Scenes report semantic shapes; application_set_cursor maps
@@ -274,14 +264,14 @@ bool set_client_cursor(i32 pixel_x, i32 pixel_y) noexcept {
     application_set_cursor(cursor);
     return true;
 }
-bool handle_pane_resize_begin(LPARAM lparam) noexcept {
+bool handle_pane_resize_begin(const WindowEvent& event) noexcept {
     // Foreground overlays that own the pointer keep it even over a grip.
     if (g_app.login.visible || g_app.pane_resize != PaneResizeKind::none ||
         (g_app.profile && g_app.profile->scene.active) || g_app.image_viewer.scene.active ||
         g_app.reaction_viewer.active) {
         return false;
     }
-    const PaneResizeKind hit = pane_resize_hit(client_dip_x(lparam), client_dip_y(lparam));
+    const PaneResizeKind hit = pane_resize_hit(client_dip_x(event), client_dip_y(event));
     if (hit == PaneResizeKind::none) {
         return false;
     }
@@ -295,12 +285,12 @@ bool handle_pane_resize_begin(LPARAM lparam) noexcept {
     return true;
 }
 
-bool handle_shell_hover(LPARAM lparam) noexcept {
+bool handle_shell_hover(const WindowEvent& event) noexcept {
     if (g_app.login.visible) {
         return false;
     }
-    const float x = client_dip_x(lparam);
-    const float y = client_dip_y(lparam);
+    const float x = client_dip_x(event);
+    const float y = client_dip_y(event);
     if (pane_resize_hit(x, y) != PaneResizeKind::none)
         return true;
     if (application_plugins_surface_hover(x, y) || application_voice_shell_hover(x, y)) {
@@ -342,12 +332,12 @@ bool handle_shell_hover(LPARAM lparam) noexcept {
     return false;
 }
 
-bool handle_navigation_hover(LPARAM lparam) noexcept {
+bool handle_navigation_hover(const WindowEvent& event) noexcept {
     if (g_app.login.visible) {
         return false;
     }
-    const float x = client_dip_x(lparam);
-    const float y = client_dip_y(lparam);
+    const float x = client_dip_x(event);
+    const float y = client_dip_y(event);
     const UiWidgetHandle prior_guild = g_app.guild_rail_scene.widgets.hovered;
     const UiWidgetHandle prior_channel = g_app.shell_navigation_scene.widgets.hovered;
     const GuildRailHit guild = guild_rail_scene_hit_test(g_app.guild_rail_scene, x, y);
@@ -374,21 +364,21 @@ bool handle_navigation_hover(LPARAM lparam) noexcept {
     return guild.selectable || guild.add_server || guild.conversation || channel.selectable;
 }
 
-bool handle_shell_click(LPARAM lparam) noexcept {
+bool handle_shell_click(const WindowEvent& event) noexcept {
     if (g_app.login.visible) {
         return false;
     }
-    if (application_voice_shell_click(client_dip_x(lparam), client_dip_y(lparam)))
+    if (application_voice_shell_click(client_dip_x(event), client_dip_y(event)))
         return true;
-    if (const auto header = header_plugin_hit(client_dip_x(lparam), client_dip_y(lparam)); header.action_id) {
+    if (const auto header = header_plugin_hit(client_dip_x(event), client_dip_y(event)); header.action_id) {
         application_plugin_surfaces_activate(header.owner_id, {kUiPluginSlotHeaderToolbar, 0, 0, 0, 0}, header.action_id);
         return true;
     }
     // Channel/DM row and server rail badges, account panel buttons.
-    if (application_plugins_surface_click(client_dip_x(lparam), client_dip_y(lparam)))
+    if (application_plugins_surface_click(client_dip_x(event), client_dip_y(event)))
         return true;
     const UiWidgetHandle hit =
-        ui_widget_manager_hit_test(g_app.shell_scene.widgets, client_dip_x(lparam), client_dip_y(lparam));
+        ui_widget_manager_hit_test(g_app.shell_scene.widgets, client_dip_x(event), client_dip_y(event));
     const UiWidget* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
     if (widget && widget->id == static_cast<u32>(UiSemantic::settings) + 1u)
         return application_settings_open();
@@ -404,16 +394,16 @@ bool handle_shell_click(LPARAM lparam) noexcept {
         return application_private_channel_picker(g_app.account_ui->chat_state.selected_channel_id);
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_call) + 1u && g_app.account_ui)
         return application_private_channel_call(g_app.account_ui->chat_state.selected_channel_id);
-    if (application_private_channel_title_hit(client_dip_x(lparam), client_dip_y(lparam)))
+    if (application_private_channel_title_hit(client_dip_x(event), client_dip_y(event)))
         return application_private_channel_rename(g_app.account_ui->chat_state.selected_channel_id);
     if (widget && widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u)
         return application_friends_show();
     if (widget && widget->id == static_cast<u32>(UiSemantic::threads_toggle) + 1u)
         return application_thread_browser_toggle();
     if (widget && widget->id == static_cast<u32>(UiSemantic::channel_footer) + 1u && g_app.account_ui) {
-        if (voice_disconnect_contains(client_dip_x(lparam), client_dip_y(lparam)))
+        if (voice_disconnect_contains(client_dip_x(event), client_dip_y(event)))
             return leave_voice();
-        if (!account_identity_contains(client_dip_x(lparam), client_dip_y(lparam))) return false;
+        if (!account_identity_contains(client_dip_x(event), client_dip_y(event))) return false;
         const auto* node = ui_widget_manager_layout_node(g_app.shell_scene.widgets, hit);
         return application_account_menu_open(
             hit, node ? ui_rect_intersection(node->rectangle, node->clip_rectangle) : UiRect{});
@@ -428,13 +418,13 @@ bool handle_shell_click(LPARAM lparam) noexcept {
     return application_preferences_member_visibility(!g_app.member_pane_visible);
 }
 
-bool handle_member_hover(LPARAM lparam) noexcept {
+bool handle_member_hover(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked()) return false;
     if (!g_app.member_list_scene.active || g_app.login.visible) {
         return false;
     }
-    const float x = client_dip_x(lparam);
-    const float y = client_dip_y(lparam);
+    const float x = client_dip_x(event);
+    const float y = client_dip_y(event);
     const UiWidgetHandle prior = g_app.member_list_scene.widgets.hovered;
     const UiWidgetHandle hit = ui_widget_manager_hit_test(g_app.member_list_scene.widgets, x, y);
     if (!ui_widget_manager_hover(&g_app.member_list_scene.widgets, hit)) {
@@ -535,13 +525,13 @@ bool application_message_hover_leave() noexcept {
     return clear_message_hover();
 }
 
-bool handle_message_hover(LPARAM lparam) noexcept {
+bool handle_message_hover(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked()) return false;
     if (!g_app.message_scene.active || g_app.login.visible) {
         return false;
     }
-    const float x = client_dip_x(lparam);
-    const float y = client_dip_y(lparam);
+    const float x = client_dip_x(event);
+    const float y = client_dip_y(event);
     // After a scroll the content moved under a still pointer; the official client keeps
     // the toolbar hidden until the pointer itself moves.
     if (!message_hover_scroll_gate_pointer(&g_message_hover_gate, x, y))
@@ -568,13 +558,13 @@ bool handle_message_hover(LPARAM lparam) noexcept {
     return tracked.action_bar.inside || tracked.hovered_message_id != 0;
 }
 
-bool handle_member_click(LPARAM lparam) noexcept {
+bool handle_member_click(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked()) return false;
     if (!g_app.member_list_scene.active || g_app.login.visible) {
         return false;
     }
-    const float x = client_dip_x(lparam);
-    const float y = client_dip_y(lparam);
+    const float x = client_dip_x(event);
+    const float y = client_dip_y(event);
     const MemberListHit hit = member_list_scene_hit_test(g_app.member_list_scene, x, y);
     if (hit.user_id == 0) {
         return false;

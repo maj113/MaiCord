@@ -10,6 +10,9 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
@@ -74,8 +77,7 @@ ClientThemeStorageResult write_result(FilePersistenceWriteResult result) noexcep
     return failure(ClientThemeStorageError::write, result.native_error);
 }
 HANDLE open_read(const wchar_t* path, ClientThemeStorageResult* result) noexcept {
-    const auto file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                  FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    const auto file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead, kFileSequential});
     if (file == INVALID_HANDLE_VALUE) {
         const u32 native = thread_last_error();
         *result = failure(native == ERROR_FILE_NOT_FOUND || native == ERROR_PATH_NOT_FOUND
@@ -118,7 +120,7 @@ ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const 
         result = read_bytes(file, {workspace->record, maximum}, expected, bytes);
     else
         result = failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
-    CloseHandle(file);
+    file_close(file);
     if (workspace && !result.ok()) {
         pages_release(workspace);
         workspace = nullptr;
@@ -467,7 +469,7 @@ ClientThemeStorageResult client_theme_catalog_remove(const ClientThemeCatalogEnt
         return result;
     if (!client_theme_catalog_path(directory, entry, {path, kClientThemeIoMaximumPathUnits}, &units))
         return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
-    if (DeleteFileW(path))
+    if (file_remove(path))
         return {};
     const u32 native = thread_last_error();
     return native == ERROR_FILE_NOT_FOUND || native == ERROR_PATH_NOT_FOUND ? ClientThemeStorageResult{}
@@ -487,23 +489,25 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
         return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     Workspace* const workspace = &memory->files;
     auto& catalog = memory->catalog;
-    wchar_t pattern[kClientThemeIoMaximumPathUnits]{};
-    copy_bytes(pattern, directory, length * sizeof(wchar_t));
-    copy_bytes(pattern + length, L"\\*.json", 8 * sizeof(wchar_t));
-    WIN32_FIND_DATAW data{};
-    const HANDLE scan = FindFirstFileW(pattern, &data);
+    DirIter scan{};
+    DirEntry data{};
     ClientThemeStorageResult result{};
-    if (scan == INVALID_HANDLE_VALUE) {
+    if (!dir_open(&scan, directory)) {
         const u32 error = thread_last_error();
         if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
             result = failure(ClientThemeStorageError::directory, error);
     } else {
         const auto defaults = client_theme_document_defaults();
-        do {
-            if (data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
+        while (dir_next(&scan, &data)) {
+            static constexpr wchar_t kExtension[] = L".json";
+            const u32 name_length = wide_length(data.name, 260);
+            bool json = name_length > 5;
+            for (u32 i = 0; json && i < 5; ++i)
+                json = (data.name[name_length - 5 + i] | 0x20) == kExtension[i];
+            if (!json || data.kind != FileKind::regular)
                 continue;
             ClientThemeCatalogEntry entry{};
-            while (entry.file_units < kClientThemeCatalogFileUnits && data.cFileName[entry.file_units])
+            while (entry.file_units < kClientThemeCatalogFileUnits && data.name[entry.file_units])
                 ++entry.file_units;
             wchar_t path[kClientThemeIoMaximumPathUnits]{};
             u32 units = 0;
@@ -511,7 +515,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
                 ++catalog.skipped;
                 continue;
             }
-            copy_bytes(entry.file, data.cFileName, entry.file_units * sizeof(wchar_t));
+            copy_bytes(entry.file, data.name, entry.file_units * sizeof(wchar_t));
             if (!client_theme_catalog_path(directory, entry, {path, kClientThemeIoMaximumPathUnits}, &units)) {
                 ++catalog.skipped;
                 continue;
@@ -524,7 +528,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
             if (file != INVALID_HANDLE_VALUE) {
                 read = read_bytes(file, {workspace->record, kClientThemeImportMaximumBytes}, nullptr, &bytes);
                 parsed = read.ok() && file_snapshot_read(file, &entry.identity, &native);
-                CloseHandle(file);
+                file_close(file);
             }
             ClientThemeDocument document{};
             if (parsed)
@@ -557,9 +561,9 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
             copy_bytes(&catalog.entries[at + 1], &catalog.entries[at],
                        (catalog.count - 1 - at) * static_cast<u32>(sizeof(entry)));
             copy_value(&catalog.entries[at], entry);
-        } while (FindNextFileW(scan, &data));
+        }
         const u32 error = thread_last_error();
-        FindClose(scan);
+        dir_close(&scan);
         if (error != ERROR_NO_MORE_FILES)
             result = failure(ClientThemeStorageError::read, error);
     }
@@ -595,12 +599,12 @@ bool reject(u32 error) noexcept {
 }
 void release_io(ClientThemeIo* io) noexcept {
     if (io->thread)
-        CloseHandle(io->thread);
+        thread_close(static_cast<Thread*>(io->thread));
     if (io->completion_event)
-        CloseHandle(io->completion_event);
+        waitable_close(io->completion_event);
     heap_free(io);
 }
-DWORD WINAPI io_work(void* opaque) noexcept {
+u32 io_work(void* opaque) noexcept {
     auto* io = static_cast<ClientThemeIo*>(opaque);
     for (;;) {
         ClientThemeIoRequest request{};
@@ -650,7 +654,7 @@ DWORD WINAPI io_work(void* opaque) noexcept {
         if (!io->active_cancelled) {
             io->completion = completed;
             io->completion_ready = true;
-            SetEvent(io->completion_event);
+            event_set(io->completion_event);
         }
         io->active_generation = 0;
         io->active_cancelled = false;
@@ -667,15 +671,14 @@ bool submit(ClientThemeIo* io, const ClientThemeIoRequest& request, u64* generat
     }
     if (!io->running) {
         // The previous worker (if any) has exited or is returning.
-        const HANDLE thread =
-            CreateThread(nullptr, 256u * 1024u, io_work, io, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        const HANDLE thread = thread_start(io_work, io, 256u * 1024u, nullptr);
         if (!thread) {
             const u32 error = thread_last_error();
             ReleaseSRWLockExclusive(&io->lock);
             return reject(error);
         }
         if (io->thread)
-            CloseHandle(io->thread);
+            thread_close(static_cast<Thread*>(io->thread));
         io->thread = thread;
         io->running = true;
     }
@@ -700,7 +703,7 @@ bool client_theme_io_create(ClientThemeIo** output, const wchar_t* path) noexcep
     io->explicit_path = path != nullptr;
     if (path)
         copy_bytes(io->storage_path, path, (length + 1) * sizeof(wchar_t));
-    io->completion_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    io->completion_event = event_create(true, false);
     if (!io->completion_event) {
         const u32 error = thread_last_error();
         release_io(io);
@@ -757,7 +760,7 @@ bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion
     if (io->completion_ready) {
         *completion = io->completion;
         io->completion_ready = false;
-        ResetEvent(io->completion_event);
+        event_reset(io->completion_event);
     }
     ReleaseSRWLockExclusive(&io->lock);
     return true;
@@ -778,7 +781,7 @@ void client_theme_io_cancel(ClientThemeIo* io, u64 generation) noexcept {
         io->active_cancelled = true;
     if (io->completion_ready && io->completion.generation == generation) {
         io->completion_ready = false;
-        ResetEvent(io->completion_event);
+        event_reset(io->completion_event);
     }
     ReleaseSRWLockExclusive(&io->lock);
 }
@@ -792,9 +795,8 @@ bool client_theme_io_stop(ClientThemeIo** output, u32 timeout) noexcept {
     io->stopping = true; // no new worker starts; a running one drains and exits
     const HANDLE thread = io->thread;
     ReleaseSRWLockExclusive(&io->lock);
-    const DWORD waited = thread ? WaitForSingleObject(thread, timeout) : WAIT_OBJECT_0;
-    if (waited != WAIT_OBJECT_0)
-        return reject(waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT);
+    if (thread && !thread_wait(static_cast<Thread*>(thread), timeout))
+        return reject(WAIT_TIMEOUT);
     release_io(io);
     *output = nullptr;
     return true;

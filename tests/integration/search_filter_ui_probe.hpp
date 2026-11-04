@@ -497,7 +497,7 @@ inline bool search_filter_ui_probe(D3D11Renderer& renderer,
                      50 + sample))
             return false;
         const float clear[]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         if (!require(d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr, 10000) &&
                          rb.read(renderer, 0),
                      60 + sample))

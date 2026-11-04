@@ -5,7 +5,7 @@
 namespace maicord {
 
 // The built-in shaders. Each backend ships a pack of them in this order (Direct3D 11: the DXBC pack of
-// cmake/generated_sources.cmake, checked at compile time in src/render/d3d11/shader_bytecode.cpp; OpenGL ES: the
+// cmake/generated_sources.cmake, checked at compile time in src/gpu/d3d11/shader_pack.cpp; OpenGL ES: the
 // GLSL pack of tools/build_gles_shader_pack.py, checked in src/gpu/gles/shader_pack.cpp).
 enum class ShaderId : u8 {
     ui_vertex, ui_pixel, glyph_vertex, glyph_pixel, media_vertex, media_pixel, glyph_compute,

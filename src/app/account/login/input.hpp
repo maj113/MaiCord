@@ -4,6 +4,7 @@
 #include "maicord/ui/account/login_scene.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 
@@ -13,7 +14,7 @@ void application_login_tick_caret(u64 now_ms) noexcept;
 bool application_login_position_edit(LoginControl control, i32 client_x, i32 client_y,
                                      bool extend_selection) noexcept;
 void application_login_end_pointer_selection() noexcept;
-bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept;
-bool application_login_handle_character(WPARAM character) noexcept;
+bool application_login_handle_drag(const WindowEvent& event) noexcept;
+bool application_login_handle_character(u32 character) noexcept;
 
 } // namespace maicord::app_detail

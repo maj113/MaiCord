@@ -22,6 +22,7 @@
 #include "maicord/core/memory.hpp"
 #include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -77,8 +78,8 @@ bool slot_profile_present(u32 slot) noexcept {
     AccountPaths paths{};
     if (!account_paths_resolve_slot(slot, &paths).ok())
         return false;
-    const DWORD attributes = GetFileAttributesW(paths.profile);
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+    FileStat profile{};
+    return file_path_stat(paths.profile, &profile) && profile.kind != FileKind::directory;
 }
 
 // Logout contract on a slot without a worker: marker, delete, confirm. The
@@ -87,7 +88,8 @@ bool forget_slot(u32 slot, bool drafts) noexcept {
     AccountPaths paths{};
     if (!account_paths_resolve_slot(slot, &paths).ok())
         return false;
-    if (GetFileAttributesW(paths.account_directory) == INVALID_FILE_ATTRIBUTES)
+    FileStat directory{};
+    if (!file_path_stat(paths.account_directory, &directory))
         return win32_error_is_missing_file(thread_last_error());
     const auto begun = account_credential_forget_begin(paths);
     const auto forgotten = begun.ok() ? account_credential_forget_complete_after_join(paths, true) : begun;
@@ -95,7 +97,7 @@ bool forget_slot(u32 slot, bool drafts) noexcept {
         log_u64(LogLevel::warning, "account", "saved_account_forget_error", static_cast<u64>(forgotten.error));
         return false;
     }
-    if (drafts && !DeleteFileW(paths.drafts) && !win32_error_is_missing_file(thread_last_error()))
+    if (drafts && !file_remove(paths.drafts) && !win32_error_is_missing_file(thread_last_error()))
         log_write(LogLevel::warning, "account", "saved_account_drafts_remove_failed");
     return true;
 }

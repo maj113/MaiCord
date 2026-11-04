@@ -64,6 +64,8 @@ enum EventFlag : u8 {
     ev_synthetic = 8,     // injected: accessibility actions, cursor refresh, test fixtures
     ev_keyboard = 16,     // context_menu raised by the keyboard (lparam == -1 today)
     ev_provisional = 32,  // resize computed during WM_NCCALCSIZE, before the window moves
+    ev_minimized = 64,    // activation_changed while the window is minimized (WM_ACTIVATE's HIWORD)
+    ev_owned_focus = 128, // focus_changed (lost): the window gaining focus is one this window owns (a dialog or menu)
 };
 
 // state_changed bits.
@@ -75,6 +77,7 @@ enum StateFlag : u32 {
     state_suspended = 16,
     state_tiled = 32,
     state_decorated = 64,
+    state_geometry = 128,  // the size or the frame changed (WM_WINDOWPOSCHANGED without SWP_NOSIZE, or SWP_FRAMECHANGED)
 };
 
 // settings_changed areas: what to read again from PlatformSettings.
@@ -113,13 +116,6 @@ enum class FrameHit : u8 {
     nowhere,
 };
 
-// The transition carrier (see the migration plan): the message a handler used to receive. Removed with the
-// last handler that reads it.
-struct LegacyMessage {
-    u32 message;
-    u64 wparam;
-    i64 lparam;
-};
 
 struct WindowEvent {
     EventType type;
@@ -173,7 +169,7 @@ struct WindowEvent {
             u32 areas;  // SettingsArea
         } settings;
     };
-    LegacyMessage legacy;
+    NativeWindow window;  // the platform window the event is for (the HWND on Windows; null where it is not needed)
     const void* native;  // Windows: the MSG being dispatched, for the text-services key filter; null elsewhere
 };
 

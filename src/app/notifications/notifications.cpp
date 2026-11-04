@@ -10,6 +10,7 @@
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -55,8 +56,8 @@ bool identity_paths(Identity& i) noexcept {
     const DataPathResult icon_path = data_path(i.icon,1024,L"notification-icon.png");
     i.icon_units = icon_path.length;
     if(!icon_path.ok()) i.icon[0] = 0;
-    const DWORD icon = i.icon_units ? GetFileAttributesW(i.icon) : INVALID_FILE_ATTRIBUTES;
-    const bool icon_present = icon!=INVALID_FILE_ATTRIBUTES && !(icon&FILE_ATTRIBUTE_DIRECTORY);
+    FileStat icon{};
+    const bool icon_present = i.icon_units && file_path_stat(i.icon, &icon) && icon.kind != FileKind::directory;
     i.config={{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,{i.executable,n},{L"MaiCord",7},
         {i.icon,icon_present?i.icon_units:0},{identity_nonce,sizeof(identity_nonce)/sizeof(wchar_t)-1},{}};
     return true;
@@ -81,11 +82,11 @@ void prepare_icon(Identity& i) noexcept {
     written = written && clipboard_image_encode_png(rgba,extent,extent,extent*4,{rgba+pixels_bytes,static_cast<u32>(png_bytes)})==png_bytes;
     if(written) {
         data_path(i.icon,1024,L"notification-icon.png",true); // creates the MaiCord directory
-        const HANDLE file = CreateFileW(i.icon,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-        DWORD count = 0;
-        written = file!=INVALID_HANDLE_VALUE && WriteFile(file,rgba+pixels_bytes,static_cast<DWORD>(png_bytes),&count,nullptr) && count==png_bytes;
-        if(file!=INVALID_HANDLE_VALUE) CloseHandle(file);
-        if(!written) DeleteFileW(i.icon);
+        const HANDLE file = file_open(i.icon, {FileAccess::write, FileCreate::create_always, 0, 0});
+        u32 count = 0;
+        written = file!=INVALID_HANDLE_VALUE && file_write(file,rgba+pixels_bytes,static_cast<u32>(png_bytes),&count) && count==png_bytes;
+        if(file!=INVALID_HANDLE_VALUE) file_close(file);
+        if(!written) file_remove(i.icon);
     }
     pages_release(memory);
     if(written) i.config.icon_path={i.icon,i.icon_units};
@@ -298,9 +299,13 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
     if(old_index) pages_release(old_index);
     return true;
 }
+// Where the notification workers and the continuation post their wakes.
+Waker wake_target(const Application& a) noexcept {
+    return a.window?Waker{window_surface_native(a.window),wake_notifications}:Waker{};
+}
 void post_continuation(Application& a,ApplicationNotifications& n) noexcept {
     n.work_pending=true;
-    if(a.window) PostMessageW(a.window,kApplicationNotificationMessage,0,0);
+    if(a.window) window_post(wake_target(a),0,0);
 }
 void release_storage(ApplicationNotifications& n) noexcept {
     stable_storage_release(&n.guilds); stable_storage_release(&n.overrides);
@@ -339,7 +344,7 @@ ApplicationNotifications* ensure(Application* a) noexcept {
     // VirtualAlloc zeroes storage; it does not run default member initializers.
     notification_sound_assets_volume(&n->sound_assets,a->preferences.output_volume);
     const NotificationAudioConfig audio_config{notification_sound_asset_resolve,&n->sound_assets,
-        a->window,a->window?kApplicationNotificationMessage:0,1,n->audio_preference,notification_sound_asset_gain};
+        a->window?Waker{window_surface_native(a->window),wake_notifications}:Waker{},1,n->audio_preference,notification_sound_asset_gain};
     if(!notification_audio_initialize(&n->audio,audio_config).ok()) {
         release_storage(*n); pages_release(n); return nullptr;
     }
@@ -475,18 +480,17 @@ bool application_notifications_initialize(Application* a) noexcept {
     pages_release(identity);
     if(!checked.ok()) return true;
     auto* n=ensure(a); if(!n) return false;
-    const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,a->window,kApplicationNotificationMessage,true});
+    const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,wake_target(*a),true});
     n->enrolled=result.ok(); transport_error(*n,result);
     return result.ok();
 }
 void application_notifications_attach_window(Application* a) noexcept {
     if(!a || !a->notifications) return;
     auto& n=*a->notifications;
-    if(n.native.runtime) desktop_notifications_set_wake(&n.native,a->window,kApplicationNotificationMessage);
+    if(n.native.runtime) desktop_notifications_set_wake(&n.native,wake_target(*a));
     // Startup attaches HWND before the first account request launches audio.
     if(!n.audio.runtime) {
-        n.audio.config.wake_window=a->window;
-        n.audio.config.wake_message=a->window?kApplicationNotificationMessage:0;
+        n.audio.config.wake=wake_target(*a);
     }
 }
 void application_notifications_settings_refresh(Application* a) noexcept {
@@ -534,7 +538,7 @@ bool application_notifications_setup(Application* a) noexcept {
         return false;
     }
     log_u64(LogLevel::info,"notifications","identity_ready",checked.registry_created);
-    const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,a->window,kApplicationNotificationMessage,true});
+    const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,wake_target(*a),true});
     n->enrolled=result.ok(); transport_error(*n,result);
     if(result.ok()) application_notifications_settings_refresh(a);
     return result.ok();
@@ -775,7 +779,7 @@ void application_notifications_drain(Application* a) noexcept {
     if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) {
         log_write(LogLevel::info,"notifications","activation_channel_unavailable"); return;
     }
-    if(a->window) { ShowWindow(a->window,SW_RESTORE); SetForegroundWindow(a->window); }
+    if(a->window) { window_show(a->window,ShowMode::restore); SetForegroundWindow(win32_hwnd(a->window)); }
     if(!application_navigate_known_message(request.channel_id,request.message_id))
         log_write(LogLevel::warning,"notifications","activation_navigation_failed");
 }

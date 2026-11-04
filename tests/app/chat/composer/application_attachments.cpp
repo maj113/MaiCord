@@ -341,22 +341,22 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
     g_app.account_ui->navigation_view.channel_rows = channels;
     g_app.account_ui->navigation_view.channel_count = 2;
     g_app.account_ui->active_channel_id = 7;
-    g_app.window = CreateWindowExW(0, L"STATIC", L"MaiCord drop owner fixture", WS_OVERLAPPED,
-        0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord drop owner fixture", WS_OVERLAPPED,
+        0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     wchar_t dropped_path[MAX_PATH]{}; u32 dropped_units = 0; FileSnapshot dropped_snapshot{};
     const bool drop_ready = g_app.window && file_drop_fixture::seed(dropped_path, &dropped_units, &dropped_snapshot);
     check(drop_ready, "attachment drop application fixture initializes");
     if (drop_ready) {
         const ConstSlice<wchar_t> dropped_file{dropped_path, dropped_units};
         application_sync_attachment_drop_target();
-        check((GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) != 0,
+        check((GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) != 0,
             "attachment drop registration follows active channel permissions");
         g_app.login.visible = true;
         application_sync_attachment_drop_target();
-        HDROP dropped = file_drop_fixture::make({&dropped_file, 1});
+        DroppedFiles* dropped = file_drop_fixture::make({&dropped_file, 1});
         check(application_drop_attachments(dropped) && !g_app.attachments &&
             GlobalFlags(reinterpret_cast<HGLOBAL>(dropped)) == GMEM_INVALID_HANDLE &&
-            (GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
+            (GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
             "login rejects and releases dropped file without allocating upload state");
         g_app.login.visible = false;
         ForumPostScene covered_scene{};
@@ -369,7 +369,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
         dropped = file_drop_fixture::make({&dropped_file, 1});
         check(application_drop_attachments(dropped) && !g_app.attachments &&
                   GlobalFlags(reinterpret_cast<HGLOBAL>(dropped)) == GMEM_INVALID_HANDLE &&
-                  (GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
+                  (GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
               "forum lifetime rejects covered composer drops without allocating upload state");
         g_app.renderer.forum_form = previous_forum;
         dropped = file_drop_fixture::make({&dropped_file, 1});
@@ -377,7 +377,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
                   g_app.attachments->picker_channel == 7 && application_attachment_input().label.bytes &&
                   !application_attachment_input().ready &&
                   !application_attachment_prepare_send(7, {&reference, 1}, {&prepared_id, 1}, &count) &&
-                  (GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
+                  (GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
               "accepted drop captures channel and temporarily disables additional drops");
         if (g_app.attachments) {
             const HANDLE original_worker = g_app.attachments->picker.thread;
@@ -420,7 +420,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
             "drop finishing after account change is drained without staging or uploading");
         release_attachments();
         g_app.account.status.profile_id = 77;
-        check((GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
+        check((GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
             "attachment cancellation unregisters the window drop target");
         // A dropped file over the allowance is refused with its name, exact size and the limit.
         const HANDLE grown_file = CreateFileW(dropped_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
@@ -445,7 +445,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
         }
     }
     if (dropped_path[0]) DeleteFileW(dropped_path);
-    if (g_app.window) DestroyWindow(g_app.window);
+    if (win32_hwnd(g_app.window)) DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
     popup_scene_release(&g_app.popup_scene); g_app.popup_scene = {};
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr; g_app.account = {};

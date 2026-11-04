@@ -735,7 +735,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
     const auto draw_changed = [&]() noexcept {
         const float clear[]{kDefaultTheme.base_lowest.red, kDefaultTheme.base_lowest.green,
                             kDefaultTheme.base_lowest.blue, 1};
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         return d3d11_renderer_draw_stream(&renderer, kDefaultTheme, true, true, nullptr, 10000);
     };
     u32 stage = 1;
@@ -873,7 +873,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
         renderer.media_draw.quad_data[i].opacity = 0;
     const float underlay_clear[]{kDefaultTheme.base_lowest.red, kDefaultTheme.base_lowest.green,
                                  kDefaultTheme.base_lowest.blue, 1};
-    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, underlay_clear);
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, underlay_clear);
     if (!d3d11_renderer_draw_stream(&renderer, kDefaultTheme, false, true, nullptr, 10000) ||
         !readback.read(renderer, 2))
         return false;
@@ -2721,7 +2721,7 @@ bool probe_read_pixels(const Theme& theme, ConstSlice<UiPoint> points, u8 (*outp
         if (!d3d11_renderer_draw_stream(&g_probe.renderer, theme, true, true, nullptr))
             return false;
         ID3D11Resource* resource = nullptr;
-        g_probe.renderer.graphics.target->GetResource(&resource);
+        g_probe.renderer.graphics.surface.target->GetResource(&resource);
         const HRESULT queried =
             resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
         resource->Release();
@@ -2923,14 +2923,14 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
     UiPage pages[1]{};
     ID3D11Texture2D* buffers[2]{};
     ID3D11RenderTargetView* targets[2]{};
-    ID3D11RenderTargetView* const presented = renderer.graphics.target;
+    ID3D11RenderTargetView* const presented = renderer.graphics.surface.target;
     struct RestoreEntranceProbe {
         UiSettingsScene& scene;
         ID3D11Texture2D** buffers;
         ID3D11RenderTargetView** targets;
         ID3D11RenderTargetView* presented;
         ~RestoreEntranceProbe() noexcept {
-            g_probe.renderer.graphics.target = presented;
+            g_probe.renderer.graphics.surface.target = presented;
             renderer_bind_settings_scene(&g_probe.renderer, nullptr);
             renderer_set_settings_modal_progress(&g_probe.renderer, 1);
             ui_settings_scene_release(&scene);
@@ -2988,9 +2988,9 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
                : UiPoint{viewport.right * .5f, viewport.bottom * .5f}};
     u32 frame = 0;
     const auto render = [&](u8 (*pixels)[4]) noexcept {
-        renderer.graphics.target = targets[frame & 1u];
+        renderer.graphics.surface.target = targets[frame & 1u];
         const bool presented_frame = probe_present(&renderer, kDefaultTheme);
-        renderer.graphics.target = presented;
+        renderer.graphics.surface.target = presented;
         const bool read =
             presented_frame && probe_read_pixels(kDefaultTheme, {points, kPoints}, pixels, buffers[frame & 1u]);
         ++frame;

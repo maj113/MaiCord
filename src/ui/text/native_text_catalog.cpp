@@ -4,12 +4,24 @@
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/ordinal.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"
 #include "maicord/core/win32_file_info.hpp"
+#else
+#include "maicord/core/time.hpp"
+#include "maicord/platform/font/system_font_locator.hpp"
+#endif
 
 namespace maicord {
 // ascii: bit sets over U+0000..U+007F, [known] then [covered], filled lazily from the face's cmap.
 struct FamilyOrder {FamilyOrder* next;const NativeFontCatalog* catalog;u32 scope,base;NativeFontProperties properties;ConstSlice<u16> name;ConstSlice<u32> order;mutable const FamilyOrder** companions;mutable u64 ascii[4];};
+#if !defined(_WIN32)
+// The ordered families of one fallback route (native_system_fallback_routes.inc).
+constexpr u32 fallback_route_limit=24;
+struct RouteFamilies {u32 count;ConstSlice<u16> names[fallback_route_limit];};
+#endif
 namespace {
 bool acquisition_failed(NativeTextCatalogs& owner,u32 scope,NativeFontResult result) noexcept {
     if(result.error==NativeFontError::io&&result.native_error==ERROR_RETRY)owner.stale_scopes|=1u<<scope;
@@ -24,7 +36,7 @@ bool catalog_failed(NativeTextCatalogs& owner,u32 scope,NativeFontResult result)
 bool same_name(ConstSlice<u16> a,ConstSlice<u16> b) noexcept {
     if(a.count!=b.count)return false;
     for(u32 i=0;i<a.count;++i){const u32 x=a[i],y=b[i];if(x==y)continue;
-        if((x|y)>=128)return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(a.data),a.count,reinterpret_cast<const wchar_t*>(b.data),b.count,TRUE)==CSTR_EQUAL;
+        if((x|y)>=128)return ordinal_equal(reinterpret_cast<const wchar_t*>(a.data),a.count,reinterpret_cast<const wchar_t*>(b.data),b.count,true);
         if((x^y)!=32||(x|32)-'a'>25)return false;}
     return true;
 }
@@ -53,9 +65,15 @@ bool family_order(NativeTextCatalogs& owner,const NativeTextFontQuery& query,Are
     if(!native_font_properties_valid(query.properties))return false;
     for(auto* family=owner.families;family;family=family->next)if(family->scope==query.scope&&family->properties==query.properties&&same_name(family->name,query.family)){*output=family;return true;}
     if(query.scope&&(owner.attempted&(1u<<query.scope))&&!owner.scopes[query.scope].catalog.count)return false;
-    ++owner.builds;LARGE_INTEGER first{},last{};QueryPerformanceCounter(&first);
+    ++owner.builds;
+#if defined(_WIN32)
+    LARGE_INTEGER first{},last{};QueryPerformanceCounter(&first);
     struct Elapsed {NativeTextCatalogs& owner;LARGE_INTEGER& first;LARGE_INTEGER& last;
         ~Elapsed() noexcept {if(QueryPerformanceCounter(&last)&&last.QuadPart>=first.QuadPart)owner.build_ticks+=last.QuadPart-first.QuadPart;}} elapsed{owner,first,last};
+#else
+    struct Elapsed {NativeTextCatalogs& owner;i64 first;
+        ~Elapsed() noexcept {const i64 last=clock_now();if(last>=first)owner.build_ticks+=static_cast<u64>(last-first);}} elapsed{owner,clock_now()};
+#endif
     const NativeFontCatalog* catalog=nullptr;u32 base=0;bool fresh=false;
     if(query.scope){if(!build_private(owner,query,scratch,&fresh))return false;catalog=&owner.scopes[query.scope].catalog;}
     else if(!system_family_file(owner,query,scratch,&catalog,&base,&fresh))return false;
@@ -74,7 +92,11 @@ bool native_text_catalogs_initialize(NativeTextCatalogs* owner) noexcept {
     if(!owner||owner->storage.base||owner->count)return false;
     owner->scopes.entries[0]=&owner->scopes.system;
     if(!arena_initialize(&owner->storage,2*1024*1024,0,4096)){native_text_catalogs_release(owner);return false;}
-    owner->count=1;return true;
+    owner->count=1;
+#if !defined(_WIN32)
+    owner->fallback_locale=fallback_locale_for_language();
+#endif
+    return true;
 }
 void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
     if(!owner)return;
@@ -82,7 +104,11 @@ void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
     log_u64(LogLevel::info,"text","native_catalog_unsupported",owner->unsupported);log_u64(LogLevel::info,"text","native_catalog_failures",owner->failures);
     log_u64(LogLevel::info,"text","native_catalog_build_ticks",owner->build_ticks);log_u64(LogLevel::info,"text","native_catalog_commit",owner->storage.committed);
     native_font_coverage_release(&owner->coverage);
+#if defined(_WIN32)
     if(owner->locator)owner->locator->release();
+#else
+    if(owner->locator)system_font_locator_release(owner->locator);
+#endif
     arena_release(&owner->storage);clear_bytes(owner,sizeof(*owner));
 }
 namespace {
@@ -106,6 +132,9 @@ bool native_text_catalog_register_path(NativeTextCatalogs* owner,const wchar_t* 
 bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,
     NativeFontInstanceHandle* output,NativeFontSelection* source,u32* candidate,u32* simulations,u32* selected_scope,bool* missing_family) noexcept {
     if(missing_family)*missing_family=false;
+#if !defined(_WIN32)
+    LocatorIdle idle{owner};
+#endif
     if(output)reset_value(output);if(source)reset_value(source);if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
     if(!owner||query.scope>=owner->count||!query.family.count||!query.family.data||query.family.count>32767||!session||!scratch||!scratch->base||!output||!source)return false;
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;

@@ -22,12 +22,12 @@ struct PhoneTsf {
     static bool bounds(void*, SecureTextStoreGeometry* output) noexcept {
         *output = {{130, 230, 730, 296}, {0, 0, 2000, 2000}}; return true;
     }
-    static bool range(void* context, u32 first, u32 last, RECT* rectangle, bool* clipped) noexcept {
+    static bool range(void* context, u32 first, u32 last, SecureTextRect* rectangle, bool* clipped) noexcept {
         const auto& fixture = *static_cast<PhoneTsf*>(context);
         return app_detail::application_phone_range_geometry(*fixture.edit,
             {20, 20, 420, 64}, 144, {100, 200}, first, last, rectangle, clipped, fixture.clip);
     }
-    static bool point(void* context, POINT p, bool round, u32* position, bool* inside) noexcept {
+    static bool point(void* context, SecureTextPoint p, bool round, u32* position, bool* inside) noexcept {
         return login_phone_point_position({20, 20, 420, 64}, static_cast<PhoneTsf*>(context)->edit->storage.bytes,
             (p.x - 100) / 1.5f, (p.y - 200) / 1.5f, round, position, inside);
     }

@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/protocol/voice/media_events.hpp"
 
@@ -119,8 +120,8 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
     i32 client_bytes = sizeof(client);
     if (ok) {
         ok = voice_packet_initialize(&key, 9, mode, {secret, 32}, backend).ok() &&
-             voice_udp_begin(&discovery, &loop, reinterpret_cast<const sockaddr*>(&address), address_bytes,
-                             0x01020304, GetTickCount64());
+             voice_udp_begin(&discovery, &loop, test_network_address(&address, address_bytes), 0x01020304,
+                             GetTickCount64());
         check(ok, "UDP media begins with a real discovery and negotiated cipher");
     }
     if (ok) {
@@ -275,8 +276,7 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
     if (voice_udp_media_drained(media) && voice_udp_drained(discovery)) {
         // Reopen only after cancellation delivery. Exhaust the retained key,
         // then destroy it before receiving the canceled read's completion.
-        check(network_datagram_open(&loop, &discovery.socket, reinterpret_cast<const sockaddr*>(&address),
-                                    address_bytes)
+        check(network_datagram_open(&loop, &discovery.socket, test_network_address(&address, address_bytes))
                   .ok(),
               "UDP media drained socket can reopen");
         discovery.phase = VoiceUdpPhase::ready;

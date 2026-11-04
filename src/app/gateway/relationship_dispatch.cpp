@@ -1,5 +1,7 @@
 #include "relationship_dispatch.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/wait.hpp"
 #include "dispatch_common.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
@@ -201,13 +203,13 @@ bool wait_for_space(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, 
         InterlockedExchange(&mailbox->space_waiting, 0);
         return true;
     }
-    SetEvent(notification);
-    const u64 now = GetTickCount64();
+    event_set(notification);
+    const u64 now = clock_monotonic_milliseconds();
     bool woken = false;
     if (now < deadline_ms) {
         const HANDLE waits[]{cancel, space};
         const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
-        woken = WaitForMultipleObjects(2, waits, FALSE, timeout) == WAIT_OBJECT_0 + 1;
+        woken = wait_any(waits, 2, timeout) == WAIT_OBJECT_0 + 1;
     }
     // Only the consumer's wake clears it otherwise; a cancelled or timed-out wait must not leave a stale flag.
     InterlockedExchange(&mailbox->space_waiting, 0);
@@ -217,7 +219,7 @@ bool wait_for_space(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, 
 // is polled once per clock tick (~16 ms, the READY projection's cadence) rather than with a kernel call per
 // published record. A producer that has to block still sees cancellation at once: the wait includes the event.
 bool cancel_requested(GatewayClientMailbox* mailbox, HANDLE cancel) noexcept {
-    const u32 tick = static_cast<u32>(GetTickCount64());
+    const u32 tick = static_cast<u32>(clock_monotonic_milliseconds());
     if (mailbox->cancel_checked_tick == tick) return false;
     if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return true;
     mailbox->cancel_checked_tick = tick;
@@ -226,7 +228,7 @@ bool cancel_requested(GatewayClientMailbox* mailbox, HANDLE cancel) noexcept {
 } // namespace
 void gateway_mailbox_signal_space(GatewayClientMailbox* mailbox, HANDLE space) noexcept {
     if (InterlockedExchange(&mailbox->space_waiting, 0))
-        SetEvent(space);
+        event_set(space);
 }
 bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
     u64 deadline_ms, const GatewayClientEvent& event, ConstSlice<u8> payload, bool* deferred) noexcept {
@@ -248,7 +250,7 @@ bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE
         if (write - read < kGatewayClientEventCapacity && payload.count <= kGatewayClientDispatchPayloadCapacity - (payload_write - payload_read)) {
             if (!spsc_mailbox_push(mailbox, event, payload).ok()) return false;
             if (deferred) *deferred = true;
-            else SetEvent(notification);
+            else event_set(notification);
             return true;
         }
         if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;
@@ -285,7 +287,7 @@ bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE spac
                 return false;
             }
             if (deferred) *deferred = true;
-            else SetEvent(notification);
+            else event_set(notification);
             return true;
         }
         if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;

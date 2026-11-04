@@ -137,7 +137,7 @@ struct Fixture {
 bool ink(D3D11Renderer& r, const Theme& theme, UiRect rectangle, Color color, u32* pixels) noexcept {
     *pixels = 0;
     const float clear[]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-    r.graphics.context->ClearRenderTargetView(r.graphics.target, clear);
+    r.graphics.context->ClearRenderTargetView(r.graphics.surface.target, clear);
     if (!require(d3d11_renderer_draw_stream(&r, theme, false, false, nullptr), 70))
         return false;
     ProbeTargetReadback readback;
@@ -175,7 +175,7 @@ bool ink(D3D11Renderer& r, const Theme& theme, UiRect rectangle, Color color, u3
 }
 } // namespace
 bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture_frame) noexcept {
-    if (!require(renderer.graphics.device && renderer.graphics.context && renderer.graphics.target &&
+    if (!require(renderer.graphics.device && renderer.graphics.context && renderer.graphics.surface.target &&
                      renderer.message_measure_cache && renderer.content_text && renderer.chat_state &&
                      renderer.navigation_view,
                  1))

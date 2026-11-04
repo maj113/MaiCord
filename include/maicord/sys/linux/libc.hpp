@@ -28,6 +28,10 @@ void* malloc(unsigned long bytes);
 void* calloc(unsigned long count, unsigned long bytes);
 void free(void* block);
 
+// <netdb.h> (libc.so.6, GLIBC_2.2.5): name resolution. It blocks, so the network layer calls it on a pool thread.
+int getaddrinfo(const char* node, const char* service, const maicord::AddrInfo* hints, maicord::AddrInfo** result);
+void freeaddrinfo(maicord::AddrInfo* result);
+
 // <time.h> (libc.so.6, GLIBC_2.17): the vDSO fast path.
 int clock_gettime(int clock, maicord::TimeSpec* time);
 }

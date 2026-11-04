@@ -6,6 +6,7 @@
 #include "maicord/app/chat/messages/timeline.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationSearch;
@@ -74,7 +75,7 @@ bool application_search_read_blocked() noexcept;
 bool application_search_synchronize() noexcept;
 void application_search_release() noexcept;
 bool application_search_input(UiInputKind, u32, bool repeated) noexcept;
-bool application_search_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_search_window_event(const WindowEvent&) noexcept;
 bool application_search_pending(u64 now_ms) noexcept;
 bool application_search_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_search_response(const RestClientResponse&, Utf8View body) noexcept;

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/ui/text/edit_menu.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 namespace maicord::app_detail {
 struct ComposerEditClipboard {
     void* context;

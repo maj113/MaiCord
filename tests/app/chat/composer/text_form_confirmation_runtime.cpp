@@ -1,12 +1,13 @@
 #include "shell/state.hpp"
 #include "chat/composer/text_form_state.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../support/fake_text_measure.hpp"
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../../support/window_fixture.hpp"
 
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;
@@ -150,9 +151,8 @@ void locked_progress_lifecycle() noexcept {
         cancel ? MAKELPARAM(static_cast<short>((cancel->rectangle.left + cancel->rectangle.right) * .5f),
                             static_cast<short>((cancel->rectangle.top + cancel->rectangle.bottom) * .5f))
                : 0;
-    LRESULT result = 0;
     check(cancel &&
-              application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, cancel_point, &result) &&
+              application_text_form_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point))) &&
               form->pointer_button.generation &&
               application_text_form_input(UiInputKind::key_down, key::space, false) &&
               form->keyboard.pressed.manager == &form->scene.widgets,
@@ -172,21 +172,21 @@ void locked_progress_lifecycle() noexcept {
     async_progress.dismissible = false;
     check(application_text_form_synchronize() && !form->dismissible,
           "locked async form: nondismissible flag restores without a synthetic revision change");
-    check(application_text_form_window_message(WM_LBUTTONUP, 0, cancel_point, &result) &&
+    check(application_text_form_window_event(window_test::pointer_up(window_test::x_of(cancel_point), window_test::y_of(cancel_point), PointerButton::left)) &&
               application_text_form_input(UiInputKind::key_up, key::space, false) &&
               g_app.text_form == form && !text_form_focus(&form->scene, TextFormElement::cancel) &&
               seen.saves == initial_saves,
           "locked async form: disabled Cancel click and old Space release cannot dismiss or accept");
     check(application_text_form_input(UiInputKind::key_down, key::escape, false) && g_app.text_form == form &&
               application_text_form_input(UiInputKind::key_up, key::escape, false) &&
-              application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) &&
-              application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) &&
+              application_text_form_window_event(window_test::pointer_down(1, 1)) &&
+              application_text_form_window_event(window_test::pointer_up(1, 1, PointerButton::left)) &&
               g_app.text_form == form && closed_owners == initial_closed && seen.saves == initial_saves,
           "locked async form: Escape and outside down/up remain modal and consume dismissal without "
           "click-through");
     check(
-        application_text_form_window_message(WM_KILLFOCUS, 0, 0, &result) &&
-            application_text_form_window_message(WM_CANCELMODE, 0, 0, &result) && g_app.text_form == form &&
+        application_text_form_window_event(window_test::focus_changed(false)) &&
+            application_text_form_window_event(window_test::cancel_input()) && g_app.text_form == form &&
             !form->keyboard.pressed.manager && !form->pointer_button.generation &&
             !form->scene.widgets.captured.generation && !form->dragging && closed_owners == initial_closed,
         "locked async form: blur and cancel mode clear owned transients while preserving committed owner");
@@ -305,12 +305,11 @@ void startup_recovery_lifecycle() noexcept {
                   cache_region.AllocationBase == form && form->scene.measure == measure,
               "startup recovery: bounded renderer font cache shares modal allocation and borrows no "
               "account storage");
-        LRESULT result = 0;
         check(application_text_form_input(UiInputKind::key_down, key::escape, false) &&
                   application_text_form_input(UiInputKind::key_up, key::escape, false) &&
-                  application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) &&
-                  application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) &&
-                  application_text_form_window_message(WM_KILLFOCUS, 0, 0, &result) &&
+                  application_text_form_window_event(window_test::pointer_down(1, 1)) &&
+                  application_text_form_window_event(window_test::pointer_up(1, 1, PointerButton::left)) &&
+                  application_text_form_window_event(window_test::focus_changed(false)) &&
                   g_app.text_form == form && !g_app.account_ui && closed_owners == closures,
               "startup recovery: Escape outside click and blur preserve the nondismissible login owner");
         const u32 builds = seen.builds, measurements = measure->backend_calls;
@@ -422,11 +421,7 @@ void run() noexcept {
     footprint(*g_app.text_form);
     const auto arena = g_app.text_form->scene.storage.arena.base;
     const u32 revision = g_app.text_form->scene.revision, builds = seen.builds;
-    MSG key{};
-    key.hwnd = nullptr;
-    key.message = WM_KEYDOWN;
-    key.wParam = 'X';
-    check(!application_text_form_filter_message(key) &&
+    check(!application_text_form_filter(window_test::key_down('X')) &&
               application_text_form_input(UiInputKind::character, 'x', false) &&
               application_text_form_synchronize() && g_app.text_form->scene.storage.arena.base == arena &&
               g_app.text_form->scene.revision == revision && seen.builds == builds,
@@ -487,13 +482,12 @@ void run() noexcept {
           "info dialog: read-only text opens with one focused Close and no editor, caret, text store or wake");
     if (g_app.text_form) {
         const auto* detail = text_form_node(g_app.text_form->scene, TextFormElement::detail);
-        LRESULT result = 0;
         const LPARAM point =
             detail ? MAKELPARAM(static_cast<short>((detail->rectangle.left + detail->rectangle.right) * .5f),
                                 static_cast<short>((detail->rectangle.top + detail->rectangle.bottom) * .5f))
                    : 0;
-        check(detail && application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
-                  application_text_form_window_message(WM_LBUTTONUP, 0, point, &result) && g_app.text_form &&
+        check(detail && application_text_form_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+                  application_text_form_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && g_app.text_form &&
                   application_text_form_input(UiInputKind::character, 'x', false) &&
                   application_text_form_input(UiInputKind::key_down, key::tab, false) && g_app.text_form &&
                   text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
@@ -511,13 +505,12 @@ void run() noexcept {
     check(application_text_form_open(request()), "confirmation: pointer-button fixture reopens");
     if (g_app.text_form) {
         const auto* node = text_form_node(g_app.text_form->scene, TextFormElement::accept);
-        LRESULT result = 0;
         const LPARAM point =
             node ? MAKELPARAM(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
                               static_cast<short>((node->rectangle.top + node->rectangle.bottom) * .5f))
                  : 0;
-        check(node && application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
-                  application_text_form_window_message(WM_LBUTTONUP, 0, point, &result) &&
+        check(node && application_text_form_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+                  application_text_form_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) &&
                   !g_app.text_form && seen.saves == 4,
               "confirmation: owned retained Accept button activates through actual mouse down/up "
               "controller path");
@@ -667,7 +660,7 @@ bool secure_text_store_composing(const SecureTextStore&) noexcept {
     ++confirmation_runtime_test::seen.store_calls;
     return false;
 }
-bool secure_text_store_filter_message(SecureTextStore*, const MSG&) noexcept {
+bool secure_text_store_filter_key(SecureTextStore*, const WindowEvent&) noexcept {
     ++confirmation_runtime_test::seen.store_calls;
     return false;
 }
@@ -730,11 +723,11 @@ void text_edit_layout_invalidate(TextEditLayoutOwner* owner) noexcept {
 void text_edit_layout_release(TextEditLayoutOwner* owner) noexcept {
     *owner = {};
 }
-ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
+ClipboardTextResult clipboard_read_utf8(const Slice<char>&) noexcept {
     ++confirmation_runtime_test::seen.editor_calls;
     return {0, ClipboardTextError::unavailable};
 }
-bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
+bool clipboard_write_utf8(const Utf8View&) noexcept {
     ++confirmation_runtime_test::seen.editor_calls;
     return false;
 }

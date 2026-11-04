@@ -1,4 +1,5 @@
 #include "maicord/app/account/account_logout.hpp"
+#include "../support/window_fixture.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
@@ -411,9 +412,8 @@ LPARAM center(UiRect rectangle) noexcept {
 }
 bool click(UiRect rectangle) noexcept {
     const auto point = center(rectangle);
-    LRESULT result{};
-    return application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
-           application_text_form_window_message(WM_LBUTTONUP, 0, point, &result);
+    return application_text_form_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+           application_text_form_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
 }
 bool pointer(TextFormElement element) noexcept {
     if (!g_app.text_form)
@@ -422,9 +422,8 @@ bool pointer(TextFormElement element) noexcept {
     if (!node)
         return false;
     const auto point = center(node->rectangle);
-    LRESULT result{};
-    return application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
-           application_text_form_window_message(WM_LBUTTONUP, 0, point, &result);
+    return application_text_form_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+           application_text_form_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left));
 }
 bool menu(bool keyboard) noexcept {
     const auto* footer =
@@ -448,7 +447,7 @@ bool menu(bool keyboard) noexcept {
         avatar.right = avatar.left + 32;
         avatar.top = (footer->rectangle.top + footer->rectangle.bottom - 32) * .5f;
         avatar.bottom = avatar.top + 32;
-        if (!handle_shell_click(center(avatar)))
+        if (!handle_shell_click(window_test::pointer_down(window_test::x_of(center(avatar)), window_test::y_of(center(avatar)))))
             return false;
     }
     return g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::account_menu;
@@ -486,15 +485,14 @@ bool locked() noexcept {
     if (!form)
         return false;
     const auto posts = fixture->posts;
-    LRESULT result{};
     if (!key(key::escape) || !up(key::escape) || !key(key::enter) || !key(key::enter, true) || !up(key::enter) ||
         !key(key::space) || !up(key::space) || !click(fixture->old_cancel) || !click(fixture->old_accept) ||
-        !application_text_form_window_message(WM_LBUTTONDOWN, 0, MAKELPARAM(1, 1), &result) ||
-        !application_text_form_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1), &result) ||
-        !application_text_form_window_message(WM_KILLFOCUS, 0, 0, &result) ||
-        !application_text_form_window_message(WM_CANCELMODE, 0, 0, &result))
+        !application_text_form_window_event(window_test::pointer_down(1, 1)) ||
+        !application_text_form_window_event(window_test::pointer_up(1, 1, PointerButton::left)) ||
+        !application_text_form_window_event(window_test::focus_changed(false)) ||
+        !application_text_form_window_event(window_test::cancel_input()))
         return false;
-    application_text_form_window_message(WM_SETFOCUS, 0, 0, &result);
+    application_text_form_window_event(window_test::focus_changed(true));
     return g_app.text_form == form && fixture->posts == posts && !form->can_cancel && !form->dismissible &&
            !form->can_accept && !form->pointer_button.generation && !form->keyboard.pressed.manager &&
            !form->store.implementation && !form->edit.storage.data;
@@ -1042,7 +1040,7 @@ bool account_logout_ui_probe() noexcept {
                                   bounds.bottom - bounds.top, nullptr, nullptr, instance, nullptr);
     if (!window)
         return false;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     struct Cleanup {
         HWND window;
         bool apartment;
@@ -1085,7 +1083,7 @@ bool account_logout_ui_probe() noexcept {
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(SUCCEEDED(apartment) && fixture->stop_entered && fixture->stop_allowed &&
                      initialize_paths() &&
-                     renderer_initialize(&g_app.renderer, window),
+                     renderer_initialize(&g_app.renderer, probe_window_surface(window)),
                  100))
         return false;
     g_app.renderer_ready = true;

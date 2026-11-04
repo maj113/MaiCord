@@ -18,7 +18,7 @@ struct PixelReadback {
     explicit PixelReadback(D3D11Renderer& r) noexcept : renderer(r) {
         ID3D11Resource* resource = nullptr;
         ID3D11Texture2D* source = nullptr;
-        r.graphics.target->GetResource(&resource);
+        r.graphics.surface.target->GetResource(&resource);
         const HRESULT result = resource ? resource->QueryInterface(__uuidof(ID3D11Texture2D),
                                                                    reinterpret_cast<void**>(&source))
                                         : E_FAIL;

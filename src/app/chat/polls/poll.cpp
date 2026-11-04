@@ -1,4 +1,6 @@
 #include "../../shell/overlay_input.hpp"
+#include "../../shell/input.hpp"
+#include "../../shell/window_events.hpp"
 #include "poll.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -625,22 +627,18 @@ bool queue_page(u32 answer, u32 page, u64 after) noexcept {
     g_app.context_focus = &owner->widgets;
     return project_voters();
 }
-bool pointer_event(UINT message, UiPollPointerEvent* event) noexcept {
-    switch (message) {
-    case WM_LBUTTONDOWN:
-        *event = UiPollPointerEvent::down;
-        return true;
-    case WM_LBUTTONUP:
-        *event = UiPollPointerEvent::up;
-        return true;
-    case WM_MOUSEMOVE:
-        *event = UiPollPointerEvent::move;
-        return true;
-    case WM_MOUSELEAVE:
-        *event = UiPollPointerEvent::leave;
-        return true;
-    }
-    return false;
+bool pointer_event(const WindowEvent& event, UiPollPointerEvent* out) noexcept {
+    if (input_press(event))
+        *out = UiPollPointerEvent::down;
+    else if (input_release(event))
+        *out = UiPollPointerEvent::up;
+    else if (event.type == EventType::pointer_move)
+        *out = UiPollPointerEvent::move;
+    else if (event.type == EventType::pointer_leave)
+        *out = UiPollPointerEvent::leave;
+    else
+        return false;
+    return true;
 }
 bool front() noexcept {
     return !g_app.text_form && !g_app.popup_scene.active && !g_app.image_viewer.scene.active &&
@@ -1412,38 +1410,37 @@ bool application_poll_cursor(UiPoint point, UiCursor* cursor) noexcept {
     }
     return false;
 }
-bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
+bool application_poll_window_event(const WindowEvent& event) noexcept {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event)) {
         clear_capture();
         return false;
     }
-    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_SETCURSOR && message != WM_MOUSELEAVE &&
-        message != WM_CONTEXTMENU && message != WM_DROPFILES)
+    if (!input_pointer(event) && event.type != EventType::cursor_query && event.type != EventType::pointer_leave &&
+        event.type != EventType::context_menu && event.type != EventType::drop_files)
         return false;
     if (!front())
         return false;
     const bool voters = application_poll_voters_active();
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         // The voters modal owns the client; received cards resolve with the message pane.
         UiPoint pointer{};
-        if (!voters || !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &pointer))
+        if (!voters || !client_cursor_dip(event, &pointer))
             return false;
         application_set_cursor(ui_poll_voters_scene_cursor(owner->scene, pointer));
         return true;
     }
-    const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-    const UiPoint point{static_cast<short>(LOWORD(lparam)) * scale,
-                        static_cast<short>(HIWORD(lparam)) * scale};
-    if (!voters && message == WM_LBUTTONDOWN)
+    const bool positioned = input_pointer(event) || event.type == EventType::context_menu;
+    const UiPoint point = positioned ? UiPoint{client_dip_x(event), client_dip_y(event)} : UiPoint{};
+    if (!voters && input_press(event))
         choose_card(point, false);
     if (!voters && (!application_poll_active() || !owner->card.active))
         return false;
     if (!voters) {
-        UiPollPointerEvent event{};
-        if (!pointer_event(message, &event))
+        UiPollPointerEvent pointer{};
+        if (!pointer_event(event, &pointer))
             return false;
-        const auto result = ui_poll_scene_pointer(&owner->card, event, point);
-        if (event == UiPollPointerEvent::down && result.handled) {
+        const auto result = ui_poll_scene_pointer(&owner->card, pointer, point);
+        if (pointer == UiPollPointerEvent::down && result.handled) {
             auto* manager = const_cast<UiWidgetManager*>(owner->card.owner.manager);
             if (manager) {
                 ui_widget_manager_focus(manager, owner->card.owner.handle);
@@ -1452,7 +1449,7 @@ bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         }
         if (result.request_capture) {
             owner->captured = true;
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
         }
         if (result.action_requested)
             application_poll_action(owner->source, result.action);
@@ -1462,28 +1459,27 @@ bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam)
             application_request_frame();
         return result.handled;
     }
-    if (message == WM_DROPFILES) {
-        DragFinish(reinterpret_cast<HDROP>(wparam));
+    if (event.type == EventType::drop_files) {
+        dropped_files_release(event.drop.files);
         return true;
     }
-    if (message == WM_MOUSEWHEEL) {
-        ui_poll_voters_scene_scroll(&owner->scene, -static_cast<short>(HIWORD(wparam)) / 120.f * 44.f);
+    if (input_vertical_wheel(event)) {
+        ui_poll_voters_scene_scroll(&owner->scene, -static_cast<i16>(event.wheel.dy120) / 120.f * 44.f);
         application_request_frame();
         return true;
     }
-    UiPollPointerEvent event{};
-    if (!pointer_event(message, &event))
-        return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-               message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL;
-    if (event == UiPollPointerEvent::down) {
+    UiPollPointerEvent pointer{};
+    if (!pointer_event(event, &pointer))
+        return event.type == EventType::context_menu || input_side_button(event) || input_horizontal_wheel(event);
+    if (pointer == UiPollPointerEvent::down) {
         owner->pressed = ui_poll_voters_scene_hit(owner->scene, point);
         owner->pressed_publication = owner->publication;
         owner->pressed_revision = owner->revision;
     }
-    const auto result = ui_poll_voters_scene_pointer(&owner->scene, event, point);
+    const auto result = ui_poll_voters_scene_pointer(&owner->scene, pointer, point);
     if (result.request_capture) {
         owner->captured = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
     }
     if (result.action_requested && owner->pressed_publication == owner->publication &&
         owner->pressed_revision == owner->revision &&

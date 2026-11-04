@@ -9,7 +9,6 @@ namespace maicord { struct GatewayClientEvent; }
 #endif
 namespace maicord::app_detail {
 struct Application;
-inline constexpr UINT kApplicationNotificationMessage = kWindowMessageApp + 0x33;
 bool application_notifications_initialize(Application*) noexcept;
 // Optional author avatar for desktop toasts: writes the author's resident
 // avatar bitmap as a local PNG and returns its file:/// URI in storage, or an

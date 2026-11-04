@@ -3,7 +3,12 @@
 #include "maicord/text/opentype/cff_outline.hpp"
 #include "maicord/text/fonts/axes.hpp"
 namespace maicord {
+// bitmap (Linux only): a colour bitmap font (CBLC/CBDT) without outlines; its metrics are in outline.truetype.metrics.
+#if defined(_WIN32)
 enum class FontGeometryKind : u8 { truetype, cff };
+#else
+enum class FontGeometryKind : u8 { truetype, cff, bitmap };
+#endif
 struct FontGeometry {
     SfntFace face;
     union Outline {SfntTrueType truetype;CffFont cff;} outline;

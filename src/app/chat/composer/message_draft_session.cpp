@@ -7,6 +7,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/win32_records.hpp"
 
@@ -31,7 +32,7 @@ struct DraftWriter {
     SrwLock lock;
     HANDLE work_event;
     HANDLE done_event;
-    HANDLE thread;
+    Thread* thread;
     MessageDraftImage image;
     MessageDraftPersistenceResult result;
     bool job_ready;
@@ -42,10 +43,10 @@ struct DraftWriter {
 DraftWriter* g_writer = nullptr;
 bool g_writer_failed = false;
 
-DWORD WINAPI draft_writer_main(void* context) noexcept {
+u32 draft_writer_main(void* context) noexcept {
     auto* writer = static_cast<DraftWriter*>(context);
     for (;;) {
-        if (WaitForSingleObject(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
+        if (wait_one(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
         AcquireSRWLockExclusive(writer->lock.native());
         const bool ready = writer->job_ready;
         MessageDraftImage image = writer->image;
@@ -58,7 +59,7 @@ DWORD WINAPI draft_writer_main(void* context) noexcept {
         writer->result = result;
         writer->job_ready = false;
         writer->job_done = true;
-        SetEvent(writer->done_event);
+        event_set(writer->done_event);
         ReleaseSRWLockExclusive(writer->lock.native());
     }
 }
@@ -67,14 +68,13 @@ DraftWriter* draft_writer() noexcept {
     if (g_writer || g_writer_failed) return g_writer;
     auto* writer = static_cast<DraftWriter*>(heap_allocate(sizeof(DraftWriter), true));
     if (writer) {
-        writer->work_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        writer->done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        writer->work_event = event_create(false, false);
+        writer->done_event = event_create(true, false);
         if (writer->work_event && writer->done_event)
-            writer->thread = CreateThread(nullptr, 64u * 1024u, draft_writer_main, writer,
-                                          STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+            writer->thread = thread_start(draft_writer_main, writer, 64u * 1024u, nullptr);
         if (!writer->thread) {
-            if (writer->done_event) CloseHandle(writer->done_event);
-            if (writer->work_event) CloseHandle(writer->work_event);
+            if (writer->done_event) waitable_close(writer->done_event);
+            if (writer->work_event) waitable_close(writer->work_event);
             heap_free(writer);
             writer = nullptr;
         }
@@ -106,13 +106,13 @@ bool collect(MessageDraftSession& session, const MessageDraftStore& drafts, u64 
              u32 timeout_ms) noexcept {
     if (!session.persist_in_flight) return true;
     DraftWriter* writer = g_writer;
-    if (timeout_ms && WaitForSingleObject(writer->done_event, timeout_ms) != WAIT_OBJECT_0) return false;
+    if (timeout_ms && wait_one(writer->done_event, timeout_ms) != WAIT_OBJECT_0) return false;
     AcquireSRWLockExclusive(writer->lock.native());
     const bool done = writer->job_done;
     const MessageDraftPersistenceResult saved = writer->result;
     if (done) {
         writer->job_done = false;
-        ResetEvent(writer->done_event);
+        event_reset(writer->done_event);
     }
     ReleaseSRWLockExclusive(writer->lock.native());
     if (!done) return false;
@@ -178,8 +178,8 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
         // A completion nobody collected (its session was discarded) must not
         // be mistaken for this job's.
         writer->job_done = false;
-        ResetEvent(writer->done_event);
-        SetEvent(writer->work_event);
+        event_reset(writer->done_event);
+        event_set(writer->work_event);
         ReleaseSRWLockExclusive(writer->lock.native());
         session.persist_in_flight = true;
         session.inflight_revision = drafts.revision;

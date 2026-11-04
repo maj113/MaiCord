@@ -14,6 +14,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
 
@@ -48,26 +49,21 @@ bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
         return false;
     }
     const float scale = static_cast<float>(application.renderer.dpi) / 96.0f;
-    RECT text{static_cast<LONG>(logical.left * scale + 0.5f), static_cast<LONG>(logical.top * scale + 0.5f),
-              static_cast<LONG>(logical.right * scale + 0.5f),
-              static_cast<LONG>(logical.bottom * scale + 0.5f)};
-    RECT window{};
-    POINT origin{};
-    if (!GetClientRect(application.window, &window) || !application_content_to_screen(&origin)) {
-        return false;
-    }
-    window.bottom -= static_cast<LONG>(application.renderer.caption_height);
-    geometry->text_screen = {text.left + origin.x, text.top + origin.y,
-                             text.right + origin.x, text.bottom + origin.y};
-    geometry->window_screen = {window.left + origin.x, window.top + origin.y,
-                               window.right + origin.x, window.bottom + origin.y};
+    const i32 caption = static_cast<i32>(application.renderer.caption_height);
+    const WindowMetrics client = window_metrics(application.window);
+    // The text and the content area, below the caption's rows.
+    geometry->text = {static_cast<i32>(logical.left * scale + 0.5f), caption + static_cast<i32>(logical.top * scale + 0.5f),
+                      static_cast<i32>(logical.right * scale + 0.5f),
+                      caption + static_cast<i32>(logical.bottom * scale + 0.5f)};
+    geometry->window = {0, caption, static_cast<i32>(client.width_px), static_cast<i32>(client.height_px)};
     return true;
 }
 
-bool text_store_point(void*, POINT point, bool round, u32* position, bool* inside) noexcept {
+bool text_store_point(void*, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     const auto* edit = application_active_login_edit();
-    if (!edit || edit->password || !g_app.renderer.dpi ||
-        !application_screen_to_content(&point)) return false;
+    if (!edit || edit->password || !g_app.renderer.dpi) return false;
+    POINT point{client.x, client.y};
+    application_client_to_content(&point);
     char visible[48*4]{};
     u32 bytes = 0, relative = 0, first = 0;
     SecureEditRenderWindow window{};
@@ -93,10 +89,11 @@ bool text_store_point(void*, POINT point, bool round, u32* position, bool* insid
     return valid;
 }
 
-bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) noexcept {
+bool text_store_range(void*, u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
     const auto* edit = application_active_login_edit();
     POINT origin{};
-    if (!edit || !g_app.renderer_ready || !application_content_to_screen(&origin)) return false;
+    application_content_to_client(&origin);
+    if (!edit || !g_app.renderer_ready) return false;
     if (application_window_minimized()) {
         reset_value(output); *clipped = true; return true;
     }
@@ -137,8 +134,8 @@ void application_login_post_phone_verify() noexcept {
         return;
     SecureTextComposition composition{};
     if (secure_text_store_composition(login.text_store, &composition) && !composition.active &&
-        PostMessageW(g_app.window, kApplicationPhoneVerifyMessage, static_cast<WPARAM>(login.application_auth_epoch),
-                     static_cast<LPARAM>(login.mfa.revision)))
+        window_post({window_surface_native(g_app.window), wake_phone_verify}, login.application_auth_epoch,
+                    login.mfa.revision))
         application_phone_tsf_mutation_stamp() = 0;
 }
 
@@ -247,7 +244,7 @@ bool application_synchronize_login_view() noexcept {
     view.password_revealed = password_revealed;
     view.auth_rate_limited = application_login_auth_cooldown_active();
     view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
-    view.caps_lock = focused_edit == &application.login.password && (GetKeyState(key::caps_lock) & 1) != 0;
+    view.caps_lock = focused_edit == &application.login.password && window_toggle_state(nullptr, key::caps_lock);
     if (phone) {
         reset_value(&view.login); reset_value(&view.remote_user); view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
         view.mfa_capabilities = view.selected_mfa_capability = view.backup_acknowledgement_seconds = 0;
@@ -395,7 +392,7 @@ bool application_initialize_login_ui() noexcept {
     }
     login.focus = LoginControl::login;
     login.status = RendererLoginStatus::idle;
-    const UINT caret_blink_ms = GetCaretBlinkTime();
+    const UINT caret_blink_ms = application_caret_blink_ms();
     login.caret_blink_ms = caret_blink_ms == 0 ? kDefaultCaretBlinkMilliseconds : caret_blink_ms;
     login.initialized = true;
     login.visible = true;

@@ -138,19 +138,19 @@ bool clear_message_text_selection(bool rebuild) noexcept {
     return refreshed && invalidated;
 }
 
-bool begin_message_text_selection(LPARAM lparam, bool double_click) noexcept {
+bool begin_message_text_selection(const WindowEvent& event, bool double_click) noexcept {
     if (!g_app.account_ui || g_app.login.visible) {
         return false;
     }
     const RendererMessageTextPositionHit hit = renderer_message_text_position_hit_test(
-        g_app.renderer, static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)));
+        g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
     if (!hit.valid) {
         return false;
     }
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
     const u8 clicks =
-        application_click_count(&g_app.message_scene, static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                                static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale, double_click);
+        application_click_count(event, &g_app.message_scene, static_cast<float>(static_cast<short>(event.pointer.x)) * scale,
+                                static_cast<float>(static_cast<short>(event.pointer.y)) * scale, double_click);
     g_app.message_text_selection = hit;
     u32 anchor = hit.byte_offset, caret = hit.byte_offset;
     g_app.message_text_pointer_unit = {anchor, anchor, UiTextSelectionUnit::character};
@@ -167,7 +167,7 @@ bool begin_message_text_selection(LPARAM lparam, bool double_click) noexcept {
     g_app.message_text_selection_caret = caret;
     g_app.message_text_pointer_selection = true;
     renderer_set_message_text_selection(&g_app.renderer, hit, anchor, caret);
-    SetCapture(g_app.window);
+    window_capture_pointer(g_app.window);
     if (anchor != caret) {
         if (!refresh_account_text(true))
             log_write(LogLevel::error, "ui", "message_text_selection_rebuild_failed");
@@ -183,17 +183,17 @@ void end_message_text_selection() noexcept {
         application_release_capture();
 }
 
-bool handle_message_text_selection_drag(WPARAM buttons, LPARAM lparam) noexcept {
+bool handle_message_text_selection_drag(const WindowEvent& event) noexcept {
     if (!g_app.message_text_pointer_selection) {
         return false;
     }
-    if ((buttons & MK_LBUTTON) == 0) {
+    if (!input_held(event)) {
         end_message_text_selection();
         return true;
     }
 
     const RendererMessageTextPositionHit hit = renderer_message_text_position_hit_test(
-        g_app.renderer, static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)));
+        g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
     if (!hit.valid || hit.message_id != g_app.message_text_selection.message_id ||
         hit.command_identity != g_app.message_text_selection.command_identity ||
         hit.message_revision != g_app.message_text_selection.message_revision ||
@@ -246,7 +246,7 @@ bool copy_message_text_selection() noexcept {
             copied = Utf8View{projected, projection.bytes};
         }
     }
-    if (!clipboard_write_utf8(g_app.window, copied)) {
+    if (!clipboard_write_utf8(copied)) {
         log_write(LogLevel::warning, "ui", "message_text_selection_copy_failed");
     }
     return true;

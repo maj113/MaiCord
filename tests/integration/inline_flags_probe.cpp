@@ -78,7 +78,7 @@ bool pixel_is_fixture(D3D11Renderer& r, UiRect rectangle, bool expected) noexcep
     // native text/pixel assertions, without writing a screenshot.
     if (!d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr))
         return false;
-    if (!r.graphics.target || !ui_rect_has_area(rectangle))
+    if (!r.graphics.surface.target || !ui_rect_has_area(rectangle))
         return false;
     ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC description{};

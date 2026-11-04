@@ -169,7 +169,7 @@ inline bool message_components_ui_probe(D3D11Renderer& renderer, MessageViewRunt
         if (!renderer_rebuild_content_text(&renderer, theme) ||
             !d3d11_renderer_paint_layout(&renderer, theme, renderer_capture_presentation_stamp(renderer, theme)))
             return false;
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         if (!d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr, 10000) ||
             !readback.read(renderer, pass) || !readback.capture(pass, captures[pass]))
             return false;

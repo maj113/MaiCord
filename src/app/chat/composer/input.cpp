@@ -40,10 +40,10 @@ bool activate_plugin_slot(u32 index) noexcept {
 }
 
 // Client DIPs of a mouse message position.
-UiPoint dip_point(LPARAM lparam) noexcept {
+UiPoint dip_point(const WindowEvent& event) noexcept {
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    return {static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-            static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale};
+    return {static_cast<float>(static_cast<short>(event.pointer.x)) * scale,
+            static_cast<float>(static_cast<short>(event.pointer.y)) * scale};
 }
 
 bool activate_composer_control(MessageComposerControl control) noexcept {
@@ -104,13 +104,13 @@ void release_message_composer_focus() noexcept {
     reset_message_composer_caret_timing(false);
 }
 
-bool handle_composer_click(LPARAM lparam) noexcept {
+bool handle_composer_click(const WindowEvent& event) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.message_composer_scene.active) {
         return false;
     }
-    const i32 client_x = static_cast<short>(LOWORD(lparam));
-    const i32 client_y = static_cast<short>(HIWORD(lparam));
-    const auto [x, y] = dip_point(lparam);
+    const i32 client_x = static_cast<short>(event.pointer.x);
+    const i32 client_y = static_cast<short>(event.pointer.y);
+    const auto [x, y] = dip_point(event);
     const MessageComposerControl hit = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
     if (hit == MessageComposerControl::none) {
         if (g_app.message_composer.focused) {
@@ -135,7 +135,7 @@ bool handle_composer_click(LPARAM lparam) noexcept {
         const bool shift = application_shift_down();
         // A third press within the double-click time/distance selects the
         // line; an IME composition keeps its selection (TSF owns it).
-        const u8 clicks = application_click_count(&g_app.message_composer_scene, x, y, false);
+        const u8 clicks = application_click_count(event, &g_app.message_composer_scene, x, y, false);
         const bool composing = application_composer_text_input_composing();
         MessageComposerResult selection = MessageComposerResult::unchanged;
         u32 anchor = 0, caret = 0;
@@ -187,13 +187,13 @@ bool handle_composer_click(LPARAM lparam) noexcept {
     return true;
 }
 
-bool handle_composer_double_click(LPARAM lparam) noexcept {
+bool handle_composer_double_click(const WindowEvent& event) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.message_composer_scene.active) {
         return false;
     }
-    const i32 client_x = static_cast<short>(LOWORD(lparam));
-    const i32 client_y = static_cast<short>(HIWORD(lparam));
-    const auto [x, y] = dip_point(lparam);
+    const i32 client_x = static_cast<short>(event.pointer.x);
+    const i32 client_y = static_cast<short>(event.pointer.y);
+    const auto [x, y] = dip_point(event);
     if (message_composer_scene_hit_test(g_app.message_composer_scene, x, y) != MessageComposerControl::edit) {
         return false;
     }
@@ -204,7 +204,7 @@ bool handle_composer_double_click(LPARAM lparam) noexcept {
     g_app.message_composer.focused = true;
     message_composer_scene_focus_edit(&g_app.message_composer_scene);
     g_app.context_focus = &g_app.message_composer_scene.widgets;
-    const u8 clicks = application_click_count(&g_app.message_composer_scene, x, y, true);
+    const u8 clicks = application_click_count(event, &g_app.message_composer_scene, x, y, true);
     const bool composing = application_composer_text_input_composing();
     u32 anchor = 0, caret = 0;
     if (!ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, false, false,
@@ -222,15 +222,15 @@ bool handle_composer_double_click(LPARAM lparam) noexcept {
     return true;
 }
 
-bool handle_composer_drag(WPARAM buttons, LPARAM lparam) noexcept {
+bool handle_composer_drag(const WindowEvent& event) noexcept {
     if (!g_app.message_composer_pointer_selection) {
         return false;
     }
-    if ((buttons & MK_LBUTTON) == 0) {
+    if (!input_held(event)) {
         end_message_composer_pointer_selection();
         return true;
     }
-    const auto [x, y] = dip_point(lparam);
+    const auto [x, y] = dip_point(event);
     const auto target = ui_widget_manager_pointer_target(&g_app.message_composer_scene.widgets, x, y);
     const auto edit = g_app.message_composer_scene.edit;
     if (!g_app.message_composer_scene.widgets.captured.generation || !ui_widget_handle_equal(target, edit)) {
@@ -238,8 +238,8 @@ bool handle_composer_drag(WPARAM buttons, LPARAM lparam) noexcept {
         return true;
     }
     u32 position = g_app.message_composer.caret;
-    if (!renderer_message_composer_edit_hit_test(g_app.renderer, static_cast<short>(LOWORD(lparam)),
-                                                 static_cast<short>(HIWORD(lparam)), &position)) {
+    if (!renderer_message_composer_edit_hit_test(g_app.renderer, static_cast<short>(event.pointer.x),
+                                                 static_cast<short>(event.pointer.y), &position)) {
         return true;
     }
     u32 anchor = 0, caret = 0;
@@ -263,11 +263,11 @@ bool handle_composer_drag(WPARAM buttons, LPARAM lparam) noexcept {
     return true;
 }
 
-bool handle_composer_hover(LPARAM lparam) noexcept {
+bool handle_composer_hover(const WindowEvent& event) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.message_composer_scene.active) {
         return false;
     }
-    const auto [x, y] = dip_point(lparam);
+    const auto [x, y] = dip_point(event);
     const MessageComposerControl hit = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
     // Tile and action-bar hover highlights; leaving the strip clears them.
     if (message_composer_scene_attachment_hover(
@@ -279,7 +279,7 @@ bool handle_composer_hover(LPARAM lparam) noexcept {
     return hit != MessageComposerControl::none;
 }
 
-bool handle_composer_key(WPARAM key) noexcept {
+bool handle_composer_key(u32 key) noexcept {
     MessageComposer& composer = g_app.message_composer;
     if (!g_app.account_ui || !composer.focused || g_app.login.visible) {
         return false;
@@ -357,7 +357,7 @@ bool handle_composer_key(WPARAM key) noexcept {
     }
 }
 
-bool handle_composer_character(WPARAM value) noexcept {
+bool handle_composer_character(u32 value) noexcept {
     if (!g_app.account_ui || g_app.login.visible || value < 0x20u || value == 0x7Fu || value > 0xFFFFu) {
         return false;
     }

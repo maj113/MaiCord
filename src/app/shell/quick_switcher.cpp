@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "overlay_input.hpp"
+#include "input.hpp"
+#include "window_events.hpp"
 #include "window_state.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
@@ -29,7 +31,7 @@
 #include "maicord/ui/shell/quick_switcher_scene.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/app/chat/private_channel_actions.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/render/text/form_surface.hpp"
@@ -161,7 +163,7 @@ void revoke_capture(ApplicationQuickSwitcher& q) noexcept {
     application_release_capture();
 }
 void caret_reset(ApplicationQuickSwitcher& q) noexcept {
-    const u32 interval = GetCaretBlinkTime();
+    const u32 interval = application_caret_blink_ms();
     q.caret_visible = true;
     q.blink_at = interval && interval != INFINITE ? deadline_after(clock_monotonic_milliseconds(), interval) : 0;
 }
@@ -351,7 +353,7 @@ static bool application_quick_switcher_open() noexcept {
     ++q->content_revision; caret_reset(*q);
     if (!application_quick_switcher_synchronize()) { application_quick_switcher_close(); return false; }
     application_video_blur();
-    if (g_app.window) SetFocus(g_app.window);
+    if (g_app.window) window_focus(g_app.window);
     return application_composer_text_input_synchronize() && application_request_frame();
 }
 bool application_quick_switcher_open_picker(u64 channel_id) noexcept {
@@ -418,11 +420,11 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (control && (key == 'C' || key == 'X')) {
         const u32 a = minimum(q->edit.anchor, q->edit.caret), b = maximum(q->edit.anchor, q->edit.caret);
-        if (b > a && clipboard_write_utf8(g_app.window, {q->edit.text + a, b - a}) && key == 'X')
+        if (b > a && clipboard_write_utf8({q->edit.text + a, b - a}) && key == 'X')
             result = message_composer_replace_range(&q->edit, a, b, {});
     } else if (control && key == 'V') {
         char text[kQuickSwitcherQueryMaximumBytes];
-        const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool valid = read.ok();
         for (u32 i = 0; valid && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
@@ -437,52 +439,51 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
     if (result == MessageComposerResult::changed) application_quick_switcher_edit_changed(revision != q->edit.text_revision);
     return true;
 }
-bool application_quick_switcher_filter(const MSG& message) noexcept {
-    if (message.hwnd != g_app.window || (message.message != WM_KEYDOWN && message.message != WM_KEYUP)) return false;
-    const auto kind = message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up;
-    const bool repeated = (message.lParam & (1ll << 30)) != 0;
-    if (key_tail(kind, static_cast<u32>(message.wParam), repeated)) return true;
-    const u32 key = static_cast<u32>(message.wParam);
-    if (message.message == WM_KEYDOWN &&
+bool application_quick_switcher_filter(const WindowEvent& event) noexcept {
+    if (!input_plain_key(event)) return false;
+    const auto kind = event.type == EventType::key_down ? UiInputKind::key_down : UiInputKind::key_up;
+    const bool repeated = input_key_was_down(event);
+    const u32 key = event.key.key;
+    if (key_tail(kind, key, repeated)) return true;
+    if (event.type == EventType::key_down &&
         shortcut_matches(ShortcutAction::quick_switcher, shortcut_chord_from_keyboard(key)) && available())
         return application_quick_switcher_input(kind, key, repeated);
     return false;
 }
-bool application_quick_switcher_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_quick_switcher_window_event(const WindowEvent& event) noexcept {
     auto* q = g_app.quick_switcher;
     if (!q || !q->active) return false;
     if (!application_quick_switcher_active()) { application_quick_switcher_close(); return false; }
-    if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
+    if (event.type == EventType::cursor_query) {
         UiPoint point{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point)) return false;
+        if (!client_cursor_dip(event, &point)) return false;
         application_set_cursor(ui_quick_switcher_scene_cursor(q->scene, point.x, point.y));
         return true;
     }
-    if (message == WM_KILLFOCUS || message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
+    if (input_focus_lost(event) || event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
         revoke_capture(*q); q->blink_at = 0; q->caret_visible = false; ++q->content_revision;
         application_request_frame(); return false;
     }
-    if (message == WM_SETFOCUS) { caret_reset(*q); ++q->content_revision; application_request_frame(); return false; }
-    if (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-        message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_MOUSEHWHEEL) return true;
-    if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE && message != WM_MOUSEWHEEL) return false;
-    if (message == WM_MOUSEWHEEL) {
+    if (event.type == EventType::focus_changed) { caret_reset(*q); ++q->content_revision; application_request_frame(); return false; }
+    if (event.type == EventType::context_menu || input_side_button(event) || input_double(event) ||
+        input_horizontal_wheel(event)) return true;
+    if (!input_press(event) && !input_release(event) && event.type != EventType::pointer_move && !input_vertical_wheel(event)) return false;
+    if (input_vertical_wheel(event)) {
         ui_quick_switcher_scene_scroll(&q->scene, q->scene.scroll_dips -
-            static_cast<short>(HIWORD(wparam)) / static_cast<float>(WHEEL_DELTA) * kUiQuickSwitcherRowHeight * 3);
+            event.wheel.dy120 / 120.0f * kUiQuickSwitcherRowHeight * 3);
         application_request_frame(); return true;
     }
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    const float scale = 96.f / g_app.renderer.dpi, x = point.x * scale, y = point.y * scale;
-    if (message == WM_MOUSEMOVE) {
-        if (q->dragging && (wparam & MK_LBUTTON)) pointer_edit(*q, x, y, true);
+    const float x = client_dip_x(event), y = client_dip_y(event);
+    if (event.type == EventType::pointer_move) {
+        if (q->dragging && input_held(event)) pointer_edit(*q, x, y, true);
         else { bool changed = false; ui_quick_switcher_scene_set_hover(&q->scene, x, y, &changed); if (changed) application_request_frame(); }
         return true;
     }
     const auto hit = ui_quick_switcher_scene_hit_test(q->scene, x, y);
-    if (message == WM_LBUTTONDOWN) {
+    if (input_press(event)) {
         q->pressed = hit; q->captured = true; q->dragging = hit.action == UiQuickSwitcherAction::edit;
-        if (q->dragging) pointer_edit(*q, x, y, (wparam & MK_SHIFT) != 0);
-        if (g_app.window) SetCapture(g_app.window);
+        if (q->dragging) pointer_edit(*q, x, y, input_shift(event));
+        if (g_app.window) window_capture_pointer(g_app.window);
         return true;
     }
     const auto pressed = q->pressed; const bool captured = q->captured;
@@ -501,7 +502,7 @@ void application_quick_switcher_tick(u64 now) noexcept {
     auto* q = g_app.quick_switcher;
     if (!q || !deadline_due(now, application_quick_switcher_caret_wake())) return;
     q->caret_visible = !q->caret_visible; ++q->content_revision;
-    const u32 interval = GetCaretBlinkTime();
+    const u32 interval = application_caret_blink_ms();
     q->blink_at = interval && interval != INFINITE ? deadline_after(now, interval) : 0;
     application_request_frame();
 }

@@ -5,6 +5,7 @@
 #include "../chat/search/search.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {
 // One previewable message item. Video keys are bound when the item becomes
 // current, because the playback session owns their decode identity.
@@ -62,5 +63,5 @@ void application_image_viewer_request_failed(const MediaAssetKey& key) noexcept;
 // User dismissal: animates back toward the inline preview, then closes.
 void application_image_viewer_dismiss() noexcept;
 bool application_image_viewer_synchronize() noexcept;
-bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_image_viewer_event(const WindowEvent& event) noexcept;
 }

@@ -23,8 +23,8 @@ namespace {
 // Index and message storage grows only before shutdown, the READY deadline and owner cancellation.
 bool growth_allowed(const GatewayClientRuntime* runtime) noexcept {
     return !runtime->stopping &&
-           !(runtime->mailbox_deadline_ms && GetTickCount64() >= runtime->mailbox_deadline_ms) &&
-           !(runtime->mailbox_cancel && WaitForSingleObject(runtime->mailbox_cancel, 0) != WAIT_TIMEOUT);
+           !(runtime->mailbox_deadline_ms && clock_monotonic_milliseconds() >= runtime->mailbox_deadline_ms) &&
+           !(runtime->mailbox_cancel && wait_one(runtime->mailbox_cancel, 0) != WAIT_TIMEOUT);
 }
 
 } // namespace
@@ -280,7 +280,7 @@ bool wake_worker(GatewayClient* client, NetworkSignal* signal) noexcept {
 void post_subscription_change(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
     network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
     if (client->notification_event)
-        SetEvent(client->notification_event);
+        event_set(client->notification_event);
 }
 
 GatewayClientResult invalid_input_result() noexcept {
@@ -412,14 +412,14 @@ void publish_event(GatewayClientRuntime* runtime, const GatewayClientEvent& even
 void notify_consumer(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
     if (runtime->notify_pending) {
         runtime->notify_pending = false;
-        SetEvent(client->notification_event);
+        event_set(client->notification_event);
     }
 }
 
 bool publish_event_payload(GatewayClient* client, GatewayClientRuntime* runtime,
                            const GatewayClientEvent& event, const ConstSlice<u8>& payload) noexcept {
     const u64 deadline =
-        runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : GetTickCount64() + kPhaseTimeoutMs;
+        runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : clock_monotonic_milliseconds() + kPhaseTimeoutMs;
     // A record routed into the large storage is handed over in place.
     if (payload.count && runtime->large_record.base && payload.data == runtime->large_record.base)
         return payload.count <= runtime->large_record.committed &&
@@ -438,7 +438,7 @@ bool acquire_large_record(void* opaque, u32 bytes, Slice<char>* storage) noexcep
         return false;
     GatewayClient* client = runtime->owner;
     const u64 deadline =
-        runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : GetTickCount64() + kPhaseTimeoutMs;
+        runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : clock_monotonic_milliseconds() + kPhaseTimeoutMs;
     if (!client || !gateway_mailbox_wait_lease(&runtime->events, runtime->mailbox_space, runtime->mailbox_cancel,
                                                client->notification_event, deadline, &runtime->large_record_lease) ||
         !reserved_bytes_commit(&runtime->large_record, bytes))
@@ -527,7 +527,7 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
                                         runtime->voice_connection.udp.phase,
                                         runtime->voice_connection.udp.error};
     snapshot.speaking_count = voice_receive_speaking(
-        &runtime->voice_receive, {snapshot.speaking_users, kGatewayVoiceSpeakingUsers}, GetTickCount64());
+        &runtime->voice_receive, {snapshot.speaking_users, kGatewayVoiceSpeakingUsers}, clock_monotonic_milliseconds());
     // The local user is never received; transmitting counts as speaking.
     if (const u64 self = runtime->self_user_id; self && voice_send_speaking(runtime->voice_send)) {
         u32 at = 0;
@@ -559,7 +559,7 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
     copy_value(&runtime->stream_snapshot, stream);
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     if (changed && client->notification_event)
-        SetEvent(client->notification_event);
+        event_set(client->notification_event);
 }
 
 void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
@@ -637,13 +637,13 @@ void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noe
 bool ready_projection_work(void* opaque, GatewayReadyProjectionPhase) noexcept {
     auto& binding = *static_cast<ReadyProjectionBinding*>(opaque);
     const auto& runtime = *binding.runtime;
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (runtime.stopping || !runtime.mailbox_deadline_ms || now >= runtime.mailbox_deadline_ms || binding.cancelled)
         return false;
     if (binding.cancel_checked_ms == now)
         return true;
     binding.cancel_checked_ms = now;
-    binding.cancelled = WaitForSingleObject(runtime.mailbox_cancel, 0) != WAIT_TIMEOUT;
+    binding.cancelled = wait_one(runtime.mailbox_cancel, 0) != WAIT_TIMEOUT;
     return !binding.cancelled;
 }
 bool publish_ready_projection(void* opaque, const GatewayClientEvent& event,
@@ -710,7 +710,7 @@ void release_resolver(GatewayClientRuntime* runtime) noexcept {
     if (runtime->resolver_released || !network_resolver_release(&runtime->resolver))
         return;
     runtime->resolver_released = true;
-    runtime->next_address = nullptr;
+    runtime->next_address = 0;
 }
 
 void clear_resume(GatewayClientRuntime* runtime) noexcept {
@@ -876,7 +876,7 @@ bool self_settings_dispatch(GatewayClient* client, GatewayClientRuntime* runtime
             return true;
         InterlockedIncrement64(&client->frecency_settings_revision);
         if (client->notification_event)
-            SetEvent(client->notification_event);
+            event_set(client->notification_event);
         return true;
     }
     if (parsed.type != 1)
@@ -885,7 +885,7 @@ bool self_settings_dispatch(GatewayClient* client, GatewayClientRuntime* runtime
     const bool observed = self_settings_observe_locked(runtime, parsed.encoded, parsed.partial);
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     if (client->notification_event)
-        SetEvent(client->notification_event);
+        event_set(client->notification_event);
     return observed;
 }
 

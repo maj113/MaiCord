@@ -11,6 +11,7 @@
 #include "renderer_login_form.hpp"
 #include <stddef.h>
 
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -433,7 +434,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     // Name effects are shader-time driven and repaint through bounded damage
     // (renderer_note_text_effect_damage). Profile effect layers select media
     // on the CPU each tick, so they rebuild the scene.
-    const u64 now_ms = renderer.profile_scene ? GetTickCount64() : 0;
+    const u64 now_ms = renderer.profile_scene ? clock_monotonic_milliseconds() : 0;
     if (profile_scene_animating(renderer.profile_scene, now_ms))
         s.push(now_ms / 42);
     s.pointer(renderer.profile_scene);

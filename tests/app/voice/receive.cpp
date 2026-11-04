@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
 
 namespace maicord {
 namespace {
@@ -196,8 +197,8 @@ void test_loopback(Check check) noexcept {
               voice_packet_initialize(&value.sender, 1, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
               dave_session_initialize(&value.dave, 1, 7, 1, 0) == MlsStatus::ok &&
               voice_playback_initialize(&value.receive.playback) && voice_playback_initialize(&value.reference) &&
-              voice_udp_begin(&value.discovery, &value.loop, reinterpret_cast<const sockaddr*>(&address),
-                              address_bytes, kSsrc, GetTickCount64()) &&
+              voice_udp_begin(&value.discovery, &value.loop, test_network_address(&address, address_bytes), kSsrc,
+                              GetTickCount64()) &&
               recvfrom(peer, reinterpret_cast<char*>(wire), sizeof(wire), 0, reinterpret_cast<sockaddr*>(&client),
                        &client_bytes) == 74;
     if (ok) {

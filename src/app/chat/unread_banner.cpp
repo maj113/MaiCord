@@ -11,6 +11,7 @@
 #include "../shell/scrolling.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "../shell/state.hpp"
 #include "threads/browser.hpp"
 #include "maicord/app/chat/unread_banner_projection.hpp"
@@ -19,7 +20,6 @@
 #include "../plugins/ui_host.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -259,50 +259,52 @@ u64 application_unread_banner_next_wake() noexcept {
     return ui_unread_banner_next_wake(g_banner, motion_allowed());
 }
 
-bool application_unread_banner_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
-    if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP &&
-        message != WM_SETCURSOR && message != WM_MOUSELEAVE)
+bool application_unread_banner_window_event(const WindowEvent& event) noexcept {
+    const bool move = event.type == EventType::pointer_move, cursor = event.type == EventType::cursor_query;
+    const bool leave = event.type == EventType::pointer_leave;
+    const bool press = input_press(event), release = input_release(event);
+    if (!move && !press && !release && !cursor && !leave)
         return false;
-    if (message == WM_MOUSELEAVE || !pointer_available()) {
+    if (leave || !pointer_available()) {
         if (ui_unread_banner_set_hover(&g_banner, UiUnreadBannerAction::none))
             application_request_frame();
-        if (message == WM_LBUTTONUP && g_pressed_inside) {
+        if (release && g_pressed_inside) {
             g_pressed_inside = false;
             return true;
         }
         return false;
     }
     UiPoint point{};
-    if (message == WM_SETCURSOR) {
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+    if (cursor) {
+        if (!client_cursor_dip(event, &point))
             return false;
     } else
-        point = {client_dip_x(lparam), client_dip_y(lparam)};
+        point = {client_dip_x(event), client_dip_y(event)};
     const float x = point.x, y = point.y;
     const auto action = ui_unread_banner_hit_test(g_banner, x, y);
-    switch (message) {
-    case WM_SETCURSOR:
+    if (cursor) {
         if (action == UiUnreadBannerAction::none)
             return false;
         application_set_cursor(ui_action_cursor(true));
         return true;
-    case WM_MOUSEMOVE:
+    }
+    if (move) {
         if (ui_unread_banner_set_hover(&g_banner, action))
             application_request_frame();
         return action != UiUnreadBannerAction::none;
-    case WM_LBUTTONDOWN:
+    }
+    if (press) {
         if (action == UiUnreadBannerAction::none)
             return false;
         g_pressed_inside = true;
         perform(action);
         application_request_frame();
         return true;
-    default:
-        if (!g_pressed_inside)
-            return false;
-        g_pressed_inside = false;
-        return true;
     }
+    if (!g_pressed_inside)
+        return false;
+    g_pressed_inside = false;
+    return true;
 }
 
 bool application_unread_banner_escape() noexcept {

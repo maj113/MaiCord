@@ -438,7 +438,7 @@ void publish_client_failure(RestClient* client, RestClientError error,
         InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
     }
     publish_phase(client, RestClientPhase::failed);
-    SetEvent(client->response_event);
+    event_set(client->response_event);
 }
 
 bool valid_user_configuration(const RestUserConfiguration& configuration) noexcept {
@@ -624,7 +624,7 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
     InterlockedExchange64(&runtime->logout_request_id, 0);
     reset_value<RestTransaction>(&runtime->transaction);
     release_extended_body(runtime);
-    ResetEvent(client->response_event);
+    event_reset(client->response_event);
     InterlockedExchange64(&client->current_request_id, 0);
     publish_phase(client, RestClientPhase::idle);
     InterlockedExchange(&client->request_state, request_state_empty);
@@ -736,7 +736,7 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     runtime->trace_request_id = 0;
     runtime->ready_counter = clock_now();
     InterlockedExchange(&client->request_state, request_state_ready);
-    SetEvent(client->response_event);
+    event_set(client->response_event);
 }
 
 } // namespace

@@ -21,11 +21,11 @@ static bool speech_available(Speech* speech) noexcept {
         return false;
     speech->attempted = true;
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    speech->com_initialized = SUCCEEDED(apartment);
+    speech->initialized = SUCCEEDED(apartment);
     void* voice = nullptr;
     if (FAILED(CoCreateInstance(kSpVoiceClass, nullptr, CLSCTX_INPROC_SERVER, kSpVoiceInterface, &voice)) || !voice)
         return false;
-    speech->voice = static_cast<ISpVoice*>(voice);
+    speech->voice = voice;
     return true;
 }
 
@@ -48,7 +48,7 @@ bool speech_speak(Speech* speech, Utf8View text) noexcept {
     bool spoken = false;
     if (count > 0) {
         wide[count] = 0;
-        spoken = SUCCEEDED(speech->voice->Speak(wide, SPF_ASYNC | SPF_PURGEBEFORESPEAK | SPF_IS_NOT_XML, nullptr));
+        spoken = SUCCEEDED(static_cast<ISpVoice*>(speech->voice)->Speak(wide, SPF_ASYNC | SPF_PURGEBEFORESPEAK | SPF_IS_NOT_XML, nullptr));
     }
     pages_release(wide);
     return spoken;
@@ -58,10 +58,11 @@ void speech_release(Speech* speech) noexcept {
     if (!speech)
         return;
     if (speech->voice) {
-        speech->voice->Speak(nullptr, SPF_PURGEBEFORESPEAK, nullptr);
-        speech->voice->Release();
+        auto* voice = static_cast<ISpVoice*>(speech->voice);
+        voice->Speak(nullptr, SPF_PURGEBEFORESPEAK, nullptr);
+        voice->Release();
     }
-    if (speech->com_initialized)
+    if (speech->initialized)
         CoUninitialize();
     reset_value(speech);
 }

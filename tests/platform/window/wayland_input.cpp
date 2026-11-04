@@ -1,8 +1,13 @@
 #include "maicord/core/shared_library.hpp"
 #include "maicord/platform/window/wayland/click.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/platform/window/wayland/keymap.hpp"
+#include "maicord/platform/window/wayland/post_queue.hpp"
 #include "maicord/platform/window/wayland/repeat.hpp"
+#include "maicord/platform/window/wayland/uri.hpp"
 #include "maicord/platform/window/wayland/xkb.hpp"
+#include "maicord/platform/window/wayland/settings_map.hpp"
 #include "wayland_protocols.hpp"
 #include "../../support/test_output.hpp"
 
@@ -222,6 +227,182 @@ void test_key_repeat() noexcept {
 
     key_repeat_start(&repeat, 1, 0, 0, 5000);
     check(key_repeat_fire(&repeat, 0) && key_repeat_wait_ms(repeat, 0) == 1, "a rate above 1000 per second repeats every millisecond");
+}
+
+// File URIs and uri-lists ------------------------------------------------------------------------------------------------
+
+bool decodes_to(const char* text, const char* expected) noexcept {
+    u32 length = 0;
+    while (text[length])
+        ++length;
+    char output[64];
+    u32 written = 0;
+    if (!uri_percent_decode(text, length, output, sizeof(output) - 1, &written))
+        return false;
+    output[written] = 0;
+    return text_equal(output, expected);
+}
+
+bool path_of(const char* uri, const char* expected) noexcept {
+    u32 length = 0;
+    while (uri[length])
+        ++length;
+    char output[64];
+    u32 written = 0;
+    if (!uri_file_path(uri, length, output, sizeof(output) - 1, &written))
+        return false;
+    output[written] = 0;
+    return text_equal(output, expected);
+}
+
+bool rejected(const char* uri) noexcept {
+    u32 length = 0;
+    while (uri[length])
+        ++length;
+    char output[64];
+    u32 written = 0;
+    return !uri_file_path(uri, length, output, sizeof(output), &written);
+}
+
+bool wide_equals(const DroppedFiles* files, u32 index, const wchar_t* expected) noexcept {
+    wchar_t buffer[128];
+    const u32 length = dropped_files_path(files, index, Slice<wchar_t>{buffer, 128});
+    u32 expected_length = 0;
+    while (expected[expected_length])
+        ++expected_length;
+    if (length != expected_length)
+        return false;
+    for (u32 i = 0; i < length; ++i)
+        if (buffer[i] != expected[i])
+            return false;
+    return true;
+}
+
+void test_uri() noexcept {
+    check(decodes_to("plain", "plain") && decodes_to("a%20b", "a b") && decodes_to("%C3%A9", "\xC3\xA9") && decodes_to("%2f%2F", "//"),
+          "percent decoding");
+    char output[8];
+    u32 written = 0;
+    check(!uri_percent_decode("%zz", 3, output, sizeof(output), &written) && !uri_percent_decode("%4", 2, output, sizeof(output), &written) &&
+              !uri_percent_decode("a%", 2, output, sizeof(output), &written) && !uri_percent_decode("%00", 3, output, sizeof(output), &written),
+          "malformed and NUL escapes are refused");
+    check(!uri_percent_decode("0123456789", 10, output, sizeof(output), &written), "a result that does not fit is refused");
+
+    check(path_of("file:///tmp/a%20b.txt", "/tmp/a b.txt") && path_of("file://localhost/x/y", "/x/y") && path_of("file:///", "/"),
+          "file URIs become local paths");
+    check(rejected("http://example.org/x") && rejected("file://otherhost/x") && rejected("file://") && rejected("/tmp/plain") &&
+              rejected("file://localhost") && rejected("file:///bad%zz"),
+          "other schemes, hosts and malformed URIs are refused");
+
+    const char list[] = "# a comment\r\nfile:///tmp/a%20b.txt\r\n\r\nfile://otherhost/skipped\nfile:///tmp/c%C3%A9.png\nhttp://nope\n";
+    DroppedFiles* files = uri_list_files(reinterpret_cast<const u8*>(list), sizeof(list) - 1);
+    check(files && dropped_files_count(files) == 2 && wide_equals(files, 0, L"/tmp/a b.txt") &&
+              wide_equals(files, 1, L"/tmp/c\u00E9.png"),
+          "a uri-list gives its local files, comments, blank lines and remote hosts skipped");
+    wchar_t small[4];
+    check(dropped_files_path(files, 0, Slice<wchar_t>{small, 4}) == 0 && dropped_files_path(files, 2, Slice<wchar_t>{small, 4}) == 0,
+          "a path that does not fit, or an index past the end, gives nothing");
+    dropped_files_release(files);
+
+    const char gnome[] = "copy\nfile:///tmp/g.txt\nfile:///tmp/h.txt";
+    files = uri_list_files(reinterpret_cast<const u8*>(gnome), sizeof(gnome) - 1);
+    check(files && dropped_files_count(files) == 2 && wide_equals(files, 0, L"/tmp/g.txt") && wide_equals(files, 1, L"/tmp/h.txt"),
+          "GNOME's list skips its leading copy line");
+    dropped_files_release(files);
+    const char cut[] = "cut\r\nfile:///x";
+    files = uri_list_files(reinterpret_cast<const u8*>(cut), sizeof(cut) - 1);
+    check(files && dropped_files_count(files) == 1, "and its cut line");
+    dropped_files_release(files);
+
+    const char none[] = "# nothing\nhttp://a\n";
+    check(uri_list_files(reinterpret_cast<const u8*>(none), sizeof(none) - 1) == nullptr && uri_list_files(nullptr, 0) == nullptr,
+          "a list without a local file gives none");
+
+    // More lines than a drop holds: the first kMaxDroppedFiles.
+    static char many[400 * 16];
+    u32 used = 0;
+    for (u32 i = 0; i < 300; ++i) {
+        const char line[] = "file:///f";
+        for (const char c : line)
+            if (c)
+                many[used++] = c;
+        many[used++] = static_cast<char>('0' + i % 10);
+        many[used++] = '\n';
+    }
+    files = uri_list_files(reinterpret_cast<const u8*>(many), used);
+    check(files && dropped_files_count(files) == kMaxDroppedFiles, "a drop holds at most kMaxDroppedFiles files");
+    dropped_files_release(files);
+}
+
+// The queue behind window_post --------------------------------------------------------------------------------------------
+
+struct PostProducer {
+    PostQueue* queue;
+    u32 id;
+    u32 count;
+};
+
+u32 produce(void* argument) noexcept {
+    const PostProducer& producer = *static_cast<const PostProducer*>(argument);
+    for (u32 i = 0; i < producer.count; ++i) {
+        const PostEntry entry{producer.id, i, ~static_cast<u64>(i)};
+        while (!post_queue_push(producer.queue, entry))
+            thread_sleep(0);
+    }
+    return 0;
+}
+
+void test_post_queue() noexcept {
+    static PostQueue queue;
+    post_queue_init(&queue);
+    PostEntry entry{};
+    check(!post_queue_pop(&queue, &entry), "an empty queue pops nothing");
+    for (u32 i = 0; i < kPostCapacity; ++i)
+        check(post_queue_push(&queue, PostEntry{1, i, i * 2}), "a push into a queue with room");
+    check(!post_queue_push(&queue, PostEntry{1, 0, 0}), "a full queue refuses the post");
+    bool ordered = true;
+    for (u32 i = 0; i < kPostCapacity; ++i)
+        ordered = ordered && post_queue_pop(&queue, &entry) && entry.cause == 1 && entry.a == i && entry.b == i * 2;
+    check(ordered && !post_queue_pop(&queue, &entry), "entries pop in the order they were pushed, then none");
+    // The positions wrap: push and pop many more than the capacity.
+    ordered = true;
+    for (u32 i = 0; i < kPostCapacity * 5 + 7; ++i)
+        ordered = ordered && post_queue_push(&queue, PostEntry{2, i, 0}) && post_queue_pop(&queue, &entry) && entry.a == i;
+    check(ordered, "the queue keeps working past its capacity");
+
+    // Four threads post while this one drains: nothing is lost, and each thread's posts keep their order.
+    constexpr u32 kThreads = 4;
+    constexpr u32 kEach = 3000;
+    PostProducer producers[kThreads];
+    Thread* threads[kThreads] = {};
+    for (u32 i = 0; i < kThreads; ++i) {
+        producers[i] = PostProducer{&queue, i + 10, kEach};
+        threads[i] = thread_start(produce, &producers[i], 128 * 1024, nullptr);
+        check(threads[i] != nullptr, "a producer thread starts");
+    }
+    u32 next[kThreads] = {};
+    u32 received = 0;
+    bool intact = true;
+    const u64 start = clock_monotonic_milliseconds();
+    while (received < kThreads * kEach && clock_monotonic_milliseconds() - start < 8000) {
+        if (!post_queue_pop(&queue, &entry)) {
+            thread_sleep(0);
+            continue;
+        }
+        const u32 producer = entry.cause - 10;
+        if (producer >= kThreads || entry.a != next[producer] || entry.b != ~entry.a)
+            intact = false;
+        else
+            ++next[producer];
+        ++received;
+    }
+    check(received == kThreads * kEach && intact, "posts from several threads all arrive, in order per thread");
+    for (Thread* thread : threads) {
+        if (thread) {
+            thread_wait(thread, 2000);
+            thread_close(thread);
+        }
+    }
 }
 
 // The generated protocol tables --------------------------------------------------------------------------------------
@@ -466,6 +647,45 @@ void test_xkb_layouts() noexcept {
     api->context_unref(context);
 }
 
+// The desktop settings as PlatformSettings ----------------------------------------------------------------------------
+
+void test_settings_map() noexcept {
+    dbus::DesktopSettings desktop;
+    dbus::desktop_settings_defaults(&desktop);
+    PlatformSettings settings = platform_settings_from_desktop(desktop);
+    check(settings.double_click_ms == 500 && settings.double_click_dx_px == 4 && settings.caret_blink_ms == 530 &&
+              settings.wheel_lines == 3 && settings.client_area_animation && !settings.dark_scheme &&
+              settings.system_idle_ms == kSystemIdleUnknown,
+          "settings: a desktop that publishes nothing keeps the defaults");
+
+    desktop.loaded = true;
+    desktop.color_scheme = dbus::ColorScheme::dark;
+    desktop.double_click_ms = 350;
+    desktop.cursor_blink_ms = 1000;
+    settings = platform_settings_from_desktop(desktop);
+    check(settings.dark_scheme && settings.double_click_ms == 350 && settings.caret_blink_ms == 500,
+          "settings: the dark scheme, the double-click time, and the blink cycle halved");
+    desktop.color_scheme = dbus::ColorScheme::light;
+    check(!platform_settings_from_desktop(desktop).dark_scheme, "settings: light is not dark");
+    desktop.color_scheme = dbus::ColorScheme::no_preference;
+    check(!platform_settings_from_desktop(desktop).dark_scheme, "settings: no preference is not dark");
+
+    desktop.cursor_blink = false;
+    check(platform_settings_from_desktop(desktop).caret_blink_ms == kCaretNoBlink, "settings: no blink is INFINITE");
+    desktop.cursor_blink = true;
+    desktop.cursor_blink_ms = 120;
+    check(platform_settings_from_desktop(desktop).caret_blink_ms == 100, "settings: the blink time has a floor");
+
+    desktop.animations = true;
+    desktop.reduced_motion = true;
+    check(!platform_settings_from_desktop(desktop).client_area_animation, "settings: reduced motion turns animation off");
+    desktop.reduced_motion = false;
+    desktop.animations = false;
+    check(!platform_settings_from_desktop(desktop).client_area_animation, "settings: enable-animations off turns it off");
+    desktop.animations = true;
+    check(platform_settings_from_desktop(desktop).client_area_animation, "settings: animation on");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -476,5 +696,8 @@ MAICORD_TEST_ENTRY(maicord_wayland_input_entry) {
     maicord::test_key_repeat();
     maicord::test_protocol_tables();
     maicord::test_xkb_layouts();
+    maicord::test_uri();
+    maicord::test_post_queue();
+    maicord::test_settings_map();
     maicord::test_exit(maicord::g_failures, "wayland_input");
 }

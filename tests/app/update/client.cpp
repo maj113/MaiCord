@@ -1124,7 +1124,7 @@ void test_service() noexcept {
     const bool dirs = temporary_root(&t);
     check(dirs, "update service: isolated temporary storage"); if (!dirs) return;
     struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
-    HANDLE package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
+    HANDLE package_file = nullptr, sources[2]{}; HashStream hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
     const wchar_t* members[]{MAICORD_UPDATE_TEST_EXECUTABLE}; const char* names[]{"MaiCord.exe"};
     const bool packaged = package(t.package, members, names, 1, &package_file, sources, &package_bytes, digest, &hash);
     for (auto& h : sources) close(&h);
@@ -1444,7 +1444,7 @@ void test_preview_replay() noexcept {
     check(dirs, "preview replay: temporary publish directory"); if (!dirs) return;
     constexpr u64 version = update_version_number(0, 0, 2, 3);
     wchar_t zip[MAX_PATH]{}; child(files.root, L"MaiCord-x64-p2-2003.zip", zip);
-    HANDLE package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
+    HANDLE package_file = nullptr, sources[2]{}; HashStream hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
     const wchar_t* members[]{MAICORD_UPDATE_TEST_EXECUTABLE}; const char* names[]{"MaiCord.exe"};
     const bool packaged = package(zip, members, names, 1, &package_file, sources, &package_bytes, digest, &hash);
     for (auto& h : sources) close(&h);

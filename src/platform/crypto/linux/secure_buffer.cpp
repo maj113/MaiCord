@@ -6,11 +6,14 @@
 // logged once and the pages keep the other two protections. The Windows working-set recovery and its named budget
 // mutex have no counterpart here: nothing else shares an mlock quota with this process.
 //
-// User-bound protection: there is no DPAPI. Until the Secret Service lands (P9) a blob is sealed with XChaCha20-
-// Poly1305 under a 32-byte master key kept in a file of the data directory with mode 0600 (written once, atomically,
-// next to the secrets it protects). That protects against another user and against a backup or a copied data
-// directory that leaves the key file behind, and nothing else: unlike DPAPI the key is not bound to a login session,
-// so any process of the same user can read it. The first use logs that fact. Blob layout:
+// User-bound protection: there is no DPAPI. A blob is sealed with XChaCha20-Poly1305 under a 32-byte master key. The
+// key lives in the freedesktop Secret Service (GNOME Keyring, KWallet, KeePassXC) when one is running and unlocked
+// (attributes application=maicord, purpose=master-key); an earlier 0600 key file is moved into it and deleted. Without a
+// usable Secret Service (none running, a locked keyring that would need a prompt, MAICORD_SECRET_SERVICE=off) the key is
+// kept in a file of the data directory with mode 0600 (written once, atomically, next to the secrets it protects), and
+// the first use logs that. The file protects against another user and against a backup or a copied data directory that
+// leaves the key file behind, and nothing else: unlike DPAPI the key is not bound to a login session, so any process of
+// the same user can read it. Blob layout:
 //     0x01 | nonce (24) | ciphertext (the plaintext's length) | tag (16)
 // with the version byte followed by the caller's `entropy` as the authenticated data, so a blob opens only for the
 // entropy it was sealed with, as with DPAPI.
@@ -20,6 +23,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/dbus/secret_service.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/path.hpp"
@@ -172,15 +176,16 @@ long install_key(const char* path, const u8 (&key)[32]) noexcept {
     return error;
 }
 
-// The master key; with `create` a missing one is made (protecting a secret), without it a missing one is an error
-// (opening one, which cannot succeed under a key that did not exist). *native_error receives the errno of a failure.
-bool master_key(u8 (&key)[32], u32* native_error, bool create) noexcept {
+// The master key from the key file; with `create` a missing one is made (protecting a secret), without it a missing one is
+// an error (opening one, which cannot succeed under a key that did not exist). *native_error receives the errno of a
+// failure.
+bool file_master_key(u8 (&key)[32], u32* native_error, bool create) noexcept {
     char path[kPathCapacity];
     if (!key_path(path, native_error, create))
         return false;
     if (__atomic_exchange_n(&g_key_file_noted, 1u, __ATOMIC_RELAXED) == 0) {
         log_write(LogLevel::info, "secure_buffer",
-                  "user-bound secrets use a 0600 key file in the data directory; no keyring protects them yet");
+                  "user-bound secrets use a 0600 key file in the data directory: no usable Secret Service keyring");
     }
     for (u32 attempt = 0; attempt != 3; ++attempt) {
         const long opened = sys_openat(kAtCurrentDirectory, path, kOpenReadOnly | kOpenNoFollow | kOpenCloseOnExec);
@@ -216,6 +221,111 @@ bool master_key(u8 (&key)[32], u32* native_error, bool create) noexcept {
     secure_clear_bytes(key, 32);
     *native_error = static_cast<u32>(kErrorAgain);
     return false;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The Secret Service.
+
+constexpr const char* kServiceKeyLabel = "MaiCord master key";
+volatile u32 g_service_lock;
+volatile u32 g_service_noted;
+
+// MAICORD_SECRET_SERVICE=off keeps the key in the file (the tests, and a user who wants no keyring).
+bool service_enabled() noexcept {
+    const char* value = environment_get("MAICORD_SECRET_SERVICE");
+    return !(value && value[0] == 'o' && value[1] == 'f' && value[2] == 'f' && value[3] == 0);
+}
+
+enum class ServiceKey : u8 {
+    used,     // `key` holds the master key from the Secret Service
+    none,     // the service cannot be used: the key file is the store
+    missing,  // the service is there and has no key, and opening a blob cannot make one
+};
+
+void note_service(const char* message) noexcept {
+    if (__atomic_exchange_n(&g_service_noted, 1u, __ATOMIC_RELAXED) == 0)
+        log_write(LogLevel::info, "secure_buffer", message);
+}
+
+const dbus::SecretAttribute kServiceAttributes[2] = {{"application", "maicord"}, {"purpose", "master-key"}};
+
+// Looks the key up in the Secret Service; the first-ever use stores one (a key file of the earlier version moves in
+// first, so blobs sealed under it stay readable). One thread at a time, so two do not both make a key.
+ServiceKey service_master_key(u8 (&key)[32], u32* native_error, bool create) noexcept {
+    if (!service_enabled())
+        return ServiceKey::none;
+    u32 length = 0;
+    const dbus::SecretStatus looked = dbus::secret_lookup(kServiceAttributes, 2, key, 32, &length);
+    if (looked == dbus::SecretStatus::ok && length == 32) {
+        note_service("user-bound secrets use a master key in the Secret Service");
+        return ServiceKey::used;
+    }
+    if (looked == dbus::SecretStatus::ok) {
+        secure_clear_bytes(key, 32);
+        log_u64(LogLevel::warning, "secure_buffer", "the Secret Service's master key has an unexpected size", length);
+        return ServiceKey::none;
+    }
+    if (looked != dbus::SecretStatus::not_found) {
+        secure_clear_bytes(key, 32);
+        if (looked != dbus::SecretStatus::unavailable)
+            note_service("the Secret Service cannot be used (locked or failing): the key file is used");
+        return ServiceKey::none;
+    }
+
+    // The service is there and holds no key. An earlier key file moves in.
+    char path[kPathCapacity];
+    u32 ignored = 0;
+    if (key_path(path, &ignored, false)) {
+        const long opened = sys_openat(kAtCurrentDirectory, path, kOpenReadOnly | kOpenNoFollow | kOpenCloseOnExec);
+        if (!syscall_failed(opened)) {
+            const bool valid = read_key(static_cast<int>(opened), key);
+            sys_close(static_cast<int>(opened));
+            if (!valid)
+                return ServiceKey::none;  // the file path reports it
+            if (dbus::secret_store(kServiceKeyLabel, kServiceAttributes, 2, key, 32) != dbus::SecretStatus::ok) {
+                secure_clear_bytes(key, 32);
+                return ServiceKey::none;  // the service refuses: the file stays the key
+            }
+            if (syscall_failed(sys_unlink(path)))
+                log_write(LogLevel::warning, "secure_buffer", "the key file could not be removed after the move");
+            log_write(LogLevel::info, "secure_buffer", "moved the master key from the key file into the Secret Service");
+            return ServiceKey::used;
+        }
+    }
+    if (!create) {
+        *native_error = static_cast<u32>(kErrorNoEntry);
+        return ServiceKey::missing;
+    }
+    const auto random = secure_random_fill({key, 32});
+    if (!random.ok()) {
+        *native_error = static_cast<u32>(-random.platform_status);
+        secure_clear_bytes(key, 32);
+        return ServiceKey::missing;
+    }
+    if (dbus::secret_store(kServiceKeyLabel, kServiceAttributes, 2, key, 32) != dbus::SecretStatus::ok) {
+        secure_clear_bytes(key, 32);
+        return ServiceKey::none;
+    }
+    // What the service holds is the key, whichever of two first launches stored last.
+    u8 stored[32];
+    if (dbus::secret_lookup(kServiceAttributes, 2, stored, 32, &length) == dbus::SecretStatus::ok && length == 32)
+        copy_bytes(key, stored, 32);
+    secure_clear_bytes(stored, sizeof(stored));
+    log_write(LogLevel::info, "secure_buffer", "created the master key in the Secret Service");
+    return ServiceKey::used;
+}
+
+// The master key: the Secret Service's when there is one, else the key file's.
+bool master_key(u8 (&key)[32], u32* native_error, bool create) noexcept {
+    while (__atomic_exchange_n(&g_service_lock, 1u, __ATOMIC_ACQUIRE))
+        syscall1(24 /* sched_yield */, 0);
+    const ServiceKey service = service_master_key(key, native_error, create);
+    __atomic_store_n(&g_service_lock, 0u, __ATOMIC_RELEASE);
+    if (service == ServiceKey::used)
+        return true;
+    if (service == ServiceKey::missing)
+        return false;
+    return file_master_key(key, native_error, create);
 }
 
 // The version byte and the entropy as one authenticated-data slice.

@@ -1,6 +1,7 @@
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "gpu/gles/internal.hpp"
+#include "gpu/gles/video_planes_internal.hpp"
 
 namespace maicord {
 namespace {
@@ -110,6 +111,7 @@ GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc& desc, const 
     result->usage = desc.usage;
     result->bind = desc.bind;
     result->raw = desc.raw;
+    result->refs = 1;
     *buffer = result;
     return kGpuOk;
 }
@@ -196,9 +198,39 @@ GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, cons
     result->internal = info.internal;
     result->format = desc.format;
     result->bind = desc.bind;
+    result->usage = desc.usage;
     result->wide = wide;
+    result->refs = 1;
     *texture = result;
     return kGpuOk;
+}
+
+void gpu_texture_info(GpuTexture* texture, GpuTextureInfo* info) {
+    *info = {texture->width, texture->height, texture->format, texture->usage, texture->bind};
+}
+
+u32 gpu_texture_info_width(const GpuTextureInfo& info) {
+    return info.width;
+}
+
+u32 gpu_texture_info_height(const GpuTextureInfo& info) {
+    return info.height;
+}
+
+GpuStatus gpu_texture_create_from_info(GpuDevice* device, GpuTextureInfo& info, u32 height, bool copy_only,
+                                       GpuTexture** texture) {
+    info.height = height;
+    if (copy_only)
+        info.bind = 0;
+    return gpu_texture_create(device, {info.width, info.height, info.format, info.usage, info.bind}, nullptr, texture);
+}
+
+GpuStatus gpu_format_check(GpuDevice* device, GpuFormat format, u8 bind) {
+    if (format == GpuFormat::bgra8 && (bind & (gpu_bind_rtv | gpu_bind_uav)))
+        return kGpuUnsupported;
+    FormatInfo info{};
+    bool wide = false;
+    return texture_format(*device, format, bind, &info, &wide) ? kGpuOk : kGpuUnsupported;
 }
 
 GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDesc& desc, GpuSrv** view) {
@@ -210,6 +242,7 @@ GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDe
         return kGpuOutOfMemory;
     result->kind = GpuViewKind::texture;
     result->texture = texture;
+    ++texture->refs;
     *view = result;
     return kGpuOk;
 }
@@ -225,6 +258,7 @@ GpuStatus gpu_srv_create(GpuDevice* device, GpuBuffer* buffer, const GpuViewDesc
         return kGpuOutOfMemory;
     result->kind = desc.kind;
     result->buffer = buffer;
+    ++buffer->refs;
     *view = result;
     return kGpuOk;
 }
@@ -237,11 +271,12 @@ GpuStatus gpu_uav_create(GpuDevice* device, GpuTexture* texture, GpuUav** view) 
     if (!result)
         return kGpuOutOfMemory;
     result->texture = texture;
+    ++texture->refs;
     *view = result;
     return kGpuOk;
 }
 
-GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, GpuUav** view) {
+GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, u32, GpuUav** view) {
     *view = nullptr;
     if (!buffer || !(buffer->bind & gpu_bind_uav) || !buffer->raw)
         return kGpuInvalidArgument;
@@ -249,6 +284,7 @@ GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, GpuUav** view) {
     if (!result)
         return kGpuOutOfMemory;
     result->buffer = buffer;
+    ++buffer->refs;
     *view = result;
     return kGpuOk;
 }
@@ -263,6 +299,7 @@ GpuStatus gpu_rtv_create(GpuDevice* device, GpuTexture* texture, GpuRtv** view) 
     if (!result)
         return kGpuOutOfMemory;
     result->texture = texture;
+    ++texture->refs;
     *view = result;
     return kGpuOk;
 }
@@ -280,9 +317,18 @@ GpuStatus gpu_sampler_create(GpuDevice* device, const GpuSamplerDesc& desc, GpuS
     gl.glSamplerParameteri(result->name, gl::kTextureMagFilter, filter);
     gl.glSamplerParameteri(result->name, gl::kTextureWrapS, address);
     gl.glSamplerParameteri(result->name, gl::kTextureWrapT, address);
+    if (desc.filter == GpuFilter::linear && !device->caps.float_linear) {
+        gl.glGenSamplers(1, &result->nearest_name);
+        gl.glSamplerParameteri(result->nearest_name, gl::kTextureMinFilter, static_cast<gl::Int>(gl::kNearest));
+        gl.glSamplerParameteri(result->nearest_name, gl::kTextureMagFilter, static_cast<gl::Int>(gl::kNearest));
+        gl.glSamplerParameteri(result->nearest_name, gl::kTextureWrapS, address);
+        gl.glSamplerParameteri(result->nearest_name, gl::kTextureWrapT, address);
+    }
     const GpuStatus status = check_error("sampler creation");
     if (!gpu_ok(status)) {
         gl.glDeleteSamplers(1, &result->name);
+        if (result->nearest_name)
+            gl.glDeleteSamplers(1, &result->nearest_name);
         device->samplers.release(result);
         return status;
     }
@@ -311,10 +357,13 @@ GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster) {
 
 // ---- Release ---------------------------------------------------------------------------------------------
 
-void gpu_release(GpuBuffer*& handle) noexcept {
-    GpuBuffer* buffer = handle;
-    handle = nullptr;
-    if (!buffer)
+namespace {
+
+// A buffer or texture is owned by its handle, by every view made of it and by every gpu_retain; the last owner to
+// let go destroys it (D3D11's views hold their resource the same way: the executors release a texture right after
+// making its views).
+void drop_buffer(GpuBuffer* buffer) noexcept {
+    if (!buffer || --buffer->refs)
         return;
     GpuDevice& d = gles::device();
     GpuContext& c = gles::context();
@@ -331,10 +380,10 @@ void gpu_release(GpuBuffer*& handle) noexcept {
     d.buffers.release(buffer);
 }
 
-void gpu_release(GpuTexture*& handle) noexcept {
-    GpuTexture* texture = handle;
-    handle = nullptr;
-    if (!texture)
+void drop_texture(GpuTexture* texture) noexcept {
+    if (!texture || gles::video_plane_release(texture)) // a decoded picture's plane counts atomically, in its own pool
+        return;
+    if (--texture->refs)
         return;
     GpuDevice& d = gles::device();
     GpuContext& c = gles::context();
@@ -348,16 +397,38 @@ void gpu_release(GpuTexture*& handle) noexcept {
     d.textures.release(texture);
 }
 
+} // namespace
+
+void gpu_release(GpuBuffer*& handle) noexcept {
+    GpuBuffer* buffer = handle;
+    handle = nullptr;
+    drop_buffer(buffer);
+}
+
+void gpu_release(GpuTexture*& handle) noexcept {
+    GpuTexture* texture = handle;
+    handle = nullptr;
+    drop_texture(texture);
+}
+
 void gpu_release(GpuSrv*& handle) noexcept {
     GpuSrv* view = handle;
     handle = nullptr;
-    if (!view)
+    if (!view || gles::video_plane_release(view))
         return;
+    if (view->refs) {
+        --view->refs;
+        return;
+    }
     GpuContext& c = gles::context();
     forget_pointer(c.srvs[0], view);
     forget_pointer(c.srvs[1], view);
     forget_pointer(c.srvs[2], view);
+    GpuTexture* texture = view->kind == GpuViewKind::texture ? view->texture : nullptr;
+    GpuBuffer* buffer = view->kind == GpuViewKind::texture ? nullptr : view->buffer;
     gles::device().srvs.release(view);
+    drop_texture(texture);
+    drop_buffer(buffer);
 }
 
 void gpu_release(GpuUav*& handle) noexcept {
@@ -366,7 +437,11 @@ void gpu_release(GpuUav*& handle) noexcept {
     if (!view)
         return;
     forget_pointer(gles::context().uavs, view);
+    GpuTexture* texture = view->texture;
+    GpuBuffer* buffer = view->buffer;
     gles::device().uavs.release(view);
+    drop_texture(texture);
+    drop_buffer(buffer);
 }
 
 void gpu_release(GpuRtv*& handle) noexcept {
@@ -377,7 +452,9 @@ void gpu_release(GpuRtv*& handle) noexcept {
     GpuContext& c = gles::context();
     if (c.target == view)
         c.target = nullptr;
+    GpuTexture* texture = view->texture;
     gles::device().rtvs.release(view);
+    drop_texture(texture);
 }
 
 void gpu_release(GpuSampler*& handle) noexcept {
@@ -388,6 +465,10 @@ void gpu_release(GpuSampler*& handle) noexcept {
     GpuDevice& d = gles::device();
     GpuContext& c = gles::context();
     d.gl.glDeleteSamplers(1, &sampler->name);
+    if (sampler->nearest_name) {
+        d.gl.glDeleteSamplers(1, &sampler->nearest_name);
+        forget_name(c.applied_unit_sampler, sampler->nearest_name);
+    }
     forget_pointer(c.samplers[0], sampler);
     forget_pointer(c.samplers[1], sampler);
     forget_pointer(c.samplers[2], sampler);
@@ -446,6 +527,8 @@ void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]) {
     // ClearRenderTargetView ignores the scissor.
     gl.glDisable(gl::kScissorTest);
     gl.glClearBufferfv(gl::kColor, 0, rgba);
+    if (gles::device().debug_checks)
+        check_error("clear");
     gl.glEnable(gl::kScissorTest);
 }
 
@@ -577,9 +660,37 @@ GpuStatus gpu_readback(GpuDevice* device, GpuContext* context, GpuTexture* sourc
     return status;
 }
 
+GpuStatus gpu_readback_map(GpuDevice* device, GpuContext* context, GpuTexture* source, GpuFormat, const GpuBox& box,
+                           GpuReadback* readback) {
+    const u32 width = box.right - box.left, height = box.bottom - box.top;
+    if (width == 0 || height == 0 || box.right > source->width || box.bottom > source->height)
+        return kGpuInvalidArgument;
+    const u32 pitch = width * gpu_texel_bytes(source->format);
+    u8* rows = static_cast<u8*>(heap_allocate(usize{pitch} * height));
+    if (!rows)
+        return kGpuOutOfMemory;
+    const GpuStatus status = gpu_readback(device, context, source, box, rows, pitch);
+    if (!gpu_ok(status)) {
+        heap_free(rows);
+        return status;
+    }
+    readback->data = rows;
+    readback->pitch = pitch;
+    readback->format = source->format;
+    readback->backend = rows;
+    return kGpuOk;
+}
+
+void gpu_readback_unmap(GpuContext*, GpuReadback* readback) {
+    heap_free(readback->backend);
+    readback->backend = nullptr;
+    readback->data = nullptr;
+}
+
 void gpu_flush(GpuContext* context) {
     (void)context;
     api().glFlush();
+    poll_fences();
 }
 
 void gpu_clear_state(GpuContext* context) {

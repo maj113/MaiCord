@@ -4,6 +4,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/messages/forum_post.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/dropped_files.hpp"
 namespace maicord::app_detail {
 // Whether the file name ends in `suffix` (lowercase), ignoring ASCII case.
 inline bool filename_ends_with(const Utf8View& name, const Utf8View& suffix) noexcept {
@@ -28,7 +29,7 @@ ApplicationForumAttachmentView application_forum_attachments_view(const Applicat
 bool application_forum_attachments_current(const ApplicationForumPostTicket&, u64 id = 0) noexcept;
 bool application_forum_attachments_pick(const ApplicationForumPostTicket&) noexcept;
 // Always consumes a drop, including stale-request/rejected paths.
-bool application_forum_attachments_drop(const ApplicationForumPostTicket&, HANDLE) noexcept;
+bool application_forum_attachments_drop(const ApplicationForumPostTicket&, DroppedFiles*) noexcept;
 bool application_forum_attachments_paste(const ApplicationForumPostTicket&) noexcept;
 bool application_forum_attachments_remove(const ApplicationForumPostTicket&, u64) noexcept;
 bool application_forum_attachments_retry(const ApplicationForumPostTicket&, u64) noexcept;

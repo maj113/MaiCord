@@ -13,6 +13,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord::app_detail {
 void test_reaction_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;
@@ -38,8 +39,8 @@ bool failed_measure(void*, const UiTextMeasureRequest&, UiTextMeasureValue*) noe
     return false;
 }
 void run() noexcept {
-    g_app.window = CreateWindowExW(0, L"STATIC", L"MaiCord tooltip fixture", WS_POPUP, 0, 0, 1000, 700,
-                                   nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord tooltip fixture", WS_POPUP, 0, 0, 1000, 700,
+                                   nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "tooltip runtime: bounded hidden native host initializes");
@@ -73,7 +74,7 @@ void run() noexcept {
                      0x401},
                     {400, 200, 440, 240},
                     utf8_literal("Play")};
-    application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(400, 200));
+    application_tooltip_input(window_test::pointer_move(400, 200));
     check(g_app.tooltip && !application_tooltip_next_wake() && !g_app.renderer.tooltip_scene->visible,
           "tooltip runtime: first eligible pointer retains one lazy owner before a typed video target "
           "exists");
@@ -93,7 +94,7 @@ void run() noexcept {
     const LPARAM point =
         MAKELPARAM(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
                    static_cast<short>((node->rectangle.top + node->rectangle.bottom) * .5f));
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 deadline = application_tooltip_next_wake();
     MEMORY_BASIC_INFORMATION region{};
     const bool queried =
@@ -111,14 +112,14 @@ void run() noexcept {
     const u32 builds = text_builds;
     check(application_tooltip_synchronize(deadline + 1) && text_builds == builds && g_app.tooltip == owner,
           "tooltip runtime: steady tooltip retains text publication and owner");
-    application_tooltip_input(WM_MOUSELEAVE, 0, 0);
+    application_tooltip_input(window_test::pointer_leave());
     check(application_tooltip_synchronize(deadline + 2) && !g_app.renderer.tooltip_scene->visible &&
               !application_tooltip_next_wake(),
           "tooltip runtime: leave hides immediately before borrowed source teardown");
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, gear);
-    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
+    application_tooltip_input(window_test::key_down(key::tab));
     const u64 keyboard_deadline = application_tooltip_next_wake();
     check(keyboard_deadline && application_tooltip_synchronize(keyboard_deadline) &&
               g_app.renderer.tooltip_scene->visible,
@@ -128,7 +129,7 @@ void run() noexcept {
               !g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake(),
           "tooltip runtime: opaque Settings excludes underlying focused tooltip and cancels delay");
     settings = false;
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     auto* mutable_gear = ui_widget_manager_resolve(&g_app.shell_scene.widgets, gear);
     mutable_gear->flags &= static_cast<u16>(~ui_widget_enabled);
     const auto fallback = ui_widget_manager_hit_test(g_app.shell_scene.widgets,
@@ -171,7 +172,7 @@ void run() noexcept {
     g_app.context_focus = &composer.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&composer.widgets, emoji.handle);
-    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
+    application_tooltip_input(window_test::key_down(key::tab));
     const u64 composer_deadline = application_tooltip_next_wake();
     check(composer_deadline && application_tooltip_synchronize(composer_deadline) &&
               g_app.renderer.tooltip_scene->key.owner.manager == &composer.widgets &&
@@ -184,7 +185,7 @@ void run() noexcept {
           "tooltip runtime: semantic composer revision requires a fresh delayed admission");
     check(application_tooltip_synchronize(application_tooltip_next_wake()),
           "tooltip runtime: revised source can show after its new deadline");
-    application_tooltip_input(WM_KEYDOWN, key::enter, 0);
+    application_tooltip_input(window_test::key_down(key::enter));
     check(!g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake() &&
               application_tooltip_synchronize(composer_deadline + 1000) && !application_tooltip_next_wake(),
           "tooltip runtime: keyboard activation dismisses same semantic source without automatic rearm");
@@ -205,11 +206,7 @@ void run() noexcept {
     const auto* filter_node = ui_widget_manager_layout_node(search.widgets, search.buttons[2]);
     check(filter_node != nullptr, "tooltip runtime: search filter has a real clipped target");
     if (filter_node) {
-        application_tooltip_input(
-            WM_MOUSEMOVE, 0,
-            MAKELPARAM(
-                static_cast<short>((filter_node->rectangle.left + filter_node->rectangle.right) * .5f),
-                static_cast<short>((filter_node->rectangle.top + filter_node->rectangle.bottom) * .5f)));
+        application_tooltip_input(window_test::pointer_move(static_cast<short>((filter_node->rectangle.left + filter_node->rectangle.right) * .5f), static_cast<short>((filter_node->rectangle.top + filter_node->rectangle.bottom) * .5f)));
         const u64 search_deadline = application_tooltip_next_wake();
         check(search_deadline && application_tooltip_synchronize(search_deadline) &&
                   g_app.renderer.tooltip_scene->visible &&
@@ -219,14 +216,14 @@ void run() noexcept {
               "tooltip runtime: delayed Search filters hint belongs to the exact search widget");
     }
     video_ready = true;
-    application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(400, 200));
+    application_tooltip_input(window_test::pointer_move(400, 200));
     check(!g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake(),
           "tooltip runtime: opaque blank search panel cannot inherit a covered video hint");
     video_ready = false;
     g_app.context_focus = &search.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&search.widgets, search.buttons[0]);
-    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
+    application_tooltip_input(window_test::key_down(key::tab));
     const u64 search_keyboard_deadline = application_tooltip_next_wake();
     check(search_keyboard_deadline && application_tooltip_synchronize(search_keyboard_deadline) &&
               g_app.renderer.tooltip_scene->visible &&
@@ -284,7 +281,7 @@ void run() noexcept {
         ui_media_picker_scene_hover(&favorite_scene, (star_rect.left + star_rect.right) * .5f,
                                     (star_rect.top + star_rect.bottom) * .5f,
                                     clock_monotonic_milliseconds());
-        application_tooltip_input(WM_MOUSEMOVE, 0, star_point);
+        application_tooltip_input(window_test::pointer_move(window_test::x_of(star_point), window_test::y_of(star_point)));
         const u64 at = application_tooltip_next_wake();
         return at && application_tooltip_synchronize(at) && g_app.renderer.tooltip_scene->visible &&
                g_app.renderer.tooltip_scene->key.action ==
@@ -312,7 +309,7 @@ void run() noexcept {
     g_app.renderer.media_picker_scene = nullptr;
     ui_media_picker_scene_release(&favorite_scene);
     g_app.context_focus = &g_app.shell_scene.widgets;
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 publication_failure_at = application_tooltip_next_wake();
     const u32 builds_before_failure = text_builds;
     fail_text_build = true;
@@ -324,7 +321,7 @@ void run() noexcept {
     bool retired = true;
     g_app.frame_pending = false;
     for (u32 attempt = 0; attempt < 8; ++attempt) {
-        application_tooltip_input(WM_MOUSEMOVE, 0, point);
+        application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
         retired = retired && application_tooltip_synchronize(publication_failure_at + attempt + 1) &&
                   !application_tooltip_next_wake() && !g_app.renderer.tooltip_scene->visible &&
                   text_builds == builds_before_failure + 1 && !g_app.frame_pending;
@@ -333,13 +330,13 @@ void run() noexcept {
                    "through synchronize or pointer observations");
     fail_text_build = false;
     application_tooltip_clear();
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 pre_resize_at = application_tooltip_next_wake();
-    application_tooltip_input(WM_SIZE, 0, 0);
+    application_tooltip_input(window_test::resize(0, 0));
     check(pre_resize_at && application_tooltip_synchronize(pre_resize_at + 1) &&
               !application_tooltip_next_wake() && !g_app.renderer.tooltip_scene->visible,
           "tooltip runtime: resize dismisses pending old-anchor delay without later overdue revival");
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 visible_before_resize_at = application_tooltip_next_wake();
     check(visible_before_resize_at && application_tooltip_synchronize(visible_before_resize_at),
           "tooltip runtime: fresh input may recover after explicit failure and resize retirement");
@@ -360,7 +357,7 @@ void run() noexcept {
     check(application_tooltip_synchronize(visible_before_resize_at + 1003),
           "tooltip runtime: changed valid viewport recovers from failed layout admission");
     application_tooltip_clear();
-    application_tooltip_input(WM_MOUSEMOVE, 0, point);
+    application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 failed_deadline = application_tooltip_next_wake();
     ui_text_measure_cache_invalidate(&g_app.account_ui->text_measure_cache);
     g_app.account_ui->text_measure_cache.backend = failed_measure;
@@ -383,9 +380,7 @@ void run() noexcept {
               ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, pin_metrics, 1000, 700),
           "tooltip Pins: real retained header launcher initializes under selected-channel flag");
     const auto launcher = ui_scene_header_geometry(g_app.shell_scene).pins;
-    application_tooltip_input(WM_MOUSEMOVE, 0,
-        MAKELPARAM(static_cast<short>((launcher.left + launcher.right) * .5f),
-                   static_cast<short>((launcher.top + launcher.bottom) * .5f)));
+    application_tooltip_input(window_test::pointer_move(static_cast<short>((launcher.left + launcher.right) * .5f), static_cast<short>((launcher.top + launcher.bottom) * .5f)));
     const u64 pins_deadline = application_tooltip_next_wake();
     check(pins_deadline && application_tooltip_synchronize(pins_deadline) &&
               g_app.renderer.tooltip_scene->visible &&
@@ -413,7 +408,7 @@ void run() noexcept {
     g_app.keyboard_focus_visible = true;
     check(ui_pinned_messages_scene_focus(&pins_scene, {UiPinnedMessagesAction::unpin, 8, 99}),
           "tooltip Pins: permission-aware Unpin receives exact keyboard owner");
-    application_tooltip_input(WM_KEYDOWN, key::tab, 0);
+    application_tooltip_input(window_test::key_down(key::tab));
     const u64 unpin_deadline = application_tooltip_next_wake();
     check(unpin_deadline && application_tooltip_synchronize(unpin_deadline) &&
               g_app.renderer.tooltip_scene->visible &&
@@ -432,7 +427,7 @@ void run() noexcept {
     check(ui_pinned_messages_scene_update(&pins_scene, &pins_source, &pins_content, pins_scene.viewport),
           "tooltip Pins: empty native page keeps its opaque panel input boundary");
     video_ready = true;
-    application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(400, 200));
+    application_tooltip_input(window_test::pointer_move(400, 200));
     check(!g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake(),
           "tooltip Pins: empty opaque panel cannot inherit covered message or video hints");
     video_ready = false;
@@ -465,9 +460,7 @@ void run() noexcept {
         g_app.renderer.profile_scene = &card;
         bool shown = false;
         if (art) {
-            application_tooltip_input(WM_MOUSEMOVE, 0,
-                                      MAKELPARAM(static_cast<short>((art->rectangle.left + art->rectangle.right) * .5f),
-                                                 static_cast<short>((art->rectangle.top + art->rectangle.bottom) * .5f)));
+            application_tooltip_input(window_test::pointer_move(static_cast<short>((art->rectangle.left + art->rectangle.right) * .5f), static_cast<short>((art->rectangle.top + art->rectangle.bottom) * .5f)));
             const u64 at = application_tooltip_next_wake();
             shown = at && application_tooltip_synchronize(at) && g_app.renderer.tooltip_scene->visible &&
                     g_app.renderer.tooltip_scene->key.action == 0x5800u &&
@@ -501,7 +494,7 @@ void run() noexcept {
                     badges[count++] = badge->rectangle;
         g_app.renderer.profile_scene = &card;
         const auto move = [](float x, float y) noexcept {
-            application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<short>(x), static_cast<short>(y)));
+            application_tooltip_input(window_test::pointer_move(static_cast<short>(x), static_cast<short>(y)));
         };
         const auto shows = [](Utf8View text) noexcept {
             const auto& tip = *g_app.renderer.tooltip_scene;
@@ -572,7 +565,7 @@ void run() noexcept {
     application_tooltip_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_app.window = nullptr;
 }
 } // namespace maicord::tooltip_runtime_test

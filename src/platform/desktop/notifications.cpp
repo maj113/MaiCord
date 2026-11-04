@@ -70,7 +70,7 @@ struct Server final : IClassFactory, INotificationActivationCallback {
     SRWLOCK lock{};
     bool active{true}, enrolled{};
     DWORD thread{}, cookie{};
-    HWND wake_window{}; u32 wake_message{};
+    Waker wake{};
     wchar_t app_id[129]{}; u32 app_units{};
     DesktopNotificationActivation queue[kDesktopNotificationActivationCapacity]{};
     u32 head{}, count{};
@@ -118,7 +118,7 @@ struct Server final : IClassFactory, INotificationActivationCallback {
         else if(count==kDesktopNotificationActivationCapacity)result=HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA);
         else {
             queue[(head+count)%kDesktopNotificationActivationCapacity]=a; ++count;
-            if(wake_window && !PostMessageW(wake_window,wake_message,0,0)) {--count;result=HRESULT_FROM_WIN32(GetLastError());}
+            if(wake.window && !window_post(wake,0,0)) {--count;result=HRESULT_FROM_WIN32(GetLastError());}
         }
         ReleaseSRWLockExclusive(&lock); return result;
     }
@@ -224,15 +224,14 @@ DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayl
     if(!ok){reset_value(out);return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));}return {};
 }
 DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications* n,const DesktopNotificationConfig& c) noexcept {
-    if(!n||n->runtime||!app_id_valid(c.app_id)||c.activator_id==GUID{}||
-        (c.wake_window&&(c.wake_message<WM_APP||c.wake_message>0xBFFF)))return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
+    if(!n||n->runtime||!app_id_valid(c.app_id)||c.activator_id==GUID{})return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     // The flags RoInitialize(RO_INIT_SINGLETHREADED) passes for a desktop STA.
     HRESULT h=S_OK;if(c.register_activator)h=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
     if(FAILED(h))return failed(DesktopNotificationError::apartment,h);
     void* allocation=CoTaskMemAlloc(sizeof(Server));if(!allocation){if(c.register_activator)CoUninitialize();return failed(DesktopNotificationError::memory,E_OUTOFMEMORY);}
     auto* s=new(allocation) Server; s->thread=GetCurrentThreadId();s->enrolled=c.register_activator;
     LARGE_INTEGER frequency{};if(QueryPerformanceFrequency(&frequency))s->performance_frequency=frequency.QuadPart;
-    s->wake_window=c.wake_window;s->wake_message=c.wake_message;s->app_units=c.app_id.count;copy_bytes(s->app_id,c.app_id.data,c.app_id.count*sizeof(wchar_t));
+    s->wake=c.wake;s->app_units=c.app_id.count;copy_bytes(s->app_id,c.app_id.data,c.app_id.count*sizeof(wchar_t));
     if(c.register_activator)h=CoRegisterClassObject(c.activator_id,static_cast<IClassFactory*>(s),CLSCTX_LOCAL_SERVER,REGCLS_MULTIPLEUSE,&s->cookie);
     if(FAILED(h)){s->active=false;s->Release();CoUninitialize();return failed(DesktopNotificationError::identity,h);}n->runtime=s;return {};
 }
@@ -273,7 +272,7 @@ DesktopNotificationResult desktop_notifications_remove_channel(DesktopNotificati
     for(u32 i=0;i<s->history_count;++i){auto& r=s->history_requests[(s->history_head+i)%8];if(r.profile==profile&&r.channel==channel){if(i==0&&s->history_snapshot)r.refresh=true;return {};}}
     if(s->history_count==8)return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA));
     const bool starting=s->history_count==0;s->history_requests[(s->history_head+s->history_count)%8]={profile,channel};++s->history_count;
-    if(starting&&s->wake_window&&!PostMessageW(s->wake_window,s->wake_message,0,0)){--s->history_count;reset_value(&s->history_requests[s->history_head]);return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(GetLastError()));}
+    if(starting&&s->wake.window&&!window_post(s->wake,0,0)){--s->history_count;reset_value(&s->history_requests[s->history_head]);return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(GetLastError()));}
     return {};
 }
 bool desktop_notifications_history_pending(const DesktopNotifications* n) noexcept {
@@ -320,10 +319,10 @@ DesktopNotificationResult desktop_notifications_setting(DesktopNotifications* n,
     if(h==HRESULT_FROM_WIN32(ERROR_NOT_FOUND)){h=S_OK;value=toast::NotificationSetting_Enabled;}
     if(SUCCEEDED(h))*out=static_cast<u32>(value);return FAILED(h)?failed(DesktopNotificationError::transport,h):DesktopNotificationResult{};
 }
-DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications* n,HWND window,u32 message) noexcept {
-    auto* s=owner(n);if(!ui_owner(s)||!window||message<WM_APP||message>0xBFFF)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
-    AcquireSRWLockExclusive(&s->lock);s->wake_window=window;s->wake_message=message;
-    const bool posted=(!s->count&&!s->history_count)||PostMessageW(window,message,0,0)!=0;const DWORD error=posted?0:GetLastError();
+DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications* n,const Waker& wake) noexcept {
+    auto* s=owner(n);if(!ui_owner(s)||!wake.window)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
+    AcquireSRWLockExclusive(&s->lock);s->wake=wake;
+    const bool posted=(!s->count&&!s->history_count)||window_post(wake,0,0);const DWORD error=posted?0:GetLastError();
     ReleaseSRWLockExclusive(&s->lock);return posted?DesktopNotificationResult{}:failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(error));
 }
 bool desktop_notifications_take_activation(DesktopNotifications* n,DesktopNotificationActivation* out) noexcept {
@@ -336,7 +335,7 @@ void desktop_notifications_discard_activations(DesktopNotifications* n) noexcept
 }
 void desktop_notifications_release(DesktopNotifications* n) noexcept {
     auto* s=owner(n);if(!s||s->thread!=GetCurrentThreadId())return;n->runtime=nullptr;
-    AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake_window=nullptr;clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
+    AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake={};clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
     if(s->cookie)CoRevokeClassObject(s->cookie);drop_snapshot(s);clear_bytes(s->history_requests,sizeof(s->history_requests));s->history_count=0;
     drop_transport(s);const bool apartment=s->enrolled;s->Release();if(apartment)CoUninitialize();
 }

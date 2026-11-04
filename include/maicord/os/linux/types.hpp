@@ -70,6 +70,9 @@ typedef const CHAR* LPCSTR;
 typedef const CHAR* PCSTR;
 typedef void* HANDLE;
 typedef HANDLE* PHANDLE;
+// A loaded module: Linux code that keeps one holds a SharedLibrary handle (core/shared_library.hpp) or null for the
+// image itself.
+typedef HANDLE HMODULE;
 typedef int HRESULT;
 typedef long long LONGLONG;
 typedef unsigned long long ULONGLONG;

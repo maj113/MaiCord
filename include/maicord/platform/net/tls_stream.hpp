@@ -84,7 +84,7 @@ struct TlsStream {
     TlsClient tls;
     ByteQueue encrypted_input;
     TlsStreamBuffers buffers;
-    addrinfoexW* next_address;
+    u32 next_address; // The index in resolver.addresses of the next address to try.
     const wchar_t* server_name;
     wchar_t service[6];
     const u8* send_data;

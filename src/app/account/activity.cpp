@@ -11,7 +11,6 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::app_detail {
@@ -105,11 +104,8 @@ bool shared() noexcept {
     return g.queued ? g.desired_share : value.known && value.share;
 }
 u64 input_idle_ms() noexcept {
-    LASTINPUTINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetLastInputInfo(&info))
-        return 0;
-    return static_cast<u32>(GetTickCount() - info.dwTime); // Wraps with the 32-bit tick.
+    const u32 idle = platform_settings_read().system_idle_ms;
+    return idle == kSystemIdleUnknown ? 0 : idle;
 }
 bool in_call() noexcept {
     const auto* ui = g_app.account_ui;

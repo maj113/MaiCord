@@ -28,11 +28,20 @@ P256Result platform_failure(const openssl::Crypto& library) noexcept {
     return {0, openssl::error_status(library), P256Error::platform_failure};
 }
 
-// The 65 SEC1 bytes of the key's public point, or false.
+// The 65 SEC1 bytes (04 || x || y) of the key's public point, or false. The coordinates are read as numbers: the "pub"
+// parameter comes back in the key's point conversion form, which is compressed for a key made from a private scalar by
+// OpenSSL 3.0.2 (Ubuntu 22.04) and uncompressed in later releases.
 bool public_point(const openssl::Crypto& library, void* pkey, u8 (&point)[65]) noexcept {
-    usize written = 0;
-    return library.EVP_PKEY_get_octet_string_param(pkey, "pub", point, sizeof(point), &written) == 1 &&
-           written == sizeof(point) && point[0] == 4;
+    void* x = nullptr;
+    void* y = nullptr;
+    bool good = library.EVP_PKEY_get_bn_param(pkey, "qx", &x) == 1 && x && library.EVP_PKEY_get_bn_param(pkey, "qy", &y) == 1 &&
+                y && library.BN_bn2binpad(x, point + 1, 32) == 32 && library.BN_bn2binpad(y, point + 33, 32) == 32;
+    if (x)
+        library.BN_clear_free(x);
+    if (y)
+        library.BN_clear_free(y);
+    point[0] = 4;
+    return good;
 }
 
 void* public_key(const openssl::Crypto& library, ConstSlice<u8> point) noexcept {

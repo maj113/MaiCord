@@ -6,6 +6,7 @@
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 namespace maicord::plugin_runtime_detail {
 namespace {
@@ -79,16 +80,16 @@ struct Writer {
     bool failed;
 
     void flush() noexcept {
-        DWORD written = 0;
-        if (used && (!WriteFile(file, buffer, used, &written, nullptr) || written != used)) failed = true;
+        u32 written = 0;
+        if (used && (!file_write(file, buffer, used, &written) || written != used)) failed = true;
         used = 0;
     }
     void put(const void* data, u32 bytes, bool hashed = true) noexcept {
         if (hashed) hash = hash64_bytes(hash, data, bytes);
         if (bytes >= kWriteBuffer) {
             flush();
-            DWORD written = 0;
-            if (!WriteFile(file, data, bytes, &written, nullptr) || written != bytes) failed = true;
+            u32 written = 0;
+            if (!file_write(file, data, bytes, &written) || written != bytes) failed = true;
             return;
         }
         if (used + bytes > kWriteBuffer) flush();
@@ -98,8 +99,8 @@ struct Writer {
 };
 
 bool read_exact(HANDLE file, void* output, u32 bytes) noexcept {
-    DWORD read = 0;
-    return ReadFile(file, output, bytes, &read, nullptr) && read == bytes;
+    u32 read = 0;
+    return file_read(file, output, bytes, &read) && read == bytes;
 }
 
 } // namespace
@@ -185,9 +186,9 @@ bool kv_load(PluginKeyValue* kv, const wchar_t* path) noexcept {
     kv->loaded = true;
     kv->count = 0;
     kv->used = 0;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_FILE_NOT_FOUND;
+    HANDLE file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead,
+                                   kFileSequential | kFileNoFollow});
+    if (file == INVALID_HANDLE_VALUE) return thread_last_error() == ERROR_FILE_NOT_FOUND;
     u8 header[kHeaderBytes];
     u64 hash = 0;
     bool ok = read_exact(file, header, kHeaderBytes) && bytes_equal(header, kMagic, 8);
@@ -214,9 +215,9 @@ bool kv_load(PluginKeyValue* kv, const wchar_t* path) noexcept {
     }
     u8 tail[9];
     // The digest ends the file exactly: one more byte means it is not ours.
-    DWORD tail_read = 0;
-    ok = ok && ReadFile(file, tail, sizeof(tail), &tail_read, nullptr) && tail_read == 8 && byte_load_le64(tail) == hash;
-    CloseHandle(file);
+    u32 tail_read = 0;
+    ok = ok && file_read(file, tail, sizeof(tail), &tail_read) && tail_read == 8 && byte_load_le64(tail) == hash;
+    file_close(file);
     if (!ok) {
         // A damaged table starts empty; the next change replaces the file.
         kv->count = 0;
@@ -235,19 +236,18 @@ bool kv_save(PluginKeyValue* kv, const wchar_t* path) noexcept {
     for (u32 i = 0; i < 5; ++i) temporary[length + i] = suffix[i];
     // Create <data>\<owner>: the two directories above the file.
     u32 owner = length, data = length;
-    while (owner && path[owner - 1] != L'\\') --owner;
+    while (owner && path[owner - 1] != L'\\' && path[owner - 1] != L'/') --owner;
     data = owner ? owner - 1 : 0;
-    while (data && path[data - 1] != L'\\') --data;
+    while (data && path[data - 1] != L'\\' && path[data - 1] != L'/') --data;
     wchar_t directory[640];
     const u32 ends[2]{data ? data - 1 : 0, owner ? owner - 1 : 0};
     for (const u32 end : ends) {
         if (!end) continue;
         copy_bytes(directory, path, end * 2);
         directory[end] = 0;
-        CreateDirectoryW(directory, nullptr);
+        dir_create(directory);
     }
-    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
+    HANDLE file = file_open(temporary, {FileAccess::write, FileCreate::create_always, 0, kFileWriteThrough});
     if (file == INVALID_HANDLE_VALUE) return false;
     Writer writer;
     writer.file = file;
@@ -272,9 +272,9 @@ bool kv_save(PluginKeyValue* kv, const wchar_t* path) noexcept {
     writer.put(digest, 8, false);
     writer.flush();
     const bool wrote = !writer.failed;
-    const bool closed = CloseHandle(file) != 0;
-    if (!wrote || !closed || !MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        DeleteFileW(temporary);
+    const bool closed = file_close(file);
+    if (!wrote || !closed || !file_replace(temporary, path, true)) {
+        file_remove(temporary);
         return false;
     }
     kv->dirty = false;

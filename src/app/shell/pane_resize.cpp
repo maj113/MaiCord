@@ -33,16 +33,16 @@ UiSplitterLimits pane_resize_limits(PaneResizeKind kind) noexcept {
 }
 } // namespace
 
-bool handle_pane_resize_drag(WPARAM buttons, LPARAM lparam) noexcept {
+bool handle_pane_resize_drag(const WindowEvent& event) noexcept {
     if (g_app.pane_resize == PaneResizeKind::none) {
         return false;
     }
-    if ((buttons & MK_LBUTTON) == 0) {
+    if (!input_held(event)) {
         end_pane_resize();
         return true;
     }
     const PaneResizeKind kind = g_app.pane_resize;
-    const float x = client_dip_x(lparam);
+    const float x = client_dip_x(event);
     const UiSplitterLimits limits = pane_resize_limits(kind);
     set_pane_width(kind, kind == PaneResizeKind::channels
                              ? ui_splitter_drag_width(kGuildChannelShellLayoutMetrics.guild_rail_width,

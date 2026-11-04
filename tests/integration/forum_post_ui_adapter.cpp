@@ -20,6 +20,7 @@
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../support/window_fixture.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -257,8 +258,8 @@ bool forum_post_ui_adapter_browser_create() noexcept {
         const auto point = MAKELPARAM(
             static_cast<u16>((rectangle.left + rectangle.right) * .5f * g_app.renderer.dpi / 96.f),
             static_cast<u16>((rectangle.top + rectangle.bottom) * .5f * g_app.renderer.dpi / 96.f));
-        return application_thread_browser_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point) &&
-               application_thread_browser_window_message(WM_LBUTTONUP, 0, point) &&
+        return application_thread_browser_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+               application_thread_browser_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) &&
                application_forum_form_active();
     });
 }
@@ -348,16 +349,13 @@ bool forum_post_ui_adapter_pointer_down(ForumPostTarget target) noexcept {
             forum_adapter->pressed =
                 MAKELPARAM(static_cast<u16>((rect.left + rect.right) * .5f * g_app.renderer.dpi / 96.f),
                            static_cast<u16>((rect.top + rect.bottom) * .5f * g_app.renderer.dpi / 96.f));
-            LRESULT result = 0;
-            return application_forum_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, forum_adapter->pressed,
-                                                         &result);
+            return application_forum_form_window_event(window_test::pointer_down(window_test::x_of(forum_adapter->pressed), window_test::y_of(forum_adapter->pressed)));
         },
         &target);
 }
 bool forum_post_ui_adapter_pointer_up() noexcept {
     return call(+[](void*) noexcept {
-        LRESULT result = 0;
-        return application_forum_form_window_message(WM_LBUTTONUP, 0, forum_adapter->pressed, &result);
+        return application_forum_form_window_event(window_test::pointer_up(window_test::x_of(forum_adapter->pressed), window_test::y_of(forum_adapter->pressed), PointerButton::left));
     });
 }
 bool forum_post_ui_adapter_pointer(ForumPostTarget target) noexcept {
@@ -641,11 +639,11 @@ bool forum_post_ui_adapter_drop_files() noexcept {
         const wchar_t filename[] = LR"(D:/MaiCord-build/qa/forum-post-20261005/covered-upload.txt)";
         const ConstSlice<wchar_t> path{filename,
                                        static_cast<u32>(sizeof(filename) / sizeof(filename[0]) - 1)};
-        const HDROP drop = file_drop_fixture::make({&path, 1});
+        DroppedFiles* const drop = file_drop_fixture::make({&path, 1});
         if (!drop)
             return false;
-        if (DragQueryFileW(drop, 0xffffffffu, nullptr, 0) != 1) {
-            DragFinish(drop);
+        if (dropped_files_count(drop) != 1) {
+            dropped_files_release(drop);
             return false;
         }
         const auto* attachments = g_app.attachments;
@@ -653,13 +651,11 @@ bool forum_post_ui_adapter_drop_files() noexcept {
         const u64 channel = g_app.account_ui->active_channel_id;
         const u32 title_bytes = form->fields[0].edit.storage.bytes,
                   body_bytes = form->fields[1].edit.storage.bytes;
-        LRESULT result = 123;
-        const bool handled =
-            application_forum_form_window_message(WM_DROPFILES, reinterpret_cast<WPARAM>(drop), 0, &result);
+        const bool handled = application_forum_form_window_event(window_test::drop_files(drop));
         const bool freed = GlobalFlags(reinterpret_cast<HGLOBAL>(drop)) == GMEM_INVALID_HANDLE;
         if (!freed)
-            DragFinish(drop);
-        return handled && result == 0 && freed && application_forum_form_state() == form &&
+            dropped_files_release(drop);
+        return handled && freed && application_forum_form_state() == form &&
                g_app.attachments == attachments && g_app.message_composer.revision == composer_revision &&
                g_app.account_ui->active_channel_id == channel &&
                form->fields[0].edit.storage.bytes == title_bytes &&
@@ -741,7 +737,7 @@ bool ole_window(HWND window) noexcept {
     return true;
 }
 void dispatch_clipboard_window(HWND window, ClipboardDispatch* state) noexcept {
-    if (!window || window == g_app.window ||
+    if (!window || window == win32_hwnd(g_app.window) ||
         GetWindowThreadProcessId(window, nullptr) != GetCurrentThreadId() || !ole_window(window))
         return;
     MSG message{};
@@ -879,20 +875,18 @@ bool forum_media_ui_adapter_seed_drop() noexcept {
         const auto drop = file_drop_fixture::make({&path, 1});
         if (!drop)
             return failure(5, GetLastError());
-        LRESULT result = 1;
         const auto channel = g_app.account_ui->active_channel_id;
         const auto* composer_attachments = g_app.attachments;
-        const bool handled =
-            application_forum_form_window_message(WM_DROPFILES, reinterpret_cast<WPARAM>(drop), 0, &result);
+        const bool handled = application_forum_form_window_event(window_test::drop_files(drop));
         // Successful admission transfers the handle to the native worker. It
         // calls DragFinish before publishing completion, so an immediate free
         // assertion races that worker and must never free its borrowed handle.
         if (!handled) {
-            DragFinish(drop);
+            dropped_files_release(drop);
             return failure(6);
         }
         forum_adapter->pending_drop = reinterpret_cast<HGLOBAL>(drop);
-        if (result != 0 || channel != g_app.account_ui->active_channel_id ||
+        if (channel != g_app.account_ui->active_channel_id ||
             composer_attachments != g_app.attachments)
             return failure(7);
         return true;
@@ -987,7 +981,7 @@ bool forum_media_ui_adapter_paste_file() noexcept {
         if (FAILED(native))
             return failure(6, native);
         clipboard_fixture_provider = source.object;
-        if (!clipboard_attachment_available())
+        if (!clipboard_has_attachment())
             return failure(7);
         BYTE prior[256]{}, keys[256]{}, restored[256]{};
         if (!GetKeyboardState(prior))
@@ -997,8 +991,7 @@ bool forum_media_ui_adapter_paste_file() noexcept {
         bool ok = SetKeyboardState(keys) != FALSE;
         if (ok) {
             stage = 10;
-            const MSG message{g_app.window, WM_KEYDOWN, 'V', 0, 0, {}};
-            ok = application_forum_form_filter_message(message);
+            ok = application_forum_form_filter(window_test::key_down('V'));
             application_forum_form_input(UiInputKind::key_up, 'V', false);
             if (ok && !application_forum_attachments_view(ticket).busy) {
                 stage = 11;
@@ -1115,14 +1108,9 @@ bool forum_media_ui_adapter_reveal_narrow(u64 draft_id) noexcept {
                                           g_app.renderer.dpi / 96.f),
                         static_cast<LONG>((heading->rectangle.top + heading->rectangle.bottom) * .5f *
                                           g_app.renderer.dpi / 96.f)};
-            if (!ClientToScreen(g_app.window, &point))
-                return false;
             for (u32 step = 0; !ready() && step < 32; ++step) {
-                LRESULT result = 1;
-                if (!application_forum_form_window_message(
-                        WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA)),
-                        MAKELPARAM(static_cast<short>(point.x), static_cast<short>(point.y)), &result) ||
-                    result != 0)
+                if (!application_forum_form_window_event(window_test::wheel(
+                        static_cast<float>(point.x), static_cast<float>(point.y), -WHEEL_DELTA)))
                     return false;
             }
             if (!ready() ||

@@ -1,4 +1,5 @@
 #include "shell/shortcuts.hpp"
+#include "../../../support/window_fixture.hpp"
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../support/application_downloads_inactive.hpp"
 #include "../../../support/application_inbox_inactive.hpp"
@@ -87,14 +88,14 @@ void run() noexcept {
     BYTE saved[256]{};
     const bool keyboard_saved = GetKeyboardState(saved) != FALSE;
     modifiers();
-    g_app.window = CreateWindowExW(0, L"STATIC", L"Forward isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr);
+    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Forward isolated fixture", WS_POPUP, 0, 0, 1200, 900,
+                                   nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Forward runtime hidden window and scoped account");
     if (!g_app.window || !g_app.account_ui)
         return;
-    SetFocus(g_app.window);
+    SetFocus(win32_hwnd(g_app.window));
     g_window_state.keyboard_focus = true;
     g_app.renderer_ready = true;
     g_app.renderer.dpi = 96;
@@ -274,8 +275,8 @@ void run() noexcept {
     const LPARAM cancel_point =
         MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
-    application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, cancel_point);
-    application_message_forward_window_message(WM_LBUTTONUP, 0, cancel_point);
+    application_message_forward_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point)));
+    application_message_forward_window_event(window_test::pointer_up(window_test::x_of(cancel_point), window_test::y_of(cancel_point), PointerButton::left));
     check(!application_message_forward_active() && !ui.message_composer_controller.request_count,
           "Forward runtime Cancel remaining explicitly discards unsent work");
     check(application_message_forward_open(500) && edit(utf8_literal("general")),
@@ -284,10 +285,10 @@ void run() noexcept {
     key(key::enter, true);
     const auto hit = q->scene.panel;
     const LPARAM point = MAKELPARAM(static_cast<i16>(hit.left + 5), static_cast<i16>(hit.top + 5));
-    application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
+    application_message_forward_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     application_message_forward_close();
-    check(application_message_forward_window_message(WM_LBUTTONUP, 0, point) &&
-              GetCapture() != g_app.window,
+    check(application_message_forward_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) &&
+              !window_pointer_captured(g_app.window),
           "Forward runtime close releases pointer capture and consumes its release tail");
     application_message_forward_open(500);
     ++g_app.plugin_account_scope_serial;
@@ -337,20 +338,18 @@ void run() noexcept {
     check(application_message_forward_open(501) && application_message_forward_active(),
           "Forward runtime authoritative replacement can open a new captured source");
     const auto release_panel = g_app.message_forward->scene.panel;
-    application_message_forward_window_message(
-        WM_LBUTTONDOWN, MK_LBUTTON,
-        MAKELPARAM(static_cast<i16>(release_panel.left + 5), static_cast<i16>(release_panel.top + 5)));
+    application_message_forward_window_event(window_test::pointer_down(static_cast<i16>(release_panel.left + 5), static_cast<i16>(release_panel.top + 5)));
     application_message_forward_release();
     check(!g_app.message_forward && !g_app.renderer.message_forward_scene &&
               !application_message_forward_caret_wake(),
           "Forward runtime release retires borrowed UI storage and wake");
-    check(!application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(1, 1)) &&
-              !application_message_forward_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1)),
+    check(!application_message_forward_window_event(window_test::pointer_down(1, 1)) &&
+              !application_message_forward_window_event(window_test::pointer_up(1, 1, PointerButton::left)),
           "Forward runtime a fresh pointer gesture retires an abandoned close tail");
     // scoped_shortcut_routing() runs in the Quick switcher runtime against the
     // same production router; this file keeps only the Forward modal case.
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(g_app.window);
+    DestroyWindow(win32_hwnd(g_app.window));
     g_window_state.keyboard_focus = false;
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);

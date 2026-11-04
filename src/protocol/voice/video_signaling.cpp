@@ -65,12 +65,24 @@ VoiceVideoCodec voice_video_codec(JsonString name) noexcept {
 
 u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept {
     static constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
+#if defined(_WIN32)
     decodable |= voice_video_codec_bit(VoiceVideoCodec::h264);
     u32 count = 0;
     for (const auto codec : order)
         if ((decodable & voice_video_codec_bit(codec)) && count < output.count)
             output[count++] = {codec, false, true};
     return count;
+#else
+    // The decoders decide: nothing is offered that nothing decodes. Hardware codecs first, then the software-only ones.
+    u32 count = 0;
+    for (u32 software = 0; software != 2; ++software)
+        for (const auto codec : order) {
+            const bool soft = (decodable & voice_video_software_bit(codec)) != 0;
+            if ((decodable & voice_video_codec_bit(codec)) && soft == (software != 0) && count < output.count)
+                output[count++] = {codec, false, true};
+        }
+    return count;
+#endif
 }
 
 bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept {

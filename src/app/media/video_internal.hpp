@@ -1,6 +1,7 @@
 #pragma once
 // Shared by video.cpp and its parts (video_*.cpp); private to them.
 #include "downloads.hpp"
+#include "video.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
 #include "../shell/content_point.hpp"
@@ -19,7 +20,6 @@
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/app/media/account_video_playback.hpp"
 
 namespace maicord::app_detail {
@@ -121,7 +121,7 @@ bool content_surface_covers_video() noexcept;
 // Capture and repaint requests every scene event can carry.
 template <typename Result> void apply_scene_result(const Result& event) noexcept {
     if (event.request_capture)
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
     if (event.release_capture)
         application_release_capture();
     if (event.handled)
@@ -132,7 +132,7 @@ bool unbind_playback_scenes() noexcept;
 bool video_session_available() noexcept;
 bool video_surface_available() noexcept;
 UiPoint video_pointer_position() noexcept;
-void note_video_pointer(ApplicationVideo& video, UINT message, UiPoint point) noexcept;
+void note_video_pointer(ApplicationVideo& video, VideoPointer kind, UiPoint point) noexcept;
 bool video_input_focus_current(const ApplicationVideo& video) noexcept;
 void acquire_video_focus(ApplicationVideo& video) noexcept;
 bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bool embed, u8 item,
@@ -162,7 +162,7 @@ void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& eve
 bool search_video_still_current(const ApplicationVideo& video) noexcept;
 bool visible_source_at(UiPoint point, InlineMediaSource* source, const MessageRichRecord** rich_out,
                        u32* item_out) noexcept;
-bool video_scene_pointer_event(ApplicationVideo& video, UINT message, UiPoint point) noexcept;
+bool video_scene_pointer_event(ApplicationVideo& video, VideoPointer pointer, UiPoint point) noexcept;
 void close_video_session(AccountVideoIdentity* retired_identity) noexcept;
 bool position_video_scene(ApplicationVideo* video, InlineMediaSource& positioned) noexcept;
 bool update_video_extent(ApplicationVideo& video, const GpuVideoFrame& frame) noexcept;

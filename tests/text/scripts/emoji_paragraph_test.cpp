@@ -60,11 +60,18 @@ bool guards(const NativeEmojiPlan& plan) noexcept {
     return true;
 }
 bool corpus(ConstSlice<u8> data) noexcept {
-    CHECK(data.count>=12&&bytes_equal(data.data,"MCEMPAR1",8));Reader reader{data,8};u32 font_count=0;CHECK(reader.word(&font_count));
+    CHECK(data.count>=12&&bytes_equal(data.data,"MCEMPAR1",8));Reader reader{data,8};u32 font_count=0,skipped=0;CHECK(reader.word(&font_count));
     for(font_index=0;font_index<font_count;++font_index){u32 embedded=0,size=0,count=0,weight=0;ConstSlice<u8> font{};
         CHECK(reader.word(&embedded)&&reader.word(&size)&&reader.word(&count)&&reader.word(&weight)&&reader.take(size,&font));const wchar_t* path=temporary;
         if(embedded){CHECK(embedded==1&&write_font(font));}
-        else{CHECK(size<32768);const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,reinterpret_cast<const char*>(font.data),static_cast<int>(size),font_path,32767);CHECK(n>0);font_path[n]=0;path=font_path;}
+        else{
+#if !defined(_WIN32)
+            // The fonts after the embedded ones are Windows' own (Segoe UI Emoji and others) with their observed layouts.
+            skipped=font_count-font_index;break;
+#else
+            CHECK(size<32768);const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,reinterpret_cast<const char*>(font.data),static_cast<int>(size),font_path,32767);CHECK(n>0);font_path[n]=0;path=font_path;
+#endif
+        }
         NativeRunPlanHandle handle{};CHECK(acquire(path,&handle,false,weight));arena_reset(&state);NativeEmojiPlan plan{};
         CHECK(native_emoji_plan_prepare(store,handle,&state,&scratch,&plan)==SfntStatus::ok);root_bytes+=state.offset;if(!font_index)CHECK(guards(plan));
         for(case_index=0;case_index<count;++case_index){u32 em=0,bytes=0,glyph_count=0,units=0,points=0,ranges=0,run_count=0,line_count=0;ConstSlice<u8> text{},glyphs{},placements{},map{};
@@ -95,7 +102,7 @@ bool corpus(ConstSlice<u8> data) noexcept {
         }
         CHECK(native_run_plan_release(&store,handle)&&!native_font_stats(fonts).files);
     }
-    CHECK(reader.at==data.count&&runs==cases*2);return true;
+    CHECK((skipped||reader.at==data.count)&&runs==cases*2);return true;
 }
 bool run() noexcept {
     CHECK(visibility());CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH];

@@ -16,6 +16,8 @@
 // Exit status: 0 pass, 1 fail, 77 skipped (no compositor, or one without the protocols needed), as ctest's
 // SKIP_RETURN_CODE expects.
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/dbus/connection.hpp"
+#include "maicord/core/shared_library.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/global_keys.hpp"
 #include "maicord/platform/window/pump.hpp"
@@ -25,7 +27,9 @@
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/process.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/ui/core/cursor.hpp"
+#include "wayland_helper.hpp"
 #include "wayland_inject.hpp"
 #include "../../support/test_output.hpp"
 
@@ -60,6 +64,9 @@ u32 g_count;
 u32 g_failures;
 Window g_window;
 bool g_capture_on_press;
+bool g_frame_hits;  // the sink answers hit_test like an app with a caption and a resizable frame
+inject::Helper* g_helper;
+FrameHit frame_hit_at(float x, float y) noexcept;
 bool g_veto_close;
 u32 g_frame_callbacks;
 u32 g_listener_calls;
@@ -97,6 +104,12 @@ void sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
         ++g_cursor_queries;
         window_set_cursor(g_window, event.pointer.x < width_px() / 2 ? UiCursor::hand : UiCursor::ibeam);
         result->handled = true;
+        break;
+    case EventType::hit_test:
+        if (g_frame_hits) {
+            result->handled = true;
+            result->value = static_cast<i32>(frame_hit_at(event.pointer.x, event.pointer.y));
+        }
         break;
     case EventType::close_requested:
         result->handled = g_veto_close;
@@ -394,6 +407,109 @@ void test_lifecycle() noexcept {
     check(g_quit && g_exit_code == 0 && count_events(0, EventType::close_requested) == 2, "an unhandled close quits");
 }
 
+// The desktop settings reach the window through the session bus (tools/test_dbus.sh's mock portal, when the script
+// provides one): PlatformSettings at the start, then a SettingChanged signal that wakes window_wait and raises a
+// settings_changed event.
+void set_mock_setting(dbus::Connection* control, const char* ns, const char* key, bool boolean, u32 number) noexcept {
+    dbus::Builder body;
+    dbus::builder_init(&body);
+    dbus::builder_string(&body, ns);
+    dbus::builder_string(&body, key);
+    if (boolean) {
+        dbus::builder_open_variant(&body, "b");
+        dbus::builder_bool(&body, number != 0);
+    } else {
+        dbus::builder_open_variant(&body, "u");
+        dbus::builder_u32(&body, number);
+    }
+    dbus::builder_close_variant(&body);
+    const dbus::CallTarget target{"org.maicord.Mock", "/org/maicord/Mock", "org.maicord.Mock", "SetSetting"};
+    dbus::Message reply;
+    const dbus::Status status = dbus::connection_call_sync(control, target, &body, 3000, &reply);
+    dbus::builder_release(&body);
+    check(status == dbus::Status::ok, "the mock accepts a setting");
+    if (status == dbus::Status::ok || status == dbus::Status::error_reply)
+        dbus::message_release(&reply);
+}
+
+void test_desktop_settings() noexcept {
+    const char* bus = environment_get("MAICORD_DBUS_TEST_BUS");
+    const char* address = environment_get("MAICORD_DBUS_TEST_ADDRESS");
+    const char* session = environment_get("DBUS_SESSION_BUS_ADDRESS");
+    if (!bus || !address || !session || !arg_is(bus, "mock") || !arg_is(address, session)) {
+        test_write_line("SKIP desktop settings: no mock portal (tools/test_dbus.sh provides one)");
+        return;
+    }
+    const PlatformSettings settings = platform_settings_read();
+    check(settings.dark_scheme && settings.double_click_ms == 350 && settings.caret_blink_ms == 500 &&
+              !settings.client_area_animation,
+          "PlatformSettings read the portal: dark, 350 ms double click, 500 ms blink, no animation");
+    check(find_event(0, EventType::settings_changed, [](const Record& r) { return (r.event.settings.areas & 0xF) == 0xF; }) != kNone,
+          "the first load raised settings_changed for every area");
+
+    dbus::Connection* control = dbus::connection_open_address(address);
+    check(control != nullptr, "a control connection to the mock");
+    if (!control)
+        return;
+    const u32 before = g_count;
+    set_mock_setting(control, "org.freedesktop.appearance", "color-scheme", false, 2);
+    // The signal wakes the loop: a wait of seconds ends at once.
+    const u64 started = clock_monotonic_milliseconds();
+    const WindowWaitResult waited = window_wait(nullptr, 0, 5000, 0);
+    check(waited.window_input && clock_monotonic_milliseconds() - started < 2500, "bus traffic wakes window_wait");
+    pump_until([&] { return find_event(before, EventType::settings_changed, [](const Record&) { return true; }) != kNone; }, 3000);
+    const u32 changed = find_event(before, EventType::settings_changed, [](const Record&) { return true; });
+    check(changed != kNone && g_log[changed].event.settings.areas == 8, "settings_changed names the scheme area");
+    check(!platform_settings_read().dark_scheme, "and the scheme is light now");
+
+    set_mock_setting(control, "org.gnome.desktop.interface", "cursor-blink", true, 0);
+    pump_until([] { return platform_settings_read().caret_blink_ms == 0xFFFFFFFFu; }, 3000);
+    check(platform_settings_read().caret_blink_ms == 0xFFFFFFFFu, "a caret that does not blink reads as INFINITE");
+    dbus::connection_close(control);
+}
+
+// The GlobalShortcuts portal (the mock's) holds a key down for global_key_down while the window loop runs: bound with
+// window_wayland_global_shortcut, set by the portal's Activated and Deactivated signals, which wake window_wait.
+void test_global_shortcut() noexcept {
+    const char* bus = environment_get("MAICORD_DBUS_TEST_BUS");
+    const char* address = environment_get("MAICORD_DBUS_TEST_ADDRESS");
+    const char* session = environment_get("DBUS_SESSION_BUS_ADDRESS");
+    if (!bus || !address || !session || !arg_is(bus, "mock") || !arg_is(address, session)) {
+        test_write_line("SKIP global shortcut: no mock portal (tools/test_dbus.sh provides one)");
+        return;
+    }
+    dbus::Connection* control = dbus::connection_open_address(address);
+    check(control != nullptr, "a control connection to the mock");
+    if (!control)
+        return;
+    check(window_wayland_global_shortcut('P', mod_ctrl | mod_alt, "Push to talk"), "a push-to-talk key is bound");
+    check(pump_until([] { return window_wayland_global_shortcut_ready(); }, 5000), "the portal binds it");
+    check(!global_key_down('P') && !global_key_down('O'), "nothing is held yet");
+    const auto set_state = [&](bool active) {
+        dbus::Builder body;
+        dbus::builder_init(&body);
+        dbus::builder_string(&body, "maicord-hold-to-talk");
+        dbus::builder_bool(&body, active);
+        const dbus::CallTarget target{"org.maicord.Mock", "/org/maicord/Mock", "org.maicord.Mock", "ShortcutState"};
+        dbus::Message reply;
+        const dbus::Status status = dbus::connection_call_sync(control, target, &body, 3000, &reply);
+        dbus::builder_release(&body);
+        check(status == dbus::Status::ok, "the mock changes the shortcut's state");
+        if (status == dbus::Status::ok || status == dbus::Status::error_reply)
+            dbus::message_release(&reply);
+    };
+    set_state(true);
+    check(pump_until([] { return global_key_down('P'); }, 3000), "Activated holds the key down");
+    check(!global_key_down('O'), "and only that key");
+    set_state(false);
+    check(pump_until([] { return !global_key_down('P'); }, 3000), "Deactivated lets it go");
+    set_state(true);
+    pump_until([] { return global_key_down('P'); }, 3000);
+    window_wayland_global_shortcut_clear();
+    check(!global_key_down('P') && !window_wayland_global_shortcut_ready(), "clearing the shortcut releases the key");
+    dbus::connection_close(control);
+}
+
 void test_recreate() noexcept {
     window_destroy(g_window);
     g_window = nullptr;
@@ -597,6 +713,12 @@ void test_pointer() noexcept {
               "the button reads as held with its bit set");
         inject::pointer_button(&g_injector, entry.code, false);
         expect(entry.up, EventType::pointer_up, [&](const Record& r) { return is_button(r, button); });
+        if (button == PointerButton::right) {
+            // Unhandled, the right release becomes the context menu, as DefWindowProc does on Windows.
+            const u32 menu = expect("a right click the app left alone raises context_menu", EventType::context_menu,
+                                    [](const Record&) { return true; });
+            check(menu != kNone && (g_log[menu].event.flags & ev_keyboard) == 0, "the pointer context menu has no keyboard flag");
+        }
     }
 
     // Two buttons: the capture lasts until the last one is up.
@@ -732,6 +854,34 @@ u32 text_of(const Typed& typed) noexcept {
 void expect_key(const char* label, u32 evdev, Key key_code, u32 text) noexcept {
     const Typed typed = type_key(evdev, key_code);
     check(typed.down != kNone && typed.up != kNone && text_of(typed) == text, label);
+}
+
+// The keys DefWindowProc turns into a context menu when the app leaves them alone: Shift+F10 and the Menu key, on the press.
+void test_context_menu_keys() noexcept {
+    check(use_layout("us", nullptr), "the US keymap for the context menu keys");
+    mark();
+    inject::keyboard_key(&g_injector, 42, true);  // left shift
+    inject::keyboard_key(&g_injector, 68, true);  // F10
+    inject::keyboard_key(&g_injector, 68, false);
+    inject::keyboard_key(&g_injector, 42, false);
+    const u32 menu = expect("Shift+F10 raises context_menu", EventType::context_menu, [](const Record&) { return true; });
+    const u32 pressed = find_event(g_mark, EventType::key_down, [](const Record& r) { return r.event.key.key == key::f10; });
+    const u32 released = find_event(g_mark, EventType::key_up, [](const Record& r) { return r.event.key.key == key::f10; });
+    check(menu != kNone && (g_log[menu].event.flags & ev_keyboard) != 0, "it carries the keyboard flag");
+    check(menu != kNone && pressed != kNone && menu > pressed && (released == kNone || menu < released),
+          "it comes on the press, inside that key's dispatch");
+    settle(50);
+    mark();
+    inject::keyboard_key(&g_injector, 127, true);  // Menu
+    inject::keyboard_key(&g_injector, 127, false);
+    const u32 by_menu_key = expect("the Menu key raises context_menu", EventType::context_menu, [](const Record&) { return true; });
+    check(by_menu_key != kNone && (g_log[by_menu_key].event.flags & ev_keyboard) != 0, "the Menu key's one is a keyboard one");
+    settle(50);
+    mark();
+    inject::keyboard_key(&g_injector, 68, true);  // F10 alone
+    inject::keyboard_key(&g_injector, 68, false);
+    settle(150);
+    check(count_events(g_mark, EventType::context_menu) == 0, "F10 alone raises no context menu");
 }
 
 void test_keyboard() noexcept {
@@ -931,6 +1081,498 @@ void test_keyboard() noexcept {
     settle(50);
 }
 
+// Client-side decorations -------------------------------------------------------------------------------------------
+
+// The app's frame as the sink reports it: an 8 px band on the edges, a 32 px caption with a 24 px system-menu corner.
+FrameHit frame_hit_at(float x, float y) noexcept {
+    const float w = width_px();
+    const float h = static_cast<float>(window_metrics(g_window).height_px);
+    if (x < 0 || y < 0 || x >= w || y >= h)
+        return FrameHit::client;
+    constexpr float band = 8;
+    const bool left = x < band, right = x >= w - band, top = y < band, bottom = y >= h - band;
+    if (top && left)
+        return FrameHit::top_left;
+    if (top && right)
+        return FrameHit::top_right;
+    if (bottom && left)
+        return FrameHit::bottom_left;
+    if (bottom && right)
+        return FrameHit::bottom_right;
+    if (left)
+        return FrameHit::left;
+    if (right)
+        return FrameHit::right;
+    if (top)
+        return FrameHit::top;
+    if (bottom)
+        return FrameHit::bottom;
+    if (y < 32)
+        return x < 24 ? FrameHit::system_menu : FrameHit::caption;
+    return FrameHit::client;
+}
+
+void test_frame() noexcept {
+    g_frame_hits = true;
+    g_capture_on_press = false;
+    settle(300);
+    check(window_caps().csd, "the compositor left the frame to the app (client-side decorations)");
+    const u32 original_width = static_cast<u32>(width_px());
+
+    // A press on the caption belongs to the window: it starts the compositor's move, the app sees no press and no
+    // release. Moving the pointer away and back carries the window there and back.
+    mark();
+    pointer_to(300, 12);
+    expect("motion over the caption is delivered", EventType::pointer_move, [](const Record& r) { return near_point(r, 300, 12); });
+    inject::pointer_button(&g_injector, kBtnLeft, true);
+    settle(200);  // the window starts the move on the press; the pointer moves afterwards
+    pointer_to(360, 52);
+    pointer_to(300, 12);
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    settle(300);
+    check(count_events(g_mark, EventType::pointer_down) == 0 && count_events(g_mark, EventType::pointer_up) == 0,
+          "a press on the caption starts a move and the app sees neither press nor release");
+    mark();
+    pointer_to(100, 80);
+    expect("the window is back where it was", EventType::pointer_move, [](const Record& r) { return near_point(r, 100, 80); });
+
+    // A double press on the caption asks for maximize; whether the compositor honours it for a floating window is its
+    // business: the app must not see the presses.
+    settle(700);
+    mark();
+    pointer_to(300, 12);
+    for (int i = 0; i < 2; ++i) {
+        inject::pointer_button(&g_injector, kBtnLeft, true);
+        inject::pointer_button(&g_injector, kBtnLeft, false);
+    }
+    settle(400);
+    check(count_events(g_mark, EventType::pointer_down) == 0, "a double press on the caption is the window's");
+    if (find_event(g_mark, EventType::state_changed, [](const Record& r) { return (r.event.window_state.state & state_maximized) != 0; }) != kNone) {
+        window_toggle_maximize(g_window);  // the compositor maximized it: put it back
+        settle(500);
+    }
+
+    // The window menu is a right press on the caption; it is taken, too.
+    mark();
+    inject::pointer_button(&g_injector, kBtnRight, true);
+    inject::pointer_button(&g_injector, kBtnRight, false);
+    settle(200);
+    check(count_events(g_mark, EventType::pointer_down) == 0, "a right press on the caption opens the window menu");
+
+    // An edge starts a resize: drag the right edge in, then out again.
+    settle(300);
+    mark();
+    const i32 edge = static_cast<i32>(original_width) - 3;
+    pointer_to(edge, 200);
+    expect("motion to the right edge", EventType::pointer_move, [&](const Record& r) { return near_point(r, static_cast<float>(edge), 200); });
+    inject::pointer_button(&g_injector, kBtnLeft, true);
+    settle(200);  // the window starts the resize on the press; the pointer moves afterwards
+    pointer_to(edge - 60, 200);
+    const u32 shrunk = expect("the window shrinks while the edge is dragged", EventType::resize, [&](const Record& r) {
+        return r.event.resize.width_px < original_width;
+    });
+    check(shrunk != kNone && find_event(g_mark, EventType::resize_begin, [](const Record&) { return true; }) != kNone,
+          "resize_begin brackets the resize");
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    expect("resize_end when the grab ends", EventType::resize_end, [](const Record&) { return true; });
+    check(count_events(g_mark, EventType::pointer_down) == 0, "the edge press is the window's");
+    settle(200);
+    const i32 inner = static_cast<i32>(width_px()) - 3;
+    mark();
+    pointer_to(inner, 200);
+    settle(100);
+    inject::pointer_button(&g_injector, kBtnLeft, true);
+    settle(200);  // the window starts the resize on the press; the pointer moves afterwards
+    pointer_to(inner + 60, 200);
+    expect("the window grows back", EventType::resize, [&](const Record& r) { return r.event.resize.width_px == original_width; });
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    expect("resize_end again", EventType::resize_end, [](const Record&) { return true; });
+    settle(200);
+    g_frame_hits = false;
+    mark();
+    pointer_to(100, 80);
+    expect("the pointer is back in the client area", EventType::pointer_move, [](const Record& r) { return near_point(r, 100, 80); });
+    g_capture_on_press = true;
+}
+
+// The clipboard and the primary selection, against the helper client (a clipboard manager) --------------------------------
+
+// Pumps the window while reading the pipe `fd` to its end: what a selection the window owns answers through its own events.
+u32 read_pumped(int fd, u8* buffer, u32 capacity, u32 timeout_ms) noexcept {
+    u32 used = 0;
+    const u64 start = clock_monotonic_milliseconds();
+    while (fd >= 0 && clock_monotonic_milliseconds() - start < timeout_ms) {
+        pump_once(10);
+        PollFd poll{fd, kPollIn, 0};
+        const TimeSpec none{0, 0};
+        if (sys_ppoll(&poll, 1, &none) <= 0)
+            continue;
+        if (used == capacity)
+            break;
+        const long count = sys_read(fd, buffer + used, capacity - used);
+        if (count <= 0)
+            break;  // 0: the writer closed the pipe
+        used += static_cast<u32>(count);
+    }
+    if (fd >= 0)
+        sys_close(fd);
+    return used;
+}
+
+bool text_matches(const u8* bytes, u32 count, const char* expected) noexcept {
+    u32 length = 0;
+    while (expected[length])
+        ++length;
+    return count == length && bytes_equal(bytes, expected, length);
+}
+
+bool wide_path_is(const DroppedFiles* files, u32 index, const char* ascii_expected, u32 extra_unit = 0, u32 extra_at = 0xFFFFFFFF) noexcept {
+    wchar_t buffer[256];
+    const u32 length = dropped_files_path(files, index, Slice<wchar_t>{buffer, 256});
+    u32 expected_length = 0;
+    while (ascii_expected[expected_length])
+        ++expected_length;
+    if (length != expected_length)
+        return false;
+    for (u32 i = 0; i < length; ++i) {
+        const u32 want = i == extra_at ? extra_unit : static_cast<u8>(ascii_expected[i]);
+        if (static_cast<u16>(buffer[i]) != want)
+            return false;
+    }
+    return true;
+}
+
+void test_clipboard() noexcept {
+    inject::Helper& helper = *g_helper;
+    if (!helper.data_manager) {
+        test_write_line("SKIP clipboard: the compositor has no wlr-data-control for the helper to play a clipboard manager");
+        return;
+    }
+    constexpr char kText[] = "h\xC3\xA9llo \xF0\x9F\x98\x80 clipboard";
+    const Utf8View text{kText, sizeof(kText) - 1};
+
+    // The window writes text: another client sees the formats and reads the bytes.
+    u32 events = helper.selection_events;
+    check(clipboard_write_utf8(text), "clipboard_write_utf8 after input");
+    check(inject::helper_wait([&] { return helper.selection_events > events; }, 2000) && helper.selection &&
+              (helper.selection->mimes & 1) && (helper.selection->mimes & 2) && (helper.selection->mimes & 4),
+          "the clipboard manager sees the text formats");
+    u8 buffer[256] = {};
+    u32 count = read_pumped(inject::helper_receive(&helper, false, "text/plain;charset=utf-8"), buffer, sizeof(buffer), 2000);
+    check(text_matches(buffer, count, kText), "the clipboard manager reads the text the window wrote");
+    count = read_pumped(inject::helper_receive(&helper, false, "UTF8_STRING"), buffer, sizeof(buffer), 2000);
+    check(text_matches(buffer, count, kText), "UTF8_STRING carries it too");
+    char read_back[64];
+    ClipboardTextResult result = clipboard_read_utf8(Slice<char>{read_back, sizeof(read_back)});
+    check(clipboard_has_text() && result.ok() && text_matches(reinterpret_cast<u8*>(read_back), result.bytes, kText),
+          "the window reads its own clipboard back from memory");
+    result = clipboard_read_utf8(Slice<char>{read_back, 4});
+    check(result.error == ClipboardTextError::capacity, "a clipboard that does not fit reports capacity");
+
+    // The window writes an image: PNG, and the linked-image HTML.
+    u8 rgba[8 * 8 * 4];
+    for (u32 i = 0; i < 64; ++i) {
+        rgba[i * 4] = static_cast<u8>(i * 4);
+        rgba[i * 4 + 1] = static_cast<u8>(255 - i * 4);
+        rgba[i * 4 + 2] = 40;
+        rgba[i * 4 + 3] = 255;
+    }
+    events = helper.selection_events;
+    constexpr char kUrl[] = "https://cdn.example/image.png?x=1&y=2";
+    check(clipboard_write_image(rgba, 8, 8, 32, Utf8View{kUrl, sizeof(kUrl) - 1}), "clipboard_write_image");
+    check(inject::helper_wait([&] { return helper.selection_events > events; }, 2000) && helper.selection &&
+              (helper.selection->mimes & 8) && (helper.selection->mimes & 16) && !(helper.selection->mimes & 1),
+          "the clipboard manager sees PNG and HTML, and no text any more");
+    static u8 png[4096];
+    const u32 png_bytes = read_pumped(inject::helper_receive(&helper, false, "image/png"), png, sizeof(png), 2000);
+    check(png_bytes > 40 && png[0] == 0x89 && png[1] == 'P' && png[2] == 'N' && png[3] == 'G', "the PNG has its signature");
+    count = read_pumped(inject::helper_receive(&helper, false, "text/html"), buffer, sizeof(buffer), 2000);
+    check(text_matches(buffer, count, "<img src=\"https://cdn.example/image.png?x=1&amp;y=2\">"), "the HTML is the escaped linked image");
+    check(clipboard_capture_attachment() == nullptr, "what the window itself wrote is not an attachment");
+
+    // Another client owns the clipboard: the window learns of it and reads the text.
+    constexpr char kOutside[] = "from outside \xC3\xA9";
+    const inject::Offered text_formats[] = {{"text/plain;charset=utf-8", reinterpret_cast<const u8*>(kOutside), sizeof(kOutside) - 1},
+                                            {"text/plain", reinterpret_cast<const u8*>(kOutside), sizeof(kOutside) - 1},
+                                            {"UTF8_STRING", reinterpret_cast<const u8*>(kOutside), sizeof(kOutside) - 1}};
+    mark();
+    inject::helper_set_selection(&helper, false, text_formats, 3);
+    expect("clipboard_changed arrives", EventType::clipboard_changed, [](const Record&) { return true; });
+    result = clipboard_read_utf8(Slice<char>{read_back, sizeof(read_back)});
+    check(clipboard_has_text() && result.ok() && text_matches(reinterpret_cast<u8*>(read_back), result.bytes, kOutside),
+          "the window reads another client's clipboard through a pipe");
+
+    // Files: a uri-list with a percent-encoded name, a non-ASCII name, a comment and a remote host.
+    constexpr char kList[] = "file:///tmp/a%20b.txt\r\nfile:///tmp/c%C3%A9.png\r\n# a comment\r\nfile://otherhost/x\r\n";
+    const inject::Offered list_formats[] = {{"text/uri-list", reinterpret_cast<const u8*>(kList), sizeof(kList) - 1}};
+    mark();
+    inject::helper_set_selection(&helper, false, list_formats, 1);
+    expect("clipboard_changed for the file list", EventType::clipboard_changed, [](const Record&) { return true; });
+    ClipboardCapture* capture = clipboard_capture_attachment();
+    check(capture && clipboard_capture_kind(capture) == ClipboardCaptureKind::files &&
+              dropped_files_count(clipboard_capture_files(capture)) == 2 &&
+              wide_path_is(clipboard_capture_files(capture), 0, "/tmp/a b.txt") &&
+              wide_path_is(clipboard_capture_files(capture), 1, "/tmp/c?.png", 0xE9, 6),
+          "the file attachments are the two local paths, decoded");
+    clipboard_capture_release(capture);
+    constexpr char kGnome[] = "copy\nfile:///tmp/g.txt";
+    const inject::Offered gnome_formats[] = {{"x-special/gnome-copied-files", reinterpret_cast<const u8*>(kGnome), sizeof(kGnome) - 1}};
+    mark();
+    inject::helper_set_selection(&helper, false, gnome_formats, 1);
+    expect("clipboard_changed for GNOME's list", EventType::clipboard_changed, [](const Record&) { return true; });
+    capture = clipboard_capture_attachment();
+    check(capture && dropped_files_count(clipboard_capture_files(capture)) == 1 && wide_path_is(clipboard_capture_files(capture), 0, "/tmp/g.txt"),
+          "GNOME's copied-files format gives its file");
+    clipboard_capture_release(capture);
+
+    // An image from another client.
+    const inject::Offered image_formats[] = {{"image/png", png, png_bytes}};
+    mark();
+    inject::helper_set_selection(&helper, false, image_formats, 1);
+    expect("clipboard_changed for the image", EventType::clipboard_changed, [](const Record&) { return true; });
+    capture = clipboard_capture_attachment();
+    check(capture && clipboard_capture_kind(capture) == ClipboardCaptureKind::image_png &&
+              clipboard_capture_png(capture).count == png_bytes && bytes_equal(clipboard_capture_png(capture).data, png, png_bytes),
+          "the image attachment is the PNG, byte for byte");
+    clipboard_capture_release(capture);
+
+    // The primary selection, both ways.
+    events = helper.primary_events;
+    check(primary_selection_write_utf8(Utf8View{"primary \xC3\xA9", 10}), "primary_selection_write_utf8");
+    check(inject::helper_wait([&] { return helper.primary_events > events; }, 2000) && helper.primary && (helper.primary->mimes & 1),
+          "the clipboard manager sees the primary selection");
+    count = read_pumped(inject::helper_receive(&helper, true, "text/plain;charset=utf-8"), buffer, sizeof(buffer), 2000);
+    check(text_matches(buffer, count, "primary \xC3\xA9"), "it reads the primary text");
+    constexpr char kPrimary[] = "selected elsewhere";
+    const inject::Offered primary_formats[] = {{"text/plain;charset=utf-8", reinterpret_cast<const u8*>(kPrimary), sizeof(kPrimary) - 1}};
+    inject::helper_set_selection(&helper, true, primary_formats, 1);
+    bool read_other = false;
+    inject::helper_wait([&] {
+        pump_once(5);
+        const ClipboardTextResult other = primary_selection_read_utf8(Slice<char>{read_back, sizeof(read_back)});
+        read_other = other.ok() && text_matches(reinterpret_cast<u8*>(read_back), other.bytes, kPrimary);
+        return read_other;
+    }, 3000);
+    check(read_other, "the window learns of another client's primary selection and reads it");
+}
+
+// Text input: the helper plays the input method ---------------------------------------------------------------------------
+
+bool g_ime_text_matches(const u16* units, u32 count, const u16* expected, u32 expected_count) noexcept {
+    if (count != expected_count)
+        return false;
+    for (u32 i = 0; i < count; ++i)
+        if (units[i] != expected[i])
+            return false;
+    return true;
+}
+
+void test_text_input() noexcept {
+    inject::Helper& helper = *g_helper;
+    if (!helper.ime_manager || !window_wayland_text_input_available(g_window)) {
+        test_write_line("SKIP text input: no zwp_input_method_manager_v2 for the helper to play an IME, or no text-input-v3");
+        return;
+    }
+    TextInputRequest request{};
+    request.surrounding = Utf8View{"h\xC3\xA9llo", 6};
+    request.cursor_byte = 6;
+    request.anchor_byte = 6;
+    request.purpose = TextInputPurpose::normal;
+    request.x = 10;
+    request.y = 20;
+    request.width = 2;
+    request.height = 18;
+    check(window_wayland_text_input_enable(g_window, request), "text input enabled");
+    check(inject::helper_wait([&] { return helper.ime_active != 0 && helper.ime_done_count >= 1; }, 3000),
+          "the input method is activated");
+    check(helper.ime_surrounding_bytes == 6 && helper.ime_cursor == 6 && helper.ime_anchor == 6 &&
+              inject::helper_detail::same(helper.ime_surrounding, "h\xC3\xA9llo"),
+          "it is told the text around the caret");
+    check(helper.ime_purpose == zwp_text_input_v3_content_purpose_normal, "and the content purpose");
+
+    // A preedit, then a commit with the preedit cleared, then a deletion.
+    mark();
+    inject::helper_ime_preedit(&helper, "\xE3\x81\x8B\xE3\x81\xAA", 0, 6);
+    inject::helper_ime_commit(&helper);
+    static const u16 kana[] = {0x304B, 0x306A};
+    const u32 preedit = expect("a preedit arrives", EventType::ime_preedit, [](const Record& r) { return r.event.ime.count == 2; });
+    check(preedit != kNone && g_ime_text_matches(g_log[preedit].event.ime.text, g_log[preedit].event.ime.count, kana, 2) &&
+              g_log[preedit].event.ime.cursor_begin == 0 && g_log[preedit].event.ime.cursor_end == 2,
+          "its text and cursor are in UTF-16 units");
+    mark();
+    inject::helper_ime_commit_string(&helper, "\xE6\xBC\xA2\xE5\xAD\x97\xF0\x9F\x98\x80");
+    inject::helper_ime_commit(&helper);
+    static const u16 committed[] = {0x6F22, 0x5B57, 0xD83D, 0xDE00};
+    const u32 commit = expect("a commit arrives", EventType::ime_commit, [](const Record&) { return true; });
+    check(commit != kNone && g_ime_text_matches(g_log[commit].event.ime.text, g_log[commit].event.ime.count, committed, 4),
+          "the committed text is UTF-16, an emoji as a surrogate pair");
+    expect("the preedit is cleared by the commit", EventType::ime_preedit, [](const Record& r) { return r.event.ime.count == 0; });
+    mark();
+    inject::helper_ime_delete(&helper, 3, 0);
+    inject::helper_ime_commit(&helper);
+    const u32 deleted = expect("a deletion arrives", EventType::ime_delete_surrounding, [](const Record&) { return true; });
+    check(deleted != kNone && g_log[deleted].event.ime.delete_before == 3 && g_log[deleted].event.ime.delete_after == 0,
+          "three bytes before the caret are three UTF-16 units");
+    window_wayland_text_input_disable(g_window);
+    check(inject::helper_wait([&] { return helper.ime_active == 0; }, 3000), "disabling deactivates the input method");
+
+    // A password field: hidden text, no surrounding text.
+    request.sensitive = true;
+    request.purpose = TextInputPurpose::password;
+    check(window_wayland_text_input_enable(g_window, request), "text input enabled for a password");
+    check(inject::helper_wait([&] { return helper.ime_active != 0 && helper.ime_hint != 0; }, 3000) && (helper.ime_hint & 0xC0) == 0xC0 &&
+              helper.ime_purpose == zwp_text_input_v3_content_purpose_password && helper.ime_surrounding_bytes == 0,
+          "a password is hidden and sensitive, with nothing around the caret");
+    window_wayland_text_input_disable(g_window);
+    check(inject::helper_wait([&] { return helper.ime_active == 0; }, 3000), "and deactivates again");
+}
+
+// window_post, attention and idle inhibit -----------------------------------------------------------------------------------
+
+struct PostJob {
+    Waker waker;
+    u32 count;
+};
+
+u32 post_thread(void* argument) noexcept {
+    const PostJob& job = *static_cast<const PostJob*>(argument);
+    for (u32 i = 0; i < job.count; ++i) {
+        while (!window_post(job.waker, i, ~static_cast<u64>(i)))
+            thread_sleep(1);
+    }
+    return 0;
+}
+
+void test_extras() noexcept {
+    // Posts from another thread come out as wake events, in order, with their arguments.
+    PostJob job{Waker{window_surface_native(g_window), wake_notifications}, 600};
+    mark();
+    Thread* thread = thread_start(post_thread, &job, 128 * 1024, nullptr);
+    check(thread != nullptr, "the posting thread starts");
+    check(pump_until([] { return count_events(g_mark, EventType::wake) >= 600; }, 5000), "all posts arrive");
+    u32 expected = 0;
+    bool ordered = true;
+    for (u32 i = g_mark; i < g_count; ++i) {
+        const WindowEvent& e = g_log[i].event;
+        if (e.type != EventType::wake)
+            continue;
+        ordered = ordered && e.wake.cause == wake_notifications && e.wake.a == expected && e.wake.b == ~static_cast<u64>(expected);
+        ++expected;
+    }
+    check(ordered && expected == 600, "posts keep their order and arguments");
+    if (thread) {
+        thread_wait(thread, 2000);
+        thread_close(thread);
+    }
+
+    // Attention asks for a token and activates with it.
+    const u32 tokens = window_wayland_activation_count();
+    window_request_attention(g_window, Attention::flash);
+    check(pump_until([&] { return window_wayland_activation_count() > tokens; }, 2000), "an activation token comes back");
+
+    // Idle inhibit: the compositor reports it (the driver reads sway's tree).
+    if (window_wayland_set_idle_inhibit(g_window, true)) {
+        touch_file("idle-on");
+        i32 answer[1] = {-1};
+        check(pump_until([&] { return read_numbers("idle-on.result", answer, 1) == 1; }, 5000) && answer[0] == 1,
+              "the compositor sees the idle inhibitor");
+        window_wayland_set_idle_inhibit(g_window, false);
+        touch_file("idle-off");
+        answer[0] = -1;
+        check(pump_until([&] { return read_numbers("idle-off.result", answer, 1) == 1; }, 5000) && answer[0] == 0,
+              "and sees it removed");
+    } else {
+        test_write_line("SKIP idle inhibit: no zwp_idle_inhibit_manager_v1");
+    }
+}
+
+// The window's wl_egl_window with a real EGL window surface -----------------------------------------------------------------
+
+struct EglApi {
+    void* (*get_platform_display)(u32 platform, void* native, const i32* attributes) noexcept;
+    u32 (*initialize)(void* display, i32* major, i32* minor) noexcept;
+    u32 (*bind_api)(u32 api) noexcept;
+    u32 (*choose_config)(void* display, const i32* attributes, void** configs, i32 capacity, i32* count) noexcept;
+    void* (*create_context)(void* display, void* config, void* share, const i32* attributes) noexcept;
+    void* (*create_window_surface)(void* display, void* config, void* window, const i32* attributes) noexcept;
+    u32 (*make_current)(void* display, void* draw, void* read, void* context) noexcept;
+    u32 (*swap_buffers)(void* display, void* surface) noexcept;
+    u32 (*swap_interval)(void* display, i32 interval) noexcept;
+    u32 (*terminate)(void* display) noexcept;
+    void (*clear_color)(float red, float green, float blue, float alpha) noexcept;
+    void (*clear)(u32 mask) noexcept;
+};
+
+template <typename Function> bool resolve_symbol(const SharedLibrary& library, const char* name, Function* slot) noexcept {
+    void* address = shared_library_symbol(library, name);
+    *slot = reinterpret_cast<Function>(address);
+    return address != nullptr;
+}
+
+// A window drawn by EGL: green. The driver screenshots it and reads a pixel in the middle; the test reads the answer.
+void run_egl() noexcept {
+    SharedLibrary egl_library{};
+    SharedLibrary gles_library{};
+    EglApi api{};
+    if (!shared_library_open(&egl_library, "libEGL.so.1") || !shared_library_open(&gles_library, "libGLESv2.so.2"))
+        skip("libEGL.so.1 or libGLESv2.so.2 is not installed");
+    const bool resolved = resolve_symbol(egl_library, "eglGetPlatformDisplay", &api.get_platform_display) &&
+                          resolve_symbol(egl_library, "eglInitialize", &api.initialize) &&
+                          resolve_symbol(egl_library, "eglBindAPI", &api.bind_api) &&
+                          resolve_symbol(egl_library, "eglChooseConfig", &api.choose_config) &&
+                          resolve_symbol(egl_library, "eglCreateContext", &api.create_context) &&
+                          resolve_symbol(egl_library, "eglCreateWindowSurface", &api.create_window_surface) &&
+                          resolve_symbol(egl_library, "eglMakeCurrent", &api.make_current) &&
+                          resolve_symbol(egl_library, "eglSwapBuffers", &api.swap_buffers) &&
+                          resolve_symbol(egl_library, "eglSwapInterval", &api.swap_interval) &&
+                          resolve_symbol(egl_library, "eglTerminate", &api.terminate) &&
+                          resolve_symbol(gles_library, "glClearColor", &api.clear_color) &&
+                          resolve_symbol(gles_library, "glClear", &api.clear);
+    check(resolved, "EGL and GLES entry points");
+    void* native = window_wayland_egl_window(g_window);
+    if (!resolved || !native)
+        skip("libwayland-egl.so.1 is not installed, or EGL is unusable");
+    WaylandSurfaceInfo surface{};
+    window_wayland_info(g_window, &surface);
+    constexpr u32 kPlatformWayland = 0x31D8;
+    void* display = api.get_platform_display(kPlatformWayland, surface.display, nullptr);
+    i32 major = 0;
+    i32 minor = 0;
+    check(display && api.initialize(display, &major, &minor), "eglInitialize on the window's wl_display");
+    api.bind_api(0x30A0);  // EGL_OPENGL_ES_API
+    const i32 config_attributes[] = {0x3033, 0x4, 0x3040, 0x4, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8, 0x3038};
+    void* config = nullptr;
+    i32 configs = 0;
+    check(api.choose_config(display, config_attributes, &config, 1, &configs) && configs == 1, "an RGBA8 window config");
+    const i32 context_attributes[] = {0x3098, 2, 0x3038};
+    void* context = api.create_context(display, config, nullptr, context_attributes);
+    void* egl_surface = api.create_window_surface(display, config, native, nullptr);
+    check(context && egl_surface, "an EGL window surface on the wl_egl_window");
+    check(api.make_current(display, egl_surface, egl_surface, context) != 0, "eglMakeCurrent");
+    api.swap_interval(display, 0);
+    bool ready_written = false;
+    const u64 start = clock_monotonic_milliseconds();
+    u32 frames = 0;
+    while (clock_monotonic_milliseconds() - start < 20000 && !file_exists("injected")) {
+        api.clear_color(0.0f, 1.0f, 0.0f, 1.0f);
+        api.clear(0x4000);
+        api.swap_buffers(display, egl_surface);
+        ++frames;
+        if (frames == 5 && !ready_written) {
+            touch_file("ready");
+            ready_written = true;
+        }
+        pump_once(16);
+    }
+    check(frames > 5 && !g_quit, "frames were presented");
+    i32 pixel[3] = {0, 0, 0};
+    check(read_numbers("pixel", pixel, 3) == 3 && pixel[0] < 40 && pixel[1] > 215 && pixel[2] < 40,
+          "the compositor shows the EGL frame: the middle of the window is green");
+    api.make_current(display, nullptr, nullptr, nullptr);
+    api.terminate(display);
+    window_wayland_egl_release(g_window);
+}
+
 void run_input() noexcept {
     touch_file("ready");
     check(pump_until([] { return file_exists("origin"); }, 30000), "the driver wrote the window origin");
@@ -950,7 +1592,20 @@ void run_input() noexcept {
     check(find_event(0, EventType::activation_changed, [](const Record& r) { return r.event.focus.gained; }) != kNone,
           "the window is activated");
     test_pointer();
+    test_frame();
     test_keyboard();
+    test_context_menu_keys();
+    inject::Helper helper;
+    g_helper = &helper;
+    if (inject::helper_open(&helper)) {
+        test_clipboard();
+        test_text_input();
+    } else {
+        test_write_line("SKIP clipboard and text input: no second connection");
+    }
+    inject::helper_close(&helper);
+    g_helper = nullptr;
+    test_extras();
     check(!window_pointer_captured(g_window), "no capture at the end");
     check(!window_key_down(g_window, 'A') && !global_key_down('A') && !global_key_down(key::shift), "no key reads as down at the end");
     inject::close(&g_injector);
@@ -964,12 +1619,14 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     const ProcessStartup& startup = process_startup();
     bool input = false;
     bool lifecycle = false;
+    bool egl = false;
     for (int i = 1; i < startup.argc; ++i) {
         input |= arg_is(startup.argv[i], "--input");
+        egl |= arg_is(startup.argv[i], "--egl");
         lifecycle |= arg_is(startup.argv[i], "--lifecycle");
     }
-    if (!input && !lifecycle)
-        test_exit(1, "usage: --lifecycle or --input");
+    if (!input && !lifecycle && !egl)
+        test_exit(1, "usage: --lifecycle, --input or --egl");
     const char* directory = environment_get("MAICORD_WAYLAND_SYNC_DIR");
     if (directory && *directory) {
         u32 length = 0;
@@ -980,18 +1637,31 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     }
     if (!environment_get("WAYLAND_DISPLAY") && !environment_get("WAYLAND_SOCKET"))
         skip("WAYLAND_DISPLAY is not set: no compositor to test against");
-    if (input && !g_paths.enabled)
-        skip("MAICORD_WAYLAND_SYNC_DIR is not set: the input test is run by tools/test_wayland_window.sh");
+    if ((input || egl) && !g_paths.enabled)
+        skip("MAICORD_WAYLAND_SYNC_DIR is not set: this test is run by tools/test_wayland_window.sh");
     if (!create_window()) {
         test_write_line("the window could not be created (see the log lines above)");
         test_exit(1, "wayland_window");
     }
     print_support_matrix();
     test_window_up();
+    if (egl)
+        run_egl();
     if (input) {
         run_input();
         if (g_failures)
             dump_log();
+    }
+    if (lifecycle)
+        test_desktop_settings();
+    if (lifecycle)
+        test_global_shortcut();
+    if (lifecycle) {
+        // A token nobody issued is ignored by the compositor; an empty one is refused here.
+        check(!window_wayland_activate_with_token(g_window, ""), "an empty activation token is refused");
+        window_wayland_activate_with_token(g_window, "maicord-test-token");
+        settle(50);
+        check(!g_quit, "an unknown activation token does no harm");
     }
     if (lifecycle) {
         // With a driver (a screenshot is wanted), keep the presented window up until it says it is done.
@@ -1006,5 +1676,5 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     g_window = nullptr;
     if (lifecycle)
         test_recreate();
-    test_exit(g_failures, input ? "wayland_window_input" : "wayland_window_lifecycle");
+    test_exit(g_failures, egl ? "wayland_window_egl" : input ? "wayland_window_input" : "wayland_window_lifecycle");
 }

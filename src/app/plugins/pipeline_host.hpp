@@ -2,6 +2,7 @@
 
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 // The application's side of the plugin message pipeline (include/maicord/app/plugins/pipeline.hpp):
 // it feeds gateway changes, clicks and typing to the hooks, answers the actions plugins take, and keeps
@@ -26,7 +27,7 @@ void application_plugins_poll() noexcept;
 u32 application_plugins_wait_timeout(u64 now_ms) noexcept;
 // A click on the message under the pointer (a left press, a left double click or a middle press).
 // True when a plugin handled it and the application must skip its own handling.
-bool application_plugins_message_click(LPARAM lparam, bool middle, u32 count) noexcept;
+bool application_plugins_message_click(const WindowEvent& event, bool middle, u32 count) noexcept;
 // True when a plugin suppresses the typing notice for the channel.
 bool application_plugins_typing_suppressed(u64 channel_id) noexcept;
 // A plugin asked the user to confirm the send of the composer's text; the send continues when accepted.

@@ -1,4 +1,5 @@
 #include "maicord/app/packages/mcfx.hpp"
+#include "maicord/gpu/glsl_shader.hpp"
 #include "maicord/app/packages/link.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/json_reader.hpp"
@@ -9,13 +10,13 @@
 namespace maicord {
 namespace {
 
-constexpr u32 kHeaderBytes = 16, kEntryBytes = 16, kSectionCount = 9;
+constexpr u32 kHeaderBytes = 16, kEntryBytes = 16, kSectionCount = 10;
 constexpr u32 kDepth = 6;
 constexpr u32 kSectionCap[kSectionCount]{kMcfxManifestMaximumBytes, kMcfxBytecodeMaximumBytes,
                                          kMcfxTextureMaximumBytes,  kMcfxTextureMaximumBytes,
                                          kMcfxSourceMaximumBytes,   kMcfxPreviewMaximumBytes,
                                          kMcfxTextureMaximumBytes,  kMcfxTextureMaximumBytes,
-                                         kMcfxShadersMaximumBytes};
+                                         kMcfxShadersMaximumBytes,  kMcfxGlslMaximumBytes};
 // TEXTURE0..3: their sections (part index) and inputs.
 constexpr u8 kTexturePart[kEffectTextureCount]{2, 3, 6, 7};
 constexpr u32 kTextureUse[kEffectTextureCount]{effect_use_texture0, effect_use_texture1, effect_use_texture2,
@@ -639,6 +640,30 @@ bool png_header(const ConstSlice<u8>& png, u32* width, u32* height, u32* depth, 
     return *width && *height;
 }
 
+// ---- GLSL (interface 4): u16 count, u16 0, then one entry per shader (glsl_shader.hpp) ---------------------
+// True when the section holds exactly `shaders` well-formed entries, each of the stage its use needs (the graph's
+// vertex shaders by bit, the others pixel); `entries` get their slices.
+bool glsl_section(ConstSlice<u8> section, const EffectGraph& graph, u32 shaders, ConstSlice<u8>* entries) noexcept {
+    if (section.count < 4 || section.data[2] || section.data[3] ||
+        static_cast<u32>(section.data[0] | section.data[1] << 8) != shaders)
+        return false;
+    u32 at = 4;
+    for (u32 i = 0; i < shaders; ++i) {
+        if (section.count - at < kGlslEntryHeaderBytes)
+            return false;
+        const u32 bytes = glsl_u32(section.data + at);
+        if (bytes > section.count - at)
+            return false;
+        const ConstSlice<u8> entry{section.data + at, bytes};
+        GlslEntry parsed{};
+        if (!glsl_entry_parse(entry, &parsed) || parsed.stage != (graph.vertex_shaders >> i & 1 ? kGlslStageVertex : kGlslStagePixel))
+            return false;
+        entries[i] = entry;
+        at += bytes;
+    }
+    return at == section.count;
+}
+
 } // namespace
 
 bool mcfx_png_extent(ConstSlice<u8> png, u32* width, u32* height) noexcept {
@@ -742,6 +767,19 @@ McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
         if (error != McfxError::none)
             return {error, 0};
     }
+    // Interface 4 is the GLSL section: a package has both or neither. Direct3D 11 checks its container and ignores
+    // it; a Linux client runs the GLSL entries where Windows runs the DXBC.
+    ConstSlice<u8> glsl[kEffectGraphShaders]{};
+    if (!!part[9].data != (package.interface_version >= 4))
+        return {McfxError::manifest, 0};
+    if (part[9].data && !glsl_section(part[9], package.graph, shaders, glsl))
+        return {McfxError::bytecode, 0};
+#if !defined(_WIN32)
+    if (!part[9].data)
+        return {McfxError::payload, 0};
+    for (u32 i = 0; i < shaders; ++i)
+        package.shaders[i] = glsl[i];
+#endif
     for (u32 i = 0; i < kEffectTextureCount; ++i)
         package.texture[i] = part[kTexturePart[i]];
     package.source = part[4];

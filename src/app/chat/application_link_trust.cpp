@@ -48,7 +48,7 @@ void launch(const Utf8View& url) noexcept {
         return;
     wide[units] = 0;
     // The official client shows nothing when the browser refuses a link; neither do we.
-    const HINSTANCE opened = ShellExecuteW(g_app.window, L"open", wide, nullptr, nullptr, SW_SHOWNORMAL);
+    const HINSTANCE opened = ShellExecuteW(win32_hwnd(g_app.window), L"open", wide, nullptr, nullptr, SW_SHOWNORMAL);
     if (reinterpret_cast<INT_PTR>(opened) <= 32)
         log_write(LogLevel::warning, "links", "link_launch_failed");
 }

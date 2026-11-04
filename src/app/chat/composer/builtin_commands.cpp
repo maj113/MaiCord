@@ -18,7 +18,6 @@
 #include "maicord/media/compression/inflated_block.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/model/guild/permission_bits.hpp"

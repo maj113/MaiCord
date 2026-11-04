@@ -10,6 +10,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
+#include "../support/window_fixture.hpp"
 
 namespace maicord {
 namespace {
@@ -159,8 +160,10 @@ bool thread_browser_ui_adapter_pointer(UiWidgetHandle widget, bool down) noexcep
         const auto r = node->rectangle;
         browser_adapter->pressed_point = {(r.left + r.right) * .5f, (r.top + r.bottom) * .5f};
     }
-    return application_thread_browser_window_message(down ? WM_LBUTTONDOWN : WM_LBUTTONUP,
-        down ? MK_LBUTTON : 0, point(browser_adapter->pressed_point));
+    const auto at = point(browser_adapter->pressed_point);
+    return application_thread_browser_window_event(
+        down ? window_test::pointer_down(window_test::x_of(at), window_test::y_of(at))
+             : window_test::pointer_up(window_test::x_of(at), window_test::y_of(at), PointerButton::left));
 }
 bool thread_browser_ui_adapter_header_pointer(bool down) noexcept {
     if (!browser_adapter) return false;
@@ -169,8 +172,10 @@ bool thread_browser_ui_adapter_header_pointer(bool down) noexcept {
         if (!ui_rect_has_area(r)) return false;
         browser_adapter->pressed_point = {(r.left + r.right) * .5f, (r.top + r.bottom) * .5f};
     }
-    return application_thread_browser_window_message(down ? WM_LBUTTONDOWN : WM_LBUTTONUP,
-        down ? MK_LBUTTON : 0, point(browser_adapter->pressed_point));
+    const auto at = point(browser_adapter->pressed_point);
+    return application_thread_browser_window_event(
+        down ? window_test::pointer_down(window_test::x_of(at), window_test::y_of(at))
+             : window_test::pointer_up(window_test::x_of(at), window_test::y_of(at), PointerButton::left));
 }
 bool thread_browser_ui_adapter_key(u32 code, bool shift, bool repeated) noexcept {
     if (!browser_adapter) return false;

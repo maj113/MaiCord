@@ -3,6 +3,7 @@
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 struct RestClientResponse;
@@ -59,7 +60,7 @@ bool application_media_picker_synchronize() noexcept;
 void application_media_picker_favorites_changed() noexcept;
 // Re-projects open emoji sections after a favorites/frecency snapshot.
 void application_media_picker_emoji_preferences_changed() noexcept;
-bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+bool application_media_picker_window_event(const WindowEvent& event) noexcept;
 bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) noexcept;
 void application_media_picker_tick(u64 now_ms) noexcept;
 // Moves a dragged thumb to the latest pointer row; called once per frame that

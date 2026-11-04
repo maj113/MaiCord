@@ -1,6 +1,10 @@
+#if defined(_WIN32)
 #include "../../support/test_main_shared.hpp"
 
 #include "../../support/ui_scene_fixtures.hpp"
+#else
+#include "../../support/transport_test_shared.hpp"
+#endif
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
@@ -8,14 +12,37 @@
 #include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/thread.hpp"
+#include "maicord/os/wait.hpp"
+#include "maicord/platform/net/socket.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/winsock.hpp"
+#include "../../support/net_address.hpp"
+#endif
 #include "../../support/test_output.hpp"
+
+// The bytes of the host platform's desktop profile, pinned apart from the constants that build them.
+#if defined(_WIN32)
+#define TEST_USER_AGENT                                                                                            \
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 "           \
+    "Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36"
+#define TEST_SEC_CH_UA_PLATFORM "\"Windows\""
+#else
+#define TEST_USER_AGENT                                                                                            \
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.168 "                      \
+    "Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36"
+#define TEST_SEC_CH_UA_PLATFORM "\"Linux\""
+#endif
 
 namespace maicord {
 namespace {
 
+#if defined(_WIN32)
 inline constexpr u32 kTlsTokenCapacity = 256 * 1024;
 u8 g_tls_token[kTlsTokenCapacity + 1];
+#endif
 u8 g_websocket_payload[64 * 1024];
 u8 g_websocket_frame[64 * 1024 + 16];
 
@@ -646,7 +673,7 @@ void test_rest() noexcept {
                            byte_literal("GET /api/v10/gateway HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
                                         "Connection: keep-alive\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                        "User-Agent: " TEST_USER_AGENT "\r\n"
                                         "Accept: */*\r\n\r\n")),
            "rest_get_request_head");
 
@@ -667,12 +694,12 @@ void test_rest() noexcept {
                                             "Connection: keep-alive\r\n"
                                             "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                             "sec-ch-ua-mobile: ?0\r\n"
-                                            "sec-ch-ua-platform: \"Windows\"\r\n"
+                                            "sec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                             "Authorization: user.token\r\n"
                                             "X-Super-Properties: e30=\r\n"
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
-                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                            "User-Agent: " TEST_USER_AGENT "\r\n"
                                             "Accept: */*\r\n"
                                             "Sec-Fetch-Site: same-origin\r\n"
                                             "Sec-Fetch-Mode: cors\r\n"
@@ -725,13 +752,13 @@ void test_rest() noexcept {
                                             "Content-Length: 2\r\n"
                                             "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                             "sec-ch-ua-mobile: ?0\r\n"
-                                            "sec-ch-ua-platform: \"Windows\"\r\n"
+                                            "sec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                             "Authorization: user.token\r\n"
                                             "X-Super-Properties: e30=\r\n"
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
                                             "X-Context-Properties: e30=\r\n"
-                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                            "User-Agent: " TEST_USER_AGENT "\r\n"
                                             "Content-Type: application/json\r\n"
                                             "Accept: */*\r\n"
                                             "Origin: https://discord.com\r\n"
@@ -746,7 +773,7 @@ void test_rest() noexcept {
                        byte_literal("POST /api/v9/channels/7/messages HTTP/1.1\r\nHost: discord.com\r\n"
                                     "Connection: keep-alive\r\nContent-Length: 2\r\n"
                                     "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
-                                    "sec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n"
+                                    "sec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                     "Authorization: user.token\r\nX-Super-Properties: e30=\r\n"
                                     "X-Discord-Locale: en-US\r\nX-Discord-Timezone: Europe/Ljubljana\r\n"
                                     "X-Context-Properties: e30=\r\n")
@@ -1496,7 +1523,7 @@ void test_tls_stream_contract() noexcept {
                                    Slice<u8>{handshake, static_cast<u32>(sizeof(handshake))},
                                    Slice<u8>{record, static_cast<u32>(sizeof(record))}};
     expect(tls_stream_initialize(&stream, L"cdn.discordapp.com", buffers) &&
-               stream.state == TlsStreamState::empty && stream.connection.socket == INVALID_SOCKET &&
+               stream.state == TlsStreamState::empty && !network_connection_has_socket(stream.connection) &&
                !tls_stream_drained(&stream),
            "tls_stream_caller_owned_initialize");
 
@@ -1559,14 +1586,7 @@ void test_network_resolver() noexcept {
     expect(!network_resolver_release(&resolver), "network_resolver_blocks_early_release");
     if (started.ok()) {
         const NetworkPollResult completion = poll_network_completion(&loop, NetworkOperationKind::resolve);
-        bool usable_address = false;
-        for (ADDRINFOEXW* current = resolver.results; current; current = current->ai_next) {
-            if ((current->ai_family == AF_INET || current->ai_family == AF_INET6) &&
-                current->ai_socktype == SOCK_STREAM && current->ai_addr && current->ai_addrlen != 0) {
-                usable_address = true;
-                break;
-            }
-        }
+        const bool usable_address = resolver.address_count != 0;
         expect(completion.state == NetworkPollState::completion &&
                    completion.completion.kind == NetworkOperationKind::resolve &&
                    completion.completion.resolver == &resolver && !completion.completion.connection &&
@@ -1597,7 +1617,7 @@ void test_network_resolver() noexcept {
         // is still mandatory and owns final resolver state in either case.
         expect(cancelled.ok() || cancelled.error == NetworkError::invalid_argument ||
                    (cancelled.error == NetworkError::resolve_cancel &&
-                    cancelled.native_error == WSA_INVALID_HANDLE),
+                    cancelled.native_error == ERROR_INVALID_HANDLE),
                "network_resolver_cancel_race_contract");
         const NetworkPollResult completion = poll_network_completion(&loop, NetworkOperationKind::resolve);
         expect(completion.state == NetworkPollState::completion &&
@@ -1613,17 +1633,19 @@ void test_network_resolver() noexcept {
     network_loop_release(&loop);
     // The cancelled lookup can still be running on a Winsock thread, so the
     // last loop release must leave Winsock initialized.
+#if defined(_WIN32)
     const SOCKET probe = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     expect(probe != INVALID_SOCKET, "network_loop_release_keeps_winsock_for_cancelled_lookups");
     if (probe != INVALID_SOCKET) closesocket(probe);
+#endif
 }
 
 namespace {
 
 struct TestNetworkWorkerContext {
     HANDLE deadline_event;
-    DWORD caller_thread;
-    DWORD worker_thread;
+    u32 caller_thread;
+    u32 worker_thread;
     u32 deadlines;
     u32 stops;
 };
@@ -1631,13 +1653,13 @@ struct TestNetworkWorkerContext {
 NetworkWorkerStep test_network_worker_handler(void* opaque, NetworkLoop*,
                                               const NetworkWorkerEvent& event) noexcept {
     auto* context = static_cast<TestNetworkWorkerContext*>(opaque);
-    context->worker_thread = GetCurrentThreadId();
+    context->worker_thread = current_thread_id();
     if (event.kind == NetworkWorkerEventKind::started) {
         return NetworkWorkerStep{10, false};
     }
     if (event.kind == NetworkWorkerEventKind::deadline) {
         ++context->deadlines;
-        SetEvent(context->deadline_event);
+        event_set(context->deadline_event);
         return NetworkWorkerStep{INFINITE, false};
     }
     if (event.kind == NetworkWorkerEventKind::stop_requested) {
@@ -1651,8 +1673,8 @@ NetworkWorkerStep test_network_worker_handler(void* opaque, NetworkLoop*,
 
 void test_network_worker() noexcept {
     TestNetworkWorkerContext context{};
-    context.caller_thread = GetCurrentThreadId();
-    context.deadline_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    context.caller_thread = current_thread_id();
+    context.deadline_event = event_create(true, false);
     expect(context.deadline_event != nullptr, "network_worker_test_event");
     if (!context.deadline_event) {
         return;
@@ -1663,7 +1685,7 @@ void test_network_worker() noexcept {
         network_worker_start(&worker, test_network_worker_handler, &context);
     expect(started.ok() && worker.thread && worker.started, "network_worker_start");
     if (started.ok()) {
-        const DWORD deadline = WaitForSingleObject(context.deadline_event, 2'000);
+        const u32 deadline = wait_one(context.deadline_event, 2'000);
         expect(deadline == WAIT_OBJECT_0 && context.deadlines == 1 &&
                    context.worker_thread != context.caller_thread,
                "network_worker_deadline_thread_ownership");
@@ -1675,7 +1697,7 @@ void test_network_worker() noexcept {
         // unwind this stack fixture and turn a reported timeout into a UAF.
         if (!joined.ok()) test_process_exit(1);
     }
-    CloseHandle(context.deadline_event);
+    waitable_close(context.deadline_event);
 }
 
 namespace {
@@ -1696,7 +1718,7 @@ NetworkWorkerStep test_network_drain_handler(void* opaque, NetworkLoop* loop,
     if (event.kind == NetworkWorkerEventKind::started) {
         context->resolve_started =
             network_resolver_start(loop, &context->resolver, L"maicord-worker-drain.invalid", L"443").ok();
-        SetEvent(context->started_event);
+        event_set(context->started_event);
         return NetworkWorkerStep{INFINITE, !context->resolve_started};
     }
     if (event.kind == NetworkWorkerEventKind::stop_requested) {
@@ -1710,7 +1732,7 @@ NetworkWorkerStep test_network_drain_handler(void* opaque, NetworkLoop* loop,
         const NetworkResult cancelled = network_resolver_cancel(&context->resolver);
         const bool raced = cancelled.error == NetworkError::invalid_argument ||
                            (cancelled.error == NetworkError::resolve_cancel &&
-                            cancelled.native_error == WSA_INVALID_HANDLE);
+                            cancelled.native_error == ERROR_INVALID_HANDLE);
         context->cancel_accepted = cancelled.ok() || raced;
         return NetworkWorkerStep{INFINITE, false};
     }
@@ -1728,7 +1750,7 @@ NetworkWorkerStep test_network_drain_handler(void* opaque, NetworkLoop* loop,
 
 void test_network_worker_cancel_drain() noexcept {
     TestNetworkDrainContext context{};
-    context.started_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    context.started_event = event_create(true, false);
     expect(context.started_event != nullptr, "network_worker_drain_event");
     if (!context.started_event) {
         return;
@@ -1737,21 +1759,22 @@ void test_network_worker_cancel_drain() noexcept {
     const NetworkWorkerResult started = network_worker_start(&worker, test_network_drain_handler, &context);
     expect(started.ok(), "network_worker_drain_start");
     if (started.ok()) {
-        expect(WaitForSingleObject(context.started_event, 2'000) == WAIT_OBJECT_0 &&
+        expect(wait_one(context.started_event, 2'000) == WAIT_OBJECT_0 &&
                    context.resolve_started,
                "network_worker_drain_resolve_started");
         expect(network_worker_request_stop(&worker).ok(), "network_worker_drain_stop");
         const NetworkWorkerResult joined = network_worker_join(&worker, 2'000);
         expect(joined.ok() && context.stops == 1 && context.cancel_accepted &&
                    context.resolve_completions == 1 && !context.resolver.pending &&
-                   !context.resolver.results,
+                   !context.resolver.address_count,
                "network_worker_cancel_completion_drained");
         // Preserve the timeout failure, but never return stack storage still
         // reachable by a resolver completion or the worker callback.
         if (!joined.ok()) test_process_exit(1);
     }
-    CloseHandle(context.started_event);
+    waitable_close(context.started_event);
 }
+#if defined(_WIN32)
 void test_network_loopback() noexcept {
     NetworkLoop loop{};
     const NetworkResult initialized = network_loop_initialize(&loop);
@@ -1784,8 +1807,8 @@ void test_network_loopback() noexcept {
     }
 
     NetworkConnection client{};
-    const NetworkResult connecting = network_connection_connect(
-        &loop, &client, reinterpret_cast<const sockaddr*>(&address), sizeof(address));
+    const NetworkResult connecting =
+        network_connection_connect(&loop, &client, test_network_address(&address, sizeof(address)));
     expect(connecting.ok() && client.connect_pending, "network_connectex_started");
     if (!connecting.ok()) {
         closesocket(listener);
@@ -1843,7 +1866,102 @@ void test_network_loopback() noexcept {
     network_loop_release(&loop);
     expect(!loop.completion_port && !loop.winsock_started, "network_loop_release");
 }
+#else
+// The same exchange with the sockets of socket.hpp: a loopback listener the client connects to, a peer that sends and
+// receives, an orderly close from the peer.
+void test_network_loopback() noexcept {
+    NetworkLoop loop{};
+    const NetworkResult initialized = network_loop_initialize(&loop);
+    expect(initialized.ok(), "network_loop_initialize");
+    if (!initialized.ok()) {
+        return;
+    }
+    Socket listener{};
+    const SocketListenResult listening = socket_listen_loopback(&listener, 0, 0, 1);
+    expect(listening.ok(), "network_loopback_listener_create");
+    if (!listening.ok()) {
+        network_loop_release(&loop);
+        return;
+    }
+    NetworkAddress target{};
+    target.family = 4;
+    target.port = listening.port;
+    target.ip[0] = 127;
+    target.ip[3] = 1;
 
+    NetworkConnection client{};
+    const NetworkResult connecting = network_connection_connect(&loop, &client, target);
+    expect(connecting.ok() && client.connect_pending, "network_connectex_started");
+    if (!connecting.ok()) {
+        socket_close(&listener);
+        network_loop_release(&loop);
+        return;
+    }
+
+    Socket peer{};
+    bool from_loopback = false;
+    i32 accept_error = 0;
+    bool accepted = false;
+    for (u32 attempt = 0; attempt < 400 && !accepted; ++attempt) {
+        accepted = socket_accept(&listener, &peer, &from_loopback, &accept_error);
+        if (!accepted) thread_sleep(5);
+    }
+    expect(accepted && from_loopback, "network_loopback_accept");
+    const NetworkPollResult connected = poll_network_completion(&loop, NetworkOperationKind::connect);
+    expect(connected.state == NetworkPollState::completion && connected.completion.succeeded &&
+               !connected.completion.stale && client.state == NetworkConnectionState::connected,
+           "network_connectex_completion");
+
+    u8 receive_buffer[16]{};
+    const NetworkResult receiving = network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
+    expect(receiving.ok() && client.receive_pending, "network_receive_started");
+    const char ping[] = {'p', 'i', 'n', 'g'};
+    const i32 peer_sent = socket_send(peer, ping, sizeof(ping));
+    expect(peer_sent == sizeof(ping), "network_peer_send");
+    const NetworkPollResult received = poll_network_completion(&loop, NetworkOperationKind::receive);
+    expect(received.state == NetworkPollState::completion && received.completion.succeeded &&
+               received.completion.transferred == sizeof(ping) && receive_buffer[0] == 'p' &&
+               receive_buffer[3] == 'g' && !client.receive_pending,
+           "network_receive_completion");
+
+    const u8 pong[] = {'p', 'o', 'n', 'g'};
+    const NetworkResult sending =
+        network_connection_send(&client, ConstSlice<u8>{pong, static_cast<u32>(sizeof(pong))});
+    expect(sending.ok() && client.send_pending, "network_send_started");
+    const NetworkPollResult sent = poll_network_completion(&loop, NetworkOperationKind::send);
+    expect(sent.state == NetworkPollState::completion && sent.completion.succeeded &&
+               sent.completion.transferred == sizeof(pong) && !client.send_pending,
+           "network_send_completion");
+    char peer_buffer[8]{};
+    i32 peer_received = -1;
+    for (u32 attempt = 0; attempt < 400 && peer_received < 0; ++attempt) {
+        peer_received = socket_receive(peer, peer_buffer, sizeof(peer_buffer));
+        if (peer_received < 0 && network_last_error() == WSAEWOULDBLOCK) thread_sleep(5);
+        else break;
+    }
+    expect(peer_received == sizeof(pong) && peer_buffer[1] == 'o' && peer_buffer[3] == 'g',
+           "network_peer_receive");
+
+    const NetworkResult closing_receive =
+        network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
+    expect(closing_receive.ok(), "network_peer_close_receive_started");
+    socket_close(&peer);
+    const NetworkPollResult peer_closed = poll_network_completion(&loop, NetworkOperationKind::receive);
+    expect(peer_closed.state == NetworkPollState::completion && peer_closed.completion.succeeded &&
+               peer_closed.completion.transferred == 0 &&
+               client.state == NetworkConnectionState::peer_closed,
+           "network_peer_orderly_close");
+
+    const NetworkPollResult empty_poll = network_loop_poll(&loop, 0);
+    expect(empty_poll.state == NetworkPollState::timeout, "network_empty_poll_timeout");
+
+    network_connection_close(&client);
+    socket_close(&listener);
+    network_loop_release(&loop);
+}
+#endif
+
+#if defined(_WIN32)
 void test_tls_client_bootstrap() noexcept {
     TlsClient client{};
     const TlsResult initialized = tls_client_initialize(&client, L"discord.com");
@@ -2009,5 +2127,5 @@ void test_tls_client_alpn() noexcept {
         tls_client_release(&client);
     }
 }
-
+#endif
 } // namespace maicord

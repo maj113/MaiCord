@@ -4,6 +4,7 @@
 #include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/protocol/auth/remote_auth.hpp"
 
 namespace maicord {
@@ -109,7 +110,7 @@ struct RemoteAuthClientEvent : RemoteAuthClientResult {
 
 struct RemoteAuthClient {
     void* runtime;
-    HANDLE thread;
+    Thread* thread;
     HANDLE ready_event;
     HANDLE notification_event;
     HANDLE cancel_event;

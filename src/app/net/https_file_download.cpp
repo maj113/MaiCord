@@ -68,14 +68,14 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
     static volatile LONG serial = 0;
     for (u32 attempt = 0; attempt < 16; ++attempt) {
         u32 directory_units = r->path_units;
-        while (directory_units && r->path[directory_units - 1] != L'\\') --directory_units;
+        while (directory_units && r->path[directory_units - 1] != L'\\' && r->path[directory_units - 1] != L'/') --directory_units;
         copy_bytes(r->stage, r->path, directory_units * sizeof(wchar_t));
         auto* suffix = r->stage + directory_units;
         static constexpr wchar_t prefix[] = L".maicord-download-";
         copy_bytes(suffix, prefix, sizeof(prefix) - sizeof(wchar_t));
         suffix += sizeof(prefix) / sizeof(wchar_t) - 1;
         hex(suffix, process_id(), 8); suffix += 8; *suffix++ = L'-';
-        hex(suffix, GetTickCount64(), 16); suffix += 16; *suffix++ = L'-';
+        hex(suffix, clock_monotonic_milliseconds(), 16); suffix += 16; *suffix++ = L'-';
         hex(suffix, static_cast<u32>(InterlockedIncrement(&serial)), 8); suffix += 8;
         static constexpr wchar_t ending[] = L".part";
         copy_bytes(suffix, ending, sizeof(ending));
@@ -109,8 +109,8 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
             r->published = true; r->draining = false;
             secure_clear_bytes(r->head, sizeof(r->head));
             secure_clear_bytes(r->plaintext, sizeof(r->plaintext));
-            phase(owner, HttpsFileDownloadPhase::complete); SetEvent(owner->notification);
-        } else if (cleanup_changed) SetEvent(owner->notification);
+            phase(owner, HttpsFileDownloadPhase::complete); event_set(owner->notification);
+        } else if (cleanup_changed) event_set(owner->notification);
     }
     // A failed DeleteFile never discards ownership. Only this worker retries
     // cleanup; status/release on the UI perform no filesystem calls.
@@ -155,7 +155,7 @@ void commit(HttpsFileDownload* owner, Runtime* r) noexcept {
     phase(owner, HttpsFileDownloadPhase::committing);
     if (r->response.body_bytes != r->expected_bytes) { drain(owner, r, HttpsFileDownloadError::size_mismatch); return; }
     if (cancelled(owner)) { drain(owner, r, HttpsFileDownloadError::cancelled, ERROR_OPERATION_ABORTED); return; }
-    if (GetTickCount64() >= r->deadline) { drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT); return; }
+    if (clock_monotonic_milliseconds() >= r->deadline) { drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT); return; }
     const auto committed = staged_file_commit(&r->staged, r->response.body_bytes, &owner->cancelled, r->deadline);
     HttpsFileDownloadError error = HttpsFileDownloadError::none;
     switch (committed.error) {
@@ -172,7 +172,7 @@ void commit(HttpsFileDownload* owner, Runtime* r) noexcept {
 void drive(HttpsFileDownload* owner, Runtime* r, TlsStreamEvent step) noexcept {
     for (;;) {
         if (cancelled(owner)) { drain(owner, r, HttpsFileDownloadError::cancelled, ERROR_OPERATION_ABORTED); return; }
-        if (GetTickCount64() >= r->deadline) { drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT); return; }
+        if (clock_monotonic_milliseconds() >= r->deadline) { drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT); return; }
         if (!step.ok()) {
             // A close the TLS layer rejects (the server's shutdown arriving
             // with the last record) must not discard a complete file.
@@ -258,7 +258,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
                 else {
                     const auto consumed = http_response_stream_consume(&r->response, completion.transferred);
                     write_release(&owner->committed_bytes, static_cast<LONG64>(r->response.body_bytes)); // worker is the only writer
-                    if (event.now_ms >= r->notify_at) { r->notify_at = event.now_ms + 250; SetEvent(owner->notification); }
+                    if (event.now_ms >= r->notify_at) { r->notify_at = event.now_ms + 250; event_set(owner->notification); }
                     if (!consumed.ok()) drain(owner, r, HttpsFileDownloadError::http);
                     else drive(owner, r, {0, TlsStreamEventKind::read_paused, TlsStreamError::none});
                 }
@@ -273,11 +273,11 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
         else if (event.now_ms >= r->deadline) drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT);
     }
     if (r->draining || r->published || r->stopping) return finish(owner, r);
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     return {now >= r->deadline ? 0u : static_cast<u32>(minimum<u64>(r->deadline - now, 1000)), false};
 }
 void destroy(HttpsFileDownload* owner) noexcept {
-    if (owner->notification) CloseHandle(owner->notification);
+    if (owner->notification) waitable_close(owner->notification);
     if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); pages_release(owner->runtime); }
     reset_value(owner);
 }
@@ -285,10 +285,16 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     // Reserve room for a unique sibling filename; never accept a relative,
     // device namespace or alternate-data-stream destination.
     if (!path.data || path.count < 3 || path.count > kHttpsFileDownloadMaximumPathUnits - 64) return false;
+#if defined(_WIN32)
     const bool drive_path = ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')) && path[1] == L':' && path[2] == L'\\';
     const bool unc_path = path.count > 5 && path[0] == L'\\' && path[1] == L'\\' && path[2] != L'?' && path[2] != L'.';
     if (!drive_path && !unc_path) return false;
     for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] < 32 || (path[i] == L':' && i != 1)) return false;
+#else
+    // Rooted, with no backslash (the file seam would read it as a separator).
+    if (path[0] != L'/') return false;
+    for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] < 32 || path[i] == L'\\') return false;
+#endif
     return path[path.count - 1] != L'\\' && path[path.count - 1] != L'/';
 }
 }
@@ -324,8 +330,8 @@ HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const
     r->path_units = request.path.count; r->head_bytes = head.request_bytes; r->expected_bytes = request.expected_bytes;
     r->destination = request.destination; r->destination_exists = request.destination_exists; r->overwrite_authorized = request.overwrite_authorized;
     r->policy = {request.expected_bytes, maximum_bytes(r), AttachmentDownloadResponseError::none};
-    r->deadline = GetTickCount64() + request.timeout_ms;
-    owner->notification = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    r->deadline = clock_monotonic_milliseconds() + request.timeout_ms;
+    owner->notification = event_create(TRUE, FALSE);
     if (!owner->notification) { destroy(owner); return HttpsFileDownloadError::event; }
     phase(owner, HttpsFileDownloadPhase::opening);
     if (!network_worker_start_async(&owner->worker, worker, owner).ok()) { destroy(owner); return HttpsFileDownloadError::worker; }

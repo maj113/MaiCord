@@ -6,6 +6,7 @@
 #include "../shell/toast.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 
 // The client's catalog configuration and the hosts the service calls. Build inputs from CMake:
 // MAICORD_PLUGIN_CATALOG_REPOSITORY and the catalog keys (current, and the next one held offline for
@@ -57,7 +58,7 @@ void remove_retired_files() noexcept {
     const wchar_t* const names[]{L"plugins.bin", L"plugin-call.bin"};
     for (const wchar_t* name : names) {
         wchar_t path[480];
-        if (data_path(path, 480, name).ok()) DeleteFileW(path);
+        if (data_path(path, 480, name).ok()) file_remove(path);
     }
 }
 } // namespace

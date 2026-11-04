@@ -2,6 +2,8 @@
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../shell/content_input.hpp"
+#include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -66,7 +68,7 @@ bool application_downloads_pump() noexcept {
         const bool close = q->close_window;
         application_downloads_close();
         if (application_downloads_release() && close && g_app.window)
-            PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+            window_request_close(g_app.window);
         return true;
     }
     // The save dialog and a transfer run side by side, one of each at a time, so
@@ -90,9 +92,8 @@ bool application_downloads_pump() noexcept {
         if (j.phase == JobPhase::queued) {
             if (q->picker_job != kNoDownload)
                 continue;
-            const auto error = native_file_picker_save_start(&q->picker, g_app.window,
-                                                             {j.source.filename, j.source.filename_bytes},
-                                                             utf8_literal("Save attachment"));
+            const auto error = native_file_picker_save_start(&q->picker, g_app.window, {j.source.filename, j.source.filename_bytes},
+            utf8_literal("Save attachment"));
             if (error != NativeFilePickerError::none) {
                 fail_job(*q, j, HttpsFileDownloadError::file_open);
                 continue;
@@ -200,7 +201,7 @@ bool application_downloads_save_press(float x, float y) noexcept {
     ui_widget_manager_focus(&g_app.message_scene.widgets, widget);
     application_request_frame();
     if (g_app.window)
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
     return true;
 }
 bool application_downloads_save_focused() noexcept {
@@ -322,20 +323,20 @@ bool application_downloads_input(UiInputKind kind, u32 key, bool repeated) noexc
     }
     return true;
 }
-bool application_downloads_filter(const MSG& message) noexcept {
-    return message.hwnd == g_app.window && (message.message == WM_KEYDOWN || message.message == WM_KEYUP) &&
+bool application_downloads_filter(const WindowEvent& event) noexcept {
+    return input_plain_key(event) &&
            ui_input_consume_key_tail(
                &g_app.downloads_held_key,
-               {message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up,
-                static_cast<u32>(message.wParam), (message.lParam & (1ll << 30)) != 0});
+               {event.type == EventType::key_down ? UiInputKind::key_down : UiInputKind::key_up, event.key.key,
+                input_key_was_down(event)});
 }
 
 namespace {
 
-// The pointer messages that end or cancel an inline attachment press. Out of line: its
+// The pointer events that end or cancel an inline attachment press. Out of line: its
 // DownloadSource temporaries would otherwise give every window message a multi-KB frame.
-__declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT message, LPARAM lparam) noexcept {
-    if (message == WM_LBUTTONUP) {
+__declspec(noinline) bool inline_press_event(ApplicationDownloads& q, const WindowEvent& event) noexcept {
+    if (input_release(event)) {
         const auto pressed = q.context;
         const auto widget = q.pressed_widget;
         const auto bounds = q.pressed_bounds;
@@ -344,13 +345,11 @@ __declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT mes
         if (owned)
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
         application_release_capture();
-        const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
         DownloadSource live{};
         UiRect current_bounds{};
         UiWidgetHandle current_widget{};
         if (owned && source_current(pressed) &&
-            attachment_at(static_cast<short>(LOWORD(lparam)) * scale,
-                          static_cast<short>(HIWORD(lparam)) * scale, true, &live, {}, &current_bounds,
+            attachment_at(client_dip_x(event), client_dip_y(event), true, &live, {}, &current_bounds,
                           &current_widget) &&
             ui_widget_handle_equal(current_widget, widget) &&
             bytes_equal(&bounds, &current_bounds, sizeof(bounds)) && live.message == pressed.message &&
@@ -360,38 +359,36 @@ __declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT mes
             begin_source(pressed);
         return true;
     }
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS ||
-        message == WM_SIZE || message == WM_DPICHANGED) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event) ||
+        event.type == EventType::resize || event.type == EventType::scale_changed) {
         if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q.pressed_widget))
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
         q.inline_capture = false;
         g_app.downloads_pointer_tail = true;
         application_release_capture();
-    } else if (message == WM_LBUTTONDOWN)
+    } else if (input_press(event))
         q.inline_capture = false;
     return false;
 }
 
 } // namespace
 
-bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_downloads_window_event(const WindowEvent& event) noexcept {
     auto* q = g_app.downloads;
-    if (message == WM_LBUTTONDOWN && (!q || !q->active) && g_app.renderer_ready && !g_app.login.visible &&
+    if (input_press(event) && (!q || !q->active) && g_app.renderer_ready && !g_app.login.visible &&
         !g_app.image_viewer.scene.active && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
         !application_message_forward_active() && !application_quick_switcher_active() &&
         !application_media_picker_active() && !application_search_active() &&
         !application_pinned_messages_active() &&
         !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active)) {
-        const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
-        if (application_downloads_save_press(static_cast<short>(LOWORD(lparam)) * scale,
-                                             static_cast<short>(HIWORD(lparam)) * scale))
+        if (application_downloads_save_press(client_dip_x(event), client_dip_y(event)))
             return true;
     }
-    if (q && q->inline_capture && inline_press_message(*q, message, lparam))
+    if (q && q->inline_capture && inline_press_event(*q, event))
         return true;
-    if (message == WM_LBUTTONDOWN && (!q || !q->active))
+    if (input_press(event) && (!q || !q->active))
         g_app.downloads_pointer_tail = false;
-    if (message == WM_LBUTTONUP && g_app.downloads_pointer_tail && (!q || !q->active)) {
+    if (input_release(event) && g_app.downloads_pointer_tail && (!q || !q->active)) {
         g_app.downloads_pointer_tail = false;
         return true;
     }
@@ -401,45 +398,43 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         application_downloads_close();
         return true;
     }
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS ||
-        message == WM_SIZE || message == WM_DPICHANGED) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input || input_focus_lost(event) ||
+        event.type == EventType::resize || event.type == EventType::scale_changed) {
         revoke_capture(*q);
         return false;
     }
-    if (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-        message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK ||
-        message == WM_MOUSEHWHEEL)
+    if (event.type == EventType::context_menu || input_side_button(event) || input_double(event) ||
+        input_horizontal_wheel(event))
         return true;
-    if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE &&
-        message != WM_MOUSEWHEEL && message != WM_SETCURSOR)
+    if (!input_press(event) && !input_release(event) && event.type != EventType::pointer_move &&
+        !input_vertical_wheel(event) && event.type != EventType::cursor_query)
         return false;
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         UiPoint cursor{};
-        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &cursor))
+        if (!client_cursor_dip(event, &cursor))
             return false;
         application_set_cursor(ui_download_scene_cursor(q->scene, cursor.x, cursor.y));
         return true;
     }
-    if (message == WM_MOUSEWHEEL) {
-        page_step(*q, static_cast<short>(HIWORD(wparam)) > 0);
+    if (input_vertical_wheel(event)) {
+        page_step(*q, event.wheel.dy120 > 0);
         application_request_frame();
         return true;
     }
-    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    const float scale = 96.f / g_app.renderer.dpi;
-    if (message == WM_MOUSEMOVE) {
+    const float x = client_dip_x(event), y = client_dip_y(event);
+    if (event.type == EventType::pointer_move) {
         bool paint = false;
-        ui_download_scene_set_hover(&q->scene, point.x * scale, point.y * scale, &paint);
+        ui_download_scene_set_hover(&q->scene, x, y, &paint);
         if (paint)
             application_request_frame();
         return true;
     }
-    const auto target = ui_download_scene_hit_test(q->scene, point.x * scale, point.y * scale);
-    if (message == WM_LBUTTONDOWN) {
+    const auto target = ui_download_scene_hit_test(q->scene, x, y);
+    if (input_press(event)) {
         q->pressed = target;
         q->captured = true;
         g_app.downloads_pointer_tail = false;
-        q->pressed_widget = ui_widget_manager_hit_test(q->scene.widgets, point.x * scale, point.y * scale);
+        q->pressed_widget = ui_widget_manager_hit_test(q->scene.widgets, x, y);
         q->pressed_viewport = q->scene.viewport;
         q->pressed_panel = q->scene.panel;
         q->pressed_layout_revision = q->scene.widgets.layout.revision;
@@ -449,7 +444,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         ui_widget_manager_focus(&q->scene.widgets, q->pressed_widget);
         application_request_frame();
         if (g_app.window)
-            SetCapture(g_app.window);
+            window_capture_pointer(g_app.window);
         return true;
     }
     const auto pressed = q->pressed;

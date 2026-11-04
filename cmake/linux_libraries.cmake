@@ -11,8 +11,18 @@ maicord_library(maicord_core
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
     src/core/utf.cpp src/core/byte_range.cpp src/core/linux/log.cpp src/core/linux/path.cpp
     src/core/linux/shared_library.cpp
-    # The Linux bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits and threads.
-    src/os/linux/pages.cpp src/os/linux/srwlock.cpp src/os/linux/wait.cpp src/os/linux/thread.cpp)
+    # The Linux bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits, threads, files
+    # and directories, ordinal compares, the local time zone and date formatting (the TZif reader is pure).
+    src/os/linux/pages.cpp src/os/linux/srwlock.cpp src/os/linux/wait.cpp src/os/linux/thread.cpp
+    src/os/linux/file.cpp src/os/linux/directory.cpp src/os/linux/ordinal.cpp src/os/linux/local_time.cpp
+    src/os/linux/date_format.cpp src/platform/time/tzif.cpp)
+
+# What the desktop shell asks the system for: the time zone identifier and the spell checker (Hunspell or Enchant
+# through dlopen; spell_checker.cpp holds the language choice the two systems share).
+maicord_library(maicord_desktop_system
+    src/platform/desktop/linux/timezone.cpp src/platform/desktop/spell_checker.cpp
+    src/platform/desktop/linux/spell_checker.cpp
+    LIBS maicord_core)
 
 maicord_library(maicord_compression
     src/media/compression/deflate.cpp src/media/compression/zstd.cpp src/media/compression/inflated_block.cpp
@@ -80,9 +90,8 @@ maicord_library(maicord_unicode
 # unicode.cpp and thai_lexical.cpp #embed their tables.
 target_compile_options(maicord_unicode PRIVATE -Wno-c23-extensions)
 
-# Left out until the files seam (include/maicord/os/file.hpp) lands: src/text/fonts/store.cpp (opens and maps a font
-# file with CreateFileW and CreateFileMappingW), src/text/fonts/handle_stat.cpp (NtQueryInformationFile) and
-# src/text/fonts/catalog.cpp (GetFileInformationByHandleEx), the units that read the file system.
+# The font store, the catalog check and the handle stamp read the file system through the files seam
+# (include/maicord/os/file.hpp); handle_stat.cpp has a Linux twin under src/text/fonts/linux.
 maicord_library(maicord_font
     src/text/scripts/arabic_shape_run.cpp src/text/scripts/arabic_marks.cpp src/text/scripts/arabic_plan.cpp
     src/text/scripts/devanagari_plan.cpp src/text/scripts/use_plan.cpp src/text/scripts/sinhala_input.cpp
@@ -121,7 +130,39 @@ maicord_library(maicord_font
     src/text/opentype/metric_variations.cpp src/text/opentype/gvar.cpp src/text/fonts/geometry.cpp
     src/text/fonts/instance.cpp src/text/opentype/tt_interpreter.cpp
     src/text/opentype/tt_outline.cpp src/text/opentype/colr_variations.cpp src/text/fonts/axes.cpp
+    src/text/fonts/store.cpp src/text/fonts/catalog.cpp src/text/fonts/linux/handle_stat.cpp
     LIBS maicord_core maicord_unicode)
+
+# The system font locator (include/maicord/platform/font): fontconfig through dlopen with a directory scan as the
+# fallback, and the platform's default families.
+maicord_library(maicord_font_system
+    src/platform/font/linux/system_font_locator.cpp src/platform/font/linux/font_config.cpp
+    src/platform/font/linux/font_scan.cpp src/platform/font/linux/default_fonts.cpp
+    LIBS maicord_core maicord_font)
+
+# The catalog of system and private faces (src/ui/text): family orders, selection and the fallback routes over the
+# system font locator.
+maicord_library(maicord_text_catalog
+    src/ui/text/native_text_catalog.cpp
+    LIBS maicord_core maicord_font maicord_font_system)
+
+# The text system entry points (src/ui/text): the native layout adapter over the catalog, with the emoji presentation
+# and theme typography it reads.
+maicord_library(maicord_text_system
+    src/ui/text/text.cpp src/ui/text/native_text_candidate.cpp src/ui/media/emoji_presentation.cpp
+    src/ui/theme/styles.cpp
+    LIBS maicord_core maicord_font maicord_unicode maicord_media_core maicord_text_catalog)
+
+# Colour bitmap glyphs (CBLC/CBDT, the emoji format of Noto Color Emoji on Debian, Ubuntu and nixpkgs) over the in-house
+# PNG decoder. Linux only: Segoe UI Emoji is COLR, which maicord_font reads on both systems.
+maicord_library(maicord_font_color
+    src/text/opentype/cbdt_font.cpp src/text/opentype/bitmap_color_raster.cpp
+    LIBS maicord_core maicord_font maicord_media_codec maicord_compression)
+
+# The colour atlas side of the renderer: paint programs on the GPU, and the upload of colour bitmap glyphs.
+maicord_library(maicord_render_colr_paint
+    src/render/effects/colr_paint.cpp
+    LIBS maicord_gpu_gles maicord_core)
 
 maicord_library(maicord_protocol
     src/protocol/messages/poll.cpp src/protocol/gateway/message_poll.cpp src/protocol/auth/browser_sign_in.cpp
@@ -213,10 +254,39 @@ maicord_library(maicord_crypto
     src/platform/crypto/openssl/hash_stream.cpp src/platform/crypto/openssl/p256.cpp
     src/platform/crypto/openssl/remote_auth_crypto.cpp
     src/platform/net/linux/tls_client.cpp
-    LIBS maicord_core)
+    LIBS maicord_core maicord_dbus)
+
+# The network layer (include/maicord/platform/net): the completion-port model on epoll with its name lookup and file
+# pools (src/platform/net/linux), and the shared TLS stream and worker on top of it.
+maicord_library(maicord_net
+    src/platform/net/linux/address.cpp src/platform/net/linux/network.cpp src/platform/net/linux/datagram.cpp
+    src/platform/net/linux/resolver.cpp src/platform/net/linux/file.cpp src/platform/net/linux/socket.cpp
+    src/platform/net/tls_stream.cpp src/platform/net/worker.cpp
+    LIBS maicord_core maicord_crypto)
 
 # The OpenGL ES GPU backend (src/gpu/gles).
 include(cmake/linux_gpu.cmake)
 
+# The shared renderer (src/render) over the GLES backend.
+include(cmake/linux_render.cmake)
+
 # The Wayland window backend (src/platform/window/wayland).
 include(cmake/linux_window.cmake)
+
+# The audio backend (src/platform/audio/pulse): libpulse behind the platform audio interfaces.
+include(cmake/linux_audio.cmake)
+
+# The in-house D-Bus client and the desktop services over it (src/platform/dbus).
+include(cmake/linux_dbus.cmake)
+
+# The .desktop file and icons a package installs (tools/generate_desktop_entry.py).
+include(cmake/linux_packaging.cmake)
+
+# The application transport and updater libraries (src/app/net, src/app/gateway, src/app/update).
+include(cmake/linux_app_libraries.cmake)
+
+# Live video decode (src/platform/decode): the software tier over libdav1d and libopenh264, VA-API, and the stream
+# decoder that drives them.
+include(cmake/linux_video.cmake)
+
+include(cmake/linux_probe.cmake) # TEMPORARY discovery

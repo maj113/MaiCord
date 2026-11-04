@@ -145,7 +145,7 @@ void application_startup_probe_first_present() noexcept {
         WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), mark.text, mark.used, &written, nullptr);
     }
     application_desktop_request_quit();
-    PostMessageW(g_app.window, WM_CLOSE, 0, 0);
+    window_request_close(g_app.window);
 }
 #endif
 

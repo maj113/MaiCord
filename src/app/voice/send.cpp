@@ -1,12 +1,13 @@
 #include "maicord/app/voice/send.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/global_keys.hpp"
 #include "send_shared.hpp"
 
 namespace maicord {
@@ -16,7 +17,7 @@ constexpr usize kEncoderOffset = (sizeof(VoiceSendShared) + 63) & ~usize{63};
 bool key_down(VoiceSendShared& s, u8 key) noexcept {
     if (!key)
         return false;
-    return s.probe ? s.probe(s.probe_context, key) : (GetAsyncKeyState(key) & 0x8000) != 0;
+    return s.probe ? s.probe(s.probe_context, key) : global_key_down(key);
 }
 void wake_worker(const VoiceSend& send) noexcept {
     // The queue publication before this check is a full barrier (s.write is interlocked), so a
@@ -120,7 +121,7 @@ VoiceUdpMediaSend connection_send(void* context, ConstSlice<u8> packet) noexcept
     return voice_connection_media_send(connection, connection->ready_revision, packet);
 }
 VoiceSocketSend connection_speaking(void* context, u32 flags) noexcept {
-    return voice_connection_speaking(static_cast<VoiceConnection*>(context), flags, GetTickCount64());
+    return voice_connection_speaking(static_cast<VoiceConnection*>(context), flags, clock_monotonic_milliseconds());
 }
 } // namespace
 

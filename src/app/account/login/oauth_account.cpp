@@ -1,6 +1,7 @@
 #include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/core/win32_process.hpp"
 
 namespace maicord {
@@ -55,7 +56,7 @@ bool oauth_account_forget(OAuthProvider provider) noexcept {
     if (!oauth_scope(provider).bytes) return false;
     wchar_t path[1024];
     if (!data_path(path, 1024, filename(provider)).ok()) return false;
-    if (DeleteFileW(path)) return true;
+    if (file_remove(path)) return true;
     const auto error = thread_last_error();
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
 }

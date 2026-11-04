@@ -7,7 +7,11 @@
 #include "maicord/protocol/http/client_user_agent.hpp"
 
 #include "maicord/platform/crypto/random.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/registry.hpp"
+#else
+#include "maicord/app/account/client_identity_linux.hpp"
+#endif
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -21,7 +25,9 @@ UserClientConfigurationResult fail(UserClientConfigurationStorage* storage, User
     return UserClientConfigurationResult{native_error, error};
 }
 
+#if defined(_WIN32)
 using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*) noexcept;
+#endif
 SRWLOCK launch_lock = SRWLOCK_INIT;
 char launch_id[kGatewayUserLaunchIdBytes + 1]{};
 char launch_signature[kGatewayUserLaunchIdBytes + 1]{};
@@ -47,6 +53,7 @@ void write_uuid(const u8* source, char* output) noexcept {
     output[destination] = 0;
 }
 
+#if defined(_WIN32)
 u32 write_os_version(const OSVERSIONINFOW& version, char* output,
                      u32 capacity) noexcept {
     const u32 required = decimal_digits(version.dwMajorVersion) + decimal_digits(version.dwMinorVersion) +
@@ -62,6 +69,7 @@ u32 write_os_version(const OSVERSIONINFOW& version, char* output,
     output[offset] = 0;
     return offset;
 }
+#endif
 
 // The locales the desktop host ships (its locales\*.pak).
 constexpr char kHostLocales[] =
@@ -152,6 +160,32 @@ u32 client_discord_locale(Utf8View host_locale, Slice<char> output) noexcept {
     return emit(utf8_literal("en-US"), output);
 }
 
+namespace {
+
+// Appends one preferred language to the Accept-Language list at output[*used], weighted *weight (0.9 down to 0.1):
+// skipped when it is no tag or is the host locale, false when it does not fit.
+bool accept_language_add(Utf8View name, Utf8View host_locale, Slice<char> output, u32* used, u32* weight) noexcept {
+    bool tag = name.bytes != 0;
+    for (u32 index = 0; index < name.bytes; ++index)
+        tag = tag && (ascii_is_alnum(name.data[index]) || name.data[index] == '-');
+    if (!tag || utf8_equal(name, host_locale))
+        return true;
+    const u32 required = 1 + name.bytes + 6;
+    if (*used + required > output.count)
+        return false;
+    output.data[(*used)++] = ',';
+    *used += emit(name, {output.data + *used, output.count - *used});
+    copy_bytes(output.data + *used, ";q=0.", 5);
+    *used += 5;
+    output.data[(*used)++] = static_cast<char>('0' + *weight);
+    if (*weight > 1)
+        --*weight;
+    return true;
+}
+
+} // namespace
+
+#if defined(_WIN32)
 u32 client_accept_language(Utf8View host_locale, const wchar_t* preferred, Slice<char> output) noexcept {
     u32 used = emit(host_locale, output);
     if (!used)
@@ -166,25 +200,28 @@ u32 client_accept_language(Utf8View host_locale, const wchar_t* preferred, Slice
                                               sizeof(language), nullptr, nullptr);
         if (bytes <= 1)
             continue;
-        const Utf8View name{language, static_cast<u32>(bytes - 1)};
-        bool tag = true;
-        for (u32 index = 0; index < name.bytes; ++index)
-            tag = tag && (ascii_is_alnum(name.data[index]) || name.data[index] == '-');
-        if (!tag || utf8_equal(name, host_locale))
-            continue;
-        const u32 required = 1 + name.bytes + 6;
-        if (used + required > output.count)
+        if (!accept_language_add({language, static_cast<u32>(bytes - 1)}, host_locale, output, &used, &weight))
             break;
-        output.data[used++] = ',';
-        used += emit(name, {output.data + used, output.count - used});
-        copy_bytes(output.data + used, ";q=0.", 5);
-        used += 5;
-        output.data[used++] = static_cast<char>('0' + weight);
-        if (weight > 1)
-            --weight;
     }
     return used;
 }
+#else
+u32 client_accept_language(Utf8View host_locale, Utf8View preferred, Slice<char> output) noexcept {
+    u32 used = emit(host_locale, output);
+    if (!used)
+        return 0;
+    u32 weight = 9;
+    for (u32 at = 0; at < preferred.bytes;) {
+        u32 end = at;
+        while (end < preferred.bytes && preferred.data[end])
+            ++end;
+        if (!accept_language_add({preferred.data + at, end - at}, host_locale, output, &used, &weight))
+            break;
+        at = end + 1;
+    }
+    return used;
+}
+#endif
 
 bool user_client_random_uuid(char* output) noexcept {
     u8 uuid[16]{};
@@ -227,6 +264,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
     copy_bytes(storage->launch_signature, launch_signature, sizeof(launch_signature));
     ReleaseSRWLockExclusive(&launch_lock);
 
+#if defined(_WIN32)
     // The host takes its locale from ICU's default, the user's format locale.
     wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
     const int locale_characters = GetUserDefaultLocaleName(locale_wide, LOCALE_NAME_MAX_LENGTH);
@@ -288,6 +326,17 @@ UserClientConfigurationResult user_client_configuration_initialize(
         kClientNativeBuildNumber,
         Utf8View{storage->launch_signature, kGatewayUserLaunchIdBytes},
     };
+#else
+    LinuxClientEnvironmentBuffer environment_buffer;
+    const LinuxClientEnvironment environment = linux_client_environment_read(&environment_buffer);
+    GatewayUserClientConfiguration configuration{};
+    const UserClientConfigurationResult host =
+        linux_client_identity_build(environment, storage, &configuration.properties);
+    if (!host.ok())
+        return fail(storage, host.error, host.native_error);
+    configuration.properties.client_launch_id = Utf8View{storage->client_launch_id, kGatewayUserLaunchIdBytes};
+    configuration.properties.launch_signature = Utf8View{storage->launch_signature, kGatewayUserLaunchIdBytes};
+#endif
     configuration.status = GatewayUserStatus::online;
     storage->configuration = configuration;
     u8 validation[kGatewayUserMaximumCommandBytes]{};

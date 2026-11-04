@@ -20,13 +20,12 @@ goes through glslangValidator and each SPIR-V through spirv-val when they are on
 import concurrent.futures
 import pathlib
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 import zlib
 
 import fetch_linux_shader_toolchain
+import glsl_translate
 import optimal_deflate
 from font_reference.embed_fixture import embed_arrays, write_if_changed
 
@@ -34,8 +33,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHADER_LIST = ROOT / 'cmake' / 'generated_sources.cmake'
 PACKED_FILE = 'maicord_shader_pack_gles.bin'
 STAGES = {'vs': 0, 'ps': 1, 'cs': 2}
-STAGE_KIND = {'vs': 'vert', 'ps': 'frag', 'cs': 'comp'}
 CACHE = optimal_deflate.DeflateCache('gles_shaders')
+GLES_VARIANTS = [('colr_layers_narrow_compute', 'colr_layers_compute', ['COLR_SLICES=2']),
+                 # Without dual-source blending the composite is drawn twice (gles/draw.cpp): once for its weight and
+                 # once for its colour, each the only output of a plain pixel shader.
+                 ('fx_composite_weight_pixel', 'fx_composite_pixel', ['MC_COMPOSITE_WEIGHT=1']),
+                 ('fx_composite_color_pixel', 'fx_composite_pixel', ['MC_COMPOSITE_COLOR=1'])]
 
 
 def shader_list():
@@ -52,64 +55,29 @@ def shader_list():
         stage = words[2][:2]
         source = words[5].replace('${maicord_shaders}', directory)
         shaders.append((words[pack + 1], stage, words[3], source, words[pack + 2:]))
+    # Variants only this backend uses, after the shaders of the ShaderId order: (name, the shader it replaces on a
+    # device that cannot run it, defines added to it). colr_layers cuts each pixel's paint plan into COLR_SLICES runs
+    # evaluated by one thread each, so its group is 8 x 8 x COLR_SLICES invocations: 512 by default, above the 128 an
+    # OpenGL ES 3.1 device has to offer; two slices fit every device and give the same picture.
+    for name, base, extra in GLES_VARIANTS:
+        original = next(shader for shader in shaders if shader[0] == base)
+        shaders.append((name, original[1], original[2], original[3], original[4] + extra))
     names = [shader[0] for shader in shaders]
     if not shaders or len(set(names)) != len(names):
         raise SystemExit('error: cannot read the packed shaders of cmake/generated_sources.cmake')
     return shaders
 
 
-def run(command, what):
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(result.stdout)
-        raise SystemExit('error: %s failed' % what)
-    return result.stdout
-
-
-def finish_glsl(text, name):
-    lines = [line.strip() for line in text.splitlines()]
-    text = '\n'.join(line for line in lines if line) + '\n'
-    if not text.startswith('#version 310 es\n'):
-        raise SystemExit('error: %s: not GLSL ES 3.10' % name)
-    return text
-
-
 def translate(shader, tools, work, validate):
     name, stage, entry, source, defines = shader
-    dxc, mc_shadertool = tools
-    spirv = work / (name + '.spv')
-    command = [str(dxc), '-spirv', '-T', stage + '_6_0', '-E', entry, '-fspv-target-env=vulkan1.1',
-               '-fvk-t-shift', '32', '0', '-fvk-s-shift', '64', '0', '-fvk-u-shift', '96', '0',
-               '-O3', '-HV', '2016']
-    for define in defines:
-        command += ['-D', define]
-    run(command + [str(ROOT / source), '-Fo', str(spirv)], 'dxc for ' + name)
-    glsl, manifest = work / (name + '.glsl'), work / (name + '.manifest')
-    run([str(mc_shadertool), str(spirv), stage, str(glsl), str(manifest)], 'mc_shadertool for ' + name)
-    text = finish_glsl(glsl.read_text(), name)
-    rows = [tuple(int(value) for value in line.split()) for line in manifest.read_text().splitlines()]
-    if validate:
-        validator = shutil.which('glslangValidator')
-        if validator:
-            minified = work / (name + '.min.' + STAGE_KIND[stage])
-            minified.write_text(text, newline='\n')
-            run([validator, str(minified)], 'glslangValidator for ' + name)
-        spirv_val = shutil.which('spirv-val')
-        if spirv_val:
-            run([spirv_val, '--target-env', 'vulkan1.1', str(spirv)], 'spirv-val for ' + name)
-    return text.encode('ascii'), rows
+    try:
+        return glsl_translate.translate_hlsl(tools, ROOT / source, entry, stage, defines, work, name,
+                                             validate=validate)
+    except glsl_translate.GlslError as error:
+        raise SystemExit('error: %s' % error)
 
 
-def zlib_best(data):
-    best = None
-    for mem in (8, 9):
-        for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
-            compressor = zlib.compressobj(9, zlib.DEFLATED, 15, mem, strategy)
-            out = compressor.compress(data) + compressor.flush()
-            if best is None or len(out) < len(best):
-                best = out
-    assert zlib.decompress(best) == data
-    return best
+zlib_best = glsl_translate.zlib_best
 
 
 def generate(shaders, results):

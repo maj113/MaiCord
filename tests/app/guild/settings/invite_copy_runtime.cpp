@@ -2,6 +2,7 @@
 // Copy Link writes the full invite URL through the clipboard sink (never the
 // user's clipboard) and confirms it with a toast. Synthetic invite codes only.
 #include "../../../../src/app/guild/settings/invites.cpp"
+#include "maicord/platform/window/win32_clipboard.hpp"
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -24,7 +25,7 @@ struct Captured {
     char text[256];
     bool refuse;
 } clip{};
-bool clip_open(void*, HWND) noexcept {
+bool clip_open(void*) noexcept {
     ++clip.opens;
     clip.publishes = 0;
     return !clip.refuse;
@@ -77,7 +78,7 @@ void run() noexcept {
     check(owner != nullptr, "invite copy: settings fixture");
     if (!owner)
         return;
-    g_app.window = reinterpret_cast<HWND>(usize{0x10}); // never opened: the sink stands in
+    g_app.window = win32_window(reinterpret_cast<HWND>(usize{0x10})); // never opened: the sink stands in
     owner->invites_loaded = true;
     owner->invite_count = 2;
     constexpr char codes[2][8]{"abc123", "Zx9"};

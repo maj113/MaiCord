@@ -16,7 +16,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
                                                                           u64 now_ms) noexcept {
     // One deadline spans the whole READY projection. No lock is
     // held while producer backpressure waits for the UI consumer.
-    runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+    runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
     // The normal-user contract is v9 and unsharded.
     if (event.ready.api_version != 9) {
         return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
@@ -71,7 +71,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
         if (projection.publication_started)
             clear_resume(runtime);
         // Owner shutdown (stop or mailbox cancel) ends the worker as before.
-        if (runtime->stopping || WaitForSingleObject(runtime->mailbox_cancel, 0) == WAIT_OBJECT_0)
+        if (runtime->stopping || wait_one(runtime->mailbox_cancel, 0) == WAIT_OBJECT_0)
             return fail_plaintext(runtime, stage);
         // A READY that cannot be projected is not an authentication
         // failure: report the categorical reason, keep the session and
@@ -147,7 +147,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         trim_message_banks(runtime);
         // Reuse the owner's deadline field during bounded envelope rescans;
         // no index growth can extend this absolute budget.
-        runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+        runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
         GatewaySessionEvent event;
         gateway_session_next(&event, &runtime->session, runtime->heartbeat_jitter, now_ms);
         runtime->mailbox_deadline_ms = 0;
@@ -324,7 +324,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             const bool vote_batch = named == Named::poll_votes;
             const bool reaction_batch = vote_batch || named == Named::reactions;
             if (reaction_batch) {
-                runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+                runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
                 const auto batch =
                     vote_batch
                         ? gateway_client_publish_poll_vote_batch(event.envelope, index, 64,
@@ -344,7 +344,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 }
                 set_decode_failure(&routed, batch.decoded);
             } else if (supplemental) {
-                runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+                runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
                 const Slice<u32> objects = object_scratch(runtime);
                 JsonValue channels{};
                 const auto decoded = gateway_decode_supplemental_private_channels(
@@ -569,7 +569,7 @@ NetworkWorkerStep drive_output_step(GatewayClient* client, GatewayClientRuntime*
     if (drive_application_output(client, runtime, now_ms) == OutboundDrive::failed)
         return fail_and_drain(client, runtime, GatewayClientError::session, 0);
     if (runtime->session.opened && !ensure_receive(runtime))
-        return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
+        return fail_and_drain(client, runtime, GatewayClientError::receive, network_last_error());
     return NetworkWorkerStep{next_worker_wait(client, runtime, now_ms), false};
 }
 
@@ -624,11 +624,11 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
             release_resolver(runtime);
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
         }
-        if (!completion.succeeded || !runtime->resolver.results) {
+        if (!completion.succeeded || runtime->resolver.address_count == 0) {
             return reconnect_or_fail(client, runtime, GatewayClientError::resolve,
                                      static_cast<u32>(completion.native_error), event.now_ms);
         }
-        runtime->next_address = runtime->resolver.results;
+        runtime->next_address = 0;
         if (!start_connect_candidate(loop, runtime)) {
             return reconnect_or_fail(client, runtime, GatewayClientError::connect, WSAEHOSTUNREACH,
                                      event.now_ms);
@@ -681,7 +681,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         runtime->send_offset += completion.transferred;
         if (runtime->send_offset < runtime->send_bytes) {
             if (!continue_send(runtime))
-                return fail_send(client, runtime, WSAGetLastError(), event.now_ms);
+                return fail_send(client, runtime, network_last_error(), event.now_ms);
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
         }
         const SendPurpose purpose = runtime->send_purpose;
@@ -699,7 +699,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
             ++runtime->self_status.revision_serial;
             ReleaseSRWLockExclusive(&runtime->subscription_lock);
             if (client->notification_event)
-                SetEvent(client->notification_event);
+                event_set(client->notification_event);
         }
         if (purpose == SendPurpose::tls_handshake) {
             if (runtime->after_tls_send == TlsHandshakeState::complete_and_send) {
@@ -716,7 +716,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
             publish_phase(client, GatewayClientPhase::awaiting_hello);
             runtime->deadline_ms = event.now_ms + kPhaseTimeoutMs;
             if (!start_receive(runtime)) {
-                return reconnect_or_fail(client, runtime, GatewayClientError::receive, WSAGetLastError(),
+                return reconnect_or_fail(client, runtime, GatewayClientError::receive, network_last_error(),
                                          event.now_ms);
             }
         } else if (purpose >= SendPurpose::pong) {
@@ -730,7 +730,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
                     return fail_and_drain(client, runtime, GatewayClientError::session, 0);
                 }
                 if (driven == PlaintextDrive::receive && !ensure_receive(runtime)) {
-                    return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
+                    return fail_and_drain(client, runtime, GatewayClientError::receive, network_last_error());
                 }
             }
         }
@@ -754,7 +754,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
             return fail_and_drain(client, runtime, GatewayClientError::session, 0);
         }
         if (driven == PlaintextDrive::receive && !ensure_receive(runtime)) {
-            return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
+            return fail_and_drain(client, runtime, GatewayClientError::receive, network_last_error());
         }
         return NetworkWorkerStep{
             driven == PlaintextDrive::hello ? INFINITE : next_worker_wait(client, runtime, event.now_ms),
@@ -770,7 +770,7 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
     if (event.kind == NetworkWorkerEventKind::started) {
         runtime->clock = clock_initialize();
         runtime->start_counter = clock_now();
-        runtime->connection.socket = INVALID_SOCKET;
+        network_connection_reset(&runtime->connection);
         if (!begin_resolution(client, runtime, loop, event.now_ms)) {
             return fail_and_drain(client, runtime, GatewayClientError::resolve, WSAEINVAL);
         }
@@ -898,11 +898,11 @@ GatewayClientResult fail_start(GatewayClient* client, GatewayClientError error, 
 // Closes the events a failed start created so far; the ones not created yet are null.
 void close_start_events(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
     if (runtime->mailbox_space)
-        CloseHandle(runtime->mailbox_space);
+        waitable_close(runtime->mailbox_space);
     if (runtime->mailbox_cancel)
-        CloseHandle(runtime->mailbox_cancel);
+        waitable_close(runtime->mailbox_cancel);
     if (client->notification_event)
-        CloseHandle(client->notification_event);
+        waitable_close(client->notification_event);
     client->notification_event = nullptr;
 }
 
@@ -989,15 +989,15 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         client->runtime = nullptr;
         return invalid_input_result();
     }
-    client->notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    client->notification_event = event_create(FALSE, FALSE);
     if (!client->notification_event) {
         const u32 native_error = thread_last_error();
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::event, native_error);
     }
-    runtime->mailbox_space = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    runtime->mailbox_space = event_create(FALSE, FALSE);
     runtime->mailbox_cancel =
-        runtime->mailbox_space ? CreateEventW(nullptr, TRUE, FALSE, nullptr) : nullptr;
+        runtime->mailbox_space ? event_create(TRUE, FALSE) : nullptr;
     if (!runtime->mailbox_space || !runtime->mailbox_cancel) {
         const u32 native_error = thread_last_error();
         close_start_events(client, runtime);

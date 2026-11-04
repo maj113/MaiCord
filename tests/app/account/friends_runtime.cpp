@@ -11,12 +11,13 @@
 #include "plugins/plugins.hpp"
 #include "maicord/app/account/account_relationships.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "../../support/application_action_captcha_stubs.hpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;
@@ -174,27 +175,17 @@ bool freed(void* pointer) noexcept {
     return pointer && VirtualQuery(pointer, &information, sizeof(information)) == sizeof(information) && information.State == MEM_FREE;
 }
 void context_menu_coordinates() noexcept {
-    // Owned, never shown: native screen/client conversion without desktop input.
-    HWND window = CreateWindowExW(0, L"STATIC", L"MaiCord Friends context fixture", WS_POPUP,
-        400, 200, 1280, 700, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
-    check(window != nullptr, "friends: owned hidden window provides context-menu coordinate fixture");
-    if (!window) return;
-    g_app.window = window;
-    POINT content{600, 150}, sidebar{100, 150};
-    const bool converted = ClientToScreen(window, &content) && ClientToScreen(window, &sidebar);
-    check(converted && application_friends_window_message(WM_CONTEXTMENU, reinterpret_cast<WPARAM>(window),
-        MAKELPARAM(content.x, content.y)) && !application_friends_window_message(WM_CONTEXTMENU, reinterpret_cast<WPARAM>(window),
-        MAKELPARAM(sidebar.x, sidebar.y)),
-        "friends: screen-coordinate context menu is swallowed in Friends content and leaves private sidebar available");
+    // Context menus arrive at content pixels; the sidebar's point is not Friends'.
+    check(application_friends_window_event(window_test::context_menu(600, 150)) && !application_friends_window_event(window_test::context_menu(100, 150)),
+        "friends: context menu is swallowed in Friends content and leaves private sidebar available");
     g_app.context_focus = &scene()->widgets;
-    check(application_friends_window_message(WM_CONTEXTMENU, reinterpret_cast<WPARAM>(window), -1),
+    check(application_friends_window_event(window_test::context_menu_key()),
         "friends: keyboard context menu is swallowed when Friends owns logical focus");
     g_app.context_focus = &g_app.shell_scene.widgets;
-    check(!application_friends_window_message(WM_CONTEXTMENU, reinterpret_cast<WPARAM>(window), -1),
+    check(!application_friends_window_event(window_test::context_menu_key()),
         "friends: keyboard context menu preserves shell/private-sidebar routing");
     g_app.context_focus = &scene()->widgets;
     g_app.window = nullptr;
-    DestroyWindow(window);
 }
 bool only_row(u64 id) noexcept {
     UiFriendsRow result{};return scene()&&scene()->source_count==1&&row(id,&result);
@@ -308,8 +299,8 @@ void search_runtime_fixture() noexcept {
     check(window!=nullptr,"friends search: owns an invisible native mouse-capture fixture");
     const auto retained=application_friends_search_target();void* history=all->history;
     if (window) {
-        g_app.window = window;
-        const auto pointer_tab = [&](UiFriendsTab value, UINT press) noexcept {
+        g_app.window = win32_window(window);
+        const auto pointer_tab = [&](UiFriendsTab value, bool second_press) noexcept {
             const auto* current = scene();
             if (!current)
                 return false;
@@ -324,26 +315,26 @@ void search_runtime_fixture() noexcept {
                 if (hit.action != UiFriendsAction::select_tab || hit.tab != value)
                     continue;
                 const auto point = MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
-                return application_friends_window_message(press, MK_LBUTTON, point) &&
-                       GetCapture() == window &&
-                       application_friends_window_message(WM_LBUTTONUP, 0, point) && GetCapture() != window;
+                return application_friends_window_event(second_press ? window_test::pointer_double(window_test::x_of(point), window_test::y_of(point)) : window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+                       window_pointer_captured(g_app.window) &&
+                       application_friends_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !window_pointer_captured(g_app.window);
             }
             return false;
         };
         check(
-            pointer_tab(UiFriendsTab::online, WM_LBUTTONDOWN) && scene()->tab == UiFriendsTab::online &&
-                pointer_tab(UiFriendsTab::all, WM_LBUTTONDBLCLK) && scene()->tab == UiFriendsTab::all,
+            pointer_tab(UiFriendsTab::online, false) && scene()->tab == UiFriendsTab::online &&
+                pointer_tab(UiFriendsTab::all, true) && scene()->tab == UiFriendsTab::all,
             "friends host: native rapid tab presses activate both releases without swallowing second down");
-        g_app.window = window;
+        g_app.window = win32_window(window);
         const auto field = ui_friends_scene_search_geometry(*scene()).field;
         const auto location = MAKELPARAM(static_cast<short>((field.left + field.right) * .5f),
                                          static_cast<short>((field.top + field.bottom) * .5f));
-        check(application_friends_window_message(WM_LBUTTONDOWN,MK_LBUTTON,location)&&GetCapture()==window&&
-            application_friends_window_message(WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(0,0)),
+        check(application_friends_window_event(window_test::pointer_down(window_test::x_of(location), window_test::y_of(location)))&&window_pointer_captured(g_app.window)&&
+            application_friends_window_event(window_test::pointer_move(0, 0, window_test::button_bit(PointerButton::left))),
             "friends search: captured selection drag continues outside center viewport");
         application_friends_hide();
-        check(GetCapture()!=window&&!text_input_ready(retained)&&
-            !application_friends_window_message(WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(0,0)),
+        check(!window_pointer_captured(g_app.window)&&!text_input_ready(retained)&&
+            !application_friends_window_event(window_test::pointer_move(0, 0, window_test::button_bit(PointerButton::left))),
             "friends search: hide releases owned mouse capture and invalidates drag and input target");
         g_app.window=nullptr;DestroyWindow(window);
     } else
@@ -476,8 +467,8 @@ void pending_sections_runtime_fixture() noexcept {
             scene()->source->resolve(scene()->source->context,2,&third)&&first.ignored&&second.ignored&&third.spam&&!third.ignored&&
             first.user_id!=second.user_id&&first.user_id!=third.user_id&&second.user_id!=third.user_id,
             "friends Pending: Other requests source orders ignored first and represents spam/ignored overlap once");
-        check(application_friends_window_message(WM_LBUTTONDOWN,0,MAKELPARAM(100,300))&&
-            application_friends_window_message(WM_LBUTTONUP,0,MAKELPARAM(100,300))&&application_friends_requests_active()&&
+        check(application_friends_window_event(window_test::pointer_down(100, 300))&&
+            application_friends_window_event(window_test::pointer_up(100, 300, PointerButton::left))&&application_friends_requests_active()&&
             main_scene()==background&&background->source_count==background_count,
             "friends Pending: modal consumes private-sidebar pointer input and preserves background projection");
         check(action(UiFriendsAction::toggle_hidden,0,UiFriendsTab::pending)&&!application_friends_requests_active()&&
@@ -699,7 +690,7 @@ void run() noexcept {
     context_menu_coordinates();
     seen.settings = true;
     check(!synthetic_input(UiInputKind::character, 'x', false) &&
-        !application_friends_window_message(WM_CONTEXTMENU, 0, MAKELPARAM(600, 150)) &&
+        !application_friends_window_event(window_test::context_menu(600, 150)) &&
         application_friends_synchronize() && seen.builds == builds && !application_friends_show(),
         "friends: opaque settings barrier suppresses Friends input and hidden text rebuild");
     seen.settings = false;
@@ -873,14 +864,14 @@ void run() noexcept {
 
 namespace maicord {
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&,float,float,u32*) noexcept {return false;}
-ClipboardTextResult clipboard_read_utf8(HWND,const Slice<char>& output) noexcept {
+ClipboardTextResult clipboard_read_utf8(const Slice<char>& output) noexcept {
     const auto& state=friends_runtime_test::seen;
     if(!output.data&&output.count)return {0,ClipboardTextError::invalid_input};
     if(state.clipboard_bytes>output.count)return {0,ClipboardTextError::capacity};
     for(u32 i=0;i<state.clipboard_bytes;++i)output[i]=state.clipboard[i];
     return {state.clipboard_bytes,ClipboardTextError::none};
 }
-bool clipboard_write_utf8(HWND,const Utf8View& text) noexcept {
+bool clipboard_write_utf8(const Utf8View& text) noexcept {
     auto& state=friends_runtime_test::seen;
     if(text.bytes>sizeof(state.clipboard)||!utf8_validate(text).valid)return false;
     for(u32 i=0;i<text.bytes;++i)state.clipboard[i]=text.data[i];state.clipboard_bytes=text.bytes;return true;
@@ -952,8 +943,6 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
     if(friends_runtime_test::seen.form.valid==validator)g_app.text_form=nullptr;
 }
-float client_dip_x(LPARAM value) noexcept { return static_cast<short>(LOWORD(value)); }
-float client_dip_y(LPARAM value) noexcept { return static_cast<short>(HIWORD(value)); }
 } // namespace app_detail
 } // namespace maicord
 

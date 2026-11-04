@@ -4,6 +4,7 @@
 #include "maicord/app/account/login/captcha_bridge.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/crypto/random.hpp"
+#include "maicord/core/time.hpp"
 namespace maicord::captcha_bridge_clock {
 // Virtual time: it moves only when the test advances it, so a stalled machine
 // never expires a deadline. Zero would mean "no deadline", hence the base.
@@ -12,9 +13,9 @@ u64 now() noexcept {
     return static_cast<u64>(ReadAcquire64(&now_ms));
 }
 } // namespace maicord::captcha_bridge_clock
-#define GetTickCount64 maicord::captcha_bridge_clock::now
+#define clock_monotonic_milliseconds maicord::captcha_bridge_clock::now
 #include "../../../../src/app/account/login/captcha_bridge.cpp"
-#undef GetTickCount64
+#undef clock_monotonic_milliseconds
 #include "maicord/app/account/login/account_action_captcha.hpp"
 #include "maicord/platform/desktop/browser_sign_in_launcher.hpp"
 
@@ -56,7 +57,8 @@ SOCKET connect_to(u16 port) noexcept {
 // its handle instead, which only this process can recreate.
 SOCKET listener_of(const CaptchaBridge& bridge) noexcept {
     const auto* runtime = static_cast<const Runtime*>(bridge.runtime);
-    return runtime ? runtime->listener : INVALID_SOCKET;
+    // A socket token is the SOCKET + 1: none (0) is INVALID_SOCKET.
+    return runtime ? static_cast<SOCKET>(runtime->listener.token - 1) : INVALID_SOCKET;
 }
 bool socket_closed(SOCKET handle) noexcept {
     sockaddr_in address{}; int bytes = sizeof(address);

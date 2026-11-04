@@ -41,6 +41,25 @@ struct DataPathResult {
 DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
                          bool create_parents = false) noexcept;
 
+// The cache and state directories (D19): for what can be created again, and for logs and state. Linux keeps them
+// apart ($XDG_CACHE_HOME/maicord, else ~/.cache/maicord; $XDG_STATE_HOME/maicord, else ~/.local/state/maicord);
+// Windows keeps everything under data_path, so these are that. Same arguments and result as data_path.
+#if defined(_WIN32)
+inline DataPathResult cache_path(wchar_t* output, u32 capacity, const wchar_t* relative,
+                                 bool create_parents = false) noexcept {
+    return data_path(output, capacity, relative, create_parents);
+}
+inline DataPathResult state_path(wchar_t* output, u32 capacity, const wchar_t* relative,
+                                 bool create_parents = false) noexcept {
+    return data_path(output, capacity, relative, create_parents);
+}
+#else
+DataPathResult cache_path(wchar_t* output, u32 capacity, const wchar_t* relative,
+                          bool create_parents = false) noexcept;
+DataPathResult state_path(wchar_t* output, u32 capacity, const wchar_t* relative,
+                          bool create_parents = false) noexcept;
+#endif
+
 // data_path(stem), then the profile id as 16 lowercase hex digits and extension: one account's file, such as
 // profile_data_path(id, path, capacity, L"accounts\\links-", L".trust"). False for profile 0 or when it does not fit.
 bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_t* stem,
@@ -49,5 +68,9 @@ bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_
 // Creates path as a directory when it is missing. True when it exists as a
 // directory; otherwise *native_error (when given) receives the Win32 error.
 bool directory_ensure(const wchar_t* path, u32* native_error = nullptr) noexcept;
+
+// The path of the running executable (GetModuleFileNameW(nullptr), /proc/self/exe). The length excluding the
+// terminator, or 0 when it fails or does not fit in capacity.
+u32 executable_path(wchar_t* output, u32 capacity) noexcept;
 
 } // namespace maicord

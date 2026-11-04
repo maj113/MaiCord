@@ -8,10 +8,11 @@
 namespace maicord::app_detail {
 // Modal controllers consume wheel input themselves, but share the ordinary
 // scroll host's timing, wheel preferences and fractional-offset policy. The
-// point is the wheel's content position from application_wheel_point.
-inline UiScrollDispatch application_modal_scroll_wheel(UiScrollBinding binding, UiPoint point, WPARAM wparam) noexcept {
-    const u32 lines = application_wheel_scroll_lines();
-    return ui_scroll_host_wheel(&g_app.scroll_host, binding, point, static_cast<short>(HIWORD(wparam)), lines,
-                                lines == WHEEL_PAGESCROLL, application_now_us(), 96.0 / maximum(g_app.renderer.dpi, 1u));
+// point is the wheel's content position (client_wheel_dip).
+inline UiScrollDispatch application_modal_scroll_wheel(UiScrollBinding binding, UiPoint point,
+                                                       const WindowEvent& event) noexcept {
+    const WheelScroll wheel_scroll = application_wheel_scroll();
+    return ui_scroll_host_wheel(&g_app.scroll_host, binding, point, static_cast<i16>(event.wheel.dy120), wheel_scroll.lines,
+                                wheel_scroll.page, application_now_us(), 96.0 / maximum(g_app.renderer.dpi, 1u));
 }
 } // namespace maicord::app_detail

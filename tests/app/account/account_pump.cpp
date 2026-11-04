@@ -871,7 +871,7 @@ void test_poll_gateway_receipts() noexcept {
     const u8 old_phase = g_app.account.last_phase;
     const auto old_source = g_app.account.api.gateway_source;
     const auto old_scope = g_app.plugin_account_scope_serial;
-    const HWND old_window = g_app.window;
+    const HWND old_window = win32_hwnd(g_app.window);
     GuildRecord guilds[1]{}; ChannelRecord channels[2]{};
     u16 guild_order[1]{}, channel_order[2]{}; u8 names[128]{}, text[1024]{};
     MessageRecord messages[2]{}; u32 order_slots[2]{}, units[2]{};
@@ -962,7 +962,7 @@ void test_poll_gateway_receipts() noexcept {
                   message_poll_store_find(ui.message_poll_store, 900)->answers[0].count == first_count + 3,
               "a single vote reusing a batch sequence is still rejected as a replay");
         constexpr auto update = utf8_literal(R"({"op":0,"s":5,"t":"MESSAGE_UPDATE","d":{"id":"900","channel_id":"70","poll":{"results":{"is_finalized":true,"answer_counts":[{"id":1,"count":7,"me_voted":false}]}}}})");
-        reset_counts(); g_app.frame_pending = false; g_app.window = reinterpret_cast<HWND>(1);
+        reset_counts(); g_app.frame_pending = false; g_app.window = win32_window(reinterpret_cast<HWND>(1));
         check(queue(update) && application_pump_account() &&
             ui.message_poll_store.revision != first_revision && g_app.frame_pending,
             "poll-only nonresident model publication requests repaint without a selected poll owner");
@@ -973,7 +973,7 @@ void test_poll_gateway_receipts() noexcept {
     g_app.account.api.gateway_source = old_source; next_status = old_status; g_app.account.status = old_actual;
     g_app.account.last_phase = old_phase;
     ui.active_channel_id = 0;
-    g_app.plugin_account_scope_serial = old_scope; g_app.window = old_window; g_app.frame_pending = false; reset_counts();
+    g_app.plugin_account_scope_serial = old_scope; g_app.window = win32_window(old_window); g_app.frame_pending = false; reset_counts();
 }
 
 u32 run_account_pump_tests() noexcept {

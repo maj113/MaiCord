@@ -1,4 +1,6 @@
 #include "../shell/overlay_input.hpp"
+#include "../shell/input.hpp"
+#include "../shell/window_events.hpp"
 #include "inbox.hpp"
 #include "../shell/cursor.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
@@ -25,7 +27,6 @@
 #include "messages/history_decode.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -634,48 +635,49 @@ bool application_inbox_scroll_to(double offset) noexcept {
     return application_inbox_active() && ui_inbox_scene_scroll(&inbox->scene, static_cast<float>(offset)) &&
            (!g_app.window || application_request_frame() != FALSE);
 }
-bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_inbox_window_event(const WindowEvent& event) noexcept {
     if (!g_app.account_ui || g_app.login.visible)
         return false;
-    if (message == WM_SETCURSOR) {
+    if (event.type == EventType::cursor_query) {
         // The open popout owns its panel; elsewhere the shell resolves as usual.
         UiPoint point{};
         if (!application_inbox_active() || !front() ||
-            !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point) ||
+            !client_cursor_dip(event, &point) ||
             !ui_inbox_scene_contains(inbox->scene, point.x, point.y))
             return false;
         application_set_cursor(ui_inbox_scene_cursor(inbox->scene, point.x, point.y));
         return true;
     }
-    if (message != WM_CAPTURECHANGED && message != WM_CANCELMODE && (message < WM_MOUSEFIRST || message > WM_MOUSELAST))
+    if (event.type != EventType::capture_lost && event.type != EventType::cancel_input && !input_pointer(event))
         return false;
-    const float scale = 96.f / g_app.renderer.dpi;
-    float x = static_cast<short>(LOWORD(lparam)) * scale;
-    float y = static_cast<short>(HIWORD(lparam)) * scale;
-    UiPoint wheel{};
-    if (message == WM_MOUSEWHEEL && application_wheel_point(lparam, &wheel)) {
+    float x = 0, y = 0;
+    if (event.type == EventType::wheel) {
+        const UiPoint wheel = client_wheel_dip(event);
         x = wheel.x;
         y = wheel.y;
+    } else if (input_pointer(event)) {
+        x = client_dip_x(event);
+        y = client_dip_y(event);
     }
     const bool header = front() && ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).inbox, x, y);
-    if (message == WM_LBUTTONDOWN && header) {
+    if (input_press(event) && header) {
         if (!ensure())
             return true;
         inbox->pressed = {UiInboxAction::none, ~u64{0}};
         inbox->captured = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         return true;
     }
     if (!inbox)
         return false;
-    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
+    if (event.type == EventType::capture_lost || event.type == EventType::cancel_input) {
         if (inbox->captured || inbox->thumb_dragging)
             release_capture();
         return false;
     }
     if (inbox->thumb_dragging) {
-        if (message == WM_MOUSEMOVE) {
-            if (!(wparam & MK_LBUTTON) || !application_inbox_active()) {
+        if (event.type == EventType::pointer_move) {
+            if (!input_held(event) || !application_inbox_active()) {
                 release_capture();
                 application_request_frame();
                 return true;
@@ -685,14 +687,14 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
                 application_inbox_scroll_to(ui_scrollbar_scroll_from_pointer(geometry, y, inbox->thumb_grab));
             return true;
         }
-        if (message == WM_LBUTTONUP) {
+        if (input_release(event)) {
             release_capture();
             application_request_frame();
             return true;
         }
     }
     const bool inside = application_inbox_active() && front() && ui_inbox_scene_contains(inbox->scene, x, y);
-    if (message == WM_LBUTTONUP && inbox->captured) {
+    if (input_release(event) && inbox->captured) {
         const auto pressed = inbox->pressed;
         const auto hit = inside ? ui_inbox_scene_hit_test(inbox->scene, x, y) : UiInboxTarget{};
         release_capture();
@@ -709,10 +711,10 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         return false;
     if (!inside) {
         // Popouts close on an outside click, letting the click through.
-        if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN) {
+        if (input_press(event) || input_press(event, PointerButton::right)) {
             application_inbox_close();
             refresh_account_frame(true);
-        } else if (message == WM_MOUSEMOVE) {
+        } else if (event.type == EventType::pointer_move) {
             bool changed = false;
             ui_inbox_scene_set_hover(&inbox->scene, -1.f, -1.f, &changed);
             if (changed)
@@ -720,13 +722,13 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         }
         return false;
     }
-    if (message == WM_MOUSEWHEEL) {
+    if (input_vertical_wheel(event)) {
         // The shared scroll host animates the popout like every other list.
-        handle_scroll_wheel(wparam, lparam);
+        handle_scroll_wheel(event);
         return true;
     }
     const auto scrollbar = ui_inbox_scene_scrollbar(inbox->scene);
-    if (message == WM_MOUSEMOVE) {
+    if (event.type == EventType::pointer_move) {
         // The covered timeline must not keep its hover-only scrollbar lit.
         update_scrollbar_hover(x, y);
         bool changed = false;
@@ -735,30 +737,31 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
             application_request_frame();
         return true;
     }
-    if (message == WM_LBUTTONDOWN && ui_scrollbar_track_hit(scrollbar, x, y)) {
+    if (input_press(event) && ui_scrollbar_track_hit(scrollbar, x, y)) {
         // Grab the thumb where it was pressed; a track press centres it.
         ui_scroll_host_cancel(&g_app.scroll_host);
         inbox->thumb_grab = ui_scrollbar_thumb_hit(scrollbar, x, y) ? y - scrollbar.thumb.top
                                                                     : ui_rect_height(scrollbar.thumb) * .5f;
         inbox->thumb_dragging = true;
-        SetCapture(g_app.window);
+        window_capture_pointer(g_app.window);
         application_inbox_scroll_to(ui_scrollbar_scroll_from_pointer(scrollbar, y, inbox->thumb_grab));
         application_request_frame();
         return true;
     }
-    if (message == WM_LBUTTONDOWN) {
+    if (input_press(event)) {
         inbox->pressed = ui_inbox_scene_hit_test(inbox->scene, x, y);
         if (inbox->pressed.action != UiInboxAction::none)
             ui_inbox_scene_focus(&inbox->scene, inbox->pressed);
         inbox->captured = true;
         g_app.context_focus = &inbox->scene.widgets;
-        SetFocus(g_app.window);
-        SetCapture(g_app.window);
+        window_focus(g_app.window);
+        window_capture_pointer(g_app.window);
         application_request_frame();
         return true;
     }
-    return message == WM_LBUTTONDBLCLK || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
-           message == WM_MBUTTONDOWN || message == WM_MBUTTONUP;
+    return input_double(event) || input_press(event, PointerButton::right) ||
+           input_release(event, PointerButton::right) || input_press(event, PointerButton::middle) ||
+           input_release(event, PointerButton::middle);
 }
 bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     if (!application_inbox_active() || !front())

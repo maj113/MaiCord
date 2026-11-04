@@ -3,6 +3,7 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {
 // Inbox popout from the header toolbar: recent mentions (paged with Load more,
@@ -16,7 +17,7 @@ void application_inbox_release() noexcept;
 // flight; tab, filters, open count and scroll position carry to the next open.
 void application_inbox_trim() noexcept;
 bool application_inbox_synchronize() noexcept;
-bool application_inbox_window_message(UINT, WPARAM, LPARAM) noexcept;
+bool application_inbox_window_event(const WindowEvent&) noexcept;
 bool application_inbox_input(UiInputKind, u32, bool repeated) noexcept;
 bool application_inbox_pending(u64 now_ms) noexcept;
 bool application_inbox_submit(u64 request_id, u64 now_ms) noexcept;

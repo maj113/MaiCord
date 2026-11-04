@@ -1,5 +1,6 @@
 #include "renderer_draw.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "renderer_interaction_state.hpp"
 #include "renderer_layout.hpp"
 #include "renderer_caption.hpp"
@@ -12,8 +13,6 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
-
-#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {
@@ -100,7 +99,7 @@ UiRect layer_clip(const D3D11Renderer& renderer, const UiRect& rect) noexcept {
     return {x + (rect.left - x) * s, y + (rect.top - y) * s, x + (rect.right - x) * s, y + (rect.bottom - y) * s};
 }
 
-bool intersect_scissor(D3D11_RECT* rectangle, const D3D11_RECT* damage) noexcept {
+bool intersect_scissor(RECT* rectangle, const RECT* damage) noexcept {
     if (damage) {
         rectangle->left = maximum(rectangle->left, damage->left);
         rectangle->top = maximum(rectangle->top, damage->top);
@@ -124,15 +123,15 @@ void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission)
     const float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     if (!draw_submission_bind_shared(submission)) {
         if (draw_submission_rebind_blend(submission))
-            context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
+            gpu_set_blend(context, pipeline.ui_blend_state, blend_factor);
         return;
     }
-    context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    context->RSSetState(pipeline.ui_rasterizer_state);
-    context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
-    context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
-    context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
+    gpu_set_render_target(context, gpu_surface_target(&renderer->graphics.surface));
+    gpu_set_strip_topology(context);
+    gpu_set_raster(context, pipeline.ui_rasterizer_state);
+    gpu_set_blend(context, pipeline.ui_blend_state, blend_factor);
+    gpu_set_constants(context, GpuStage::vertex, 0, 1, &pipeline.ui_frame_buffer);
+    gpu_set_samplers(context, GpuStage::pixel, 0, 1, &pipeline.glyph_sampler);
 }
 
 // Binds a pipeline right before its first draw in a pass, unless it is the
@@ -143,55 +142,54 @@ void select_pipeline(D3D11Renderer* renderer, DrawSubmissionState* submission, D
         return;
     auto* context = renderer->graphics.context;
     const auto& pipeline = renderer->pipeline;
-    const UINT offset = 0;
+    const u32 offset = 0;
     if (next == DrawPipeline::paint) {
         if (draw_submission_input(submission, next)) {
-            const UINT stride = sizeof(PaintQuad);
-            context->IASetInputLayout(pipeline.ui_input_layout);
-            context->IASetVertexBuffers(0, 1, &pipeline.ui_instance_buffer, &stride, &offset);
+            const u32 stride = sizeof(PaintQuad);
+            gpu_set_input_layout(context, pipeline.ui_input_layout);
+            gpu_set_vertex_buffer(context, pipeline.ui_instance_buffer, stride, offset);
         }
-        context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
+        gpu_set_shader(context, pipeline.ui_vertex_shader);
+        gpu_set_shader(context, pipeline.ui_pixel_shader);
         // Opaque gradient surfaces sample global DIP dimensions (b0) and the
         // background palette (b1) in UiPS; b1 is empty without a background.
-        ID3D11Buffer* constants[2]{pipeline.ui_frame_buffer,
-                                   pipeline.background_active ? pipeline.background_buffer : nullptr};
+        GpuBuffer* constants[2]{pipeline.ui_frame_buffer,
+                                pipeline.background_active ? pipeline.background_buffer : nullptr};
         if (draw_submission_pixel_constants(submission, true, constants[1]))
-            context->PSSetConstantBuffers(0, 2, constants);
+            gpu_set_constants(context, GpuStage::pixel, 0, 2, constants);
         if (draw_submission_views(submission, next)) {
-            ID3D11ShaderResourceView* icon_view = renderer->icon_atlas.gpu.texture_view;
-            context->PSSetShaderResources(0, 1, &icon_view);
+            GpuSrv* icon_view = renderer->icon_atlas.gpu.texture_view;
+            gpu_set_srvs(context, GpuStage::pixel, 0, 1, &icon_view);
         }
     } else if (next == DrawPipeline::glyph) {
         if (draw_submission_input(submission, next)) {
-            const UINT stride = sizeof(GlyphQuad);
-            context->IASetInputLayout(pipeline.glyph_input_layout);
-            context->IASetVertexBuffers(0, 1, &pipeline.glyph_instance_buffer, &stride, &offset);
+            const u32 stride = sizeof(GlyphQuad);
+            gpu_set_input_layout(context, pipeline.glyph_input_layout);
+            gpu_set_vertex_buffer(context, pipeline.glyph_instance_buffer, stride, offset);
         }
-        context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.glyph_pixel_shader, nullptr, 0);
+        gpu_set_shader(context, pipeline.glyph_vertex_shader);
+        gpu_set_shader(context, pipeline.glyph_pixel_shader);
         // UiBackground shares b1 with the optional glyph appearance constants.
-        ID3D11Buffer* effects = renderer->text_effect_count ? renderer->text_effect_buffer : nullptr;
+        GpuBuffer* effects = renderer->text_effect_count ? renderer->text_effect_buffer : nullptr;
         if (draw_submission_pixel_constants(submission, false, effects))
-            context->PSSetConstantBuffers(1, 1, &effects);
+            gpu_set_constants(context, GpuStage::pixel, 1, 1, &effects);
         if (draw_submission_views(submission, next)) {
-            ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
-                                                    d3d11_glyph_text_color_view(renderer->glyph_text)};
-            context->PSSetShaderResources(0, 2, glyph_views);
+            GpuSrv* glyph_views[]{renderer->glyph_text.gpu.texture_view,
+                                  d3d11_glyph_text_color_view(renderer->glyph_text)};
+            gpu_set_srvs(context, GpuStage::pixel, 0, 2, glyph_views);
         }
     } else {
         if (draw_submission_input(submission, next)) {
-            const UINT stride = sizeof(MediaQuad);
-            context->IASetInputLayout(pipeline.media_input_layout);
-            context->IASetVertexBuffers(0, 1, &pipeline.media_instance_buffer, &stride, &offset);
+            const u32 stride = sizeof(MediaQuad);
+            gpu_set_input_layout(context, pipeline.media_input_layout);
+            gpu_set_vertex_buffer(context, pipeline.media_instance_buffer, stride, offset);
         }
-        context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
+        gpu_set_shader(context, pipeline.media_vertex_shader);
+        gpu_set_shader(context, pipeline.media_pixel_shader);
         if (draw_submission_views(submission, next)) {
-            ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view,
-                                                     renderer->animation_gpu.texture_view,
-                                                     renderer->media_gpu.preview_texture_view};
-            context->PSSetShaderResources(0, 3, media_views);
+            GpuSrv* media_views[3]{renderer->media_gpu.texture_view, renderer->animation_gpu.texture_view,
+                                   renderer->media_gpu.preview_texture_view};
+            gpu_set_srvs(context, GpuStage::pixel, 0, 3, media_views);
         }
     }
 }
@@ -199,17 +197,17 @@ void select_pipeline(D3D11Renderer* renderer, DrawSubmissionState* submission, D
 void set_scissor(D3D11Renderer* renderer, DrawSubmissionState* submission, const RasterClipRect& clip) noexcept {
     if (draw_submission_scissor(submission, clip)) {
         const LONG origin = static_cast<LONG>(renderer->target_origin_y);
-        const D3D11_RECT scissor{clip.left, clip.top + origin, clip.right, clip.bottom + origin};
-        renderer->graphics.context->RSSetScissorRects(1, &scissor);
+        const GpuRect scissor{clip.left, clip.top + origin, clip.right, clip.bottom + origin};
+        gpu_set_scissor(renderer->graphics.context, scissor);
     }
 }
 
 // A batch's clip in target pixels (`*pixels`), limited to the damage
 // (`*scissor`); false when that is empty.
-bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixel_scale, const D3D11_RECT* damage,
+bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixel_scale, const RECT* damage,
                    RasterClipRect* scissor, RasterClipRect* pixels) noexcept {
     *pixels = raster_clip_rectangle(layer_clip(renderer, clip), pixel_scale, renderer.width, renderer.height);
-    D3D11_RECT rectangle{pixels->left, pixels->top, pixels->right, pixels->bottom};
+    RECT rectangle{pixels->left, pixels->top, pixels->right, pixels->bottom};
     if (!intersect_scissor(&rectangle, damage))
         return false;
     *scissor = {rectangle.left, rectangle.top, rectangle.right, rectangle.bottom};
@@ -220,13 +218,13 @@ bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixe
 // target (limited to the damage) lets neighbouring batches draw as one call.
 // The paint and media vertex shaders draw exactly each quad's rectangle; a
 // glyph text effect may move its quad, so the glyph caller rejects those.
-void widen_scissor(const D3D11Renderer& renderer, const D3D11_RECT* damage, const void* quads, u32 stride, u32 count,
+void widen_scissor(const D3D11Renderer& renderer, const RECT* damage, const void* quads, u32 stride, u32 count,
                    const RasterClipRect& pixels, float pixel_scale, u32 sign_offset,
                    RasterClipRect* scissor) noexcept {
     if (renderer.draw_layer_scale != 1 ||
         !draw_quads_within(quads, stride, count, pixels, pixel_scale, renderer.width, renderer.height, sign_offset))
         return;
-    D3D11_RECT whole{0, 0, static_cast<LONG>(renderer.width), static_cast<LONG>(renderer.height)};
+    RECT whole{0, 0, static_cast<LONG>(renderer.width), static_cast<LONG>(renderer.height)};
     if (intersect_scissor(&whole, damage))
         *scissor = {whole.left, whole.top, whole.right, whole.bottom};
 }
@@ -249,12 +247,12 @@ void draw_instances(const RunTarget& target, u32 first, u32 end) noexcept {
     D3D11Renderer* renderer = target.renderer;
     auto* context = renderer->graphics.context;
     if (first < end && first < target.prefix) {
-        context->DrawInstanced(4, minimum(end, target.prefix) - first, 0, target.prefix_base + first);
+        gpu_draw_instanced(context, 4, minimum(end, target.prefix) - first, 0, target.prefix_base + first);
         ++renderer->draw_calls_last_frame;
     }
     if (first < end && end > target.prefix) {
         const u32 from = maximum(first, target.prefix);
-        context->DrawInstanced(4, end - from, 0, target.suffix_base + (from - target.prefix));
+        gpu_draw_instanced(context, 4, end - from, 0, target.suffix_base + (from - target.prefix));
         ++renderer->draw_calls_last_frame;
     }
 }
@@ -274,8 +272,8 @@ void draw_run(const RunTarget& target, const DrawRun& run) noexcept {
     }
     const u32 first = maximum(run.first, target.moved_first), end = minimum(run.end, target.moved_end);
     draw_instances(target, run.first, first);
-    renderer->graphics.context->DrawInstanced(4, end - first, 0,
-                                              target.moved_base + (first - target.moved_first));
+    gpu_draw_instanced(renderer->graphics.context, 4, end - first, 0,
+                       target.moved_base + (first - target.moved_first));
     ++renderer->draw_calls_last_frame;
     draw_instances(target, end, run.end);
 }
@@ -291,7 +289,7 @@ void append_run(const RunTarget& target, DrawRun* run, const RasterClipRect& sci
 }
 
 bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u32 first_batch, u32 end_batch,
-                    bool upload, const D3D11_RECT* damage) noexcept {
+                    bool upload, const RECT* damage) noexcept {
     if (renderer->media_quad_count == 0) {
         return true;
     }
@@ -312,17 +310,16 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
                 return false;
             }
         }
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        const HRESULT map_result = renderer->graphics.context->Map(renderer->pipeline.media_instance_buffer,
-                                                                   0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (FAILED(map_result)) {
+        void* mapped = gpu_map(renderer->graphics.context, renderer->pipeline.media_instance_buffer, GpuMap::discard,
+                               nullptr);
+        if (!mapped) {
             log_write(LogLevel::error, "render", "media_instance_buffer_map_failed");
             return false;
         }
-        auto* destination = static_cast<MediaQuad*>(mapped.pData);
+        auto* destination = static_cast<MediaQuad*>(mapped);
         CopyMemory(destination, renderer->media_draw.quad_data,
                    static_cast<usize>(renderer->media_quad_count) * sizeof(MediaQuad));
-        renderer->graphics.context->Unmap(renderer->pipeline.media_instance_buffer, 0);
+        gpu_unmap(renderer->graphics.context, renderer->pipeline.media_instance_buffer);
         ++renderer->media_instance_uploads;
         renderer->media_upload_bytes += static_cast<u64>(renderer->media_quad_count) * sizeof(MediaQuad);
     }
@@ -346,7 +343,7 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
 }
 
 bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, const Theme& theme, u32 first_batch,
-                   u32 end_batch, bool upload, const D3D11_RECT* damage) noexcept {
+                   u32 end_batch, bool upload, const RECT* damage) noexcept {
     const bool content = renderer->content_text != nullptr;
     const u32 quad_count =
         content ? renderer->content_text->quad_count : renderer->glyph_text.title_quad_count;
@@ -388,24 +385,22 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
         const u32 first = fits ? renderer->pipeline.glyph_instance_end : 0;
         const u32 reused = fits ? kept : 0u;
         const u32 count = quad_count - reused;
-        const D3D11_MAP mode = first ? D3D11_MAP_WRITE_NO_OVERWRITE : D3D11_MAP_WRITE_DISCARD;
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        const HRESULT map_result =
-            renderer->graphics.context->Map(renderer->pipeline.glyph_instance_buffer, 0, mode, 0, &mapped);
-        if (FAILED(map_result)) {
+        const GpuMap mode = first ? GpuMap::no_overwrite : GpuMap::discard;
+        void* mapped = gpu_map(renderer->graphics.context, renderer->pipeline.glyph_instance_buffer, mode, nullptr);
+        if (!mapped) {
             log_write(LogLevel::error, "render", "glyph_instance_buffer_map_failed");
             return false;
         }
-        if (mode == D3D11_MAP_WRITE_DISCARD)
+        if (mode == GpuMap::discard)
             ++renderer->text_ring_epoch;
-        GlyphQuad* destination = static_cast<GlyphQuad*>(mapped.pData) + first;
+        GlyphQuad* destination = static_cast<GlyphQuad*>(mapped) + first;
         if (content) {
             CopyMemory(destination, text->quads + reused, static_cast<usize>(count) * sizeof(GlyphQuad));
         } else {
             const UiLayoutNode* title =
                 renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
             if (!renderer->login_visible && !title) {
-                renderer->graphics.context->Unmap(renderer->pipeline.glyph_instance_buffer, 0);
+                gpu_unmap(renderer->graphics.context, renderer->pipeline.glyph_instance_buffer);
                 return false;
             }
             const UiRect title_content =
@@ -425,7 +420,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
                 }
             }
         }
-        renderer->graphics.context->Unmap(renderer->pipeline.glyph_instance_buffer, 0);
+        gpu_unmap(renderer->graphics.context, renderer->pipeline.glyph_instance_buffer);
         renderer->pipeline.glyph_instance_end = first + count;
         ++renderer->text_instance_uploads;
         renderer->text_upload_bytes += static_cast<u64>(count) * sizeof(GlyphQuad);
@@ -490,7 +485,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
 }
 
 bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission, u32 first_batch,
-                        u32 end_batch, float pixel_scale, const D3D11_RECT* damage) noexcept {
+                        u32 end_batch, float pixel_scale, const RECT* damage) noexcept {
     if (first_batch > end_batch || end_batch > renderer->paint_stream.batch_count) {
         return false;
     }
@@ -664,15 +659,15 @@ bool shell_backdrop_media_changed(const D3D11Renderer& renderer) noexcept {
     return false;
 }
 void release_backdrop_target(D3D11Renderer* renderer) noexcept {
-    com_release(renderer->settings_backdrop_target);
-    com_release(renderer->settings_backdrop_view);
-    com_release(renderer->settings_backdrop);
+    gpu_release(renderer->settings_backdrop_target);
+    gpu_release(renderer->settings_backdrop_view);
+    gpu_release(renderer->settings_backdrop);
     renderer->settings_backdrop_valid = false;
 }
 // Clearing the swap chain target also wipes the caption; it redraws after
 // the stream.
 void clear_target(D3D11Renderer* renderer, const float color[4]) noexcept {
-    renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+    gpu_clear_rtv(renderer->graphics.context, gpu_surface_target(&renderer->graphics.surface), color);
     d3d11_renderer_caption_invalidate(renderer);
 }
 // One render target the size of the content, in the back buffer's format.
@@ -681,41 +676,24 @@ bool create_backdrop_target(D3D11Renderer* renderer) noexcept {
         renderer->settings_backdrop_height == renderer->height)
         return true;
     release_backdrop_target(renderer);
-    ID3D11Resource* source = nullptr;
-    renderer->graphics.target->GetResource(&source);
-    ID3D11Texture2D* back_buffer = nullptr;
-    const bool typed = source && SUCCEEDED(source->QueryInterface(__uuidof(ID3D11Texture2D),
-                                                                  reinterpret_cast<void**>(&back_buffer)));
-    D3D11_TEXTURE2D_DESC description{};
-    if (typed)
-        back_buffer->GetDesc(&description);
-    if (back_buffer)
-        back_buffer->Release();
-    if (source)
-        source->Release();
-    bool ok = typed && description.Width == renderer->width &&
-              description.Height == renderer->height + renderer->target_origin_y;
+    const GpuSurface& surface = renderer->graphics.surface;
+    bool ok = gpu_surface_width(&surface) == renderer->width &&
+              gpu_surface_height(&surface) == renderer->height + renderer->target_origin_y;
     if (ok) {
-        description.Height = renderer->height;
-        description.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-        description.Usage = D3D11_USAGE_DEFAULT;
-        description.CPUAccessFlags = 0;
-        description.MiscFlags = 0;
-        description.MipLevels = 1;
-        description.ArraySize = 1;
-        ok = SUCCEEDED(renderer->graphics.device->CreateTexture2D(&description, nullptr, &renderer->settings_backdrop)) &&
-             SUCCEEDED(renderer->graphics.device->CreateShaderResourceView(renderer->settings_backdrop, nullptr,
-                                                                           &renderer->settings_backdrop_view)) &&
-             SUCCEEDED(renderer->graphics.device->CreateRenderTargetView(renderer->settings_backdrop, nullptr,
-                                                                         &renderer->settings_backdrop_target));
+        GpuDevice* device = renderer->graphics.device;
+        const GpuFormat format = gpu_surface_format(&surface);
+        ok = gpu_ok(gpu_texture_create(device,
+                                       {renderer->width, renderer->height, format, GpuUsage::default_,
+                                        gpu_bind_srv | gpu_bind_rtv},
+                                       nullptr, &renderer->settings_backdrop)) &&
+             gpu_ok(gpu_srv_create(device, renderer->settings_backdrop, {GpuViewKind::texture, format},
+                                   &renderer->settings_backdrop_view)) &&
+             gpu_ok(gpu_rtv_create(device, renderer->settings_backdrop, &renderer->settings_backdrop_target));
     }
     if (ok && !renderer->settings_backdrop_quad) {
-        D3D11_BUFFER_DESC buffer{};
-        buffer.ByteWidth = sizeof(MediaQuad);
-        buffer.Usage = D3D11_USAGE_DYNAMIC;
-        buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-        buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        ok = SUCCEEDED(renderer->graphics.device->CreateBuffer(&buffer, nullptr, &renderer->settings_backdrop_quad));
+        ok = gpu_ok(gpu_buffer_create(renderer->graphics.device,
+                                      {sizeof(MediaQuad), GpuUsage::dynamic, gpu_bind_vertex, false}, nullptr,
+                                      &renderer->settings_backdrop_quad));
     }
     if (!ok) {
         release_backdrop_target(renderer);
@@ -726,7 +704,7 @@ bool create_backdrop_target(D3D11Renderer* renderer) noexcept {
     return true;
 }
 bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submission, const Theme& theme,
-                            const D3D11_RECT* damage) noexcept {
+                            const RECT* damage) noexcept {
     const bool layer = settings_layer_entrance(*renderer);
     if (!settings_modal_visible(*renderer) && !layer)
         return true;
@@ -743,10 +721,8 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
         const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
         clear_target(renderer, color);
     }
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(renderer->graphics.context->Map(renderer->settings_backdrop_quad, 0, D3D11_MAP_WRITE_DISCARD, 0,
-                                               &mapped)) ||
-        !mapped.pData)
+    void* mapped = gpu_map(renderer->graphics.context, renderer->settings_backdrop_quad, GpuMap::discard, nullptr);
+    if (!mapped)
         return false;
     const float dips = 96.f / static_cast<float>(maximum<u32>(renderer->dpi, 1));
     const float width = static_cast<float>(renderer->width) * dips;
@@ -757,36 +733,35 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
     const float progress = layer ? renderer->settings_modal_progress : 0;
     const float inset = .035f * progress;
     const UiRect shell{width * inset, height * inset, width * (1 - inset), height * (1 - inset)};
-    *static_cast<MediaQuad*>(mapped.pData) = {shell.left, shell.top, shell.right, shell.bottom, 0, 0, 1, 1,
-                                             1, 0, 0, 0, shell};
-    renderer->graphics.context->Unmap(renderer->settings_backdrop_quad, 0);
-    const UINT stride = sizeof(MediaQuad), offset = 0;
+    *static_cast<MediaQuad*>(mapped) = {shell.left, shell.top, shell.right, shell.bottom, 0, 0, 1, 1,
+                                        1, 0, 0, 0, shell};
+    gpu_unmap(renderer->graphics.context, renderer->settings_backdrop_quad);
     auto* context = renderer->graphics.context;
     // The backdrop binds its own quad and view over the shared media pipeline.
     draw_submission_reset(submission);
-    context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+    gpu_set_render_target(context, gpu_surface_target(&renderer->graphics.surface));
     const float blend_factor[4]{0, 0, 0, 0};
-    context->OMSetBlendState(renderer->pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
-    context->RSSetState(renderer->pipeline.ui_rasterizer_state);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    context->IASetInputLayout(renderer->pipeline.media_input_layout);
-    context->IASetVertexBuffers(0, 1, &renderer->settings_backdrop_quad, &stride, &offset);
-    context->VSSetShader(renderer->pipeline.media_vertex_shader, nullptr, 0);
-    context->VSSetConstantBuffers(0, 1, &renderer->pipeline.ui_frame_buffer);
-    context->PSSetShader(renderer->pipeline.media_pixel_shader, nullptr, 0);
-    ID3D11ShaderResourceView* views[3]{renderer->settings_backdrop_view, nullptr, nullptr};
-    context->PSSetShaderResources(0, 3, views);
-    context->PSSetSamplers(0, 1, &renderer->pipeline.glyph_sampler);
-    D3D11_RECT scissor{0, 0, static_cast<LONG>(renderer->width), static_cast<LONG>(renderer->height)};
+    gpu_set_blend(context, renderer->pipeline.ui_blend_state, blend_factor);
+    gpu_set_raster(context, renderer->pipeline.ui_rasterizer_state);
+    gpu_set_strip_topology(context);
+    gpu_set_input_layout(context, renderer->pipeline.media_input_layout);
+    gpu_set_vertex_buffer(context, renderer->settings_backdrop_quad, sizeof(MediaQuad), 0);
+    gpu_set_shader(context, renderer->pipeline.media_vertex_shader);
+    gpu_set_constants(context, GpuStage::vertex, 0, 1, &renderer->pipeline.ui_frame_buffer);
+    gpu_set_shader(context, renderer->pipeline.media_pixel_shader);
+    GpuSrv* views[3]{renderer->settings_backdrop_view, nullptr, nullptr};
+    gpu_set_srvs(context, GpuStage::pixel, 0, 3, views);
+    gpu_set_samplers(context, GpuStage::pixel, 0, 1, &renderer->pipeline.glyph_sampler);
+    RECT scissor{0, 0, static_cast<LONG>(renderer->width), static_cast<LONG>(renderer->height)};
     if (intersect_scissor(&scissor, damage)) {
         scissor.top += static_cast<LONG>(renderer->target_origin_y);
         scissor.bottom += static_cast<LONG>(renderer->target_origin_y);
-        context->RSSetScissorRects(1, &scissor);
-        context->DrawInstanced(4, 1, 0, 0);
+        gpu_set_scissor(context, {scissor.left, scissor.top, scissor.right, scissor.bottom});
+        gpu_draw_instanced(context, 4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
     }
-    ID3D11ShaderResourceView* null_views[3]{};
-    context->PSSetShaderResources(0, 3, null_views);
+    GpuSrv* null_views[3]{};
+    gpu_set_srvs(context, GpuStage::pixel, 0, 3, null_views);
     return true;
 }
 
@@ -825,24 +800,24 @@ namespace {
 // Draws the whole stream into the backdrop target, cleared to the theme's base.
 bool draw_stream_to_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
     const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-    ID3D11RenderTargetView* presented = renderer->graphics.target;
+    GpuRtv* presented = gpu_surface_target(&renderer->graphics.surface);
     const u32 origin = renderer->target_origin_y;
-    renderer->graphics.target = renderer->settings_backdrop_target;
+    gpu_surface_set_target(&renderer->graphics.surface, renderer->settings_backdrop_target);
     renderer_bind_target_origin(renderer, 0);
-    renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+    gpu_clear_rtv(renderer->graphics.context, gpu_surface_target(&renderer->graphics.surface), color);
     const bool drawn = d3d11_renderer_draw_stream(renderer, theme, true, true, nullptr);
-    renderer->graphics.target = presented;
+    gpu_surface_set_target(&renderer->graphics.surface, presented);
     renderer_bind_target_origin(renderer, origin);
     return drawn;
 }
 } // namespace
 
 bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !renderer->graphics.target || !renderer->login_visible ||
+    if (!renderer || !gpu_surface_target(&renderer->graphics.surface) || !renderer->login_visible ||
         !d3d11_renderer_build_paint(renderer, theme) || !create_backdrop_target(renderer))
         return false;
     const bool drawn = draw_stream_to_backdrop(renderer, theme);
-    renderer->graphics.context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+    gpu_set_render_target(renderer->graphics.context, gpu_surface_target(&renderer->graphics.surface));
     renderer->settings_backdrop_media_count = 0;
     renderer->settings_backdrop_valid = renderer->settings_backdrop_frozen = drawn;
     renderer->retained_presentation.valid = false;
@@ -850,7 +825,7 @@ bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme)
 }
 
 bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !renderer->graphics.target || !renderer->glyph_text.ready ||
+    if (!renderer || !gpu_surface_target(&renderer->graphics.surface) || !renderer->glyph_text.ready ||
         renderer->settings_backdrop_frozen || !settings_backdrop_wanted(*renderer))
         return false;
     return !renderer->settings_backdrop_stamp.valid || shell_backdrop_media_changed(*renderer) ||
@@ -858,7 +833,7 @@ bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& them
 }
 
 bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !renderer->graphics.target)
+    if (!renderer || !gpu_surface_target(&renderer->graphics.surface))
         return false;
     bool drawn = false;
     {
@@ -879,7 +854,7 @@ bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& th
             }
             if (drawn)
                 renderer->settings_backdrop_media_count = media;
-            renderer->graphics.context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+            gpu_set_render_target(renderer->graphics.context, gpu_surface_target(&renderer->graphics.surface));
         }
     }
     if (drawn) {
@@ -901,18 +876,14 @@ namespace {
 void release_stream_views(D3D11Renderer* renderer, const DrawSubmissionState& submission) noexcept {
     if (!submission.pipeline_bound)
         return;
-    ID3D11ShaderResourceView* null_views[3]{};
-    renderer->graphics.context->PSSetShaderResources(0, 3, null_views);
+    GpuSrv* null_views[3]{};
+    gpu_set_srvs(renderer->graphics.context, GpuStage::pixel, 0, 3, null_views);
 }
 bool prepare_text_effects(D3D11Renderer* renderer, u64 effect_ms) noexcept {
     if (!renderer->text_effect_buffer) {
-        D3D11_BUFFER_DESC description{};
-        description.ByteWidth = sizeof(TextEffectConstants);
-        description.Usage = D3D11_USAGE_DYNAMIC;
-        description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        if (FAILED(renderer->graphics.device->CreateBuffer(&description, nullptr,
-                                                           &renderer->text_effect_buffer)))
+        if (FAILED(gpu_buffer_create(renderer->graphics.device,
+                                     {sizeof(TextEffectConstants), GpuUsage::dynamic, gpu_bind_constant, false}, nullptr,
+                                     &renderer->text_effect_buffer)))
             return false;
         renderer->text_effect_uploaded_count = 0;
     }
@@ -920,27 +891,26 @@ bool prepare_text_effects(D3D11Renderer* renderer, u64 effect_ms) noexcept {
     const float scale = static_cast<float>(renderer->dpi) / 96.f;
     if (text_effect_upload_required(renderer->text_effects, renderer->text_effect_uploaded_count,
                                     renderer->text_effect_count, renderer->text_effect_animated, seconds, scale)) {
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(renderer->graphics.context->Map(renderer->text_effect_buffer, 0,
-                                                   D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        void* mapped = gpu_map(renderer->graphics.context, renderer->text_effect_buffer, GpuMap::discard, nullptr);
+        if (!mapped)
             return false;
         renderer->text_effects.seconds = seconds;
         renderer->text_effects.scale = scale;
-        CopyMemory(mapped.pData, &renderer->text_effects,
+        CopyMemory(mapped, &renderer->text_effects,
                    offsetof(TextEffectConstants, materials) +
                        renderer->text_effect_count * sizeof(TextEffectMaterial));
-        renderer->graphics.context->Unmap(renderer->text_effect_buffer, 0);
+        gpu_unmap(renderer->graphics.context, renderer->text_effect_buffer);
         renderer->text_effect_uploaded_count = static_cast<u8>(renderer->text_effect_count);
     }
     // The glyph pipeline binds PS b1 when it is selected.
-    renderer->graphics.context->VSSetConstantBuffers(1, 1, &renderer->text_effect_buffer);
+    gpu_set_constants(renderer->graphics.context, GpuStage::vertex, 1, 1, &renderer->text_effect_buffer);
     return true;
 }
 
 } // namespace
 
 bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, bool upload_paint,
-                                bool upload_media, const D3D11_RECT* damage, u64 effect_time_ms) noexcept {
+                                bool upload_media, const RECT* damage, u64 effect_time_ms) noexcept {
     if (!renderer || renderer->paint_stream.count > renderer->paint_stream.quad_capacity ||
         renderer->paint_stream.count > kMaxPaintQuads ||
         renderer->paint_stream.clip_count > kMaxPaintClips ||
@@ -980,23 +950,19 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     upload_paint = upload_paint || (dots.upload_pending && (dots_base > renderer->pipeline.ui_instance_capacity ||
                                                             renderer->pipeline.ui_instance_capacity - dots_base <
                                                                 dots.paint.quads));
-    D3D11_MAPPED_SUBRESOURCE step_mapped{};
+    void* step_mapped = nullptr;
     if (!upload_paint && dots.upload_pending && renderer->pipeline.ui_instance_buffer) {
-        const HRESULT mapped_result = renderer->graphics.context->Map(
-            renderer->pipeline.ui_instance_buffer, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &step_mapped);
-        if (SUCCEEDED(mapped_result) && !step_mapped.pData)
-            renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        step_mapped = gpu_map(renderer->graphics.context, renderer->pipeline.ui_instance_buffer, GpuMap::no_overwrite,
+                              nullptr);
         // A refused no-overwrite map: the whole stream uploads instead.
-        if (FAILED(mapped_result) || !step_mapped.pData) {
-            reset_value(&step_mapped);
+        if (!step_mapped)
             upload_paint = true;
-        }
     }
-    if (step_mapped.pData) {
+    if (step_mapped) {
         const usize bytes = static_cast<usize>(dots.paint.quads) * sizeof(PaintQuad);
-        CopyMemory(static_cast<PaintQuad*>(step_mapped.pData) + dots_base,
+        CopyMemory(static_cast<PaintQuad*>(step_mapped) + dots_base,
                    renderer->paint_stream.quads + dots.paint.first_quad, bytes);
-        renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        gpu_unmap(renderer->graphics.context, renderer->pipeline.ui_instance_buffer);
         dots.gpu_first = dots_base;
         dots.ring_end = dots_base + dots.paint.quads;
         dots.upload_pending = false;
@@ -1013,22 +979,20 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                     static_cast<u32>(reserved.native_error));
             return false;
         }
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        const HRESULT map_result = renderer->graphics.context->Map(renderer->pipeline.ui_instance_buffer, 0,
-                                                                   D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (FAILED(map_result)) {
+        GpuStatus map_result = kGpuOk;
+        void* mapped = gpu_map(renderer->graphics.context, renderer->pipeline.ui_instance_buffer, GpuMap::discard,
+                               &map_result);
+        if (!gpu_ok(map_result)) {
             log_write(LogLevel::error, "render", "ui_instance_buffer_map_failed");
             return false;
         }
-        if (!mapped.pData) {
-            renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        if (!mapped)
             return false;
-        }
-        auto* destination = static_cast<PaintQuad*>(mapped.pData);
+        auto* destination = static_cast<PaintQuad*>(mapped);
         if (!icon_atlas_resolve(&renderer->icon_atlas, renderer->graphics.context, renderer->paint_stream.quads,
                                 destination, renderer->paint_stream.count, renderer->dpi, icon_weight))
             log_write(LogLevel::warning, "render", "icon_atlas_raster_failed");
-        renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        gpu_unmap(renderer->graphics.context, renderer->pipeline.ui_instance_buffer);
         ++renderer->paint_instance_uploads;
         renderer->paint_upload_bytes += static_cast<u64>(renderer->paint_stream.count) * sizeof(PaintQuad);
         dots.gpu_first = dots.paint.first_quad;
@@ -1043,7 +1007,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // Uploads and compute work before this point bound over the context.
     DrawSubmissionState submission{};
     draw_submission_begin(&submission);
-    const u64 frame_ms = GetTickCount64();
+    const u64 frame_ms = clock_monotonic_milliseconds();
     // Effects are decoration: without their resources the frame draws plain.
     static_cast<void>(d3d11_effect_begin_frame(&renderer->effect, renderer->graphics.device,
                                                renderer->graphics.context, theme,

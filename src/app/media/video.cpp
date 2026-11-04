@@ -450,20 +450,20 @@ bool visible_source_at(UiPoint point, InlineMediaSource* source, const MessageRi
     }
     return false;
 }
-// Routes one pointer message into the video scene; true when a control handled it.
-bool video_scene_pointer_event(ApplicationVideo& video, UINT message, UiPoint point) noexcept {
+// Routes one pointer event into the video scene; true when a control handled it.
+bool video_scene_pointer_event(ApplicationVideo& video, VideoPointer pointer, UiPoint point) noexcept {
     auto& scene = video.ui.video;
     const auto before = ui_video_scene_paint_revision(scene);
-    note_video_pointer(video, message, point);
-    const auto kind = message == WM_LBUTTONDOWN ? UiVideoPointerEvent::down
-                      : message == WM_LBUTTONUP ? UiVideoPointerEvent::up
-                                                : UiVideoPointerEvent::move;
+    note_video_pointer(video, pointer, point);
+    const auto kind = pointer == VideoPointer::down ? UiVideoPointerEvent::down
+                      : pointer == VideoPointer::up ? UiVideoPointerEvent::up
+                                                    : UiVideoPointerEvent::move;
     const auto result = ui_video_scene_pointer(&scene, kind, point);
     if (before != ui_video_scene_paint_revision(scene))
         application_request_frame();
     if (!result.handled)
         return false;
-    if (message == WM_LBUTTONDOWN)
+    if (pointer == VideoPointer::down)
         acquire_video_focus(video);
     dispatch_video_event(video, result);
     return true;

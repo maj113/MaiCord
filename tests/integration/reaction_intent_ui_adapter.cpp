@@ -66,7 +66,7 @@ bool reaction_intent_ui_adapter_begin(HWND window, bool (*native_refresh)(void*)
     next->prior_account = g_app.account;
     next->prior_view = g_app.message_view;
     next->prior_notice = g_app.message_mutation_notice;
-    next->prior_window = g_app.window;
+    next->prior_window = win32_hwnd(g_app.window);
     next->prior_scope = g_app.plugin_account_scope_serial;
     next->prior_owner = g_app.message_history_request_owner;
     next->prior_request = g_app.primary_request_id;
@@ -81,7 +81,7 @@ bool reaction_intent_ui_adapter_begin(HWND window, bool (*native_refresh)(void*)
     g_app.account.status.profile_id = 20;
     g_app.account.api.message_reaction = submit;
     g_app.login.visible = false;
-    g_app.window = window;
+    g_app.window = win32_window(window);
     g_app.plugin_account_scope_serial = 10;
     g_app.message_view = {};
     g_app.message_mutation_notice = {};
@@ -152,7 +152,7 @@ void reaction_intent_ui_adapter_end() noexcept {
     g_app.account = prior->prior_account;
     g_app.message_view = prior->prior_view;
     g_app.message_mutation_notice = prior->prior_notice;
-    g_app.window = prior->prior_window;
+    g_app.window = win32_window(prior->prior_window);
     g_app.plugin_account_scope_serial = prior->prior_scope;
     g_app.message_history_request_owner = prior->prior_owner;
     g_app.primary_request_id = prior->prior_request;

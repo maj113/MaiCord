@@ -1,7 +1,9 @@
 #include "../chat/composer/commands.hpp"
 #include "content_point.hpp"
+#include "input.hpp"
 #include "cursor.hpp"
 #include "overlay_input.hpp"
+#include "window_events.hpp"
 #include "scrolling.hpp"
 #include "../account/profile.hpp"
 #include "../account/account_presentation.hpp"
@@ -288,22 +290,27 @@ void update_scrollbar_hover(float x, float y) noexcept {
     }
 }
 
-void track_scrollbar_pointer(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+void track_scrollbar_pointer(const WindowEvent& input) noexcept {
     UiScrollbarPointerEvent event{};
-    switch (message) {
-    case WM_MOUSEMOVE:
+    switch (input.type) {
+    case EventType::pointer_move:
         event = UiScrollbarPointerEvent::move;
         break;
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
+    case EventType::pointer_down:
+        if (input.button != static_cast<u8>(PointerButton::left))
+            return;
         event = UiScrollbarPointerEvent::press;
         break;
-    case WM_LBUTTONUP:
-    case WM_CAPTURECHANGED:
-    case WM_CANCELMODE:
+    case EventType::pointer_up:
+        if (input.button != static_cast<u8>(PointerButton::left))
+            return;
         event = UiScrollbarPointerEvent::release;
         break;
-    case WM_MOUSELEAVE:
+    case EventType::capture_lost:
+    case EventType::cancel_input:
+        event = UiScrollbarPointerEvent::release;
+        break;
+    case EventType::pointer_leave:
         event = UiScrollbarPointerEvent::leave;
         break;
     default:
@@ -311,14 +318,19 @@ void track_scrollbar_pointer(UINT message, WPARAM wparam, LPARAM lparam) noexcep
     }
     if (!g_app.renderer_ready)
         return;
-    // Content pixels: the message's point, or (a lost drag has none) the cursor, so the bar falls back to
+    // Content pixels: the event's point, or (a lost drag has none) the cursor, so the bar falls back to
     // hovering where the pointer is.
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if ((message == WM_CAPTURECHANGED || message == WM_CANCELMODE) && !application_cursor_content(&point))
-        point = {-1, -1};
+    POINT point{};
+    if (input.type == EventType::capture_lost || input.type == EventType::cancel_input) {
+        if (!application_cursor_content(&point))
+            point = {-1, -1};
+    } else if (input.type != EventType::pointer_leave) {
+        point = {static_cast<LONG>(input.pointer.x), static_cast<LONG>(input.pointer.y)};
+    }
     const float scale = 96.f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
     const float x = static_cast<float>(point.x) * scale, y = static_cast<float>(point.y) * scale;
-    const bool captured = application_pointer_captured() && (message != WM_MOUSEMOVE || (wparam & MK_LBUTTON));
+    const bool captured =
+        application_pointer_captured() && (input.type != EventType::pointer_move || input_held(input));
     const auto hot = ui_scrollbar_pointer_update(&g_app.scrollbar_pointer, g_app.renderer.paint_stream.scrollbar_tracks,
                                                  event, x, y, captured);
     if (!ui_scrollbar_hot_equal(hot, g_app.renderer.scrollbar_hot)) {
@@ -339,19 +351,16 @@ bool messages_animating() noexcept {
 }
 } // namespace
 
-bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
+bool handle_scroll_wheel(const WindowEvent& event) noexcept {
     const u64 message_scroll_before = g_app.message_view.timeline.scroll_units;
-    POINT pixel{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (!application_screen_to_content(&pixel))
-        return false;
     const double scale = 96.0 / maximum(g_app.renderer.dpi, 1u);
-    const UiPoint point{static_cast<float>(pixel.x * scale), static_cast<float>(pixel.y * scale)};
-    const u32 lines = application_wheel_scroll_lines();
-    const i32 delta = static_cast<short>(HIWORD(wparam));
+    const UiPoint point = client_wheel_dip(event);
+    const WheelScroll wheel_scroll = application_wheel_scroll();
+    const i32 delta = static_cast<i16>(event.wheel.dy120);
     const u64 now = application_now_us();
     const auto wheel = [&](u64 surface) noexcept {
         return ui_scroll_host_wheel(&g_app.scroll_host, {nullptr, surface, read_surface, write_surface}, point,
-                                    delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
+                                    delta, wheel_scroll.lines, wheel_scroll.page, now, scale);
     };
     const auto finish = [&](UiScrollDispatch result, const char* failure, bool messages_changed) noexcept {
         if (result == UiScrollDispatch::failed)
@@ -424,8 +433,8 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
         if (!tree.active)
             continue;
         const auto result =
-            ui_scroll_host_wheel_widgets(&g_app.scroll_host, tree.manager, point, delta, lines,
-                                         lines == WHEEL_PAGESCROLL, now, scale, tree.virtual_owner);
+            ui_scroll_host_wheel_widgets(&g_app.scroll_host, tree.manager, point, delta, wheel_scroll.lines,
+                                         wheel_scroll.page, now, scale, tree.virtual_owner);
         if (result != UiScrollDispatch::unhandled) {
             finish(result, "retained_scroll_dispatch_failed",
                    g_app.message_view.timeline.scroll_units != message_scroll_before);

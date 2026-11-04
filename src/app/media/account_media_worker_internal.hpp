@@ -6,7 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "account_media_video_internal.hpp"
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace account_media_worker_detail {}

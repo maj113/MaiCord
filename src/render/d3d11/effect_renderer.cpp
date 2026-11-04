@@ -4,46 +4,39 @@
 #include "effect_inputs.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/render/d3d11/shader_bytecode.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/gpu/api.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord {
 namespace {
 
 void release_timing(D3D11EffectTiming& timing) noexcept {
-    com_release(timing.disjoint);
-    com_release(timing.begin);
-    com_release(timing.end);
+    gpu_timer_release(&timing.timer);
     reset_value(&timing);
 }
 
-bool create_timing(D3D11EffectTiming& timing, ID3D11Device* device) noexcept {
-    if (timing.disjoint)
+bool create_timing(D3D11EffectTiming& timing, GpuDevice* device) noexcept {
+    if (gpu_timer_valid(timing.timer))
         return true;
-    const D3D11_QUERY_DESC disjoint{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-    const D3D11_QUERY_DESC stamp{D3D11_QUERY_TIMESTAMP, 0};
-    const bool ok = SUCCEEDED(device->CreateQuery(&disjoint, &timing.disjoint)) &&
-                    SUCCEEDED(device->CreateQuery(&stamp, &timing.begin)) &&
-                    SUCCEEDED(device->CreateQuery(&stamp, &timing.end));
+    const bool ok = SUCCEEDED(gpu_timer_create(device, &timing.timer));
     if (!ok)
         release_timing(timing);
     return ok;
 }
 
 void release_target(D3D11EffectOwner* owner) noexcept {
-    com_release(owner->target_srv);
-    com_release(owner->target_view);
-    com_release(owner->target);
+    gpu_release(owner->target_srv);
+    gpu_release(owner->target_view);
+    gpu_release(owner->target);
     owner->target_width = owner->target_height = 0;
     owner->content_valid = false;
 }
 
 void release_graph_target(D3D11EffectGraphTarget& target) noexcept {
     for (u32 plane = 0; plane < 2; ++plane) {
-        com_release(target.views[plane]);
-        com_release(target.reads[plane]);
+        gpu_release(target.views[plane]);
+        gpu_release(target.reads[plane]);
     }
     target = {};
 }
@@ -54,7 +47,7 @@ void release_graph(D3D11EffectOwner* owner, bool shaders) noexcept {
         release_graph_target(target);
     if (shaders)
         for (auto& stage : owner->graph_shaders)
-            com_release(stage.vertex);
+            gpu_release(stage.vertex);
 }
 
 // Everything but the selection: the next select (or begin_frame, after a failure) builds it again.
@@ -64,18 +57,18 @@ void release_objects(D3D11EffectOwner* owner) noexcept {
     for (auto& timing : owner->timing)
         release_timing(timing);
     for (auto*& view : owner->inputs)
-        com_release(view);
+        gpu_release(view);
     for (auto*& state : owner->blends)
-        com_release(state);
+        gpu_release(state);
     for (auto*& state : owner->samplers)
-        com_release(state);
-    com_release(owner->rasterizer);
-    com_release(owner->composite_buffer);
-    com_release(owner->frame_buffer);
-    com_release(owner->shader);
-    com_release(owner->composite_pixel);
-    com_release(owner->composite_vertex);
-    com_release(owner->target_vertex);
+        gpu_release(state);
+    gpu_release(owner->rasterizer);
+    gpu_release(owner->composite_buffer);
+    gpu_release(owner->frame_buffer);
+    gpu_release(owner->shader);
+    gpu_release(owner->composite_pixel);
+    gpu_release(owner->composite_vertex);
+    gpu_release(owner->target_vertex);
     owner->composite_bound = false;
     owner->dirty = true;
 }
@@ -85,89 +78,66 @@ void mark_idle(D3D11EffectOwner* owner) noexcept {
         *owner->marker = 0;
 }
 
-bool create_blend_states(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
+bool create_blend_states(D3D11EffectOwner* owner, GpuDevice* device) noexcept {
     // Source, destination, source alpha, destination alpha. The composite's modes first: the target holds
     // premultiplied colour, so every mode adds the source at the user's opacity (the blend factor) and weighs what
     // is behind it: normal by what the source leaves open, screen by one minus the source colour, add by one; only
     // normal composes alpha. Then a graph pass's alpha, add and premultiplied. Last the adapted screen and add: while
     // they cross-fade, the source plus what is behind weighed by the shader's second output; settled, what is behind
     // times the source.
-    static constexpr u8 kModes[8][4]{
-        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA},
-        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
-        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
-        {D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA},
-        {D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE},
-        {D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA},
-        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_SRC1_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
-        {D3D11_BLEND_ZERO, D3D11_BLEND_SRC_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE}};
+    static constexpr GpuBlendFactor kModes[8][4]{
+        {GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::blend_factor,
+         GpuBlendFactor::inv_src_alpha},
+        {GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_color, GpuBlendFactor::zero, GpuBlendFactor::one},
+        {GpuBlendFactor::blend_factor, GpuBlendFactor::one, GpuBlendFactor::zero, GpuBlendFactor::one},
+        {GpuBlendFactor::src_alpha, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha},
+        {GpuBlendFactor::one, GpuBlendFactor::one, GpuBlendFactor::one, GpuBlendFactor::one},
+        {GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha},
+        {GpuBlendFactor::blend_factor, GpuBlendFactor::src1_color, GpuBlendFactor::zero, GpuBlendFactor::one},
+        {GpuBlendFactor::zero, GpuBlendFactor::src_color, GpuBlendFactor::zero, GpuBlendFactor::one}};
     for (u32 mode = 0; mode < 8; ++mode) {
-        D3D11_BLEND_DESC description{};
-        auto& target = description.RenderTarget[0];
-        target.BlendEnable = TRUE;
-        target.SrcBlend = static_cast<D3D11_BLEND>(kModes[mode][0]);
-        target.DestBlend = static_cast<D3D11_BLEND>(kModes[mode][1]);
-        target.BlendOp = D3D11_BLEND_OP_ADD;
-        target.SrcBlendAlpha = static_cast<D3D11_BLEND>(kModes[mode][2]);
-        target.DestBlendAlpha = static_cast<D3D11_BLEND>(kModes[mode][3]);
-        target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-        target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-        if (FAILED(device->CreateBlendState(&description, &owner->blends[mode])))
+        if (FAILED(gpu_blend_create(device, {true, kModes[mode][0], kModes[mode][1], kModes[mode][2], kModes[mode][3]},
+                                    &owner->blends[mode])))
             return false;
     }
     return true;
 }
 
-bool create_sampler_states(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
+bool create_sampler_states(D3D11EffectOwner* owner, GpuDevice* device) noexcept {
     // mc_point_wrap, mc_linear_wrap, mc_linear_clamp.
-    const D3D11_FILTER filters[3]{D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT,
-                                  D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT};
-    const D3D11_TEXTURE_ADDRESS_MODE modes[3]{D3D11_TEXTURE_ADDRESS_WRAP, D3D11_TEXTURE_ADDRESS_WRAP,
-                                              D3D11_TEXTURE_ADDRESS_CLAMP};
+    const GpuSamplerDesc samplers[3]{{GpuFilter::point, GpuAddress::wrap},
+                                     {GpuFilter::linear, GpuAddress::wrap},
+                                     {GpuFilter::linear, GpuAddress::clamp}};
     for (u32 i = 0; i < 3; ++i) {
-        D3D11_SAMPLER_DESC description{};
-        description.Filter = filters[i];
-        description.AddressU = description.AddressV = description.AddressW = modes[i];
-        description.MaxLOD = 0;
-        if (FAILED(device->CreateSamplerState(&description, &owner->samplers[i])))
+        if (FAILED(gpu_sampler_create(device, samplers[i], &owner->samplers[i])))
             return false;
     }
     return true;
 }
 
-bool create_buffer(ID3D11Device* device, u32 bytes, ID3D11Buffer** buffer) noexcept {
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = bytes;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    return SUCCEEDED(device->CreateBuffer(&description, nullptr, buffer));
+bool create_buffer(GpuDevice* device, u32 bytes, GpuBuffer** buffer) noexcept {
+    return SUCCEEDED(gpu_buffer_create(device, {bytes, GpuUsage::default_, gpu_bind_constant, false}, nullptr, buffer));
 }
 
 // Shaders, states and constants: independent of the package.
-bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
+bool create_pass_objects(D3D11EffectOwner* owner, GpuDevice* device) noexcept {
     if (owner->target_vertex && owner->composite_vertex && owner->composite_pixel && owner->frame_buffer &&
         owner->composite_buffer && owner->rasterizer && owner->blends[7] && owner->samplers[2])
         return true;
     bool layout_failed = false;
-    HRESULT result = owner->target_vertex ? S_OK
-                                          : shader_create_vertex(device, ShaderId::fx_target_vertex, {},
-                                                                 &owner->target_vertex, nullptr, &layout_failed);
+    GpuStatus result = owner->target_vertex ? S_OK
+                                          : gpu_vertex_shader_create(device, ShaderId::fx_target_vertex, {},
+                                                                     &owner->target_vertex, nullptr, &layout_failed);
     if (SUCCEEDED(result) && !owner->composite_vertex)
-        result = shader_create_vertex(device, ShaderId::fx_composite_vertex, {}, &owner->composite_vertex, nullptr,
-                                      &layout_failed);
+        result = gpu_vertex_shader_create(device, ShaderId::fx_composite_vertex, {}, &owner->composite_vertex,
+                                          nullptr, &layout_failed);
     if (SUCCEEDED(result) && !owner->composite_pixel)
-        result = shader_create_pixel(device, ShaderId::fx_composite_pixel, &owner->composite_pixel);
+        result = gpu_pixel_shader_create(device, ShaderId::fx_composite_pixel, &owner->composite_pixel);
     bool ok = SUCCEEDED(result) && (owner->frame_buffer || create_buffer(device, sizeof(EffectFrameConstants), &owner->frame_buffer)) &&
               (owner->composite_buffer ||
                create_buffer(device, sizeof(EffectCompositeConstants), &owner->composite_buffer));
     if (ok && !owner->rasterizer) {
-        D3D11_RASTERIZER_DESC description{};
-        description.FillMode = D3D11_FILL_SOLID;
-        description.CullMode = D3D11_CULL_NONE;
-        description.DepthClipEnable = TRUE;
-        // The strips are scissored.
-        description.ScissorEnable = TRUE;
-        ok = SUCCEEDED(device->CreateRasterizerState(&description, &owner->rasterizer));
+        ok = SUCCEEDED(gpu_raster_create(device, &owner->rasterizer));
     }
     ok = ok && (owner->blends[7] || create_blend_states(owner, device)) &&
          (owner->samplers[2] || create_sampler_states(owner, device));
@@ -178,33 +148,26 @@ bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept
 
 // A render target cleared to transparent black, with a shader view when `read` is given; the texture stays with
 // the views unless `keep` takes it. False leaves what was made in the outputs, for the caller to release.
-bool make_target(ID3D11Device* device, ID3D11DeviceContext* context, u32 width, u32 height, DXGI_FORMAT format,
-                 ID3D11RenderTargetView** view, ID3D11ShaderResourceView** read, ID3D11Texture2D** keep) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = width;
-    description.Height = height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = format;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET | (read ? D3D11_BIND_SHADER_RESOURCE : 0u);
-    ID3D11Texture2D* texture = nullptr;
-    const bool ok = SUCCEEDED(device->CreateTexture2D(&description, nullptr, &texture)) &&
-                    SUCCEEDED(device->CreateRenderTargetView(texture, nullptr, view)) &&
-                    (!read || SUCCEEDED(device->CreateShaderResourceView(texture, nullptr, read)));
+bool make_target(GpuDevice* device, GpuContext* context, u32 width, u32 height, GpuFormat format,
+                 GpuRtv** view, GpuSrv** read, GpuTexture** keep) noexcept {
+    GpuTexture* texture = nullptr;
+    const u8 bind = read ? static_cast<u8>(gpu_bind_rtv | gpu_bind_srv) : static_cast<u8>(gpu_bind_rtv);
+    const bool ok = SUCCEEDED(gpu_texture_create(device, {width, height, format, GpuUsage::default_, bind}, nullptr,
+                                                 &texture)) &&
+                    SUCCEEDED(gpu_rtv_create(device, texture, view)) &&
+                    (!read || SUCCEEDED(gpu_srv_create(device, texture, {GpuViewKind::texture, format}, read)));
     if (ok) {
         const float clear[4]{};
-        context->ClearRenderTargetView(*view, clear);
+        gpu_clear_rtv(context, *view, clear);
     }
     if (keep)
         *keep = texture;
     else
-        com_release(texture);
+        gpu_release(texture);
     return ok;
 }
 
-bool ensure_target(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context, u32 width,
+bool ensure_target(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context, u32 width,
                    u32 height) noexcept {
     const u32 bucket = kD3D11EffectTargetBucket;
     const u32 allocated_width = (width + bucket - 1) / bucket * bucket;
@@ -213,7 +176,7 @@ bool ensure_target(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCo
         return true;
     release_target(owner);
     // Unused texels beyond the viewport stay transparent.
-    if (!make_target(device, context, allocated_width, allocated_height, DXGI_FORMAT_R8G8B8A8_UNORM,
+    if (!make_target(device, context, allocated_width, allocated_height, GpuFormat::rgba8,
                      &owner->target_view, &owner->target_srv, &owner->target)) {
         release_target(owner);
         return false;
@@ -224,10 +187,9 @@ bool ensure_target(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCo
 }
 
 // The graph's targets for an output of `width` x `height`: a target whose size changes is made again, cleared.
-bool ensure_graph(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context, u32 width,
+bool ensure_graph(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context, u32 width,
                   u32 height) noexcept {
-    static constexpr DXGI_FORMAT kFormats[3]{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT,
-                                             DXGI_FORMAT_R32G32B32A32_FLOAT};
+    static constexpr GpuFormat kFormats[3]{GpuFormat::rgba8, GpuFormat::rgba16f, GpuFormat::rgba32f};
     for (u32 i = 0; i < owner->graph.target_count; ++i) {
         const EffectGraphTarget& spec = owner->graph.targets[i];
         D3D11EffectGraphTarget& target = owner->graph_targets[i];
@@ -249,32 +211,32 @@ bool ensure_graph(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCon
 }
 
 // Binds the pass's shaders, inputs and samplers (everything but the viewport, target and constants' content).
-void bind_pass(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    context->IASetInputLayout(nullptr);
-    context->RSSetState(owner->rasterizer);
-    context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFFu);
-    context->VSSetShader(owner->target_vertex, nullptr, 0);
-    context->PSSetShader(owner->shader, nullptr, 0);
-    context->PSSetConstantBuffers(0, 1, &owner->frame_buffer);
-    context->PSSetSamplers(0, 3, owner->samplers);
-    context->PSSetShaderResources(0, kD3D11EffectInputs, owner->inputs);
+void bind_pass(D3D11EffectOwner* owner, GpuContext* context) noexcept {
+    gpu_set_strip_topology(context);
+    gpu_set_input_layout(context, nullptr);
+    gpu_set_raster(context, owner->rasterizer);
+    gpu_set_blend(context, nullptr, nullptr);
+    gpu_set_shader(context, owner->target_vertex);
+    gpu_set_shader(context, owner->shader);
+    gpu_set_constants(context, GpuStage::pixel, 0, 1, &owner->frame_buffer);
+    gpu_set_samplers(context, GpuStage::pixel, 0, 3, owner->samplers);
+    gpu_set_srvs(context, GpuStage::pixel, 0, kD3D11EffectInputs, owner->inputs);
 }
 
 // The pass's draws: the whole target in kD3D11EffectStrips horizontal strips, so no single draw runs long.
-void draw_strips(ID3D11DeviceContext* context, u32 width, u32 height) noexcept {
+void draw_strips(GpuContext* context, u32 width, u32 height) noexcept {
     const u32 strip = (height + kD3D11EffectStrips - 1) / kD3D11EffectStrips;
     for (u32 top = 0; top < height; top += strip) {
-        const D3D11_RECT scissor{0, static_cast<LONG>(top), static_cast<LONG>(width),
-                                 static_cast<LONG>(minimum(top + strip, height))};
-        context->RSSetScissorRects(1, &scissor);
-        context->Draw(4, 0);
+        const GpuRect scissor{0, static_cast<i32>(top), static_cast<i32>(width),
+                              static_cast<i32>(minimum(top + strip, height))};
+        gpu_set_scissor(context, scissor);
+        gpu_draw(context, 4, 0);
     }
 }
 
 // One frame into `view` (the output, `width` x `height`): the package's pixel shader over it, or each pass of the
 // graph in order. A graph's vertex shaders see what its pixel shaders see.
-void draw_frame(D3D11EffectOwner* owner, ID3D11DeviceContext* context, ID3D11RenderTargetView* view, u32 width,
+void draw_frame(D3D11EffectOwner* owner, GpuContext* context, GpuRtv* view, u32 width,
                 u32 height, EffectFrameConstants& constants) noexcept {
     static constexpr EffectGraphPass kSingle{0, 0, kEffectGraphOutput, 0, EffectPassBlend::opaque,
                                              EffectPassDraw::screen, false, {}};
@@ -282,16 +244,16 @@ void draw_frame(D3D11EffectOwner* owner, ID3D11DeviceContext* context, ID3D11Ren
     const bool graphed = graph.pass_count != 0;
     bind_pass(owner, context);
     if (graphed) {
-        context->VSSetConstantBuffers(0, 1, &owner->frame_buffer);
-        context->VSSetSamplers(0, 3, owner->samplers);
-        context->VSSetShaderResources(0, kD3D11EffectInputs, owner->inputs);
+        gpu_set_constants(context, GpuStage::vertex, 0, 1, &owner->frame_buffer);
+        gpu_set_samplers(context, GpuStage::vertex, 0, 3, owner->samplers);
+        gpu_set_srvs(context, GpuStage::vertex, 0, kD3D11EffectInputs, owner->inputs);
     }
     for (u32 i = 0; i < (graphed ? graph.pass_count : 1u); ++i) {
         const EffectGraphPass& pass = graphed ? graph.passes[i] : kSingle;
-        ID3D11RenderTargetView* target = view;
+        GpuRtv* target = view;
         u32 target_width = width, target_height = height, swap = 0;
         D3D11EffectGraphTarget* written = nullptr;
-        ID3D11ShaderResourceView* reads[kEffectGraphTargets]{};
+        GpuSrv* reads[kEffectGraphTargets]{};
         for (u32 t = 0; t < graph.target_count; ++t)
             if (pass.inputs >> t & 1)
                 reads[t] = owner->graph_targets[t].reads[owner->graph_targets[t].current];
@@ -305,52 +267,51 @@ void draw_frame(D3D11EffectOwner* owner, ID3D11DeviceContext* context, ID3D11Ren
         }
         if (graphed) {
             // The last pass's inputs leave before their texture can be this pass's target.
-            ID3D11ShaderResourceView* none[kEffectGraphTargets]{};
-            context->PSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, none);
-            context->VSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, none);
+            GpuSrv* none[kEffectGraphTargets]{};
+            gpu_set_srvs(context, GpuStage::pixel, kD3D11EffectInputs, kEffectGraphTargets, none);
+            gpu_set_srvs(context, GpuStage::vertex, kD3D11EffectInputs, kEffectGraphTargets, none);
         }
-        context->OMSetRenderTargets(1, &target, nullptr);
-        const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(target_width), static_cast<float>(target_height), 0, 1};
-        context->RSSetViewports(1, &viewport);
+        gpu_set_render_target(context, target);
+        gpu_set_viewport(context, 0, 0, static_cast<float>(target_width), static_cast<float>(target_height));
         if (graphed) {
             const float clear[4]{};
             if (pass.clear)
-                context->ClearRenderTargetView(target, clear);
-            context->PSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, reads);
-            context->VSSetShaderResources(kD3D11EffectInputs, kEffectGraphTargets, reads);
-            context->VSSetShader(pass.vertex ? owner->graph_shaders[pass.vertex].vertex : owner->target_vertex, nullptr, 0);
-            context->PSSetShader(pass.pixel ? owner->graph_shaders[pass.pixel].pixel : owner->shader, nullptr, 0);
-            context->OMSetBlendState(pass.blend == EffectPassBlend::opaque ? nullptr
-                                                                           : owner->blends[2 + static_cast<u32>(pass.blend)],
-                                     nullptr, 0xFFFFFFFFu);
+                gpu_clear_rtv(context, target, clear);
+            gpu_set_srvs(context, GpuStage::pixel, kD3D11EffectInputs, kEffectGraphTargets, reads);
+            gpu_set_srvs(context, GpuStage::vertex, kD3D11EffectInputs, kEffectGraphTargets, reads);
+            gpu_set_shader(context, pass.vertex ? owner->graph_shaders[pass.vertex].vertex : owner->target_vertex);
+            gpu_set_shader(context, pass.pixel ? owner->graph_shaders[pass.pixel].pixel : owner->shader);
+            gpu_set_blend(context,
+                          pass.blend == EffectPassBlend::opaque ? nullptr
+                                                                : owner->blends[2 + static_cast<u32>(pass.blend)],
+                          nullptr);
             constants.pass[0] = static_cast<float>(target_width);
             constants.pass[1] = static_cast<float>(target_height);
             constants.pass[2] = static_cast<float>(pass.count[0]);
             constants.pass[3] = static_cast<float>(pass.count[1]);
         }
-        context->UpdateSubresource(owner->frame_buffer, 0, nullptr, &constants, 0, 0);
+        gpu_update_buffer(context, owner->frame_buffer, &constants, sizeof(constants));
         if (pass.draw == EffectPassDraw::screen) {
             draw_strips(context, target_width, target_height);
         } else {
             // grid(W, H): a strip of 2W vertices per row of cells; quads(N): N strips of four.
-            const D3D11_RECT scissor{0, 0, static_cast<LONG>(target_width), static_cast<LONG>(target_height)};
+            const GpuRect scissor{0, 0, static_cast<i32>(target_width), static_cast<i32>(target_height)};
             const bool grid = pass.draw == EffectPassDraw::grid;
-            context->RSSetScissorRects(1, &scissor);
-            context->DrawInstanced(grid ? 2u * pass.count[0] : 4u, grid ? pass.count[1] - 1u : pass.count[0], 0, 0);
+            gpu_set_scissor(context, scissor);
+            gpu_draw_instanced(context, grid ? 2u * pass.count[0] : 4u, grid ? pass.count[1] - 1u : pass.count[0], 0, 0);
         }
         if (written)
             written->current ^= swap;
     }
 }
 
-void unbind_pass(ID3D11DeviceContext* context, bool graph) noexcept {
+void unbind_pass(GpuContext* context, bool graph) noexcept {
     constexpr u32 kSlots = kD3D11EffectInputs + kEffectGraphTargets;
-    ID3D11ShaderResourceView* views[kSlots]{};
-    context->PSSetShaderResources(0, graph ? kSlots : kD3D11EffectInputs, views);
+    GpuSrv* views[kSlots]{};
+    gpu_set_srvs(context, GpuStage::pixel, 0, graph ? kSlots : kD3D11EffectInputs, views);
     if (graph)
-        context->VSSetShaderResources(0, kSlots, views);
-    ID3D11RenderTargetView* none = nullptr;
-    context->OMSetRenderTargets(1, &none, nullptr);
+        gpu_set_srvs(context, GpuStage::vertex, 0, kSlots, views);
+    gpu_set_render_target(context, nullptr);
 }
 
 float budget_ms(const EffectSettings& settings) noexcept {
@@ -359,30 +320,21 @@ float budget_ms(const EffectSettings& settings) noexcept {
 
 // Reads finished frames without flushing; a frame still in flight stays for a later call. Feeds the budget
 // controller; an overload turns the effect off.
-void collect(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
+void collect(D3D11EffectOwner* owner, GpuContext* context) noexcept {
     bool pending = false;
     for (auto& timing : owner->timing) {
         if (!timing.pending)
             continue;
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-        const HRESULT state =
-            context->GetData(timing.disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-        u64 begin = 0, end = 0;
-        HRESULT a = S_OK, b = S_OK;
-        if (state != S_FALSE && SUCCEEDED(state)) {
-            a = context->GetData(timing.begin, &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-            b = context->GetData(timing.end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-        }
-        if (state == S_FALSE || a == S_FALSE || b == S_FALSE) {
+        double gpu_milliseconds = 0;
+        const GpuPoll polled = gpu_timer_poll(context, &timing.timer, false, &gpu_milliseconds);
+        if (polled == GpuPoll::pending) {
             pending = true;
             continue;
         }
         timing.pending = false;
-        if (FAILED(state) || FAILED(a) || FAILED(b) || disjoint.Disjoint || !disjoint.Frequency || end < begin ||
-            !owner->selected || timing.identity != owner->identity)
+        if (polled == GpuPoll::invalid || !owner->selected || timing.identity != owner->identity)
             continue;
-        const float gpu_ms = static_cast<float>(static_cast<double>(end - begin) * 1000.0 /
-                                                static_cast<double>(disjoint.Frequency));
+        const float gpu_ms = static_cast<float>(gpu_milliseconds);
         switch (effect_budget_sample(&owner->budget, gpu_ms, budget_ms(owner->settings), timing.frame_ms)) {
         case EffectBudgetAction::step_down:
         case EffectBudgetAction::step_up:
@@ -408,12 +360,12 @@ void collect(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
 // One frame time (ms) of the package (its whole graph) on a `width` x `height` output, or a negative value when
 // the device cannot time it. Runs frames synchronously (selection is a cold path) and gives the GPU a bounded
 // time to answer.
-float probe_size(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context, u32 width,
+float probe_size(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context, u32 width,
                  u32 height) noexcept {
-    ID3D11RenderTargetView* view = nullptr;
+    GpuRtv* view = nullptr;
     float result = -1;
     D3D11EffectTiming timing{};
-    if (make_target(device, context, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, &view, nullptr, nullptr) &&
+    if (make_target(device, context, width, height, GpuFormat::rgba8, &view, nullptr, nullptr) &&
         ensure_graph(owner, device, context, width, height) && create_timing(timing, device)) {
         EffectFrameConstants constants{};
         constants.dip = 1;
@@ -429,36 +381,30 @@ float probe_size(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceCont
         for (u32 frame = 0; frame <= kTimedFrames; ++frame) {
             constants.time = constants.frame = static_cast<float>(frame);
             if (frame == 1) {
-                context->Begin(timing.disjoint);
-                context->End(timing.begin);
+                gpu_timer_begin(context, &timing.timer);
             }
             draw_frame(owner, context, view, width, height, constants);
         }
-        context->End(timing.end);
-        context->End(timing.disjoint);
+        gpu_timer_end(context, &timing.timer);
         unbind_pass(context, owner->graph.pass_count != 0);
-        context->Flush();
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-        u64 begin = 0, end = 0;
-        const u64 deadline = GetTickCount64() + 250;
-        HRESULT state = S_FALSE;
-        while ((state = context->GetData(timing.disjoint, &disjoint, sizeof(disjoint), 0)) == S_FALSE &&
-               GetTickCount64() < deadline)
-            Sleep(1);
-        if (state == S_OK && !disjoint.Disjoint && disjoint.Frequency &&
-            context->GetData(timing.begin, &begin, sizeof(begin), 0) == S_OK &&
-            context->GetData(timing.end, &end, sizeof(end), 0) == S_OK && end >= begin)
-            result = static_cast<float>(static_cast<double>(end - begin) * 1000.0 /
-                                        static_cast<double>(disjoint.Frequency) / kTimedFrames);
+        gpu_flush(context);
+        double milliseconds = 0;
+        const u64 deadline = clock_monotonic_milliseconds() + 250;
+        GpuPoll polled = GpuPoll::pending;
+        while ((polled = gpu_timer_poll(context, &timing.timer, true, &milliseconds)) == GpuPoll::pending &&
+               clock_monotonic_milliseconds() < deadline)
+            thread_sleep(1);
+        if (polled == GpuPoll::ready)
+            result = static_cast<float>(milliseconds / kTimedFrames);
     }
     release_timing(timing);
-    com_release(view);
+    gpu_release(view);
     return result;
 }
 
 // Fits the frame time at two sizes. False when the device could not time them: the effect then starts at
 // the user's resolution and the controller does the rest.
-bool run_probe(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
+bool run_probe(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context) noexcept {
     constexpr u32 kSmallWidth = 64, kSmallHeight = 36, kLargeWidth = 192, kLargeHeight = 108;
     const float small = probe_size(owner, device, context, kSmallWidth, kSmallHeight);
     const float large = small >= 0 ? probe_size(owner, device, context, kLargeWidth, kLargeHeight) : -1.f;
@@ -486,11 +432,11 @@ bool bytes_same(const void* a, const void* b, usize bytes) noexcept { return byt
 
 } // namespace
 
-EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context,
+EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
                                        const BackgroundEffectSpec& spec, const EffectSettings& settings,
-                                       u64 adapter_key, ID3D11ShaderResourceView* glyph_view, u32 window_width,
+                                       u64 adapter_key, GpuSrv* glyph_view, u32 window_width,
                                        u32 window_height) noexcept {
-    const auto result = [](HRESULT error, EffectSelect state) noexcept { return EffectSelectResult{error, state}; };
+    const auto result = [](GpuStatus error, EffectSelect state) noexcept { return EffectSelectResult{error, state}; };
     if (!owner || !device || !context || !spec.identity || !spec.bytecode.data || !spec.bytecode.count ||
         !effect_settings_valid(settings) || (spec.uses & ~static_cast<u32>(effect_use_all)) ||
         static_cast<u8>(spec.blend) > 2 || !window_width || !window_height)
@@ -523,30 +469,29 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
     if (!create_pass_objects(owner, device))
         return result(E_FAIL, EffectSelect::rejected);
     const EffectGraph* graph = spec.graph && spec.shaders ? spec.graph : nullptr;
-    ID3D11PixelShader* shader = nullptr;
+    GpuPixelShader* shader = nullptr;
     D3D11EffectStage stages[kEffectGraphShaders]{};
-    ID3D11ShaderResourceView* inputs[kD3D11EffectInputs]{};
-    HRESULT made = device->CreatePixelShader(spec.bytecode.data, spec.bytecode.count, nullptr, &shader);
+    GpuSrv* inputs[kD3D11EffectInputs]{};
+    GpuStatus made = gpu_pixel_shader_create_blob(device, spec.bytecode, &shader);
     for (u32 i = 1; graph && SUCCEEDED(made) && i < minimum<u32>(graph->shader_count, kEffectGraphShaders); ++i) {
-        const ConstSlice<u8>& code = spec.shaders[i];
         made = graph->vertex_shaders >> i & 1
-                   ? device->CreateVertexShader(code.data, code.count, nullptr, &stages[i].vertex)
-                   : device->CreatePixelShader(code.data, code.count, nullptr, &stages[i].pixel);
+                   ? gpu_vertex_shader_create_blob(device, spec.shaders[i], &stages[i].vertex)
+                   : gpu_pixel_shader_create_blob(device, spec.shaders[i], &stages[i].pixel);
     }
     if (SUCCEEDED(made))
         made = effect_inputs_create(device, spec, glyph_view, inputs);
     if (FAILED(made)) {
-        com_release(shader);
+        gpu_release(shader);
         for (auto& stage : stages)
-            com_release(stage.vertex);
+            gpu_release(stage.vertex);
         d3d11_effect_clear(owner);
         return result(made, EffectSelect::rejected);
     }
     for (u32 i = 0; i < kD3D11EffectInputs; ++i) {
-        com_release(owner->inputs[i]);
+        gpu_release(owner->inputs[i]);
         owner->inputs[i] = inputs[i];
     }
-    com_release(owner->shader);
+    gpu_release(owner->shader);
     owner->shader = shader;
     copy_bytes(owner->graph_shaders, stages, sizeof(stages));
     owner->graph = graph ? *graph : EffectGraph{};
@@ -581,9 +526,9 @@ bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
     if (!owner || !owner->selected)
         return false;
     // The shaders and the inputs belong to the package; the pass's own objects stay for the next one.
-    com_release(owner->shader);
+    gpu_release(owner->shader);
     for (auto*& view : owner->inputs)
-        com_release(view);
+        gpu_release(view);
     release_target(owner);
     release_graph(owner, true);
     owner->graph = {};
@@ -604,7 +549,7 @@ void d3d11_effect_set_pointer(D3D11EffectOwner* owner, float x, float y) noexcep
     }
 }
 
-bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context,
+bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
                               const Theme& theme, float phase, bool clock_running, u32 content_width,
                               u32 content_height, u32 caption_height, u32 dpi, bool live_resize, u64 now_ms) noexcept {
     if (!owner || !device || !context)
@@ -683,16 +628,14 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
         auto& timing = owner->timing[owner->timing_cursor];
         const bool timed = !timing.pending && create_timing(timing, device);
         // Slot 0 may still hold the target from the last frame's canvases.
-        ID3D11ShaderResourceView* none = nullptr;
-        context->PSSetShaderResources(0, 1, &none);
+        GpuSrv* none = nullptr;
+        gpu_set_srvs(context, GpuStage::pixel, 0, 1, &none);
         if (timed) {
-            context->Begin(timing.disjoint);
-            context->End(timing.begin);
+            gpu_timer_begin(context, &timing.timer);
         }
         draw_frame(owner, context, owner->target_view, used_width, used_height, constants);
         if (timed) {
-            context->End(timing.end);
-            context->End(timing.disjoint);
+            gpu_timer_end(context, &timing.timer);
             timing.identity = owner->identity;
             timing.frame_ms = now_ms;
             timing.pending = true;
@@ -707,7 +650,7 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
     return true;
 }
 
-bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, UiRect canvas, u32 quad_index,
+bool d3d11_effect_draw(D3D11EffectOwner* owner, GpuContext* context, UiRect canvas, u32 quad_index,
                        float tile_radius) noexcept {
     if (!owner || !context || !owner->active)
         return false;
@@ -757,32 +700,32 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, Ui
                                              factor,
                                              static_cast<float>(blend),
                                              {}};
-    context->UpdateSubresource(owner->composite_buffer, 0, nullptr, &constants, 0, 0);
+    gpu_update_buffer(context, owner->composite_buffer, &constants, sizeof(constants));
     // The strip topology, the layer transform and the bilinear sampler stay: the vertex shader reads only SV_VertexID.
-    context->VSSetShader(owner->composite_vertex, nullptr, 0);
+    gpu_set_shader(context, owner->composite_vertex);
     if (!owner->composite_bound) {
-        context->VSSetConstantBuffers(2, 1, &owner->composite_buffer);
+        gpu_set_constants(context, GpuStage::vertex, 2, 1, &owner->composite_buffer);
         owner->composite_bound = true;
     }
-    context->PSSetShader(owner->composite_pixel, nullptr, 0);
-    context->PSSetConstantBuffers(0, 1, &owner->composite_buffer);
-    context->PSSetShaderResources(0, 1, &owner->target_srv);
+    gpu_set_shader(context, owner->composite_pixel);
+    gpu_set_constants(context, GpuStage::pixel, 0, 1, &owner->composite_buffer);
+    gpu_set_srvs(context, GpuStage::pixel, 0, 1, &owner->target_srv);
     const float blend_factor[4]{factor, factor, factor, factor};
     // Adapted, screen and add take their light from the background: while they cross-fade the shader's second
     // output weighs it, and once settled a plain multiply does.
     const u32 state = light > 0 && blend != 0 ? (light < 1 ? 6u : 7u) : blend;
-    context->OMSetBlendState(owner->blends[state], blend_factor, 0xFFFFFFFFu);
-    context->Draw(4, 0);
+    gpu_set_blend(context, owner->blends[state], blend_factor);
+    gpu_draw(context, 4, 0);
     ++owner->draws_last_frame;
     return true;
 }
 
-void d3d11_effect_end_frame(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
+void d3d11_effect_end_frame(D3D11EffectOwner* owner, GpuContext* context) noexcept {
     if (!owner || !context || !owner->draws_last_frame)
         return;
     // Leave no view of the target bound: the next frame renders into it.
-    ID3D11ShaderResourceView* none = nullptr;
-    context->PSSetShaderResources(0, 1, &none);
+    GpuSrv* none = nullptr;
+    gpu_set_srvs(context, GpuStage::pixel, 0, 1, &none);
 }
 
 void d3d11_effect_release_device(D3D11EffectOwner* owner) noexcept {

@@ -140,6 +140,28 @@ void test_data_path_relative_xdg() noexcept {
            "data_path_relative_xdg_ignored");
 }
 
+// XDG_CACHE_HOME and XDG_STATE_HOME are set (absolute): each names its own root, apart from the data root.
+void test_cache_state_xdg() noexcept {
+    wchar_t path[256]{};
+    expect(cache_path(path, 256, L"fonts\\index.bin").ok() &&
+               wide_equal_text(path, "/maicord-xdg-test/cache/maicord/fonts/index.bin"),
+           "cache_path_xdg_cache_home");
+    expect(state_path(path, 256, L"logs/maicord.log").ok() &&
+               wide_equal_text(path, "/maicord-xdg-test/state/maicord/logs/maicord.log"),
+           "state_path_xdg_state_home");
+    expect(!cache_path(path, 8, nullptr).ok(), "cache_path_capacity");
+}
+
+// Both unset, or relative: $HOME/.cache/maicord and $HOME/.local/state/maicord.
+void test_cache_state_home() noexcept {
+    wchar_t path[256]{};
+    expect(cache_path(path, 256, nullptr).ok() && wide_equal_text(path, "/maicord-home-test/.cache/maicord"),
+           "cache_path_home_fallback");
+    expect(state_path(path, 256, L"logs").ok() &&
+               wide_equal_text(path, "/maicord-home-test/.local/state/maicord/logs"),
+           "state_path_home_fallback");
+}
+
 // Directories are created from a private XDG_DATA_HOME ("test-profile" in its path): every ancestor of the file,
 // the data root included, and an existing directory is accepted again.
 void test_data_path_create() noexcept {
@@ -194,6 +216,10 @@ MAICORD_TEST_ENTRY(maicord_linux_runtime_entry) {
         test_data_path_home();
     } else if (text_equal(mode, "--data-path-relative-xdg")) {
         test_data_path_relative_xdg();
+    } else if (text_equal(mode, "--cache-state-xdg")) {
+        test_cache_state_xdg();
+    } else if (text_equal(mode, "--cache-state-home")) {
+        test_cache_state_home();
     } else if (text_equal(mode, "--data-path-create")) {
         test_data_path_create();
     } else {

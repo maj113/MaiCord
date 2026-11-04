@@ -27,7 +27,6 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
@@ -433,7 +432,7 @@ bool queue_manual(ApplicationReadState& o, ReadActionSource source) noexcept {
                                               source.channel_id, source.message_id);
     refresh_message_composer_ui();
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
     return synchronize_navigation_view();
 }
 } // namespace
@@ -475,11 +474,9 @@ bool application_read_state_eligible() noexcept {
         false};
     if (!read_ack_automatic_eligible(visibility))
         return false;
-    LASTINPUTINFO input{sizeof(input), 0};
-    if (!GetLastInputInfo(&input))
-        return false;
     const u64 now = clock_monotonic_milliseconds();
-    const u32 system_idle = GetTickCount() - input.dwTime;
+    // Where the system cannot tell how long the user has been away, only the application's own activity decides.
+    const u32 system_idle = platform_settings_read().system_idle_ms;
     const bool locally_idle =
         !g_app.read_last_activity_ms ||
         (now >= g_app.read_last_activity_ms && now - g_app.read_last_activity_ms >= 600'000);
@@ -566,7 +563,7 @@ bool application_read_state_mark(u64 channel_id, bool immediate) noexcept {
                                        desired.flags))
         return false;
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
     return synchronize_navigation_view();
 }
 bool application_read_state_message_unread_available(u64 message_id) noexcept {

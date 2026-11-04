@@ -39,3 +39,10 @@
 
 # Shell scripts run in Linux (WSL): LF in the working tree on every platform.
 *.sh text eol=lf
+
+# Zone files of the time zone tests (no extension).
+tests/fixtures/zoneinfo/** binary
+
+# Hunspell dictionary fixtures.
+tests/fixtures/hunspell/*.aff text eol=lf
+tests/fixtures/hunspell/*.dic text eol=lf

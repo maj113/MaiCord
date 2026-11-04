@@ -4,6 +4,7 @@
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/date_format.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
@@ -821,7 +822,7 @@ void build_calendar() noexcept {
             bytes = text.bytes;
         } else {
             wchar_t wide[32]{};
-            bytes = wide_label(wide, GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &day, L"ddd, MMM d", wide, 32, nullptr),
+            bytes = wide_label(wide, format_date(LOCALE_NAME_USER_DEFAULT, 0, &day, L"ddd, MMM d", wide, 32),
                                p.day_labels[d], sizeof(p.day_labels[d]));
         }
         p.day_views[d] = {p.day_labels[d], bytes};
@@ -834,7 +835,7 @@ void build_calendar() noexcept {
         time.wHour = static_cast<WORD>(t / 2);
         time.wMinute = static_cast<WORD>(t % 2 * 30);
         wchar_t wide[24]{};
-        const int units = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, wide, 24);
+        const int units = format_time(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, wide, 24);
         p.time_views[t] = {p.time_labels[t], wide_label(wide, units, p.time_labels[t], sizeof(p.time_labels[t]))};
     }
     // The next half hour, an hour ahead, as the official client's default.

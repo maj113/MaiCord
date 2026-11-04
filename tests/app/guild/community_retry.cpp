@@ -89,7 +89,7 @@ u64 settings_layer_next_wake(const SettingsLayer&) noexcept {
 bool settings_layer_input(SettingsLayer*, UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool settings_layer_window_message(SettingsLayer*, UINT, WPARAM, LPARAM) noexcept {
+bool settings_layer_window_event(SettingsLayer*, const WindowEvent&) noexcept {
     return false;
 }
 UiRect settings_layer_edit_bounds(SettingsLayer*) noexcept {

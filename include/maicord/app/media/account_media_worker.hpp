@@ -3,6 +3,7 @@
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/media/account_video_playback.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
@@ -82,7 +83,7 @@ struct AccountMediaWorkerLane {
     u32 collection_title_committed;
     u64 completed_content_identity;
     AccountMediaWorker* owner;
-    HANDLE thread;
+    Thread* thread;
     HANDLE command_event;
     // The UI holds this lock through fence registration. The worker takes
     // cleanup ownership only after the registration call returns.

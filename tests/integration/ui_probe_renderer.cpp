@@ -1,4 +1,5 @@
 #include "ui_probe_internal.hpp"
+#include "probe_surface.hpp"
 #include "standalone_title_geometry.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/text/edit_menu.hpp"
@@ -307,10 +308,11 @@ bool once_requested() noexcept {
 }
 
 bool device_owner_empty(const D3D11DeviceOwner& owner) noexcept {
-    return !owner.device && !owner.context && !owner.context1 && !owner.swap_chain &&
-           !owner.composition_device && !owner.composition_target && !owner.composition_visual &&
-           !owner.target && !owner.frame_latency_waitable && owner.buffer_width == 0 &&
-           owner.buffer_height == 0 && owner.resize_buffer_reallocations == 0;
+    const GpuSurface& surface = owner.surface;
+    return !owner.device && !owner.context && !owner.context1 && !surface.swap_chain &&
+           !surface.composition_device && !surface.composition_target && !surface.composition_visual &&
+           !surface.target && !surface.frame_latency_waitable && surface.buffer_width == 0 &&
+           surface.buffer_height == 0 && surface.resize_buffer_reallocations == 0;
 }
 
 } // namespace ui_probe_detail
@@ -322,7 +324,7 @@ bool default_frame_latency_is_one(const D3D11DeviceOwner& owner) noexcept {
     IDXGISwapChain2* swap_chain = nullptr;
     UINT latency = 0;
     const bool queried =
-        SUCCEEDED(owner.swap_chain->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&swap_chain))) &&
+        SUCCEEDED(owner.surface.swap_chain->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&swap_chain))) &&
         SUCCEEDED(swap_chain->GetMaximumFrameLatency(&latency));
     com_release(swap_chain);
     return queried && latency == 1;
@@ -334,10 +336,11 @@ namespace ui_probe_detail {
 
 bool device_owner_ready(const D3D11Renderer& renderer) noexcept {
     const D3D11DeviceOwner& owner = renderer.graphics;
-    return owner.device && owner.context && owner.context1 && owner.swap_chain &&
-           owner.composition_device && owner.composition_target && owner.composition_visual &&
-           owner.target && owner.frame_latency_waitable && owner.buffer_width == renderer.width &&
-           owner.buffer_height == renderer.height && default_frame_latency_is_one(owner);
+    const GpuSurface& surface = owner.surface;
+    return owner.device && owner.context && owner.context1 && surface.swap_chain &&
+           surface.composition_device && surface.composition_target && surface.composition_visual &&
+           surface.target && surface.frame_latency_waitable && surface.buffer_width == renderer.width &&
+           surface.buffer_height == renderer.height && default_frame_latency_is_one(owner);
 }
 
 bool draw_pipeline_empty(const D3D11DrawPipelineOwner& owner) noexcept {
@@ -425,7 +428,7 @@ bool run_resize_stress() noexcept {
     constexpr LONG kFinalWidth = kInitialWidth;
     constexpr LONG kFinalHeight = 360;
     const u32 clipped_updates_before = g_probe.renderer.resize_clipped_updates;
-    const u32 reallocations_before = g_probe.renderer.graphics.resize_buffer_reallocations;
+    const u32 reallocations_before = g_probe.renderer.graphics.surface.resize_buffer_reallocations;
     const u32 resize_messages_before = g_probe.resize_messages;
     const u32 paint_messages_before = g_probe.paint_messages;
     const u32 painted_frames_before = g_probe.renderer.painted_frames;
@@ -486,11 +489,11 @@ bool run_resize_stress() noexcept {
     // A client that still fits the buffers is clipped, never reallocated:
     // shrinking and returning to the initial size keeps the original chain.
     if (g_probe.renderer.resize_clipped_updates - clipped_updates_before != kSteps ||
-        g_probe.renderer.graphics.resize_buffer_reallocations != reallocations_before) {
+        g_probe.renderer.graphics.surface.resize_buffer_reallocations != reallocations_before) {
         log_u64(LogLevel::error, "probe", "resize_clipped_updates",
                 g_probe.renderer.resize_clipped_updates - clipped_updates_before);
         log_u64(LogLevel::error, "probe", "resize_buffer_reallocations",
-                g_probe.renderer.graphics.resize_buffer_reallocations - reallocations_before);
+                g_probe.renderer.graphics.surface.resize_buffer_reallocations - reallocations_before);
         g_probe.failure_stage =
             g_probe.renderer.resize_clipped_updates - clipped_updates_before != kSteps ? 115 : 116;
         return false;
@@ -528,7 +531,7 @@ bool initialize_probe_renderer() noexcept {
     QueryPerformanceFrequency(&frequency);
     QueryThreadCycleTime(GetCurrentThread(), &first_cycles);
     QueryPerformanceCounter(&begin);
-    const bool result = renderer_initialize(&g_probe.renderer, g_probe.window, true);
+    const bool result = renderer_initialize(&g_probe.renderer, probe_window_surface(g_probe.window), true);
     QueryPerformanceCounter(&end);
     QueryThreadCycleTime(GetCurrentThread(), &last_cycles);
     log_u64(LogLevel::info, "bootstrap", "renderer_init_us",
@@ -549,7 +552,7 @@ bool probe_bootstrap_title() noexcept {
             !renderer_bind_ui_scene(&renderer, &g_probe.shell_scene))
             return false;
         const float clear[]{0, 0, 0, 1};
-        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
         return d3d11_renderer_draw_stream(&renderer, kDefaultTheme, true, true, nullptr, 10000);
     };
     // Exercise a DPI change before any visible title, then first draw and reuse.

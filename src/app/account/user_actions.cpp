@@ -24,14 +24,13 @@
 #include "maicord/platform/audio/speech.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/protocol/guild/admin.hpp"
-#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 #include "../plugins/plugins.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/account/user_context_menu.hpp"
 #include "account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -132,7 +131,7 @@ UserNoteStore* notes() noexcept {
 }
 void wake() noexcept {
     if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+        window_wake(g_app.window);
 }
 u32 format_id(u64 value, char* out) noexcept {
     return message_context_format_snowflake(value, {out, 20});

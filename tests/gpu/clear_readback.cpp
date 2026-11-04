@@ -263,8 +263,8 @@ void test_buffers_and_refusals(GpuDevice* device, GpuContext* context) noexcept 
     check(gpu_ok(gpu_buffer_create(device, {1024, GpuUsage::default_, gpu_bind_srv | gpu_bind_uav, true}, nullptr, &raw)),
           "raw buffer");
     if (raw) {
-        check(gpu_ok(gpu_srv_create(device, raw, {GpuViewKind::buffer_raw, GpuFormat::r32_uint}, &raw_view)) &&
-                  gpu_ok(gpu_uav_create(device, raw, &raw_uav)),
+        check(gpu_ok(gpu_srv_create(device, raw, {GpuViewKind::buffer_raw, GpuFormat::r32_uint, 1024 / 4}, &raw_view)) &&
+                  gpu_ok(gpu_uav_create(device, raw, 1024 / 4, &raw_uav)),
               "raw buffer views");
         gpu_release(raw_view);
         gpu_release(raw_uav);

@@ -1,6 +1,6 @@
 #include "maicord/platform/audio/notification_audio.hpp"
-#include "maicord/core/win32_kernel.hpp"
-#include "../../../src/platform/audio/endpoint_watch.hpp"
+#include "maicord/os/wait.hpp"
+#include "maicord/platform/audio/endpoint_watch.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -17,13 +17,15 @@ bool gain(void* context,float nominal,float* out) noexcept {
     if(b.phase!=1)return false;b.phase=2;*out=nominal*b.volume;return true;
 }
 bool same_samples(const i16* a,const i16* b,u32 count) noexcept {return bytes_equal(a,b,count*sizeof(i16));}
-struct BlockedBank {HANDLE entered{},unblock{};};
+struct BlockedBank {Waitable entered{},unblock{};};
 bool blocked_resolve(void* context,u32,NotificationAudioClip*) noexcept {
-    auto& bank=*static_cast<BlockedBank*>(context);SetEvent(bank.entered);
+    auto& bank=*static_cast<BlockedBank*>(context);event_set(bank.entered);
     // Bounded synthetic asset stall; always rejects the clip, so the worker
     // never reaches CoCreateInstance(MMDeviceEnumerator), endpoint or playback.
-    WaitForSingleObject(bank.unblock,2000);return false;
+    wait_one(bank.unblock,2000);return false;
 }
+// The transport error a failed stop reports (HRESULT E_FAIL on Windows); any value serves on Linux.
+constexpr u32 kStreamFailure=0x80004005u;
 }
 void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noexcept {
     using Error=NotificationAudioError;
@@ -44,12 +46,12 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     failure_status.desired_epoch=2;failure_status.observed_epoch=1;
     failure_status.queued=4;failure_status.outstanding=5;
     failure_status.error=Error::resolve;failure_status.native_error=17;
-    check(!notification_audio_record_stream_failure(&failure_status,1,static_cast<u32>(E_FAIL))&&
+    check(!notification_audio_record_stream_failure(&failure_status,1,kStreamFailure)&&
         failure_status.desired_epoch==2&&failure_status.observed_epoch==1&&failure_status.queued==4&&
         failure_status.outstanding==5&&failure_status.error==Error::resolve&&failure_status.native_error==17,
         "notification late old-stream close failure cannot contaminate the new epoch or its accepted requests");
-    check(notification_audio_record_stream_failure(&failure_status,2,static_cast<u32>(E_FAIL))&&
-        failure_status.error==Error::stream&&failure_status.native_error==static_cast<u32>(E_FAIL)&&
+    check(notification_audio_record_stream_failure(&failure_status,2,kStreamFailure)&&
+        failure_status.error==Error::stream&&failure_status.native_error==kStreamFailure&&
         failure_status.queued==4&&failure_status.outstanding==5&&
         !notification_audio_record_stream_failure(&failure_status,0,0)&&
         !notification_audio_record_stream_failure(nullptr,2,0),
@@ -223,13 +225,13 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     // Static callback context remains alive even if an exceptional join failure
     // makes the test retain its live worker/resources for the failing harness.
     static BlockedBank blocked{};
-    blocked={CreateEventW(nullptr,TRUE,FALSE,nullptr),CreateEventW(nullptr,TRUE,FALSE,nullptr)};
+    blocked={event_create(true,false),event_create(true,false)};
     check(blocked.entered&&blocked.unblock,"notification nonemitting worker test owns two synchronization acknowledgments");
-    if(!blocked.entered||!blocked.unblock){if(blocked.entered)CloseHandle(blocked.entered);if(blocked.unblock)CloseHandle(blocked.unblock);return;}
+    if(!blocked.entered||!blocked.unblock){if(blocked.entered)waitable_close(blocked.entered);if(blocked.unblock)waitable_close(blocked.unblock);return;}
     config={};config.resolve=blocked_resolve;config.context=&blocked;
     const bool initialized=notification_audio_initialize(&owner,config).ok();
     const auto started=initialized?notification_audio_submit(&owner,{1,1,0.4f,{}}):NotificationAudioResult{Error::invalid_input};
-    const bool entered=started.ok()&&WaitForSingleObject(blocked.entered,1000)==WAIT_OBJECT_0;
+    const bool entered=started.ok()&&wait_one(blocked.entered,1000)==WAIT_OBJECT_0;
     check(entered,"notification worker acknowledges entering resolver before any native audio device creation");
     if(entered){
         bool admitted=true;
@@ -248,12 +250,12 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
             !notification_audio_can_accept(&owner,1),
             "notification stop timeout retains worker, four exact handles, metadata and resolver context instead of freeing live storage");
     }
-    SetEvent(blocked.unblock);
+    event_set(blocked.unblock);
     // No sleeps: the release waits on the actual thread's completion handle.
     const auto joined=notification_audio_release(&owner,1000);
     check(joined.ok()&&!owner.runtime&&!notification_audio_owned_handles(&owner),
         "notification acknowledged worker exit permits exact attached-handle teardown with no device or playback");
-    if(joined.ok()){CloseHandle(blocked.entered);CloseHandle(blocked.unblock);}
+    if(joined.ok()){waitable_close(blocked.entered);waitable_close(blocked.unblock);}
     // If an exceptional join failure occurs, retain the context/events rather
     // than close a handle under a live callback; test harness must fail/exit.
 }
@@ -263,6 +265,7 @@ namespace maicord {
 namespace notification_audio_entry {u32 failures;
 void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_tests_entry() noexcept {
-    maicord::test_native_notification_audio(maicord::notification_audio_entry::check);ExitProcess(maicord::notification_audio_entry::failures?1:0);
+MAICORD_TEST_ENTRY(maicord_notification_audio_tests_entry) {
+    maicord::test_native_notification_audio(maicord::notification_audio_entry::check);
+    maicord::test_exit(maicord::notification_audio_entry::failures,"maicord_notification_audio");
 }

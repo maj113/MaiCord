@@ -28,3 +28,106 @@ add_custom_command(
 set_source_files_properties(src/model/guild/permission_grid.cpp PROPERTIES
     OBJECT_DEPENDS "${MAICORD_PERMISSION_GRID_PACK}"
     COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+set_source_files_properties(src/app/account/game_detection.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_GAME_PACK}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+# The emoji catalog and pools, the icon pack, the regional flags, the settings catalog and the built-in command index:
+# packed by the same tools as the Windows build, each consumed by one unit (#embed of the .bin files written beside
+# the include).
+set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_EMOJI_CATALOG_INCLUDE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_unicode_emoji_catalog.py"
+        --canonical-include
+        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/unicode_emoji_16.inc"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}"
+    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/text/unicode_emoji_16.inc src/ui/text/emoji_shortcodes.inc
+    VERBATIM)
+set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
+set(MAICORD_EMOJI_POOL_PACKED "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_packed.bin")
+add_custom_command(
+    OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
+    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
+        tools/optimal_deflate.py tools/deflate_cache.txt "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
+    VERBATIM)
+set_source_files_properties(src/ui/text/emoji_catalog.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE};${MAICORD_EMOJI_POOL_INCLUDE}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+file(GLOB MAICORD_ICON_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons/*.svg"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original/*.svg")
+set(MAICORD_ICON_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack.inc")
+set(MAICORD_ICON_PACK_DATA "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_data.bin")
+set(MAICORD_ICON_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_packed.bin")
+add_custom_command(
+    OUTPUT "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
+        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
+        --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
+        --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
+        --output "${MAICORD_ICON_PACK_INCLUDE}"
+    DEPENDS tools/generate_icon_pack.py tools/optimal_deflate.py tools/deflate_cache.txt tools/font_reference/embed_fixture.py
+        include/maicord/ui/widgets/icon_ids.inc
+        ${MAICORD_ICON_SOURCES}
+    VERBATIM)
+set_source_files_properties(src/ui/widgets/icon_pack.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_ICON_PACK_INCLUDE}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
+set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
+set(MAICORD_REGIONAL_FLAG_PACKED "${MAICORD_GENERATED_DIRECTORY}/regional_flag_packed.bin")
+add_custom_command(
+    OUTPUT "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_REGIONAL_FLAG_PACKED}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    DEPENDS tools/generate_regional_flag_bundle.py tools/optimal_deflate.py tools/deflate_cache.txt
+        tools/font_reference/embed_fixture.py
+        ${MAICORD_REGIONAL_FLAG_SOURCES}
+    VERBATIM)
+set_source_files_properties(src/app/media/regional_flag_assets.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+set(MAICORD_SETTINGS_CATALOG_PACK "${MAICORD_GENERATED_DIRECTORY}/settings_catalog_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_SETTINGS_CATALOG_PACK}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_settings_catalog.py" "${MAICORD_SETTINGS_CATALOG_PACK}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/settings/catalog_data.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/settings/catalog.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/scene.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/schema.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
+    DEPENDS tools/pack_settings_catalog.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+        src/app/settings/catalog_data.inc
+        src/app/settings/catalog.hpp include/maicord/ui/settings/scene.hpp include/maicord/ui/settings/schema.hpp
+        include/maicord/ui/widgets/icon_ids.inc
+    VERBATIM)
+set_source_files_properties(src/app/settings/catalog.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_SETTINGS_CATALOG_PACK}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+set(MAICORD_BUILTIN_COMMANDS_PACK "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_BUILTIN_COMMANDS_PACK}"
+    BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_packed.bin"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_text_blobs.py" "${MAICORD_GENERATED_DIRECTORY}"
+        "BuiltinCommands=${CMAKE_CURRENT_SOURCE_DIR}/src/app/chat/composer/builtin_commands.json"
+    DEPENDS tools/pack_text_blobs.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+        src/app/chat/composer/builtin_commands.json
+    VERBATIM)
+set_source_files_properties(src/app/chat/composer/builtin_commands.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_BUILTIN_COMMANDS_PACK}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")

@@ -1,5 +1,6 @@
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -211,7 +212,7 @@ ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     if (controller->request_epoch != controller->epoch || !controller->viewer->active) {
         return stale_response(controller);
     }
-    const u64 now = GetTickCount64();
+    const u64 now = clock_monotonic_milliseconds();
     if (!response.transport_ok()) {
         return retry_or_fail(controller, now, 0, ReactionViewerControllerError::transport);
     }
