@@ -30,6 +30,12 @@ has the same rules in more detail.
   incremental and `python tools/check_sources.py` can parse changed files and
   every unit including a changed header without building. Finish with a
   normal run to restore the clean directory.
+- The Linux port (`src/core` first) builds only with `tools/build_linux.sh`, run in WSL by
+  `tools\build_linux.ps1`: stock clang and ld.lld 23, `-nostdinc` with the kernel and glibc interface in
+  `include/maicord/sys/linux`, ELF images audited by `tools/audit_elf.py`. Its build directory is `~/mc-build`
+  on ext4 (never under `/mnt`), emptied after each run unless `--keep`. The Windows build, its toolchain and every
+  rule above stay as they are: code the Windows build compiles must not change for the port, and
+  `python tools/compare_pe.py OLD.exe NEW.exe` proves it by comparing two builds section by section.
 
 ## Code rules
 

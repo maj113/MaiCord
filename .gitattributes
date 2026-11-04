@@ -36,3 +36,6 @@
 *.bin binary
 *.zip binary
 *.sig binary
+
+# Shell scripts run in Linux (WSL): LF in the working tree on every platform.
+*.sh text eol=lf

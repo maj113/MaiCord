@@ -3,7 +3,9 @@
 #include "maicord/core/base.hpp"
 
 #include "maicord/core/interlocked.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
+#endif
 
 namespace maicord {
 
@@ -19,9 +21,9 @@ template <typename T, u32 Capacity> struct SpscQueue {
     static_assert(Capacity < 0x80000000u);
 
     T items[Capacity];
-    volatile LONG read_sequence;
+    volatile Atomic32 read_sequence;
     u8 read_padding[60];
-    volatile LONG write_sequence;
+    volatile Atomic32 write_sequence;
     u8 write_padding[60];
 };
 
@@ -36,7 +38,7 @@ bool spsc_queue_push(SpscQueue<T, Capacity>* queue, const T& value) noexcept {
         return false;
     }
     queue->items[write & (Capacity - 1)] = value;
-    write_release(&queue->write_sequence, static_cast<LONG>(write + 1));
+    write_release(&queue->write_sequence, static_cast<Atomic32>(write + 1));
     return true;
 }
 
@@ -51,7 +53,7 @@ bool spsc_queue_pop(SpscQueue<T, Capacity>* queue, T* output) noexcept {
         return false;
     }
     *output = queue->items[read & (Capacity - 1)];
-    write_release(&queue->read_sequence, static_cast<LONG>(read + 1));
+    write_release(&queue->read_sequence, static_cast<Atomic32>(read + 1));
     return true;
 }
 

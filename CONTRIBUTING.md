@@ -47,6 +47,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
   reconfigures the build directory from scratch. Visual Studio still supplies
   the Windows SDK, MASM (`ml64`), `rc`, `mt` and `dumpbin`.
 
+### Linux (in progress)
+
+The Linux port builds the core library and its tests, nothing more yet. Run
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build_linux.ps1 -Test` (or `tools/build_linux.sh
+--test` inside WSL): the script rsyncs the tree to ext4, builds with clang and ld.lld 23 into `~/mc-build`, runs
+`tools/audit_elf.py` on the images and the Linux tests, and empties the build directory afterwards (`--keep` /
+`-KeepIntermediates` keeps it). Its header documents the layout and decisions. Platform code lives in
+`src/core/linux` and `include/maicord/sys/linux`; shared headers choose between the two with `#if defined(_WIN32)`
+and the Windows branch stays byte-for-byte the code it was. Shared code uses the portable wrappers in
+`include/maicord/core` (`intrinsics.hpp`, `virtual_memory.hpp`, `interlocked.hpp`) instead of MSVC intrinsics.
+
 ### The toolchain release
 
 Local builds and CI (`.github/actions/setup-toolchain/action.yml`, used by

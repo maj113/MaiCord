@@ -1,7 +1,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
@@ -102,9 +102,7 @@ struct ScanState {
 enum class ChunkResult : u8 { ok, overflow, control };
 
 __forceinline u32 lowest_bit(u64 bits) noexcept {
-    unsigned long index = 0;
-    _BitScanForward64(&index, bits);
-    return static_cast<u32>(index);
+    return lowest_set_bit(bits);
 }
 
 // Eight offsets from the lowest set bits of *bits. An empty mask stores 63 + base: the high bit
@@ -129,7 +127,7 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
     if (masks.controls & inside & valid) return ChunkResult::control;
     state->inside = static_cast<u64>(static_cast<i64>(inside) >> 63);
     u64 emitted = quotes | (masks.structurals & ~inside & valid);
-    const u32 pending = static_cast<u32>(__popcnt64(emitted));
+    const u32 pending = population_count(emitted);
     u32* out = output.data + state->count;
     const u32 room = output.count - state->count;
     if (room >= 64) {
@@ -173,7 +171,7 @@ struct ScanSource {
 ScanSource g_source;
 
 __forceinline u32 current_thread() noexcept {
-    return __readgsdword(0x48);
+    return current_thread_id();
 }
 
 u32 first_at_or_after(const u32* index, u32 count, u32 value) noexcept {

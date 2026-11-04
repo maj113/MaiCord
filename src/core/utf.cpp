@@ -1,6 +1,6 @@
 #include "maicord/core/utf.hpp"
 
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
@@ -74,12 +74,12 @@ Utf8Validation utf8_validate(const Utf8View& input) noexcept {
                 const __m128i block = _mm_loadu_si128(
                     reinterpret_cast<const __m128i*>(input.data + offset));
                 const u32 mask = static_cast<u32>(_mm_movemask_epi8(block));
-                unsigned long ascii_bytes = 16;
+                u32 ascii_bytes = 16;
                 if (mask != 0) {
-                    _BitScanForward(&ascii_bytes, mask);
+                    ascii_bytes = lowest_set_bit(mask);
                 }
-                offset += static_cast<u32>(ascii_bytes);
-                codepoints += static_cast<u32>(ascii_bytes);
+                offset += ascii_bytes;
+                codepoints += ascii_bytes;
             } else {
                 ++offset;
                 ++codepoints;

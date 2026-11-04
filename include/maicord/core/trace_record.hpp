@@ -1,7 +1,11 @@
 #pragma once
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_process.hpp"
+#else
+#include "maicord/sys/linux/process.hpp"
+#endif
 
 namespace maicord {
 // Bounded stack record. Callers supply static labels and non-sensitive values;

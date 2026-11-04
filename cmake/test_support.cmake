@@ -154,6 +154,14 @@ function(maicord_finish_test_bundles)
             string(APPEND table "    {L\"${entry}\", ${entry}},${newline}")
         endforeach()
         set(dispatcher "${CMAKE_CURRENT_BINARY_DIR}/test_bundles/${bundle}.cpp")
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            # The same dispatcher over C strings and the Linux runtime.
+            string(REPLACE "{L\"" "{\"" table "${table}")
+            configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tests/support/test_bundle_linux.cpp.in" "${dispatcher}" @ONLY)
+            maicord_program(${bundle} ENTRY maicord_test_bundle_entry SOURCES "${dispatcher}" ${SOURCES}
+                LIBS ${LIBS} INCLUDES ${INCLUDES})
+            continue()
+        endif()
         file(CONFIGURE OUTPUT "${dispatcher}" CONTENT [=[
 #include "maicord/core/win32_kernel.hpp"
 

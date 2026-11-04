@@ -4,7 +4,9 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/interlocked.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
+#endif
 
 namespace maicord {
 
@@ -60,24 +62,24 @@ template <typename T, u32 EventCapacity, u32 PayloadCapacity> struct SpscMailbox
     static_assert(PayloadCapacity != 0);
 
     SpscMailboxRecord<T> records[EventCapacity];
-    volatile LONG read_sequence;
+    volatile Atomic32 read_sequence;
     u8 read_padding[60];
-    volatile LONG write_sequence;
+    volatile Atomic32 write_sequence;
     u8 write_padding[60];
-    volatile LONG64 payload_read_sequence;
+    volatile Atomic64 payload_read_sequence;
     u8 payload_read_padding[56];
-    volatile LONG64 payload_write_sequence;
+    volatile Atomic64 payload_write_sequence;
     u8 payload_write_padding[56];
     u8 payload[PayloadCapacity];
 };
 
 // Acquire loads and release stores as winnt.h's x64 ReadAcquire/WriteRelease
 // implement them: plain volatile accesses, ordered under /volatile:ms.
-inline u32 spsc_mailbox_load_u32(const volatile LONG* value) noexcept {
+inline u32 spsc_mailbox_load_u32(const volatile Atomic32* value) noexcept {
     return static_cast<u32>(*value);
 }
 
-inline u64 spsc_mailbox_load_u64(const volatile LONG64* value) noexcept {
+inline u64 spsc_mailbox_load_u64(const volatile Atomic64* value) noexcept {
     return static_cast<u64>(*value);
 }
 
@@ -140,8 +142,8 @@ SpscMailboxResult spsc_mailbox_push(
     record.payload_bytes = payload.count;
     record.flags = 0;
     spsc_mailbox_store(&mailbox->payload_write_sequence,
-                   static_cast<LONG64>(payload_write + payload.count));
-    spsc_mailbox_store(&mailbox->write_sequence, static_cast<LONG>(write + 1));
+                   static_cast<Atomic64>(payload_write + payload.count));
+    spsc_mailbox_store(&mailbox->write_sequence, static_cast<Atomic32>(write + 1));
     return SpscMailboxResult{payload.count, SpscMailboxError::none};
 }
 
@@ -166,7 +168,7 @@ SpscMailboxResult spsc_mailbox_push_external(
     record.payload_sequence = payload_write;
     record.payload_bytes = payload_bytes;
     record.flags = kSpscMailboxExternalPayload;
-    spsc_mailbox_store(&mailbox->write_sequence, static_cast<LONG>(write + 1));
+    spsc_mailbox_store(&mailbox->write_sequence, static_cast<Atomic32>(write + 1));
     return SpscMailboxResult{payload_bytes, SpscMailboxError::none, true};
 }
 
@@ -215,8 +217,8 @@ SpscMailboxResult spsc_mailbox_pop(
     const u32 payload_bytes = record.payload_bytes;
     if (!outside)
         spsc_mailbox_store(&mailbox->payload_read_sequence,
-                       static_cast<LONG64>(payload_read + payload_bytes));
-    spsc_mailbox_store(&mailbox->read_sequence, static_cast<LONG>(read + 1));
+                       static_cast<Atomic64>(payload_read + payload_bytes));
+    spsc_mailbox_store(&mailbox->read_sequence, static_cast<Atomic32>(read + 1));
     return SpscMailboxResult{payload_bytes, SpscMailboxError::none, outside};
 }
 

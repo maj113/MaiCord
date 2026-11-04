@@ -2,6 +2,11 @@
 # C++23 (no CRT, exceptions or RTTI), Release-only code generation and one
 # output directory, the build directory itself.
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include(cmake/build_contract_linux.cmake)
+    return()
+endif()
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

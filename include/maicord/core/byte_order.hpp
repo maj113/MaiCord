@@ -2,7 +2,7 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/sys/crt.hpp"
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 
 namespace maicord {
 
@@ -13,7 +13,7 @@ inline u16 byte_load_le16(const u8* input) noexcept {
     u16 value; memcpy(&value, input, sizeof(value)); return value;
 }
 inline u16 byte_load_be16(const u8* input) noexcept {
-    u16 value; memcpy(&value, input, sizeof(value)); return _byteswap_ushort(value);
+    u16 value; memcpy(&value, input, sizeof(value)); return byte_swap(value);
 }
 u32 byte_load_le24(const u8* input) noexcept;
 inline u32 byte_load_le32(const u8* input) noexcept {
@@ -23,10 +23,10 @@ inline u64 byte_load_le64(const u8* input) noexcept {
     u64 value; memcpy(&value, input, sizeof(value)); return value;
 }
 inline u64 byte_load_be64(const u8* input) noexcept {
-    u64 value; memcpy(&value, input, sizeof(value)); return _byteswap_uint64(value);
+    u64 value; memcpy(&value, input, sizeof(value)); return byte_swap(value);
 }
 inline u32 byte_load_be32(const u8* input) noexcept {
-    u32 value; memcpy(&value, input, sizeof(value)); return _byteswap_ulong(value);
+    u32 value; memcpy(&value, input, sizeof(value)); return byte_swap(value);
 }
 
 inline void byte_store_le16(u8* output, u16 value) noexcept {
@@ -39,7 +39,7 @@ inline void byte_store_le64(u8* output, u64 value) noexcept {
     memcpy(output, &value, sizeof(value));
 }
 inline void byte_store_be32(u8* output, u32 value) noexcept {
-    value = _byteswap_ulong(value); memcpy(output, &value, sizeof(value));
+    value = byte_swap(value); memcpy(output, &value, sizeof(value));
 }
 
 constexpr u32 byte_fourcc_le(char a, char b, char c, char d) noexcept {

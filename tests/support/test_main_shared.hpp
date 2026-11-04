@@ -6,9 +6,7 @@
 
 #include "maicord/model/chat/message_rich_store.hpp"
 
-extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);
-extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);
-extern "C" void* __cdecl memmove(void* destination, const void* source, unsigned long long count);
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 

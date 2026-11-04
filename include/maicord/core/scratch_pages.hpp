@@ -1,13 +1,13 @@
 #pragma once
 
-#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 
 // Private zeroed pages, committed: one out-of-line call instead of VirtualAlloc's four arguments at every site. Null
-// when the system refuses. Free with VirtualFree(pointer, 0, MEM_RELEASE).
+// when the system refuses. Free with pages_release(pointer, bytes) (on Windows VirtualFree(pointer, 0, MEM_RELEASE)).
 __declspec(noinline) inline void* commit_pages(usize bytes) noexcept {
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    return pages_allocate(bytes);
 }
 // A T's worth of them by default, or `bytes` for a block of Ts; the T is only the pointer type.
 template <typename T> __forceinline T* commit_pages(usize bytes = sizeof(T)) noexcept {
@@ -25,7 +25,7 @@ template <typename T> struct ScratchPages {
     ScratchPages& operator=(const ScratchPages&) = delete;
     ~ScratchPages() {
         if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
+            pages_release(data, sizeof(T));
     }
 };
 

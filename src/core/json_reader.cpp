@@ -1,7 +1,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/ascii.hpp"
 
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
@@ -99,9 +99,7 @@ bool validate_string_content(IndexedReader* reader, u32 begin, u32 end, bool* ha
                 offset += left < 16 ? left : 16;
                 continue;
             }
-            unsigned long first = 0;
-            _BitScanForward(&first, special);
-            offset += first;
+            offset += lowest_set_bit(special);
         }
         const u8 value = static_cast<u8>(reader->input.data[offset]);
         if (value < 0x20) {
@@ -846,9 +844,7 @@ static u32 plain_prefix(const char* data, u32 bytes) noexcept {
         const u32 special =
             static_cast<u32>(_mm_movemask_epi8(_mm_or_si128(block, _mm_cmpeq_epi8(block, _mm_set1_epi8('\\')))));
         if (special) {
-            unsigned long first = 0;
-            _BitScanForward(&first, special);
-            return offset + first;
+            return offset + lowest_set_bit(special);
         }
     }
     while (offset < bytes && static_cast<u8>(data[offset]) < 0x80 && data[offset] != '\\') ++offset;

@@ -2,6 +2,7 @@
 
 #include "maicord/core/base.hpp"
 
+#if defined(_WIN32)
 // Declared as <Windows.h> declares them, without parsing it.
 union _LARGE_INTEGER;
 struct _FILETIME;
@@ -9,6 +10,9 @@ extern "C" __declspec(dllimport) int __stdcall QueryPerformanceCounter(_LARGE_IN
 extern "C" __declspec(dllimport) int __stdcall QueryPerformanceFrequency(_LARGE_INTEGER* frequency);
 extern "C" __declspec(dllimport) unsigned long long __stdcall GetTickCount64();
 extern "C" __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(_FILETIME* time);
+#else
+#include "maicord/sys/linux/libc.hpp"
+#endif
 
 namespace maicord {
 
@@ -56,6 +60,7 @@ struct Clock {
     i64 frequency;
 };
 
+#if defined(_WIN32)
 inline Clock clock_initialize() noexcept {
     i64 frequency = 0;
     QueryPerformanceFrequency(reinterpret_cast<_LARGE_INTEGER*>(&frequency));
@@ -67,6 +72,18 @@ inline i64 clock_now() noexcept {
     QueryPerformanceCounter(reinterpret_cast<_LARGE_INTEGER*>(&counter));
     return counter;
 }
+#else
+// Nanoseconds of the clock that keeps counting while the machine sleeps, as QueryPerformanceCounter does.
+inline Clock clock_initialize() noexcept {
+    return Clock{1'000'000'000};
+}
+
+inline i64 clock_now() noexcept {
+    TimeSpec time{};
+    clock_gettime(kClockBoottime, &time);
+    return time.seconds * 1'000'000'000 + time.nanoseconds;
+}
+#endif
 
 __declspec(noinline) inline u64 clock_microseconds(const Clock& clock, i64 begin, i64 end) noexcept {
     if (clock.frequency <= 0 || end <= begin) {
@@ -86,15 +103,27 @@ __declspec(noinline) inline u64 clock_microseconds(const Clock& clock, i64 begin
 }
 
 inline u64 clock_monotonic_milliseconds() noexcept {
+#if defined(_WIN32)
     return GetTickCount64();
+#else
+    TimeSpec time{};
+    clock_gettime(kClockBoottime, &time);
+    return static_cast<u64>(time.seconds) * 1'000 + static_cast<u64>(time.nanoseconds) / 1'000'000;
+#endif
 }
 
 __declspec(noinline) inline u64 clock_unix_milliseconds() noexcept {
+#if defined(_WIN32)
     // FILETIME is the little-endian low/high halves of one 64-bit count.
     u64 ticks = 0;
     GetSystemTimeAsFileTime(reinterpret_cast<_FILETIME*>(&ticks));
     constexpr u64 windows_to_unix_ticks = 116'444'736'000'000'000ull;
     return ticks >= windows_to_unix_ticks ? (ticks - windows_to_unix_ticks) / 10'000ull : 0;
+#else
+    TimeSpec time{};
+    clock_gettime(kClockRealtime, &time);
+    return static_cast<u64>(time.seconds) * 1'000 + static_cast<u64>(time.nanoseconds) / 1'000'000;
+#endif
 }
 
 } // namespace maicord

@@ -2,7 +2,9 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/sys/crt.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/intrin_mem.hpp"
+#endif
 
 namespace maicord {
 
@@ -86,7 +88,12 @@ inline void copy_value(T* destination, const T& source) noexcept {
 // SecureZeroMemory without <Windows.h>: on x64 the SDK's RtlSecureZeroMemory
 // is this same rep stosb, which the optimizer never removes as a dead store.
 __forceinline void secure_clear_bytes(void* destination, usize bytes) noexcept {
+#if defined(_WIN32)
     __stosb(static_cast<unsigned char*>(destination), 0, bytes);
+#else
+    // rep stosb, which the optimizer never removes as a dead store.
+    __asm__ volatile("rep stosb" : "+D"(destination), "+c"(bytes) : "a"(0) : "memory");
+#endif
 }
 
 } // namespace maicord

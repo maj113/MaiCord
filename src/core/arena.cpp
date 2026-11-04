@@ -3,10 +3,15 @@
 #include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/interlocked.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_kernel.hpp"
+#else
+#include "maicord/sys/linux/process.hpp"
+#endif
 
 namespace maicord {
 namespace {
+#if defined(_WIN32)
 volatile LONG g_page_size;
 
 usize system_page_size() noexcept {
@@ -21,6 +26,12 @@ usize system_page_size() noexcept {
         InterlockedCompareExchange(&g_page_size, static_cast<LONG>(page_size), 0);
     return page_size;
 }
+#else
+// The kernel reports the page size in the auxiliary vector.
+usize system_page_size() noexcept {
+    return process_startup().page_size;
+}
+#endif
 
 bool align_up(usize value, usize alignment, usize* result) noexcept {
     if (!is_power_of_two(alignment)) {
@@ -63,7 +74,7 @@ void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
     }
     target = minimum(target, arena->reserved);
     auto* address = arena->base + arena->committed;
-    if (VirtualAlloc(address, target - arena->committed, MEM_COMMIT, PAGE_READWRITE) != address) {
+    if (!pages_commit(address, target - arena->committed)) {
         return nullptr;
     }
     arena->committed = target;
@@ -96,10 +107,9 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
     if (initial_commit == reserved) {
         base = commit_pages<u8>(reserved);
     } else {
-        base = static_cast<u8*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE, PAGE_READWRITE));
-        if (base && initial_commit != 0 &&
-            VirtualAlloc(base, initial_commit, MEM_COMMIT, PAGE_READWRITE) != base) {
-            VirtualFree(base, 0, MEM_RELEASE);
+        base = static_cast<u8*>(pages_reserve(reserved));
+        if (base && initial_commit != 0 && !pages_commit(base, initial_commit)) {
+            pages_release(base, reserved);
             return false;
         }
     }
@@ -118,7 +128,7 @@ void arena_release(Arena* arena) noexcept {
         return;
     }
     if (arena->base) {
-        VirtualFree(arena->base, 0, MEM_RELEASE);
+        pages_release(arena->base, arena->reserved);
     }
     reset_value<Arena>(arena);
 }
@@ -185,7 +195,7 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
     const usize page_mask = system_page_size() - 1;
     const usize keep = (offset + page_mask) & ~page_mask;
     if (keep < arena->committed) {
-        if (!VirtualFree(arena->base + keep, arena->committed - keep, MEM_DECOMMIT)) {
+        if (!pages_decommit(arena->base + keep, arena->committed - keep)) {
             return false;
         }
         arena->committed = keep;

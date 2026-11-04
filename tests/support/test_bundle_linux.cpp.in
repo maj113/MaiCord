@@ -1,0 +1,41 @@
+// The Linux dispatcher of a test bundle (maicord_finish_test_bundles): runs the member whose entry symbol
+// MAICORD_TEST_ENTRY names; any other value lists the members.
+#include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/process.hpp"
+
+extern "C" {
+@declarations@}
+
+namespace {
+struct Entry {
+    const char* name;
+    unsigned (*run)();
+};
+constexpr Entry entries[]{
+@table@};
+} // namespace
+
+extern "C" [[noreturn]] void maicord_test_bundle_entry() noexcept {
+    const char* name = maicord::environment_get("MAICORD_TEST_ENTRY");
+    if (name) {
+        for (const Entry& entry : entries) {
+            const char* a = entry.name;
+            const char* b = name;
+            while (*a && *a == *b) {
+                ++a;
+                ++b;
+            }
+            if (*a == *b)
+                maicord::sys_exit_group(static_cast<int>(entry.run()));
+        }
+    }
+    for (const Entry& entry : entries) {
+        char line[160];
+        unsigned used = 0;
+        for (; entry.name[used] && used < 150; ++used)
+            line[used] = entry.name[used];
+        line[used++] = '\n';
+        maicord::sys_write(1, line, used);
+    }
+    maicord::sys_exit_group(2);
+}

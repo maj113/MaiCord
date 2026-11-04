@@ -1,0 +1,174 @@
+# The Linux flavour of the compiler and linker contract (cmake/build_contract.cmake is the Windows one; this file is
+# included from it): the same freestanding C++23 (no libc, exceptions or RTTI), Release-only code generation and
+# one output directory, built by stock clang and ld.lld. The names the rest of the build uses (maicord_link_contract,
+# maicord_compile_contract, maicord_runtime, maicord_library, maicord_program) are the same.
+#
+# An image is a dynamic position-independent executable with its own _start (src/core/linux/start.cpp). It links
+# libc.so.6, libdl.so.2 and libpthread.so.0 as generated stub libraries that pin the oldest symbol versions
+# (tools/generate_libc_stubs.py), so no glibc newer than 2.17 is ever required; everything else is dlopen()ed.
+# tools/audit_elf.py checks the result.
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+set(CMAKE_CXX_STANDARD_LIBRARIES "")
+set(CMAKE_C_STANDARD_LIBRARIES "")
+
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+    message(FATAL_ERROR "MaiCord on Linux targets x86-64.")
+endif()
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    message(FATAL_ERROR "MaiCord builds with clang and ld.lld (tools/build_linux.sh).")
+endif()
+# -flto objects are LLVM bitcode, which only llvm-ar can index.
+if(NOT CMAKE_AR MATCHES "llvm-ar")
+    message(FATAL_ERROR "MaiCord archives with llvm-ar (CMAKE_AR=${CMAKE_AR}); tools/build_linux.sh sets it.")
+endif()
+
+# The contract owns every code generation option: no CMake defaults (-O3, -fPIE or -pie of its own).
+set(CMAKE_C_FLAGS_RELEASE -DNDEBUG)
+set(CMAKE_CXX_FLAGS_RELEASE -DNDEBUG)
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "")
+set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "")
+set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "")
+
+# Whole-program optimization: full LTO in every shipping object, linked by ld.lld.
+set(MAICORD_WHOLE_PROGRAM_OPTION -flto)
+set(MAICORD_NO_OUTLINE_OPTION)
+set(MAICORD_SIZE_OPTION -Oz)
+
+# The libc stubs: libc.so.6, libdl.so.2 and libpthread.so.0 carrying the pinned symbol versions.
+set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")
+set(maicord_libc_stub_files
+    "${MAICORD_LIBC_STUB_DIRECTORY}/libc.so.6"
+    "${MAICORD_LIBC_STUB_DIRECTORY}/libdl.so.2"
+    "${MAICORD_LIBC_STUB_DIRECTORY}/libpthread.so.0")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_command(OUTPUT ${maicord_libc_stub_files}
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
+        --compiler "${CMAKE_C_COMPILER}" --output-directory "${MAICORD_LIBC_STUB_DIRECTORY}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
+    COMMENT "Generating the libc, libdl and libpthread stub libraries"
+    VERBATIM)
+add_custom_target(maicord_libc_stubs DEPENDS ${maicord_libc_stub_files})
+
+# One policy owns every final image's freestanding, mitigation, dead-code and link contract.
+add_library(maicord_link_contract INTERFACE)
+target_link_options(maicord_link_contract INTERFACE
+    -fuse-ld=lld -nostdlib -pie
+    LINKER:-e,_start
+    LINKER:--dynamic-linker=/lib64/ld-linux-x86-64.so.2
+    LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
+    LINKER:--build-id=none
+    LINKER:--gc-sections LINKER:--icf=all
+    LINKER:--no-undefined
+    # libdl and libpthread are separate libraries before glibc 2.34 and empty stubs after it; link them either way.
+    LINKER:--no-as-needed
+    "-L${MAICORD_LIBC_STUB_DIRECTORY}"
+    -l:libc.so.6 -l:libdl.so.2 -l:libpthread.so.0)
+
+add_library(maicord_compile_contract INTERFACE)
+target_link_libraries(maicord_compile_contract INTERFACE maicord_link_contract)
+target_include_directories(maicord_compile_contract INTERFACE include)
+# -nostdinc: no include path but MaiCord's own, neither the system's nor the compiler's resource headers. The C
+# library and compiler declarations MaiCord uses are its own (include/maicord/sys, with C library names in sys/libc
+# and the kernel and glibc interface in sys/linux).
+target_include_directories(maicord_compile_contract INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/sys/libc")
+target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:-nostdinc>")
+target_compile_features(maicord_compile_contract INTERFACE cxx_std_23)
+target_compile_options(maicord_compile_contract INTERFACE
+    # Freestanding by construction (the headers are MaiCord's own, nothing is hosted), but not -ffreestanding: it
+    # implies -fno-builtin, which would turn every memcpy of a constant size into a call. Only the string-length
+    # builtins are off, as on Windows: LLVM must not turn string-length loops into strlen/wcslen calls.
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen;-fno-math-errno>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti;-fno-threadsafe-statics>"
+    # MaiCord's shared code is written for MSVC dialect: __declspec, __forceinline, __unaligned, __int64 and
+    # volatile with acquire/release semantics, and wchar_t holds UTF-16 code units as on Windows.
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fms-extensions;-fms-volatile;-fshort-wchar>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fvisibility=hidden;-ffunction-sections;-fdata-sections;-fPIE>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-stack-protector;-fcf-protection=none>"
+    # Strict IEEE semantics, as /fp:precise.
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>"
+    # The x86-64 baseline of the Windows build: /arch:AVX and -maes (the carry-less multiply the JSON scanner
+    # uses is part of the same baseline there; clang needs it named).
+    "$<$<COMPILE_LANGUAGE:CXX>:-mavx;-maes;-mpclmul>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>"
+    # MAICORD_NO_WHOLE_PROGRAM: no LTO, for code kept outside it in an image that links with it.
+    $<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
+    # The house warning set (clang-cl /W4 /WX), with the exceptions of the Windows contract: declarations that
+    # mirror an interface, intended aggregate value-initialization and layout asserts, the dense one-line style
+    # and deliberate non-short-circuit bool |.
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-field-initializers;-Wno-invalid-offsetof;-Wno-ignored-attributes;-Wno-overloaded-virtual;-Wno-duplicate-decl-specifier;-Wno-misleading-indentation;-Wno-logical-op-parentheses;-Wno-missing-braces;-Wno-bitwise-instead-of-logical>")
+# No unwind tables: MaiCord code never throws, catches or walks a stack. The in-process stack walkers configure
+# with MAICORD_UNWIND_TABLES.
+option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" OFF)
+if(NOT MAICORD_UNWIND_TABLES)
+    target_compile_options(maicord_compile_contract INTERFACE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-asynchronous-unwind-tables;-fno-unwind-tables>")
+endif()
+
+# The compiler support every image links: the memory functions and the process entry.
+add_library(maicord_runtime OBJECT
+    src/core/linux/runtime.cpp
+    src/core/linux/start.cpp)
+target_link_libraries(maicord_runtime PRIVATE maicord_compile_contract)
+set_target_properties(maicord_runtime PROPERTIES CXX_EXTENSIONS OFF)
+# The bodies of memcpy and the others must not be turned back into calls of themselves.
+set_source_files_properties(src/core/linux/runtime.cpp PROPERTIES COMPILE_OPTIONS -fno-builtin)
+
+# maicord_library(<name> <source>... [LIBS <library>...] [INCLUDES <dir>...] [DEPENDS <target>...])
+# A shipping static library under the compile contract (linked first unless LIBS places it).
+function(maicord_library name)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES;DEPENDS")
+    if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
+        list(PREPEND ARG_LIBS maicord_compile_contract)
+    endif()
+    add_library(${name} STATIC ${ARG_UNPARSED_ARGUMENTS})
+    target_link_libraries(${name} PRIVATE ${ARG_LIBS})
+    if(ARG_INCLUDES)
+        target_include_directories(${name} PRIVATE ${ARG_INCLUDES})
+    endif()
+    if(ARG_DEPENDS)
+        add_dependencies(${name} ${ARG_DEPENDS})
+    endif()
+    set_target_properties(${name} PROPERTIES CXX_EXTENSIONS OFF)
+endfunction()
+
+# maicord_program(<target> ENTRY <symbol> SOURCES <file>... [LIBS <library>...] [INCLUDES <dir>...]
+#     [DEFINES <definition>...] [OPTIONS <option>...] [LINK_OPTIONS <option>...] [PROPERTIES <name> <value>...]
+#     [DEPENDS <target>...])
+# A freestanding image: its sources plus the runtime objects, the compile contract (first unless LIBS places it)
+# and the entry: _start calls the extern "C" function ENTRY, which ends the process (exit_group).
+function(maicord_program target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "ENTRY"
+        "SOURCES;LIBS;INCLUDES;DEFINES;OPTIONS;LINK_OPTIONS;PROPERTIES;DEPENDS")
+    if(ARG_UNPARSED_ARGUMENTS OR NOT ARG_ENTRY)
+        message(FATAL_ERROR "maicord_program(${target}): needs ENTRY; unexpected: ${ARG_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT "$<TARGET_OBJECTS:maicord_runtime>" IN_LIST ARG_SOURCES)
+        list(APPEND ARG_SOURCES $<TARGET_OBJECTS:maicord_runtime>)
+    endif()
+    add_executable(${target} ${ARG_SOURCES})
+    if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
+        list(PREPEND ARG_LIBS maicord_compile_contract)
+    endif()
+    target_link_libraries(${target} PRIVATE ${ARG_LIBS})
+    if(ARG_INCLUDES)
+        target_include_directories(${target} PRIVATE ${ARG_INCLUDES})
+    endif()
+    if(ARG_DEFINES)
+        target_compile_definitions(${target} PRIVATE ${ARG_DEFINES})
+    endif()
+    if(ARG_OPTIONS)
+        target_compile_options(${target} PRIVATE ${ARG_OPTIONS})
+    endif()
+    target_link_options(${target} PRIVATE LINKER:--defsym=maicord_program_entry=${ARG_ENTRY} ${ARG_LINK_OPTIONS})
+    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF ${ARG_PROPERTIES})
+    add_dependencies(${target} maicord_libc_stubs)
+    if(ARG_DEPENDS)
+        add_dependencies(${target} ${ARG_DEPENDS})
+    endif()
+endfunction()

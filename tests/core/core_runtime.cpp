@@ -1,24 +1,126 @@
 #include "../support/test_main_shared.hpp"
 
-#include "../support/secure_text_store_access.hpp"
+#include "../support/test_output.hpp"
+#include "maicord/core/arena.hpp"
+#include "maicord/core/byte_queue.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/log.hpp"
 #include "maicord/core/spsc_queue.hpp"
 #include "maicord/core/spsc_mailbox.hpp"
+#include "maicord/core/stable_storage.hpp"
 #include "maicord/core/trace_record.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/core/virtual_memory.hpp"
+#if defined(_WIN32)
+#include "../support/secure_text_store_access.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/core/win32_exception.hpp"
+#else
+#include "maicord/core/data_path.hpp"
+#include "maicord/sys/linux/path.hpp"
+#endif
 
 namespace maicord {
 namespace {
 
-using RuntimeCopyFunction = void*(__cdecl*)(void*, const void*, unsigned long long);
-using RuntimeSetFunction = void*(__cdecl*)(void*, int, unsigned long long);
+using RuntimeCopyFunction = void*(__cdecl*)(void*, const void*, size_t);
+using RuntimeSetFunction = void*(__cdecl*)(void*, int, size_t);
 RuntimeCopyFunction volatile g_runtime_copy = &memcpy;
 RuntimeCopyFunction volatile g_runtime_move = &memmove;
 RuntimeSetFunction volatile g_runtime_set = &memset;
 alignas(64) u8 g_runtime_reference[4096];
 alignas(64) u8 g_runtime_candidate[4096];
 alignas(64) u8 g_runtime_temporary[2048];
+
+#if defined(_WIN32)
+// Whether the arena's pages are in the state its initialization promised: the committed prefix (or the whole
+// reservation, reserved only, when nothing is committed) and, when the prefix is shorter, a reserved tail.
+bool arena_regions_match(const Arena& arena, bool any_committed, usize expected_committed,
+                         usize expected_reserved) noexcept {
+    MEMORY_BASIC_INFORMATION region{};
+    bool matches = VirtualQuery(arena.base, &region, sizeof(region)) != 0 && region.AllocationBase == arena.base &&
+                   region.State == static_cast<DWORD>(any_committed ? MEM_COMMIT : MEM_RESERVE) &&
+                   region.RegionSize == (any_committed ? expected_committed : expected_reserved);
+    if (expected_committed && expected_committed < expected_reserved) {
+        matches = matches && VirtualQuery(arena.base + expected_committed, &region, sizeof(region)) != 0 &&
+                  region.AllocationBase == arena.base && region.State == MEM_RESERVE &&
+                  region.RegionSize == expected_reserved - expected_committed;
+    }
+    return matches;
+}
+#else
+struct Mapping {
+    usize start, end;
+    char permissions[5];
+};
+
+// The mapping of /proc/self/maps that holds `address`. The kernel merges neighbouring mappings of equal
+// permissions, so callers compare containment where a neighbour could have been merged.
+bool find_mapping(usize address, Mapping* mapping) noexcept {
+    static char text[65536];
+    const long handle = sys_open("/proc/self/maps", kOpenReadOnly);
+    if (syscall_failed(handle)) return false;
+    u32 used = 0;
+    while (used < sizeof(text) - 1) {
+        const long count = sys_read(static_cast<int>(handle), text + used, sizeof(text) - 1 - used);
+        if (syscall_failed(count) || count == 0) break;
+        used += static_cast<u32>(count);
+    }
+    sys_close(static_cast<int>(handle));
+    text[used] = 0;
+    const auto hex = [](const char*& at) noexcept {
+        usize value = 0;
+        for (;; ++at) {
+            const char c = *at;
+            const u32 digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : 16u;
+            if (digit == 16) return value;
+            value = value << 4 | digit;
+        }
+    };
+    for (const char* at = text; *at;) {
+        Mapping found{};
+        found.start = hex(at);
+        if (*at++ != '-') return false;
+        found.end = hex(at);
+        if (*at++ != ' ') return false;
+        for (u32 i = 0; i < 4; ++i) found.permissions[i] = *at++;
+        if (address >= found.start && address < found.end) {
+            *mapping = found;
+            return true;
+        }
+        while (*at && *at != '\n') ++at;
+        if (*at) ++at;
+    }
+    return false;
+}
+
+bool inaccessible(const Mapping& mapping) noexcept {
+    return mapping.permissions[0] == '-' && mapping.permissions[1] == '-' && mapping.permissions[2] == '-';
+}
+
+// As on Windows: the committed prefix is read-write; a tail beyond it is a separate inaccessible mapping (it cannot
+// merge with the writable prefix) that reaches the end of the reservation.
+bool arena_regions_match(const Arena& arena, bool any_committed, usize expected_committed,
+                         usize expected_reserved) noexcept {
+    const usize base = reinterpret_cast<usize>(arena.base);
+    Mapping head{};
+    if (!find_mapping(base, &head)) return false;
+    if (any_committed) {
+        if (head.permissions[0] != 'r' || head.permissions[1] != 'w' || head.end < base + expected_committed)
+            return false;
+        if (expected_committed < expected_reserved && head.end != base + expected_committed) return false;
+    } else if (!inaccessible(head) || head.end < base + expected_reserved) {
+        return false;
+    }
+    if (expected_committed && expected_committed < expected_reserved) {
+        Mapping tail{};
+        if (!find_mapping(base + expected_committed, &tail) || !inaccessible(tail) ||
+            tail.start > base + expected_committed || tail.end < base + expected_reserved)
+            return false;
+    }
+    return true;
+}
+#endif
 
 } // namespace
 
@@ -33,7 +135,7 @@ void test_deadline_policy() noexcept {
     expect(wait_milliseconds_until(100, 100) == 0 && wait_milliseconds_until(100, 125) == 25,
            "deadline_wait_regular");
     expect(wait_milliseconds_until(0, 0xFFFFFFFFull) == kFiniteWaitMaximumMilliseconds &&
-               wait_milliseconds_until(0, ~0ull, INFINITE) == INFINITE,
+               wait_milliseconds_until(0, ~0ull, kInfiniteWaitMilliseconds) == kInfiniteWaitMilliseconds,
            "deadline_wait_caps");
 }
 
@@ -54,8 +156,8 @@ void test_spsc_queue() noexcept {
     expect(ordered && spsc_queue_size(queue) == 0 && !spsc_queue_pop(&queue, &empty_value),
            "spsc_queue_fifo_empty");
 
-    queue.read_sequence = static_cast<LONG>(0xFFFFFFFCu);
-    queue.write_sequence = static_cast<LONG>(0xFFFFFFFCu);
+    queue.read_sequence = static_cast<Atomic32>(0xFFFFFFFCu);
+    queue.write_sequence = static_cast<Atomic32>(0xFFFFFFFCu);
     bool wrapped = true;
     for (u32 value = 0; value < 8; ++value) {
         wrapped = wrapped && spsc_queue_push(&queue, 100 + value);
@@ -234,6 +336,7 @@ void test_byte_queue() noexcept {
     expect(ordered, "byte_queue_fragmented_copy_boundaries");
 }
 
+#if defined(_WIN32)
 // Buffered logging: ordinary lines reach the file through the deferred flush
 // without further log traffic, error lines flush synchronously, order is kept.
 void test_log_buffered_flush() noexcept {
@@ -297,6 +400,71 @@ void test_log_buffered_flush() noexcept {
     RemoveDirectoryW(root);
     SetEnvironmentVariableW(L"LOCALAPPDATA", previous_length && previous_length < 1024 ? previous : nullptr);
 }
+#else
+// The same contract on the Linux log, whose file is <XDG_DATA_HOME>/MaiCord/logs/maicord.log and whose lines end in
+// "\n". The harness gives every test a private XDG_DATA_HOME ("test-profile" in its path); the test refuses any
+// other, so it never deletes the user's log.
+void test_log_buffered_flush() noexcept {
+    const char* data_home = environment_get("XDG_DATA_HOME");
+    bool private_home = false;
+    for (u32 start = 0; data_home && data_home[start] && !private_home; ++start) {
+        const char* name = "test-profile";
+        u32 index = 0;
+        while (name[index] && data_home[start + index] == name[index]) ++index;
+        private_home = name[index] == 0;
+    }
+    wchar_t file[768]{};
+    char path[2304]{};
+    bool ok = private_home && data_path(file, 768, L"logs/maicord.log", true).ok() &&
+              path_to_utf8(file, path, sizeof(path)) != 0 && log_open();
+    const auto file_text = [&](char* output, u32 capacity) noexcept -> u32 {
+        const long handle = sys_open(path, kOpenReadOnly);
+        if (syscall_failed(handle)) return 0;
+        const long read = sys_read(static_cast<int>(handle), output, capacity - 1);
+        sys_close(static_cast<int>(handle));
+        const u32 count = syscall_failed(read) ? 0 : static_cast<u32>(read);
+        output[count] = 0;
+        return count;
+    };
+    char text[512]{};
+    log_write(LogLevel::info, "test", "buffered_line");
+    const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
+    u32 bytes = 0;
+    for (u32 attempt = 0; ok && attempt < 200 && bytes == 0; ++attempt) {
+        const TimeSpec pause{0, 10'000'000};
+        sys_nanosleep(&pause);
+        bytes = file_text(text, sizeof(text));
+    }
+    const bool deferred = bytes != 0;
+    log_u64(LogLevel::info, "test", "pending", 7);
+    log_write(LogLevel::error, "test", "error_line");
+    bytes = file_text(text, sizeof(text));
+    log_close();
+    const auto find = [&](const char* needle) noexcept -> u32 {
+        for (u32 start = 0; text[start]; ++start) {
+            u32 index = 0;
+            while (needle[index] && text[start + index] == needle[index]) ++index;
+            if (!needle[index]) return start;
+        }
+        return ~0u;
+    };
+    const u32 first = find("[I] [test] buffered_line\n"), second = find("[I] [test] pending=7\n"),
+              third = find("[E] [test] error_line\n");
+    expect(ok && initially_buffered && deferred && first != ~0u && second != ~0u && third != ~0u &&
+               first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
+               text[23] == ' ',
+           "log_buffers_lines_flushes_deferred_and_errors_in_order");
+    // Remove the file, then the logs and MaiCord directories above it.
+    sys_unlink(path);
+    for (u32 directories = 0; ok && directories < 2; ++directories) {
+        u32 end = 0;
+        while (path[end]) ++end;
+        while (end && path[end - 1] != '/') --end;
+        path[end ? end - 1 : 0] = 0;
+        sys_remove_directory(path);
+    }
+}
+#endif
 
 void test_arena() noexcept {
     Arena arena{};
@@ -362,9 +530,7 @@ void test_arena() noexcept {
     expect(aligned_bounds, "arena_absolute_alignment_and_capacity_across_page_boundaries");
     arena_release(&arena);
 
-    SYSTEM_INFO arena_system{};
-    GetSystemInfo(&arena_system);
-    const usize page_mask = arena_system.dwPageSize - 1;
+    const usize page_mask = pages_page_size() - 1;
     const usize reserve_inputs[]{4095, 4096, 17000, 65536};
     bool initial_regions = true;
     for (usize reserve : reserve_inputs) for (u32 policy = 0; policy < 4; ++policy) {
@@ -375,20 +541,10 @@ void test_arena() noexcept {
             initial_regions = false;
             continue;
         }
-        MEMORY_BASIC_INFORMATION region{};
         initial_regions = initial_regions && arena.reserved == expected_reserved &&
                           arena.committed == expected_committed && arena.offset == 0 &&
                           arena.commit_count == (initial ? 1u : 0u) &&
-                          VirtualQuery(arena.base, &region, sizeof(region)) != 0 &&
-                          region.AllocationBase == arena.base &&
-                          region.State == static_cast<DWORD>(initial ? MEM_COMMIT : MEM_RESERVE) &&
-                          region.RegionSize == (initial ? expected_committed : expected_reserved);
-        if (expected_committed && expected_committed < expected_reserved) {
-            initial_regions = initial_regions &&
-                VirtualQuery(arena.base + expected_committed, &region, sizeof(region)) != 0 &&
-                region.AllocationBase == arena.base && region.State == MEM_RESERVE &&
-                region.RegionSize == expected_reserved - expected_committed;
-        }
+                          arena_regions_match(arena, initial != 0, expected_committed, expected_reserved);
         for (usize i = 0; i < expected_committed; ++i)
             initial_regions = initial_regions && arena.base[i] == 0;
         arena_release(&arena);
@@ -545,14 +701,9 @@ void test_utf8() noexcept {
     }
     expect(random_exact, "utf8_random_scalar_reference_and_error_counts");
 
-    SYSTEM_INFO utf_system{};
-    GetSystemInfo(&utf_system);
-    const u32 page_bytes = utf_system.dwPageSize;
-    char* guard_text = static_cast<char*>(VirtualAlloc(nullptr, static_cast<usize>(page_bytes) * 2,
-                                                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    DWORD guard_previous = 0;
-    bool guard_exact = guard_text && VirtualProtect(guard_text + page_bytes, page_bytes,
-                                                   PAGE_NOACCESS, &guard_previous);
+    const u32 page_bytes = static_cast<u32>(pages_page_size());
+    char* guard_text = static_cast<char*>(pages_allocate(static_cast<usize>(page_bytes) * 2));
+    bool guard_exact = guard_text && pages_protect(guard_text + page_bytes, page_bytes, PageAccess::none);
     for (u32 length = 0; length <= 48 && guard_exact; ++length) {
         char* start = guard_text + page_bytes - length;
         for (u32 index = 0; index < length; ++index) start[index] = 'a';
@@ -563,7 +714,7 @@ void test_utf8() noexcept {
             start[index] = 'a';
         }
     }
-    if (guard_text) VirtualFree(guard_text, 0, MEM_RELEASE);
+    if (guard_text) pages_release(guard_text, static_cast<usize>(page_bytes) * 2);
     expect(guard_exact, "utf8_ascii_block_protected_page_bounds");
 
     // Width minima/maxima, surrogate neighbours and alternating payload bits per width: every encode/decode
@@ -612,6 +763,7 @@ void test_utf8() noexcept {
     expect(mapping_exact, "utf8_utf16_boundary_mapping");
 }
 
+#if defined(_WIN32)
 void test_secure_buffer() noexcept {
     SecureBuffer secret{};
     const SecureBufferResult initialized = secure_buffer_initialize(&secret, 64);
@@ -686,6 +838,8 @@ void test_secure_buffer() noexcept {
            "secure_buffer_release");
 }
 
+#endif
+
 void test_runtime_memory() noexcept {
     bool valid = true;
     u32 state = 0x6a09e667u;
@@ -738,22 +892,14 @@ void test_runtime_memory() noexcept {
     }
     expect(valid, "runtime_memory_randomized_overlap");
 
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
-    const usize page_bytes = system.dwPageSize;
-    u8* pages =
-        static_cast<u8*>(VirtualAlloc(nullptr, page_bytes * 6, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    const usize page_bytes = pages_page_size();
+    u8* pages = static_cast<u8*>(pages_allocate(page_bytes * 6));
     bool boundaries = pages != nullptr;
-    DWORD previous = 0;
     if (boundaries) {
-        boundaries =
-            VirtualProtect(pages, static_cast<SIZE_T>(page_bytes), PAGE_NOACCESS, &previous) != FALSE &&
-            VirtualProtect(pages + page_bytes * 2, static_cast<SIZE_T>(page_bytes), PAGE_NOACCESS,
-                           &previous) != FALSE &&
-            VirtualProtect(pages + page_bytes * 3, static_cast<SIZE_T>(page_bytes), PAGE_NOACCESS,
-                           &previous) != FALSE &&
-            VirtualProtect(pages + page_bytes * 5, static_cast<SIZE_T>(page_bytes), PAGE_NOACCESS,
-                           &previous) != FALSE;
+        boundaries = pages_protect(pages, page_bytes, PageAccess::none) &&
+                     pages_protect(pages + page_bytes * 2, page_bytes, PageAccess::none) &&
+                     pages_protect(pages + page_bytes * 3, page_bytes, PageAccess::none) &&
+                     pages_protect(pages + page_bytes * 5, page_bytes, PageAccess::none);
     }
     if (boundaries) {
         u8* source_page = pages + page_bytes;
@@ -779,7 +925,7 @@ void test_runtime_memory() noexcept {
         }
     }
     if (pages) {
-        VirtualFree(pages, 0, MEM_RELEASE);
+        pages_release(pages, page_bytes * 6);
     }
     expect(boundaries, "runtime_memory_guard_page_bounds");
 }

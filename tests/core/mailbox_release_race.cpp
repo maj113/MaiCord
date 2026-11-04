@@ -1,8 +1,8 @@
 #include "maicord/core/slice.hpp"
-#include "maicord/core/win32_types.hpp"
+#include "maicord/core/interlocked.hpp"
 
 namespace {
-void (*after_release)(volatile LONG*) noexcept;
+void (*after_release)(volatile maicord::Atomic32*) noexcept;
 } // namespace
 
 // Distinct namespace prevents instrumented template instantiations from
@@ -12,7 +12,7 @@ void (*after_release)(volatile LONG*) noexcept;
 // action immediately afterward.
 namespace mailbox_release_test {
 using namespace maicord;
-void spsc_mailbox_store(volatile LONG* sequence, LONG value) noexcept {
+void spsc_mailbox_store(volatile Atomic32* sequence, Atomic32 value) noexcept {
     *sequence = value;
     if (after_release)
         after_release(sequence);
@@ -25,7 +25,7 @@ void spsc_mailbox_store(volatile LONG* sequence, LONG value) noexcept {
 namespace {
 mailbox_release_test::SpscMailbox<maicord::u32, 2, 32> mailbox{};
 bool reused;
-void reuse(volatile LONG* address) noexcept {
+void reuse(volatile maicord::Atomic32* address) noexcept {
     if (address != &mailbox.read_sequence)
         return;
     after_release = nullptr;

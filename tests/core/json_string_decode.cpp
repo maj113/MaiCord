@@ -1,7 +1,7 @@
 // Differential coverage against the previous scalar implementation.
 #include "../../src/core/json_reader.cpp"
 
-#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace json_string_probe {
@@ -158,8 +158,8 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         integer_valid = integer_valid && compare_integer({integer_input + start, static_cast<u32>(sizeof(integer_input) - start)});
     }
     check(integer_valid, "JSON integer agrees with scalar reference on randomized inputs and u64 round trips");
-    auto* integer_guard = static_cast<char*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
-    integer_valid = integer_guard && VirtualAlloc(integer_guard, 4096, MEM_COMMIT, PAGE_READWRITE);
+    auto* integer_guard = static_cast<char*>(pages_reserve(8192));
+    integer_valid = integer_guard && pages_commit(integer_guard, 4096);
     if (integer_valid) {
         for (u32 i = 0; i < 4096; ++i) integer_guard[i] = '0';
         for (u32 length = 0; integer_valid && length <= 128; ++length)
@@ -169,7 +169,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
             integer_valid = integer_valid && compare_integer({integer_guard + 4096 - value.bytes, value.bytes});
         }
     }
-    if (integer_guard) VirtualFree(integer_guard, 0, MEM_RELEASE);
+    if (integer_guard) pages_release(integer_guard, 8192);
     check(integer_valid, "JSON integer respects exact page-end bounds, including truncated escapes");
     bool ascii_valid = true;
     // Equal, ASCII-mismatched and high-bit targets reach every comparison branch for each source byte.
@@ -198,8 +198,8 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         ascii_valid = compare_ascii({ascii_source, source_bytes}, {ascii_target, target_bytes});
     }
     check(ascii_valid, "JSON ASCII equality agrees with scalar reference on randomized strings");
-    auto* guarded_ascii = static_cast<char*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
-    ascii_valid = guarded_ascii && VirtualAlloc(guarded_ascii, 4096, MEM_COMMIT, PAGE_READWRITE);
+    auto* guarded_ascii = static_cast<char*>(pages_reserve(8192));
+    ascii_valid = guarded_ascii && pages_commit(guarded_ascii, 4096);
     if (ascii_valid) {
         for (u32 i = 0; i < 4096; ++i) guarded_ascii[i] = 'x';
         for (u32 length = 0; ascii_valid && length <= 128; ++length) {
@@ -208,7 +208,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
                           compare_ascii(utf8_literal("x"), view);
         }
     }
-    if (guarded_ascii) VirtualFree(guarded_ascii, 0, MEM_RELEASE);
+    if (guarded_ascii) pages_release(guarded_ascii, 8192);
     check(ascii_valid, "JSON ASCII comparison never reads past source or target view bounds");
     char input[256]; u32 state = 0x437a531fu; bool valid = true;
     // Arbitrary bytes include malformed UTF-8 and escapes, embedded NUL/control
@@ -242,10 +242,10 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         check(actual.error == expected.error && actual.bytes == expected.bytes &&
               bytes_equal(before, after, source.bytes), "json decoder preserves in-place unescaping");
     }
-    auto* source_pages = static_cast<char*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
-    auto* output_pages = static_cast<char*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));
-    valid = source_pages && output_pages && VirtualAlloc(source_pages, 4096, MEM_COMMIT, PAGE_READWRITE) &&
-            VirtualAlloc(output_pages, 4096, MEM_COMMIT, PAGE_READWRITE);
+    auto* source_pages = static_cast<char*>(pages_reserve(8192));
+    auto* output_pages = static_cast<char*>(pages_reserve(8192));
+    valid = source_pages && output_pages && pages_commit(source_pages, 4096) &&
+            pages_commit(output_pages, 4096);
     for (u32 length = 1; valid && length <= 256; ++length) {
         char* source = source_pages + 4096 - length;
         char* destination = output_pages + 4096 - length;
@@ -254,7 +254,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         valid = decoded.ok() && decoded.bytes == length && bytes_equal(source, destination, length);
     }
     check(valid, "json plain-string copies stay within exact page-boundary input and output");
-    if (source_pages) VirtualFree(source_pages, 0, MEM_RELEASE);
-    if (output_pages) VirtualFree(output_pages, 0, MEM_RELEASE);
+    if (source_pages) pages_release(source_pages, 8192);
+    if (output_pages) pages_release(output_pages, 8192);
 }
 }

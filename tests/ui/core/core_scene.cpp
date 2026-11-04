@@ -139,12 +139,6 @@ void test_paint_stream() noexcept {
            "paint_stream_release");
 }
 
-void test_clock_microseconds() noexcept {
-    expect(clock_microseconds(Clock{10'000'000}, 0, 25'920'000'000'000ll) == 2'592'000'000'000ull &&
-               clock_microseconds(Clock{10}, 4, 19) == 1'500'000,
-           "clock_microseconds_long_runtime_no_product_overflow");
-}
-
 void test_ui_scene() noexcept {
     UiScene scene{};
     expect(ui_scene_initialize_bootstrap(&scene) &&

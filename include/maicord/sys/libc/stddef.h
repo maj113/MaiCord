@@ -8,6 +8,10 @@
 #include <stddef.h>
 #endif
 
+#if defined(__linux__)
+typedef __SIZE_TYPE__ size_t;
+#else
 typedef unsigned __int64 size_t;
+#endif
 
 #define offsetof(t, d) __builtin_offsetof(t, d)
