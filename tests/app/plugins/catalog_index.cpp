@@ -193,6 +193,21 @@ void test_document(Utf8View document, ConstSlice<u8> signature) noexcept {
               g_work->index.item_count == 0,
           "a bad or short signature refuses the document and leaves nothing behind");
     check(verify({document.data, 0}, signature, kNow).error == E::size, "an empty document is refused before hashing");
+    // index-full.json names the .mcfx interface an effect needs; it reads into the version's api_level.
+    const Utf8View search = utf8_literal("\"kind\":\"effect\",\"slug\":\"aurora\"");
+    u32 occurrences = 0;
+    const u32 at = find(document, search, &occurrences);
+    Text& full = g_work->text;
+    full.bytes = 0;
+    full.add({document.data, at}).add("\"kind\":\"effect\",\"interface\":4,\"slug\":\"aurora\"")
+        .add({document.data + at + search.bytes, document.bytes - at - search.bytes});
+    u8 resigned[64]{};
+    const bool listed = occurrences == 1 && g_key.sign(full.view(), resigned) && verify(full.view(), {resigned, 64}, kNow).ok();
+    const u32 aurora = listed ? catalog_index_find(index, CatalogKind::effect, utf8_literal("aurora")) : ~0u;
+    const u32 starfield = listed ? catalog_index_find(index, CatalogKind::effect, utf8_literal("starfield")) : ~0u;
+    check(aurora != ~0u && starfield != ~0u && index.versions[index.items[aurora].first_version].api_level == 4 &&
+              index.versions[index.items[starfield].first_version].api_level == 0,
+          "an effect's interface is read into its version, absent as 0");
 }
 
 void test_versions() noexcept {
@@ -265,7 +280,7 @@ void test_state(const wchar_t* root) noexcept {
     VirtualFree(state, 0, MEM_RELEASE);
 }
 
-// A real index CI built: MAICORD_CATALOG_E2E_DIR holds index.json(.sig), details/, previews/ and files/;
+// A real index CI built: MAICORD_CATALOG_E2E_DIR holds index-full.json(.sig), details/, previews/ and files/;
 // MAICORD_CATALOG_E2E_KEY is the public key.
 void test_end_to_end() noexcept {
     wchar_t directory[MAX_PATH], key_text[140];
@@ -290,10 +305,10 @@ void test_end_to_end() noexcept {
     check(ok, "e2e: MAICORD_CATALOG_E2E_KEY is a 130-digit public key");
     wchar_t path[MAX_PATH];
     const u32 base = wide_copy(path, 0, directory);
-    wide_copy(path, base, L"\\index.json");
+    wide_copy(path, base, L"\\index-full.json");
     u32 document_bytes = 0, signature_bytes = 0;
     u8* document = read_file(path, &document_bytes);
-    wide_copy(path, base, L"\\index.json.sig");
+    wide_copy(path, base, L"\\index-full.json.sig");
     u8* signature = read_file(path, &signature_bytes);
     const P256Key* keys[]{&key};
     const auto verified = ok && document && signature

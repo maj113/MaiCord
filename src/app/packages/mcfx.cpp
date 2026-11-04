@@ -540,7 +540,7 @@ bool root_member(void* context, JsonString name, JsonValue value) noexcept {
         // 1; 2 for mc_ambient (clock, appearance); 3 for the pass graph and its textures. An older client refuses
         // a number it does not know here.
         u64 v{};
-        if (!json_value_to_u64(value, &v) || v < 1 || v > 3)
+        if (!json_value_to_u64(value, &v) || v < 1 || v > kMcfxInterfaceMaximum)
             return p.fail(value.source_offset);
         p.interface_version = static_cast<u32>(v);
         return true;

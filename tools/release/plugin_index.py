@@ -18,6 +18,12 @@ compact UTF-8 JSON; sign writes <index.json>.sig (64-byte P1363 over SHA-256
 of the domain and the document); verify checks the signature, schema and
 freshness; manifest prints the install record the client derives for one
 listed file.
+
+The catalog publishes two signed indexes: FULL_INDEX (every item; an effect
+whose package needs a .mcfx interface above 1 names it in "interface"), which
+MaiCord 0.6.3 and later read, and LEGACY_INDEX, legacy_source() of the same
+source signed one sequence lower, for 0.6.0 to 0.6.2: their reader refuses the
+"interface" member, and their package reader any interface but 1.
 """
 
 from __future__ import annotations
@@ -56,6 +62,8 @@ DETAILS_MAX_BYTES = 16 * 1024
 PREVIEW_MAX_BYTES = 256 * 1024
 LOOP_MAX_BYTES = 2 * 1024 * 1024
 FILE_MAX_BYTES = {"plugin": 8 * 1024 * 1024, "theme": 64 * 1024, "effect": 1536 * 1024}
+FULL_INDEX = "index-full.json"
+LEGACY_INDEX = "index.json"
 FILE_EXTENSIONS = {"plugin": "dll", "theme": "json", "effect": "mcfx"}
 IMAGE_MAX_EXTENT = 4096
 
@@ -528,7 +536,7 @@ _ITEM_FIELDS = {
     "effect": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS, 1), True)] + _data_fields("effect") + [
         ("cost", _choice(COSTS), True), ("blend", _choice(BLENDS), True),
         ("uses", _list(_choice(USES), len(USES), unique=True), True), ("knobs", _knobs, True),
-        ("loop", _loop_check(), False)],
+        ("loop", _loop_check(), False), ("interface", _integer(1, 0xFFFF, "api_level"), False)],
 }
 _ITEM = {kind: _obj(fields) for kind, fields in _ITEM_FIELDS.items()}
 
@@ -640,6 +648,22 @@ def render_index(index: dict) -> bytes:
     document = json.dumps(_check_root(source, None), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     parse_index(document, None)
     return document
+
+
+def legacy_source(index: dict) -> dict:
+    """The index source for clients before "interface" (0.6.0 to 0.6.2): without the effects that need an interface
+    above 1, and without a theme's link to such an effect. The other items are unchanged."""
+    held = {i["slug"] for i in index.get("items", []) if i.get("kind") == "effect" and i.get("interface", 1) > 1}
+    items = []
+    for item in index.get("items", []):
+        if item.get("kind") == "effect":
+            if item["slug"] in held:
+                continue
+            item = {k: v for k, v in item.items() if k != "interface"}
+        elif item.get("kind") == "theme" and item.get("effect") in held:
+            item = {k: v for k, v in item.items() if k != "effect"}
+        items.append(item)
+    return dict(index, items=items)
 
 
 def _quoted(text: str) -> str:

@@ -270,9 +270,11 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     Network net{&w};
     u8 *document = nullptr, *signature = nullptr;
     u32 document_bytes = 0, signature_bytes = 0;
-    r.error = fetch(w, net, utf8_literal("index.json"), kCatalogIndexMaximumBytes, 0, &document, &document_bytes, &r.retry_at_unix);
+    // index-full.json lists every item, each effect with the .mcfx interface it needs. index.json, which 0.6.0 to
+    // 0.6.2 read, leaves out the effects they can't run and is signed one sequence lower.
+    r.error = fetch(w, net, utf8_literal("index-full.json"), kCatalogIndexMaximumBytes, 0, &document, &document_bytes, &r.retry_at_unix);
     if (r.error == CatalogError::none)
-        r.error = fetch(w, net, utf8_literal("index.json.sig"), kSignatureBytes, kSignatureBytes, &signature, &signature_bytes,
+        r.error = fetch(w, net, utf8_literal("index-full.json.sig"), kSignatureBytes, kSignatureBytes, &signature, &signature_bytes,
                         &r.retry_at_unix);
     Crypto crypto{};
     if (r.error == CatalogError::none)

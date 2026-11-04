@@ -240,6 +240,35 @@ class PluginIndexToolTests(unittest.TestCase):
         self.assertEqual(self.code(self.document, now=ISSUED - plugin_index.CLOCK_SKEW_SECONDS - 1), "time")
         self.assertEqual(self.code(self.document, now=ISSUED - plugin_index.CLOCK_SKEW_SECONDS), "none")
 
+    def test_effect_interface_and_the_legacy_index(self):
+        source = spec()
+        self.assertEqual(plugin_index.render_index(plugin_index.legacy_source(source)), self.document,
+                         "without interfaces the legacy index is the full one")
+        items = {(i["kind"], i["slug"]): i for i in source["items"]}
+        items["effect", "aurora"]["interface"] = 3
+        items["effect", "starfield"]["interface"] = 1
+        items["theme", "obsidian"]["effect"] = "aurora"
+        full = plugin_index.parse_index(plugin_index.render_index(source), None)
+        listed = {(i["kind"], i["slug"]): i for i in full["items"]}
+        self.assertEqual((listed["effect", "aurora"]["interface"], listed["effect", "starfield"]["interface"]), (3, 1))
+        legacy = plugin_index.render_index(plugin_index.legacy_source(source))
+        self.assertNotIn(b'"interface"', legacy, "0.6.0 to 0.6.2 refuse the member")
+        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(legacy, None)["items"]}
+        self.assertNotIn(("effect", "aurora"), listed, "an effect they can't run is left out")
+        self.assertIn(("effect", "starfield"), listed)
+        self.assertNotIn("effect", listed["theme", "obsidian"], "a theme does not name an effect that is left out")
+        self.assertEqual(len(listed), 5)
+        for value, code in ((0, "api_level"), (65536, "api_level"), ("3", "type")):
+            items["effect", "aurora"]["interface"] = value
+            with self.assertRaises(plugin_index.PluginIndexError) as raised:
+                plugin_index.render_index(source)
+            self.assertEqual(raised.exception.code, code, value)
+        items["effect", "aurora"]["interface"] = 3
+        items["theme", "obsidian"]["interface"] = 3
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.render_index(source)
+        self.assertEqual(raised.exception.code, "unknown_field", "only effects have an interface")
+
     def test_signatures(self):
         key, other = cng_p256.PrivateKey.generate(), cng_p256.PrivateKey.generate()
         signature = plugin_index.sign_index(self.document, key)

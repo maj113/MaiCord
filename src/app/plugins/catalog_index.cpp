@@ -647,10 +647,10 @@ bool swatch_member(void* context, JsonString name, JsonValue value) noexcept {
 // ---- items -------------------------------------------------------------------------------------
 enum ItemField : u32 { it_kind, it_slug, it_name, it_summary, it_authors, it_license, it_source, it_homepage, it_categories,
     it_derived, it_details, it_previews, it_versions, it_version, it_released, it_changelog, it_file, it_base, it_effect,
-    it_swatches, it_cost, it_blend, it_uses, it_knobs, it_loop };
+    it_swatches, it_cost, it_blend, it_uses, it_knobs, it_loop, it_interface };
 constexpr char kItemNames[] = "kind\0slug\0name\0summary\0authors\0license\0source\0homepage\0categories\0derived_from\0"
                               "details\0previews\0versions\0version\0released\0changelog\0file\0base\0effect\0swatches\0cost\0"
-                              "blend\0uses\0knobs\0loop\0";
+                              "blend\0uses\0knobs\0loop\0interface\0";
 constexpr u32 bit(ItemField f) noexcept { return 1u << f; }
 constexpr u32 kCommonFields = (1u << (it_previews + 1)) - 1;
 constexpr u32 kCommonRequired = kCommonFields & ~(bit(it_homepage) | bit(it_derived));
@@ -659,7 +659,7 @@ constexpr u32 kDataRequired = kDataFields & ~bit(it_changelog);
 constexpr u32 kItemFields[]{
     kCommonFields | bit(it_versions),
     kCommonFields | kDataFields | bit(it_base) | bit(it_effect) | bit(it_swatches),
-    kCommonFields | kDataFields | bit(it_cost) | bit(it_blend) | bit(it_uses) | bit(it_knobs) | bit(it_loop)};
+    kCommonFields | kDataFields | bit(it_cost) | bit(it_blend) | bit(it_uses) | bit(it_knobs) | bit(it_loop) | bit(it_interface)};
 constexpr u32 kItemRequired[]{
     kCommonRequired | bit(it_versions),
     kCommonRequired | kDataRequired | bit(it_base),
@@ -725,6 +725,9 @@ bool item_member(void* context, JsonString name, JsonValue value) noexcept {
     }
     case it_knobs: return knobs(p, value, item);
     case it_loop: return image(p, value, kLoopFields, &item.loop) && (item.has_loop = true);
+    // The .mcfx interface the package needs, when above 1. Only index-full.json names it: 0.6.0 to 0.6.2 refuse
+    // the member, so index.json leaves such effects out.
+    case it_interface: return u32_in(p, value, 1, 0xFFFF, E::api_level, &data.api_level);
     default: return false;
     }
 }

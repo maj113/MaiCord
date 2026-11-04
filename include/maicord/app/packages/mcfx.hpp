@@ -16,6 +16,7 @@
 // rest when it is selected.
 namespace maicord {
 
+inline constexpr u32 kMcfxInterfaceMaximum = 3; // the newest manifest "interface" this client runs
 inline constexpr u32 kMcfxMaximumBytes = 1536u * 1024u;
 inline constexpr u32 kMcfxManifestMaximumBytes = 16u * 1024u;
 inline constexpr u32 kMcfxBytecodeMaximumBytes = 64u * 1024u; // each shader

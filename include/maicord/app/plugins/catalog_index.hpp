@@ -3,9 +3,10 @@
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/platform/crypto/p256.hpp"
 
-// The official catalog's index, format 2 (index.json and its detached 64-byte
-// index.json.sig: P-256/P1363 over SHA-256 of the domain followed by the
-// document). tools/release/plugin_index.py is the reference writer and
+// The official catalog's index, format 2 (index-full.json and its detached 64-byte
+// index-full.json.sig: P-256/P1363 over SHA-256 of the domain followed by the
+// document; index.json, for 0.6.0 to 0.6.2, is the same index without what they
+// can't run). tools/release/plugin_index.py is the reference writer and
 // verifier; tests/fixtures/plugin_index/format2 holds the shared vectors.
 namespace maicord {
 
@@ -105,8 +106,8 @@ struct CatalogImage {
 struct CatalogAuthor {
     CatalogString name, github;
 };
-// A plugin's listed version, or the one version of a theme or effect (api_level,
-// permissions and hosts zero).
+// A plugin's listed version, or the one version of a theme or effect (permissions and hosts zero). api_level is a
+// plugin's MC_API_LEVEL, or the .mcfx interface an effect's package needs (0 when the index leaves it out: 1).
 struct CatalogVersion {
     u64 code; // major * 1000000 + minor * 1000 + patch
     u64 released;

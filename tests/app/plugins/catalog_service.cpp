@@ -7,6 +7,7 @@
 #include "plugins/catalog_service.hpp"
 #include "plugins/catalog_worker.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/app/packages/mcfx.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
@@ -122,6 +123,7 @@ struct Publish {
     bool bad_signature;
     const u8* revoked;    // a malicious revocation
     const u8* broken;     // a broken one
+    u32 effect_interface; // the effect's .mcfx interface, 0 to leave it out
 };
 void file(Text& t, const Blob& b) noexcept {
     t.add("\"file\":{\"sha256\":\"").digest(b.sha256).add("\",\"bytes\":").number(b.bytes).add("}");
@@ -169,6 +171,7 @@ void publish(const Publish& p) noexcept {
                                                          "\"version\":\"1.0.0\",\"released\":")
         .number(g_now - 1000).add(",");
     file(t, g->effect);
+    if (p.effect_interface) t.add(",\"interface\":").number(p.effect_interface);
     t.add(",\"cost\":\"light\",\"blend\":\"normal\",\"uses\":[],\"knobs\":[]}],\"revoked\":[");
     if (p.revoked) revocation(t, p.revoked, "malicious");
     if (p.broken) t.add(p.revoked ? "," : ""), revocation(t, p.broken, "broken");
@@ -177,8 +180,8 @@ void publish(const Publish& p) noexcept {
     if (p.bad_signature) g->signature[3] ^= 1;
     auto& s = g->server;
     plugin_fake::reset(s, kOrigin);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index.json", 200, t.data, t.bytes);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index.json.sig", 200, g->signature, 64);
+    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-full.json", 200, t.data, t.bytes);
+    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-full.json.sig", 200, g->signature, 64);
     for (const Blob& b : g->plugin) plugin_fake::serve(s, UpdateHost::pages, b.target, 200, b.data, b.bytes);
     const Blob& theme = p.corrupt_theme ? g->corrupt : g->theme;
     plugin_fake::serve(s, UpdateHost::pages, g->theme.target, 200, theme.data, theme.bytes);
@@ -357,14 +360,20 @@ void run_flow(const wchar_t* base) noexcept {
               state.update == kCatalogNone && state.installed->approved_permissions == g->permissions,
           "the install is recorded with its approval");
 
-    // A theme whose download doesn't match the index is refused; the right bytes install.
-    publish({101, false, true});
+    // A theme whose download doesn't match the index is refused; the right bytes install. An effect whose package
+    // needs a newer .mcfx interface is listed but can't be installed.
+    publish({101, false, true, false, nullptr, nullptr, kMcfxInterfaceMaximum + 1});
     check(check_now(), "a newer index is accepted");
     check(application_catalog_install(CatalogKind::theme, utf8_literal("fjord")) && settle(finished) && phase() == CatalogPhase::failed &&
               application_catalog_view().operation.error == CatalogError::digest &&
               !application_catalog_item_state(CatalogKind::theme, utf8_literal("fjord")).installed,
           "a download that doesn't match its digest installs nothing");
-    publish({102});
+    check(application_catalog_item_state(CatalogKind::effect, utf8_literal("rain")).incompatible &&
+              !application_catalog_install(CatalogKind::effect, utf8_literal("rain")) &&
+              phase() == CatalogPhase::failed && application_catalog_view().operation.error == CatalogError::incompatible &&
+              !application_catalog_item_state(CatalogKind::effect, utf8_literal("rain")).installed,
+          "an effect needing a newer interface is listed as needing a newer MaiCord and isn't downloaded");
+    publish({102, false, false, false, nullptr, nullptr, kMcfxInterfaceMaximum});
     check(check_now(), "the fixed index is accepted");
     const u32 changes = g_library_changes;
     check(application_catalog_install(CatalogKind::theme, utf8_literal("fjord")) && settle(finished) && phase() == CatalogPhase::done &&

@@ -59,6 +59,11 @@ time	"released":1760200000	"released":0
 digest	"commit":"373958f0	"commit":"373958F0
 api_level	"api_level":1,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"api_level":0,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd
 api_level	"api_level":1,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"api_level":65536,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd
+api_level	"kind":"effect","slug":"aurora"	"kind":"effect","interface":0,"slug":"aurora"
+api_level	"kind":"effect","slug":"aurora"	"kind":"effect","interface":65536,"slug":"aurora"
+type	"kind":"effect","slug":"aurora"	"kind":"effect","interface":"3","slug":"aurora"
+duplicate_field	"kind":"effect","slug":"aurora"	"kind":"effect","interface":3,"interface":3,"slug":"aurora"
+unknown_field	"kind":"theme","slug":"obsidian"	"kind":"theme","interface":3,"slug":"obsidian"
 permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_send","network"],"network":[],"file":{"sha256":"13fd
 permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_sendx"],"network":[],"file":{"sha256":"13fd
 permission	"permissions":["network","composer"]	"permissions":["composer"]

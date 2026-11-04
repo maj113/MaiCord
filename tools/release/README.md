@@ -285,8 +285,15 @@ sources, themes and background effects. Its `catalog.yml` workflow builds every
 item, renders the format-2 index with `plugin_index.py` from this repository's
 `master`, signs it, verifies it, and deploys it to GitHub Pages:
 
-- `https://maj113.github.io/MaiCord-plugins/index.json`
-- `https://maj113.github.io/MaiCord-plugins/index.json.sig`
+- `https://maj113.github.io/MaiCord-plugins/index-full.json` (+ `.sig`): every
+  item, which MaiCord 0.6.3 and later read. An effect whose package needs a
+  `.mcfx` interface above 1 names it in `interface`; the client lists one above
+  its own as needing a newer MaiCord and doesn't download it.
+- `https://maj113.github.io/MaiCord-plugins/index.json` (+ `.sig`): the same
+  index for 0.6.0 to 0.6.2 (`plugin_index.legacy_source`), signed one sequence
+  lower. Their reader refuses the whole index over an unknown member and their
+  package reader refuses any interface but 1, so it leaves out the effects
+  that need one, and a theme's link to them.
 - `details/<sha256>.md` and `previews/<sha256>.png` (the item pages the
   site and the client show) and `files/<sha256>.dll|.mcfx|.json` (the packages)
 
@@ -295,9 +302,10 @@ document (64-byte P1363). The schema is `plugin_index.py`; the shared vectors
 are `tests/fixtures/plugin_index/format2`. The workflow runs on every push to
 `main`, on manual dispatch and weekly. Each run issues an index valid for 30
 days (the client accepts at most 35) whose `sequence` is its issue time, so
-every run outranks the last one. A scheduled run also lands an empty commit
-when `main` is 45 days old, because GitHub disables the schedules of a public
-repository after 60 days without one.
+every run outranks the last one. `index-full.json` takes one more, so a client
+updated from 0.6.2 accepts it over the `index.json` it last read. A scheduled
+run also lands an empty commit when `main` is 45 days old, because GitHub
+disables the schedules of a public repository after 60 days without one.
 
 Keys:
 
