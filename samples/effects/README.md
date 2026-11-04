@@ -59,7 +59,7 @@ What the header gives you (read it: it is the whole interface, about 125 lines):
 | Name | What |
 |---|---|
 | `mc.time` | Seconds, times the user's Speed; stops while paused |
-| `mc.delta`, `mc.frame` | Seconds since the previous effect frame; effect frames since it was selected |
+| `mc.delta`, `mc.frame` | Seconds since the previous effect frame (0 on the first, and when a paused effect draws again); effect frames since it was selected |
 | `mc.resolution`, `mc.dip` | The target in pixels; target pixels per DIP (DPI scale x resolution scale): size things in DIPs with it |
 | `mc.pointer` | The pointer in target pixels, `(-1,-1)` unless the effect uses `pointer` and the user allowed it |
 | `mc_role(role)`, `mc.intensity`, `mc.dark` | Theme colours (`MC_ROLE_BACKGROUND/SURFACE/TEXT/MUTED/ACCENT/POSITIVE/WARNING/CRITICAL`); theme strength 0..1; 1 in a dark theme (and while MaiCord adapts the effect to a light one) |
@@ -108,6 +108,14 @@ the tool checks each against the slot it assigns and prints the line to add when
 The knob page shows a choice as a row of buttons, each as wide as its label, while they all fit the card, and as a
 dropdown when they don't (it decides again as the window changes size). Keep each entry to a word or two ("Clock",
 "Day", "Night") so the buttons show at common window sizes.
+
+When the user moves a `float` or `color` knob, MaiCord glides it: each frame the value moves part of the way to the
+new one, 95 % in about 0.2 s and settled within about 0.45 s, so a slider drag trails the pointer by about 60 ms of
+its motion and a click on the track or a new colour slides instead of jumping. `int`, `toggle` and `choice` knobs
+switch at once; an effect that wants such a change gradual eases it itself, as Silk Waves keeps its month and its
+day and night in a persistent target and moves them toward the knobs a little each frame (by `mc.delta`, taking a
+frame with `mc.delta` 0 whole). Where the window can't show a change moving (as for the ambient values below) every
+knob takes it at once.
 
 ### The sidecar
 
@@ -163,9 +171,9 @@ month's colours, without the turn toward the next). `phase` is a choice knob, an
 options, in order, what the theme does: `"auto"` keeps the theme's own schedule, `"night"`, `"dawn"`, `"day"` or
 `"dusk"` holds that phase whole, its base included. The theme reads the knobs' current values, the user's overrides
 included, only while that effect draws as the window's background (the saved choice or the theme's own); otherwise,
-or with every knob on an `"auto"` option, it keeps its schedule. Changing such a knob glides the theme like a jump
-of the clock. The effect needs nothing new: the theme names the knobs, so any effect with such choices works, and a
-MaiCord before 0.6.5 skips `follow` and keeps the schedule.
+or with every knob on an `"auto"` option, it keeps its schedule. Changing such a knob glides the theme over 0.6 s, as
+any theme change the user makes does. The effect needs nothing new: the theme names the knobs, so any effect with
+such choices works, and a MaiCord before 0.6.5 skips `follow` and keeps the schedule.
 
 An effect that declares `appearance` has a light day picture of its own, so it should never draw that picture under
 a dark appearance's text unless the user chose so: by default, show the night whenever `mc_ambient.dark` is 1 (Silk
@@ -176,9 +184,10 @@ look to an explicit choice (Silk Waves' "Day", `day-night`'s "Clock").
 value directly. A change of appearance glides, and so does a jump of the clock (waking from sleep, a new time zone,
 a simulated time); the clock moving on its own minute by minute is followed as it is, and the time of day wraps at
 midnight the short way round. While a value glides MaiCord draws frames at the effect's frame rate even if the
-effect is otherwise paused or idle; once it settles it asks for none. Where the change cannot be watched moving (the
-window hidden, minimized, covered by Settings or not focused, unless the effects keep moving unfocused, or reduced
-motion on) it takes effect at once. The month does not glide.
+effect is otherwise paused or idle; once it settles it asks for none. A running effect draws a change on its next
+frame, so every frame it draws has a `mc.delta`; a paused one draws it at once with `mc.delta` 0. Where the change
+cannot be watched moving (the window hidden, minimized, covered by Settings or not focused, unless the effects keep
+moving unfocused, or reduced motion on) it takes effect at once. The month does not glide.
 
 ```hlsl
 // @uses clock appearance

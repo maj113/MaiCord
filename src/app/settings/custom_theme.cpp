@@ -102,7 +102,9 @@ bool capture_interaction(CustomThemeOwner& o) noexcept {
     o.profile = g_app.account.status.profile_id;
     return interaction_current(o);
 }
-bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot) noexcept {
+// `animate`: the colours glide to the new look (application_custom_theme_publish); the saved theme loaded at startup
+// shows at once.
+bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot, bool animate = true) noexcept {
     if (same(snapshot, o.effective))
         return true;
     const auto prior = o.effective;
@@ -115,7 +117,7 @@ bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot) no
         next.builtin_theme = snapshot.builtin_theme;
     o.effective = snapshot;
     g_app.preferences = next;
-    if (!application_custom_theme_publish(snapshot.custom_active ? &o.effective.custom : nullptr)) {
+    if (!application_custom_theme_publish(snapshot.custom_active ? &o.effective.custom : nullptr, animate)) {
         o.effective = prior;
         g_app.preferences = preferences;
         return false;
@@ -547,7 +549,7 @@ __declspec(noinline) void complete_io(CustomThemeOwner* o) noexcept {
                 o->candidate_ready = true;
                 return;
             }
-            if (!publish(*o, completion.snapshot)) {
+            if (!publish(*o, completion.snapshot, false)) {
                 saved_theme_resource_failure(*o);
                 return;
             }
@@ -655,7 +657,7 @@ bool application_custom_theme_synchronize() noexcept {
     if (o->loading && o->candidate_ready) {
         if (!renderer_resources_ready())
             return true;
-        if (!publish(*o, o->candidate)) {
+        if (!publish(*o, o->candidate, false)) {
             saved_theme_resource_failure(*o);
             return true;
         }

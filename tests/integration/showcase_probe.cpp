@@ -1516,6 +1516,128 @@ u8* read_whole(const wchar_t* variable, u32 maximum, u32* bytes) noexcept {
 u32 g_theme_scratch[kClientThemeDocumentMaximumBytes / 2];
 ClientThemeDocument g_day_theme;
 McfxWorkspace g_effect_workspace;
+// The mean colour of the frame just drawn (whatever the channel order), for strip checks.
+bool frame_mean(D3D11Renderer& r, float (&mean)[3]) noexcept {
+    ProbeTargetReadback image{};
+    if (probe_target_readback(r, &image))
+        return false;
+    double sum[3]{};
+    for (u32 y = 0; y < image.height; ++y) {
+        const u8* row = static_cast<const u8*>(image.mapped.pData) + y * image.mapped.RowPitch;
+        for (u32 x = 0; x < image.width; ++x)
+            for (u32 c = 0; c < 3; ++c)
+                sum[c] += row[x * 4 + c];
+    }
+    for (u32 c = 0; c < 3; ++c)
+        mean[c] = static_cast<float>(sum[c] / (static_cast<double>(image.width) * image.height));
+    return true;
+}
+// The squared distance between two mean colours.
+float mean_distance2(const float (&a)[3], const float (&b)[3]) noexcept {
+    float sum = 0;
+    for (u32 c = 0; c < 3; ++c)
+        sum += (a[c] - b[c]) * (a[c] - b[c]);
+    return sum;
+}
+// MAICORD_SHOWCASE_TRANSITIONS, with the theme and its effect: two strips run at 30 fps, every fourth frame written.
+// showcase-anim-glide-NNN.bmp: on 3 October the clock jumps from 12:00 to 21:00, and the theme glides from its day look
+// to its night look (client_theme_glide over kEffectAmbientEaseMs) while the effect's appearance eases beside it.
+// showcase-anim-month-NNN.bmp: at noon the effect's Month knob turns from October to April halfway through a run; the
+// frames must pass through colours between the two, no capture to the next moving more than half the way.
+bool transitions(Fixture& f, D3D11Renderer& r, const BackgroundEffectSpec& base, const McfxPackage& effect) noexcept {
+    BackgroundEffectSpec spec = base;
+    McfxKnobValue values[kMcfxKnobMaximum];
+    mcfx_knob_defaults(effect, values);
+    u32 month = ~0u;
+    for (u32 k = 0; k < effect.knob_count; ++k)
+        if (bytes_equal(effect.knobs[k].id, "month", 6))
+            month = k;
+    if (!check(month != ~0u, "transition_month_knob_missing"))
+        return false;
+    const auto select = [&](u32 knob_month) noexcept {
+        values[month].number = static_cast<float>(knob_month);
+        mcfx_knob_pack(effect, values, spec.knobs);
+        return renderer_select_effect(&r, spec, {1.f, 1.f, spec.blend, 4, 2, EffectBudget::high, false}).state !=
+               EffectSelect::rejected;
+    };
+    const auto inputs = [&](EffectAmbient& ambient, u16 hour, u64 now) noexcept {
+        float values_now[4];
+        const EffectAmbientSources sources{{2026, 10, 3, hour, 0}, f.theme.appearance != ThemeAppearance::light, false,
+                                           true};
+        renderer_set_effect_light(&r, effect_ambient_sample(&ambient, effect.uses, sources, now, true, false, values_now));
+        renderer_set_effect_ambient(&r, values_now);
+    };
+    // The day to night glide: a second of the day look, then the jump.
+    Theme day = client_theme_document_at(g_day_theme, 12 * 60, 10, 3);
+    Theme night = client_theme_document_at(g_day_theme, 21 * 60, 10, 3);
+    ui_theme_resolve_emphasis(&day);
+    ui_theme_resolve_emphasis(&night);
+    renderer_clear_effect(&r);
+    if (!check(select(0) && r.effect.selected, "transition_effect_select_failed"))
+        return false;
+    r.effect.step = r.effect.budget.step = r.effect.budget.ceiling = 4;
+    r.effect.budget.warmup = 0x7fffffff;
+    EffectAmbient ambient{};
+    float phase = 6.f;
+    u64 now = 1000;
+    u32 captured = 0;
+    constexpr u32 kRunIn = 30, kFrames = kRunIn + kEffectAmbientEaseMs * 30 / 1000 + 4;
+    for (u32 frame = 0; frame < kFrames; ++frame, phase += 1.f / 30, now += 33) {
+        f.theme = frame < kRunIn ? day : night;
+        if (frame >= kRunIn)
+            client_theme_glide(&f.theme, day, now - (1000 + kRunIn * 33), kEffectAmbientEaseMs);
+        inputs(ambient, frame < kRunIn ? 12 : 21, now);
+        if (frame + 2 >= kRunIn && (frame + 2 - kRunIn) % 4 == 0) {
+            if (!project(f, r) || !shot(f, r, frame_name(L"glide", captured++), phase))
+                return false;
+        } else if (!check(renderer_set_background_phase(&r, phase) &&
+                              d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000),
+                          "transition_frame_failed")) {
+            return false;
+        }
+    }
+    // The month: a second of October at noon, then April.
+    f.theme = day;
+    if (!project(f, r))
+        return false;
+    renderer_clear_effect(&r);
+    if (!check(select(10) && r.effect.selected, "transition_effect_select_failed"))
+        return false;
+    r.effect.step = r.effect.budget.step = r.effect.budget.ceiling = 4;
+    r.effect.budget.warmup = 0x7fffffff;
+    ambient = {};
+    float means[16][3]{};
+    captured = 0;
+    for (u32 frame = 0; frame < kRunIn + 48; ++frame, phase += 1.f / 30, now += 33) {
+        if (frame == kRunIn && !check(select(4), "transition_month_select_failed"))
+            return false;
+        inputs(ambient, 12, now);
+        if (frame + 4 >= kRunIn && (frame + 4 - kRunIn) % 4 == 0 && captured < 16) {
+            if (!shot(f, r, frame_name(L"month", captured), phase) || !frame_mean(r, means[captured]))
+                return check(false, "transition_month_capture_failed");
+            ++captured;
+        } else if (!check(renderer_set_background_phase(&r, phase) &&
+                              d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000),
+                          "transition_frame_failed")) {
+            return false;
+        }
+    }
+    // means[0] is October, the last April; the ones between must be on the way (10 % to 90 % of it), in steps no
+    // longer than half of it. Distances squared.
+    const float total = mean_distance2(means[0], means[captured - 1]);
+    u32 between = 0;
+    float largest = 0;
+    for (u32 i = 1; i < captured; ++i) {
+        const float to_end = mean_distance2(means[i], means[captured - 1]), step = mean_distance2(means[i], means[i - 1]);
+        between += to_end > total * .01f && to_end < total * .81f;
+        largest = step > largest ? step : largest;
+    }
+    log_u64(LogLevel::info, "showcase", "month_change_total_squared_x100", static_cast<u64>(total * 100));
+    log_u64(LogLevel::info, "showcase", "month_change_largest_step_squared_x100", static_cast<u64>(largest * 100));
+    log_u64(LogLevel::info, "showcase", "month_change_frames_between", between);
+    renderer_clear_effect(&r);
+    return check(total > 1.f && between >= 3 && largest <= total * .25f, "transition_month_jumped");
+}
 bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
     u32 bytes = 0;
     u8* text = read_whole(L"MAICORD_SHOWCASE_THEME", kClientThemeDocumentMaximumBytes, &bytes);
@@ -1589,6 +1711,9 @@ bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
             name[17] = static_cast<wchar_t>(L'0' + hour % 10);
             shot(f, r, name, phase);
         }
+    if (package && GetEnvironmentVariableW(L"MAICORD_SHOWCASE_TRANSITIONS", nullptr, 0) &&
+        !transitions(f, r, spec, effect))
+        return false;
     if (package)
         VirtualFree(package, 0, MEM_RELEASE);
     return g_failures == 0;

@@ -20,12 +20,16 @@ struct ApplicationCustomThemeView {
     bool can_retry_read;
 };
 // Root resolves all renderer/style consumers before accepting a publication.
-// A null document requests the current built-in preference projection.
-bool application_custom_theme_publish(const ClientThemeDocument*) noexcept;
+// A null document requests the current built-in preference projection. `animate`: a change of colours glides
+// (client_theme_glide, kClientThemeGlideMs) where it can be seen; the saved theme loaded at startup shows at once.
+bool application_custom_theme_publish(const ClientThemeDocument*, bool animate) noexcept;
 // A published theme with variants follows the clock (theme_publication.cpp): when it is published again next (0 when
-// none is published), and that publication once it is due. The loop runs the tick before theme consumers synchronize.
+// none is published), and that publication once it is due. A glide steps in the same tick once per display frame
+// (`frame`: the loop took a display slot, or has no display clock): while one runs, the loop asks for frames.
+// The loop runs the tick before theme consumers synchronize.
 u64 application_theme_schedule_wake() noexcept;
-void application_theme_schedule_tick(u64 now_ms) noexcept;
+bool application_theme_transition_active() noexcept;
+void application_theme_schedule_tick(u64 now_ms, bool frame) noexcept;
 bool application_custom_theme_initialize() noexcept;
 HANDLE application_custom_theme_notification() noexcept;
 void application_custom_theme_poll() noexcept;

@@ -103,7 +103,8 @@ start to restored shell), `history`, `idle_static` (text-only channel), `scroll`
 `switch` (channel switches), `member_list`, `churn`, `settings`, `anim_scroll`
 (back to a mixed channel's GIFs), `idle_anim` (one second with two animations
 playing), `idle_fx` (text channel under the built-in Stars
-background effect), `call_open`, `call_30fps` and `call_5fps` (a synthetic call
+background effect), `theme` (two built-in theme switches 0.8 s apart, to Light and
+back: the frames a theme transition draws), `call_open`, `call_30fps` and `call_5fps` (a synthetic call
 with two cameras presenting 30 and then 5 pictures a second), `idle_final` and `idle_hidden` (minimized; the end
 memory snapshot is taken before minimizing).
 

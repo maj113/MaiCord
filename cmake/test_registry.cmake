@@ -748,6 +748,13 @@ maicord_test(MaiCordSurfaceMotionHostTests ENTRY maicord_surface_motion_host_ent
     LIBS maicord_core maicord_ui maicord_render_core kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_surface_motion_host)
+# Theme glides (src/app/settings/theme_publication.cpp): one publication per display frame, an exact settle and no
+# frames after it; reduced motion and a window that can't show it take a change at once.
+maicord_test(MaiCordThemePublicationTests ENTRY maicord_theme_publication_entry
+    SOURCES tests/app/settings/theme_publication.cpp src/app/shell/state.cpp
+    LIBS maicord_core maicord_ui maicord_client_preferences kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_theme_publication)
 # Draw submission: pipeline, shared-state and scissor binds, merged draw runs.
 maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry SOURCES tests/render/d3d11/draw_submission.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_draw_submission)
@@ -1798,7 +1805,8 @@ endforeach()
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
 # With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
-# MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day.
+# MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day;
+# MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change.
 maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
     RESOURCE_LOCK native_gpu)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built

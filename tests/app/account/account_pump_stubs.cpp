@@ -140,6 +140,7 @@ GatewayClientPopError diagnostic_pop_error;
 bool diagnostic_order_ok, diagnostic_refill, diagnostic_null_source, diagnostic_overlarge;
 u64 profile_wake, command_wake, form_wake, friends_wake, recovery_wake, reset_wake, phone_wake,
     notification_wake, video_wake, tooltip_wake, surface_wake, toast_wake, reconnect_wake;
+bool theme_transition;
 
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
@@ -605,6 +606,9 @@ u64 application_text_form_next_wake() noexcept {
 }
 u64 application_theme_schedule_wake() noexcept {
     return 0;
+}
+bool application_theme_transition_active() noexcept {
+    return theme_transition;
 }
 u64 application_login_auth_deadline() noexcept {
     return 0;

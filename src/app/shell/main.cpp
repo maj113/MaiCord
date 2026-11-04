@@ -539,7 +539,8 @@ int application_run() noexcept {
         if (quit)
             break;
         MAICORD_PERF_MARK("loop_dispatch");
-        application_theme_schedule_tick(clock_monotonic_milliseconds());
+        // A theme glide steps on display frames, like smooth scrolling (see application_visual_frame_requested).
+        application_theme_schedule_tick(clock_monotonic_milliseconds(), begin_frame || !frame_clock_available);
         if (!application_synchronize_theme_consumers()) {
             log_write(LogLevel::error, "theme", "theme_layout_refresh_failed");
             exit_code = 6;
@@ -598,12 +599,13 @@ int application_run() noexcept {
                 application_request_frame();
             }
         }
-        // Smooth scrolling needs a display-clock tick even when this step
-        // rounds to the same pixel. Media does not: its completion will
-        // invalidate the real damage. Retain the slot instead of presenting
-        // once for the pending decode and again for the resulting video frame.
+        // Smooth scrolling and a theme glide need a display-clock tick even
+        // when this step rounds to the same pixel or colour. Media does not:
+        // its completion will invalidate the real damage. Retain the slot
+        // instead of presenting once for the pending decode and again for the
+        // resulting video frame.
         if (begin_frame && g_app.renderer.begin_frame_permit && g_app.window &&
-            application_smooth_scroll_active()) {
+            (application_smooth_scroll_active() || application_theme_transition_active())) {
             application_request_frame();
         }
         // Procedural text/profile effects need a draw even when no media

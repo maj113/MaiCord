@@ -132,11 +132,12 @@ void d3d11_effect_set_marker(D3D11EffectOwner*, volatile u64* marker) noexcept;
 
 // Collects finished GPU timings, then redraws the target when a frame is due: the clock moved, or something
 // the picture depends on changed, and the window is not being resized. `phase` is the app's effect clock
-// in seconds. Sets owner->active when canvases can sample the target; owner->rendered says the target was
-// redrawn (the caller restores the viewport and the render target it bound). False only on a device failure.
+// in seconds; while it runs (`clock_running`) a change of inputs waits for its next tick, so mc.delta is 0 only on a
+// redraw of a stopped clock. Sets owner->active when canvases can sample the target; owner->rendered says the target
+// was redrawn (the caller restores the viewport and the render target it bound). False only on a device failure.
 bool d3d11_effect_begin_frame(D3D11EffectOwner*, ID3D11Device*, ID3D11DeviceContext*, const Theme&, float phase,
-                              u32 content_width, u32 content_height, u32 caption_height, u32 dpi, bool live_resize,
-                              u64 now_ms) noexcept;
+                              bool clock_running, u32 content_width, u32 content_height, u32 caption_height, u32 dpi,
+                              bool live_resize, u64 now_ms) noexcept;
 // Composites the target over one canvas (DIP rectangle, paint quad index) under the bound scissor, layer
 // transform, strip topology and bilinear sampler, which it leaves alone. True when it drew: it bound its
 // shaders, pixel constant slot 0, pixel view 0 and the blend state, which the caller binds again. Skips

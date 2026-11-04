@@ -271,6 +271,7 @@ enum class Phase : u32 {
     animation_scroll,
     idle_animated,
     idle_fx,
+    theme,
     call_open,
     call_video_30,
     call_video_5,
@@ -282,8 +283,8 @@ enum class Phase : u32 {
 };
 const char* const kPhaseNames[] = {"startup",     "history",     "idle_static", "scroll",    "switch",
                                    "member_list", "churn",       "settings",    "anim_scroll", "idle_anim",
-                                   "idle_fx",     "call_open",   "call_30fps",  "call_5fps",   "idle_final",
-                                   "idle_hidden", "report",      "done"};
+                                   "idle_fx",     "theme",       "call_open",   "call_30fps",  "call_5fps",
+                                   "idle_final",  "idle_hidden", "report",      "done"};
 
 // Retained text and paint work: parser runs against cache hits, content text
 // streams rebuilt (and how many kept the shell's glyphs), paint streams rebuilt,
@@ -359,6 +360,7 @@ struct Probe {
     u32 zero_streak;
     u32 final_messages, final_guilds, final_channels, final_members;
     BackgroundTheme gradient;
+    ClientTheme theme; // the built-in theme the theme phase returns to
 };
 
 extern Probe g_probe;

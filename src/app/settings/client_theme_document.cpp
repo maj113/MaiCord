@@ -1492,6 +1492,47 @@ void client_theme_mix(Theme* to, const Theme& from, float amount) noexcept {
     for (u32 i = 0; i < offsetof(Theme, scale) / sizeof(float); ++i)
         a[i] = b[i] + (a[i] - b[i]) * amount;
 }
+namespace {
+u8 mix_byte(u32 from, u32 to, float amount) noexcept {
+    return static_cast<u8>(static_cast<float>(from) + (static_cast<float>(to) - static_cast<float>(from)) * amount + .5f);
+}
+// A background gradient `amount` of the way through a glide (see client_theme_glide).
+void glide_background(BackgroundTheme& to, BackgroundTheme from, float amount) noexcept {
+    if (from.effect != to.effect || from.speed != to.speed || from.strength != to.strength ||
+        from.density != to.density || (!from.color_count && !to.color_count))
+        return;
+    if (from.color_count == to.color_count) {
+        for (u32 i = 0; i < to.color_count; ++i) {
+            u32 color = 0;
+            for (u32 shift = 0; shift < 24; shift += 8)
+                color |= u32{mix_byte(from.colors[i] >> shift & 255, to.colors[i] >> shift & 255, amount)} << shift;
+            to.colors[i] = color;
+        }
+        // The angle turns the short way round.
+        i32 turn = static_cast<i32>(to.angle_degrees % 360) - static_cast<i32>(from.angle_degrees % 360);
+        turn = turn > 180 ? turn - 360 : turn < -180 ? turn + 360 : turn;
+        const float angle = static_cast<float>(from.angle_degrees % 360) + static_cast<float>(turn) * amount;
+        to.angle_degrees = static_cast<u16>(static_cast<i32>(angle + 360.5f) % 360);
+        to.intensity = mix_byte(from.intensity, to.intensity, amount);
+        return;
+    }
+    // Against a flat look the gradient fades in or out; two different gradients pass through flat halfway.
+    const bool incoming = !from.color_count || (to.color_count && amount >= .5f);
+    const float strength = !from.color_count ? amount : !to.color_count ? 1 - amount : incoming ? 2 * amount - 1 : 1 - 2 * amount;
+    if (!incoming)
+        to = from;
+    to.intensity = mix_byte(0, to.intensity, strength);
+}
+} // namespace
+bool client_theme_glide(Theme* to, const Theme& from, u64 elapsed_ms, u32 duration_ms) noexcept {
+    if (elapsed_ms >= duration_ms)
+        return false;
+    const float amount =
+        ui_motion_curve_sample(UiMotionCurve::ease_in_out, static_cast<float>(elapsed_ms) / static_cast<float>(duration_ms));
+    client_theme_mix(to, from, amount);
+    glide_background(to->background, from.background, amount);
+    return true;
+}
 Theme client_theme_document_at(const ClientThemeDocument& document, u32 minute_of_day, u32 month, u32 day) noexcept {
     const auto at = client_theme_phase_at(minute_of_day);
     month = month - 1u < kClientThemeColorSets - 1u ? month : 0u;

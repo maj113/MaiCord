@@ -778,4 +778,35 @@ void mcfx_knob_pack(const McfxPackage& package, const McfxKnobValue (&values)[kM
     }
 }
 
+bool mcfx_knob_glide(const McfxPackage& package, const float (&target)[kEffectKnobRows][4],
+                     float (&shown)[kEffectKnobRows][4], u32 elapsed_ms) noexcept {
+    static_assert(kEffectKnobRows * 4 <= 32);
+    const float share = static_cast<float>(elapsed_ms) / static_cast<float>(kMcfxKnobGlideMs + elapsed_ms);
+    const float* to = &target[0][0];
+    float* at = &shown[0][0];
+    u32 gliding = 0; // a bit per lane
+    bool moving = false;
+    for (u32 i = 0; i < package.knob_count; ++i) {
+        const McfxKnob& k = package.knobs[i];
+        if (k.type != McfxKnobType::number && k.type != McfxKnobType::color)
+            continue;
+        const bool color = k.type == McfxKnobType::color;
+        const float settle = color ? 1.f / 1024 : (k.maximum - k.minimum) * .001f;
+        for (u32 lane = k.slot; lane < k.slot + (color ? 3u : 1u); ++lane) {
+            gliding |= 1u << lane;
+            const float change = to[lane] - at[lane];
+            if (change <= settle && change >= -settle) {
+                at[lane] = to[lane];
+            } else {
+                at[lane] += change * share;
+                moving = true;
+            }
+        }
+    }
+    for (u32 lane = 0; lane < kEffectKnobRows * 4; ++lane)
+        if (!(gliding >> lane & 1))
+            at[lane] = to[lane];
+    return moving;
+}
+
 } // namespace maicord

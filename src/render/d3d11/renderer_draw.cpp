@@ -1047,7 +1047,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // Effects are decoration: without their resources the frame draws plain.
     static_cast<void>(d3d11_effect_begin_frame(&renderer->effect, renderer->graphics.device,
                                                renderer->graphics.context, theme,
-                                               renderer->background_phase_seconds, renderer->width,
+                                               renderer->background_phase_seconds,
+                                               renderer->background_motion_running, renderer->width,
                                                renderer->height, renderer->caption_height, renderer->dpi,
                                                renderer->live_resize, frame_ms));
     // The package pass bound its own target and viewport; the frame's comes back.

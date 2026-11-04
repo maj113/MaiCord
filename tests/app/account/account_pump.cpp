@@ -89,6 +89,16 @@ void test_frame_deadlines() noexcept {
               application_wait_timeout(1000, 1000000, false) == 0 && !application_nonvisual_wake_due(1000),
           "due_surface_motion_is_paced_by_dxgi_or_timer_fallback");
     surface_wake = 0;
+    // A theme glide steps on every display frame while it runs, and asks for none once it has settled.
+    theme_transition = true;
+    check(application_visual_frame_requested(1000, 1000000) &&
+              application_wait_timeout(1000, 1000000, true) == INFINITE &&
+              application_wait_timeout(1000, 1000000, false) == 16 && !application_nonvisual_wake_due(1000),
+          "theme_glide_is_paced_by_dxgi_or_a_16_ms_fallback_without_account_work");
+    theme_transition = false;
+    check(!application_visual_frame_requested(1000, 1000000) &&
+              application_wait_timeout(1000, 1000000, false) == INFINITE,
+          "settled_theme_glide_requests_no_frames");
     // Pins/inbox/thread-browser loading spinners share one visual frame clock.
     loading_spinner_wake = 1032;
     check(!application_visual_frame_requested(1000, 1000000) && !application_effect_frame_due(1000) &&

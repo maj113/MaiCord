@@ -102,6 +102,7 @@ struct Transport {
     bool settings_active{true};
     u64 settings_lifetime{1};
     bool custom_published{};
+    bool animated{}; // the last publication asked for a glide
 } transport;
 UiPage pages[2]{};
 UiPageRegistry registry{};
@@ -260,9 +261,10 @@ bool custom_fixture_request_frame() noexcept {
     ++custom_theme_test::transport.frames;
     return true;
 }
-bool custom_fixture_publish(const ClientThemeDocument* document) noexcept {
+bool custom_fixture_publish(const ClientThemeDocument* document, bool animate) noexcept {
     auto& t = custom_theme_test::transport;
     ++t.preparations;
+    t.animated = animate;
     if (t.publication_failed)
         return false;
     ++t.publications;
@@ -340,9 +342,9 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
     g_app.renderer_ready = g_app.renderer.glyph_text.ready = true;
     check(application_custom_theme_synchronize() && !application_custom_theme_view().busy &&
               !application_custom_theme_view().candidate_ready && !application_custom_theme_document() &&
-              transport.preparations == deferred_preparations + 1,
+              transport.preparations == deferred_preparations + 1 && !transport.animated,
           "custom theme owner: deferred startup failure settles once readiness exists without fatal frame "
-          "failure");
+          "failure; the saved theme loaded at startup would show at once");
     application_custom_theme_release();
     transport.publication_failed = false;
     application_custom_theme_initialize();
@@ -350,8 +352,8 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
     // A built-in choice before any custom theme is remembered apart from the custom theme's base.
     g_app.preferences.theme = ClientTheme::sunset;
     check(application_custom_theme_preferences_changed(true, true) &&
-              g_app.preferences.builtin_theme == ClientTheme::sunset,
-          "custom theme owner: choosing a built-in theme remembers it as the last built-in theme");
+              g_app.preferences.builtin_theme == ClientTheme::sunset && transport.animated,
+          "custom theme owner: choosing a built-in theme remembers it as the last built-in theme and glides to it");
     receipt(ClientThemeStorageError::none);
     const u32 saves_before_offer = transport.saves;
     check(parsed.ok() && offer_candidate(document) && !transport.custom_published &&

@@ -357,7 +357,7 @@ $columns = @(
 $header = '{0,-12}' -f 'phase'
 foreach ($column in $columns) { $header += '{0,10}' -f $column[1] }
 Write-Host $header
-foreach ($phase in @('startup', 'history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'call_30fps', 'call_5fps', 'idle_final', 'idle_hidden')) {
+foreach ($phase in @('startup', 'history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'theme', 'call_30fps', 'call_5fps', 'idle_final', 'idle_hidden')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ })
     if (!$rows.Count) { continue }
     $line = '{0,-12}' -f $phase
@@ -374,7 +374,7 @@ $work = @(@('md_parses', 'md parses'), @('md_hits', 'md hits'), @('text_builds',
 $header = '{0,-12}' -f 'work'
 foreach ($column in $work) { $header += '{0,11}' -f $column[1] }
 Write-Host $header
-foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'idle_final')) {
+foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'theme', 'idle_final')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.md_parses })
     if (!$rows.Count) { continue }
     $line = '{0,-12}' -f $phase
@@ -386,7 +386,7 @@ Write-Host ''
 # media quads), member list rows resolved for media (cache misses) and shell
 # segments replayed instead of built (timeline-only rebuilds).
 Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}{6,11}' -f 'upload', 'paint B/f', 'text B/f', 'media B/f', 'total KiB', 'member res', 'shell rep')
-foreach ($phase in @('scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx')) {
+foreach ($phase in @('scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'theme')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.up_paint_b -ne $null })
     if (!$rows.Count) { continue }
     $perFrame = { param($row, $key) [double]$row[$key] / [Math]::Max(1, [double]$row.frames) }
@@ -425,7 +425,7 @@ $gpuColumns = @(@('draws', 'draws', 1), @('binds', 'binds', 1), @('g_scissor', '
 $header = '{0,-12}' -f 'gpu / frame'
 foreach ($column in $gpuColumns) { $header += '{0,10}' -f $column[1] }
 Write-Host ($header + '{0,10}{1,10}{2,10}' -f 'painted', 'full n', 'part n')
-foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'idle_final')) {
+foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'theme', 'idle_final')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.g_scissor -ne $null })
     if (!$rows.Count) { continue }
     $line = '{0,-12}' -f $phase

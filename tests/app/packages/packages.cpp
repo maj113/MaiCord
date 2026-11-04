@@ -108,6 +108,43 @@ void test_parse(Check check) noexcept {
               rows[1][0] < .11f && rows[1][1] == 1.f && rows[1][2] > .34f && rows[1][2] < .36f && rows[2][0] == .25f &&
               rows[3][0] == 0.f,
           "mcfx: defaults pack into mc_knobs (sRGB colours as typed)");
+    // The host's knob glide, at 60 frames a second: the float and colour lanes step toward a change and settle on it
+    // exactly; a whole number switches at once.
+    McfxKnobValue next[kMcfxKnobMaximum];
+    copy_bytes(next, values, sizeof(next));
+    next[0].number = 3;
+    next[1].number = 8;
+    next[4].rgb = 0;
+    float target[kEffectKnobRows][4], shown[kEffectKnobRows][4];
+    copy_bytes(shown, rows, sizeof(rows));
+    mcfx_knob_pack(p, next, target);
+    bool moving = mcfx_knob_glide(p, target, shown, 16);
+    const bool stepped = shown[0][1] == 8.f && shown[0][0] > 1.f && shown[0][0] < 1.5f && shown[1][1] > 0.f &&
+                         shown[1][1] < 1.f;
+    u32 frames = 1;
+    bool steady = true;
+    for (float before = shown[0][0]; moving && frames < 120; ++frames, before = shown[0][0]) {
+        moving = mcfx_knob_glide(p, target, shown, 16);
+        steady = steady && shown[0][0] >= before && shown[1][1] <= 1.f;
+    }
+    check(stepped && steady && !moving && frames >= 12 && frames <= 32 && bytes_equal(shown, target, sizeof(shown)) &&
+              !mcfx_knob_glide(p, target, shown, 16),
+          "mcfx: a float or colour knob glides to a change and settles on it exactly within 0.5 s; an int switches "
+          "at once");
+    // A drag from 1 to 3: the value moves 0.05 a frame for 40 frames. The glide trails it by about 60 ms of motion and
+    // the lag does not grow; once the pointer stops it settles as fast as a step does.
+    shown[0][0] = 1.f;
+    float lag = 0, last_lag = 0;
+    for (u32 frame = 1; frame <= 40; ++frame) {
+        target[0][0] = 1.f + .05f * static_cast<float>(frame);
+        mcfx_knob_glide(p, target, shown, 16);
+        last_lag = target[0][0] - shown[0][0];
+        lag = last_lag > lag ? last_lag : lag;
+    }
+    for (frames = 0; mcfx_knob_glide(p, target, shown, 16) && frames < 120; ++frames) {
+    }
+    check(lag > 0 && lag < .05f * 4.5f && last_lag >= lag - 1e-4f && frames <= 30 && shown[0][0] == target[0][0],
+          "mcfx: a dragged knob trails the pointer by a few frames at most, never accumulating lag");
     values[0].number = 5;
     check(!mcfx_knob_value_valid(p.knobs[0], values[0]) && !mcfx_knob_value_valid(p.knobs[1], {2.5f, 0}) &&
               mcfx_knob_value_valid(p.knobs[1], {3.f, 0}) && mcfx_knob_value_valid(p.knobs[4], {0, 0x123456}),

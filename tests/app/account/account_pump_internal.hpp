@@ -93,6 +93,7 @@ extern GatewayClientPopError diagnostic_pop_error;
 extern bool diagnostic_order_ok, diagnostic_refill, diagnostic_null_source, diagnostic_overlarge;
 
 extern u64 profile_wake, command_wake, form_wake, friends_wake, recovery_wake, reset_wake, phone_wake, notification_wake, video_wake, tooltip_wake, surface_wake, toast_wake, reconnect_wake;
+extern bool theme_transition; // application_theme_transition_active
 
 void check(bool valid, const char* label) noexcept;
 

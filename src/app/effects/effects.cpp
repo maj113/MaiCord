@@ -93,15 +93,17 @@ struct Simulation {
     u64 anchor_ms;   // when the file was read
 };
 
-// mc_ambient's sources and easing (effect_ambient_sample).
+// mc_ambient's sources and easing (effect_ambient_sample), and mc_knobs as they glide (mcfx_knob_glide).
 struct Inputs {
     EffectAmbient ambient;
     u64 identity;      // the package the easing belongs to
     u64 next_frame_ms; // the next eased frame while a value eases, else 0
     EffectLocalTime local;
     u64 clock_next_ms; // the local clock is read again at the next whole minute
-    bool system_read, system_dark;
+    bool system_read, system_dark, knobs_moving;
     Simulation simulation;
+    float knobs[kEffectKnobRows][4]; // as last sent to the renderer
+    u64 knobs_ms;                    // when
 };
 
 struct State {
@@ -696,6 +698,26 @@ bool transition_allowed() noexcept {
            (application_window_focused() || g.file.user.unfocused == EffectUnfocused::keep);
 }
 
+// The ambient inputs and the knobs glide on the performance counter, in milliseconds: GetTickCount64 moves in 16 ms
+// steps, so frames at 30 or 60 a second would see a glide stand still on one and leap on the next.
+u64 ease_now() noexcept {
+    return application_now_us() / 1000;
+}
+
+// mc_knobs as this frame shows them: a float or colour knob glides to a change (mcfx_knob_glide) where the window can
+// show it moving; a new package, or a window that can't, takes them whole. The step is at most one effect frame long,
+// so a change after a quiet spell starts like any other frame.
+void glide_knobs(u64 identity, const McfxPackage& package, float (&knobs)[kEffectKnobRows][4]) noexcept {
+    Inputs& in = g.inputs;
+    const u64 now = ease_now();
+    const u32 step = static_cast<u32>(minimum<u64>(now - in.knobs_ms, application_effects_interval_ms()));
+    in.knobs_moving = in.identity == identity && transition_allowed() && mcfx_knob_glide(package, knobs, in.knobs, step);
+    if (!in.knobs_moving)
+        copy_bytes(in.knobs, knobs, sizeof(in.knobs));
+    in.knobs_ms = now;
+    copy_bytes(knobs, in.knobs, sizeof(in.knobs));
+}
+
 // Samples and eases the selected package's ambient inputs and its light adaptation (`adapt`: the user's Auto for it)
 // and hands them to the renderer.
 void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
@@ -721,10 +743,12 @@ void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
             sources.theme_dark = sources.system_dark = in.simulation.dark;
     }
     float values[4];
-    const float light = effect_ambient_sample(&in.ambient, uses, sources, now, transition_allowed(), adapt, values);
+    const u64 eased = ease_now();
+    const float light = effect_ambient_sample(&in.ambient, uses, sources, eased, transition_allowed(), adapt, values);
     renderer_set_effect_ambient(&g_app.renderer, values);
     renderer_set_effect_light(&g_app.renderer, light);
-    if (effect_ambient_easing(in.ambient, now))
+    // The next frame is due on the loop's clock.
+    if (effect_ambient_easing(in.ambient, eased) || in.knobs_moving)
         in.next_frame_ms = now + application_effects_interval_ms();
 }
 
@@ -798,6 +822,7 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
     mcfx_knob_pack(package, values, spec.knobs);
     g.settings = settings;
     g.selected = true;
+    glide_knobs(identity, package, spec.knobs);
     if ((package.uses & effect_use_pointer) && settings.pointer_allowed && g_app.window) {
         POINT cursor{};
         if (GetCursorPos(&cursor) && ScreenToClient(g_app.window, &cursor))

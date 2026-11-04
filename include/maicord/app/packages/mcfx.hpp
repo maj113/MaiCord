@@ -105,6 +105,14 @@ void mcfx_knob_defaults(const McfxPackage& package, McfxKnobValue (&values)[kMcf
 bool mcfx_knob_value_valid(const McfxKnob& knob, const McfxKnobValue& value) noexcept;
 void mcfx_knob_pack(const McfxPackage& package, const McfxKnobValue (&values)[kMcfxKnobMaximum],
                     float (&rows)[kEffectKnobRows][4]) noexcept;
+// The host glides mc_knobs toward a change (effects.cpp): a float or colour knob's lanes in `shown` move a share
+// dt / (kMcfxKnobGlideMs + dt) of the way to `target` each frame and settle on it within a thousandth of the knob's
+// range (1/1024 of a colour channel). A step shows 95 % of the way in about 0.2 s and settles within about 0.45 s; a
+// drag trails the pointer by about kMcfxKnobGlideMs of its motion, never more. Whole numbers, toggles and choices
+// switch at once; an effect that wants them gradual eases them itself. True while a lane still moves.
+inline constexpr u32 kMcfxKnobGlideMs = 60;
+bool mcfx_knob_glide(const McfxPackage& package, const float (&target)[kEffectKnobRows][4],
+                     float (&shown)[kEffectKnobRows][4], u32 elapsed_ms) noexcept;
 
 // PNG textures: the container only checks the signature and the IHDR extent (<= 512 x 512, 8-bit RGBA/RGB).
 bool mcfx_png_extent(ConstSlice<u8> png, u32* width, u32* height) noexcept;

@@ -48,6 +48,7 @@
 #include "../../src/app/chat/inbox.hpp"
 #include "../../src/app/account/application_account_module.hpp"
 #include "../../src/app/voice/voice.hpp"
+#include "../../src/app/settings/custom_theme.hpp"
 #include "maicord/sys/process_info.hpp"
 #include "maicord/core/win32_exception.hpp"
 
@@ -741,6 +742,7 @@ u64 phase_deadline_qpc() noexcept {
     case Phase::animation_scroll: return action(kAnimationScrollNotches, 3'000);
     case Phase::idle_animated: return at(10'000);
     case Phase::idle_fx: return at(3'000);
+    case Phase::theme: return action(2, 18'000);
     case Phase::call_open: return at(2'000);
     case Phase::call_video_30: return at(10'000);
     case Phase::call_video_5: return at(10'000);
@@ -981,6 +983,19 @@ bool probe_step_phases(int* exit_code) noexcept {
         if (phase_ms > 3'000) {
             g_app.preferences.gradient = g_probe.gradient;
             app_detail::application_request_frame();
+            g_probe.theme = g_app.preferences.theme;
+            next_phase(Phase::theme);
+        }
+        break;
+    case Phase::theme:
+        // The text channel through two built-in theme switches 0.8 s apart (to Light and back): the cost of the
+        // frames a theme change draws. Transitions are not scaled, so the phase runs 1.8 seconds.
+        if (g_probe.actions < 2 && due(8'000)) {
+            g_app.preferences.theme = g_probe.actions == 1 ? ClientTheme::light : g_probe.theme;
+            if (!app_detail::application_custom_theme_preferences_changed(true, false))
+                fail("theme_switch");
+        }
+        if (g_probe.actions >= 2 && phase_ms > 18'000) {
             collect_threads(true);
             // A call with two cameras in the content column.
             if (!call_control(PerfAccountCommand::start_call, 30) ||

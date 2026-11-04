@@ -140,4 +140,13 @@ struct ClientThemeClock {
 ClientThemeClock client_theme_follow(const ClientThemeEffect&, ClientThemeClock, float month, float phase) noexcept;
 // Every colour of *to (core and semantic) moved from `from` by 1 - amount: amount 0 is `from`, 1 is *to.
 void client_theme_mix(Theme* to, const Theme& from, float amount) noexcept;
+// A theme change glides (theme_publication.cpp): the colours, and a background gradient beside them, move from the
+// look that showed to the new one on the shared ease-in-out curve (ui_motion_curve_sample), one step a frame. A
+// change the user makes (applying a theme, a built-in palette, a knob the theme follows) takes kClientThemeGlideMs;
+// one the clock makes (a jump, a light/dark flip) takes the effects' appearance glide, kEffectAmbientEaseMs.
+inline constexpr u32 kClientThemeGlideMs = 600;
+// *to as shown `elapsed_ms` into a glide of `duration_ms` from `from`. A gradient glides stop by stop when both
+// looks have as many stops, fades in or out against a flat background, and otherwise passes through flat halfway;
+// a change of background effect shows at once. True while the glide runs; false leaves *to whole.
+bool client_theme_glide(Theme* to, const Theme& from, u64 elapsed_ms, u32 duration_ms) noexcept;
 } // namespace maicord

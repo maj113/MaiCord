@@ -499,7 +499,8 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
     owner->window_width = window_width;
     owner->window_height = window_height;
     if (same && owner->shader) {
-        // The package is built: only the user's side and the knob values can have moved.
+        // The package is built: only the user's side and the knob values can have moved. New knob values reach the
+        // next frame through its inputs (d3d11_effect_begin_frame), so a running clock draws them on its next tick.
         bool changed = false;
         if (!bytes_same(owner->knobs, spec.knobs, sizeof(owner->knobs))) {
             copy_bytes(owner->knobs, spec.knobs, sizeof(owner->knobs));
@@ -509,11 +510,10 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
             const bool restart = owner->settings.resolution_step != settings.resolution_step ||
                                  owner->settings.budget != settings.budget;
             owner->settings = settings;
-            changed = true;
+            owner->dirty = changed = true;
             if (restart)
                 start_controller(owner);
         }
-        owner->dirty = owner->dirty || changed;
         return result(S_OK, changed ? EffectSelect::changed : EffectSelect::unchanged);
     }
     if (!same)
@@ -605,8 +605,8 @@ void d3d11_effect_set_pointer(D3D11EffectOwner* owner, float x, float y) noexcep
 }
 
 bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3D11DeviceContext* context,
-                              const Theme& theme, float phase, u32 content_width, u32 content_height,
-                              u32 caption_height, u32 dpi, bool live_resize, u64 now_ms) noexcept {
+                              const Theme& theme, float phase, bool clock_running, u32 content_width,
+                              u32 content_height, u32 caption_height, u32 dpi, bool live_resize, u64 now_ms) noexcept {
     if (!owner || !device || !context)
         return false;
     owner->active = owner->rendered = false;
@@ -646,14 +646,16 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
         constants.ambient[i] = clock ? owner->ambient[i] : 0.f;
     constants.ambient[effect_ambient_dark] =
         (owner->uses & effect_use_appearance) != 0 ? owner->ambient[effect_ambient_dark] : 0.f;
-    // What the picture depends on besides the clock: palette, flags, knobs, ambient inputs, size and DPI.
+    // What the picture depends on besides the clock: palette, flags, knobs, ambient inputs, size and DPI. While the
+    // clock runs, a change of inputs waits for its next tick, so every frame the effect draws moves time on.
+    const bool inputs_changed =
+        !bytes_same(constants.palette, owner->constants.palette, sizeof(constants.palette)) ||
+        constants.dark != owner->constants.dark || constants.intensity != owner->constants.intensity ||
+        !bytes_same(constants.knobs, owner->constants.knobs, sizeof(constants.knobs)) ||
+        !bytes_same(constants.ambient, owner->constants.ambient, sizeof(constants.ambient)) ||
+        !bytes_same(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
     const bool repaint = !owner->content_valid || owner->dirty || used_width != owner->used_width ||
-                         used_height != owner->used_height || dpi != owner->dpi ||
-                         !bytes_same(constants.palette, owner->constants.palette, sizeof(constants.palette)) ||
-                         constants.dark != owner->constants.dark || constants.intensity != owner->constants.intensity ||
-                         !bytes_same(constants.knobs, owner->constants.knobs, sizeof(constants.knobs)) ||
-                         !bytes_same(constants.ambient, owner->constants.ambient, sizeof(constants.ambient)) ||
-                         !bytes_same(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
+                         used_height != owner->used_height || dpi != owner->dpi || (inputs_changed && !clock_running);
     // A window being dragged keeps the last picture, stretched.
     if ((repaint || phase != owner->last_phase) && !(live_resize && owner->content_valid)) {
         if (!ensure_target(owner, device, context, used_width, used_height) ||
