@@ -3,10 +3,11 @@
 // app icon, glyph, hover and update badge pixels focused and unfocused, that
 // content pixels keep their place relative to the content origin, the
 // sign-in screen with its Settings entry, the bar's own tooltip below it, a
-// content scrim dimming the bar but not its window buttons, and a gradient
-// backdrop continuing across the seam. Full-target frames leave an unchanged
-// bar in place, and redraws reuse its uploaded quads (draws and builds are
-// counted). Synthetic data only; frames
+// content scrim dimming the bar but not its window buttons, a gradient
+// backdrop continuing across the seam, and an opaque band and its buttons
+// in every frame of a fading Settings layer. Full-target frames leave an
+// unchanged bar in place, and redraws reuse its uploaded quads (draws and
+// builds are counted). Synthetic data only; frames
 // go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
 #include "probe_capture.hpp"
 #include "../../src/app/shell/app_icon.hpp"
@@ -15,6 +16,9 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/shell/page_registry.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 
 namespace maicord {
@@ -464,6 +468,78 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
             renderer.full_present_draws != full + 1 || d3d11_renderer_caption_draws(renderer) != draws + 1 ||
             d3d11_renderer_caption_builds(renderer) != builds + 3)
             return fail(120);
+        // The content's last range drawn under a fading layer (the Settings modal's entrance here, any popup
+        // or toast fade alike) must not hand its factor to the bar's effect: the band would turn translucent
+        // over the desktop. Every frame keeps an opaque band and its window buttons, and a category switch
+        // shows the new page whole in its first frame.
+        {
+            UiPage pages[2]{};
+            UiPageRegistry registry{};
+            UiSettingsScene modal{};
+            UiSettingsPageContent plugins{utf8_literal("Plugins"), utf8_literal("Reviewed extensions"), {}, 1};
+            UiSettingsPageContent updates{utf8_literal("Updates"), utf8_literal("Signed releases"), {}, 1};
+            struct Restore {
+                D3D11Renderer& renderer;
+                UiSettingsScene& modal;
+                const UiSettingsScene* previous;
+                ~Restore() noexcept {
+                    renderer_bind_settings_scene(&renderer, previous);
+                    renderer_set_settings_modal_progress(&renderer, 1);
+                    ui_settings_scene_release(&modal);
+                }
+            } restore{renderer, modal, renderer.settings_scene};
+            const UiRect viewport{0, 0, width, static_cast<float>(renderer.height) / scale};
+            if (!ui_page_registry_initialize(&registry, {pages, 2}) ||
+                !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Plugins"), &plugins}).ok() ||
+                !ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Updates"), &updates}).ok() ||
+                !ui_settings_scene_update(&modal, &registry, viewport))
+                return fail(126);
+            renderer_bind_settings_scene(&renderer, &modal);
+            const auto frame = [&](ProbeTargetReadback* image) noexcept {
+                if (!renderer_rebuild_content_text(&renderer, gradient) || !draw(renderer, gradient) ||
+                    renderer.background_fx.layer_opacity != 1 || renderer.effect.layer_opacity != 1 ||
+                    probe_target_readback(renderer, image))
+                    return false;
+                for (u32 y = 0; y < caption; ++y)
+                    for (u32 x = 0; x < renderer.width; ++x)
+                        if (read(*image, x, y).a != 255)
+                            return false;
+                bool stroke = false;
+                for (u32 y = 0; !stroke && y < caption; ++y)
+                    stroke = matches(read(*image, glyph_x, y), tokens.icon, 8);
+                return stroke;
+            };
+            const float entrance[]{.25f, .5f, .75f};
+            for (const float progress : entrance) {
+                renderer_set_settings_modal_progress(&renderer, progress);
+                ProbeTargetReadback image{};
+                if (!frame(&image))
+                    return fail(127);
+            }
+            renderer_set_settings_modal_progress(&renderer, 1);
+            ProbeTargetReadback switched{};
+            UiTextCommand commands[32]{};
+            UiTextCommandStream stream{};
+            UiTextOutput output{&stream, nullptr};
+            if (!ui_page_registry_select(&registry, {1, 2}).ok() ||
+                !ui_settings_scene_update(&modal, &registry, viewport) || !frame(&switched) ||
+                !ui_text_command_stream_initialize(&stream, {commands, 32}) ||
+                !ui_settings_scene_text_output(modal, gradient, &output))
+                return fail(128);
+            u32 title_ink = 0;
+            for (u32 i = 0; i < stream.count; ++i) {
+                if (!ui_widget_handle_equal(commands[i].owner.handle, modal.title))
+                    continue;
+                const UiRect box = ui_rect_intersection(commands[i].rectangle, commands[i].clip);
+                for (u32 y = px(box.top); y < px(box.bottom); ++y)
+                    for (u32 x = px(box.left); x < px(box.right); ++x)
+                        title_ink += matches(read(switched, x, y + caption), commands[i].color, 12) ? 1u : 0u;
+            }
+            if (title_ink < 8)
+                return fail(129);
+            if (!probe_write_capture(switched, L"titlebar_settings_page_switch.bmp"))
+                return fail(130);
+        }
         renderer_set_background_phase(&renderer, 0);
         if (!draw(renderer, theme))
             return fail(104);

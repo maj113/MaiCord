@@ -886,7 +886,6 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer_record_typing_dots(renderer, {});
     renderer->theme_editor_paint_first_batch = renderer->theme_editor_paint_end_batch = 0;
     renderer->quick_switcher_status_first_batch = renderer->quick_switcher_status_end_batch = 0;
-    renderer->settings_page_paint_first_batch = renderer->settings_page_paint_end_batch = 0;
     renderer->settings_modal_paint_first_batch = renderer->settings_modal_paint_end_batch = 0;
     renderer->popup_paint_first_batch = renderer->popup_paint_end_batch = 0;
     renderer->popup_scene_media_first_batch = renderer->popup_scene_media_end_batch = 0;

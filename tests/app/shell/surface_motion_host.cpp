@@ -233,66 +233,56 @@ void run() noexcept {
     settings.page_generation = 1;
     g_app.renderer.settings_scene = &settings;
     popup.active = false;
-    // Opening Settings: the modal's entrance alone fades and scales the whole modal, so every quad, glyph and
-    // icon carries the one transition factor; the page binds no fade of its own, even once the entrance settles.
+    // Settings pages have no fade of their own. Opening Settings is the modal's entrance, which fades and scales
+    // the whole modal as one; switching categories swaps the page at once, natively drawn or hosted alike.
     g_app.renderer.settings_modal_progress = .4f;
     application_surface_motion_synchronize(330);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
-          "host motion: opening Settings binds no page fade under the modal entrance");
+    ++settings.page_generation;
+    application_surface_motion_synchronize(335);
     g_app.renderer.settings_modal_progress = 1;
+    ++settings.page_generation;
     application_surface_motion_synchronize(340);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
-          "host motion: a settled modal keeps its opened page at full visibility");
-    // Switching pages mid-entrance moves with the modal; the new page arrives with it.
-    g_app.renderer.settings_modal_progress = .6f;
-    ++settings.page_generation;
-    application_surface_motion_synchronize(345);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(),
-          "host motion: a page switch during the modal entrance binds no second fade");
-    g_app.renderer.settings_modal_progress = 1;
-    ++settings.page_generation;
-    application_surface_motion_synchronize(350);
     g_app.frame_pending = false;
-    check(g_app.renderer.layer_opacity.settings_page == 0 &&
+    check(!application_surface_motion_next_wake() && !application_surface_motion_request_frame_if_due(345, true) &&
+              !g_app.frame_pending,
+          "host motion: Settings page switches, mid-entrance or in a settled modal, schedule no frames");
+    // A Settings choice popup fades in on its own clock.
+    popup.active = true;
+    popup.kind = PopupKind::settings_choice;
+    ++popup.opens;
+    application_surface_motion_synchronize(350);
+    check(g_app.renderer.layer_opacity.settings_choice == 0 && g_app.renderer.layer_opacity.popup == 1 &&
               application_surface_motion_next_wake() == 366,
-          "host motion: a page switch in the settled modal binds zero-opacity entrance and independent cadence");
+          "host motion: settings choice owns its factor and exact deadline");
     bool before_due = true;
     for (u32 query = 0; query < 4; ++query)
         before_due = before_due && !application_surface_motion_request_frame_if_due(365, true) &&
                      !g_app.frame_pending;
     check(before_due && !application_surface_motion_request_frame_if_due(366, false) &&
               !g_app.frame_pending && application_surface_motion_next_wake() == 366,
-          "host motion: early or unavailable display slots cannot enqueue Settings opacity ticks");
+          "host motion: early or unavailable display slots cannot enqueue choice opacity ticks");
     check(application_surface_motion_request_frame_if_due(366, true) && g_app.frame_pending,
-          "host motion: due Settings entrance requests a pending frame without hover or account input");
+          "host motion: due choice entrance requests a pending frame without hover or account input");
     // Production samples at frame entry, before later projection can fail.
     g_app.frame_pending = false;
     application_surface_motion_synchronize(366);
-    check(g_app.renderer.layer_opacity.settings_page > 0 &&
-              g_app.renderer.layer_opacity.settings_page < 1 &&
+    check(g_app.renderer.layer_opacity.settings_choice > 0 &&
+              g_app.renderer.layer_opacity.settings_choice < 1 &&
               application_surface_motion_next_wake() == 382,
-          "host motion: no-input frame advances Settings visibility and consumes the old deadline");
+          "host motion: no-input frame advances choice visibility and consumes the old deadline");
     bool acknowledged = true;
     for (u32 query = 0; query < 4; ++query)
         acknowledged = acknowledged && !application_surface_motion_request_frame_if_due(366, true) &&
                        !g_app.frame_pending;
-    check(
-        acknowledged,
-        "host motion: a later rejected Settings preparation cannot spin on the acknowledged opacity wake");
+    check(acknowledged,
+          "host motion: a later rejected Settings preparation cannot spin on the acknowledged opacity wake");
     check(application_surface_motion_request_frame_if_due(470, true),
           "host motion: no-input completion remains admitted through normal frame request");
     g_app.frame_pending = false;
     application_surface_motion_synchronize(470);
-    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake() &&
+    check(g_app.renderer.layer_opacity.settings_choice == 1 && !application_surface_motion_next_wake() &&
               !application_surface_motion_request_frame_if_due(500, true) && !g_app.frame_pending,
-          "host motion: completed Settings entrance retains full visibility with no idle frames");
-    popup.active = true;
-    popup.kind = PopupKind::settings_choice;
-    ++popup.opens;
-    application_surface_motion_synchronize(400);
-    check(g_app.renderer.layer_opacity.settings_choice == 0 && g_app.renderer.layer_opacity.popup == 1 &&
-              application_surface_motion_next_wake() == 416,
-          "host motion: settings choice owns its factor and exact deadline");
+          "host motion: completed choice entrance retains full visibility with no idle frames");
     g_app.renderer.settings_scene = nullptr;
     popup.active = false;
     UiMediaPickerProjection projection{};

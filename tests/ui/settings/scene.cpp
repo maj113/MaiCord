@@ -467,11 +467,10 @@ void test_modal_scene(Check check) noexcept {
                    ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, &ranges) &&
                    ui_text_command_stream_initialize(&text, {commands, 96}) &&
                    ui_settings_scene_text_output(scene, kDefaultTheme, &text_output);
-    check(painted && ranges.modal_first_quad > 0 && ranges.modal_first_quad <= ranges.page_first_quad &&
-              ranges.page_first_quad < ranges.page_end_quad && ranges.page_end_quad <= ranges.modal_end_quad &&
+    check(painted && ranges.modal_first_quad > 0 && ranges.modal_first_quad < ranges.modal_end_quad &&
               ranges.modal_end_quad <= paint.count && !paint.rejected && paint.batch_count < kMaxPaintBatches / 2 &&
               paint.quads[0].fill.alpha > .7f && paint.quads[0].fill.alpha < .75f,
-          "settings modal: scrim precedes the scaled dialog range which contains the page range");
+          "settings modal: scrim precedes the scaled dialog range");
     // Each theme swatch paints its own resolved theme: flat themes solid in
     // their own colour, so distinct themes never share a fill.
     UiSettingsControlGeometry themes{};

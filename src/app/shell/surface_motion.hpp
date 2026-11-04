@@ -25,8 +25,8 @@ struct ApplicationSurfaceMotionOwner {
     u64 scope_serial{};
     bool client_area_animation{}, system_preference_cached{}, styles_initialized{};
 };
-static_assert(kApplicationSurfaceMotionCount == 7);
-static_assert(sizeof(ApplicationSurfaceMotionOwner) == 688);
+static_assert(kApplicationSurfaceMotionCount == 6);
+static_assert(sizeof(ApplicationSurfaceMotionOwner) == 592);
 
 // Pure controller seam: a zero scene retires the slot. Suppression keeps the
 // current identity settled, so uncovering does not replay an entrance. Styles

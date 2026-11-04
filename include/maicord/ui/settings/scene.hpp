@@ -538,7 +538,6 @@ bool ui_settings_scene_animating(const UiSettingsScene&) noexcept;
 bool ui_settings_scene_reveal(UiSettingsScene*, const UiSettingsTarget&) noexcept;
 
 struct UiSettingsPaintRanges {
-    u32 page_first_quad, page_end_quad;
     // Quads drawn with the modal transform; the scrim precedes them.
     u32 modal_first_quad, modal_end_quad;
 };

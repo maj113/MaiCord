@@ -125,19 +125,6 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
             return {};
         return {{reinterpret_cast<u64>(profile), profile->self_id, profile->opens, 0}, allowed && !form};
     }
-    if (surface == RendererLayerSurface::settings_page) {
-        if (!renderer_settings_page_visible(renderer) || renderer.login_visible)
-            return {};
-        const auto* page = renderer.settings_scene;
-        const ApplicationSurfaceMotionKey key{reinterpret_cast<u64>(page), g_app.settings_lifetime_serial,
-                                              page->page_generation, 0};
-        // Opening Settings (or a dialog) is the modal's own entrance, which fades and scales the whole modal as
-        // one; a page fade on top would hold the page back while the sidebar, its plates and icons arrive. Only a
-        // page switch in a settled modal fades the page.
-        const auto& previous = g_app.surface_motion.slots[static_cast<u32>(surface)].key;
-        const bool page_switch = previous.scene == key.scene && previous.owner == key.owner;
-        return {key, allowed && !form && page_switch && renderer.settings_modal_progress >= 1};
-    }
     if (surface == RendererLayerSurface::theme_editor) {
         if (!renderer_theme_editor_visible(renderer))
             return {};

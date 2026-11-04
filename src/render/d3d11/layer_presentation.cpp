@@ -57,16 +57,6 @@ bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface su
         if (renderer->popup_scene)
             rectangle = renderer->popup_scene->rectangle;
         break;
-    case RendererLayerSurface::settings_page:
-        value = &renderer->layer_opacity.settings_page;
-        if (renderer->settings_scene) {
-            const auto& scene = *renderer->settings_scene;
-            const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.body);
-            if (node)
-                rectangle = {node->rectangle.left, scene.viewport.top, scene.viewport.right,
-                             scene.viewport.bottom};
-        }
-        break;
     case RendererLayerSurface::theme_editor:
         value = &renderer->layer_opacity.theme_editor;
         if (renderer->theme_editor_scene)

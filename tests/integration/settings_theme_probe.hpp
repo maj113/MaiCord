@@ -5,7 +5,6 @@
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 
@@ -83,20 +82,17 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
     UiPageRegistry registry{};
     const auto* previous = r.settings_scene;
     const auto* previous_editor = r.theme_editor_scene;
-    const float previous_opacity = r.layer_opacity.settings_page;
     struct Restore {
         D3D11Renderer& r;
         UiSettingsScene& scene;
         const UiSettingsScene* previous;
         const UiThemeEditorScene* editor;
-        float opacity;
         ~Restore() noexcept {
             renderer_bind_settings_scene(&r, previous);
             renderer_bind_theme_editor_scene(&r, editor);
-            renderer_set_layer_opacity(&r, RendererLayerSurface::settings_page, opacity);
             ui_settings_scene_release(&scene);
         }
-    } restore{r, scene, previous, previous_editor, previous_opacity};
+    } restore{r, scene, previous, previous_editor};
     const Utf8View presets[]{utf8_literal("Dark"),   utf8_literal("AMOLED"),
                              utf8_literal("Aurora"), utf8_literal("Sunset"),
                              utf8_literal("Ocean"),  utf8_literal("Custom Gradient"),
@@ -153,7 +149,6 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
     renderer_bind_settings_scene(&r, &scene);
     if (r.settings_scene != &scene)
         return false;
-    renderer_set_layer_opacity(&r, RendererLayerSurface::settings_page, 1);
     auto theme_preferences = client_preferences_defaults();
     theme_preferences.theme = ClientTheme::custom_gradient;
     Theme theme = client_theme_projection(theme_preferences);
@@ -161,13 +156,11 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
         return renderer_rebuild_content_text(&r, theme) && probe_present(&r, theme) &&
                d3d11_renderer_draw_stream(&r, theme, true, true, nullptr);
     };
-    if (!draw() || r.settings_page_paint_first_batch >= r.settings_page_paint_end_batch ||
-        r.settings_page_text_first_batch >= r.settings_page_text_end_batch)
+    if (!draw())
         return false;
     UiTextCommand commands[64]{};
     UiTextCommandStream stream{};
     UiTextOutput stream_output{&stream, nullptr};
-    u32 sidebar = 0, card = 0;
     {
         Pixels pixels(r);
         if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
@@ -187,33 +180,12 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
             !ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, {1, 1}, 1}, &cards))
             return false;
         const UiSettingsThemeTokens tokens(theme);
-        const auto tile = ui_swatch_rect(tokens, cards.field, 2, ui_swatch_columns(tokens, ui_rect_width(cards.field)));
-        if (!pixels.point(20, 20, &sidebar) ||
-            !pixels.point((tile.left + tile.right) * .5f, (tile.top + tile.bottom) * .5f, &card))
-            return false;
         UiSettingsSliderGeometry slider{};
         if (!ui_settings_scene_slider_geometry(scene, {UiSettingsTargetKind::control, {1, 1}, 2},
                                                &slider) ||
             !pixels.ink(slider.thumb, tokens.color.thumb))
             return false;
     }
-    renderer_set_layer_opacity(&r, RendererLayerSurface::settings_page, .5f);
-    if (!probe_present(&r, theme) || !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr))
-        return false;
-    {
-        Pixels pixels(r);
-        u32 current_sidebar = 0, current_card = 0;
-        UiSettingsControlGeometry cards{};
-        const UiSettingsThemeTokens tokens(theme);
-        const bool cards_valid = ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, {1, 1}, 1},
-                                                                    &cards);
-        const auto tile = ui_swatch_rect(tokens, cards.field, 2, ui_swatch_columns(tokens, ui_rect_width(cards.field)));
-        if (!cards_valid || !pixels.point(20, 20, &current_sidebar) ||
-            !pixels.point((tile.left + tile.right) * .5f, (tile.top + tile.bottom) * .5f, &current_card) ||
-            current_sidebar != sidebar || current_card == card)
-            return false;
-    }
-    renderer_set_layer_opacity(&r, RendererLayerSurface::settings_page, 1);
     return draw() && (!c.capture || c.capture(L"background-theme-settings.bmp", theme));
 }
 } // namespace maicord

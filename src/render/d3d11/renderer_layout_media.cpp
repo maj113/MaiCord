@@ -832,10 +832,6 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
                                  renderer->dpi, &ranges) ||
         !split_paint_quad_boundary(&renderer->paint_stream, ranges.modal_first_quad,
                                    &renderer->settings_modal_paint_first_batch) ||
-        !split_paint_quad_boundary(&renderer->paint_stream, ranges.page_first_quad,
-                                   &renderer->settings_page_paint_first_batch) ||
-        !split_paint_quad_boundary(&renderer->paint_stream, ranges.page_end_quad,
-                                   &renderer->settings_page_paint_end_batch) ||
         !split_paint_quad_boundary(&renderer->paint_stream, ranges.modal_end_quad,
                                    &renderer->settings_modal_paint_end_batch))
         return layout_step_failed(__LINE__);

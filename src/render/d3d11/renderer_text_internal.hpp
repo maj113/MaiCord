@@ -101,7 +101,7 @@ struct TextRasterConsumer {
     bool* atlas_invalidated;
     const TextOverlayBoundaries* boundaries;
     bool overlay;
-    bool pending_boundary{}, settings_page_started{}, previous_settings_page{};
+    bool pending_boundary{};
     u32 search_command_cursor{};
 };
 

@@ -670,8 +670,7 @@ bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSetting
 bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint, u32 dpi,
                              UiSettingsPaintRanges* ranges) noexcept {
     if (ranges)
-        *ranges = {paint ? paint->count : 0, paint ? paint->count : 0, paint ? paint->count : 0,
-                   paint ? paint->count : 0};
+        *ranges = {paint ? paint->count : 0, paint ? paint->count : 0};
     if (!scene.active)
         return true;
     if (!paint || !current(scene))
@@ -741,8 +740,6 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
         p.use<ui_settings_dialog_close_paint>(t, l.close, close_state);
     else
         p.use<ui_settings_close_paint>(t, l.close, close_state);
-    if (ranges)
-        ranges->page_first_quad = paint->count;
     if (const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body); p && body) {
         p.clip(ui_rect_overlap(body->rectangle, body->clip_rectangle));
         for (u32 i = 0; p && i < scene.widgets.count; ++i) {
@@ -793,8 +790,6 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
                                                 widget_state(scene, scene.footer_save, save, target_exists(scene, save)));
         }
     }
-    if (ranges)
-        ranges->page_end_quad = paint->count;
     p.scrollbar(ui_settings_scene_scrollbar(scene, true)).scrollbar(ui_settings_scene_scrollbar(scene, false));
     if (ranges)
         ranges->modal_end_quad = paint->count;
@@ -1087,7 +1082,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
     const UiSettingsThemeTokens t(theme);
     const auto& tc = t.color;
     UiTextPen text{stream, scene.widgets, kUiNoRect};
-    // Chrome text first; page-owned text stays contiguous for the page layer.
+    // Chrome text first, then the page's.
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         UiWidgetHandle handle{};
         NavRow row{};

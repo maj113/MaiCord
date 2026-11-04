@@ -1230,7 +1230,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                       : 1;
     const float choice_opacity = choice_current ? renderer->layer_opacity.settings_choice : 1;
     const float gallery_opacity = gallery_current ? renderer->layer_opacity.gallery : 1;
-    const float page_opacity = settings_active ? renderer->layer_opacity.settings_page : 1;
     // Dialog entrance: the scrim fades in while the dialog fades and grows
     // from 90% about its centre, trailing the scrim slightly.
     const bool layer_entrance = settings_layer_entrance(*renderer);
@@ -1277,7 +1276,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                             renderer->guild_card_banner_media_end_batch <= ordinary_media_end;
     const u32 card_paint = card_split ? renderer->guild_card_foreground_first_batch : editor_paint_first;
     const u32 card_media = card_split ? renderer->guild_card_banner_media_end_batch : menu_media;
-    const LayerBatchRange paint_layers[10]{
+    const LayerBatchRange paint_layers[9]{
         {0, modal_paint_first, modal_progress},
         {modal_paint_first, modal_paint_end, modal_opacity, modal_scale, modal_x, modal_y},
         {renderer->profile_paint_first_batch, renderer->profile_paint_end_batch, profile_opacity},
@@ -1286,13 +1285,12 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
          popup_y},
         {renderer->settings_choice_paint_first_batch, renderer->settings_choice_paint_end_batch,
          choice_opacity},
-        {renderer->settings_page_paint_first_batch, renderer->settings_page_paint_end_batch, page_opacity},
         {renderer->theme_editor_paint_first_batch, renderer->theme_editor_paint_end_batch, editor_opacity},
         {renderer->quick_switcher_status_first_batch, renderer->quick_switcher_status_end_batch, popup_opacity,
          popup_scale, popup_x, popup_y},
         {forum_current ? form_paint : paint_batch_count,
          forum_current ? renderer->forum_paint_end_batch : paint_batch_count, forum_opacity}};
-    const LayerBatchRange text_layers[8]{
+    const LayerBatchRange text_layers[7]{
         {0, modal_text_end, modal_opacity, modal_scale, modal_x, modal_y},
         {renderer->profile_text_first_batch, renderer->profile_text_end_batch, profile_opacity},
         {gallery_text_first, gallery_text_end, gallery_opacity},
@@ -1300,13 +1298,12 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
          popup_y},
         {renderer->settings_choice_text_first_batch, renderer->settings_choice_text_end_batch,
          choice_opacity},
-        {renderer->settings_page_text_first_batch, renderer->settings_page_text_end_batch, page_opacity},
         {renderer->theme_editor_text_first_batch, renderer->theme_editor_text_end_batch, editor_opacity},
         {forum_current ? form_text : visible_text_end,
          forum_current ? renderer->forum_text_end_batch : visible_text_end, forum_opacity}};
-    const LayerBatchRange media_layers[16]{
+    const LayerBatchRange media_layers[14]{
         // Settings media move and fade with the modal: avatars, host page pictures, the choice popup's and the
-        // dialogs' media, and the inline media of their text. Avatars also fade with the page, like their rows.
+        // dialogs' media, and the inline media of their text.
         {renderer->settings_page_media_first_batch, modal_media_end, modal_opacity, modal_scale, modal_x, modal_y},
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_page)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_page)], modal_opacity,
@@ -1314,7 +1311,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
          modal_opacity, modal_scale, modal_x, modal_y},
-        {renderer->settings_page_media_first_batch, renderer->settings_page_media_end_batch, page_opacity},
         {renderer->profile_media_first_batch, renderer->profile_media_end_batch, profile_opacity},
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::profile)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::profile)],
@@ -1333,9 +1329,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
          choice_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_page)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_page)],
-         page_opacity},
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::theme_editor)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::theme_editor)],
          editor_opacity},
@@ -1346,13 +1339,16 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::form)], 1}};
     float current_opacity = 1;
     // Restores the identity layer and releases the stream's bindings; a failed
-    // surface draw must not leave its factor bound for the next frame.
+    // surface draw must not leave its factor bound for the next frame. The
+    // caption pass draws the background effect after the stream: a fading
+    // layer's factor left on the effects would leave its band translucent.
     const auto finish = [&, renderer](bool drawn) noexcept {
         if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
             !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
                                                 renderer->height, renderer->dpi, 1))
             drawn = false;
         renderer->draw_layer_scale = 1;
+        renderer->background_fx.layer_opacity = renderer->effect.layer_opacity = 1;
         release_stream_views(renderer, submission);
         if (drawn)
             saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
@@ -1374,7 +1370,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->paint_stream.batches[i].quad_count);
             return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
         };
-        return draw_opacity_batches(renderer, first, end, paint_layers, 10, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, paint_layers, 9, current_opacity, batch_draw(&draw));
     };
     const auto text = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1382,7 +1378,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->content_text->batches[i].quad_count);
             return draw_gpu_text(renderer, &submission, theme, begin, limit, upload, damage);
         };
-        return draw_opacity_batches(renderer, first, end, text_layers, 8, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, text_layers, 7, current_opacity, batch_draw(&draw));
     };
     const auto media = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1392,7 +1388,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             upload = false;
             return ok;
         };
-        return draw_opacity_batches(renderer, first, end, media_layers, 16, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, media_layers, 14, current_opacity, batch_draw(&draw));
     };
     const auto inline_media = [&, renderer](RendererInlineMediaLayer layer) noexcept {
         if (!inline_tail ||

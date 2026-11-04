@@ -11,7 +11,7 @@ void check(bool passed, const char* label) noexcept {
 struct FakeHost {
     ApplicationSurfaceMotionOwner owner{};
     ApplicationSurfaceMotionKey keys[kApplicationSurfaceMotionCount]{};
-    float opacity[kApplicationSurfaceMotionCount]{1, 1, 1, 1, 1, 1, 1};
+    float opacity[kApplicationSurfaceMotionCount]{1, 1, 1, 1, 1, 1};
     bool motion_allowed{true}, gallery_covered{};
     void synchronize(u64 now) noexcept {
         for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i)
@@ -59,7 +59,7 @@ void run() noexcept {
     const auto* initial_bytes = reinterpret_cast<const u8*>(&zero_default_owner);
     for (u32 i = 0; i < sizeof(zero_default_owner); ++i)
         zero_default = zero_default && initial_bytes[i] == 0;
-    check(zero_default && sizeof(zero_default_owner) == 688,
+    check(zero_default && sizeof(zero_default_owner) == 592,
           "surface motion: whole static owner has a zero-filled default representation and bounded size");
     FakeHost host{};
     host.synchronize(0);
@@ -128,8 +128,7 @@ void run() noexcept {
     host.synchronize(400);
     check(host.opacity[1] == 1 && !host.owner.slots[1].motion.scope.owner && host.opacity[2] == 0 &&
               host.next_wake() == 416,
-          "surface motion: choice popup uses its own slot while page and dismissed generic popup stay "
-          "opaque");
+          "surface motion: choice popup uses its own slot while the dismissed generic popup stays opaque");
     host.motion_allowed = false;
     check(!host.next_wake(),
           "surface motion: host reduced hidden minimized or sizing policy contributes no wake");
@@ -199,38 +198,40 @@ void run() noexcept {
     }
     check(cadence_valid && sampled_ms == 1'120 && paced.opacity[0] == 1 && !paced.next_wake(),
           "surface motion: eight host-driven frame deadlines reach the exact 120ms endpoint then retire");
-    FakeHost settings{};
-    const auto page = RendererLayerSurface::settings_page;
+    FakeHost layers{};
+    const auto profile = RendererLayerSurface::profile;
     const auto editor = RendererLayerSurface::theme_editor;
-    settings.keys[3] = {500, 1, 1, 0};
-    settings.synchronize(2'000);
-    settings.synchronize(2'060);
-    const auto page_scope = settings.owner.slots[3].motion.scope;
-    check(settings.opacity[3] == .875f && settings.opacity[4] == 1,
-          "surface motion: Settings body entrance affects only its own layer");
-    settings.synchronize(2'061);
-    check(settings.owner.slots[3].motion.scope.generation == page_scope.generation &&
-              settings.owner.slots[3].motion.started_ms == 2'000,
-          "surface motion: unchanged page lifetime preserves entrance through value and hover changes");
-    settings.keys[3].lifetime = 2;
-    settings.synchronize(2'062);
-    check(settings.opacity[3] == 0 && settings.owner.slots[3].motion.started_ms == 2'062,
-          "surface motion: explicit page generation begins one fresh transition");
-    settings.keys[3] = {};
-    settings.keys[4] = {600, 1, 8, 0};
-    settings.synchronize(2'063);
-    check(settings.opacity[3] == 1 && settings.opacity[4] == 0,
-          "surface motion: live editor replaces page fade without reusing its scope");
-    settings.synchronize(2'183);
-    check(settings.opacity[4] == 1 && !settings.next_wake(),
+    constexpr u32 profile_index = static_cast<u32>(RendererLayerSurface::profile);
+    constexpr u32 editor_index = static_cast<u32>(RendererLayerSurface::theme_editor);
+    layers.keys[profile_index] = {500, 1, 1, 0};
+    layers.synchronize(2'000);
+    layers.synchronize(2'060);
+    const auto profile_scope = layers.owner.slots[profile_index].motion.scope;
+    check(layers.opacity[profile_index] == .875f && layers.opacity[editor_index] == 1,
+          "surface motion: profile entrance affects only its own layer");
+    layers.synchronize(2'061);
+    check(layers.owner.slots[profile_index].motion.scope.generation == profile_scope.generation &&
+              layers.owner.slots[profile_index].motion.started_ms == 2'000,
+          "surface motion: unchanged lifetime preserves entrance through value and hover changes");
+    layers.keys[profile_index].lifetime = 2;
+    layers.synchronize(2'062);
+    check(layers.opacity[profile_index] == 0 && layers.owner.slots[profile_index].motion.started_ms == 2'062,
+          "surface motion: explicit lifetime begins one fresh transition");
+    layers.keys[profile_index] = {};
+    layers.keys[editor_index] = {600, 1, 8, 0};
+    layers.synchronize(2'063);
+    check(layers.opacity[profile_index] == 1 && layers.opacity[editor_index] == 0,
+          "surface motion: live editor replaces a dismissed profile fade without reusing its scope");
+    layers.synchronize(2'183);
+    check(layers.opacity[editor_index] == 1 && !layers.next_wake(),
           "surface motion: settled theme editor contributes no permanent transition wake");
-    application_surface_motion_owner_retire(&settings.owner, editor);
-    settings.keys[4].lifetime = 9;
-    settings.synchronize(2'200);
-    check(settings.opacity[4] == 0 &&
-              !application_surface_motion_owner_next_wake(settings.owner, editor, {600, 1, 8, 0}) &&
-              application_surface_motion_update(&settings.owner, page, {}, 2'200, true) == 1,
-          "surface motion: editor reopen rejects obsolete lifetime and retired page wake");
+    application_surface_motion_owner_retire(&layers.owner, editor);
+    layers.keys[editor_index].lifetime = 9;
+    layers.synchronize(2'200);
+    check(layers.opacity[editor_index] == 0 &&
+              !application_surface_motion_owner_next_wake(layers.owner, editor, {600, 1, 8, 0}) &&
+              application_surface_motion_update(&layers.owner, profile, {}, 2'200, true) == 1,
+          "surface motion: editor reopen rejects obsolete lifetime and retired profile wake");
 }
 } // namespace maicord::surface_motion_test
 

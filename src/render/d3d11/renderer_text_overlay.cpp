@@ -206,7 +206,6 @@ void reset_motion_text_ranges(D3D11Renderer* renderer, u32 batch) noexcept {
     renderer->forum_text_end_batch = batch;
     renderer->profile_text_first_batch = renderer->profile_text_end_batch = batch;
     renderer->theme_editor_text_first_batch = renderer->theme_editor_text_end_batch = batch;
-    renderer->settings_page_text_first_batch = renderer->settings_page_text_end_batch = batch;
     renderer->popup_text_first_batch = renderer->popup_text_end_batch = batch;
     renderer->settings_choice_text_first_batch = renderer->settings_choice_text_end_batch = batch;
     renderer->settings_preview_text_first_batch = renderer->settings_preview_text_end_batch = batch;
@@ -555,14 +554,6 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
             boundary = boundary || ordinal == bounds.forum_end;
         }
     }
-    const bool page = raster.overlay && renderer_settings_page_visible(*renderer) &&
-                      ui_settings_scene_page_owner(*renderer->settings_scene, command.owner);
-    boundary = boundary || page != raster.previous_settings_page;
-    if (page && !raster.settings_page_started) {
-        renderer->settings_page_text_first_batch = renderer->content_text->batch_count;
-        raster.settings_page_started = true;
-    }
-    raster.previous_settings_page = page;
     raster.pending_boundary = raster.pending_boundary || boundary;
     const u32 previous_batches = renderer->content_text->batch_count;
     bool appended{};
@@ -608,8 +599,6 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
     // next emitted batch still belongs wholly to the new layer.
     if (renderer->content_text->batch_count != previous_batches)
         raster.pending_boundary = false;
-    if (page)
-        renderer->settings_page_text_end_batch = renderer->content_text->batch_count;
     return appended && !*raster.atlas_invalidated;
 }
 } // namespace renderer_text_detail

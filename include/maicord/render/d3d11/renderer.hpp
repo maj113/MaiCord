@@ -226,10 +226,10 @@ using RendererMessageTextPositionHit = MessagePositionHit;
 
 // Draw-time factors only: retained geometry/text/media signatures exclude them.
 struct RendererLayerOpacity {
-    float gallery, popup, settings_choice, settings_page, theme_editor, profile;
+    float gallery, popup, settings_choice, theme_editor, profile;
     float forum_form;
 };
-static_assert(sizeof(RendererLayerOpacity) == 28);
+static_assert(sizeof(RendererLayerOpacity) == 24);
 
 // A built frame's retained copy: paint quads, clips and batches, and the media
 // quads with their handles, domains and batches (renderer_frame_copy_record).
@@ -563,10 +563,8 @@ struct D3D11Renderer {
     // scaled with the popup layer.
     u32 quick_switcher_status_first_batch, quick_switcher_status_end_batch;
     u32 theme_editor_text_first_batch, theme_editor_text_end_batch;
-    u32 settings_page_paint_first_batch, settings_page_paint_end_batch;
     // Settings avatar rows (My account card): media over the page's initials.
     u32 settings_page_media_first_batch, settings_page_media_end_batch;
-    u32 settings_page_text_first_batch, settings_page_text_end_batch;
     // Profile editor overlays on a settings page: the live preview card (a
     // ProfileScene in preview presentation) and its modal dialog (image crop,
     // collectible picker). Each draws paint, media, foreground, then text.
@@ -679,7 +677,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 122016);
+static_assert(sizeof(D3D11Renderer) == 121992);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

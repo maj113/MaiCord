@@ -224,7 +224,7 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         renderer_media_draw_storage_release(&renderer->media_draw);
         return false;
     }
-    renderer->layer_opacity = {1, 1, 1, 1, 1, 1, 1};
+    renderer->layer_opacity = {1, 1, 1, 1, 1, 1};
     renderer->settings_modal_progress = 1;
     renderer->draw_layer_scale = 1;
     renderer->popup_layer_scale = 1;

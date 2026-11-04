@@ -10,7 +10,6 @@ enum class RendererLayerSurface : u8 {
     gallery,
     popup,
     settings_choice,
-    settings_page,
     theme_editor,
     profile,
     forum_form,
