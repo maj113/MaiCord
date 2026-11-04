@@ -38,9 +38,10 @@ bool application_effects_selected() noexcept;
 bool application_effects_motion_allowed() noexcept;
 // Milliseconds between the selected effect's frames.
 u32 application_effects_interval_ms() noexcept;
-// mc_ambient (interface 2: @uses clock, appearance). The selected package's inputs are sampled and eased in
-// application_effects_synchronize. While one still eases toward a new value, the frame it is due next (else 0): the
-// background clock asks this while the effect itself is paused or idle, so a theme switch still glides into place.
+// mc_ambient (interface 2: @uses clock, appearance) and the light adaptation (effect_ambient_sample). The selected
+// package's inputs are sampled and eased in application_effects_synchronize. While one still eases toward a new value,
+// the frame it is due next (else 0): the background clock asks this while the effect itself is paused or idle, so a
+// theme switch still glides into place.
 u64 application_effects_transition_wake() noexcept;
 // Windows' app mode (AppsUseLightTheme under HKCU\...\Themes\Personalize; 0 is dark). The window procedure reads it
 // again on WM_SETTINGCHANGE "ImmersiveColorSet" and hands it here; the appearance input then eases to it.
@@ -53,6 +54,10 @@ EffectUserSettings application_effects_user_settings() noexcept;
 bool application_effects_set_user_settings(const EffectUserSettings&) noexcept;
 EffectShaderSettings application_effects_shader_settings(u64 identity) noexcept;
 bool application_effects_set_shader_settings(const EffectShaderSettings&) noexcept;
+// The global light-theme row (effect_light_auto): Auto adapts a package that does not declare appearance to a light
+// appearance; Off draws it as it is. A package's own EffectShaderSettings::light wins over it.
+bool application_effects_light_auto() noexcept;
+bool application_effects_set_light_auto(bool on) noexcept;
 
 // ---- The library ------------------------------------------------------------------------------------------
 struct EffectInfo {

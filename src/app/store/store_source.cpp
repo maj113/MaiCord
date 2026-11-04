@@ -185,6 +185,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     global.frame_rate = user.frame_rate;
     global.unfocused = static_cast<u8>(user.unfocused);
     global.budget = static_cast<u8>(user.budget);
+    global.light = application_effects_light_auto() ? 1 : 2;
     // Catalog listings.
     for (u32 i = 0; index && i < index->item_count; ++i) {
         const CatalogItem& item = index->items[i];
@@ -448,6 +449,9 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
         u.global_frame_rate = user.frame_rate;
         u.requested_frame_rate = package->requested_frame_rate;
         u.pointer_available = (package->uses & effect_use_pointer) != 0;
+        u.light = shader.light;
+        u.global_light = application_effects_light_auto() ? 1 : 2;
+        u.appearance = (package->uses & effect_use_appearance) != 0;
         const EffectCost cost = application_effects_cost(application_effects_identity(item.library));
         m->effect_cost_state = cost.known ? (cost.refused ? 2 : 1) : 0;
         if (cost.known)

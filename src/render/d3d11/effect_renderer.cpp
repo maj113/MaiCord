@@ -89,15 +89,19 @@ bool create_blend_states(D3D11EffectOwner* owner, ID3D11Device* device) noexcept
     // Source, destination, source alpha, destination alpha. The composite's modes first: the target holds
     // premultiplied colour, so every mode adds the source at the user's opacity (the blend factor) and weighs what
     // is behind it: normal by what the source leaves open, screen by one minus the source colour, add by one; only
-    // normal composes alpha. Then a graph pass's alpha, add and premultiplied.
-    static constexpr u8 kModes[6][4]{
+    // normal composes alpha. Then a graph pass's alpha, add and premultiplied. Last the adapted screen and add: while
+    // they cross-fade, the source plus what is behind weighed by the shader's second output; settled, what is behind
+    // times the source.
+    static constexpr u8 kModes[8][4]{
         {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_ALPHA},
         {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_INV_SRC_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
         {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
         {D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA},
         {D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE},
-        {D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA}};
-    for (u32 mode = 0; mode < 6; ++mode) {
+        {D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA},
+        {D3D11_BLEND_BLEND_FACTOR, D3D11_BLEND_SRC1_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE},
+        {D3D11_BLEND_ZERO, D3D11_BLEND_SRC_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE}};
+    for (u32 mode = 0; mode < 8; ++mode) {
         D3D11_BLEND_DESC description{};
         auto& target = description.RenderTarget[0];
         target.BlendEnable = TRUE;
@@ -142,7 +146,7 @@ bool create_buffer(ID3D11Device* device, u32 bytes, ID3D11Buffer** buffer) noexc
 // Shaders, states and constants: independent of the package.
 bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept {
     if (owner->target_vertex && owner->composite_vertex && owner->composite_pixel && owner->frame_buffer &&
-        owner->composite_buffer && owner->rasterizer && owner->blends[5] && owner->samplers[2])
+        owner->composite_buffer && owner->rasterizer && owner->blends[7] && owner->samplers[2])
         return true;
     bool layout_failed = false;
     HRESULT result = owner->target_vertex ? S_OK
@@ -165,7 +169,7 @@ bool create_pass_objects(D3D11EffectOwner* owner, ID3D11Device* device) noexcept
         description.ScissorEnable = TRUE;
         ok = SUCCEEDED(device->CreateRasterizerState(&description, &owner->rasterizer));
     }
-    ok = ok && (owner->blends[5] || create_blend_states(owner, device)) &&
+    ok = ok && (owner->blends[7] || create_blend_states(owner, device)) &&
          (owner->samplers[2] || create_sampler_states(owner, device));
     if (!ok)
         log_u64(LogLevel::error, "render", "effect_pass_resource_error", static_cast<u32>(result));
@@ -557,6 +561,7 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
         owner->pointer[0] = owner->pointer[1] = -1;
         for (float& value : owner->ambient)
             value = 0;
+        owner->light = 0;
         owner->verdict = EffectVerdict::none;
     }
     owner->probed = run_probe(owner, device, context);
@@ -622,7 +627,9 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
     phase = phase >= 0 && phase <= 3.402823466e38f ? phase : 0;
     EffectFrameConstants constants = owner->constants;
     effect_palette(theme, constants.palette);
-    constants.dark = theme.appearance == ThemeAppearance::light ? 0.f : 1.f;
+    // Adapted to a light appearance, the effect draws for the theme's dark twin (effect_light_palette).
+    effect_light_palette(constants.palette, owner->light);
+    constants.dark = theme.appearance == ThemeAppearance::light ? owner->light : 1.f;
     constants.intensity = background_fx_intensity(theme);
     copy_bytes(constants.knobs, owner->knobs, sizeof(constants.knobs));
     constants.resolution[0] = static_cast<float>(used_width);
@@ -733,6 +740,10 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, Ui
         offset_x = share_x * ((content_width - tile_width / cover) * .5f - canvas.left / cover) / content_width;
         offset_y = share_y * (caption + (content_height - tile_height / cover) * .5f - canvas.top / cover) / window_dip_height;
     }
+    const float opacity = owner->layer_opacity;
+    const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
+    const u32 blend = static_cast<u32>(owner->settings.blend);
+    const float light = owner->light;
     const EffectCompositeConstants constants{{canvas.left, canvas.top, canvas.right, canvas.bottom},
                                              {scale_x, scale_y, offset_x, offset_y},
                                              {.5f / allocated_width, .5f / allocated_height,
@@ -740,6 +751,9 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, Ui
                                               (used_height - .5f) / allocated_height},
                                              owner->settings.opacity,
                                              tile_radius > 0 ? tile_radius : 0.f,
+                                             light,
+                                             factor,
+                                             static_cast<float>(blend),
                                              {}};
     context->UpdateSubresource(owner->composite_buffer, 0, nullptr, &constants, 0, 0);
     // The strip topology, the layer transform and the bilinear sampler stay: the vertex shader reads only SV_VertexID.
@@ -751,10 +765,11 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, Ui
     context->PSSetShader(owner->composite_pixel, nullptr, 0);
     context->PSSetConstantBuffers(0, 1, &owner->composite_buffer);
     context->PSSetShaderResources(0, 1, &owner->target_srv);
-    const float opacity = owner->layer_opacity;
-    const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
     const float blend_factor[4]{factor, factor, factor, factor};
-    context->OMSetBlendState(owner->blends[static_cast<u32>(owner->settings.blend)], blend_factor, 0xFFFFFFFFu);
+    // Adapted, screen and add take their light from the background: while they cross-fade the shader's second
+    // output weighs it, and once settled a plain multiply does.
+    const u32 state = light > 0 && blend != 0 ? (light < 1 ? 6u : 7u) : blend;
+    context->OMSetBlendState(owner->blends[state], blend_factor, 0xFFFFFFFFu);
     context->Draw(4, 0);
     ++owner->draws_last_frame;
     return true;

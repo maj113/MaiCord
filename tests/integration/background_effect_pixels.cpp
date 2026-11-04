@@ -100,7 +100,7 @@ const Package kSamples[]{
     {"spark-ribbon", MC_PACKAGE(g_maicord_effect_spark_ribbon_simulate), effect_use_blue_noise, EffectBlend::normal, 3, 3,
      {.6f, .6f, 0, 0, 140 / 255.f, 184 / 255.f, 1}, &kSparkGraph, kSparkShaders},
 };
-constexpr u32 kDayNight = 7;
+constexpr u32 kStarfield = 2, kDayNight = 7;
 #undef MC_PACKAGE
 
 u64 identity_of(const u8* code, u32 bytes) noexcept {
@@ -650,7 +650,7 @@ bool ambient_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     for (u16 hour = 0; hour < 24; ++hour) {
         EffectAmbient fresh{};
         sources.local.hour = hour;
-        effect_ambient_sample(&fresh, spec.uses, sources, 1000, true, values);
+        effect_ambient_sample(&fresh, spec.uses, sources, 1000, true, false, values);
         renderer_set_effect_ambient(&r, values);
         if (!frame(r, theme, kPhase))
             return failure(203);
@@ -669,7 +669,7 @@ bool ambient_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     EffectAmbient ambient{};
     sources.local.hour = 12;
     u64 now = 100000;
-    effect_ambient_sample(&ambient, spec.uses, sources, now, true, values);
+    effect_ambient_sample(&ambient, spec.uses, sources, now, true, false, values);
     renderer_set_effect_ambient(&r, values);
     if (!frame(r, theme, kPhase))
         return failure(206);
@@ -678,7 +678,7 @@ bool ambient_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     u32 redraws = 0, easing = 0, previous = 765, first = 0, last = 0; // 765: the brightest mean level
     bool darkening = true;
     for (u32 i = 0; i <= kSteps + 10; ++i, now += kStep) {
-        effect_ambient_sample(&ambient, spec.uses, sources, now, true, values);
+        effect_ambient_sample(&ambient, spec.uses, sources, now, true, false, values);
         easing += effect_ambient_easing(ambient, now) ? 1u : 0u;
         renderer_set_effect_ambient(&r, values);
         const u32 renders = r.effect.renders;
@@ -707,6 +707,243 @@ bool ambient_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     renderer_clear_effect(&r);
     log_write(LogLevel::info, "probe", "effect_ambient_inputs_follow_the_clock_and_glide_with_the_appearance_passed");
     return true;
+}
+
+// ---- Light themes ------------------------------------------------------------------------------------
+// The host's settled sample on a light appearance (a light theme under light Windows): mc_ambient and the light
+// adaptation's amount, `adapt` being the user's Auto. Returns the amount.
+float light_sample(D3D11Renderer& r, u32 uses, bool adapt) noexcept {
+    EffectAmbient fresh{};
+    float values[4]{};
+    const float light = effect_ambient_sample(&fresh, uses, {{2026, 6, 21, 12, 0}, false, false}, 1000, true, adapt, values);
+    renderer_set_effect_ambient(&r, values);
+    renderer_set_effect_light(&r, light);
+    return light;
+}
+
+// Pixels darker than `base` by at least `levels` on every channel: shade an effect left on a light background.
+u32 pixels_below_base(const PixelReadback& pixels, const Color& base, i32 levels) noexcept {
+    if (!pixels.readable)
+        return 0;
+    const i32 want[3]{static_cast<i32>(base.red * 255 + .5f), static_cast<i32>(base.green * 255 + .5f),
+                      static_cast<i32>(base.blue * 255 + .5f)};
+    u32 below = 0;
+    for (u32 y = 0; y < pixels.height; ++y) {
+        const auto* row = static_cast<const u8*>(pixels.mapped.pData) + y * pixels.mapped.RowPitch;
+        for (u32 x = 0; x < pixels.width; ++x) {
+            const u8* p = row + x * 4;
+            const i32 channel[3]{p[pixels.bgra ? 2 : 0], p[1], p[pixels.bgra ? 0 : 2]};
+            below += channel[0] <= want[0] - levels && channel[1] <= want[1] - levels && channel[2] <= want[2] - levels;
+        }
+    }
+    return below;
+}
+
+// The composite against its CPU model (effect_light_composite) on the Light theme: the reference effect's accent,
+// drawn for the theme's dark twin, flipped back over the base for normal; add and screen shade the base instead of
+// lighting it; half the amount lies half way; the right half, where the effect draws nothing, stays the base.
+bool light_pass_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
+    const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
+    const UiRect canvas{0, 0, width, height};
+    Scene scene(r, theme, &canvas, 1, nullptr);
+    if (!scene.built)
+        return failure(230);
+    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
+    install(r, scene);
+    constexpr float kCoverage = .6f;
+    const BackgroundEffectSpec spec = reference_spec(kCoverage);
+    const float base[3]{theme.base_low.red, theme.base_low.green, theme.base_low.blue};
+    const struct {
+        EffectBlend blend;
+        float light;
+    } cases[]{{EffectBlend::normal, 0},  {EffectBlend::normal, 1},  {EffectBlend::normal, .5f},
+              {EffectBlend::screen, 1}, {EffectBlend::add, 1},     {EffectBlend::add, .5f}};
+    for (u32 i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        if (renderer_select_effect(&r, spec, settings_of(4, cases[i].blend)).state == EffectSelect::rejected)
+            return failure(231);
+        renderer_set_effect_light(&r, cases[i].light);
+        if (!frame(r, theme, 3.f + static_cast<float>(i) * .05f))
+            return failure(232);
+        // The target holds the accent the effect was given, premultiplied by its coverage, in 8 bits.
+        float palette[kBackgroundFxPaletteRoles][4]{};
+        effect_palette(theme, palette);
+        effect_light_palette(palette, cases[i].light);
+        const auto level = [](float value) noexcept { return static_cast<float>(static_cast<i32>(value * 255 + .5f)) / 255; };
+        const float source[4]{level(palette[4][0] * kCoverage), level(palette[4][1] * kCoverage),
+                              level(palette[4][2] * kCoverage), level(kCoverage)};
+        float expected[3]{};
+        effect_light_composite(source, base, cases[i].blend, cases[i].light, 1, expected);
+        PixelReadback pixels{r};
+        if (!pixels.color(.22f, .4f, expected) || !pixels.color(.78f, .4f, base)) {
+            log_u64(LogLevel::error, "probe", "effect_light_case", i);
+            return failure(233);
+        }
+    }
+    renderer_clear_effect(&r);
+    log_write(LogLevel::info, "probe", "effect_light_composite_matches_its_model_for_every_blend_and_amount_passed");
+    return true;
+}
+
+// Every sample on the Light theme and on a light custom theme, as the host draws it with the light row Off (before)
+// and Auto (after); captured as effect-<name>-light-before/after.bmp and effect-<name>-custom-before/after.bmp.
+// Starfield's stars vanish on Light before and are dark specks after; day-night declares appearance and is drawn
+// the same either way.
+bool light_samples_pixels(D3D11Renderer& r, const Theme& light, const Theme& custom) noexcept {
+    const u32 width = r.width, height = r.height;
+    struct Restore {
+        D3D11Renderer& r;
+        u32 width, height;
+        ~Restore() noexcept { renderer_resize(&r, width, height); }
+    } restore_size{r, width, height};
+    if (!renderer_resize(&r, 640, 360) || r.width != 640)
+        return failure(234);
+    const bool capture = capture_wanted();
+    const float w = r.width * 96.f / r.dpi, h = r.height * 96.f / r.dpi;
+    const UiRect canvas{0, 0, w, h};
+    for (u32 sample = 0; sample < sizeof(kSamples) / sizeof(kSamples[0]); ++sample) {
+        const Package& package = kSamples[sample];
+        const BackgroundEffectSpec spec = spec_of(package);
+        for (u32 which = 0; which < 2; ++which) {
+            const Theme& theme = which ? custom : light;
+            Scene scene(r, theme, &canvas, 1, nullptr);
+            if (!scene.built)
+                return failure(235);
+            StreamSwap restore{r, scene.stream, kDefaultTheme, true};
+            install(r, scene);
+            if (renderer_select_effect(&r, spec, settings_of(4, spec.blend)).state == EffectSelect::rejected)
+                return failure(236);
+            r.effect.step = 4;
+            r.effect.budget.step = r.effect.budget.ceiling = 4;
+            r.effect.budget.warmup = 0x7fffffff;
+            u32 below[2]{};
+            u64 hashes[2]{};
+            for (u32 adapt = 0; adapt < 2; ++adapt) {
+                const float amount = light_sample(r, spec.uses, adapt != 0);
+                if (amount != ((adapt && !(spec.uses & effect_use_appearance)) ? 1.f : 0.f) || !frame(r, theme, 2.f))
+                    return failure(237);
+                {
+                    PixelReadback pixels{r};
+                    below[adapt] = pixels_below_base(pixels, theme.base_low, 24);
+                    hashes[adapt] = pixels.hash();
+                }
+                const wchar_t* kinds[2][2]{{L"light-before", L"light-after"}, {L"custom-before", L"custom-after"}};
+                if (capture && !write_frame(r, package.name, kinds[which][adapt], -1))
+                    return failure(238);
+            }
+            if (sample == kStarfield && which == 0) {
+                log_u64(LogLevel::info, "probe", "effect_light_starfield_shade_pixels_before", below[0]);
+                log_u64(LogLevel::info, "probe", "effect_light_starfield_shade_pixels_after", below[1]);
+                if (!(below[1] >= 100 && below[1] > below[0] * 10))
+                    return failure(239);
+            }
+            if (sample == kDayNight && hashes[0] != hashes[1])
+                return failure(240);
+            renderer_clear_effect(&r);
+        }
+    }
+    log_write(LogLevel::info, "probe", "effect_light_samples_shade_a_light_theme_and_appearance_effects_stay_passed");
+    return true;
+}
+
+// GPU milliseconds per frame over `frames` frames at one clock (the effect's target stands still; only the
+// composite runs), or a negative value when the device could not time them.
+float frame_gpu_ms(D3D11Renderer& r, const Theme& theme, u32 frames) noexcept {
+    ID3D11Device* device = r.graphics.device;
+    ID3D11DeviceContext* context = r.graphics.context;
+    const D3D11_QUERY_DESC disjoint_desc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0}, stamp_desc{D3D11_QUERY_TIMESTAMP, 0};
+    ID3D11Query *disjoint = nullptr, *begin = nullptr, *end = nullptr;
+    float result = -1;
+    if (SUCCEEDED(device->CreateQuery(&disjoint_desc, &disjoint)) && SUCCEEDED(device->CreateQuery(&stamp_desc, &begin)) &&
+        SUCCEEDED(device->CreateQuery(&stamp_desc, &end))) {
+        bool drawn = true;
+        context->Begin(disjoint);
+        context->End(begin);
+        for (u32 i = 0; i < frames && drawn; ++i)
+            drawn = frame(r, theme, 2.f);
+        context->End(end);
+        context->End(disjoint);
+        context->Flush();
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT data{};
+        u64 first = 0, last = 0;
+        const u64 deadline = GetTickCount64() + 1000;
+        HRESULT state = S_FALSE;
+        while ((state = context->GetData(disjoint, &data, sizeof(data), 0)) == S_FALSE && GetTickCount64() < deadline)
+            Sleep(1);
+        // Each timestamp resolves on its own, possibly after the disjoint query.
+        HRESULT got_first = S_FALSE, got_last = S_FALSE;
+        while (drawn && state == S_OK && (got_first = context->GetData(begin, &first, sizeof(first), 0)) == S_FALSE &&
+               GetTickCount64() < deadline)
+            Sleep(1);
+        while (drawn && got_first == S_OK && (got_last = context->GetData(end, &last, sizeof(last), 0)) == S_FALSE &&
+               GetTickCount64() < deadline)
+            Sleep(1);
+        if (!data.Disjoint && data.Frequency && got_first == S_OK && got_last == S_OK && last >= first)
+            result = static_cast<float>(static_cast<double>(last - first) * 1000.0 / static_cast<double>(data.Frequency) / frames);
+    }
+    com_release(end);
+    com_release(begin);
+    com_release(disjoint);
+    return result;
+}
+
+// What the transform costs: whole frames of a 1440p window covered by one canvas, the effect's target standing
+// still, without an effect, then with the plain composite, half way through the cross-fade and adapted (normal:
+// aurora, add: Starfield).
+// The best of three runs of 24 frames each; logged in nanoseconds per frame, never asserted (timings vary).
+bool light_cost(D3D11Renderer& r, const Theme& theme) noexcept {
+    const u32 width = r.width, height = r.height;
+    struct Restore {
+        D3D11Renderer& r;
+        u32 width, height;
+        ~Restore() noexcept { renderer_resize(&r, width, height); }
+    } restore_size{r, width, height};
+    if (!renderer_resize(&r, 2560, 1440) || r.width != 2560)
+        return failure(241);
+    const float w = r.width * 96.f / r.dpi, h = r.height * 96.f / r.dpi;
+    const UiRect canvas{0, 0, w, h};
+    Scene scene(r, theme, &canvas, 1, nullptr);
+    if (!scene.built)
+        return failure(242);
+    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
+    install(r, scene);
+    const auto best = [&]() noexcept {
+        float least = -1;
+        frame(r, theme, 2.f);
+        for (u32 run = 0; run < 3; ++run) {
+            const float ms = frame_gpu_ms(r, theme, 24);
+            least = ms >= 0 && (least < 0 || ms < least) ? ms : least;
+        }
+        return least < 0 ? 0u : static_cast<u32>(least * 1e6f + .5f);
+    };
+    log_u64(LogLevel::info, "probe", "effect_light_cost_no_effect_ns", best());
+    const u32 measured[2]{1, kStarfield};
+    constexpr float kAmounts[3]{0, .5f, 1};
+    const char* names[2][3]{{"effect_light_cost_aurora_plain_ns", "effect_light_cost_aurora_crossfade_ns",
+                             "effect_light_cost_aurora_adapted_ns"},
+                            {"effect_light_cost_starfield_plain_ns", "effect_light_cost_starfield_crossfade_ns",
+                             "effect_light_cost_starfield_adapted_ns"}};
+    for (u32 i = 0; i < 2; ++i) {
+        const BackgroundEffectSpec spec = spec_of(kSamples[measured[i]]);
+        if (renderer_select_effect(&r, spec, settings_of(4, spec.blend)).state == EffectSelect::rejected)
+            return failure(243);
+        for (u32 amount = 0; amount < 3; ++amount) {
+            renderer_set_effect_light(&r, kAmounts[amount]);
+            log_u64(LogLevel::info, "probe", names[i][amount], best());
+            if (!r.effect.draws_last_frame)
+                return failure(244);
+        }
+        renderer_clear_effect(&r);
+    }
+    return true;
+}
+
+bool light_pixels(D3D11Renderer& r) noexcept {
+    auto preferences = client_preferences_defaults();
+    preferences.theme = ClientTheme::custom_light_gradient;
+    preferences.gradient = {{0xfde8d8, 0xdce8fb, 0, 0, 0}, 135, 2, 65, BackgroundEffect::none, 50, 25, 35};
+    const Theme custom = client_theme_projection(preferences);
+    return custom.appearance == ThemeAppearance::light && light_pass_pixels(r, kLightTheme) &&
+           light_samples_pixels(r, kLightTheme, custom) && light_cost(r, kLightTheme);
 }
 
 // ---- Device loss ---------------------------------------------------------------------------------
@@ -778,7 +1015,7 @@ bool effect_package_pixels(D3D11Renderer& r) noexcept {
     return pass_pixels(r, theme) && budget_pixels(r, theme, reference_spec(.6f, 6000), &single_ms) &&
            budget_pixels(r, theme, graph_spec(kBurnGraph, kBurnShaders, 6000), &graph_ms) &&
            graph_budget(single_ms, graph_ms) && graph_pixels(r, theme) && samples_pixels(r, theme) &&
-           ambient_pixels(r, theme) && device_loss_pixels(r, theme);
+           ambient_pixels(r, theme) && light_pixels(r) && device_loss_pixels(r, theme);
 }
 
 } // namespace background_theme_detail

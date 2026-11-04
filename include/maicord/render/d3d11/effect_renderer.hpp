@@ -57,8 +57,10 @@ struct D3D11EffectOwner {
     ID3D11PixelShader *composite_pixel, *shader;
     ID3D11Buffer *frame_buffer, *composite_buffer;
     ID3D11RasterizerState* rasterizer;
-    // The composite's blends (EffectBlend), then a graph pass's (EffectPassBlend alpha, add, premultiplied).
-    ID3D11BlendState* blends[6];
+    // The composite's blends (EffectBlend), then a graph pass's (EffectPassBlend alpha, add, premultiplied), then the
+    // composite's adapted screen and add (effect_light_composite): while they cross-fade, source plus the background
+    // times the shader's second output; settled, the background times the source.
+    ID3D11BlendState* blends[8];
     ID3D11SamplerState* samplers[3];
     ID3D11ShaderResourceView* inputs[kD3D11EffectInputs];
     ID3D11Texture2D* target;
@@ -87,6 +89,7 @@ struct D3D11EffectOwner {
     float last_phase, time, frames;
     float pointer[2]; // window pixels; negative when none
     float ambient[4]; // mc_ambient as the host eased it (EffectAmbientValue order)
+    float light;      // the light adaptation's amount as the host eased it (effect_ambient_sample), 0..1
     u32 dpi, window_width, window_height;
     bool selected, probed, content_valid, dirty, composite_bound;
     // Written before an effect frame is submitted and cleared once its timing resolves, in a mapping that

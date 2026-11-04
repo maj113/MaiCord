@@ -34,10 +34,13 @@ void d3d11_effect_set_marker(D3D11EffectOwner*, volatile u64*) noexcept {
 }
 void d3d11_effect_set_pointer(D3D11EffectOwner*, float, float) noexcept {
 }
-// The eased ambient values land where the renderer keeps them, for the host tests to read.
+// The eased ambient values and light amount land where the renderer keeps them, for the host tests to read.
 void renderer_set_effect_ambient(D3D11Renderer* renderer, const float (&values)[4]) noexcept {
     for (u32 i = 0; i < 4; ++i)
         renderer->effect.ambient[i] = values[i];
+}
+void renderer_set_effect_light(D3D11Renderer* renderer, float amount) noexcept {
+    renderer->effect.light = amount;
 }
 // The sign-in backdrop is a GPU image; settings only freeze and release it.
 bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme&) noexcept {

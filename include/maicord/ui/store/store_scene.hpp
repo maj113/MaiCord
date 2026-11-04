@@ -67,7 +67,7 @@ enum class UiStoreType : u8 {
 };
 
 enum class UiStoreInk : u8 {
-    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_accent
+    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_scrim
 };
 enum class UiStoreFill : u8 {
     none, subtle, normal, strong, input, selected, translucent, scrim, positive_tint, warning_tint, critical_tint,

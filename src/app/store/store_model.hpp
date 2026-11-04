@@ -70,9 +70,11 @@ struct StoreUniversal {
     u8 resolution, frame_rate; // step + 1; 0 follows (shader rows) or automatic (global rows)
     u8 speed, opacity, blend;  // twentieths, percent, blend + 1
     u8 pointer, unfocused, budget;
+    u8 light;                  // light themes: 1 Auto, 2 Off; 0 follows (shader rows)
     bool pointer_available;
+    bool appearance;           // the package declares appearance: it handles light themes itself
     // The global defaults a per-effect row shows beside its override, and what the package asks for.
-    u8 global_resolution, global_frame_rate, requested_frame_rate;
+    u8 global_resolution, global_frame_rate, requested_frame_rate, global_light;
 };
 
 struct StorePermission {
@@ -205,7 +207,7 @@ enum class StoreAct : u8 {
     updates_expand,
     console_clear
 };
-enum class StoreUniversalRow : u8 { resolution, frame_rate, speed, opacity, blend, unfocused, budget, pointer };
+enum class StoreUniversalRow : u8 { resolution, frame_rate, speed, opacity, blend, unfocused, budget, pointer, light };
 
 constexpr u32 store_action(StoreAct act, u32 arg = 0) noexcept {
     return (static_cast<u32>(act) << 16) | (arg & 0xffffu);

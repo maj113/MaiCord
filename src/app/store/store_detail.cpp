@@ -554,6 +554,22 @@ void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, b
         value_row(c, utf8_literal("GPU budget"), kBudget[u.budget < 3 ? u.budget : 1], false, 0);
         segments(c, row, kBudget, 3, u.budget);
         break;
+    case StoreUniversalRow::light: {
+        static constexpr Utf8View kLight[]{utf8_literal("Auto"), utf8_literal("Off")};
+        if (!global_panel && u.appearance) {
+            value_row(c, utf8_literal("Light themes"), utf8_literal("Its own"), false, 0);
+            subtle(c, utf8_literal("This effect follows the light or dark theme itself."), ui_store_wrap);
+            break;
+        }
+        const bool over = overridable && u.light;
+        const u32 off = (over || global_panel ? u.light : u.global_light) == 2 ? 1 : 0;
+        value_row(c, utf8_literal("Light themes"), kLight[off], over, reset);
+        segments(c, row, kLight, 2, off);
+        subtle(c, over ? join(c.b, utf8_literal("Global default: "), kLight[u.global_light == 2 ? 1 : 0], utf8_literal("."))
+                       : utf8_literal("Auto turns the effect's light into shade on a light theme."),
+               ui_store_wrap);
+        break;
+    }
     default: {
         auto& line = c.b.open(UiStoreKind::row);
         line.gap = 8;
@@ -585,11 +601,11 @@ void build_universal(Ctx& c) noexcept {
         c.b.close();
     }
     const StoreUniversalRow rows[]{StoreUniversalRow::resolution, StoreUniversalRow::frame_rate, StoreUniversalRow::speed,
-                                   StoreUniversalRow::opacity,    StoreUniversalRow::blend,      StoreUniversalRow::unfocused,
-                                   StoreUniversalRow::budget,     StoreUniversalRow::pointer};
-    const u32 count = c.m.universal.pointer_available ? 8 : 7;
+                                   StoreUniversalRow::opacity,    StoreUniversalRow::blend,      StoreUniversalRow::light,
+                                   StoreUniversalRow::unfocused,  StoreUniversalRow::budget,     StoreUniversalRow::pointer};
+    const u32 count = c.m.universal.pointer_available ? 9 : 8;
     for (u32 i = 0; i < count; ++i)
-        universal_row(c, rows[i], i + 1 == count, i < 5, false);
+        universal_row(c, rows[i], i + 1 == count, i < 6, false);
     c.b.close();
 }
 
@@ -605,9 +621,10 @@ void build_perf_defaults(Ctx& c) noexcept {
     head.flags = ui_store_center | ui_store_hairline;
     c.b.text("Performance defaults for all effects", UiStoreType::body_bold, UiStoreInk::strong, ui_store_flex);
     c.b.close();
-    const StoreUniversalRow rows[]{StoreUniversalRow::resolution, StoreUniversalRow::frame_rate, StoreUniversalRow::unfocused, StoreUniversalRow::budget};
-    for (u32 i = 0; i < 4; ++i)
-        universal_row(c, rows[i], i == 3, false, true);
+    const StoreUniversalRow rows[]{StoreUniversalRow::resolution, StoreUniversalRow::frame_rate, StoreUniversalRow::light,
+                                   StoreUniversalRow::unfocused, StoreUniversalRow::budget};
+    for (u32 i = 0; i < 5; ++i)
+        universal_row(c, rows[i], i == 4, false, true);
     c.b.close();
     c.b.spacer(0, 16);
 }

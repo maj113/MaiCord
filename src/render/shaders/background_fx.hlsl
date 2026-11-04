@@ -155,12 +155,21 @@ cbuffer McFxCompositePixel : register(b0) {
     float4 composite_clamp : packoffset(c2); // the used part of the target, inset half a texel
     float composite_opacity : packoffset(c3.x);
     float composite_radius : packoffset(c3.y); // a tile's corner radius in DIPs; 0 fills the canvas rectangle
+    float composite_light : packoffset(c3.z);  // the light adaptation's amount (effect_light_composite)
+    float composite_layer : packoffset(c3.w);  // the paint layer's opacity (the blend factor)
+    float composite_blend : packoffset(c4.x);  // EffectBlend: 0 normal, 1 screen, 2 add
 };
 Texture2D<float4> fx_target : register(t0);
 SamplerState fx_sampler : register(s0); // the pipeline's bilinear clamp sampler
 
+// The colour, and the weight of what is behind it: only the adapted screen and add's blend state reads the weight.
+struct FxCompositeTargets {
+    float4 color : SV_Target0;
+    float4 weight : SV_Target1;
+};
+
 // The target holds premultiplied colour; the user's opacity scales all four channels.
-float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) : SV_Target {
+FxCompositeTargets fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) {
     float4 color = fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
                    composite_opacity;
     // A tile is a rounded rectangle: coverage from the signed distance to its outline, one pixel wide.
@@ -170,7 +179,26 @@ float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, 
         const float edge = length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - composite_radius;
         color *= saturate(0.5f - edge / max(fwidth(edge), 0.0001f));
     }
-    return color;
+    FxCompositeTargets output;
+    output.color = color;
+    output.weight = 1.0f;
+    // A light appearance: the picture's BT.709 luma flips (y -> 1 - y) with its chroma kept. Normal flips the
+    // premultiplied colour (by alpha - 2y); screen and add multiply what is behind by the flipped light instead of
+    // adding it. composite_light cross-fades from the plain composite.
+    [branch] if (composite_light > 0.0f) {
+        color = saturate(color);
+        const float luma = dot(color.rgb, float3(0.2126f, 0.7152f, 0.0722f));
+        if (composite_blend == 0.0f) {
+            output.color.rgb = lerp(color.rgb, clamp(color.rgb + (color.a - 2.0f * luma), 0.0f, color.a), composite_light);
+        } else {
+            const float3 multiply = 1.0f - composite_layer * (1.0f - saturate(1.0f + color.rgb - 2.0f * luma));
+            const float3 plain = composite_blend == 1.0f ? 1.0f - color.rgb : 1.0f;
+            output.weight.rgb = lerp(plain, multiply, composite_light);
+            // Settled, nothing is added: a plain multiply blend takes the weight as the colour.
+            output.color.rgb = composite_light < 1.0f ? color.rgb * (1.0f - composite_light) : output.weight.rgb;
+        }
+    }
+    return output;
 }
 #else
 struct FxVertexOutput {

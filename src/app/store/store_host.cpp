@@ -408,7 +408,7 @@ void execute(const StoreCommand& c) noexcept {
         EffectUserSettings user = application_effects_user_settings();
         EffectShaderSettings sh = identity ? application_effects_shader_settings(identity) : EffectShaderSettings{};
         const u32 value = reset ? 0 : c.value;
-        bool touched_user = false;
+        bool touched_user = false, touched_global = false;
         switch (static_cast<StoreUniversalRow>(row)) {
         case StoreUniversalRow::resolution:
             if (shader && identity) {
@@ -446,12 +446,24 @@ void execute(const StoreCommand& c) noexcept {
         case StoreUniversalRow::pointer:
             sh.pointer = static_cast<u8>(value ? 1 : 0);
             break;
+        case StoreUniversalRow::light: {
+            // Option 0 is Auto, 1 Off. On the effect's page, choosing its override again, or a reset, follows the
+            // global row again.
+            const u8 light = static_cast<u8>(minimum<u32>(value, 1) + 1);
+            if (shader && identity) {
+                sh.light = reset || sh.light == light ? 0 : light;
+            } else {
+                application_effects_set_light_auto(light == 1);
+                touched_global = true;
+            }
+            break;
+        }
         default:
             break;
         }
         if (touched_user)
             application_effects_set_user_settings(user);
-        else if (identity)
+        else if (identity && !touched_global)
             application_effects_set_shader_settings(sh);
         break;
     }

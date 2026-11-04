@@ -74,7 +74,8 @@
       "dense": [0, 0, 0, 0.68],
       "media": [0, 0, 0, 0.92],
       "shadow": [0, 0, 0, 0.32],
-      "shadow_soft": [0, 0, 0, 0.24]
+      "shadow_soft": [0, 0, 0, 0.24],
+      "text": "#ffffff"
     },
     "status": {
       "online": "{semantic.accent.success}",

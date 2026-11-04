@@ -4,6 +4,7 @@
 #include "maicord/ui/accessibility/accessibility.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 // The store scene: layout of the retained element tree, grid columns by width, wrapping chips, hit testing,
 // the keyboard model (roving focus in groups, sliders), scrolling and the centred dialog.
@@ -328,6 +329,58 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         check(ui_store_scene_tick(&g_scene, 2000, false) && ui_store_scene_tick(&g_scene, 2000, false) &&
                   !ui_store_scene_tick(&g_scene, 2001, true),
               "store scene: a skeleton keeps asking for frames, also on a repeated tick, and not under reduced motion");
+    }
+    {
+        // The live preview's pill (the effect page's tile): its label holds 4.5:1 or better on its plate whether a
+        // black or a white effect is behind it, in the dark and light themes and in a custom theme whose on-accent
+        // text is dark (the plate is a scrim; its ink is the overlay text, not the accent's).
+        Theme dark_on_accent = kDefaultTheme;
+        dark_on_accent.tokens.text.on_accent = {.08f, .08f, .1f, 1};
+        const Theme* themes[]{&kDefaultTheme, &kLightTheme, &dark_on_accent};
+        const Utf8View label = utf8_literal("Live preview \xC2\xB7 24 fps \xC2\xB7 50 %");
+        bool readable = true;
+        for (const Theme* theme : themes) {
+            ui_store_scene_begin(&g_scene);
+            UiStoreBuilder page(&g_scene);
+            auto& live = page.open(UiStoreKind::preview);
+            live.variant = static_cast<u8>(UiStoreAspect::live);
+            live.rh = 220;
+            auto& pill = page.chip(label, UiStoreTone::scrim, UiIcon::play);
+            pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
+            pill.flags = ui_store_foreground;
+            page.close();
+            const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+            g_scene.active = true;
+            PaintStream paint{};
+            UiTextCommand commands[16]{};
+            UiTextCommandStream stream{};
+            UiTextOutput output{&stream, nullptr};
+            const bool drawn = laid && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
+                               ui_store_scene_paint(g_scene, *theme, &paint, 1) &&
+                               ui_text_command_stream_initialize(&stream, {commands, 16}) &&
+                               ui_store_scene_text_output(g_scene, *theme, &output, false);
+            // The plate: the largest rounded fill of the foreground layer (the play icon sits inside it).
+            const PaintQuad* plate = nullptr;
+            for (u32 i = 0; drawn && i < paint.count; ++i) {
+                const PaintQuad& q = paint.quads[i];
+                if (q.radius > 0 && q.fill.alpha > 0 &&
+                    (!plate || (q.right - q.left) * (q.bottom - q.top) > (plate->right - plate->left) * (plate->bottom - plate->top)))
+                    plate = &q;
+            }
+            const UiTextCommand* text = nullptr;
+            for (u32 i = 0; i < stream.count; ++i)
+                if (utf8_equal(stream.storage[i].text, label))
+                    text = &stream.storage[i];
+            readable = readable && plate && text;
+            for (u32 behind = 0; readable && behind < 2; ++behind) {
+                const float effect = static_cast<float>(behind), a = plate->fill.alpha;
+                const Color under{plate->fill.red * a + effect * (1 - a), plate->fill.green * a + effect * (1 - a),
+                                  plate->fill.blue * a + effect * (1 - a), 1};
+                readable = ui_theme_contrast_ratio(text->color, under) >= 4.5f;
+            }
+            paint_stream_release(&paint);
+        }
+        check(readable, "store scene: the live preview's pill reads 4.5:1 on its plate over a black or a white effect");
     }
     ui_store_scene_release(&g_scene);
 }

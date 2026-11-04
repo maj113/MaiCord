@@ -41,8 +41,8 @@ struct Pass {
             return c.brand;
         case UiStoreInk::on_brand:
             return c.on_brand;
-        case UiStoreInk::on_accent:
-            return theme.tokens.text.on_accent;
+        case UiStoreInk::on_scrim:
+            return theme.tokens.overlay.text;
         default:
             return c.text_default;
         }
@@ -130,7 +130,7 @@ ChipLook chip_look(UiStoreTone tone) noexcept {
     case UiStoreTone::risk_high:
         return {UiStoreFill::subtle, UiStoreInk::normal};
     case UiStoreTone::scrim:
-        return {UiStoreFill::scrim, UiStoreInk::on_accent};
+        return {UiStoreFill::scrim, UiStoreInk::on_scrim};
     default:
         return {UiStoreFill::subtle, UiStoreInk::subtle};
     }
@@ -233,12 +233,11 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             fill = c.mod_normal;
             border = c.border_normal;
         }
+        // Translucent plates (the live preview's mock panels) keep the subtle edge, so they read over a dark effect.
         if (n.fill == static_cast<u8>(UiStoreFill::warning_tint))
             border = ui_settings_color_alpha(k.theme.tokens.accent.warning, .35f);
         else if (n.fill == static_cast<u8>(UiStoreFill::critical_tint))
             border = ui_settings_color_alpha(c.critical, .35f);
-        else if (n.fill == static_cast<u8>(UiStoreFill::translucent))
-            border = {};
         p.rounded_border(r, fill, border, kRadius, border.alpha > 0 ? 1.f : 0.f);
         if (state.focused)
             k.focus(r, kRadius);
@@ -337,7 +336,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             k.focus(r, n.variant == 2 ? ui_rect_height(r) * .5f : 8.f);
         const Color ink = n.ink == static_cast<u8>(UiStoreInk::normal) ? (state.hovered ? c.text_strong : c.text_subtle)
                                                                        : k.ink(n.ink);
-        paint_icon(p, n.icon, centred(r, ui_rect_height(r) >= 32 ? 18 : 16), n.variant == 2 ? k.theme.tokens.text.on_accent : ink);
+        paint_icon(p, n.icon, centred(r, ui_rect_height(r) >= 32 ? 18 : 16), n.variant == 2 ? k.theme.tokens.overlay.text : ink);
         break;
     }
     case UiStoreKind::toggle:

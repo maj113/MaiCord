@@ -80,6 +80,9 @@ MAICORD_THEME_TOKEN(overlay, dense, RGBA(0, 0, 0, .68f), RGBA(0, 0, 0, .68f))
 MAICORD_THEME_TOKEN(overlay, media, RGBA(0, 0, 0, .92f), RGBA(0, 0, 0, .92f))
 MAICORD_THEME_TOKEN(overlay, shadow, RGBA(0, 0, 0, .32f), RGBA(0, 0, 0, .32f))
 MAICORD_THEME_TOKEN(overlay, shadow_soft, RGBA(0, 0, 0, .24f), RGBA(0, 0, 0, .24f))
+// Text and icons on a scrim over a picture or an effect (pills on previews): 4.5:1 or better over the scrim on
+// anything from black to white.
+MAICORD_THEME_TOKEN(overlay, text, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_GROUP_END(overlay)
 
 MAICORD_THEME_GROUP(status)

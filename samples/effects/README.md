@@ -43,7 +43,8 @@ and nothing draws twice. Widgets and text stay above it. The effect pauses while
 covered, being resized or idle, and slows down when it is not focused. A GPU budget steps the resolution down, or
 turns the effect off, when it costs more than the user allows. A graphics reset rebuilds it.
 
-Colours are the theme's own sRGB values (`mc_role(0..7)`); the output is written as is, as in Shadertoy.
+Colours are the theme's own sRGB values (`mc_role(0..7)`); the output is written as is, as in Shadertoy. On a light
+theme MaiCord adapts an effect that does not handle the appearance itself (see [Light themes](#light-themes)).
 
 ## The shader
 
@@ -61,7 +62,7 @@ What the header gives you (read it: it is the whole interface, about 125 lines):
 | `mc.delta`, `mc.frame` | Seconds since the previous effect frame; effect frames since it was selected |
 | `mc.resolution`, `mc.dip` | The target in pixels; target pixels per DIP (DPI scale x resolution scale): size things in DIPs with it |
 | `mc.pointer` | The pointer in target pixels, `(-1,-1)` unless the effect uses `pointer` and the user allowed it |
-| `mc_role(role)`, `mc.intensity`, `mc.dark` | Theme colours (`MC_ROLE_BACKGROUND/SURFACE/TEXT/MUTED/ACCENT/POSITIVE/WARNING/CRITICAL`); theme strength 0..1; 1 in a dark theme |
+| `mc_role(role)`, `mc.intensity`, `mc.dark` | Theme colours (`MC_ROLE_BACKGROUND/SURFACE/TEXT/MUTED/ACCENT/POSITIVE/WARNING/CRITICAL`); theme strength 0..1; 1 in a dark theme (and while MaiCord adapts the effect to a light one) |
 | `mc_uv(pixel)`, `mc_mod(x, y)` | `pixel / resolution`; GLSL's `mod` (`fmod` keeps the sign of `x`) |
 | `mc_noise(uv)`, `mc_noise_smooth(uv)`, `mc_hash4(p)` | White noise texture (point, bilinear); a texture-free hash |
 | `mc_glyph(uv)`, `mc_glyph_cell(code, inside)` | The 16x16 glyph grid of Latin-1 |
@@ -165,7 +166,9 @@ clouds, and a knob to follow the clock, the appearance, or either.
 `1` and runs everywhere. A MaiCord from before interface 2 refuses such a package when it reads it (its manifest names
 an input that MaiCord doesn't have) instead of drawing it with the inputs missing, so the effect doesn't appear in its
 library. The catalog's index lists only the interface-1 inputs of an effect, as an older index reader refuses any
-other name; `clock` and `appearance` live in the package's manifest.
+other name; `clock` and `appearance` live in the package's manifest. The catalog lists such an effect, with its
+`"interface"`, only in `index-full.json`, which MaiCord 0.6.3 and later read (they show an effect above their own
+interface as needing a newer MaiCord); `index.json`, which 0.6.0 to 0.6.2 read, leaves it out.
 
 **Previewing.** `maicord-plugin effect preview` can stand in for both inputs while you work, for every effect, in
 Developer Mode:
@@ -179,6 +182,29 @@ maicord-plugin effect preview --real-inputs                     # back to the re
 
 The options merge into `simulate-inputs.txt` in the dev folder (`time=HH:MM`, `date=MM-DD`, `appearance=dark|light`,
 `day_seconds=N`), which MaiCord reads when the folder changes; a change glides as a real one does.
+
+### Light themes
+
+Most effects are light on a dark background: stars, glows, rain. On a light theme that light vanishes (white stars
+on a white page), so MaiCord adapts every effect that does not declare `@uses appearance`, when the appearance is
+light (MaiCord's theme and Windows both light: [dark wins](#time-of-day-and-appearance)):
+
+- The effect draws for the theme's dark twin: each `mc_role` colour has its luma flipped and `mc.dark` reads 1.
+- MaiCord flips the picture's luma back as it composites it (no extra pass). The flip is BT.709 luma
+  `y -> 1 - y` with each channel's distance from the luma kept, so it keeps hue and chroma and undoes itself: the
+  theme's own colours come back as they were, and the effect's own light turns to shade. White stars become dark
+  specks, glows become soft shadows, and a blue glow becomes a blue shade.
+- `normal` composites the flipped colour. `screen` and `add` can't add light to a white page, so they multiply the
+  background by the flipped light instead, which takes light away in the light's own hue.
+- The adaptation glides with the appearance over the same 1.5 s, so switching themes cross-fades.
+
+Nothing changes in the format: an existing effect needs no rebuild, and an older MaiCord draws it as before. Users
+choose **Light themes: Auto or Off** in the effects' performance defaults, and per effect on its page (the effect's
+own choice wins). `maicord-plugin effect preview --appearance light` shows the adaptation in the dev folder.
+
+**Opting out.** An effect that declares `@uses appearance` is never transformed: it reads `mc_ambient.dark` and draws
+its own light picture, as `day-night` does with its daytime sky. Declare it when the effect has a real day look;
+leave it out to get the adaptation for free.
 
 ### Pass graphs
 
@@ -229,7 +255,7 @@ writes the second.
 
 **Older MaiCord.** A graph, `texture2`, `texture3` or float data make the package `"interface": 3`. A MaiCord before
 interface 3 refuses such a package when it reads it, and a single-pass effect without them keeps interface 1 or 2 and
-runs exactly as it did.
+runs exactly as it did. As with interface 2, the catalog lists such an effect only for MaiCord 0.6.3 and later.
 
 ## Building
 
@@ -313,6 +339,8 @@ clock held: `effect-day-night-hour-NN.bmp` is each hour of 21 June in the light 
 `effect-day-night-transition-NN.bmp` is Windows turning dark at noon, one frame every 50 ms (30 frames move, then the
 picture holds). It checks the graph pass against `tests/shaders/background_effect_graph.hlsl`, a graph of every
 feature with known pixels (`effect-graph-test-frame-03.bmp`), and `maicord_packages` parses `spark-ribbon` as
-`maicord-plugin` packs it.
+`maicord-plugin` packs it. For light themes it checks the composite against its model for each blend, then draws every
+sample on Light and on a light custom theme with the light row Off and Auto (`effect-<name>-light-before.bmp`,
+`-light-after.bmp`, `-custom-before.bmp`, `-custom-after.bmp`) and logs what the adapted composite costs.
 
 `ascii-rain` is an original rewrite of the matrix-rain idea and is MPL-2.0 like the rest of the samples.

@@ -36,7 +36,7 @@ struct McFrame {
     float2 resolution;  // effect target in pixels (the whole window x resolution scale)
     float2 pointer;     // pointer in target pixels; (-1,-1) unless the effect uses the pointer and the user allowed it
     float4 palette[8];  // theme roles: MC_ROLE_BACKGROUND, SURFACE, TEXT, MUTED, ACCENT, POSITIVE, WARNING, CRITICAL
-    float  dark;        // 1 in a dark theme
+    float  dark;        // 1 in a dark theme, and on a light one while MaiCord adapts the effect (see the README)
     float  intensity;   // theme strength 0..1, lower in light themes
     float2 reserved;
 };

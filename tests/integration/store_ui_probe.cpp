@@ -31,7 +31,8 @@
 // Sunset theme like the mockups (11 is the flat dark one). MAICORD_STORE_PREVIEW_DIR names a folder of the
 // catalog fixture's `previews/<sha>.png`: the tiles then show the real pictures, decoded and uploaded the way the
 // host does. 04 and 08 run the Aurora sample as the window background so their live tiles have an effect; 16 and 17
-// run every sample on its own knob page and check the tile's pixels.
+// run every sample on its own knob page and check the tile's pixels; 19 is Starfield's page on the Light theme,
+// adapted to it.
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -766,6 +767,28 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         f.model.effect_preview = 0;
         next(L"store-18-knobs-starting.bmp", kEffects, nullptr, sunset);
         valid = valid && !live_tile_pixels(renderer, sunset).found;
+    }
+    // 19 Starfield's page on the Light theme, adapted as the host draws it there (its stars as dark specks): the pill
+    // and the panels over a light effect.
+    if (valid) {
+        stage = __LINE__;
+        effects();
+        knobs();
+        const Sample& stars = kSamples[5];
+        const u32 at = store_find_item(f.model, CatalogKind::effect, stars.slug);
+        valid = at < f.model.count && run_effect(renderer, stars);
+        renderer_set_effect_light(&renderer, 1);
+        if (valid) {
+            f.model.items[1].active = false;
+            f.model.items[at].installed = f.model.items[at].active = true;
+            StorePageState& st = f.state[2];
+            st.detail = st.knobs = true;
+            st.detail_from = StoreTab::installed;
+            copy_bytes(st.slug, stars.slug.data, stars.slug.bytes);
+            st.slug[stars.slug.bytes] = 0;
+        }
+        next(L"store-19-knobs-light.bmp", kEffects, nullptr, kLightTheme);
+        valid = valid && live_tile_pixels(renderer, kLightTheme).found;
     }
     f.state[2].detail = f.state[2].knobs = false;
     // 05 Plugins > Installed with the overflow menu open

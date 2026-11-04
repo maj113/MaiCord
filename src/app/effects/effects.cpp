@@ -27,6 +27,8 @@ constexpr u64 kIdleMilliseconds = 5ull * 60 * 1000;
 constexpr u32 kOverrides = 16, kRefusals = 16, kPathUnits = 400;
 constexpr wchar_t kStateFile[] = L"effects\\state.bin";
 constexpr wchar_t kMarkerFile[] = L"effects\\effect-frame.bin";
+// StateFile::flags: the global light-theme row is Off (bit 1 belongs to packages.cpp, the maicord:// answer).
+constexpr u32 kLightOff = 2;
 
 struct Entry {
     EffectInfo info;
@@ -522,6 +524,11 @@ i32 override_index(u64 identity) noexcept {
     return -1;
 }
 
+// The global light-theme row: Auto unless the user turned it off.
+bool light_auto() noexcept {
+    return !(g.file.flags & kLightOff);
+}
+
 i32 refusal_index(u64 identity, u64 adapter) noexcept {
     for (u32 i = 0; i < g.file.refusal_count; ++i)
         if (g.file.refusals[i].identity == identity && g.file.refusals[i].adapter == adapter)
@@ -688,21 +695,20 @@ bool transition_allowed() noexcept {
            (application_window_focused() || g.file.user.unfocused == EffectUnfocused::keep);
 }
 
-// Samples and eases the selected package's ambient inputs and hands them to the renderer.
-void sample_inputs(u64 identity, u32 uses) noexcept {
+// Samples and eases the selected package's ambient inputs and its light adaptation (`adapt`: the user's Auto for it)
+// and hands them to the renderer.
+void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
     Inputs& in = g.inputs;
     if (in.identity != identity) {
         in.ambient = {};
         in.identity = identity;
     }
     in.next_frame_ms = 0;
-    if (!(uses & kEffectAmbientUses))
-        return;
     const u64 now = clock_monotonic_milliseconds();
     EffectAmbientSources sources{};
     if (uses & effect_use_clock)
         sources.local = local_time(now);
-    if (uses & effect_use_appearance) {
+    if ((uses & effect_use_appearance) || adapt) {
         if (!in.system_read) {
             in.system_dark = application_effects_read_system_dark();
             in.system_read = true;
@@ -713,8 +719,9 @@ void sample_inputs(u64 identity, u32 uses) noexcept {
             sources.theme_dark = sources.system_dark = in.simulation.dark;
     }
     float values[4];
-    effect_ambient_sample(&in.ambient, uses, sources, now, transition_allowed(), values);
+    const float light = effect_ambient_sample(&in.ambient, uses, sources, now, transition_allowed(), adapt, values);
     renderer_set_effect_ambient(&g_app.renderer, values);
+    renderer_set_effect_light(&g_app.renderer, light);
     if (effect_ambient_easing(in.ambient, now))
         in.next_frame_ms = now + application_effects_interval_ms();
 }
@@ -771,9 +778,10 @@ bool decode_textures(const McfxPackage& package, BackgroundEffectSpec* spec, Tex
     return ok;
 }
 
-// Draws `entry`'s package, or the trial's. False: nothing is selected now.
+// Draws `entry`'s package, or the trial's; `light` is the user's light-theme choice for it (effect_light_auto).
+// False: nothing is selected now.
 bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValue (&values)[kMcfxKnobMaximum],
-                    EffectBlend blend, EffectSettings settings, bool trial) noexcept {
+                    EffectBlend blend, EffectSettings settings, bool light, bool trial) noexcept {
     BackgroundEffectSpec spec{};
     spec.bytecode = package.shaders[0];
     if (package.graph.pass_count) {
@@ -811,7 +819,7 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
         }
         return false;
     }
-    sample_inputs(identity, package.uses);
+    sample_inputs(identity, package.uses, light);
     // A refusal by the cost probe arrives as a verdict.
     apply_verdict();
     return true;
@@ -840,13 +848,14 @@ bool select_preview(const Entry* drawn, u64 adapter) noexcept {
         return false;
     }
     const Loaded& l = g.opened_is_resident ? g.resident : g.opened;
-    EffectSettings settings = effect_resolve_settings(g.file.user, application_effects_shader_settings(identity),
-                                                      entry->requested_resolution, entry->requested_frame_rate,
-                                                      entry->blend);
+    const EffectShaderSettings shader = application_effects_shader_settings(identity);
+    EffectSettings settings = effect_resolve_settings(g.file.user, shader, entry->requested_resolution,
+                                                      entry->requested_frame_rate, entry->blend);
     settings.budget = EffectBudget::low;
     settings.pointer_allowed = false;
     g.preview.swapped = true;
-    if (!select_package(identity, l.package, l.values, entry->blend, settings, true)) {
+    if (!select_package(identity, l.package, l.values, entry->blend, settings, effect_light_auto(shader.light, light_auto()),
+                        true)) {
         g.preview.state = EffectTrialState::rejected;
         g.preview.swapped = false;
         clear_effect();
@@ -894,7 +903,8 @@ void application_effects_synchronize() noexcept {
         settings.pointer_allowed = false;
         if (settings.resolution_step > kEffectDefaultResolutionStep)
             settings.resolution_step = kEffectDefaultResolutionStep;
-        if (!select_package(g.trial.identity, *g.trial.package, values, g.trial.package->blend, settings, true)) {
+        if (!select_package(g.trial.identity, *g.trial.package, values, g.trial.package->blend, settings, light_auto(),
+                            true)) {
             if (g.trial.state == EffectTrialState::drawing)
                 g.trial.state = EffectTrialState::rejected;
             clear_effect();
@@ -943,7 +953,8 @@ void application_effects_synchronize() noexcept {
     }
     const EffectSettings settings = effect_resolve_settings(g.file.user, shader, entry->requested_resolution,
                                                             entry->requested_frame_rate, entry->blend);
-    select_package(entry->info.identity, g.resident.package, g.resident.values, entry->blend, settings, false);
+    select_package(entry->info.identity, g.resident.package, g.resident.values, entry->blend, settings,
+                   effect_light_auto(shader.light, light_auto()), false);
 }
 
 void application_effects_project(UiSettingsControl* control) noexcept {
@@ -1087,6 +1098,18 @@ bool application_effects_set_shader_settings(const EffectShaderSettings& value) 
         at = static_cast<i32>(g.file.override_count++);
     }
     g.file.overrides[at] = value;
+    application_request_frame();
+    return save_state();
+}
+
+bool application_effects_light_auto() noexcept {
+    load_state();
+    return light_auto();
+}
+
+bool application_effects_set_light_auto(bool on) noexcept {
+    load_state();
+    g.file.flags = on ? g.file.flags & ~kLightOff : g.file.flags | kLightOff;
     application_request_frame();
     return save_state();
 }

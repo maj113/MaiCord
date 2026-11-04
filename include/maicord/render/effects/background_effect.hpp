@@ -124,15 +124,17 @@ constexpr u32 effect_target_extent(const EffectGraphTarget& target, u32 output, 
 
 // The composite pass's constants: a canvas rectangle in DIPs, the map from a DIP to a position in the effect
 // target (uv = dip * scale + offset), the used part of the target (inset half a texel, for the bilinear
-// fetch), the user's opacity and, for a tile, its corner radius in DIPs (0: the plain rectangle). VS b2 and
+// fetch), the user's opacity and, for a tile, its corner radius in DIPs (0: the plain rectangle); then the light
+// adaptation's amount (effect_light_composite), the paint layer's opacity and the blend (EffectBlend). VS b2 and
 // PS b0 both see all of it.
 struct EffectCompositeConstants {
     float canvas[4];
     float uv[4];
     float limits[4];
-    float opacity, radius, reserved[2];
+    float opacity, radius, light, layer;
+    float blend, reserved[3];
 };
-static_assert(sizeof(EffectCompositeConstants) == 64);
+static_assert(sizeof(EffectCompositeConstants) == 80);
 
 constexpr void effect_palette(const Theme& theme, float (&palette)[kBackgroundFxPaletteRoles][4]) noexcept {
     const Color roles[kBackgroundFxPaletteRoles]{theme.base_low,   theme.surface,
@@ -254,9 +256,12 @@ struct EffectAmbient {
     bool started; // the first sample settles at once
 };
 // One frame's sample for a package that declares `uses`: retargets from the sources, then writes mc_ambient
-// (zero for an input the package does not declare). `animate` false settles every change at once.
-constexpr void effect_ambient_sample(EffectAmbient* ambient, u32 uses, const EffectAmbientSources& sources,
-                                     u64 now_ms, bool animate, float (&values)[4]) noexcept {
+// (zero for an input the package does not declare). `animate` false settles every change at once. The appearance
+// eases for a package that reads it and for the light adaptation (`adapt`, see below) alike; one that is not
+// adapted eases toward dark, so turning the adaptation off glides too. Returns the adaptation's amount: 1 minus the
+// eased dark value, and 0 for a package that declares appearance (it handles the light theme itself).
+constexpr float effect_ambient_sample(EffectAmbient* ambient, u32 uses, const EffectAmbientSources& sources,
+                                      u64 now_ms, bool animate, bool adapt, float (&values)[4]) noexcept {
     const bool ease = animate && ambient->started;
     ambient->started = true;
     for (float& value : values)
@@ -270,16 +275,81 @@ constexpr void effect_ambient_sample(EffectAmbient* ambient, u32 uses, const Eff
         values[effect_ambient_year] = effect_ease_value(ambient->year, now_ms, true);
         values[effect_ambient_month] = ambient->month;
     }
-    if (uses & effect_use_appearance) {
-        effect_ease_toward(&ambient->dark, effect_appearance_dark(sources.theme_dark, sources.system_dark), now_ms,
-                           ease, false, 0);
-        values[effect_ambient_dark] = effect_ease_value(ambient->dark, now_ms, false);
+    const bool appearance = (uses & effect_use_appearance) != 0;
+    effect_ease_toward(&ambient->dark,
+                       appearance || adapt ? effect_appearance_dark(sources.theme_dark, sources.system_dark) : 1.f,
+                       now_ms, ease, false, 0);
+    const float dark = effect_ease_value(ambient->dark, now_ms, false);
+    if (appearance) {
+        values[effect_ambient_dark] = dark;
+        return 0;
     }
+    return 1 - dark;
 }
 // A value of the last sample is still easing: the host keeps drawing frames until every one settles.
 constexpr bool effect_ambient_easing(const EffectAmbient& ambient, u64 now_ms) noexcept {
     return effect_ease_running(ambient.day, now_ms) || effect_ease_running(ambient.year, now_ms) ||
            effect_ease_running(ambient.dark, now_ms);
+}
+
+// ---- Light themes ----------------------------------------------------------------------------------------
+// Effects are made for a dark background: light added to the dark. A package that does not declare appearance is
+// adapted to a light one (the user's Auto, the default): it is given the palette with its luma flipped (the theme's
+// dark twin) and mc.dark 1, and its picture's luma is flipped back as it is composited. The theme's own colours come
+// back as they were, while the effect's own light turns to shade: white stars become dark specks, glows soft
+// shadows, and colours keep their hue. The flip is BT.709 luma y -> 1 - y with each channel's distance from the luma
+// (the chroma) kept; it is affine and its own inverse. A screen or add effect then takes its light from the
+// background instead of adding it: the background is multiplied by the flipped light (no light multiplies by one).
+// The amount runs 0..1 with the eased appearance, so a theme switch cross-fades.
+inline constexpr float kEffectLuma[3]{.2126f, .7152f, .0722f};
+constexpr float effect_luma(const float* rgb) noexcept {
+    return kEffectLuma[0] * rgb[0] + kEffectLuma[1] * rgb[1] + kEffectLuma[2] * rgb[2];
+}
+constexpr float effect_unit(float value) noexcept {
+    return value < 0 ? 0.f : value > 1 ? 1.f : value;
+}
+
+// A package's own choice (EffectShaderSettings::light: 0 follows the global one, 1 Auto, 2 Off) over the global one.
+constexpr bool effect_light_auto(u8 shader, bool global_auto) noexcept {
+    return shader ? shader == 1 : global_auto;
+}
+
+// The palette the effect is given: each role moved `amount` of the way to its flip, kept in 0..1.
+constexpr void effect_light_palette(float (&palette)[kBackgroundFxPaletteRoles][4], float amount) noexcept {
+    if (!(amount > 0))
+        return;
+    for (auto& role : palette) {
+        const float shift = amount * (1 - 2 * effect_luma(role));
+        for (u32 c = 0; c < 3; ++c)
+            role[c] = effect_unit(role[c] + shift);
+    }
+}
+
+// What the composite makes of one texel over an opaque background, as fx_composite_pixel and the blend states do it:
+// `source` is the target's premultiplied colour at the user's opacity, `layer` the paint layer's opacity. Without
+// adaptation, normal is source + background * (1 - alpha), screen source + background * (1 - source), add source +
+// background, the source at the layer's opacity. Adapted, normal flips the source's colour (premultiplied: by
+// alpha - 2y, within 0..alpha) and screen and add multiply the background by the flipped light; `light` cross-fades.
+constexpr void effect_light_composite(const float (&source)[4], const float (&background)[3], EffectBlend blend,
+                                      float light, float layer, float (&out)[3]) noexcept {
+    float color[4]{};
+    for (u32 c = 0; c < 4; ++c)
+        color[c] = effect_unit(source[c]);
+    const float y = effect_luma(color);
+    for (u32 c = 0; c < 3; ++c) {
+        float add = color[c], weight = blend == EffectBlend::normal ? 1 - color[3]
+                                       : blend == EffectBlend::screen ? 1 - color[c]
+                                                                      : 1.f;
+        if (light > 0 && blend == EffectBlend::normal) {
+            const float flipped = color[c] + color[3] - 2 * y;
+            add += (minimum(maximum(flipped, 0.f), color[3]) - add) * light;
+        } else if (light > 0) {
+            const float multiply = 1 - layer * (1 - effect_unit(1 + color[c] - 2 * y));
+            add *= 1 - light;
+            weight += (multiply - weight) * light;
+        }
+        out[c] = effect_unit(layer * add + background[c] * weight);
+    }
 }
 
 // ---- What the renderer is given ---------------------------------------------------------------
@@ -482,15 +552,16 @@ struct EffectShaderSettings {
     u8 opacity;                // percent
     u8 blend;                  // 0 = the package's own, else EffectBlend + 1
     u8 pointer;                // 1 = the effect may read the pointer
-    u8 reserved[2];
+    u8 light;                  // light themes (effect_light_auto): 0 = follow the global row, 1 Auto, 2 Off
+    u8 reserved;
 };
 static_assert(sizeof(EffectShaderSettings) == 16);
 constexpr EffectShaderSettings effect_shader_defaults(u64 identity) noexcept {
-    return {identity, 0, 0, 20, 100, 0, 0, {}};
+    return {identity, 0, 0, 20, 100, 0, 0, 0, 0};
 }
 constexpr bool effect_shader_settings_valid(const EffectShaderSettings& value) noexcept {
     return value.resolution <= kEffectResolutionSteps && value.frame_rate <= kEffectFrameRateSteps &&
-           value.speed <= 60 && value.opacity <= 100 && value.blend <= 3 && value.pointer <= 1;
+           value.speed <= 60 && value.opacity <= 100 && value.blend <= 3 && value.pointer <= 1 && value.light <= 2;
 }
 constexpr bool effect_user_settings_valid(const EffectUserSettings& value) noexcept {
     return value.resolution <= kEffectResolutionSteps && value.frame_rate <= kEffectFrameRateSteps &&

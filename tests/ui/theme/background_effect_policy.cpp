@@ -10,8 +10,8 @@
 namespace maicord {
 void test_background_effect_policy(void (*check)(bool, const char*) noexcept) noexcept {
     // Room for the ANSI code block palette, the slash command option chip
-    // tokens and the list row highlight tokens.
-    static_assert(sizeof(Theme) <= 2120);
+    // tokens, the list row highlight tokens and the ink on a scrim.
+    static_assert(sizeof(Theme) <= 2136);
     auto authored_dark = kDefaultTheme;
     authored_dark.text_primary = {0, 1, 0, 1};
     authored_dark.background = background_theme_defaults();
@@ -422,7 +422,7 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
               __builtin_offsetof(EffectFrameConstants, dark) == 160 && __builtin_offsetof(EffectFrameConstants, intensity) == 164 &&
               __builtin_offsetof(EffectFrameConstants, knobs) == 176 && __builtin_offsetof(EffectFrameConstants, ambient) == 304 &&
               __builtin_offsetof(EffectFrameConstants, pass) == 320 &&
-              sizeof(EffectCompositeConstants) == 64 && sizeof(EffectShaderSettings) == 16 &&
+              sizeof(EffectCompositeConstants) == 80 && sizeof(EffectShaderSettings) == 16 &&
               palette[0][0] == starry.base_low.red && palette[4][2] == starry.accent.blue &&
               palette[7][1] == starry.tokens.accent.danger.green && palette[3][3] == 1,
           "effect pass: frame and composite constants keep the shader layout; the palette carries the theme's own sRGB");
@@ -444,15 +444,15 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     EffectAmbient ambient{};
     float values[4]{};
     // The first sample settles at once, whatever `animate` says: a selected effect starts at its inputs.
-    effect_ambient_sample(&ambient, kBoth, sources, 10000, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 10000, true, false, values);
     const bool simulated = close_to(values[effect_ambient_day], (18 * 60 + 30) / 1440.f) &&
                            close_to(values[effect_ambient_year], (14 + 1110.f / 1440) / 365) &&
                            values[effect_ambient_month] == 1 && values[effect_ambient_dark] == 1 &&
                            !effect_ambient_easing(ambient, 10000);
     EffectAmbient clock_only{}, dark_only{};
     float clock_values[4]{}, appearance_values[4]{};
-    effect_ambient_sample(&clock_only, effect_use_clock, sources, 10000, true, clock_values);
-    effect_ambient_sample(&dark_only, effect_use_appearance, sources, 10000, true, appearance_values);
+    effect_ambient_sample(&clock_only, effect_use_clock, sources, 10000, true, false, clock_values);
+    effect_ambient_sample(&dark_only, effect_use_appearance, sources, 10000, true, false, appearance_values);
     check(simulated && clock_values[effect_ambient_dark] == 0 && clock_values[effect_ambient_day] > 0 &&
               appearance_values[effect_ambient_dark] == 1 && appearance_values[effect_ambient_day] == 0 &&
               appearance_values[effect_ambient_year] == 0 && appearance_values[effect_ambient_month] == 0,
@@ -460,47 +460,133 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     // Windows turns light under a light theme: the appearance eases from dark to light over 1.5 s on a smoothstep,
     // asks for frames while it moves, and stops asking once it is there.
     sources.system_dark = false;
-    effect_ambient_sample(&ambient, kBoth, sources, 20000, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 20000, true, false, values);
     bool easing = values[effect_ambient_dark] == 1 && effect_ambient_easing(ambient, 20000);
-    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs / 2, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs / 2, true, false, values);
     easing = easing && close_to(values[effect_ambient_dark], .5f) &&
              effect_ambient_easing(ambient, 20000 + kEffectAmbientEaseMs / 2);
-    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs, true, false, values);
     easing = easing && values[effect_ambient_dark] == 0 && !effect_ambient_easing(ambient, 20000 + kEffectAmbientEaseMs);
     u32 settled_frames = 0;
     for (u64 at = 21600; at < 30000; at += 42) {
-        effect_ambient_sample(&ambient, kBoth, sources, at, true, values);
+        effect_ambient_sample(&ambient, kBoth, sources, at, true, false, values);
         settled_frames += effect_ambient_easing(ambient, at) ? 1u : 0u;
     }
     check(easing && settled_frames == 0 && values[effect_ambient_dark] == 0,
           "effect inputs: an OS theme change eases the appearance to its target and asks for frames only meanwhile");
     // Reversed halfway, it turns back from where it is; where it cannot move (unfocused, reduced motion) it settles.
     sources.system_dark = true;
-    effect_ambient_sample(&ambient, kBoth, sources, 40000, true, values);
-    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 40000, true, false, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, false, values);
     sources.system_dark = false;
-    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, false, values);
     const bool reversed = close_to(values[effect_ambient_dark], .5f) && effect_ambient_easing(ambient, 40750);
     sources.theme_dark = true;
-    effect_ambient_sample(&ambient, kBoth, sources, 40800, false, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 40800, false, false, values);
     check(reversed && values[effect_ambient_dark] == 1 && !effect_ambient_easing(ambient, 40800),
           "effect inputs: a reversal eases back from the current value; without motion a change is instant");
     // The clock: a minute follows at once; a jump across midnight eases the short way round, through 00:00.
     sources = {{2026, 3, 10, 23, 0}, false, false};
     EffectAmbient clock_ambient{};
-    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50000, true, values);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50000, true, false, values);
     sources.local.minute = 1;
-    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50100, true, values);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50100, true, false, values);
     const bool minute = close_to(values[effect_ambient_day], 1381.f / 1440) && !effect_ambient_easing(clock_ambient, 50100);
     sources.local = {2026, 3, 11, 1, 1};
-    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000, true, values);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000, true, false, values);
     const bool jump_starts =
         close_to(values[effect_ambient_day], 1381.f / 1440) && effect_ambient_easing(clock_ambient, 60000);
-    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs / 2, true, values);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs / 2, true, false, values);
     const float midway = values[effect_ambient_day];
-    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs, true, values);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs, true, false, values);
     check(minute && jump_starts && (midway < .002f || midway > .998f) && close_to(values[effect_ambient_day], 61.f / 1440) &&
               values[effect_ambient_month] == 3 && !effect_ambient_easing(clock_ambient, 60000 + kEffectAmbientEaseMs),
           "effect inputs: the clock follows its minutes and eases a jump the short way round midnight");
+
+    // ---- Light themes (the host's light adaptation) ----
+    const auto near = [](float a, float b) noexcept { return a - b < 1e-3f && b - a < 1e-3f; };
+    // The choice: a package's own Auto or Off wins over the global row, which applies by default.
+    EffectShaderSettings light_choice = effect_shader_defaults(0x77);
+    light_choice.light = 3;
+    const bool refused_choice = !effect_shader_settings_valid(light_choice);
+    light_choice.light = 2;
+    check(effect_light_auto(0, true) && !effect_light_auto(0, false) && effect_light_auto(1, false) &&
+              !effect_light_auto(2, true) && refused_choice && effect_shader_settings_valid(light_choice) &&
+              effect_shader_defaults(1).light == 0,
+          "light themes: a package's own Auto or Off wins over the global row, which applies by default");
+    // The amount: 1 on a light appearance for an adapted package that does not declare appearance; 0 for one that
+    // declares it (it handles the light theme itself), for one turned Off and on a dark appearance.
+    const EffectAmbientSources light_sources{{2026, 1, 15, 12, 0}, false, false};
+    const EffectAmbientSources dark_sources{{2026, 1, 15, 12, 0}, false, true};
+    const auto settled = [](u32 uses, const EffectAmbientSources& from, bool adapt) noexcept {
+        EffectAmbient fresh{};
+        float out[4]{};
+        return effect_ambient_sample(&fresh, uses, from, 1000, true, adapt, out);
+    };
+    check(settled(0, light_sources, true) == 1 && settled(effect_use_clock, light_sources, true) == 1 &&
+              settled(effect_use_appearance, light_sources, true) == 0 && settled(kBoth, light_sources, true) == 0 &&
+              settled(0, light_sources, false) == 0 && settled(0, dark_sources, true) == 0,
+          "light themes: only an adapted package that does not declare appearance is transformed, on a light appearance");
+    // The cross-fade follows the eased appearance: a switch to light glides 0 -> 1 on its smoothstep and asks for
+    // frames meanwhile; turning Off glides back; without motion a change is instant.
+    EffectAmbient fade{};
+    float fade_values[4]{};
+    const float before_switch = effect_ambient_sample(&fade, 0, dark_sources, 70000, true, true, fade_values);
+    const float at_switch = effect_ambient_sample(&fade, 0, light_sources, 70000, true, true, fade_values);
+    const float halfway = effect_ambient_sample(&fade, 0, light_sources, 70000 + kEffectAmbientEaseMs / 2, true, true, fade_values);
+    const bool fading = effect_ambient_easing(fade, 70000 + kEffectAmbientEaseMs / 2);
+    const float arrived = effect_ambient_sample(&fade, 0, light_sources, 70000 + kEffectAmbientEaseMs, true, true, fade_values);
+    const bool arrived_settled = !effect_ambient_easing(fade, 70000 + kEffectAmbientEaseMs);
+    effect_ambient_sample(&fade, 0, light_sources, 80000, true, false, fade_values);
+    const float off_halfway = effect_ambient_sample(&fade, 0, light_sources, 80000 + kEffectAmbientEaseMs / 2, true, false, fade_values);
+    const float instant = effect_ambient_sample(&fade, 0, light_sources, 80000 + kEffectAmbientEaseMs / 2, false, true, fade_values);
+    check(before_switch == 0 && at_switch == 0 && near(halfway, .5f) && fading && arrived == 1 && arrived_settled &&
+              near(off_halfway, .5f) && instant == 1 && fade_values[effect_ambient_dark] == 0,
+          "light themes: the transform cross-fades with the eased appearance and leaves mc_ambient undeclared");
+    // The transform. A dark picture drawn normal over a light background comes out light, its chroma (so its hue)
+    // kept; with no amount it is composited as it is.
+    const float paper[3]{.95f, .95f, .96f};
+    const float navy[4]{.06f, .08f, .16f, 1};
+    float plain[3]{}, flipped[3]{};
+    effect_light_composite(navy, paper, EffectBlend::normal, 0, 1, plain);
+    effect_light_composite(navy, paper, EffectBlend::normal, 1, 1, flipped);
+    check(near(plain[0], .06f) && near(plain[1], .08f) && near(plain[2], .16f) && effect_luma(plain) < .1f &&
+              effect_luma(flipped) > .9f && flipped[2] > flipped[1] && flipped[1] > flipped[0] &&
+              near(flipped[2] - flipped[0], .1f) && near(flipped[1] - flipped[0], .02f),
+          "light themes: a dark picture becomes light with its hue and chroma kept");
+    // Screen and add take light from the background: a white star is a black speck, half a star halves the paper,
+    // a blue glow is a blue shade; the layer's opacity fades the shade and the amount cross-fades linearly.
+    const float star[4]{1, 1, 1, 1}, half_star[4]{.5f, .5f, .5f, .5f}, glow[4]{.2f, .3f, .6f, .6f};
+    float speck[3]{}, halved[3]{}, shade[3]{}, hidden[3]{}, dark_mix[3]{}, light_mix[3]{}, mid_mix[3]{};
+    effect_light_composite(star, paper, EffectBlend::add, 1, 1, speck);
+    effect_light_composite(half_star, paper, EffectBlend::add, 1, 1, halved);
+    effect_light_composite(glow, paper, EffectBlend::screen, 1, 1, shade);
+    effect_light_composite(glow, paper, EffectBlend::screen, 1, 0, hidden);
+    effect_light_composite(glow, paper, EffectBlend::screen, 0, 1, dark_mix);
+    effect_light_composite(glow, paper, EffectBlend::screen, 1, 1, light_mix);
+    effect_light_composite(glow, paper, EffectBlend::screen, .5f, 1, mid_mix);
+    bool linear_fade = true;
+    for (u32 c = 0; c < 3; ++c)
+        linear_fade = linear_fade && near(mid_mix[c], (dark_mix[c] + light_mix[c]) * .5f) && near(hidden[c], paper[c]);
+    check(effect_luma(speck) == 0 && near(halved[0], paper[0] * .5f) && near(halved[2], paper[2] * .5f) &&
+              effect_luma(shade) < effect_luma(paper) && shade[2] > shade[1] && shade[1] > shade[0] && linear_fade,
+          "light themes: screen and add shade a light background in the light's own hue, fading with layer and amount");
+    // The palette the effect is given is the theme's dark twin, and flipping the picture back returns the theme's
+    // own colours: the flip is its own inverse.
+    float twin[kBackgroundFxPaletteRoles][4]{}, original[kBackgroundFxPaletteRoles][4]{};
+    effect_palette(kLightTheme, twin);
+    effect_palette(kLightTheme, original);
+    effect_light_palette(twin, 1);
+    const bool dark_twin = effect_luma(twin[0]) < .15f && effect_luma(twin[2]) > .8f;
+    effect_light_palette(twin, 1);
+    bool round_trip = dark_twin;
+    for (u32 role = 0; role < 4; ++role)
+        for (u32 c = 0; c < 4; ++c)
+            round_trip = round_trip && near(twin[role][c], original[role][c]);
+    float unchanged[kBackgroundFxPaletteRoles][4]{};
+    effect_palette(kLightTheme, unchanged);
+    effect_light_palette(unchanged, 0);
+    check(round_trip && bytes_equal(unchanged, original, sizeof(original)),
+          "light themes: the effect draws for the theme's dark twin, and the flip returns the theme's own colours");
 }
 } // namespace maicord

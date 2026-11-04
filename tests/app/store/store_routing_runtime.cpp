@@ -443,7 +443,9 @@ bool knob_pages_preview_live() noexcept {
 
 // A selected package's ambient inputs (interface 2's clock and appearance): they reach the renderer as the host eased
 // them; Windows turning dark under a light theme starts a transition the background clock wakes for; reduced
-// motion settles it at once; and an interface-1 package, without them, never asks for a transition frame.
+// motion settles it at once; and an interface-1 package, without them, never asks for a transition frame. The light
+// adaptation: a package that declares appearance is never transformed; one that does not is, at once on a light
+// appearance, gliding out with the appearance, and the global Off and its own Auto decide.
 bool ambient_inputs_follow_the_system() noexcept {
     const ApplicationWindowState window = g_window_state;
     const ClientTheme theme = g_app.preferences.theme;
@@ -478,7 +480,7 @@ bool ambient_inputs_follow_the_system() noexcept {
     };
     const bool clock = selected && (at(first) || at(second)) && ambient[effect_ambient_year] >= 0 &&
                        ambient[effect_ambient_year] < 1 && ambient[effect_ambient_dark] == 0 &&
-                       !application_effects_transition_wake();
+                       g_app.renderer.effect.light == 0 && !application_effects_transition_wake();
     // Windows turns dark (WM_SETTINGCHANGE "ImmersiveColorSet"): dark wins, and the appearance starts gliding.
     g_app.frame_pending = false;
     application_effects_set_system_dark(true);
@@ -489,9 +491,30 @@ bool ambient_inputs_follow_the_system() noexcept {
     g_app.renderer.reduced_motion = true;
     const bool instant = transition && frame() && ambient[effect_ambient_dark] == 1 && !application_effects_transition_wake();
     g_app.renderer.reduced_motion = false;
-    // An interface-1 package: no ambient input, no transition, whatever Windows does.
+    // An interface-1 package: no ambient input and no transition when selected; on the light theme it is adapted.
     application_effects_set_system_dark(false);
-    const bool old = instant && application_effects_select(delta) && frame() && !application_effects_transition_wake();
+    const float& light = g_app.renderer.effect.light;
+    const u64 delta_id = application_effects_identity(delta);
+    const bool old = instant && application_effects_select(delta) && frame() && !application_effects_transition_wake() &&
+                     light == 1 && ambient[effect_ambient_dark] == 0;
+    // Windows turns dark: the adaptation glides out with the eased appearance (from where it is), waking frames.
+    application_effects_set_system_dark(true);
+    const bool glides = old && frame() && light > 0 && application_effects_transition_wake() != 0;
+    // Light again with reduced motion, then the global row Off: drawn as it is, at once; the effect's own Auto wins.
+    g_app.renderer.reduced_motion = true;
+    application_effects_set_system_dark(false);
+    const bool back = glides && frame() && light == 1;
+    const bool global_off = back && application_effects_set_light_auto(false) && !application_effects_light_auto() &&
+                            frame() && light == 0;
+    EffectShaderSettings own = application_effects_shader_settings(delta_id);
+    own.light = 1;
+    const bool own_auto = global_off && application_effects_set_shader_settings(own) && frame() && light == 1;
+    own.light = 2;
+    const bool own_off = own_auto && application_effects_set_light_auto(true) && application_effects_set_shader_settings(own) &&
+                         frame() && light == 0;
+    own.light = 0;
+    application_effects_set_shader_settings(own);
+    g_app.renderer.reduced_motion = false;
     application_effects_set_system_dark(application_effects_read_system_dark());
     application_effects_select_none();
     application_effects_remove("gamma", 5);
@@ -506,7 +529,7 @@ bool ambient_inputs_follow_the_system() noexcept {
     g_app.surface_motion.system_preference_cached = cached;
     g_app.surface_motion.client_area_animation = animation;
     g_window_state = window;
-    return old && application_effects_count() == before && !g_app.renderer.effect.selected;
+    return own_off && application_effects_count() == before && !g_app.renderer.effect.selected;
 }
 
 } // namespace store_routing_runtime
