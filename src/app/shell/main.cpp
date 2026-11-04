@@ -539,6 +539,7 @@ int application_run() noexcept {
         if (quit)
             break;
         MAICORD_PERF_MARK("loop_dispatch");
+        application_theme_schedule_tick(clock_monotonic_milliseconds());
         if (!application_synchronize_theme_consumers()) {
             log_write(LogLevel::error, "theme", "theme_layout_refresh_failed");
             exit_code = 6;

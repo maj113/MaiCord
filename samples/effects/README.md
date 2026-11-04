@@ -142,6 +142,15 @@ under a dark theme would break its contrast, while a light theme's plates keep t
 So switching Windows to dark turns a light-themed MaiCord's effect to night, and switching MaiCord to Light turns it
 to day while Windows is light. `mc.dark` stays what it was: the theme alone, 0 or 1, no gliding.
 
+A theme that changes with the time of day (its `variants`) decides alone: it turns light by day and dark at night,
+and the appearance follows its base whatever Windows says, so an effect shows its day under the light phases. The
+base changes with the theme's own 1.5 s glide, beside this one.
+
+An effect that declares `appearance` has a light day picture of its own, so it should never draw that picture under
+a dark appearance's text unless the user chose so: by default, show the night whenever `mc_ambient.dark` is 1 (Silk
+Waves does when it follows the clock, `day-night` with its default "Clock or appearance"), and leave a clock-only or
+always-day look to an explicit choice labelled for light themes.
+
 **Gliding.** MaiCord eases each value toward its source over 1.5 s on a smoothstep, so a shader blends with the
 value directly. A change of appearance glides, and so does a jump of the clock (waking from sleep, a new time zone,
 a simulated time); the clock moving on its own minute by minute is followed as it is, and the time of day wraps at
@@ -167,8 +176,8 @@ clouds, and a knob to follow the clock, the appearance, or either.
 an input that MaiCord doesn't have) instead of drawing it with the inputs missing, so the effect doesn't appear in its
 library. The catalog's index lists only the interface-1 inputs of an effect, as an older index reader refuses any
 other name; `clock` and `appearance` live in the package's manifest. The catalog lists such an effect, with its
-`"interface"`, only in `index-full.json`, which MaiCord 0.6.3 and later read (they show an effect above their own
-interface as needing a newer MaiCord); `index.json`, which 0.6.0 to 0.6.2 read, leaves it out.
+`"interface"`, in `index-3.json` (MaiCord 0.6.4 and later) and `index-full.json` (0.6.3), whose readers show an
+effect above their own interface as needing a newer MaiCord; `index.json`, which 0.6.0 to 0.6.2 read, leaves it out.
 
 **Previewing.** `maicord-plugin effect preview` can stand in for both inputs while you work, for every effect, in
 Developer Mode:

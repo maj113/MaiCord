@@ -121,7 +121,16 @@ choose *Restart to update*, so the folder must stay writable.
 
 **Themes** are JSON files (up to 64 KiB). A theme starts from the Dark, Light or AMOLED base and can override any
 design token; an optional `background` member can name an installed effect and its knob values. See
-[`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json).
+[`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json). A theme can change with the
+time of day: `variants` holds up to four phases (`night`, `dawn`, `day`, `dusk`), each with a `base`, core `colors`
+and an optional `months` list of twelve colour sets (each turning toward the next month's from the 5th to the 30th,
+as the Silk Waves sky does). MaiCord holds each phase around its hours (night 23–01, dawn 05–07, day 11–13, dusk
+17–19, the Silk Waves schedule), mixes the colours across the hours between, shows the nearer phase whole where the
+base changes (gliding there, at once with reduced motion), and lets the theme alone decide an
+effect's day and night. A phase starts from its base's built-in colours, so it is light or dark on its own (the
+root's `semantic` overrides don't apply to it; its colours may name the root's `palette`); the root's typography,
+metrics, scale, motion, components and background apply to every phase. MaiCord before 0.6.4 skips `variants` as an
+unknown member and shows the root look.
 
 **Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
 pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a

@@ -18,8 +18,14 @@ struct ThemePublication {
     }
     BackgroundTheme previous_gradient{};
     UiResolvedThemeStyles* styles{};
+    // A custom theme with variants follows the clock (client_theme_document_at): it is published again at each
+    // minute (schedule_next_ms). A change of base or a jump of the clock or the date glides from the look that showed
+    // (ease_from_bytes, from ease_start_ms) over the effects' appearance glide, unless motion is reduced.
+    alignas(Theme) u8 ease_from_bytes[sizeof(Theme)];
+    u64 ease_start_ms{}, schedule_next_ms{};
+    u32 schedule_sample{}; // the last publication's minute, day and month as one count (months of 32 days)
     ClientTheme previous_kind{};
-    bool ready{}, custom{}, publishing{};
+    bool ready{}, custom{}, publishing{}, scheduled{};
 };
 extern ThemePublication theme_publication;
 

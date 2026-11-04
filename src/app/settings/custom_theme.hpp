@@ -22,6 +22,10 @@ struct ApplicationCustomThemeView {
 // Root resolves all renderer/style consumers before accepting a publication.
 // A null document requests the current built-in preference projection.
 bool application_custom_theme_publish(const ClientThemeDocument*) noexcept;
+// A published theme with variants follows the clock (theme_publication.cpp): when it is published again next (0 when
+// none is published), and that publication once it is due. The loop runs the tick before theme consumers synchronize.
+u64 application_theme_schedule_wake() noexcept;
+void application_theme_schedule_tick(u64 now_ms) noexcept;
 bool application_custom_theme_initialize() noexcept;
 HANDLE application_custom_theme_notification() noexcept;
 void application_custom_theme_poll() noexcept;

@@ -3,8 +3,8 @@
 // from either; the host eases both, so a theme switch glides instead of cutting. Summer days run a deeper blue
 // than winter ones (mc_ambient.year), stars twinkle at night and pale clouds drift by day.
 //
-// @effect   name="Day and night" authors="MaiCord" license="MPL-2.0" version="1.0.1"
-// @knob follow  choice "Clock|Appearance|Clock or appearance" = 2 "Night follows"
+// @effect   name="Day and night" authors="MaiCord" license="MPL-2.0" version="1.0.2"
+// @knob follow  choice "Clock (light themes)|Appearance|Clock or appearance" = 2 "Night follows"
 // @knob sunrise float 4..10  = 6.5 "Sunrise (hour)"
 // @knob sunset  float 15..22 = 19  "Sunset (hour)"
 // @knob stars   float 0..1   = 0.6 "Stars"

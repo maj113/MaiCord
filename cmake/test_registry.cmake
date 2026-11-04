@@ -1649,7 +1649,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         "${maicord_vp8_reference_filter_header}" tests/integration/video_frame_reference_probe.cpp
         "${maicord_video_frame_reference_header}" tests/support/media_fixture.cpp
         tests/support/media_fixture_encoders.cpp src/core/log.cpp
-    LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
+    LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_packages maicord_client_preferences
         maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media
         kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp dwrite dwmapi
@@ -1797,6 +1797,8 @@ endforeach()
 # Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
+# With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
+# MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day.
 maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
     RESOURCE_LOCK native_gpu)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built

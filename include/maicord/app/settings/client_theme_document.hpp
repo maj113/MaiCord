@@ -53,6 +53,32 @@ struct ClientThemeEffect {
     u8 blend;                    // EffectBlend
     ClientThemeEffectKnob knobs[kClientThemeEffectKnobMaximum];
 };
+// A theme that changes with the time of day: "variants": {"night"|"dawn"|"day"|"dusk": {"base": ..., "colors": {...},
+// "months": [12 objects of colours]}}. A phase starts from its base's built-in colours (the root's base when it
+// names none), then its own core colours, then the current month's; the semantic tier derives from them. A phase
+// the document leaves out is the root look. Older clients count the member as unsupported and show the root look.
+inline constexpr u32 kClientThemePhaseCount = 4, kClientThemeColorSets = 13;
+// Catalog interface: 1 a plain theme, 2 one with variants.
+inline constexpr u32 kClientThemeInterfaceMaximum = 2;
+enum ClientThemePhase : u8 { theme_phase_night, theme_phase_dawn, theme_phase_day, theme_phase_dusk };
+struct ClientThemeVariants {
+    // [phase][0] the phase's core colours, [phase][month] that month's; packed RGBA, 0 inherits.
+    u32 colors[kClientThemePhaseCount][kClientThemeColorSets][static_cast<u32>(UiThemeColor::count)];
+    u8 bases[kClientThemePhaseCount]; // ClientThemeBase + 1; 0: the phase is absent
+};
+// Silk Waves' day: each phase is held around its keyframe (night 23-01, dawn 05-07, day 11-13, dusk 17-19) and the
+// next one takes over on a smoothstep across the four hours between. `amount` is the share of `to`.
+struct ClientThemePhaseMix {
+    u32 from, to;
+    float amount;
+};
+constexpr ClientThemePhaseMix client_theme_phase_at(u32 minute_of_day) noexcept {
+    const i32 minute = static_cast<i32>(minute_of_day % 1440u), shifted = minute >= 23 * 60 ? minute - 1440 : minute;
+    const u32 phase = static_cast<u32>(shifted + 60) / 360u;
+    float x = static_cast<float>(shifted - static_cast<i32>(phase * 360u + 60u)) / 240.f;
+    x = x < 0 ? 0.f : x > 1 ? 1.f : x;
+    return {phase, (phase + 1u) & 3u, x * x * (3 - 2 * x)};
+}
 struct ClientThemeDocument {
     Theme theme{};
     UiThemeTypography typography{};
@@ -64,7 +90,12 @@ struct ClientThemeDocument {
     UiThemeIcons icons{};
     UiThemeSettings settings{};
     ClientThemeEffect effect{};
+    ClientThemeVariants variants{};
 };
+inline bool client_theme_document_scheduled(const ClientThemeDocument& document) noexcept {
+    return (document.variants.bases[0] | document.variants.bases[1] | document.variants.bases[2] |
+            document.variants.bases[3]) != 0;
+}
 struct ClientThemeDocumentResult {
     ClientThemeDocumentError error{};
     u32 error_offset{}, unsupported_fields{};
@@ -88,4 +119,11 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View, const ClientThem
 // is a supported size query, updating bytes only on success.
 ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&, const Slice<char>& output,
                                                       u32* bytes) noexcept;
+// The look on a day (1..31) of a month (1..12) at a minute of the day (0..1439): the two phases around the minute
+// mixed (client_theme_mix), or across a change of base the nearer one whole; from the 5th to the 30th each phase
+// turns toward the next month's colours on a smoothstep, as Silk Waves' sky does. Only colours vary; everything else
+// is the root's.
+Theme client_theme_document_at(const ClientThemeDocument&, u32 minute_of_day, u32 month, u32 day) noexcept;
+// Every colour of *to (core and semantic) moved from `from` by 1 - amount: amount 0 is `from`, 1 is *to.
+void client_theme_mix(Theme* to, const Theme& from, float amount) noexcept;
 } // namespace maicord

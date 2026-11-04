@@ -603,6 +603,9 @@ bool application_composer_status_notice_is_error() noexcept {
 u64 application_text_form_next_wake() noexcept {
     return form_wake;
 }
+u64 application_theme_schedule_wake() noexcept {
+    return 0;
+}
 u64 application_login_auth_deadline() noexcept {
     return 0;
 }

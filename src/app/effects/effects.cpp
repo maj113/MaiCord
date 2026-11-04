@@ -1,5 +1,6 @@
 #include "effects.hpp"
 #include "../settings/custom_theme.hpp"
+#include "../settings/theme_publication.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/background.hpp"
 #include "../shell/state.hpp"
@@ -715,6 +716,7 @@ void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
         }
         sources.theme_dark = application_theme().appearance != ThemeAppearance::light;
         sources.system_dark = in.system_dark;
+        sources.theme_scheduled = theme_publication.scheduled;
         if (g_app.preferences.developer_mode && in.simulation.appearance)
             sources.theme_dark = sources.system_dark = in.simulation.dark;
     }
@@ -1045,6 +1047,12 @@ u32 application_effects_interval_ms() noexcept {
 
 u64 application_effects_transition_wake() noexcept {
     return g.selected && g.inputs.next_frame_ms && transition_allowed() ? g.inputs.next_frame_ms : 0;
+}
+
+EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcept {
+    const EffectLocalTime local = local_time(now_ms);
+    *next_ms = g.inputs.clock_next_ms;
+    return local;
 }
 
 bool application_effects_read_system_dark() noexcept {

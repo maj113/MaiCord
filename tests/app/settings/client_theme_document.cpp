@@ -1,5 +1,7 @@
 #include "maicord/app/settings/client_theme_document.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/render/effects/background_effect.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/theme/presets.hpp"
 
 namespace maicord {
@@ -15,6 +17,183 @@ bool refused(Utf8View input, const ClientThemeDocument& defaults) noexcept {
     const auto before = output;
     const auto result = parse(input, defaults, &output);
     return !result.ok() && bytes_equal(&output, &before, sizeof(output));
+}
+bool same_color(const Color& a, u32 rgb) noexcept {
+    const Color b = color_from_rgb24(rgb);
+    const auto near = [](float x, float y) noexcept { return x - y < .002f && y - x < .002f; };
+    return near(a.red, b.red) && near(a.green, b.green) && near(a.blue, b.blue);
+}
+bool contains(const char* text, u32 bytes, Utf8View needle) noexcept {
+    for (u32 i = 0; i + needle.bytes <= bytes; ++i)
+        if (bytes_equal(text + i, needle.data, needle.bytes))
+            return true;
+    return false;
+}
+// A theme that changes with the time of day (ClientThemeVariants): the phase schedule, the document's variants, the
+// look at a time and month, and the effects' appearance following its base.
+void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, const char*) noexcept) noexcept {
+    const auto at = [](u32 hour, u32 minute = 0) noexcept { return client_theme_phase_at(hour * 60 + minute); };
+    const auto is = [](ClientThemePhaseMix mix, u32 from, u32 to, float amount) noexcept {
+        return mix.from == from && mix.to == to && mix.amount - amount < 1e-5f && amount - mix.amount < 1e-5f;
+    };
+    check(is(at(0), theme_phase_night, theme_phase_dawn, 0) && is(at(23, 30), theme_phase_night, theme_phase_dawn, 0) &&
+              is(at(1), theme_phase_night, theme_phase_dawn, 0) && is(at(3), theme_phase_night, theme_phase_dawn, .5f) &&
+              is(at(6), theme_phase_dawn, theme_phase_day, 0) && is(at(8), theme_phase_dawn, theme_phase_day, .15625f) &&
+              is(at(9), theme_phase_dawn, theme_phase_day, .5f) && is(at(12), theme_phase_day, theme_phase_dusk, 0) &&
+              is(at(15), theme_phase_day, theme_phase_dusk, .5f) && is(at(18), theme_phase_dusk, theme_phase_night, 0) &&
+              is(at(21), theme_phase_dusk, theme_phase_night, .5f) && at(22, 59).amount > .99f &&
+              is(client_theme_phase_at(1440 + 180), theme_phase_night, theme_phase_dawn, .5f),
+          "theme variants: phases hold around 00, 06, 12 and 18 and blend on a smoothstep, halfway at 03, 09, 15 and 21");
+    // Night and day; dawn and dusk are the root look. March gives the night its own accent.
+    const auto source = utf8_literal(
+        "{\"version\":\"2.0\",\"name\":\"Phases\",\"base\":\"dark\",\"palette\":{\"sun\":\"#ffcc00\"},"
+        "\"colors\":{\"base_low\":\"#202020\"},\"variants\":{"
+        "\"night\":{\"colors\":{\"base_low\":\"#050608\",\"text_primary\":\"#eeeeee\"},"
+        "\"months\":[{},{},{\"accent\":\"#ff8040\"},{},{},{},{},{},{},{},{},{}]},"
+        "\"day\":{\"base\":\"light\",\"colors\":{\"base_low\":\"#f4f1ea\",\"accent\":\"{palette.sun}\"},\"noon\":1},"
+        "\"noon\":{}}}");
+    ClientThemeDocument document{};
+    const auto read = parse(source, defaults, &document);
+    const auto& v = document.variants;
+    check(read.ok() && read.unsupported_fields == 2 && client_theme_document_scheduled(document) &&
+              v.bases[theme_phase_night] == 1 && v.bases[theme_phase_day] == 2 && !v.bases[theme_phase_dawn] &&
+              !v.bases[theme_phase_dusk] && v.colors[theme_phase_night][0][static_cast<u32>(UiThemeColor::base_low)] == 0x050608ff &&
+              v.colors[theme_phase_night][3][static_cast<u32>(UiThemeColor::accent)] == 0xff8040ff &&
+              v.colors[theme_phase_day][0][static_cast<u32>(UiThemeColor::accent)] == 0xffcc00ff &&
+              document.theme.appearance == ThemeAppearance::dark && same_color(document.theme.base_low, 0x202020),
+          "theme variants: phases read their base (the root's when absent), colours (palette references included) "
+          "and months; unknown phases and members are counted");
+    u32 bytes{};
+    ClientThemeDocument again{};
+    check(client_theme_document_write(document, {exported, sizeof(exported)}, &bytes).ok() &&
+              contains(exported, bytes, utf8_literal(",\"variants\":{\"night\":{\"base\":\"dark\",\"colors\":{")) &&
+              parse({exported, bytes}, defaults, &again).ok() && client_theme_document_equal(document, again),
+          "theme variants: the canonical document carries them and reads back equal");
+    ClientThemeDocument plain{};
+    u32 plain_bytes{};
+    check(parse(utf8_literal("{\"version\":\"2.0\",\"name\":\"Plain\"}"), document, &plain).ok() &&
+              !client_theme_document_scheduled(plain) &&
+              client_theme_document_write(plain, {exported, sizeof(exported)}, &plain_bytes).ok() &&
+              !contains(exported, plain_bytes, utf8_literal("variants")) && exported[plain_bytes - 1] == '}' &&
+              exported[plain_bytes - 2] == '}' && exported[plain_bytes - 3] == '}',
+          "theme variants: a document without them inherits none and writes as it always did");
+    const auto variant = [](const char* phase) noexcept {
+        static char text[256];
+        constexpr auto head = utf8_literal("{\"version\":\"2.0\",\"variants\":{");
+        copy_bytes(text, head.data, head.bytes);
+        const u32 length = c_string_length(phase);
+        copy_bytes(text + head.bytes, phase, length);
+        text[head.bytes + length] = '}';
+        text[head.bytes + length + 1] = '}';
+        return Utf8View{text, head.bytes + length + 2};
+    };
+    check(refused(variant("\"night\":{\"base\":\"sepia\"}"), defaults) &&
+              refused(variant("\"night\":{\"colors\":[]}"), defaults) && refused(variant("\"night\":[]"), defaults) &&
+              refused(variant("\"night\":{\"months\":[{},{}]}"), defaults) &&
+              refused(variant("\"night\":{\"months\":[{},{},{},{},{},{},{},{},{},{},{},{},{}]}"), defaults) &&
+              refused(variant("\"night\":{\"colors\":{\"accent\":\"#12\"}}"), defaults) &&
+              refused(variant("\"night\":{\"colors\":{\"accent\":\"#123\",\"accent\":\"#456\"}}"), defaults) &&
+              refused(variant("\"night\":{},\"night\":{}"), defaults) &&
+              refused(variant("\"night\":{\"colors\":{\"accent\":\"{semantic.text.normal}\"}}"), defaults),
+          "theme variants: bases, types, twelve months, colours, duplicates and core-only references are checked");
+
+    // The look through the day, on 1 March (before the month turns).
+    const auto look = [&](u32 minute, u32 month, u32 day = 1) noexcept { return client_theme_document_at(document, minute, month, day); };
+    const Theme night = look(0, 3), noon = look(12 * 60, 3), april = look(0, 4), three = look(3 * 60, 3);
+    const Theme eight = look(8 * 60, 3), nine = look(9 * 60, 3), dawn = look(6 * 60, 3);
+    check(night.appearance == ThemeAppearance::dark && same_color(night.base_low, 0x050608) &&
+              same_color(night.accent, 0xff8040) && same_color(night.tokens.text.normal, 0xeeeeee) &&
+              same_color(night.tokens.background.primary, 0x050608) && !same_color(april.accent, 0xff8040) &&
+              bytes_equal(&april.accent, &kDefaultTheme.accent, sizeof(Color)) &&
+              noon.appearance == ThemeAppearance::light && same_color(noon.base_low, 0xf4f1ea) &&
+              same_color(noon.accent, 0xffcc00) && bytes_equal(&noon.text_primary, &kLightTheme.text_primary, sizeof(Color)) &&
+              dawn.appearance == ThemeAppearance::dark && same_color(dawn.base_low, 0x202020),
+          "theme variants: each phase is its base's look with its colours and the month's; a phase left out is the root");
+    Theme halfway = dawn;
+    client_theme_mix(&halfway, night, .5f);
+    check(three.appearance == ThemeAppearance::dark &&
+              bytes_equal(&three, &halfway, __builtin_offsetof(Theme, scale)) && three.base_low.red > night.base_low.red &&
+              three.base_low.red < dawn.base_low.red,
+          "theme variants: between phases of one base every colour mixes on the smoothstep");
+    check(eight.appearance == ThemeAppearance::dark && same_color(eight.base_low, 0x202020) &&
+              nine.appearance == ThemeAppearance::light && same_color(nine.base_low, 0xf4f1ea),
+          "theme variants: across a change of base the nearer phase shows whole, never a grey between");
+    // From the 5th to the 30th the month turns toward the next one's colours, as Silk Waves' sky does, so the last
+    // minute of March is April's look and the 1st of April continues from there.
+    Theme turning = april;
+    client_theme_mix(&turning, night, .648f); // the 20th at 00:00: x = 0.6 on the smoothstep
+    const Theme fourth = look(0, 3, 4), twentieth = look(0, 3, 20), last = look(1439, 3, 31), first = look(0, 4, 1);
+    const auto near = [](float a, float b) noexcept { return a - b < 1e-4f && b - a < 1e-4f; };
+    check(bytes_equal(&fourth, &night, __builtin_offsetof(Theme, scale)),
+          "theme variants: a month holds its colours until the 5th");
+    check(near(twentieth.accent.green, turning.accent.green) && near(twentieth.accent.red, turning.accent.red) &&
+              twentieth.accent.green < night.accent.green && twentieth.accent.green > april.accent.green,
+          "theme variants: from the 5th to the 30th a month turns toward the next on a smoothstep");
+    check(same_color(last.base_low, 0x050608) && near(last.accent.red, first.accent.red) &&
+              near(last.accent.green, first.accent.green) && near(last.accent.blue, first.accent.blue),
+          "theme variants: a month meets the next month's colours at its end");
+    // The base flip drives the effects' appearance: it glides from night to day with the theme, whatever Windows
+    // says, and reduced motion settles it at once.
+    EffectAmbient ambient{};
+    float values[4]{};
+    EffectAmbientSources sources{{2026, 3, 1, 8, 0}, eight.appearance == ThemeAppearance::dark, true, true};
+    effect_ambient_sample(&ambient, effect_use_appearance, sources, 1000, true, false, values);
+    const bool before_flip = values[effect_ambient_dark] == 1;
+    sources.theme_dark = nine.appearance == ThemeAppearance::dark;
+    effect_ambient_sample(&ambient, effect_use_appearance, sources, 2000, true, false, values);
+    effect_ambient_sample(&ambient, effect_use_appearance, sources, 2000 + kEffectAmbientEaseMs / 2, true, false, values);
+    const float halfway_dark = values[effect_ambient_dark];
+    effect_ambient_sample(&ambient, effect_use_appearance, sources, 2000 + kEffectAmbientEaseMs, true, false, values);
+    const bool day = values[effect_ambient_dark] == 0;
+    sources.theme_dark = true;
+    effect_ambient_sample(&ambient, effect_use_appearance, sources, 9000, false, false, values);
+    check(before_flip && halfway_dark > .45f && halfway_dark < .55f && day && values[effect_ambient_dark] == 1,
+          "theme variants: the base flip glides the effects' dark from 1 to 0 under a dark Windows; reduced motion snaps");
+}
+// MAICORD_THEME_CHECK_FILE may name a theme with variants (the catalog's Silk Waves theme): it reads with no member
+// skipped, its canonical form (what themes.bin stores) fits and reads back equal, and every quarter hour, blends
+// included, passes MaiCord's contrast warnings, with muted text at 4.5:1 or better on every surface.
+void test_theme_file(void (*check)(bool, const char*) noexcept) noexcept {
+    wchar_t path[600];
+    const DWORD length = GetEnvironmentVariableW(L"MAICORD_THEME_CHECK_FILE", path, 600);
+    if (!length || length >= 600)
+        return;
+    static char text[kClientThemeDocumentMaximumBytes];
+    DWORD bytes = 0;
+    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    const bool read = file != INVALID_HANDLE_VALUE && ReadFile(file, text, sizeof(text), &bytes, nullptr);
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
+    ClientThemeDocument document{}, stored{};
+    const auto result = parse({text, bytes}, client_theme_document_defaults(), &document);
+    u32 canonical = 0;
+    static u32 structurals[kClientThemeDocumentMaximumBytes]; // one per byte, as themes.bin's reader has
+    check(read && result.ok() && !result.unsupported_fields && client_theme_document_scheduled(document) &&
+              client_theme_document_write(document, {exported, sizeof(exported)}, &canonical).ok() &&
+              client_theme_document_parse({exported, canonical}, client_theme_document_defaults(),
+                                          {structurals, kClientThemeDocumentMaximumBytes}, &stored)
+                  .ok() &&
+              client_theme_document_equal(document, stored),
+          "theme file: reads whole, and its canonical form fits and reads back equal");
+    bool ok = result.ok() && client_theme_document_scheduled(document);
+    // Every quarter hour on the 1st, 12th, 20th and 31st: the phases, their mixes and the turn toward next month.
+    constexpr u32 kDays[]{1, 12, 20, 31};
+    u32 looks = 0;
+    for (u32 month = 1; ok && month <= 12; ++month)
+        for (const u32 day : kDays)
+            for (u32 minute = 0; ok && minute < 1440; minute += 15, ++looks) {
+                Theme theme = client_theme_document_at(document, minute, month, day);
+                ui_theme_resolve_emphasis(&theme);
+                const auto& t = theme.tokens;
+                ok = !ui_theme_contrast_warnings(theme, nullptr, 0);
+                const Color* const surfaces[]{&theme.base_lowest, &theme.base_lower, &theme.base_low, &theme.surface,
+                                              &theme.surface_high};
+                for (const Color* surface : surfaces)
+                    ok = ok && ui_theme_contrast_ratio(t.text.normal, *surface) >= 4.5f &&
+                         ui_theme_contrast_ratio(t.text.muted, *surface) >= 4.5f;
+            }
+    check(ok && looks == 12 * 4 * 96, "theme file: every quarter hour on four days of every month passes the contrast "
+                                      "checks, muted text 4.5:1 on every surface");
 }
 } // namespace
 void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexcept {
@@ -278,5 +457,7 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
         parse(utf8_literal("{\"version\":\"2.0\"}"), live_defaults, &output).ok() && !output.theme.styles &&
             !output.theme.style_revision && client_theme_document_equal(output, defaults),
         "theme document: parser strips runtime style references and revision counters from inherited data");
+    test_variants(defaults, check);
+    test_theme_file(check);
 }
 } // namespace maicord

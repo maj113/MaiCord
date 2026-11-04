@@ -193,9 +193,10 @@ constexpr EffectClock effect_clock(const EffectLocalTime& time) noexcept {
 
 // Dark wins: the effect turns dark when MaiCord's theme base is dark (Dark, AMOLED or a dark custom theme) or when
 // Windows' app mode is. The effect sits under the theme's text: a light picture would break a dark theme's
-// contrast, while a light theme's plates are opaque enough to keep its text readable over a night picture.
-constexpr float effect_appearance_dark(bool theme_dark, bool system_dark) noexcept {
-    return theme_dark || system_dark ? 1.f : 0.f;
+// contrast, while a light theme's plates are opaque enough to keep its text readable over a night picture. A theme
+// that changes with the time of day (`theme_scheduled`) decides alone: by day its light base shows the day.
+constexpr float effect_appearance_dark(bool theme_dark, bool system_dark, bool theme_scheduled = false) noexcept {
+    return theme_dark || (system_dark && !theme_scheduled) ? 1.f : 0.f;
 }
 
 // One eased value; a cyclic one (0..1 that wraps, as the clock does) moves the short way round.
@@ -245,10 +246,11 @@ constexpr void effect_ease_toward(EffectEase* ease, float target, u64 now_ms, bo
     *ease = {effect_ease_value(*ease, now_ms, cyclic), target, now_ms, true};
 }
 
-// What the host reads each frame: the local time, MaiCord's theme base and Windows' app mode.
+// What the host reads each frame: the local time, MaiCord's theme base and Windows' app mode, and whether the theme
+// follows the time of day.
 struct EffectAmbientSources {
     EffectLocalTime local;
-    bool theme_dark, system_dark;
+    bool theme_dark, system_dark, theme_scheduled;
 };
 struct EffectAmbient {
     EffectEase day, year, dark;
@@ -277,7 +279,9 @@ constexpr float effect_ambient_sample(EffectAmbient* ambient, u32 uses, const Ef
     }
     const bool appearance = (uses & effect_use_appearance) != 0;
     effect_ease_toward(&ambient->dark,
-                       appearance || adapt ? effect_appearance_dark(sources.theme_dark, sources.system_dark) : 1.f,
+                       appearance || adapt
+                           ? effect_appearance_dark(sources.theme_dark, sources.system_dark, sources.theme_scheduled)
+                           : 1.f,
                        now_ms, ease, false, 0);
     const float dark = effect_ease_value(ambient->dark, now_ms, false);
     if (appearance) {

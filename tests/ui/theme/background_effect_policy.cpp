@@ -436,9 +436,10 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
               close_to(leap.year, 60.f / 366) && leap.month == 3 && last.year > .9999f && last.year < 1 &&
               close_to(last.day, 1439.f / 1440) && no_such_day.day == 0 && no_such_day.year == 0 && no_such_day.month == 1 &&
               effect_appearance_dark(false, false) == 0 && effect_appearance_dark(true, false) == 1 &&
-              effect_appearance_dark(false, true) == 1 && effect_appearance_dark(true, true) == 1,
+              effect_appearance_dark(false, true) == 1 && effect_appearance_dark(true, true) == 1 &&
+              effect_appearance_dark(false, true, true) == 0 && effect_appearance_dark(true, true, true) == 1,
           "effect inputs: the clock reads the local day, year and month in minutes; dark wins between the theme and "
-          "Windows");
+          "Windows unless the theme follows the time of day");
     constexpr u32 kBoth = effect_use_clock | effect_use_appearance;
     EffectAmbientSources sources{{2026, 1, 15, 18, 30}, false, true};
     EffectAmbient ambient{};

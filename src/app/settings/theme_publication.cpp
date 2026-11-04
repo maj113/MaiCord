@@ -1,12 +1,53 @@
 #include "../shell/state.hpp"
+#include "../effects/effects.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/time.hpp"
 #include "custom_theme.hpp"
 #include "theme_publication.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
+namespace {
+// The scheduled look now, on the effects' clock. After a change the clock doesn't make minute by minute (a change of
+// base or month, a jump of the clock) it glides from what showed, as the effects' appearance does beside it.
+Theme scheduled_palette(ThemePublication& p, const ClientThemeDocument& document) noexcept {
+    const u64 now = clock_monotonic_milliseconds();
+    u64 next = 0;
+    const EffectLocalTime local = application_effects_local_time(now, &next);
+    const u32 minute = local.hour * 60u + local.minute, sample = minute + 1440u * (local.day + 32u * local.month);
+    Theme target = client_theme_document_at(document, minute, local.month, local.day);
+    const bool reduced = g_app.preferences.reduced_motion || g_app.renderer.reduced_motion;
+    if (p.scheduled && p.ready && !reduced &&
+        (sample - p.schedule_sample > 2u || p.theme().appearance != target.appearance)) {
+        ::new (static_cast<void*>(p.ease_from_bytes)) Theme(p.theme());
+        p.ease_start_ms = now;
+    }
+    p.schedule_sample = sample;
+    p.schedule_next_ms = next;
+    const u64 elapsed = now - p.ease_start_ms;
+    if (p.ease_start_ms && !reduced && elapsed < kEffectAmbientEaseMs) {
+        const float t = static_cast<float>(elapsed) / static_cast<float>(kEffectAmbientEaseMs);
+        client_theme_mix(&target, *__builtin_launder(reinterpret_cast<const Theme*>(p.ease_from_bytes)),
+                         t * t * (3 - 2 * t));
+        p.schedule_next_ms = now + 16;
+    } else {
+        p.ease_start_ms = 0;
+    }
+    return target;
+}
+} // namespace
+
+u64 application_theme_schedule_wake() noexcept {
+    return theme_publication.scheduled ? theme_publication.schedule_next_ms : 0;
+}
+void application_theme_schedule_tick(u64 now_ms) noexcept {
+    auto& p = theme_publication;
+    const auto* document = application_custom_theme_document();
+    if (p.scheduled && now_ms >= p.schedule_next_ms && document && !application_custom_theme_publish(document))
+        p.schedule_next_ms = now_ms + 1000; // a refused publication tries again in a second, not in a spin
+}
 
 bool application_custom_theme_publish(const ClientThemeDocument* document) noexcept {
     auto& publication = theme_publication;
@@ -21,7 +62,9 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
         }
     } end{publication.publishing};
 
-    Theme palette = document ? document->theme : client_theme_projection(g_app.preferences);
+    Theme palette = !document ? client_theme_projection(g_app.preferences)
+                    : client_theme_document_scheduled(*document) ? scheduled_palette(publication, *document)
+                                                                 : document->theme;
     // Gradient-derived accent tokens live only on the published copy.
     ui_theme_resolve_emphasis(&palette);
     // Imported serialized documents cannot transfer any runtime style pointer.
@@ -95,6 +138,7 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     publication.set_theme(palette);
     publication.ready = true;
     publication.custom = document != nullptr;
+    publication.scheduled = document && client_theme_document_scheduled(*document);
     remember_preferences(publication, g_app.preferences);
     if (geometry_changed) {
         if (!g_app.channel_pane_width || g_app.channel_pane_width == previous_sidebar_width)

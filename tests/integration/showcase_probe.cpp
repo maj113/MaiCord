@@ -16,6 +16,9 @@
 #include "../../src/render/d3d11/renderer_caption.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 #include "maicord/app/settings/client_theme.hpp"
+#include "maicord/app/settings/client_theme_document.hpp"
+#include "maicord/app/packages/mcfx.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/media/core/asset.hpp"
@@ -1486,6 +1489,106 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
     }
 }
 
+// MAICORD_SHOWCASE_THEME names a theme that changes with the time of day (the catalog's Silk Waves theme) and
+// MAICORD_SHOWCASE_EFFECT, optionally, the .mcfx it asks for: then the probe takes only the main window at 03:00,
+// 08:00, 12:00, 18:00 and 21:00 in April and October (showcase-day-MM-HH.bmp), with the theme's look and the
+// effect's mc_ambient as MaiCord sets them at that moment.
+u8* read_whole(const wchar_t* variable, u32 maximum, u32* bytes) noexcept {
+    wchar_t path[600];
+    const DWORD length = GetEnvironmentVariableW(variable, path, 600);
+    if (!length || length >= 600)
+        return nullptr;
+    auto* data = static_cast<u8*>(VirtualAlloc(nullptr, maximum, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    DWORD read = 0;
+    const bool ok = data && file != INVALID_HANDLE_VALUE && ReadFile(file, data, maximum, &read, nullptr) && read;
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
+    if (!ok && data)
+        VirtualFree(data, 0, MEM_RELEASE);
+    *bytes = read;
+    return ok ? data : nullptr;
+}
+u32 g_theme_scratch[kClientThemeDocumentMaximumBytes / 2];
+ClientThemeDocument g_day_theme;
+McfxWorkspace g_effect_workspace;
+bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
+    u32 bytes = 0;
+    u8* text = read_whole(L"MAICORD_SHOWCASE_THEME", kClientThemeDocumentMaximumBytes, &bytes);
+    *taken = text != nullptr;
+    if (!text)
+        return true;
+    const bool parsed = client_theme_document_parse({reinterpret_cast<const char*>(text), bytes},
+                                                    client_theme_document_defaults(),
+                                                    {g_theme_scratch, kClientThemeDocumentMaximumBytes / 2},
+                                                    &g_day_theme)
+                            .ok() &&
+                        client_theme_document_scheduled(g_day_theme);
+    VirtualFree(text, 0, MEM_RELEASE);
+    if (!check(parsed, "day_theme_parse_failed"))
+        return false;
+    u32 package_bytes = 0;
+    u8* package = read_whole(L"MAICORD_SHOWCASE_EFFECT", 2u << 20, &package_bytes);
+    const McfxPackage& effect = g_effect_workspace.package;
+    BackgroundEffectSpec spec{};
+    if (package) {
+        if (!check(mcfx_parse({package, package_bytes}, &g_effect_workspace).ok(), "day_effect_parse_failed"))
+            return false;
+        McfxKnobValue values[kMcfxKnobMaximum];
+        mcfx_knob_defaults(effect, values);
+        mcfx_knob_pack(effect, values, spec.knobs);
+        spec.bytecode = effect.shaders[0];
+        spec.identity = hash64_bytes(kHash64Seed, package, package_bytes) | 1;
+        spec.uses = effect.uses;
+        spec.blend = effect.blend;
+        if (effect.graph.pass_count) {
+            spec.graph = &effect.graph;
+            spec.shaders = effect.shaders;
+        }
+    }
+    constexpr u32 kMonths[]{4, 10}, kHours[]{3, 8, 12, 18, 21};
+    for (const u32 month : kMonths)
+        for (const u32 hour : kHours) {
+            f.theme = client_theme_document_at(g_day_theme, hour * 60, month, 3);
+            ui_theme_resolve_emphasis(&f.theme);
+            float phase = 6.f;
+            if (package) {
+                // A fresh selection each time, so the cloth starts over, then two seconds of it at 30 fps.
+                renderer_clear_effect(&r);
+                if (!check(renderer_select_effect(&r, spec, {1.f, 1.f, spec.blend, 4, 2, EffectBudget::high, false})
+                                   .state != EffectSelect::rejected &&
+                               r.effect.selected,
+                           "day_effect_select_failed"))
+                    return false;
+                r.effect.step = r.effect.budget.step = r.effect.budget.ceiling = 4;
+                r.effect.budget.warmup = 0x7fffffff;
+                EffectAmbient ambient{};
+                float inputs[4];
+                // The 3rd: Silk Waves turns toward the next month's colours from the 5th.
+                const EffectAmbientSources sources{{2026, static_cast<u16>(month), 3, static_cast<u16>(hour), 0},
+                                                   f.theme.appearance != ThemeAppearance::light, false, true};
+                renderer_set_effect_light(&r, effect_ambient_sample(&ambient, effect.uses, sources, 1000, false, false,
+                                                                    inputs));
+                renderer_set_effect_ambient(&r, inputs);
+            }
+            if (!project(f, r))
+                return false;
+            for (u32 step = 0; package && step < 60; ++step, phase += 1.f / 30)
+                if (!check(renderer_set_background_phase(&r, phase) &&
+                               d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000),
+                           "day_effect_frame_failed"))
+                    return false;
+            wchar_t name[40] = L"showcase-day-MM-HH.bmp";
+            name[13] = static_cast<wchar_t>(L'0' + month / 10);
+            name[14] = static_cast<wchar_t>(L'0' + month % 10);
+            name[16] = static_cast<wchar_t>(L'0' + hour / 10);
+            name[17] = static_cast<wchar_t>(L'0' + hour % 10);
+            shot(f, r, name, phase);
+        }
+    if (package)
+        VirtualFree(package, 0, MEM_RELEASE);
+    return g_failures == 0;
+}
 bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) noexcept {
     f.theme = kDefaultTheme;
     // Atlases that hold every image at both scales; nothing is uploaded yet.
@@ -1560,6 +1663,9 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
     Fixture& f = fixture;
     if (!r.message_text || !r.message_measure_cache || !setup(f, r, presentation))
         return false;
+    bool day_only = false;
+    if (!theme_day(f, r, &day_only) || day_only)
+        return g_failures == 0;
     constexpr u32 kDpis[]{96, 192};
     for (u32 dpi : kDpis) {
         const bool two = dpi == 192;

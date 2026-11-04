@@ -8,7 +8,9 @@
 //  "motion":     {"fast": 120 | {"duration_ms": 120, "curve": "ease_out"}}
 //  "components": {"icons": {"muted": colour, "weight": 1.25},
 //                 "settings": {"focus_ring": colour, "modal_radius": 12, ...}}
-//  "background": {...}, "typography": {...}, "metrics": {...}}
+//  "background": {...}, "typography": {...}, "metrics": {...},
+//  "variants":   {"night"|"dawn"|"day"|"dusk": {"base": ..., "colors": {...}, "months": [12 x {...}]}}}
+//                core colours through the day; see ClientThemeVariants
 //
 // Colours are [r, g, b, a] arrays in 0..1, "#rgb", "#rgba", "#rrggbb" or
 // "#rrggbbaa", or references "{palette.x}", "{colors.accent}" or
@@ -195,6 +197,7 @@ enum Section : u32 {
     scale_section,
     motion_section,
     components_section,
+    variants_section,
     section_count
 };
 // Component colours are stored resolved (packed RGBA), so they are read after
@@ -271,6 +274,12 @@ bool components_valid(const UiThemeIcons& icons, const UiThemeSettings& settings
     const u16* sizes = settings_sizes(settings);
     for (u32 i = 0; i < kSettingsSizeCount; ++i)
         if (!settings_size_valid(i, sizes[i]))
+            return false;
+    return true;
+}
+bool variants_valid(const ClientThemeVariants& variants) noexcept {
+    for (const u8 base : variants.bases)
+        if (base > static_cast<u32>(ClientThemeBase::amoled) + 1)
             return false;
     return true;
 }
@@ -920,10 +929,97 @@ bool components_member(void* context, JsonString name, JsonValue value) noexcept
     return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
                                                 id ? settings_member : icon_member, &nested));
 }
+// ---- variants: {"night"|"dawn"|"day"|"dusk": {"base", "colors", "months": [12 objects of colours]}} ----------
+constexpr char kPhases[] = "night\0dawn\0day\0dusk\0";
+static_assert(name_list_count(kPhases) == kClientThemePhaseCount);
+struct VariantVisit {
+    Parse* parse;
+    u32 phase;
+    u64 seen;
+    u32* colors;
+};
+bool variant_color_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& visit = *static_cast<VariantVisit*>(context);
+    auto& parse = *visit.parse;
+    const auto tokens = ui_theme_color_descriptors();
+    for (u32 i = 0; i < tokens.count; ++i) {
+        if (!json_string_equals_ascii(name, tokens[i].name()))
+            continue;
+        UiThemeTokenSource source{};
+        const u32 id = static_cast<u32>(tokens[i].id);
+        if (!duplicate(parse, visit.seen, id, name.source_offset) ||
+            !color_value(parse, value, Reference::palette_only, &source))
+            return false;
+        visit.colors[id] = pack(source.literal);
+        return true;
+    }
+    ++parse.unsupported;
+    return true;
+}
+// One set of core colours: the phase's own (set 0) or a month's (1..12).
+bool variant_colors(Parse& parse, u32 phase, u32 set, JsonValue value) noexcept {
+    if (value.kind != JsonValueKind::object)
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    VariantVisit visit{&parse, phase, 0, parse.candidate.variants.colors[phase][set]};
+    return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
+                                                variant_color_member, &visit));
+}
+bool variant_month(void* context, u32 index, JsonValue value) noexcept {
+    auto& months = *static_cast<VariantVisit*>(context);
+    if (index >= kClientThemeColorSets - 1)
+        return months.parse->fail(ClientThemeDocumentError::range, value.source_offset);
+    months.seen = index + 1;
+    return variant_colors(*months.parse, months.phase, index + 1, value);
+}
+bool phase_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& visit = *static_cast<VariantVisit*>(context);
+    auto& parse = *visit.parse;
+    const u32 id = key_index(name, "base\0colors\0months\0");
+    if (id == 3) {
+        ++parse.unsupported;
+        return true;
+    }
+    if (!duplicate(parse, visit.seen, id, name.source_offset))
+        return false;
+    if (!id) {
+        u32 base{};
+        if (!enum_value(parse, value, kBases, 3, &base))
+            return false;
+        parse.candidate.variants.bases[visit.phase] = static_cast<u8>(base + 1);
+        return true;
+    }
+    if (id == 1)
+        return variant_colors(parse, visit.phase, 0, value);
+    if (value.kind != JsonValueKind::array)
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    VariantVisit months{&parse, visit.phase, 0, nullptr};
+    return parse.read(json_visit_indexed_array(parse.document, value, kClientThemeDocumentMaximumDepth,
+                                               variant_month, &months)) &&
+           (months.seen == kClientThemeColorSets - 1 ||
+            parse.fail(ClientThemeDocumentError::range, value.source_offset));
+}
+bool variants_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& section = *static_cast<SectionVisit*>(context);
+    auto& parse = *section.parse;
+    const u32 phase = key_index(name, kPhases);
+    if (phase == kClientThemePhaseCount) {
+        ++parse.unsupported;
+        return true;
+    }
+    if (!duplicate(parse, section.seen, phase, name.source_offset))
+        return false;
+    if (value.kind != JsonValueKind::object)
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    // A phase that names no base keeps the root's.
+    parse.candidate.variants.bases[phase] = static_cast<u8>(static_cast<u32>(parse.candidate.base) + 1);
+    VariantVisit visit{&parse, phase, 0, nullptr};
+    return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
+                                                phase_member, &visit));
+}
 bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
     static constexpr char keys[] = "version\0name\0base\0colors\0background\0typography\0metrics\0palette\0"
-                                   "semantic\0scale\0motion\0components\0";
+                                   "semantic\0scale\0motion\0components\0variants\0";
     constexpr u32 count = name_list_count(keys);
     static_assert(count == 3 + section_count);
     const u32 id = key_index(name, keys);
@@ -975,7 +1071,7 @@ bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     if (value.kind != JsonValueKind::object)
         return parse.fail(ClientThemeDocumentError::type, value.source_offset);
     parse.sections[id - 3] = value;
-    static_assert(colors_section == 0 && components_section == 8);
+    static_assert(colors_section == 0 && variants_section == 9);
     return true;
 }
 struct Writer {
@@ -1243,24 +1339,113 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
             writer.key(comma, name_list_at(kSettingsSizeNames, i));
             writer.number(sizes[i]);
         }
-    writer.text(utf8_literal("}}}"));
+    writer.text(utf8_literal("}}"));
+    // Only a document with variants writes them, so every other document is byte-for-byte what it was.
+    const auto& variants = document.variants;
+    if (client_theme_document_scheduled(document)) {
+        writer.text(utf8_literal(",\"variants\":{"));
+        comma = false;
+        const auto descriptors = ui_theme_color_descriptors();
+        for (u32 phase = 0; phase < kClientThemePhaseCount; ++phase) {
+            if (!variants.bases[phase])
+                continue;
+            writer.key(comma, name_list_at(kPhases, phase));
+            writer.text(utf8_literal("{\"base\":"));
+            writer.quoted(name_list_at(kBases, variants.bases[phase] - 1u));
+            bool months{};
+            for (u32 set = 1; set < kClientThemeColorSets; ++set)
+                for (const u32 packed : variants.colors[phase][set])
+                    months = months || packed;
+            for (u32 set = 0; set < (months ? kClientThemeColorSets : 1u); ++set) {
+                writer.text(set == 0 ? utf8_literal(",\"colors\":{")
+                            : set == 1 ? utf8_literal(",\"months\":[{")
+                                       : utf8_literal(",{"));
+                bool first{};
+                for (u32 i = 0; i < descriptors.count; ++i)
+                    if (const u32 packed = variants.colors[phase][set][static_cast<u32>(descriptors[i].id)]) {
+                        writer.key(first, descriptors[i].name());
+                        writer.hex(packed, 32);
+                    }
+                writer.character('}');
+            }
+            writer.text(months ? utf8_literal("]}") : utf8_literal("}"));
+        }
+        writer.character('}');
+    }
+    writer.character('}');
+}
+// A base's built-in look, as a document holds it.
+Theme base_theme(ClientThemeBase base) noexcept {
+    Theme theme = base == ClientThemeBase::light    ? kLightTheme
+                  : base == ClientThemeBase::amoled ? ui_theme_amoled()
+                                                    : kDefaultTheme;
+    theme.styles = nullptr;
+    theme.style_revision = 0;
+    theme.appearance = base == ClientThemeBase::light ? ThemeAppearance::light : ThemeAppearance::dark;
+    return theme;
+}
+// One phase in one month (0: none), or the root look for a phase the document leaves out.
+Theme phase_look(const ClientThemeDocument& document, u32 phase, u32 month) noexcept {
+    const u32 base = document.variants.bases[phase];
+    if (!base)
+        return document.theme;
+    Theme theme = base_theme(static_cast<ClientThemeBase>(base - 1));
+    theme.scale = document.theme.scale;
+    theme.motion = document.theme.motion;
+    theme.background = document.theme.background;
+    const auto& sets = document.variants.colors[phase];
+    for (u32 i = 0; i < static_cast<u32>(UiThemeColor::count); ++i)
+        if (const u32 packed = sets[month][i] ? sets[month][i] : sets[0][i])
+            ui_theme_color_set(&theme, static_cast<UiThemeColor>(i), color_from_rgba(packed));
+    ui_theme_tokens_resolve(&theme, nullptr);
+    return theme;
 }
 } // namespace
 ClientThemeDocument client_theme_document_defaults(ClientThemeBase base) noexcept {
     ClientThemeDocument document{};
     document.base =
         static_cast<u32>(base) <= static_cast<u32>(ClientThemeBase::amoled) ? base : ClientThemeBase::dark;
-    document.theme = document.base == ClientThemeBase::light    ? kLightTheme
-                     : document.base == ClientThemeBase::amoled ? ui_theme_amoled()
-                                                                : kDefaultTheme;
-    document.theme.styles = nullptr;
-    document.theme.style_revision = 0;
-    document.theme.appearance =
-        document.base == ClientThemeBase::light ? ThemeAppearance::light : ThemeAppearance::dark;
+    document.theme = base_theme(document.base);
     constexpr auto name = utf8_literal("Custom theme");
     copy_bytes(document.name, name.data, name.bytes);
     document.name_bytes = name.bytes;
     return document;
+}
+void client_theme_mix(Theme* to, const Theme& from, float amount) noexcept {
+    // The core palette and the semantic tier are consecutive colours at the start of a Theme.
+    static_assert(offsetof(Theme, tokens) == static_cast<usize>(UiThemeColor::count) * sizeof(Color) &&
+                  offsetof(Theme, scale) == offsetof(Theme, tokens) + sizeof(UiThemeTokens) &&
+                  sizeof(UiThemeTokens) % sizeof(Color) == 0);
+    auto* a = reinterpret_cast<float*>(to);
+    const auto* b = reinterpret_cast<const float*>(&from);
+    for (u32 i = 0; i < offsetof(Theme, scale) / sizeof(float); ++i)
+        a[i] = b[i] + (a[i] - b[i]) * amount;
+}
+Theme client_theme_document_at(const ClientThemeDocument& document, u32 minute_of_day, u32 month, u32 day) noexcept {
+    const auto at = client_theme_phase_at(minute_of_day);
+    month = month - 1u < kClientThemeColorSets - 1u ? month : 0u;
+    // From the 5th to the 30th a month turns toward the next one's colours, as Silk Waves' sky does.
+    float turn = ((static_cast<float>(day) + static_cast<float>(minute_of_day % 1440u) / 1440.f) - 5.f) / 25.f;
+    turn = !month || turn < 0 ? 0.f : turn > 1 ? 1.f : turn;
+    turn = turn * turn * (3 - 2 * turn);
+    const auto look = [&](u32 phase) noexcept {
+        Theme theme = phase_look(document, phase, month);
+        if (turn > 0) {
+            Theme next = phase_look(document, phase, month % 12u + 1u);
+            client_theme_mix(&next, theme, turn);
+            return next;
+        }
+        return theme;
+    };
+    if (at.amount == 0)
+        return look(at.from);
+    Theme to = look(at.to);
+    const Theme from = look(at.from);
+    // Across a change of base the colours don't pass through grey: the nearer phase shows whole.
+    if (from.appearance != to.appearance)
+        return at.amount < .5f ? from : to;
+    client_theme_mix(&to, from, at.amount);
+    return to;
 }
 bool client_theme_document_valid(const ClientThemeDocument& document) noexcept {
     return static_cast<u32>(document.base) <= static_cast<u32>(ClientThemeBase::amoled) &&
@@ -1271,7 +1456,7 @@ bool client_theme_document_valid(const ClientThemeDocument& document) noexcept {
            real_values_finite(document) && background_valid(document.theme.background) &&
            effect_valid(document.effect) &&
            ui_theme_typography_valid(document.typography) && ui_theme_metrics_valid(document.metrics) &&
-           components_valid(document.icons, document.settings);
+           components_valid(document.icons, document.settings) && variants_valid(document.variants);
 }
 bool client_theme_document_equal(const ClientThemeDocument& a, const ClientThemeDocument& b) noexcept {
     return a.base == b.base && a.name_bytes == b.name_bytes &&
@@ -1280,7 +1465,8 @@ bool client_theme_document_equal(const ClientThemeDocument& a, const ClientTheme
            background_theme_equal(a.theme.background, b.theme.background) &&
            bytes_equal(&a.effect, &b.effect, sizeof(a.effect)) &&
            ui_theme_typography_equal(a.typography, b.typography) &&
-           ui_theme_metrics_equal(a.metrics, b.metrics) && components_equal(a, b);
+           ui_theme_metrics_equal(a.metrics, b.metrics) && components_equal(a, b) &&
+           bytes_equal(&a.variants, &b.variants, sizeof(a.variants));
 }
 ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const ClientThemeDocument& defaults,
                                                       Slice<u32> scratch,
@@ -1323,16 +1509,20 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const Clie
         }
         parse.candidate = next;
     }
+    // Variants are the document's own: a document without them never inherits the defaults'.
+    parse.candidate.variants = {};
     parse.candidate.theme.styles = nullptr;
     parse.candidate.theme.style_revision = 0;
     parse.candidate.theme.appearance =
         parse.candidate.base == ClientThemeBase::light ? ThemeAppearance::light : ThemeAppearance::dark;
     static constexpr JsonMemberVisitor visitors[]{color_member,   background_member, typography_member,
                                            metric_member,  palette_member,    semantic_member,
-                                           scale_member,   motion_member,     components_member};
+                                           scale_member,   motion_member,     components_member,
+                                           variants_member};
     static constexpr u32 kSectionOrder[]{palette_section,    colors_section,  semantic_section,
                                   background_section, typography_section, metrics_section,
-                                  scale_section,      motion_section,  components_section};
+                                  scale_section,      motion_section,  components_section,
+                                  variants_section};
     static_assert(sizeof(kSectionOrder) / sizeof(kSectionOrder[0]) == section_count);
     for (const u32 i : kSectionOrder) {
         if (i == components_section) {

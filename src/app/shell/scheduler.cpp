@@ -11,6 +11,7 @@
 #include "../chat/composer/commands.hpp"
 #include "../account/friends.hpp"
 #include "scheduler.hpp"
+#include "../settings/custom_theme.hpp"
 #include "../voice/stream.hpp"
 #include "../voice/stage.hpp"
 #include "../voice/soundboard.hpp"
@@ -260,6 +261,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     if (application_smooth_scroll_active() && !frame_clock_armed)
         timeout = minimum(timeout, 16u);
     limit_timeout(timeout, now_ms, application_text_form_next_wake());
+    limit_timeout(timeout, now_ms, application_theme_schedule_wake());
     limit_timeout(timeout, now_ms, application_message_interaction_next_wake(now_ms));
     limit_timeout(timeout, now_ms, application_forum_form_next_wake());
     limit_timeout(timeout, now_ms, application_downloads_next_wake());
