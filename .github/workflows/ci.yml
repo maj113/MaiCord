@@ -198,6 +198,134 @@ jobs:
             }
           }
 
+  # The Linux port (D1, D11): one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the
+  # same tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested
+  # with Mesa's llvmpipe for the GPU cases, with nothing published yet. A clean build of everything took 44 seconds on 16
+  # cores in a pristine ubuntu:24.04 container, and the suite then ran in 3 seconds; the shader toolchain (DXC, SPIRV-Cross,
+  # mc_shadertool) is cached by the pins that name it (tools/linux_shader_toolchain.json, the tool's source and the
+  # compiler that builds it), so only a change of pin builds SPIRV-Cross again. The compositor, D-Bus and audio scripts
+  # run beside it (every case under 20 s: headless sway about 13 s, D-Bus 17 s, PulseAudio 8 s on the development
+  # machine); they are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING
+  # is 'true'. The portable subset of the built tests then goes to the distros job as a one-day artifact of this run.
+  # Neither job gates the preview channel: the Windows client is what ships.
+  linux:
+    name: Linux (x86-64 build, tests, ELF audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      bundle: ${{ steps.bundle.outputs.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # clang, lld and llvm 23 from apt.llvm.org (the archive key is checked against its pinned fingerprint), cmake, ninja,
+      # and the runtime libraries, fonts, dictionaries and tools the tests and the integration scripts use.
+      - name: Install the toolchain and the test packages
+        run: bash tools/install_linux_toolchain.sh --integration
+
+      - name: Shader toolchain cache key
+        id: shader-key
+        run: echo "compiler=$(c++ --version | head -n 1 | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the shader toolchain
+        id: shader-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain
+          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+
+      # Configures into ~/mc-build in place (the checkout is on a native file system), builds, runs tools/audit_elf.py on
+      # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner.
+      - name: Build, audit and test
+        run: bash tools/build_linux.sh --test --keep --timeout-scale 3
+
+      - name: Cache the shader toolchain
+        if: steps.shader-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain
+          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+
+      # The declarations the Linux build resolves with dlsym against the installed headers (libssl-dev, libpulse-dev).
+      - name: dlopen ABI checks
+        run: |
+          python3 tools/check_openssl_abi.py --compiler /usr/lib/llvm-23/bin/clang
+          python3 tools/check_pulse_abi.py --compiler /usr/lib/llvm-23/bin/clang
+
+      # The tarball around a stand-in program (packaging/README.md): reproducible, valid desktop entry and AppStream
+      # metadata, install and uninstall under a private home.
+      - name: Packaging checks
+        run: |
+          sudo apt-get install -y --no-install-recommends appstream desktop-file-utils
+          bash packaging/check.sh
+
+      - name: Wayland window (headless sway)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: |
+          bash tools/test_wayland_window.sh --binary "$HOME/mc-build/MaiCordWaylandWindowTests" --out "$RUNNER_TEMP/wayland"
+          bash tools/test_wayland_window.sh --binary "$HOME/mc-build/MaiCordWaylandWindowTests" --scale 1.5 --out "$RUNNER_TEMP/wayland-scaled"
+
+      - name: GPU surface (headless sway, llvmpipe)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: bash tools/test_gpu_surface.sh --binary "$HOME/mc-build/MaiCordGpuSurfaceWaylandTests" --out "$RUNNER_TEMP/gpu-surface"
+
+      # tools/test_dbus_real.sh (the real xdg-desktop-portal and gnome-keyring) is left to a machine with a graphical
+      # session: the portal's GTK backend needs a display and the document portal needs FUSE, which a hosted runner lacks.
+      - name: D-Bus (mock services)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: bash tools/test_dbus.sh --binary-dir "$HOME/mc-build" --out "$RUNNER_TEMP/dbus"
+
+      - name: Audio (private PulseAudio)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: bash tools/test_pulse_audio.sh --private --binary "$HOME/mc-build/MaiCordPulseLoopbackTests"
+
+      # The cases tools/linux_portable_tests.txt names and the executables they run: what the distros job runs in other
+      # distributions' containers.
+      - name: Pack the portable tests
+        id: bundle
+        run: |
+          python3 tools/linux_portable_tests.py --build "$HOME/mc-build" --output "$RUNNER_TEMP/portable"
+          echo "name=linux-portable-${GITHUB_SHA::8}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.bundle.outputs.name }}
+          path: ${{ runner.temp }}/portable
+          if-no-files-found: error
+          retention-days: 1
+
+  # The one-binary claim (D1) on the distributions people run: the portable subset of the tests, the same executables, in
+  # a container of each (tools/test_linux_distros.sh documents which package provides each dlopen()ed library). Fedora
+  # and Arch are rolling releases and run their latest image on purpose; the others are pinned by tag.
+  distros:
+    name: Linux distros (${{ matrix.distro }})
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the linux job's bundle from this run
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ubuntu-22.04, debian-12, fedora, archlinux, nixos]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the portable tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ needs.linux.outputs.bundle }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUNDLE" --dir "$RUNNER_TEMP/portable"
+
+      - name: Run them in ${{ matrix.distro }}
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: bash tools/test_linux_distros.sh --engine docker --bundle "$RUNNER_TEMP/portable" --out "$RUNNER_TEMP/distro" "$DISTRO"
+
   # Every green master build of maj113/MaiCord goes to the preview channel.
   # Only this job reads the signing key, and the release environment admits
   # only master and v* tags, so pull requests and forks never reach it.

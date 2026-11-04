@@ -1,0 +1,73 @@
+# The ctest cases tools/test_linux_distros.sh runs inside the distribution containers (tools/linux_portable_tests.py
+# turns them into a bundle: the executables they use and a shell script that runs them). One name per line; "[gpu]"
+# starts the cases that need a Mesa EGL and GLES (llvmpipe) in the container, and "[wayland]" the ones that load the
+# Wayland client libraries. A case that exits 77 is a skip.
+#
+# What they prove together is the one-binary claim (D1): the same executables run on every distribution, finding their
+# dlopen()ed libraries by soname (and fixing nothing for the ones that are missing).
+#
+# core and the operating system layer
+maicord_core
+maicord_byte_order
+maicord_os_wait
+maicord_os_thread
+maicord_os_file
+maicord_os_srwlock
+maicord_linux_runtime
+maicord_linux_library_path
+maicord_linux_data_path_create
+maicord_linux_data_path_xdg
+maicord_linux_data_path_home
+maicord_linux_data_path_relative_xdg
+maicord_linux_cache_state_xdg
+maicord_linux_cache_state_home
+# crypto and TLS (OpenSSL through dlopen; s_server of the container's openssl for the TLS cases)
+maicord_crypto
+maicord_secure_buffer
+maicord_secure_buffer_unwritable
+maicord_secure_buffer_no_home
+maicord_tls_client
+maicord_tls_smoke
+maicord_network_loop
+maicord_tls_stream_smoke
+# fonts (fontconfig through dlopen, the directory scan, the fonts.conf reader) and the colour bitmap reader
+maicord_font_locator
+maicord_font_locator_scan
+maicord_font_locator_fonts_conf
+maicord_native_cbdt_fixture
+# time zones and dates, spell checking (Hunspell and Enchant through dlopen, present or not)
+maicord_tzif
+maicord_local_time_berlin
+maicord_local_time_new_york
+maicord_local_time_path
+maicord_local_time_lord_howe
+maicord_local_time_rule
+maicord_local_time_empty
+maicord_local_time_missing
+maicord_local_time_system
+maicord_local_time_log
+maicord_date_format_en_us
+maicord_date_format_de_de
+maicord_date_format_c
+maicord_date_format_en_gb
+maicord_date_format_lc_time
+maicord_date_format_lc_all
+maicord_date_format_lang
+maicord_spellcheck_fixture
+maicord_spellcheck_lc_all
+maicord_spellcheck_lc_messages
+maicord_spellcheck_missing
+maicord_system_spellcheck
+maicord_system_spellcheck_enchant
+# audio (libpulse through dlopen: no library, no server) and D-Bus (the wire format)
+maicord_audio_pure
+maicord_audio_no_server
+maicord_audio_no_library
+maicord_dbus_wire
+[wayland]
+maicord_wayland_input
+[gpu]
+maicord_gpu_types
+maicord_gpu_clear_readback
+maicord_gpu_clear_readback_copy_fallback
+maicord_gpu_sync

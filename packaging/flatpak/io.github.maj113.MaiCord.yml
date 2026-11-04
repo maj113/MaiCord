@@ -1,0 +1,47 @@
+# Flatpak manifest of MaiCord: the release tarball (packaging/build_tarball.py) installed under /app on the freedesktop
+# runtime. The program needs nothing the runtime lacks: OpenSSL, fontconfig, Hunspell and its dictionaries, libpulse,
+# the Wayland client libraries, xkbcommon and the EGL/GLES loader are all in org.freedesktop.Platform 26.08 (Enchant is
+# not, and not needed: Hunspell comes first); the GPU drivers come from its GL extension. See packaging/README.md for
+# building it, for the self-hosted repository, and for why this manifest is not the one for Flathub.
+#
+#   flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.github.maj113.MaiCord.yml
+#   flatpak run io.github.maj113.MaiCord
+app-id: io.github.maj113.MaiCord
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: maicord
+
+finish-args:
+  # The window: Wayland only (the client has no X11 backend), with GPU access for EGL/GLES.
+  - --socket=wayland
+  - --device=dri
+  # Voice, notification and media audio, over PulseAudio or PipeWire's pulse socket.
+  - --socket=pulseaudio
+  - --share=network
+  # The notification-area icon: the watcher to register with, and the item's own name (the client owns
+  # org.kde.StatusNotifierItem-<pid>-<n>, which the sandbox's bus proxy only lets it own by this pattern).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.kde.*
+  # The Secret Service that keeps the sign-in key, and the legacy notification service (the portal is tried first).
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+  # No file system access: the file chooser, link opening, notifications, settings (colour scheme, fonts), inhibit and
+  # global shortcuts are portal calls (org.freedesktop.portal.Desktop), which every sandbox may make.
+
+modules:
+  - name: maicord
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 MaiCord /app/lib/maicord/MaiCord
+      - install -d /app/bin
+      - ln -s ../lib/maicord/MaiCord /app/bin/maicord
+      - install -d /app/lib/maicord/fonts /app/lib/maicord/licenses
+      - install -m644 fonts/* /app/lib/maicord/fonts/
+      - install -m644 licenses/* /app/lib/maicord/licenses/
+      - cp -r --no-preserve=ownership share/. /app/share/
+    sources:
+      - type: archive
+        # TODO(owner): the release tarball's address and checksum (the release's .sha256 asset) for each version.
+        url: https://github.com/maj113/MaiCord/releases/download/v0.6.6/maicord-0.6.6-linux-x86_64.tar.gz
+        sha256: '0000000000000000000000000000000000000000000000000000000000000000'

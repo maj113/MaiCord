@@ -1,0 +1,58 @@
+# Maintainer: the MaiCord owner <https://github.com/maj113/MaiCord/issues>
+#
+# maicord-bin: the release tarball (packaging/build_tarball.py) installed system wide. The program, its fonts and its
+# license notices go to /usr/lib/maicord (it finds them next to its own executable), /usr/bin/maicord links to it, and
+# the desktop entry, icons and AppStream metadata go to /usr/share. The tarball's .maicord-portable marker is left out:
+# pacman owns these files, so the program does not update itself.
+#
+# Per release: set pkgver, run `updpkgsums` (the tarball's SHA-256 is also in its .sha256 asset), `makepkg --printsrcinfo >
+# .SRCINFO`, and push both to the AUR repository of maicord-bin (docs: packaging/README.md).
+pkgname=maicord-bin
+pkgver=0.6.6
+pkgrel=1
+pkgdesc='A lightweight, native Discord client (unofficial), from the release tarball'
+arch=('x86_64')
+url='https://maicord.com/'
+license=('MPL-2.0')
+# What the program cannot start without: the C library, OpenSSL for TLS, the Wayland client libraries (libwayland-client,
+# -egl, -cursor), xkbcommon for the keyboard, and the EGL/GLESv2 loader (libglvnd). Everything else it opens with dlopen
+# only when it is there, so it is optional.
+depends=('glibc' 'openssl' 'wayland' 'libxkbcommon' 'libglvnd' 'hicolor-icon-theme')
+optdepends=(
+    'mesa: OpenGL ES drivers for the GPU (llvmpipe without one); your GPU vendor'\''s driver works too'
+    'libpulse: voice, notification and media audio (PulseAudio, or PipeWire with pipewire-pulse)'
+    'fontconfig: system fonts and the fallback for scripts the bundled fonts lack'
+    'noto-fonts-emoji: colour emoji'
+    'noto-fonts-cjk: Chinese, Japanese and Korean text'
+    'hunspell: spell checking'
+    'hunspell-en_us: English dictionary for spell checking (any Hunspell dictionary of your language)'
+    'enchant: spell checking through Enchant when Hunspell is not installed'
+    'xdg-desktop-portal: file chooser, settings and global shortcut portals'
+    'gnome-keyring: Secret Service to keep the sign-in key (KeePassXC and KWallet work too)'
+)
+provides=('maicord')
+conflicts=('maicord')
+# The program is a hardened, stripped, size-optimized image: leave its bytes as released.
+options=('!strip' '!debug')
+source_x86_64=("$pkgname-$pkgver-x86_64.tar.gz::https://github.com/maj113/MaiCord/releases/download/v$pkgver/maicord-$pkgver-linux-x86_64.tar.gz")
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000') # updpkgsums
+
+package() {
+    cd "maicord-$pkgver-linux-x86_64"
+
+    install -Dm755 MaiCord "$pkgdir/usr/lib/maicord/MaiCord"
+    install -d "$pkgdir/usr/bin"
+    ln -s /usr/lib/maicord/MaiCord "$pkgdir/usr/bin/maicord"
+
+    install -d "$pkgdir/usr/lib/maicord/fonts" "$pkgdir/usr/lib/maicord/licenses"
+    install -m644 fonts/* "$pkgdir/usr/lib/maicord/fonts/"
+    install -m644 licenses/* "$pkgdir/usr/lib/maicord/licenses/"
+
+    # share/: the desktop entry (Exec=maicord %U finds the link), the icons and the AppStream metadata.
+    find share -type f -print0 | while IFS= read -r -d '' file; do
+        install -Dm644 "$file" "$pkgdir/usr/$file"
+    done
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -m644 licenses/* "$pkgdir/usr/share/licenses/$pkgname/"
+}

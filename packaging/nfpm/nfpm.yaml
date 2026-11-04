@@ -1,0 +1,116 @@
+# .deb and .rpm of MaiCord with nfpm (https://nfpm.goreleaser.com/), from the unpacked release tarball. The paths in
+# contents are relative to the unpacked tarball, so nfpm runs inside it (packaging/nfpm/build.sh does):
+#
+#   tar xzf maicord-X.Y.Z-linux-x86_64.tar.gz && cd maicord-X.Y.Z-linux-x86_64
+#   VERSION=X.Y.Z nfpm package -f /path/to/packaging/nfpm/nfpm.yaml -p deb -t out/
+#   VERSION=X.Y.Z nfpm package -f /path/to/packaging/nfpm/nfpm.yaml -p rpm -t out/
+#
+# The program goes to /usr/lib/maicord with its fonts and license notices (it finds them next to its own executable),
+# /usr/bin/maicord links to it, and the desktop entry, icons and AppStream metadata go to /usr/share. The tarball's
+# .maicord-portable marker is left out: a package manager owns these files, so the program does not update itself.
+# The hard dependencies are the libraries the program cannot run without (the C library, OpenSSL, the Wayland client
+# libraries, xkbcommon, EGL and GLES); the others it opens with dlopen when present are recommended or suggested.
+name: maicord
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: maj113 <https://github.com/maj113/MaiCord/issues>
+description: |
+  A lightweight, native Discord client (unofficial).
+  MaiCord draws its own interface on the GPU; there is no Electron, browser engine or web view. It is not affiliated
+  with, endorsed by or supported by Discord Inc.
+vendor: maj113
+homepage: https://maicord.com/
+license: MPL-2.0
+
+contents:
+  - src: MaiCord
+    dst: /usr/lib/maicord/MaiCord
+    file_info:
+      mode: 0755
+  - src: /usr/lib/maicord/MaiCord
+    dst: /usr/bin/maicord
+    type: symlink
+  - src: fonts
+    dst: /usr/lib/maicord/fonts
+    type: tree
+  - src: licenses
+    dst: /usr/lib/maicord/licenses
+    type: tree
+  - src: share/applications/io.github.maj113.MaiCord.desktop
+    dst: /usr/share/applications/io.github.maj113.MaiCord.desktop
+  - src: share/metainfo/io.github.maj113.MaiCord.metainfo.xml
+    dst: /usr/share/metainfo/io.github.maj113.MaiCord.metainfo.xml
+  - src: share/icons/hicolor/16x16/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/16x16/apps/io.github.maj113.MaiCord.png
+  - src: share/icons/hicolor/24x24/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/24x24/apps/io.github.maj113.MaiCord.png
+  - src: share/icons/hicolor/32x32/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/32x32/apps/io.github.maj113.MaiCord.png
+  - src: share/icons/hicolor/48x48/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/48x48/apps/io.github.maj113.MaiCord.png
+  - src: share/icons/hicolor/64x64/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/64x64/apps/io.github.maj113.MaiCord.png
+  - src: share/icons/hicolor/256x256/apps/io.github.maj113.MaiCord.png
+    dst: /usr/share/icons/hicolor/256x256/apps/io.github.maj113.MaiCord.png
+  - src: LICENSE
+    dst: /usr/share/doc/maicord/copyright
+    packager: deb
+  - src: LICENSE
+    dst: /usr/share/licenses/maicord/LICENSE
+    type: license
+    packager: rpm
+
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.17)
+      - libssl3t64 | libssl3
+      - libwayland-client0
+      - libwayland-egl1
+      - libwayland-cursor0
+      - libxkbcommon0
+      - libegl1
+      - libgles2
+    recommends:
+      - libgl1-mesa-dri
+      - libpulse0
+      - libfontconfig1
+      - fonts-noto-color-emoji
+      - xdg-desktop-portal
+      - libhunspell-1.7-0 | libenchant-2-2
+      - gnome-keyring | kwalletmanager | keepassxc
+    suggests:
+      - fonts-noto-cjk
+      - hunspell-en-us
+      - enchant-2
+  rpm:
+    depends:
+      - glibc
+      - openssl-libs
+      - libwayland-client
+      - libwayland-egl
+      - libwayland-cursor
+      - libxkbcommon
+      - mesa-libEGL
+      - mesa-libGLES
+    recommends:
+      - mesa-dri-drivers
+      - pulseaudio-libs
+      - fontconfig
+      - google-noto-color-emoji-fonts
+      - xdg-desktop-portal
+      - hunspell
+      - gnome-keyring
+    suggests:
+      - google-noto-sans-cjk-fonts
+      - hunspell-en-US
+      - enchant2
+
+deb:
+  compression: xz
+rpm:
+  compression: xz

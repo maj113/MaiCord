@@ -177,6 +177,86 @@ jobs:
         run: |
           Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
 
+  # The Linux tarball (packaging/README.md) goes onto the same draft as the Windows assets, and the release is published
+  # only if it built too. Off until the repository variable MAICORD_LINUX_RELEASES is 'true'; when it is off this job is
+  # skipped and the Windows release is unchanged. The tarball is not on the self-update channels yet: those manifests are
+  # the Windows client's (the Linux updater mode is separate), so the release carries the tarball and its checksum only.
+  linux:
+    name: Linux tarball
+    needs: release
+    if: needs.release.outputs.published != 'true' && vars.MAICORD_LINUX_RELEASES == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write     # the draft's assets
+      id-token: write     # Sigstore identity for build provenance
+      attestations: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag
+        id: version
+        run: python3 -B tools/release/maicord_release.py version "$TAG" --check-cmake .
+
+      - name: Install the toolchain
+        run: bash tools/install_linux_toolchain.sh
+
+      - name: Shader toolchain cache key
+        id: shader-key
+        run: echo "compiler=$(c++ --version | head -n 1 | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the shader toolchain
+        id: shader-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain
+          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+
+      # The same build and suite as ci.yml; the updater and the plugin catalog are compiled with this repository's
+      # published keys and the release's version and commit, as in the Windows job.
+      - name: Build, audit and test
+        env:
+          MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
+          MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
+          MAICORD_UPDATE_COMMIT: ${{ github.sha }}
+          MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
+          MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
+        run: bash tools/build_linux.sh --test --keep --timeout-scale 3
+
+      - name: Cache the shader toolchain
+        if: steps.shader-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain
+          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+
+      - name: Package the tarball
+        env:
+          SEMVER: ${{ steps.version.outputs.semver }}
+        run: |
+          set -eu
+          python3 -B packaging/build_tarball.py --binary "$HOME/mc-build/MaiCord" --version "$SEMVER" --output-dir "$RUNNER_TEMP/linux-dist"
+          ls -l "$RUNNER_TEMP/linux-dist"
+
+      - name: Attest build provenance
+        if: env.PUBLIC_REPOSITORY == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/linux-dist/maicord-*-linux-x86_64.tar.gz
+
+      - name: Attach to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/linux-dist/maicord-*-linux-x86_64.tar.gz "$RUNNER_TEMP"/linux-dist/maicord-*-linux-x86_64.tar.gz.sha256
+
   analysis:
     name: Static analysis
     permissions:
@@ -186,7 +266,9 @@ jobs:
 
   publish:
     name: Publish
-    needs: [release, analysis]
+    needs: [release, analysis, linux]
+    # The Linux job is skipped unless Linux releases are enabled; when it ran it must have succeeded.
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.analysis.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
     runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
     timeout-minutes: 30
     environment: release
@@ -244,8 +326,8 @@ jobs:
   # stays for a rerun once the findings are fixed or accepted into a baseline.
   discard:
     name: Discard the draft
-    needs: [release, analysis]
-    if: always() && needs.release.result == 'success' && needs.release.outputs.published != 'true' && needs.analysis.result != 'success'
+    needs: [release, analysis, linux]
+    if: always() && needs.release.result == 'success' && needs.release.outputs.published != 'true' && (needs.analysis.result != 'success' || needs.linux.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -260,7 +342,7 @@ jobs:
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
             gh release delete "$TAG" --yes
           fi
-          echo "::error::Static analysis failed; the $TAG draft was discarded."
+          echo "::error::A required job (static analysis or the Linux tarball) failed; the $TAG draft was discarded."
           exit 1
 
   pages:
