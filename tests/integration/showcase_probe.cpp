@@ -1144,7 +1144,8 @@ bool react(Fixture& f, u64 id, Utf8View emoji, bool self) noexcept {
 }
 
 // The bot's deferred answer to /release: the attribution header with "is
-// thinking...", then the release card and link buttons replace it.
+// thinking...", then the release card and link buttons replace it. As on
+// Discord, the interaction's id comes just before its response message's.
 bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
     GatewayMessageEmbed card{};
     card.type = GatewayMessageEmbedType::rich;
@@ -1174,7 +1175,7 @@ bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
                gateway_message_field_content | gateway_message_field_timestamp | gateway_message_field_type |
                gateway_message_field_flags | gateway_message_field_interaction;
     m.type = 20;
-    m.interaction = {id + 1, kSelf, utf8_literal("Mai"), {f.avatar_hashes[0], 32}, utf8_literal("release"), 2};
+    m.interaction = {id - 1, kSelf, utf8_literal("Mai"), {f.avatar_hashes[0], 32}, utf8_literal("release"), 2};
     if (!ready) {
         m.flags = 1u << 7; // The API's LOADING flag.
         return check(message_timeline_apply_created(&f.timeline, m).ok(), "bot_message_failed");
@@ -1312,7 +1313,10 @@ bool send_gif(Fixture& f) noexcept {
 void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
     constexpr u32 kFrames = 134;
     constexpr float kStep = .08f;
-    const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20), release = snowflake(0, 30);
+    // Snowflakes grow with every arrival, so each message lands at the bottom; the /release response comes
+    // after the GIF Mai sent before it.
+    const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20), release = snowflake(0, 51);
+    static_assert(snowflake(0, 51) - 1 > kGifMessage);
     constexpr u32 kFrameMs = 80, kThinking = 113, kAnswer = 121;
     constexpr Utf8View fire = utf8_literal("\xF0\x9F\x94\xA5"), eyes = utf8_literal("\xF0\x9F\x98\x8D");
     constexpr Utf8View rocket = utf8_literal("\xF0\x9F\x9A\x80"), party = utf8_literal("\xF0\x9F\x8E\x89");
