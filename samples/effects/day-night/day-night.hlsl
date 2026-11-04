@@ -3,7 +3,7 @@
 // from either; the host eases both, so a theme switch glides instead of cutting. Summer days run a deeper blue
 // than winter ones (mc_ambient.year), stars twinkle at night and pale clouds drift by day.
 //
-// @effect   name="Day and night" authors="MaiCord" license="MPL-2.0" version="1.0.0"
+// @effect   name="Day and night" authors="MaiCord" license="MPL-2.0" version="1.0.1"
 // @knob follow  choice "Clock|Appearance|Clock or appearance" = 2 "Night follows"
 // @knob sunrise float 4..10  = 6.5 "Sunrise (hour)"
 // @knob sunset  float 15..22 = 19  "Sunset (hour)"
@@ -20,7 +20,7 @@
 #define knob_drift   (mc_knobs[1].x)
 
 float4 background(float2 pixel) {
-    const float2 uv = mc_uv(pixel);
+    const float2 uv = pixel * (1.0 / mc.resolution);
     const float depth = uv.y; // 0 at the top of the window, 1 at the horizon
     // How much of the night shows: the clock's, the appearance's, or the darker of the two.
     const float clock_night = 1.0 - mc_daylight(knob_sunrise, knob_sunset);
@@ -46,15 +46,20 @@ float4 background(float2 pixel) {
     const float cloud = 0.5 + 0.5 * sin(uv.x * 4.0 + drift + 1.7 * sin(uv.y * 6.0 - drift * 0.7));
     colour = lerp(colour, lerp(float3(1.0, 1.0, 1.0), float3(0.18, 0.2, 0.28), night),
                   cloud * cloud * cloud * 0.18 * (1.0 - depth));
-    // Stars: one in a few 24-DIP cells, twinkling, fading towards the horizon and out by day.
-    const float cell_size = 24.0 * mc.dip;
-    const float2 cell = floor(pixel / cell_size);
-    const float4 random = mc_hash4(cell);
-    const float2 centre = (cell + 0.2 + 0.6 * random.xy) * cell_size;
-    const float distance_dips = length(pixel - centre) / mc.dip;
-    const float twinkle = 0.55 + 0.45 * sin(mc.time * (1.0 + 2.0 * random.z) + random.w * 6.2831853);
-    const float star = step(0.7, random.z) * saturate(1.3 - distance_dips) * twinkle * (1.0 - depth);
-    colour += star * knob_stars * night;
+    // Stars: one in a few 24-DIP cells, twinkling, fading towards the horizon and out by day. Real branches: by day
+    // (or with the knob at 0) no pixel looks for a star, and only the pixels of a star draw one.
+    const float stars = knob_stars * night;
+    [branch] if (stars > 0.0) {
+        const float cell_size = 24.0 * mc.dip;
+        const float2 cell = floor(pixel * (1.0 / cell_size));
+        const float4 random = mc_hash4(cell);
+        const float2 centre = (cell + 0.2 + 0.6 * random.xy) * cell_size;
+        const float distance_dips = length(pixel - centre) * (1.0 / mc.dip);
+        [branch] if (random.z >= 0.7 && distance_dips < 1.3) {
+            const float twinkle = 0.55 + 0.45 * sin(mc.time * (1.0 + 2.0 * random.z) + random.w * 6.2831853);
+            colour += saturate(1.3 - distance_dips) * twinkle * (1.0 - depth) * stars;
+        }
+    }
     // The theme's strength: a weaker theme lets more of its background through.
     colour = lerp(mc_role(MC_ROLE_BACKGROUND), colour, lerp(0.55, 0.9, mc.intensity));
     return float4(colour + mc_dither(pixel), 1.0);
