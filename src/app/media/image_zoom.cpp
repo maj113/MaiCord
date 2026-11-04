@@ -3,7 +3,9 @@
 #include "../settings/settings.hpp"
 #include "../shell/input.hpp"
 #include "../shell/overlay_input.hpp"
+#include "../shell/panel_cover.hpp"
 #include "../shell/state.hpp"
+#include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
 
@@ -26,10 +28,33 @@ void place(bool active, UiPoint point) noexcept {
 bool ctrl_only() noexcept {
     return application_control_down() && !application_alt_down();
 }
+// The chat picture at `point` is the topmost thing there: no page, modal, menu, popout or viewer hides the
+// timeline (the surfaces that hide its inline scenes), and no docked panel, banner, jump pill or hover toolbar
+// sits over the point. The toolbar's published occluders are the banner's own.
+bool timeline_front(UiPoint point) noexcept {
+    const auto& renderer = g_app.renderer;
+    if (!application_panel_uncovered() || !d3d11_renderer_zoom_lens_allowed(renderer))
+        return false;
+    for (const UiRect& occluder : g_app.message_action_bar.occluders)
+        if (ui_rect_contains(occluder, point.x, point.y))
+            return false;
+    if (message_action_bar_hit_test(g_app.message_action_bar, point.x, point.y).inside)
+        return false;
+    if (d3d11_renderer_search_visible(renderer) && ui_rect_contains(renderer.search_scene->panel, point.x, point.y))
+        return false;
+    if (d3d11_renderer_pinned_messages_visible(renderer)) {
+        const auto& pins = *renderer.pinned_messages_scene;
+        if (pins.overlay || ui_rect_contains(pins.panel, point.x, point.y))
+            return false;
+    }
+    return !(d3d11_renderer_inbox_visible(renderer) &&
+             ui_rect_contains(renderer.inbox_scene->panel, point.x, point.y));
+}
 // A hovered chat preview that would open in the viewer; spoilers and
 // obscured media stay unrevealed, videos never qualify.
 void refresh_chat(UiPoint point) noexcept {
-    place(g_app.preferences.image_zoom && ctrl_only() && application_image_viewer_open_at(point.x, point.y, true),
+    place(g_app.preferences.image_zoom && ctrl_only() && timeline_front(point) &&
+              application_image_viewer_open_at(point.x, point.y, true),
           point);
 }
 } // namespace
@@ -111,6 +136,13 @@ bool application_image_zoom_wheel(WPARAM wparam) noexcept {
         application_request_frame();
     }
     return true;
+}
+
+void application_image_zoom_synchronize() noexcept {
+    // A modal, menu or panel that opened under a still pointer ends the lens; the viewer owns its own.
+    const auto& shown = g_app.image_zoom.lens;
+    if (shown.active && !g_app.image_viewer.scene.active && !timeline_front(shown.pointer))
+        application_image_zoom_end();
 }
 
 void application_image_zoom_end() noexcept {

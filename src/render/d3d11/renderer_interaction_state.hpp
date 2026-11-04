@@ -292,15 +292,6 @@ __declspec(noinline) inline bool d3d11_renderer_tooltip_visible(const D3D11Rende
 inline u32 d3d11_renderer_tooltip_revision(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_tooltip_visible(renderer) ? renderer.tooltip_scene->revision : 0;
 }
-// The magnifier over a chat preview needs the timeline uncovered, as a
-// tooltip does; over the viewer's image it has no other condition.
-inline bool d3d11_renderer_zoom_lens_allowed(const D3D11Renderer& renderer) noexcept {
-    return renderer.zoom_lens && !renderer.login_visible && !d3d11_renderer_active(renderer.poll_voters_scene) &&
-           !d3d11_renderer_message_modal_active(renderer) && !renderer_settings_page_visible(renderer) &&
-           !d3d11_renderer_active(renderer.friends_requests_scene) && !d3d11_renderer_active(renderer.popup_scene) &&
-           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer) &&
-           !d3d11_renderer_active(renderer.image_viewer);
-}
 // A layout found the picture under the lens (it resets the source each build).
 inline bool d3d11_renderer_zoom_lens_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.zoom_lens && !renderer.login_visible && renderer.zoom_lens_source.ready;
@@ -352,6 +343,15 @@ __declspec(noinline) inline bool d3d11_renderer_inline_scene_covered(const D3D11
            d3d11_renderer_quick_switcher_visible(renderer) || d3d11_renderer_download_visible(renderer) ||
            d3d11_renderer_active(renderer.popup_scene) || d3d11_renderer_active(renderer.reaction_viewer) ||
            d3d11_renderer_form_active(renderer);
+}
+// The magnifier over a chat preview needs the timeline uncovered: every surface that hides an inline scene, plus
+// the front modals, the call view and the popout cards. Over the viewer's image it has no other condition.
+inline bool d3d11_renderer_zoom_lens_allowed(const D3D11Renderer& renderer) noexcept {
+    return renderer.zoom_lens && !d3d11_renderer_inline_scene_covered(renderer) &&
+           !d3d11_renderer_active(renderer.poll_voters_scene) && !d3d11_renderer_message_modal_active(renderer) &&
+           !d3d11_renderer_active(renderer.thread_browser_scene) && !d3d11_renderer_call_visible(renderer) &&
+           !d3d11_renderer_active(renderer.guild_card_scene) && !d3d11_renderer_active(renderer.stream_card_scene) &&
+           !d3d11_renderer_active(renderer.expression_card_scene);
 }
 __declspec(noinline) inline bool d3d11_renderer_audio_scene_visible(const D3D11Renderer& renderer) noexcept {
     const auto* scene = renderer.audio_scene;

@@ -385,6 +385,8 @@ bool application_present_frame() noexcept {
     if (!application_message_hover_observe_scroll())
         return present_rejected("message_hover");
     application_unread_banner_synchronize(clock_monotonic_milliseconds());
+    // A modal, popup or panel that opened over the picture under a still pointer ends the magnifier.
+    application_image_zoom_synchronize();
     application_toast_synchronize(clock_monotonic_milliseconds());
     // Every surface has now published its final edit/focus/scroll projection.
     // Refresh a stale retained suffix before the draw guard can suppress it.

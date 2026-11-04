@@ -23,6 +23,8 @@ void application_image_zoom_viewer_pointer(UiPoint point, bool over_image, bool 
 // A wheel step while a lens shows: zoom, or its size with Shift. False when
 // no lens shows (the wheel then zooms the image).
 bool application_image_zoom_wheel(WPARAM wparam) noexcept;
+// Once per frame: a chat lens whose picture is no longer the topmost thing under it ends.
+void application_image_zoom_synchronize() noexcept;
 // Hides the lens and stores a changed zoom or size.
 void application_image_zoom_end() noexcept;
 } // namespace maicord::app_detail

@@ -4,6 +4,8 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../../src/app/media/context.hpp"
+#include "../../../src/render/d3d11/renderer_interaction_state.hpp"
+#include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -211,6 +213,62 @@ void check_media_context() noexcept {
               !resolve({11, 4, 77, 80, true}).self_authored &&
               resolve({12, 4, 77, 80, true}).context == MessageMediaContext::guild,
           "nonfriend forwarded author remains other DM while the destination guild still wins");
+}
+// The live message pane the chat lens reads: one row carrying a 64x64 image.
+struct TimelineFixture {
+    MessageRecord records[1]{};
+    u32 order[1]{};
+    u8 text[64]{};
+    MessageRichRecord rich_records[2]{};
+    u16 rich_order[1]{};
+    u8 rich_text[1024]{};
+    u32 heights[1]{};
+    u64 fenwick[1]{};
+    MessageSceneRowWidget rows[1]{};
+    UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
+    UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
+} timeline_fixture;
+bool settings_open;
+// Publishes the row and returns a point inside its picture.
+bool seed_timeline(UiPoint* inside) noexcept {
+    auto& f = timeline_fixture;
+    auto& view = g_app.message_view;
+    auto& store = g_app.account_ui->message_rich_store;
+    GatewayMessageAttachment attachment{};
+    attachment.id = 910;
+    attachment.filename = utf8_literal("picture.png");
+    attachment.content_type = utf8_literal("image/png");
+    attachment.url = utf8_literal("https://cdn.discordapp.com/attachments/999/910/picture.png");
+    attachment.width = attachment.height = 64;
+    attachment.has_width = attachment.has_height = true;
+    GatewayMessageEvent event{};
+    event.id = 810;
+    event.fields = gateway_message_field_attachments;
+    event.attachments = {&attachment, 1};
+    bool changed = false;
+    if (!message_store_initialize(&view.store, {f.records, 1}, {f.order, 1}, {f.text, sizeof(f.text)}) ||
+        !message_store_upsert(&view.store, {810, 999, 3, 0, 0, utf8_literal(""), 0}).ok() ||
+        !message_rich_store_initialize(&store, {f.rich_records, 2}, {f.rich_order, 1},
+                                       {f.rich_text, sizeof(f.rich_text)}) ||
+        !ui_variable_list_initialize(&view.list, {f.heights, 1}, {f.fenwick, 1}, 1, ui_extent_units(57)) ||
+        !message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
+                                     ui_extent_units(480), false) ||
+        !message_timeline_bind_rich_store(&view.timeline, &store) ||
+        !message_scene_initialize(&g_app.message_scene, &view.timeline, {f.rows, 1},
+                                  {f.widgets, kMessageSceneWidgetsPerRow + 1},
+                                  {f.nodes, kMessageSceneWidgetsPerRow + 1}) ||
+        !message_rich_store_apply(&store, 810, f.records[0].revision, event).ok() ||
+        !message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok() ||
+        !message_scene_set_text_metrics(&g_app.message_scene, 0, 0, 0, false, nullptr, nullptr, {}, &changed) ||
+        !message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok())
+        return false;
+    const auto* node = message_scene_rich_item_layout_node(g_app.message_scene, g_app.message_scene.rows[0],
+                                                           MessageSceneRichItemKind::attachment, 0);
+    if (!node || !ui_rect_has_area(node->rectangle))
+        return false;
+    *inside = {static_cast<float>(static_cast<i16>(node->rectangle.left)) + 6,
+               static_cast<float>(static_cast<i16>(node->rectangle.top)) + 6};
+    return true;
 }
 void run() noexcept {
     check_media_context();
@@ -567,6 +625,62 @@ void run() noexcept {
         g_app.renderer.media_atlas = nullptr;
         g_app.renderer.width = 1200; g_app.renderer.height = 900;
     }
+    // The chat lens starts only over a picture that is the topmost thing under the pointer.
+    {
+        BYTE saved_keys[256]{}, ctrl_keys[256]{};
+        const bool keys_saved = GetKeyboardState(saved_keys) != FALSE;
+        ctrl_keys[VK_CONTROL] = ctrl_keys[VK_LCONTROL] = 0x80;
+        UiPoint over{};
+        auto& chat_zoom = g_app.image_zoom;
+        g_app.preferences.image_zoom = true;
+        g_app.renderer.zoom_lens = &chat_zoom.lens;
+        application_image_zoom_configure();
+        check(keys_saved && SetKeyboardState(ctrl_keys) && application_control_down() && seed_timeline(&over) &&
+                  !g_app.image_viewer.scene.active,
+              "Chat lens: a held Ctrl and a message picture fixture are ready");
+        const LPARAM at = MAKELPARAM(static_cast<i16>(over.x), static_cast<i16>(over.y));
+        application_image_zoom_message(WM_SETFOCUS, 0, 0);
+        settings_open = true;
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(!chat_zoom.lens.active, "Chat lens: Ctrl over a message picture does not start it while Settings is open");
+        settings_open = false;
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(chat_zoom.lens.active && chat_zoom.lens.pointer.x == over.x && chat_zoom.lens.pointer.y == over.y,
+              "Chat lens: Ctrl over the same picture starts it once Settings is closed");
+        settings_open = true;
+        application_image_zoom_synchronize();
+        check(!chat_zoom.lens.active, "Chat lens: opening Settings ends an active lens");
+        settings_open = false;
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(chat_zoom.lens.active, "Chat lens: closing Settings lets the lens start again");
+        g_app.popup_scene.active = true;
+        application_image_zoom_synchronize();
+        check(!chat_zoom.lens.active, "Chat lens: a popup or menu ends an active lens");
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(!chat_zoom.lens.active, "Chat lens: nothing starts under an open popup or menu");
+        g_app.popup_scene.active = false;
+        g_app.renderer.popup_scene = &g_app.popup_scene;
+        check(d3d11_renderer_zoom_lens_allowed(g_app.renderer), "Chat lens: an uncovered timeline allows the renderer's lens");
+        g_app.popup_scene.active = true;
+        check(!d3d11_renderer_zoom_lens_allowed(g_app.renderer),
+              "Chat lens: the renderer withholds the picture under a popup or menu");
+        g_app.popup_scene.active = false;
+        g_app.renderer.popup_scene = nullptr;
+        // The unread banner's published occluder owns its strip, as it does for the hover toolbar.
+        const UiRect banner{over.x - 40, over.y - 40, over.x + 40, over.y + 40};
+        check(message_action_bar_set_occluders(&g_app.message_action_bar, &banner, 1),
+              "Chat lens: a banner publishes its occluder");
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(!chat_zoom.lens.active, "Chat lens: nothing starts under an unread banner or jump pill");
+        check(message_action_bar_set_occluders(&g_app.message_action_bar, nullptr, 0),
+              "Chat lens: the banner retires its occluder");
+        application_image_zoom_message(WM_MOUSEMOVE, 0, at);
+        check(chat_zoom.lens.active, "Chat lens: the uncovered picture starts it again");
+        application_image_zoom_end();
+        check(!keys_saved || SetKeyboardState(saved_keys) != FALSE, "Chat lens: the thread keyboard state is restored");
+        g_app.renderer.zoom_lens = nullptr;
+        chat_zoom.ctrl = false;
+    }
     hosted_video_key = {};
     ui_search_scene_release(&search_scene);
     g_app.renderer.search_scene = nullptr;
@@ -624,6 +738,7 @@ bool application_window_set_fullscreen(bool on) noexcept {
 void application_composer_text_input_suspend() noexcept { ++image_viewer_runtime_test::suspends; }
 float client_dip_x(LPARAM value) noexcept { return static_cast<i16>(LOWORD(value)); }
 float client_dip_y(LPARAM value) noexcept { return static_cast<i16>(HIWORD(value)); }
+bool application_settings_active() noexcept { return image_viewer_runtime_test::settings_open; }
 bool application_downloads_active() noexcept { return false; }
 bool application_downloads_available(u64, u64, bool) noexcept { return false; }
 bool application_downloads_begin(u64, u64, bool) noexcept { return false; }
