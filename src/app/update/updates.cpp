@@ -769,6 +769,11 @@ void application_updates_visible(bool visible) noexcept {
     if (visible || !g_rows) return;
     VirtualFree(g_rows, 0, MEM_RELEASE);
     g_rows = nullptr;
+    // The bank's changelog rows point into the freed rows; the next projection compares against the bank.
+    if (Worker* w = g_worker) {
+        for (auto& control : w->bank.controls) control = {};
+        for (auto& presentation : w->bank.presentation) presentation = {};
+    }
 }
 bool application_updates_activate_row(u64 control_id) noexcept {
     return application_updates_changelog_row(control_id) && g_rows &&

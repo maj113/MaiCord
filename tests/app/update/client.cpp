@@ -1576,6 +1576,38 @@ void test_signed_out_pages() noexcept {
     check(listed == signed_out, "every signed-out page is listed once");
 }
 
+// Hiding Updates frees its changelog rows. The page's bank, which the next
+// projection compares against, must not keep views into them (a use after
+// free when another page reused the address range).
+void test_hidden_page_forgets_rows() noexcept {
+    using namespace app_detail;
+    static Temp t{};
+    wchar_t saved[MAX_PATH]{};
+    const DWORD saved_count = GetEnvironmentVariableW(L"LOCALAPPDATA", saved, MAX_PATH);
+    const bool isolated = temporary_root(&t) && SetEnvironmentVariableW(L"LOCALAPPDATA", t.base);
+    struct Cleanup {
+        const wchar_t* saved;
+        bool restore;
+        ~Cleanup() noexcept {
+            application_updates_release(false);
+            SetEnvironmentVariableW(L"LOCALAPPDATA", restore ? saved : nullptr);
+            remove_root(t);
+        }
+    } cleanup{saved, saved_count != 0 && saved_count < MAX_PATH};
+    check(isolated && application_updates_initialize(UpdateServiceConfig{}, {}),
+        "hidden updates page: an unconfigured updater starts in a temporary profile");
+    auto* bank = application_updates_settings_bank();
+    if (!isolated || !bank) return;
+    UiSettingsControl controls[4]{};
+    UiSettingsControlPresentation presentation[4]{};
+    application_updates_settings_list({controls, 4}, {presentation, 4});
+    bank->controls[0].label = utf8_literal("Projected while visible");
+    bank->presentation[0].more = ui_settings_more_plain;
+    application_updates_visible(false);
+    check(!bank->controls[0].label.bytes && bank->presentation[0].more != ui_settings_more_plain,
+        "hidden updates page: releasing the changelog rows clears the rows projected from them");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -1587,6 +1619,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_redirects_and_schedule();
     maicord::test_http_reader();
     maicord::test_settings_rows();
+    maicord::test_hidden_page_forgets_rows();
     maicord::test_check_schedule();
     maicord::test_interval_store();
     maicord::test_changelog_cache();
