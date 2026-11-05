@@ -34,7 +34,8 @@ MAICORD_GPU_INLINE void gpu_surface_set_target(GpuSurface* surface, GpuRtv* targ
 // the window is dragged), and whether the surface was created (a released one is not).
 MAICORD_GPU_INLINE u32 gpu_surface_width(const GpuSurface* surface);
 MAICORD_GPU_INLINE u32 gpu_surface_height(const GpuSurface* surface);
-// The texel format of the surface's frame target (offscreen targets drawn in its place use the same).
+// The texel format of the surface's frame target (offscreen targets drawn in its place use the same). It is the
+// backend's, the same for every surface: a null surface asks it before any surface exists (the pipeline warm-up).
 MAICORD_GPU_INLINE GpuFormat gpu_surface_format(const GpuSurface* surface);
 MAICORD_GPU_INLINE bool gpu_surface_valid(const GpuSurface* surface);
 // Presents the frame. `dirty` lists the rectangles (top-left origin, pixels) that changed since the previous

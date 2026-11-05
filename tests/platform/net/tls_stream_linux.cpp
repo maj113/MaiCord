@@ -1,4 +1,4 @@
-// tls_stream.hpp over the network layer: the real stack of a Linux client (resolver pool, epoll loop, non-blocking
+// tls_stream.hpp over the network layer: the real stack of a Linux client (resolver pool, io_uring loop, non-blocking
 // sockets, OpenSSL through the TLS client) talking to local `openssl s_server` processes. argv[1] selects a case:
 //
 //   --get <port> <name> <protocol>      GET / from an s_server status page (-www); the page must report <protocol>

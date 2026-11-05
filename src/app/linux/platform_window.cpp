@@ -4,6 +4,7 @@
 #include "../shell/state.hpp"
 #include "../shell/window.hpp"
 #include "../shell/window_runtime.hpp"
+#include "maicord/app/account/presence_idle.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/gpu/gles/backend.hpp"
 #include "maicord/platform/window/wayland.hpp"
@@ -41,11 +42,12 @@ bool application_platform_window_create(Window* out, const char** failure) noexc
         *failure = "create_window_failed";
         return false;
     }
-    // The renderer presents through its own EGL surface on the window's wl_surface; the window must not paint its
-    // wl_shm clear over it at the next configure.
-    window_wayland_use_external_buffers(*out, true);
+    // The renderer presents through its own EGL surface on the window's wl_surface; the window only keeps its geometry.
     window_set_frame_listener(*out, frame_done, nullptr);
     gpu_surface_set_frame_request(frame_request, nullptr);
+    // The compositor's input idle time is what "away" means for the presence (the same ten minutes Windows' last input
+    // gives). Without ext-idle-notify (GNOME's Mutter has none) the system idle time stays unknown and the status never idles.
+    window_wayland_watch_idle(*out, static_cast<u32>(kPresenceIdleTimeoutMs));
     return true;
 }
 

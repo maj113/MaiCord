@@ -19,6 +19,21 @@
 *.py text eol=lf
 *.md text eol=lf
 
+# Linux scripts and package recipes run on Linux (a CRLF shebang or Makefile fails there): LF on every platform.
+*.sh text eol=lf
+*.spec text eol=lf
+*.ebuild text eol=lf
+packaging/online/*.in text eol=lf
+packaging/metainfo/*.in text eol=lf
+packaging/appimage/AppRun text eol=lf
+packaging/aur/*/PKGBUILD text eol=lf
+packaging/aur/*/.SRCINFO text eol=lf
+packaging/alpine/APKBUILD text eol=lf
+packaging/void/*/template text eol=lf
+packaging/rpm/_service text eol=lf
+packaging/rpm/.copr/Makefile text eol=lf
+packaging/debian/debian/* text eol=lf
+
 # Binary assets: never touch line endings or attempt textual diffs.
 *.ttf binary
 *.otf binary

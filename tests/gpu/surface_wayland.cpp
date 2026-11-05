@@ -162,7 +162,6 @@ void run() noexcept {
         window_destroy(g_window);
         return;
     }
-    window_wayland_use_external_buffers(g_window, true);
     gpu_device_set_native_display(surface_info.display);
     GpuDevice* device = nullptr;
     GpuContext* context = nullptr;

@@ -46,10 +46,14 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device, GpuCont
     const u32 output_height = gpu_video_frame_output_height(frame, step);
     const GpuTexture* luma = frame.luma->texture;
     const GpuTexture* chroma = frame.chroma->texture;
+    // 8-bit planes (NV12) or 16-bit ones (P010: the sample is the 10-bit value in the top bits, which the shader's
+    // 8-bit reading of a normalised sample turns into the nearest 8-bit level).
     if (frame.luma->kind != GpuViewKind::texture || frame.chroma->kind != GpuViewKind::texture || !luma || !chroma ||
         luma != frame.texture || !gpu_video_plane_owns(frame.texture) || !gpu_video_plane_owns(chroma) ||
-        luma->format != GpuFormat::r8 || chroma->format != GpuFormat::rg8 || chroma->width != luma->width / 2 ||
-        chroma->height != luma->height / 2 || !gpu_video_frame_geometry_valid(frame, luma->width, luma->height))
+        !((luma->format == GpuFormat::r8 && chroma->format == GpuFormat::rg8) ||
+          (luma->format == GpuFormat::r16 && chroma->format == GpuFormat::rg16)) ||
+        chroma->width != luma->width / 2 || chroma->height != luma->height / 2 ||
+        !gpu_video_frame_geometry_valid(frame, luma->width, luma->height))
         return kGpuInvalidArgument;
     const GpuTexture* target = destination->texture;
     if (target->format != GpuFormat::rgba8 || x > target->width || output_width > target->width - x ||

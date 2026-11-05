@@ -366,4 +366,16 @@ bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exe
     return text.ok && write_text(desktop, text.data, text.count) && set_default(s, id);
 }
 
+u32 desktop_appimage_path(wchar_t* output, u32 capacity) noexcept {
+    wchar_t mount[kPathCapacity], executable[kPathCapacity];
+    const u32 image = environment_variable(L"APPIMAGE", output, capacity);
+    const u32 root = environment_variable(L"APPDIR", mount, kPathCapacity);
+    const u32 running = executable_path(executable, kPathCapacity);
+    // The variables are inherited by anything started from an AppImage, so they count only for the AppImage whose mount
+    // holds this very program.
+    if (!image || image >= capacity || !root || root >= kPathCapacity || running <= root || executable[root] != L'/' ||
+        !bytes_equal(executable, mount, root * sizeof(wchar_t)))
+        return 0;
+    return image;
+}
 } // namespace maicord

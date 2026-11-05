@@ -20,7 +20,6 @@ constexpr u32 kModeOwner = 0600;
 constexpr i64 kUnixEpochSeconds = 11'644'473'600;
 constexpr u32 kChunkLimit = 1u << 30;
 constexpr int kNotSupported = 95; // ENOTSUP / EOPNOTSUPP
-constexpr int kNoSystemCall = 38; // ENOSYS
 
 FileHandle make_handle(int fd) noexcept {
     return reinterpret_cast<FileHandle>(static_cast<u64>(fd) + 1);
@@ -461,7 +460,7 @@ bool file_rename_noreplace(const wchar_t* from, const wchar_t* to, bool durable)
         return false;
     }
     long moved = sys_renameat2(source, target, kRenameNoReplace);
-    if (moved == -kErrorInvalid || moved == -kNotSupported || moved == -kNoSystemCall) {
+    if (moved == -kErrorInvalid || moved == -kNotSupported) {
         // A file system without RENAME_NOREPLACE: link() refuses an existing name too.
         moved = sys_link(source, target);
         if (!syscall_failed(moved)) {

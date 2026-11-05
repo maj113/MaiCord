@@ -71,7 +71,7 @@ inline long sys_execve(const char* path, char* const argv[], char* const environ
 }
 
 // close_range(2): closes the descriptors first through last, or with kCloseRangeCloseOnExec only marks them
-// close-on-exec (Linux 5.9 and 5.11 and later; -ENOSYS or -EINVAL before).
+// close-on-exec (Linux 5.9, 5.11).
 inline long sys_close_range(u32 first, u32 last, u32 flags) noexcept {
     return syscall3(kSysCloseRange, static_cast<long>(first), static_cast<long>(last), static_cast<long>(flags));
 }

@@ -99,12 +99,10 @@ bool track_open_record(Session* session, Track* track, const TrackConfig& config
 bool track_wait_ready(Track* track, Waitable stop, u32 timeout_ms, u32* native_error) noexcept;
 // Connecting or ready.
 bool track_alive(const Track& track) noexcept;
-bool track_ready(const Track& track) noexcept;
 void track_close(Track* track) noexcept;
 
-// Bytes the server asks for now (playback) or has captured (record).
+// Bytes the server asks for now.
 usize track_writable(Track* track) noexcept;
-usize track_readable(Track* track) noexcept;
 bool track_write(Track* track, const void* data, usize bytes) noexcept;
 // The next captured fragment: *data is null for a hole of *bytes. Every successful peek with *bytes != 0 is
 // followed by track_drop.

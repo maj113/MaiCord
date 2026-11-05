@@ -190,12 +190,7 @@ struct FxCompositeTargets {
 };
 
 // The target holds premultiplied colour; the user's opacity scales all four channels.
-#if defined(MC_COMPOSITE_COLOR) || defined(MC_COMPOSITE_WEIGHT)
-#define FX_COMPOSITE_BOTH fx_composite_both
-#else
-#define FX_COMPOSITE_BOTH fx_composite_pixel
-#endif
-FxCompositeTargets FX_COMPOSITE_BOTH(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) {
+FxCompositeTargets fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) {
     float4 color = fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
                    composite_opacity;
     // A tile is a rounded rectangle: coverage from the signed distance to its outline, one pixel wide.
@@ -226,18 +221,6 @@ FxCompositeTargets FX_COMPOSITE_BOTH(float4 position : SV_Position, float2 uv : 
     }
     return output;
 }
-#if defined(MC_COMPOSITE_COLOR) || defined(MC_COMPOSITE_WEIGHT)
-// The OpenGL ES backend, on a device without dual-source blending, draws the composite twice: the weight as the only
-// output (blended as dst * weight), then the colour (added at the blend factor).
-float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) : SV_Target0 {
-    const FxCompositeTargets both = fx_composite_both(position, uv, dip);
-#if defined(MC_COMPOSITE_WEIGHT)
-    return both.weight;
-#else
-    return both.color;
-#endif
-}
-#endif
 #else
 struct FxVertexOutput {
     float4 position : SV_Position;

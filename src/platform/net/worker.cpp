@@ -44,10 +44,11 @@ u32 network_worker_main(void* parameter) noexcept {
         return 1;
     }
 
+    // The started step runs before the ready signal, so a synchronous start returns with it done.
     worker->started = true;
-    event_set(worker->ready_event);
     NetworkPollResult empty{};
     NetworkWorkerStep step = dispatch(worker, NetworkWorkerEventKind::started, empty);
+    event_set(worker->ready_event);
 
     while (!step.exit) {
         const NetworkPollResult polled = network_loop_poll(&worker->loop, step.wait_milliseconds);

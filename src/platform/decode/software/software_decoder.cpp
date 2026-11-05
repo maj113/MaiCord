@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/shared_library.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/media/video/h264_stream.hpp"
 #include "maicord/os/thread.hpp"
@@ -47,7 +48,7 @@ bool open_first(SharedLibrary* library, const char* override_name, const char* c
 
 bool load_dav1d() noexcept {
     static constexpr const char* names[]{"libdav1d.so.7", "libdav1d.so.6"};
-    if (!open_first(&g_dav1d.library, environment_get("MAICORD_DAV1D_LIBRARY"), names, 2)) {
+    if (!open_first(&g_dav1d.library, test_hook("MAICORD_DAV1D_LIBRARY"), names, 2)) {
         log_unavailable("libdav1d is not installed: no software AV1 decode");
         return false;
     }
@@ -69,7 +70,7 @@ bool load_dav1d() noexcept {
 
 bool load_openh264() noexcept {
     static constexpr const char* names[]{"libopenh264.so.7", "libopenh264.so.6", "libopenh264.so.8"};
-    if (!open_first(&g_openh264.library, environment_get("MAICORD_OPENH264_LIBRARY"), names, 3)) {
+    if (!open_first(&g_openh264.library, test_hook("MAICORD_OPENH264_LIBRARY"), names, 3)) {
         log_unavailable("libopenh264 is not installed: no software H.264 decode");
         return false;
     }

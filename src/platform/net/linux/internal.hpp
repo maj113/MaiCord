@@ -1,10 +1,10 @@
 #pragma once
 // The pieces of the Linux network layer that its source files share: the error mapping, the loop's ready list and
-// post stack, and the hooks the poll loop calls for socket events and finished lookups and file operations.
+// post stack, and the ring helpers every kind of operation starts and is cancelled through.
 //
-// Everything that touches a NetworkLoop's ready list runs on the loop's own thread. Other threads (the name lookup
-// and file pools, network_signal_post callers) reach it only through post(), which pushes onto the lock-free
-// stack and wakes the epoll.
+// Everything that touches a NetworkLoop's ring or ready list runs on the loop's own thread (the ring is made with
+// IORING_SETUP_SINGLE_ISSUER). Other threads (the name lookup pool, network_signal_post callers) reach it only
+// through post(), which pushes onto the lock-free stack and wakes the ring through its eventfd.
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/linux/error.hpp"
@@ -48,22 +48,27 @@ inline u32 token(int fd) noexcept {
     return static_cast<u32>(fd) + 1;
 }
 
-// How an epoll event names its owner: the owner's address in the high bits, its kind in the low two.
-inline constexpr u64 kOwnerConnection = 0;
-inline constexpr u64 kOwnerDatagram = 1;
-inline constexpr u64 kOwnerWake = 2;
-
-// Registers the socket for edge-triggered readiness of both directions and hangups; false with the error set.
-bool watch_socket(NetworkLoop* loop, int fd, const void* owner, u64 kind, u32 events) noexcept;
+// Queues the kernel request that `operation` stands for, built from its kind, its buffer, its transferred count and
+// its owner (a connection or datagram socket, or a file and its offset). The next poll hands it to the kernel.
+void start(NetworkLoop* loop, NetworkOperation* operation) noexcept;
+// Hands every queued entry to the kernel now; false when the system call failed (the entries stay queued).
+bool submit(NetworkLoop* loop) noexcept;
+// Cancels every request on the socket `fd` and submits at once, so that the descriptor can be closed behind it: each
+// request still finishes with a completion of its own, cancelled.
+void cancel_socket(NetworkLoop* loop, int fd) noexcept;
+// Queues the cancellation of one operation (a file operation that may sit in a slow file system).
+void cancel_operation(NetworkLoop* loop, NetworkOperation* operation) noexcept;
 
 // Records the outcome of an operation and puts it in the ready list: the next poll returns it. Loop thread only.
 void complete(NetworkLoop* loop, NetworkOperation* operation, bool succeeded, u32 transferred, i32 native_error) noexcept;
 // The same from any thread (it goes through the post stack); the operation must not be touched afterwards.
 void post(NetworkLoop* loop, NetworkOperation* operation, bool succeeded, u32 transferred, i32 native_error) noexcept;
 
-// What the poll loop calls when epoll reports `events` for a socket's owner.
-void service_connection(NetworkConnection* connection, u32 events) noexcept;
-void service_datagram(NetworkDatagram* datagram, u32 events) noexcept;
+// The error of a datagram socket's failed call: a refused connected UDP socket reports the ICMP error on the next
+// call, which Windows calls a connection reset.
+i32 datagram_error(long result) noexcept;
+// A datagram's read finished (completed or cancelled): the next posted slot's read starts.
+void receive_finished(NetworkDatagram* datagram) noexcept;
 
 // The operation of a resolve, signal, file or socket completion that poll returns: fills the rest of
 // NetworkPollResult. `operation` came off the ready list.

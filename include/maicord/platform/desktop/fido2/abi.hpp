@@ -51,7 +51,6 @@ inline constexpr i32 kOptionTrue = 2;  // FIDO_OPT_TRUE
     F(i32, fido_dev_open, (Device * device, const char* path))                                                         \
     F(i32, fido_dev_close, (Device * device))                                                                          \
     F(i32, fido_dev_cancel, (Device * device))                                                                         \
-    F(bool, fido_dev_is_fido2, (const Device* device))                                                                 \
     F(i32, fido_dev_get_retry_count, (Device * device, i32* retries))                                                  \
     F(i32, fido_dev_get_assert, (Device * device, Assertion* assertion, const char* pin))                              \
     F(Assertion*, fido_assert_new, ())                                                                                 \
@@ -60,7 +59,6 @@ inline constexpr i32 kOptionTrue = 2;  // FIDO_OPT_TRUE
     F(i32, fido_assert_set_clientdata_hash, (Assertion * assertion, const u8* hash, usize bytes))                      \
     F(i32, fido_assert_allow_cred, (Assertion * assertion, const u8* id, usize bytes))                                 \
     F(i32, fido_assert_set_uv, (Assertion * assertion, i32 option))                                                    \
-    F(i32, fido_assert_set_up, (Assertion * assertion, i32 option))                                                    \
     F(usize, fido_assert_count, (const Assertion* assertion))                                                          \
     F(const u8*, fido_assert_id_ptr, (const Assertion* assertion, usize index))                                        \
     F(usize, fido_assert_id_len, (const Assertion* assertion, usize index))                                            \

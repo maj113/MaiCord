@@ -6,7 +6,7 @@
 // libva-drm.so.2 are dlopen()ed, so a machine without them (or without a render node, or a driver for its GPU) simply
 // has no hardware tier. Types and calls keep libva's binary layout; tools/check_video_abi.py compares this file with
 // the installed libva-dev headers: constants marked with the macro or enumerator they copy, the sizes and offsets the
-// static_asserts below pin, and every function of the table. Only functions of libva 2.7 (Ubuntu 20.04) are used.
+// static_asserts below pin, and every function of the table. Only functions of libva 2.14 (Ubuntu 22.04) are used.
 
 namespace maicord {
 using i8 = signed char;
@@ -23,6 +23,7 @@ using SurfaceId = u32;
 
 inline constexpr u32 kInvalidId = 0xffffffffu; // VA_INVALID_ID
 inline constexpr Status kStatusSuccess = 0;    // VA_STATUS_SUCCESS
+inline constexpr Status kStatusTimedOut = 0x26;      // VA_STATUS_ERROR_TIMEDOUT
 
 // VAProfile
 inline constexpr i32 kProfileH264ConstrainedBaseline = 13; // VAProfileH264ConstrainedBaseline
@@ -592,6 +593,8 @@ struct SliceParameterAv1 {
     F(Status, vaRenderPicture, (Display, ContextId, BufferId*, i32))                                                   \
     F(Status, vaEndPicture, (Display, ContextId))                                                                      \
     F(Status, vaSyncSurface, (Display, SurfaceId))                                                                     \
+    F(Status, vaSyncSurface2, (Display, SurfaceId, u64))                                                               \
+    F(const char*, vaQueryVendorString, (Display))                                                                     \
     F(Status, vaExportSurfaceHandle, (Display, SurfaceId, u32, u32, void*))
 // libva-drm.so.2
 #define MAICORD_VA_DRM_FUNCTIONS(F) F(Display, vaGetDisplayDRM, (i32))

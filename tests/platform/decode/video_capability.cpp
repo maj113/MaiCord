@@ -5,8 +5,10 @@
 //                returns
 //   offers       Select Protocol offers built from those words: hardware codecs first in Discord's order, software-only
 //                codecs after them, nothing offered that nothing decodes (the Linux rule; Windows always offers H.264)
-//   layout       the dma-buf layout of an exported NV12 or P010 surface, accepted and refused cases, and the EGL
-//                attribute list that imports a plane
+//   layout       the dma-buf layout of an exported NV12 or P010 surface (with the metadata plane of a compressing
+//                modifier), accepted and refused cases, and the EGL attribute list that imports a plane
+//   identity     what makes two exports one picture's memory (the dma-buf inode of each plane and the layout), and
+//                which VA drivers keep their exports
 //   profiles     the VA profile chosen for an H.264 stream from the profiles a driver lists
 //   planes       the decoded-picture plane pool: capacity, reuse, and retain and release from several threads
 //   --off, --no-library, --bad-node, --no-node
@@ -14,6 +16,7 @@
 //                machine has no render node) on none: each leaves no hardware codec
 #include "../../support/test_output.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/gpu/video_planes.hpp"
 #include "maicord/os/thread.hpp"
@@ -191,9 +194,35 @@ void layout() noexcept {
     refused = refused && !export_layout(bad, &l);
     check(refused, "layout: a composed layer, a swapped format, a missing plane or object, another fourcc, no fd, no pitch");
 
+    // A tiled modifier with compression metadata puts it in a second plane of the layer.
+    DrmPrimeDescriptor aux = d;
+    aux.layers[0].num_planes = 2;
+    aux.layers[0].object_index[1] = 0;
+    aux.layers[0].offset[1] = 3000000;
+    aux.layers[0].pitch[1] = 256;
+    check(export_layout(aux, &l) && l.plane[0].aux_pitch == 256 && l.plane[0].aux_offset == 3000000 &&
+              l.plane[0].aux_fd == 40 && l.plane[1].aux_pitch == 0,
+          "layout: a layer's second plane is the metadata of the first");
+    DrmPrimeDescriptor no_aux = aux;
+    no_aux.objects[0].drm_format_modifier = 0;
+    refused = !export_layout(no_aux, &l);
+    no_aux = aux;
+    no_aux.objects[0].drm_format_modifier = kDrmFormatModifierInvalid;
+    refused = refused && !export_layout(no_aux, &l);
+    no_aux = aux;
+    no_aux.layers[0].pitch[1] = 0;
+    refused = refused && !export_layout(no_aux, &l);
+    no_aux = aux;
+    no_aux.layers[0].object_index[1] = 3;
+    refused = refused && !export_layout(no_aux, &l);
+    no_aux = aux;
+    no_aux.layers[0].num_planes = 3;
+    refused = refused && !export_layout(no_aux, &l);
+    check(refused, "layout: metadata needs a tiled modifier, a pitch, an object, and is one plane");
+
     // The import attributes: width, height, format, fd, offset, pitch, then the modifier when it is known.
-    i32 attributes[24];
-    GpuDmabufPlane plane{7, kDrmFormatGr88, 960, 544, 4096, 2048, 0x0100000000000001ull};
+    i32 attributes[32];
+    GpuDmabufPlane plane{7, kDrmFormatGr88, 960, 544, 4096, 2048, 0x0100000000000001ull, -1, 0, 0};
     u32 n = gpu_dmabuf_attributes(plane, true, attributes);
     check(n == 17 && attributes[0] == 0x3057 && attributes[1] == 960 && attributes[2] == 0x3056 && attributes[3] == 544 &&
               attributes[4] == 0x3271 && static_cast<u32>(attributes[5]) == kDrmFormatGr88 && attributes[6] == 0x3272 &&
@@ -206,6 +235,89 @@ void layout() noexcept {
     plane.modifier = kDrmFormatModifierInvalid;
     n = gpu_dmabuf_attributes(plane, true, attributes);
     check(n == 13 && attributes[12] == 0x3038, "layout: an unknown modifier is left out");
+    // The metadata plane is plane 1 of the image, with the same modifier.
+    plane = {7, kDrmFormatR8, 1920, 1088, 0, 2048, 0x0100000000000004ull, 9, 3000000, 256};
+    n = gpu_dmabuf_attributes(plane, true, attributes);
+    check(n == 27 && attributes[6] == 0x3272 && attributes[16] == 0x3275 && attributes[17] == 9 &&
+              attributes[18] == 0x3276 && attributes[19] == 3000000 && attributes[20] == 0x3277 && attributes[21] == 256 &&
+              attributes[22] == 0x3445 && attributes[23] == 4 && attributes[24] == 0x3446 && attributes[25] == 0x01000000 &&
+              attributes[26] == 0x3038,
+          "layout: the metadata plane's fd, offset, pitch and modifier follow the first plane's");
+    check(!gpu_dmabuf_plane_supported(nullptr, plane), "layout: no device imports nothing");
+}
+
+// What makes two exports one picture's memory.
+void identity() noexcept {
+    using namespace vaapi;
+    const i32 a = static_cast<i32>(sys_open("/dev/null", kOpenReadWrite));
+    const i32 b = static_cast<i32>(sys_open("/dev/null", kOpenReadWrite));
+    const i32 c = static_cast<i32>(sys_open("/dev/zero", kOpenReadWrite));
+    check(a >= 0 && b >= 0 && c >= 0, "identity: files to stand for dma-bufs");
+    const u64 modifier = 0x0100000000000001ull;
+    ExportLayout one{};
+    one.plane[0] = {a, kDrmFormatR8, 64, 64, 0, 128, modifier, -1, 0, 0};
+    one.plane[1] = {a, kDrmFormatGr88, 32, 32, 8192, 128, modifier, -1, 0, 0};
+    ExportLayout again = one;
+    again.plane[0].fd = again.plane[1].fd = b;
+    ExportIdentity x{}, y{}, z{};
+    check(export_identity(one, &x) && export_identity(again, &y) && same_export(x, y),
+          "identity: one buffer through another descriptor is the same export");
+    ExportLayout other = one;
+    other.plane[1].fd = c;
+    check(export_identity(other, &z) && !same_export(x, z), "identity: another buffer is another export");
+    bool differs = true;
+    ExportLayout moved = one;
+    moved.plane[1].offset += 4096;
+    differs = differs && export_identity(moved, &z) && !same_export(x, z);
+    moved = one;
+    moved.plane[0].pitch += 64;
+    differs = differs && export_identity(moved, &z) && !same_export(x, z);
+    moved = one;
+    moved.plane[0].modifier = 0;
+    differs = differs && export_identity(moved, &z) && !same_export(x, z);
+    moved = one;
+    moved.plane[0].width = 128;
+    differs = differs && export_identity(moved, &z) && !same_export(x, z);
+    moved = one;
+    moved.plane[0].fourcc = kDrmFormatR16;
+    differs = differs && export_identity(moved, &z) && !same_export(x, z);
+    check(differs, "identity: another offset, pitch, modifier, extent or format is another export");
+    ExportLayout with_aux = one;
+    with_aux.plane[0].aux_fd = a;
+    with_aux.plane[0].aux_offset = 4096;
+    with_aux.plane[0].aux_pitch = 64;
+    ExportLayout aux_elsewhere = with_aux;
+    aux_elsewhere.plane[0].aux_fd = c;
+    check(export_identity(with_aux, &x) && export_identity(aux_elsewhere, &y) && !same_export(x, y) &&
+              export_identity(with_aux, &z) && same_export(x, z),
+          "identity: the metadata plane's buffer is part of it");
+    ExportLayout broken = one;
+    broken.plane[1].fd = -1;
+    check(!export_identity(broken, &x), "identity: a descriptor that cannot be examined names nothing");
+    check(exports_are_stable("Mesa Gallium driver 25.2.8 for AMD Radeon RX 6800 (radeonsi, navi21, LLVM 20.1.2, DRM 3.64)") &&
+              exports_are_stable("Intel iHD driver for Intel(R) Gen Graphics - 24.1.0 ()") &&
+              exports_are_stable("Intel i965 driver - 2.4.1") && !exports_are_stable("VA-API NVDEC driver [direct backend]") &&
+              !exports_are_stable("") && !exports_are_stable(nullptr),
+          "identity: the Mesa and Intel drivers keep their exports, nvidia-vaapi-driver and unknown ones do not");
+    // What the identity of a picture's export costs the decode thread (a statx per plane): the best of several rounds.
+    constexpr u32 kRounds = 5, kCalls = 4000;
+    u64 best = ~0ull;
+    bool named = true;
+    for (u32 round = 0; round < kRounds; ++round) {
+        TimeSpec begin{}, end{};
+        clock_gettime(kClockMonotonic, &begin);
+        for (u32 i = 0; i < kCalls; ++i)
+            named = named && export_identity(one, &x);
+        clock_gettime(kClockMonotonic, &end);
+        const u64 elapsed =
+            static_cast<u64>(end.seconds - begin.seconds) * 1'000'000'000ull + end.nanoseconds - begin.nanoseconds;
+        best = elapsed < best ? elapsed : best;
+    }
+    check(named, "identity: repeated");
+    test_write_metric("identity: nanoseconds per export ", best / kCalls);
+    sys_close(a);
+    sys_close(b);
+    sys_close(c);
 }
 
 void profiles() noexcept {
@@ -346,5 +458,6 @@ MAICORD_TEST_ENTRY(maicord_video_capability_entry) {
     layout();
     profiles();
     planes();
+    identity();
     test_exit(g_failures, "maicord_video_capability");
 }

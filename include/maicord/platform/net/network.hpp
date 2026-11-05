@@ -7,7 +7,7 @@
 // The network layer: stream connections, connected datagram sockets, name resolution, cross-thread signals and
 // overlapped file reads and writes, all completed through one NetworkLoop per worker thread.
 //
-// The model is the Windows completion port's, and Linux emulates it on epoll (src/platform/net/linux): an
+// The model is the Windows completion port's, and Linux runs it on io_uring (src/platform/net/linux): an
 // operation is started on a caller-owned object, finishes later as one NetworkCompletion from network_loop_poll
 // (an operation that finishes at once is still delivered by the next poll), and closing an object delivers one
 // completion for every operation it had pending. The members that differ per system are under #if _WIN32; shared
@@ -28,7 +28,7 @@ enum class NetworkError : u8 {
     none,
     invalid_argument,
     winsock_startup,
-    // The completion mechanism of the loop: the completion port on Windows, the epoll descriptor on Linux.
+    // The completion mechanism of the loop: the completion port on Windows, the io_uring on Linux.
     completion_port_create,
     socket_create,
     completion_port_associate,
@@ -143,8 +143,8 @@ struct NetworkLoop {
     bool winsock_started;
 };
 #else
-// An operation waits in its owner until the socket is ready, then in the loop's ready list until a poll returns it
-// with the outcome recorded here.
+// An operation is a submission entry of the loop's ring that the kernel serves; it finishes in the loop's ready list
+// until a poll returns it with the outcome recorded here.
 struct NetworkOperation {
     // The loop's ready list and post stack.
     NetworkOperation* next;
@@ -153,17 +153,36 @@ struct NetworkOperation {
     u32 generation;
     NetworkOperationKind kind;
     bool succeeded;
-    // Bytes moved; for a send, the bytes sent so far while it waits.
+    // Bytes moved; for a send or a file operation, the bytes moved so far while the rest is under way.
     u32 transferred;
     i32 native_error;
 };
 
-// One epoll descriptor and one eventfd per loop. Completions go to `ready` in the order they happen; operations
-// that other threads finish (signals, name lookups, file reads) arrive on the `posted` stack and wake the epoll.
+// One io_uring and one eventfd per loop, used by the loop's thread only. Starting an operation queues an entry that
+// the next poll hands to the kernel (a connect goes at once); its completion comes back through the ring and goes to
+// `ready`, as do the ones that need no kernel (a failed start, a cancelled lookup). Operations that other threads
+// finish (signals, name lookups) arrive on the `posted` stack and wake the ring through the eventfd.
 struct NetworkLoop {
-    int epoll;
+    int ring;
     int wake;
     bool ready;
+    u32 submission_mask;
+    u32 completion_mask;
+    // Entries written so far; the kernel sees them once a submit publishes this as the ring's tail.
+    u32 queued_tail;
+    u32* submission_head;
+    u32* submission_tail;
+    u32* completion_head;
+    u32* completion_tail;
+    // The ring mapping (both rings) and the submission entries' mapping, with their sizes; `completions` points into
+    // the first.
+    void* ring_memory;
+    void* submissions;
+    void* completions;
+    u32 ring_bytes;
+    u32 entry_bytes;
+    // Where the read of the eventfd lands.
+    u64 wake_counter;
     NetworkOperation* ready_head;
     NetworkOperation* ready_tail;
     NetworkOperation* volatile posted;
@@ -179,6 +198,10 @@ inline bool network_loop_ready(const NetworkLoop& loop) noexcept {
 inline bool network_loop_ready(const NetworkLoop& loop) noexcept {
     return loop.ready;
 }
+// Linux: null when a loop's ring can be made on this machine, else why not, as a sentence for the user (the kernel is
+// older than 6.1, the io_uring_disabled sysctl or a sandbox's seccomp profile refuses io_uring, no resources). The
+// client checks it at startup and ends with the sentence: there is no other I/O backend. It makes and drops a ring.
+const char* network_unavailable_reason() noexcept;
 #endif
 
 // One overlapped file read at a time on the shared completion loop. The file
@@ -193,14 +216,13 @@ struct NetworkFile {
     bool pending;
     FileIdentity identity;
 #if !defined(_WIN32)
-    // The loop the pool posts completions to, and the file offset of the operation the pool serves. The pool works
-    // on `job_handle`, not `handle`: a close while the operation runs clears `handle` but leaves the descriptor
-    // open (`close_when_done`) for the completion to close, since closing under a running call would let the number
-    // be reused. `cancelled` tells the pool to skip an operation that has not started.
+    // The loop the operation runs on, and the file offset of the operation. The operation uses `job_handle`, not
+    // `handle`: a close while it is under way clears `handle` but leaves the descriptor open (`close_when_done`)
+    // for the completion to close, since closing a descriptor with an entry still to be submitted would let the
+    // number be reused.
     NetworkLoop* loop;
     u64 offset;
     HANDLE job_handle;
-    volatile u32 cancelled;
     bool close_when_done;
 #endif
 };
@@ -220,8 +242,8 @@ struct NetworkConnection {
     // The descriptor + 1; 0 when there is none.
     u32 socket;
     NetworkLoop* loop;
-    // Which operations wait for the socket (bit 0 connect, 1 receive, 2 send).
-    u8 waiting;
+    // The address the connect request reads when the loop submits it (a sockaddr_in or sockaddr_in6).
+    u8 connect_address[28];
 #endif
     NetworkOperation connect_operation;
     NetworkOperation receive_operation;
@@ -253,11 +275,11 @@ struct NetworkDatagram {
     // The descriptor + 1; 0 when there is none.
     u32 socket;
     NetworkLoop* loop;
-    // Which operations wait for the socket: bit 0 send, bits 1.. the receive slots 0...
-    u16 waiting;
-    // The order the waiting receives were posted in: a read is served to the oldest.
-    u32 receive_serial;
-    u32 receive_order[kNetworkDatagramReceiveSlots];
+    // The kernel serves one read at a time, so that a datagram goes to the slot posted first: the slots whose reads
+    // are posted but not under way, oldest first, and whether one is under way.
+    u8 receive_queue[kNetworkDatagramReceiveSlots];
+    u8 receive_queued;
+    bool receive_running;
 #endif
     NetworkOperation receive_operation, send_operation;
     NetworkOperation extra_receive_operations[kNetworkDatagramReceiveSlots - 1];

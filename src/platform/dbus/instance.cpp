@@ -4,6 +4,7 @@
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/instance.hpp"
 #include "maicord/platform/dbus/session.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 
@@ -512,7 +513,9 @@ InstanceResult instance_acquire(const InstanceConfig& config, const LaunchReques
         log_write(LogLevel::warning, "instance", "the application id is not a valid bus name");
         return InstanceResult::unguarded;
     }
-    const char* forced = environment_get("MAICORD_INSTANCE_BACKEND");
+    // A test forces one backend ("socket": no bus; "bus": no socket); in a shipped client the bus is tried first and
+    // the socket is the answer when there is none.
+    const char* forced = test_hook("MAICORD_INSTANCE_BACKEND");
     const bool bus_allowed = !(forced && text_equal(forced, "socket"));
     const bool socket_allowed = !(forced && text_equal(forced, "bus"));
 

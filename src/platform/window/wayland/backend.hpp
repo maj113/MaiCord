@@ -1,9 +1,9 @@
 #pragma once
 
-// The state and the cross-file entry points of the Wayland window backend (src/platform/window/wayland). One
-// connection and one top-level window, as the window service has for now. Everything runs on the UI thread except
-// window_wake and the global key bits, which are atomic. Listeners only record state and enqueue WindowEvents in the
-// ring; window_pump drains it and calls the sink, so no wl_*_listener ever runs app code (design-window-input.md §5).
+// The state and the cross-file entry points of the Wayland window backend (src/platform/window/wayland, README.md). One
+// connection and one top-level window. Everything runs on the UI thread except window_wake and the global key bits,
+// which are atomic. Listeners only record state and enqueue WindowEvents in the ring; window_pump drains it and calls
+// the sink, so no wl_*_listener ever runs app code.
 
 #include "maicord/os/wait.hpp"
 #include "maicord/platform/window/event.hpp"
@@ -182,17 +182,25 @@ struct ExtrasState {
     xdg_activation_token_v1* token;
     u32 tokens_done;
     zwp_idle_inhibitor_v1* inhibitor;
-    EglWindow* egl;
     // wl_output scales, for compositors without fractional scale.
     wl_output* outputs[8];
     u32 output_scale[8];
     bool output_entered[8];
     u32 preferred_integer;  // wl_surface.preferred_buffer_scale, 0 until sent
+    // xdg-foreign: the window's export; its handle goes to the portals (dbus::portal_set_parent_window).
+    zxdg_exported_v2* exported;
+    // ext-idle-notify: the system's input idle time. `idle_now` is the compositor's last word (idled or resumed) and
+    // `idle_mark_ms` when it said it (monotonic); the watch is for `idle_timeout_ms` without input.
+    ext_idle_notification_v1* idle;
+    u32 idle_timeout_ms;
+    bool idle_now;
+    u64 idle_mark_ms;
 };
 
 struct WindowState {
     WindowSink sink;
     void* sink_context;
+    char app_id[128];  // the desktop entry's name: what activation tokens and the compositor identify the window by
 
     wl_surface* surface;
     xdg_surface* shell_surface;
@@ -206,7 +214,6 @@ struct WindowState {
 
     bool configured;
     bool visible;
-    bool external_buffers;  // the GPU backend commits buffers; no shm clear
     u32 requested_width, requested_height;  // logical size from WindowCreateInfo
     u32 logical_width, logical_height;
     u32 floating_width, floating_height;    // the last size outside maximized, fullscreen and tiled states
@@ -217,8 +224,6 @@ struct WindowState {
     u32 dpi;
     u32 state_bits;  // StateFlag
     bool resizing;
-    u32 clear_color;
-    wl_buffer* shm_buffer;
     u32 min_logical_width, min_logical_height;  // what xdg_toplevel.set_min_size last said
     // The opaque region last sent (from the origin, in surface units): the compositor keeps it until another one comes.
     i32 opaque_width, opaque_height;
@@ -263,6 +268,11 @@ struct Backend {
     zwp_text_input_manager_v3* text_input_manager;
     xdg_activation_v1* activation_manager;
     zwp_idle_inhibit_manager_v1* idle_manager;
+    zxdg_exporter_v2* exporter_manager;
+    ext_idle_notifier_v1* idle_notifier;
+    u32 idle_notifier_version;
+    xdg_system_bell_v1* bell;
+    xdg_toplevel_icon_manager_v1* icon_manager;
     FrameState frame;
     DataState data;
     TextState text;
@@ -297,7 +307,8 @@ void window_pixel_size(u32* width, u32* height) noexcept;
 u32 dpi_of_scale(u32 scale_120) noexcept;
 // Client pixels per logical unit.
 float pixel_scale() noexcept;
-void present_clear() noexcept;
+// After a configure, a resize or a scale change: the surface geometry (viewport destination, opaque region) follows.
+void surface_sync() noexcept;
 // The viewport destination or integer buffer scale of the surface (applied by the next commit).
 void apply_surface_geometry() noexcept;
 // A new scale from an integer source (wl_output, preferred_buffer_scale) or fractional-scale: scale_120.
@@ -366,8 +377,8 @@ void text_shutdown() noexcept;
 void extras_attach_surface() noexcept;
 void extras_output_added(wl_output* output) noexcept;
 void extras_shutdown() noexcept;
-// Keeps the wl_egl_window and the surface's scale state in step with the window size.
-void egl_sync() noexcept;
+// The system's input idle time in milliseconds for PlatformSettings, kSystemIdleUnknown without ext-idle-notify or a watch.
+u32 extras_system_idle_ms() noexcept;
 
 // pump.cpp: the queue behind window_post, drained into wake events.
 void post_drain() noexcept;

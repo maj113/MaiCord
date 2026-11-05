@@ -198,17 +198,14 @@ jobs:
             }
           }
 
-  # The Linux port (D1, D11): one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the
-  # same tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested
-  # with Mesa's llvmpipe for the GPU cases. A clean build of everything took 44 seconds on 16
-  # cores in a pristine ubuntu:24.04 container, and the suite then ran in 3 seconds; the shader toolchain (DXC, SPIRV-Cross,
-  # mc_shadertool) is cached by the pins that name it (tools/linux_shader_toolchain.json, the tool's source and the
-  # compiler that builds it), so only a change of pin builds SPIRV-Cross again. The compositor, D-Bus and audio scripts
-  # run beside it (every case under 20 s: headless sway about 13 s, D-Bus 17 s, PulseAudio 8 s on the development
-  # machine); they are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING
-  # is 'true'. The portable subset of the built tests then goes to the distros job as a one-day artifact of this run.
-  # Neither job gates the preview channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also
-  # packages a master build's tarball (the Linux preview feed, signed by the preview job); nothing else is published from here.
+  # The Linux port: one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the same
+  # tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested with Mesa's
+  # llvmpipe for the GPU cases. The shader toolchain (DXC, SPIRV-Cross, mc_shadertool) is cached by the pins that name it, so
+  # only a change of pin builds SPIRV-Cross again. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
+  # are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. The
+  # portable subset of the built tests goes to the distros job as a one-day artifact of this run. Neither job gates the preview
+  # channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also packages a master build's
+  # tarball (the Linux preview feed, signed by the preview job); nothing else is published from here.
   linux:
     name: Linux (x86-64 build, tests, ELF audit)
     runs-on: ubuntu-24.04
@@ -235,17 +232,21 @@ jobs:
 
       - name: Shader toolchain cache key
         id: shader-key
-        run: echo "compiler=$(c++ --version | head -n 1 | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: >-
+          echo "key=maicord-shader-toolchain-$(c++ --version | head -n 1 | sha256sum | cut -c1-16)-${{
+          hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py')
+          }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the shader toolchain
         id: shader-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/maicord-toolchain
-          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+          key: ${{ steps.shader-key.outputs.key }}
 
       # Configures into ~/mc-build in place (the checkout is on a native file system), builds, runs tools/audit_elf.py on
-      # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner.
+      # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner. A build
+      # with tests also compiles the test-only environment switches, so what ships is built again below.
       - name: Build, audit and test
         env:
           # The shipping client's updater identity, as the Windows client job gives its build, and the flag that lets the
@@ -260,60 +261,28 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/maicord-toolchain
-          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+          key: ${{ steps.shader-key.outputs.key }}
 
-      # The declarations the Linux build resolves with dlsym against the installed headers (libssl-dev, libpulse-dev,
-      # libspeechd-dev, libfido2-dev).
-      - name: dlopen ABI checks
-        run: |
-          python3 tools/check_openssl_abi.py --compiler /usr/lib/llvm-23/bin/clang
-          python3 tools/check_pulse_abi.py --compiler /usr/lib/llvm-23/bin/clang
-          python3 tools/check_speechd_abi.py --compiler /usr/lib/llvm-23/bin/clang
-          python3 tools/check_fido2_abi.py --compiler /usr/lib/llvm-23/bin/clang
+      # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
+      # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev).
+      - name: ABI checks
+        run: for abi in libc openssl pulse speechd fido2 video; do python3 -B "tools/check_${abi}_abi.py" --compiler /usr/lib/llvm-23/bin/clang; done
 
-      # The tarball around a stand-in program (packaging/README.md): reproducible, valid desktop entry and AppStream
-      # metadata, install and uninstall under a private home.
+      # The packages around a stand-in program (packaging/README.md): the reproducible tarball, the AppImage, the one-line
+      # installer, valid desktop entry and AppStream metadata, and, with nfpm, the .deb and .rpm.
       - name: Packaging checks
         run: |
-          sudo apt-get install -y --no-install-recommends appstream desktop-file-utils
-          bash packaging/check.sh
+          sh packaging/nfpm/install_nfpm.sh "$RUNNER_TEMP/tools"
+          PATH="$RUNNER_TEMP/tools:$PATH" bash packaging/check.sh
 
-      - name: Wayland window (headless sway)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: |
-          bash tools/test_wayland_window.sh --binary "$HOME/mc-build/MaiCordWaylandWindowTests" --out "$RUNNER_TEMP/wayland"
-          bash tools/test_wayland_window.sh --binary "$HOME/mc-build/MaiCordWaylandWindowTests" --scale 1.5 --out "$RUNNER_TEMP/wayland-scaled"
-
-      - name: GPU surface (headless sway, llvmpipe)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: bash tools/test_gpu_surface.sh --binary "$HOME/mc-build/MaiCordGpuSurfaceWaylandTests" --out "$RUNNER_TEMP/gpu-surface"
-
-      # The client itself on the signed-out login screen with a private profile: screenshot, idle CPU and wakeups, memory.
-      - name: Client (headless sway, llvmpipe)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: bash tools/test_client_wayland.sh --binary "$HOME/mc-build/MaiCord" --out "$RUNNER_TEMP/client"
-
-      # The client behind the real at-spi-bus-launcher and registry, read through libatspi (python3-gi): the tree of the
-      # sign-in form, an action, field text, focus and text events, and accessibility off again.
-      - name: Screen reader (AT-SPI, headless sway)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: |
-          sudo apt-get install -y --no-install-recommends at-spi2-core gir1.2-atspi-2.0 python3-gi
-          bash tools/test_atspi.sh --binary "$HOME/mc-build/MaiCord" --out "$RUNNER_TEMP/atspi"
-
-      # tools/test_dbus_real.sh (the real xdg-desktop-portal and gnome-keyring) is left to a machine with a graphical
-      # session: the portal's GTK backend needs a display and the document portal needs FUSE, which a hosted runner lacks.
-      - name: D-Bus (mock services)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: bash tools/test_dbus.sh --binary-dir "$HOME/mc-build" --out "$RUNNER_TEMP/dbus"
-
-      - name: Audio (private PulseAudio)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: bash tools/test_pulse_audio.sh --private --binary "$HOME/mc-build/MaiCordPulseLoopbackTests"
-
-      - name: Text-to-speech (private speech-dispatcher, dummy module)
-        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
-        run: bash tools/test_speechd.sh --binary "$HOME/mc-build/MaiCordSpeechdTests"
+      # Headless sway, the GPU surface, the client on its signed-out screen, AT-SPI, the D-Bus mocks, PulseAudio and
+      # speech-dispatcher (tools/test_linux_integration.sh lists them). tools/test_dbus_real.sh (the real xdg-desktop-portal
+      # and gnome-keyring) is left to a machine with a graphical session: the portal's GTK backend needs a display and the
+      # document portal needs FUSE, which a hosted runner lacks.
+      - name: Integration (Wayland, AT-SPI, D-Bus, audio, speech)
+        env:
+          MAICORD_LINUX_INTEGRATION_BLOCKING: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING }}
+        run: bash tools/test_linux_integration.sh --out "$RUNNER_TEMP/integration"
 
       # The cases tools/linux_portable_tests.txt names and the executables they run: what the distros job runs in other
       # distributions' containers.
@@ -324,7 +293,8 @@ jobs:
           echo "name=linux-portable-${GITHUB_SHA::8}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       # The master build's tarball (packaging/README.md) for the Linux preview feed: only for a push to master of the
-      # repository that publishes, and only while the Linux channels are published.
+      # repository that publishes, and only while the Linux channels are published. The client in it is built without the
+      # tests' switches, in a directory of its own.
       - name: Package the preview tarball
         id: preview
         if: >-
@@ -332,9 +302,14 @@ jobs:
           steps.identity.outputs.dev == 'true' && vars.MAICORD_LINUX_RELEASES == 'true'
         env:
           VERSION: ${{ steps.identity.outputs.version }}
+          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
+          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
+          MAICORD_LINUX_BUILD: ${{ runner.temp }}/ship
         run: |
           set -eu
-          python3 -B packaging/build_tarball.py --binary "$HOME/mc-build/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
+          bash tools/build_linux.sh
+          python3 -B packaging/build_tarball.py --binary "$MAICORD_LINUX_BUILD/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
           ls -l "$RUNNER_TEMP/linux-preview"
           echo "name=MaiCord-linux-x64-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
@@ -353,9 +328,11 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The one-binary claim (D1) on the distributions people run: the portable subset of the tests, the same executables, in
-  # a container of each (tools/test_linux_distros.sh documents which package provides each dlopen()ed library). Fedora
-  # and Arch are rolling releases and run their latest image on purpose; the others are pinned by tag.
+  # The one-binary claim on the distributions people run, glibc and musl: the portable subset of the tests, the same
+  # executables (retargeted to musl's loader for the musl ones), in a container of each (tools/test_linux_distros.sh documents
+  # which package provides each dlopen()ed library). The runtime needs io_uring, so the script runs the containers with
+  # seccomp unconfined. Fedora, Arch and the musl distributions are rolling and run their latest image on purpose; the others are
+  # pinned by tag.
   distros:
     name: Linux distros (${{ matrix.distro }})
     needs: linux
@@ -367,7 +344,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu-22.04, debian-12, fedora, archlinux, nixos]
+        distro: [ubuntu-22.04, debian-12, fedora, archlinux, nixos, alpine, void-musl, chimera]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

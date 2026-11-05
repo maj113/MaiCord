@@ -1,0 +1,8 @@
+<!-- The openSUSE Build Service (https://build.opensuse.org) fetches the release tarball for maicord.spec before it builds
+     (obs-service-download_url). On a new release change the version in the URL here and Version in maicord.spec (and add a
+     %changelog entry); `osc service remoterun` or a commit runs it. -->
+<services>
+  <service name="download_url">
+    <param name="url">https://github.com/maj113/MaiCord/releases/download/v0.6.6/maicord-0.6.6-linux-x86_64.tar.gz</param>
+  </service>
+</services>

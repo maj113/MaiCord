@@ -30,13 +30,4 @@ struct WindowPumpResult {
 // Dispatches up to `max_events` events within `soft_budget_us`.
 WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPumpHooks& hooks) noexcept;
 
-// Deadline of backend-internal timers (key repeat), folded into the loop timeout; 0xFFFFFFFF when none.
-u32 window_next_deadline_ms(u64 now_ms) noexcept;
-
-// The pieces of window_wait where the display is a descriptor (Linux). Windows has no display waitable:
-// window_event_waitable returns nullptr and the wait covers the message queue itself.
-Waitable window_event_waitable() noexcept;
-void window_wait_begin() noexcept;
-void window_wait_end(bool display_ready) noexcept;
-
 } // namespace maicord

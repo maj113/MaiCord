@@ -9,7 +9,7 @@
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/sys/linux/libc.hpp"
-#include "maicord/sys/linux/process.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "speechd.hpp"
 
 namespace maicord {
@@ -29,8 +29,8 @@ const Api* library() noexcept {
     if (g_state == 2)
         return nullptr;
     g_state = 2;
-    // MAICORD_SPEECHD_LIBRARY replaces the soname (an unusual install, or a test of the no-library path).
-    const char* soname = environment_get("MAICORD_SPEECHD_LIBRARY");
+    // A test can name another soname (the no-library path); users and operators have MAICORD_LIBRARY_PATH.
+    const char* soname = test_hook("MAICORD_SPEECHD_LIBRARY");
     if (!soname || !*soname)
         soname = "libspeechd.so.2";
     if (!shared_library_open(&g_library, soname)) {

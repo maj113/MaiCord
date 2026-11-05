@@ -1,7 +1,6 @@
 # Temporary deterministic tests of the Linux build (tools/build_linux.sh --test; cmake/tests.cmake is the Windows
 # configuration). Only the tests of the code the Linux build has ported are registered, in
 # cmake/linux_test_registry.cmake; cmake/test_support.cmake and the shared tests/ sources serve both platforms.
-option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
 if(NOT MAICORD_BUILD_TESTS)
     return()
 endif()

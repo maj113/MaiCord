@@ -17,7 +17,7 @@
 #                as the repository's signing key; nothing else is trusted by it (signed-by).
 #
 # Packages the test suite and the opt-in scripts need, by what the Linux build opens with dlopen (names for Debian and
-# Ubuntu; AGENTS.md lists the Fedora, Arch and NixOS ones):
+# Ubuntu; tools/test_linux_distros.sh lists the Fedora, Arch and NixOS ones):
 #   libssl.so.3 libcrypto.so.3        libssl3t64 (libssl3 before Ubuntu 24.04), openssl (the CLI: s_server for the TLS tests)
 #   libfontconfig.so.1                libfontconfig1; fonts: fonts-dejavu-core fonts-noto-core fonts-noto-cjk
 #                                     fonts-noto-color-emoji fonts-liberation (MAICORD_TEST_FONT_SET=ubuntu)
@@ -27,11 +27,16 @@
 #   libspeechd.so.2                   libspeechd2, libspeechd-dev for the ABI check (speech-dispatcher, with its dummy module,
 #                                     for tools/test_speechd.sh)
 #   libfido2.so.1                     libfido2-1, libfido2-dev for the ABI check (optional at run time: security keys)
+#   libva.so.2 libva-drm.so.2         libva2 libva-drm2 (libva-dev: the ABI check), libdav1d.so.7 (libdav1d-dev),
+#                                     libopenh264.so.7 (libopenh264-dev): the video tiers' libraries and the headers
+#                                     tools/check_video_abi.py compares their declarations with
 #   libEGL.so.1 libGLESv2.so.2        libegl1 libgles2 and Mesa's drivers libegl-mesa0 libgl1-mesa-dri (llvmpipe, no GPU)
 #   libwayland-client.so.0 libwayland-egl.so.1 libwayland-cursor.so.0 libxkbcommon.so.0
 #                                     libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
-#   integration                       sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher (tools/test_dbus_real.sh,
-#                                     which needs a graphical session, also wants xdg-desktop-portal xdg-desktop-portal-gtk gnome-keyring)
+#   integration                       sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher
+#                                     at-spi2-core gir1.2-atspi-2.0 (tools/test_linux_integration.sh), appstream,
+#                                     desktop-file-utils, squashfs-tools, zsync and rpm (packaging/check.sh); tools/test_dbus_real.sh, which needs a graphical
+#                                     session, also wants xdg-desktop-portal xdg-desktop-portal-gtk gnome-keyring
 #
 # Needs apt-get; runs it through sudo when not root. Exit status: nonzero on any failure.
 set -euo pipefail
@@ -124,9 +129,11 @@ if [ "$with_tests" = 1 ]; then
     packages=("$libssl" openssl libfontconfig1 fonts-dejavu-core fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji
               fonts-liberation libhunspell-1.7-0 hunspell-en-us hunspell-de-de libenchant-2-2 libpulse0 libegl1 libgles2
               libegl-mesa0 libgl1-mesa-dri libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
-              libssl-dev libpulse-dev libspeechd-dev libspeechd2 libfido2-dev libfido2-1)
+              libssl-dev libpulse-dev libspeechd-dev libspeechd2 libfido2-dev libfido2-1 libva-dev libdav1d-dev
+              libopenh264-dev)
     if [ "$with_integration" = 1 ]; then
-        packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher)
+        packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher
+                   at-spi2-core gir1.2-atspi-2.0 appstream desktop-file-utils squashfs-tools zsync rpm)
     fi
     apt_install "${packages[@]}"
 fi

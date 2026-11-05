@@ -26,6 +26,8 @@ constexpr i32 kEglPlane0ModifierHigh = 0x3444; // EGL_DMA_BUF_PLANE0_MODIFIER_HI
 constexpr i32 kEglDeviceExt = 0x322C;          // EGL_DEVICE_EXT
 constexpr i32 kEglDrmDeviceFile = 0x3233;      // EGL_DRM_DEVICE_FILE_EXT
 constexpr i32 kEglDrmRenderNodeFile = 0x3377;  // EGL_DRM_RENDER_NODE_FILE_EXT
+constexpr u32 kGlR16 = 0x822A;                 // GL_R16_EXT
+constexpr u32 kGlRg16 = 0x822C;                // GL_RG16_EXT
 
 enum PlaneKind : u8 { plane_free, plane_cpu, plane_dmabuf };
 
@@ -58,6 +60,7 @@ struct ImageApi {
     void (*target_texture)(u32 target, void* image);
     u32 (*query_display_attribute)(void* display, i32 attribute, i64* value);
     const char* (*query_device_string)(void* device, i32 name);
+    u32 (*query_modifiers)(void* display, i32 format, i32 max, u64* modifiers, u32* external_only, i32* count);
     bool modifiers;
 };
 ImageApi g_images;
@@ -95,6 +98,7 @@ bool resolve_images(GpuDevice& device) noexcept {
             api.query_display_attribute =
                 reinterpret_cast<decltype(api.query_display_attribute)>(load("eglQueryDisplayAttribEXT"));
             api.query_device_string = reinterpret_cast<decltype(api.query_device_string)>(load("eglQueryDeviceStringEXT"));
+            api.query_modifiers = reinterpret_cast<decltype(api.query_modifiers)>(load("eglQueryDmaBufModifiersEXT"));
             const char* extensions = device.egl.eglQueryString(device.display, egl::kExtensions);
             api.modifiers = string_has_word(extensions, "EGL_EXT_image_dma_buf_import_modifiers");
             if (!api.destroy_khr && !api.destroy_core) {
@@ -134,7 +138,10 @@ VideoPlane* allocate_plane(u8 kind, u32 width, u32 height, GpuFormat format) noe
     plane->texture.refs = 1;
     plane->texture.width = width;
     plane->texture.height = height;
-    plane->texture.internal = format == GpuFormat::rg8 ? gl::kRg8 : gl::kR8;
+    plane->texture.internal = format == GpuFormat::rg8    ? gl::kRg8
+                              : format == GpuFormat::r16  ? kGlR16
+                              : format == GpuFormat::rg16 ? kGlRg16
+                                                          : gl::kR8;
     plane->texture.format = format;
     plane->texture.bind = gpu_bind_srv;
     plane->texture.usage = GpuUsage::default_;
@@ -177,6 +184,25 @@ void forget_unit_texture(GpuContext& c, u32 name) noexcept {
         if (applied == name)
             applied = 0xFFFFFFFFu;
 }
+
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// The modifier is listed for the format by eglQueryDmaBufModifiersEXT and can be sampled as a plain 2D texture (not
+// external-only). One query per import: a decoder on a driver whose exports are not kept pays it for every plane.
+bool modifier_usable(GpuDevice& device, u32 fourcc, u64 modifier) noexcept {
+    constexpr i32 kCapacity = 256;
+    u64 modifiers[kCapacity];
+    u32 external_only[kCapacity];
+    i32 returned = 0;
+    bool usable = false;
+    if (g_images.query_modifiers(device.display, static_cast<i32>(fourcc), kCapacity, modifiers, external_only, &returned))
+        for (i32 i = 0; i < returned && i < kCapacity; ++i)
+            if (modifiers[i] == modifier)
+                usable = !external_only[i];
+    if (!usable)
+        log_u64(LogLevel::warning, "video", "dmabuf_modifier_unusable", modifier);
+    return usable;
+}
+#pragma clang attribute pop
 
 } // namespace
 
@@ -266,6 +292,9 @@ void video_planes_shutdown() noexcept {
 
 } // namespace gles
 
+// The import of a decoded picture's plane: once per plane (per picture on a driver whose exports are not kept), the
+// EGL calls dominate it: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 u32 gpu_dmabuf_attributes(const GpuDmabufPlane& plane, bool modifiers, i32* attributes) noexcept {
     u32 n = 0;
     const auto put = [&](i32 key, i32 value) noexcept {
@@ -275,15 +304,36 @@ u32 gpu_dmabuf_attributes(const GpuDmabufPlane& plane, bool modifiers, i32* attr
     put(gles::kEglWidth, static_cast<i32>(plane.width));
     put(gles::kEglHeight, static_cast<i32>(plane.height));
     put(gles::kEglLinuxDrmFourcc, static_cast<i32>(plane.fourcc));
-    put(gles::kEglPlane0Fd, plane.fd);
-    put(gles::kEglPlane0Offset, static_cast<i32>(plane.offset));
-    put(gles::kEglPlane0Pitch, static_cast<i32>(plane.pitch));
-    if (modifiers && plane.modifier != kDrmFormatModifierInvalid) {
-        put(gles::kEglPlane0ModifierLow, static_cast<i32>(plane.modifier & 0xFFFFFFFFu));
-        put(gles::kEglPlane0ModifierHigh, static_cast<i32>(plane.modifier >> 32));
-    }
+    // Every plane of an image names the same modifier.
+    const bool modifier = modifiers && plane.modifier != kDrmFormatModifierInvalid;
+    const auto put_plane = [&](i32 index, i32 fd, u32 offset, u32 pitch) noexcept {
+        put(gles::kEglPlane0Fd + 3 * index, fd);
+        put(gles::kEglPlane0Offset + 3 * index, static_cast<i32>(offset));
+        put(gles::kEglPlane0Pitch + 3 * index, static_cast<i32>(pitch));
+        if (modifier) {
+            put(gles::kEglPlane0ModifierLow + 2 * index, static_cast<i32>(plane.modifier & 0xFFFFFFFFu));
+            put(gles::kEglPlane0ModifierHigh + 2 * index, static_cast<i32>(plane.modifier >> 32));
+        }
+    };
+    put_plane(0, plane.fd, plane.offset, plane.pitch);
+    if (plane.aux_pitch)
+        put_plane(1, plane.aux_fd, plane.aux_offset, plane.aux_pitch);
     attributes[n++] = gles::kEglNone;
     return n;
+}
+
+bool gpu_dmabuf_plane_supported(GpuDevice* device, const GpuDmabufPlane& plane) {
+    if (!device || !device->caps.dmabuf_import || !gles::resolve_images(*device))
+        return false;
+    // A linear buffer is what an import without modifiers assumes, and an unspecified modifier leaves the layout to the
+    // driver: neither needs a listing, and neither has a second plane.
+    if (plane.modifier == kDrmFormatModifierLinear || plane.modifier == kDrmFormatModifierInvalid)
+        return !plane.aux_pitch;
+    if (!gles::g_images.modifiers)
+        return false; // a tiled buffer would be read as a linear one
+    if (!gles::g_images.query_modifiers)
+        return true; // the extension is there without its query: the import itself says
+    return gles::modifier_usable(*device, plane.fourcc, plane.modifier);
 }
 
 GpuStatus gpu_video_plane_import(GpuDevice* device, const GpuDmabufPlane& source, GpuTexture** texture, GpuSrv** view) {
@@ -292,30 +342,31 @@ GpuStatus gpu_video_plane_import(GpuDevice* device, const GpuDmabufPlane& source
     if (view)
         *view = nullptr;
     if (!device || !texture || !view || source.fd < 0 || !source.width || !source.height || source.pitch == 0 ||
-        source.width > 16384 || source.height > 16384)
+        source.width > 16384 || source.height > 16384 || (source.aux_pitch && source.aux_fd < 0))
         return kGpuInvalidArgument;
     const bool chroma = source.fourcc == kDrmFormatGr88 || source.fourcc == kDrmFormatGr1616;
+    const bool wide = source.fourcc == kDrmFormatR16 || source.fourcc == kDrmFormatGr1616;
     if (!chroma && source.fourcc != kDrmFormatR8 && source.fourcc != kDrmFormatR16)
         return kGpuInvalidArgument;
-    if (!device->caps.dmabuf_import || !gles::resolve_images(*device))
+    if (!gpu_dmabuf_plane_supported(device, source))
         return kGpuUnsupported;
-    i32 attributes[24];
+    i32 attributes[32]{};
     gpu_dmabuf_attributes(source, gles::g_images.modifiers, attributes);
     void* image = nullptr;
     if (gles::g_images.create_khr) {
         image = gles::g_images.create_khr(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, attributes);
     } else {
-        i64 wide[24];
-        for (u32 i = 0; i < 24; ++i)
-            wide[i] = attributes[i];
-        image = gles::g_images.create_core(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, wide);
+        i64 wide_attributes[32];
+        for (u32 i = 0; i < 32; ++i)
+            wide_attributes[i] = attributes[i];
+        image = gles::g_images.create_core(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, wide_attributes);
     }
     if (!image) {
         log_u64(LogLevel::warning, "video", "dmabuf_import_failed_egl", static_cast<u64>(device->egl.eglGetError()));
         return kGpuFail;
     }
-    gles::VideoPlane* plane = gles::allocate_plane(gles::plane_dmabuf, source.width, source.height,
-                                                   chroma ? GpuFormat::rg8 : GpuFormat::r8);
+    const GpuFormat format = wide ? (chroma ? GpuFormat::rg16 : GpuFormat::r16) : (chroma ? GpuFormat::rg8 : GpuFormat::r8);
+    gles::VideoPlane* plane = gles::allocate_plane(gles::plane_dmabuf, source.width, source.height, format);
     if (!plane) {
         if (gles::g_images.destroy_khr)
             gles::g_images.destroy_khr(device->display, image);
@@ -329,6 +380,8 @@ GpuStatus gpu_video_plane_import(GpuDevice* device, const GpuDmabufPlane& source
     *view = &plane->view;
     return kGpuOk;
 }
+
+#pragma clang attribute pop
 
 GpuStatus gpu_video_plane_create(GpuDevice* device, GpuVideoPlaneFormat format, u32 width, u32 height,
                                  GpuTexture** texture, GpuSrv** view, u8** pixels, u32* pitch) {

@@ -1,22 +1,16 @@
-// The connected UDP sockets of maicord/platform/net/network.hpp on Linux, on the same epoll loop as the streams.
+// The connected UDP sockets of maicord/platform/net/network.hpp on Linux, on the same ring as the streams.
 //
-// Each of the eight receive slots is a posted buffer; a datagram goes to the slot that was posted first, which is
-// how overlapped reads on a Windows socket are served. A datagram larger than its buffer completes as a failure
-// with WSAEMSGSIZE and the bytes that fit (the voice code drops it); a zero-length datagram is a valid receive.
-// Closing delivers one cancelled completion for every operation that was still waiting for the socket.
+// Each of the eight receive slots is a posted buffer; a datagram goes to the slot that was posted first, which is how
+// overlapped reads on a Windows socket are served. The kernel is asked for one read at a time (the oldest slot's):
+// several reads waiting on one socket are woken in no promised order. A datagram larger than its buffer completes as
+// a failure with WSAEMSGSIZE and the bytes that fit (the voice code drops it); a zero-length datagram is a valid
+// receive. Closing delivers one cancelled completion for every read that was still waiting.
 #include "internal.hpp"
 
 namespace maicord {
 namespace {
 
 using namespace net_detail;
-
-constexpr u16 kWaitSend = 1;
-
-// Bit 0 of NetworkDatagram::waiting is the send, bit s + 1 the receive slot s.
-constexpr u16 receive_bit(u32 slot) noexcept {
-    return static_cast<u16>(2u << slot);
-}
 
 NetworkResult fail(NetworkError error, i32 native = WSAEINVAL) noexcept {
     return failure(error, native);
@@ -33,87 +27,27 @@ NetworkOperation& receive_operation(NetworkDatagram* datagram, u32 slot) noexcep
     return slot ? datagram->extra_receive_operations[slot - 1] : datagram->receive_operation;
 }
 
-// A refused connected UDP socket reports the ICMP error on the next call; Windows calls it a connection reset.
-i32 datagram_error(long result) noexcept {
-    const int error = static_cast<int>(-result);
-    return error == kErrorConnectionRefused ? WSAECONNRESET : map_errno(error);
-}
-
-// The receive slot that has waited longest, or kNetworkDatagramReceiveSlots when none waits.
-u32 oldest_waiting(const NetworkDatagram& datagram) noexcept {
-    u32 found = kNetworkDatagramReceiveSlots;
-    for (u32 slot = 0; slot < kNetworkDatagramReceiveSlots; ++slot) {
-        if ((datagram.waiting & receive_bit(slot)) &&
-            (found == kNetworkDatagramReceiveSlots || datagram.receive_order[slot] < datagram.receive_order[found])) {
-            found = slot;
-        }
-    }
-    return found;
-}
-
-// Serves waiting receives, oldest first, until the socket has nothing more to read.
-void serve_receives(NetworkDatagram* datagram) noexcept {
-    for (;;) {
-        const u32 slot = oldest_waiting(*datagram);
-        if (slot == kNetworkDatagramReceiveSlots || datagram->socket == 0) {
-            return;
-        }
-        NetworkOperation& operation = receive_operation(datagram, slot);
-        const long received = sys_recv(descriptor(datagram->socket), operation.buffer.buf, operation.buffer.len,
-                                       kMessageTruncate | kMessageDontWait);
-        if (received == -kErrorInterrupted) {
-            continue;
-        }
-        if (received == -kErrorAgain) {
-            return;
-        }
-        datagram->waiting = static_cast<u16>(datagram->waiting & ~receive_bit(slot));
-        if (syscall_failed(received)) {
-            complete(datagram->loop, &operation, false, 0, datagram_error(received));
-        } else if (static_cast<u64>(received) > operation.buffer.len) {
-            complete(datagram->loop, &operation, false, operation.buffer.len, WSAEMSGSIZE);
-        } else {
-            complete(datagram->loop, &operation, true, static_cast<u32>(received), 0);
-        }
-    }
-}
-
-void try_send(NetworkDatagram* datagram) noexcept {
-    NetworkOperation& operation = datagram->send_operation;
-    for (;;) {
-        const long sent =
-            sys_send(descriptor(datagram->socket), operation.buffer.buf, operation.buffer.len, kMessageNoSignal);
-        if (sent == -kErrorInterrupted) {
-            continue;
-        }
-        if (sent == -kErrorAgain) {
-            datagram->waiting |= kWaitSend;
-            return;
-        }
-        datagram->waiting = static_cast<u16>(datagram->waiting & ~kWaitSend);
-        if (syscall_failed(sent)) {
-            complete(datagram->loop, &operation, false, 0, datagram_error(sent));
-        } else {
-            complete(datagram->loop, &operation, true, static_cast<u32>(sent), 0);
-        }
+// Starts the read of the slot posted first, when none is under way.
+void next_receive(NetworkDatagram* datagram) noexcept {
+    if (datagram->receive_running || datagram->receive_queued == 0 || datagram->socket == 0) {
         return;
     }
+    const u32 slot = datagram->receive_queue[0];
+    for (u32 index = 1; index < datagram->receive_queued; ++index) {
+        datagram->receive_queue[index - 1] = datagram->receive_queue[index];
+    }
+    --datagram->receive_queued;
+    datagram->receive_running = true;
+    start(datagram->loop, &receive_operation(datagram, slot));
 }
 
 } // namespace
 
 namespace net_detail {
 
-void service_datagram(NetworkDatagram* datagram, u32 events) noexcept {
-    if (datagram->socket == 0) {
-        return;
-    }
-    if (events & (kEpollIn | kEpollError | kEpollHangUp)) {
-        serve_receives(datagram);
-    }
-    if ((datagram->waiting & kWaitSend) && (events & (kEpollOut | kEpollError | kEpollHangUp))) {
-        try_send(datagram);
-    }
+i32 datagram_error(long result) noexcept {
+    const int error = static_cast<int>(-result);
+    return error == kErrorConnectionRefused ? WSAECONNRESET : map_errno(error);
 }
 
 void translate_datagram(NetworkOperation* operation, NetworkPollResult* result) noexcept {
@@ -141,6 +75,11 @@ void translate_datagram(NetworkOperation* operation, NetworkPollResult* result) 
     }
 }
 
+void receive_finished(NetworkDatagram* datagram) noexcept {
+    datagram->receive_running = false;
+    next_receive(datagram);
+}
+
 } // namespace net_detail
 
 NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram,
@@ -162,11 +101,6 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
         const i32 error = map_result(connected);
         sys_close(fd);
         return fail(NetworkError::connect_start, error);
-    }
-    if (!watch_socket(loop, fd, datagram, kOwnerDatagram, kEpollIn | kEpollOut | kEpollEdgeTriggered)) {
-        const i32 error = network_last_error();
-        sys_close(fd);
-        return fail(NetworkError::completion_port_associate, error);
     }
     const u32 generation = datagram->generation + 1;
     reset_value(datagram);
@@ -197,9 +131,8 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
     } else {
         datagram->receive_pending = true;
     }
-    datagram->waiting |= receive_bit(slot);
-    datagram->receive_order[slot] = ++datagram->receive_serial;
-    serve_receives(datagram);
+    datagram->receive_queue[datagram->receive_queued++] = static_cast<u8>(slot);
+    next_receive(datagram);
     return success();
 }
 
@@ -220,7 +153,7 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
     initialize_operation(&send, datagram, NetworkOperationKind::datagram_send);
     send.buffer = {buffer.count, reinterpret_cast<char*>(const_cast<u8*>(buffer.data))};
     datagram->send_pending = true;
-    try_send(datagram);
+    start(datagram->loop, &send);
     return success();
 }
 
@@ -228,19 +161,18 @@ void network_datagram_close(NetworkDatagram* datagram) noexcept {
     if (!datagram || !datagram->open) {
         return;
     }
+    // The read under way and the send are cancelled with the descriptor; reads that never started finish at once.
+    if (datagram->receive_running || datagram->send_pending) {
+        cancel_socket(datagram->loop, descriptor(datagram->socket));
+    }
+    for (u32 index = 0; index < datagram->receive_queued; ++index) {
+        complete(datagram->loop, &receive_operation(datagram, datagram->receive_queue[index]), false, 0,
+                 ERROR_OPERATION_ABORTED);
+    }
+    datagram->receive_queued = 0;
     sys_close(descriptor(datagram->socket));
     datagram->socket = 0;
     datagram->open = false;
-    const u16 waiting = datagram->waiting;
-    datagram->waiting = 0;
-    if (waiting & kWaitSend) {
-        complete(datagram->loop, &datagram->send_operation, false, 0, ERROR_OPERATION_ABORTED);
-    }
-    for (u32 slot = 0; slot < kNetworkDatagramReceiveSlots; ++slot) {
-        if (waiting & receive_bit(slot)) {
-            complete(datagram->loop, &receive_operation(datagram, slot), false, 0, ERROR_OPERATION_ABORTED);
-        }
-    }
 }
 
 } // namespace maicord

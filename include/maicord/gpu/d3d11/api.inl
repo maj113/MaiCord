@@ -20,6 +20,8 @@ static_assert(static_cast<UINT>(GpuFormat::rgba8) == DXGI_FORMAT_R8G8B8A8_UNORM 
               static_cast<UINT>(GpuFormat::bgra8) == DXGI_FORMAT_B8G8R8A8_UNORM &&
               static_cast<UINT>(GpuFormat::r8) == DXGI_FORMAT_R8_UNORM &&
               static_cast<UINT>(GpuFormat::rg8) == DXGI_FORMAT_R8G8_UNORM &&
+              static_cast<UINT>(GpuFormat::r16) == DXGI_FORMAT_R16_UNORM &&
+              static_cast<UINT>(GpuFormat::rg16) == DXGI_FORMAT_R16G16_UNORM &&
               static_cast<UINT>(GpuFormat::rgba16f) == DXGI_FORMAT_R16G16B16A16_FLOAT &&
               static_cast<UINT>(GpuFormat::rgba32f) == DXGI_FORMAT_R32G32B32A32_FLOAT &&
               static_cast<UINT>(GpuFormat::r32_uint) == DXGI_FORMAT_R32_UINT);

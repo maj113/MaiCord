@@ -5,9 +5,9 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/keymap.hpp"
+#include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "backend.hpp"
-#include "fd.hpp"
 
 namespace maicord::wayland {
 namespace {
@@ -190,7 +190,7 @@ void on_keymap(void*, wl_keyboard*, u32 format, i32 fd, u32 size) noexcept {
     KeyboardState& keyboard = g.keyboard;
     const XkbApi* api = xkb_api();
     const long address = (api && format == wl_keyboard_keymap_format_xkb_v1 && size > 0)
-                             ? fd_map(fd, size, kProtectRead, kMapPrivate)
+                             ? sys_mmap_file(fd, size, kProtectRead, kMapPrivate)
                              : -1;
     if (!syscall_failed(address)) {
         if (!keyboard.context) {

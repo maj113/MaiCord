@@ -1,0 +1,42 @@
+Source: maicord
+Section: net
+Priority: optional
+Maintainer: @MAINTAINER@
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://maicord.com/
+Vcs-Browser: https://github.com/maj113/MaiCord
+
+Package: maicord
+Architecture: amd64
+Depends: ${misc:Depends},
+ libc6 (>= 2.17),
+ libssl3t64 | libssl3,
+ libwayland-client0,
+ libwayland-egl1,
+ libwayland-cursor0,
+ libxkbcommon0,
+ libegl1,
+ libgles2
+Recommends: libgl1-mesa-dri,
+ libpulse0,
+ libfontconfig1,
+ fonts-noto-color-emoji,
+ xdg-desktop-portal,
+ libhunspell-1.7-0 | libenchant-2-2,
+ gnome-keyring | kwalletmanager | keepassxc
+Suggests: fonts-noto-cjk,
+ hunspell-en-us,
+ enchant-2,
+ speech-dispatcher,
+ libfido2-1
+Description: Lightweight, native Discord client (unofficial)
+ MaiCord draws its own interface on the GPU; there is no Electron, browser
+ engine or web view. It is not affiliated with, endorsed by or supported by
+ Discord Inc.
+ .
+ This package installs the upstream release program, which is built from the
+ source at https://github.com/maj113/MaiCord with LLVM 23 (the Ubuntu archive
+ has no such compiler), so the source package carries the release tarball and
+ does not compile anything.

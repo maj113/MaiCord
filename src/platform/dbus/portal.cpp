@@ -46,4 +46,19 @@ u32 inhibit_portal_version(u32 timeout_ms) noexcept {
     return portal_interface_version("org.freedesktop.portal.Inhibit", timeout_ms);
 }
 
+namespace {
+char g_parent_window[96];
+} // namespace
+
+void portal_set_parent_window(const char* identifier) noexcept {
+    u32 length = 0;
+    for (; identifier && identifier[length] && length + 1 < sizeof(g_parent_window); ++length)
+        g_parent_window[length] = identifier[length];
+    g_parent_window[length] = 0;
+}
+
+const char* portal_parent_window() noexcept {
+    return g_parent_window;
+}
+
 } // namespace maicord::dbus

@@ -87,11 +87,9 @@ bool process_replace(const ProcessCommand& command, u32* native_error) noexcept 
         KernelSigaction action{};
         syscall4(kCallRtSigaction, kSignalChild, reinterpret_cast<long>(&action), 0, 8);
     }
-    // Marked close-on-exec where the kernel can mark a range (5.11), else closed now: the process is leaving this
-    // image either way, and a refused exec ends in the normal exit that follows.
-    if (syscall_failed(sys_close_range(3, ~0u, kCloseRangeCloseOnExec)) && syscall_failed(sys_close_range(3, ~0u, 0)))
-        for (int fd = 3; fd < 1024; ++fd)
-            sys_close(fd);
+    // Every other descriptor is marked close-on-exec (Linux 5.11): the process is leaving this image either way, and a
+    // refused exec ends in the normal exit that follows.
+    sys_close_range(3, ~0u, kCloseRangeCloseOnExec);
     // The path is read-only for the kernel; the vector wants mutable pointers.
     char path[sizeof(command.path)];
     copy_bytes(path, command.path, sizeof(path));

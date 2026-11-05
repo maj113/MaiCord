@@ -34,8 +34,9 @@ MAICORD_SHADER_ORDER(video_frame);
 MAICORD_SHADER_ORDER(fx_vertex); MAICORD_SHADER_ORDER(fx_builtin); MAICORD_SHADER_ORDER(fx_target_vertex);
 MAICORD_SHADER_ORDER(fx_composite_vertex); MAICORD_SHADER_ORDER(fx_composite_pixel);
 #undef MAICORD_SHADER_ORDER
-// The pack ends with the variants only this backend uses (tools/build_gles_shader_pack.py GLES_VARIANTS).
-static_assert(sizeof(kGlesShaders) / sizeof(kGlesShaders[0]) == static_cast<u32>(ShaderId::count) + 3);
+// The pack ends with the variant only this backend uses (tools/build_gles_shader_pack.py GLES_VARIANTS).
+static_assert(sizeof(kGlesShaders) / sizeof(kGlesShaders[0]) == static_cast<u32>(ShaderId::count) + 1);
+static_assert(sizeof(kGlesShaders) / sizeof(kGlesShaders[0]) <= kGlesPackCapacity);
 
 // colr_layers evaluates a pixel's paint plan in 8 slices, a 512-invocation group; a device that cannot run that many
 // invocations in a group gets the 2-slice variant (128, the least OpenGL ES 3.1 guarantees), which paints the same.
@@ -179,27 +180,6 @@ GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum type, GlesShade
     return kGpuOk;
 }
 
-// fx_composite_pixel without dual-source blending: its weight and colour halves, which share its manifest.
-GpuStatus create_composite_halves(GpuDevice* device, GlesShader* shader) noexcept {
-    const GlesPackedShader* entry = nullptr;
-    GpuStatus status = create_packed(device, kGlesShaderIndex_fx_composite_weight_pixel, gl::kFragmentShader,
-                                     &shader->weight_name, &entry);
-    if (gpu_ok(status))
-        status = create_packed(device, kGlesShaderIndex_fx_composite_color_pixel, gl::kFragmentShader,
-                               &shader->color_name, &entry);
-    if (!gpu_ok(status)) {
-        if (shader->weight_name)
-            device->gl.glDeleteShader(shader->weight_name);
-        shader->weight_name = shader->color_name = 0;
-        return status;
-    }
-    shader->name = 0;
-    shader->rows = kGlesBindings + entry->binding_first;
-    shader->row_count = entry->binding_count;
-    shader->id = ShaderId::fx_composite_pixel;
-    return kGpuOk;
-}
-
 // The lines the GLSL of a package may begin a directive with: what the shader tool writes and nothing else.
 bool allowed_directive(const char* line, u32 length) noexcept {
     static constexpr const char* kAllowed[] = {
@@ -312,42 +292,51 @@ GpuStatus create_blob_shader(GpuDevice* device, ConstSlice<u8> payload, u8 stage
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept {
     if (id >= ShaderId::count)
         return kGpuInvalidArgument;
-    const GlesPackedShader* entry = nullptr;
-    gl::Api& gl = device->gl;
-    u32 program = 0;
-    const GpuStatus status = with_source(pack_index(id), 2, &entry, [&](const char* text, u32 length) noexcept {
-        const u32 object = gl.glCreateShader(gl::kComputeShader);
-        const gl::Int bytes = static_cast<gl::Int>(length);
-        gl.glShaderSource(object, 1, &text, &bytes);
-        gl.glCompileShader(object);
-        device->trim_pending = true;
-        gl::Int compiled = 0;
-        gl.glGetShaderiv(object, gl::kCompileStatus, &compiled);
-        if (!compiled) {
-            log_info(gl, false, object, "a compute shader did not compile");
-            log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
+    // One program per pack entry: the atlases made on the prestart worker and on the main thread run the same compute
+    // shaders, and a driver compiles a program again for each (a pipeline state on Direct3D 12, LLVM code on llvmpipe).
+    const u32 index = pack_index(id);
+    GlesComputeProgram& shared = device->compute_programs[index];
+    const GlesPackedShader* entry = &kGlesShaders[index];
+    if (shared.refs == 0) {
+        gl::Api& gl = device->gl;
+        u32 program = 0;
+        const GpuStatus status = with_source(index, 2, &entry, [&](const char* text, u32 length) noexcept {
+            const u32 object = gl.glCreateShader(gl::kComputeShader);
+            const gl::Int bytes = static_cast<gl::Int>(length);
+            gl.glShaderSource(object, 1, &text, &bytes);
+            gl.glCompileShader(object);
+            device->trim_pending = true;
+            gl::Int compiled = 0;
+            gl.glGetShaderiv(object, gl::kCompileStatus, &compiled);
+            if (!compiled) {
+                log_info(gl, false, object, "a compute shader did not compile");
+                log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
+                gl.glDeleteShader(object);
+                return kGpuFail;
+            }
+            program = gl.glCreateProgram();
+            gl.glAttachShader(program, object);
+            gl.glLinkProgram(program);
+            gl.glDetachShader(program, object);
             gl.glDeleteShader(object);
-            return kGpuFail;
-        }
-        program = gl.glCreateProgram();
-        gl.glAttachShader(program, object);
-        gl.glLinkProgram(program);
-        gl.glDetachShader(program, object);
-        gl.glDeleteShader(object);
-        gl::Int linked = 0;
-        gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
-        if (!linked) {
-            log_info(gl, true, program, "a compute program did not link");
-            log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
-            gl.glDeleteProgram(program);
-            program = 0;
-            return kGpuFail;
-        }
-        return kGpuOk;
-    });
-    if (!gpu_ok(status))
-        return status;
-    shader->name = program;
+            gl::Int linked = 0;
+            gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
+            if (!linked) {
+                log_info(gl, true, program, "a compute program did not link");
+                log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
+                gl.glDeleteProgram(program);
+                program = 0;
+                return kGpuFail;
+            }
+            return kGpuOk;
+        });
+        if (!gpu_ok(status))
+            return status;
+        shared = {program, 1};
+    } else {
+        ++shared.refs;
+    }
+    shader->name = shared.name;
     shader->rows = kGlesBindings + entry->binding_first;
     shader->row_count = entry->binding_count;
     shader->id = id;
@@ -419,9 +408,9 @@ GpuStatus gpu_pixel_shader_create(GpuDevice* device, ShaderId id, GpuPixelShader
     GpuPixelShader* result = device->pixel_shaders.allocate();
     if (!result)
         return kGpuOutOfMemory;
-    // The composite's second output is dual-source blending; without it the shader is its two halves.
+    // The composite's second output is dual-source blending (a device without it has no background effects).
     const GpuStatus status = id == ShaderId::fx_composite_pixel && !device->caps.dual_source_blend
-                                 ? create_composite_halves(device, result)
+                                 ? kGpuUnsupported
                                  : create_shader(device, id, gl::kFragmentShader, result);
     if (!gpu_ok(status)) {
         device->pixel_shaders.release(result);
@@ -534,10 +523,6 @@ void gpu_release(GpuPixelShader*& handle) noexcept {
     drop_programs(d, shader);
     if (shader->name)
         d.gl.glDeleteShader(shader->name);
-    if (shader->weight_name)
-        d.gl.glDeleteShader(shader->weight_name);
-    if (shader->color_name)
-        d.gl.glDeleteShader(shader->color_name);
     if (gles::context().pixel_shader == shader)
         gles::context().pixel_shader = nullptr;
     d.pixel_shaders.release(shader);
@@ -549,7 +534,11 @@ void gpu_release(GpuComputeShader*& handle) noexcept {
     if (!shader)
         return;
     GpuDevice& d = gles::device();
-    d.gl.glDeleteProgram(shader->name);
+    GlesComputeProgram& shared = d.compute_programs[pack_index(shader->id)];
+    if (shared.refs && shared.name == shader->name && --shared.refs == 0) {
+        d.gl.glDeleteProgram(shader->name);
+        shared = {};
+    }
     GpuContext& c = gles::context();
     if (c.compute_shader == shader)
         c.compute_shader = nullptr;

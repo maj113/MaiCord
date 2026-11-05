@@ -4,6 +4,7 @@
 #include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/os/text.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
+#include "maicord/platform/window/wayland.hpp"
 
 namespace maicord {
 namespace {
@@ -88,6 +89,9 @@ bool desktop_open_notification_settings(Window) noexcept {
     return false;
 }
 
-void desktop_alert_beep() noexcept {}
+// The compositor's bell where it has one (xdg-system-bell); nothing otherwise, as a client without a sound has no beep.
+void desktop_alert_beep() noexcept {
+    window_wayland_system_bell();
+}
 
 } // namespace maicord

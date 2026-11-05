@@ -928,6 +928,47 @@ void test_runtime_memory() noexcept {
         pages_release(pages, page_bytes * 6);
     }
     expect(boundaries, "runtime_memory_guard_page_bounds");
+
+    // Counts from 1 MiB on: the Linux runtime streams them (non-temporal stores), and the head, the aligned body and
+    // the tail of a misaligned copy, a forward overlap and a fill must each come out exact, with the bytes around
+    // them untouched.
+    constexpr usize kLarge = (1u << 20) + 77;
+    constexpr usize kSlack = 256;
+    u8* large = static_cast<u8*>(pages_allocate(kLarge * 2 + kSlack * 4));
+    bool streamed = large != nullptr;
+    for (u32 variant = 0; variant < 4 && streamed; ++variant) {
+        const usize source_offset = variant == 1 ? 1 : variant == 2 ? 31 : 0;
+        const usize destination_offset = variant == 1 ? 3 : variant == 2 ? 17 : 0;
+        u8* source = large + kSlack + source_offset;
+        u8* destination = large + kLarge + kSlack * 3 + destination_offset;
+        for (usize index = 0; index < kLarge; ++index) {
+            source[index] = static_cast<u8>(index * 29u + variant);
+        }
+        destination[-1] = 0xc3;
+        destination[kLarge] = 0xc3;
+        streamed = g_runtime_copy(destination, source, kLarge) == destination && destination[-1] == 0xc3 &&
+                   destination[kLarge] == 0xc3;
+        for (usize index = 0; index < kLarge && streamed; ++index) {
+            streamed = destination[index] == static_cast<u8>(index * 29u + variant);
+        }
+        // The destination a few bytes below the source, overlapping it from below.
+        u8* below = source - 5 - variant;
+        streamed = streamed && g_runtime_move(below, source, kLarge) == below;
+        for (usize index = 0; index < kLarge && streamed; ++index) {
+            streamed = below[index] == static_cast<u8>(index * 29u + variant);
+        }
+        destination[-1] = 0x3c;
+        destination[kLarge] = 0x3c;
+        streamed = streamed && g_runtime_set(destination, 0x5a + variant, kLarge) == destination &&
+                   destination[-1] == 0x3c && destination[kLarge] == 0x3c;
+        for (usize index = 0; index < kLarge && streamed; ++index) {
+            streamed = destination[index] == static_cast<u8>(0x5a + variant);
+        }
+    }
+    if (large) {
+        pages_release(large, kLarge * 2 + kSlack * 4);
+    }
+    expect(streamed, "runtime_memory_streaming_sizes");
 }
 
 } // namespace maicord

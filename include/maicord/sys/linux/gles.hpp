@@ -18,14 +18,12 @@ using Sizeiptr = i64;
 using Intptr = i64;
 using Sync = void*; // a GLsync
 inline constexpr Enum kSyncGpuCommandsComplete = 0x9117;
-inline constexpr Enum kAlreadySignaled = 0x911A, kConditionSatisfied = 0x911C, kTimeoutExpired = 0x911B,
-                      kWaitFailed = 0x911D;
+inline constexpr Enum kAlreadySignaled = 0x911A, kConditionSatisfied = 0x911C;
 inline constexpr Bitfield kSyncFlushCommandsBit = 0x00000001;
 inline constexpr Enum kTimestampExt = 0x8E28, kQueryResultAvailableExt = 0x8867, kQueryResultExt = 0x8866,
                       kGpuDisjointExt = 0x8FBB;
 
 inline constexpr Boolean kFalse = 0;
-inline constexpr Boolean kTrue = 1;
 inline constexpr Enum kZero = 0;
 inline constexpr Enum kOne = 1;
 inline constexpr Enum kNoError = 0;
@@ -40,12 +38,9 @@ inline constexpr Enum kMajorVersion = 0x821B;
 inline constexpr Enum kMinorVersion = 0x821C;
 inline constexpr Enum kMaxTextureSize = 0x0D33;
 inline constexpr Enum kMaxUniformBlockSize = 0x8A30;
-inline constexpr Enum kMaxUniformBufferBindings = 0x8A2F;
 inline constexpr Enum kMaxComputeWorkGroupInvocations = 0x90EB;
 inline constexpr Enum kMaxComputeSharedMemorySize = 0x8262;
 inline constexpr Enum kMaxComputeShaderStorageBlocks = 0x90DB;
-inline constexpr Enum kMaxCombinedTextureImageUnits = 0x8B4D;
-inline constexpr Enum kMaxVertexAttribBindings = 0x82DA;
 inline constexpr Enum kScissorTest = 0x0C11;
 inline constexpr Enum kBlend = 0x0BE2;
 inline constexpr Enum kCullFace = 0x0B44;
@@ -53,17 +48,12 @@ inline constexpr Enum kDither = 0x0BD0;
 inline constexpr Enum kDepthTest = 0x0B71;
 
 // Buffers.
-inline constexpr Enum kArrayBuffer = 0x8892;
 inline constexpr Enum kUniformBuffer = 0x8A11;
 inline constexpr Enum kShaderStorageBuffer = 0x90D2;
-inline constexpr Enum kCopyReadBuffer = 0x8F36;
 inline constexpr Enum kCopyWriteBuffer = 0x8F37;
 inline constexpr Enum kStaticDraw = 0x88E4;
 inline constexpr Enum kDynamicDraw = 0x88E8;
-inline constexpr Enum kStreamRead = 0x88E1;
-inline constexpr Bitfield kMapReadBit = 0x0001;
 inline constexpr Bitfield kMapWriteBit = 0x0002;
-inline constexpr Bitfield kMapInvalidateRangeBit = 0x0004;
 inline constexpr Bitfield kMapInvalidateBufferBit = 0x0008;
 inline constexpr Bitfield kMapUnsynchronizedBit = 0x0020;
 
@@ -75,9 +65,7 @@ inline constexpr Enum kTextureMagFilter = 0x2800;
 inline constexpr Enum kTextureWrapS = 0x2802;
 inline constexpr Enum kTextureWrapT = 0x2803;
 inline constexpr Enum kTextureSwizzleR = 0x8E42;
-inline constexpr Enum kTextureSwizzleG = 0x8E43;
 inline constexpr Enum kTextureSwizzleB = 0x8E44;
-inline constexpr Enum kTextureSwizzleA = 0x8E45;
 inline constexpr Enum kTextureBaseLevel = 0x813C;
 inline constexpr Enum kTextureMaxLevel = 0x813D;
 inline constexpr Enum kNearest = 0x2600;
@@ -88,9 +76,7 @@ inline constexpr Enum kRed = 0x1903;
 inline constexpr Enum kBlue = 0x1905;
 inline constexpr Enum kRgba = 0x1908;
 inline constexpr Enum kRg = 0x8227;
-inline constexpr Enum kRedInteger = 0x8D94;
 inline constexpr Enum kUnsignedByte = 0x1401;
-inline constexpr Enum kUnsignedInt = 0x1405;
 inline constexpr Enum kHalfFloat = 0x140B;
 inline constexpr Enum kFloat = 0x1406;
 inline constexpr Enum kR8 = 0x8229;
@@ -98,9 +84,6 @@ inline constexpr Enum kRg8 = 0x822B;
 inline constexpr Enum kRgba8 = 0x8058;
 inline constexpr Enum kRgba16f = 0x881A;
 inline constexpr Enum kRgba32f = 0x8814;
-inline constexpr Enum kR32ui = 0x8236;
-inline constexpr Enum kReadOnly = 0x88B8;
-inline constexpr Enum kWriteOnly = 0x88B9;
 inline constexpr Enum kReadWrite = 0x88BA;
 inline constexpr Enum kUnpackAlignment = 0x0CF5;
 inline constexpr Enum kUnpackRowLength = 0x0CF2;
@@ -122,7 +105,6 @@ inline constexpr Enum kVertexShader = 0x8B31;
 inline constexpr Enum kComputeShader = 0x91B9;
 inline constexpr Enum kCompileStatus = 0x8B81;
 inline constexpr Enum kLinkStatus = 0x8B82;
-inline constexpr Enum kInfoLogLength = 0x8B84;
 inline constexpr Enum kTriangleStrip = 0x0005;
 
 // Blending.
@@ -149,9 +131,7 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glDisable, (Enum capability))                                                                              \
     X(void, glViewport, (Int x, Int y, Sizei width, Sizei height))                                                     \
     X(void, glScissor, (Int x, Int y, Sizei width, Sizei height))                                                      \
-    X(void, glColorMask, (Boolean red, Boolean green, Boolean blue, Boolean alpha))                                    \
     X(void, glFlush, ())                                                                                               \
-    X(void, glFinish, ())                                                                                              \
     X(void, glPixelStorei, (Enum name, Int value))                                                                     \
     X(void, glBlendFuncSeparate, (Enum source, Enum destination, Enum source_alpha, Enum destination_alpha))           \
     X(void, glBlendEquationSeparate, (Enum color, Enum alpha))                                                         \
@@ -173,7 +153,6 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glTexSubImage2D, (Enum target, Int level, Int x, Int y, Sizei width, Sizei height, Enum format,            \
                               Enum type, const void* pixels))                                                          \
     X(void, glTexParameteri, (Enum target, Enum name, Int value))                                                      \
-    X(void, glCopyTexSubImage2D, (Enum target, Int level, Int dx, Int dy, Int x, Int y, Sizei width, Sizei height))    \
     X(void, glBindImageTexture, (Uint unit, Uint texture, Int level, Boolean layered, Int layer, Enum access,          \
                                  Enum format))                                                                         \
     X(void, glReadPixels, (Int x, Int y, Sizei width, Sizei height, Enum format, Enum type, void* pixels))             \
@@ -182,7 +161,6 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glBindFramebuffer, (Enum target, Uint name))                                                               \
     X(void, glFramebufferTexture2D, (Enum target, Enum attachment, Enum texture_target, Uint texture, Int level))      \
     X(Enum, glCheckFramebufferStatus, (Enum target))                                                                   \
-    X(void, glDrawBuffers, (Sizei count, const Enum* buffers))                                                         \
     X(void, glReadBuffer, (Enum source))                                                                               \
     X(void, glBlitFramebuffer, (Int source_x0, Int source_y0, Int source_x1, Int source_y1, Int destination_x0,        \
                                 Int destination_y0, Int destination_x1, Int destination_y1, Bitfield mask,             \
@@ -226,7 +204,7 @@ struct Api {
 #define MAICORD_GLES_MEMBER(result, name, arguments) result(*name) arguments;
     MAICORD_GLES_FUNCTIONS(MAICORD_GLES_MEMBER)
 #undef MAICORD_GLES_MEMBER
-    // Optional: ES 3.2, GL_OES_copy_image or GL_EXT_copy_image; null otherwise.
+    // ES 3.2, GL_OES_copy_image or GL_EXT_copy_image, through eglGetProcAddress: device creation refuses a driver with none.
     void (*glCopyImageSubData)(Uint source, Enum source_target, Int source_level, Int sx, Int sy, Int sz,
                                Uint destination, Enum destination_target, Int destination_level, Int dx, Int dy,
                                Int dz, Sizei width, Sizei height, Sizei depth);

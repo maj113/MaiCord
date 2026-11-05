@@ -323,7 +323,6 @@ void run() noexcept {
     test_write_metric("caps float_linear=", caps.float_linear);
     test_write_metric("caps dual_source_blend=", caps.dual_source_blend);
     test_write_metric("caps timer_query=", caps.timer_query);
-    test_write_metric("caps copy_image=", caps.copy_image);
     check(caps.compute && caps.max_texture_size >= 2048 && caps.max_compute_invocations >= 128 &&
               caps.max_shared_bytes >= 16384 && caps.max_compute_storage_buffers >= 4,
           "caps meet the ES 3.1 floor");

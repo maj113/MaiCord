@@ -100,7 +100,17 @@ maicord_test(MaiCordNetworkLoopTests ENTRY maicord_network_loop_entry SOURCES te
     LIBS maicord_net maicord_crypto maicord_core
     TIMEOUT 20 TEST maicord_network_loop)
 
-# tls_stream over the whole stack (lookup, epoll loop, sockets, OpenSSL) against the same kind of local s_server
+# The loop has no other backend than io_uring: a seccomp profile that refuses io_uring_setup (EPERM as Docker's and
+# Podman's defaults answer, ENOSYS as a runtime that does not know the call answers) leaves no loop and a reason.
+maicord_add_tests(MaiCordNetworkLoopTests TIMEOUT 10
+    TEST maicord_network_loop_ring_refused --ring-refused
+    TEST maicord_network_loop_ring_hidden --ring-hidden)
+
+# A load generator for the network loop (benchmarks/network_loop_benchmark.cpp); run it by hand, its header says how.
+maicord_program(MaiCordNetworkBenchmark ENTRY maicord_network_benchmark_entry
+    SOURCES benchmarks/network_loop_benchmark.cpp LIBS maicord_net maicord_crypto maicord_core)
+
+# tls_stream over the whole stack (lookup, io_uring loop, sockets, OpenSSL) against the same kind of local s_server
 # processes, started by tests/platform/net/tls_stream_smoke.sh (skipped, status 77, without the command).
 maicord_test(MaiCordTlsStreamTests ENTRY maicord_tls_stream_entry SOURCES tests/platform/net/tls_stream_linux.cpp
     LIBS maicord_net maicord_crypto maicord_core)

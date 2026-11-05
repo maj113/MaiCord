@@ -1,7 +1,7 @@
 // The spell checker on Linux (include/maicord/platform/desktop/spell_checker.hpp): Hunspell (libhunspell-1.7.so.0) or,
 // without it, Enchant 2 (libenchant-2.so.2), both opened with dlopen so a missing library is "unavailable", never a
-// loader failure. MAICORD_SPELLCHECK_BACKEND (hunspell | enchant) forces one; MAICORD_HUNSPELL_LIBRARY and
-// MAICORD_ENCHANT_LIBRARY name another soname (an unusual install, or a test of the missing-library path).
+// loader failure. MAICORD_SPELLCHECK_BACKEND (hunspell | enchant) forces one; MAICORD_LIBRARY_PATH adds the directories
+// that hold the libraries on an unusual install.
 //
 // Hunspell reads the dictionaries itself named <language>_<TERRITORY>.dic and .aff from $DICPATH, the XDG data
 // directories ($XDG_DATA_HOME, $XDG_DATA_DIRS: hunspell and myspell below each), /usr/share/hunspell, /usr/share/myspell
@@ -18,6 +18,7 @@
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/os/file.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/path.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -104,7 +105,8 @@ int compare_bytes(const char* a, const char* b, u32 count) noexcept {
 }
 
 bool open_hunspell(Backend* backend) noexcept {
-    const char* soname = environment_get("MAICORD_HUNSPELL_LIBRARY");
+    // Only the tests name another soname (the missing-library path).
+    const char* soname = test_hook("MAICORD_HUNSPELL_LIBRARY");
     if (!shared_library_open(&backend->library, soname && *soname ? soname : "libhunspell-1.7.so.0"))
         return false;
     Resolver resolve{backend->library, nullptr};
@@ -125,7 +127,7 @@ bool open_hunspell(Backend* backend) noexcept {
 }
 
 bool open_enchant(Backend* backend) noexcept {
-    const char* soname = environment_get("MAICORD_ENCHANT_LIBRARY");
+    const char* soname = test_hook("MAICORD_ENCHANT_LIBRARY");
     if (!shared_library_open(&backend->library, soname && *soname ? soname : "libenchant-2.so.2"))
         return false;
     Resolver resolve{backend->library, nullptr};

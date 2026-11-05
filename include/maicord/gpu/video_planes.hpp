@@ -15,7 +15,10 @@
 namespace maicord {
 
 // One plane of a dma-buf: fd stays with the caller (the image holds its own reference), fourcc is the DRM format of
-// the plane (R8 and GR88 for NV12, R16 and GR1616 for P010).
+// the plane (R8 and GR88 for NV12, R16 and GR1616 for P010). A modifier with compression metadata (Intel's media
+// compression) puts the metadata in a second plane of the same image: aux_pitch is non-zero then and aux_fd,
+// aux_offset and aux_pitch place it.
+inline constexpr u64 kDrmFormatModifierLinear = 0;
 inline constexpr u64 kDrmFormatModifierInvalid = 0x00ffffffffffffffull;
 inline constexpr u32 kDrmFormatR8 = 0x20203852;     // 'R8  '
 inline constexpr u32 kDrmFormatGr88 = 0x38385247;   // 'GR88'
@@ -27,14 +30,22 @@ struct GpuDmabufPlane {
     u32 width, height;
     u32 offset, pitch;
     u64 modifier; // kDrmFormatModifierInvalid when the exporter gave none
+    i32 aux_fd;
+    u32 aux_offset, aux_pitch;
 };
 
 // Samples of a CPU plane: one or two channels of 8 bits.
 enum class GpuVideoPlaneFormat : u8 { r8, rg8 };
 
 // EGL attribute list (terminated by EGL_NONE) that imports `plane` as an EGLImage; `modifiers` is whether the display
-// has EGL_EXT_image_dma_buf_import_modifiers. Returns the entry count including the terminator; the list needs 24.
+// has EGL_EXT_image_dma_buf_import_modifiers. Returns the entry count including the terminator; the list needs 28.
 u32 gpu_dmabuf_attributes(const GpuDmabufPlane& plane, bool modifiers, i32* attributes) noexcept;
+
+// Whether the device can import `plane` and sample it as a 2D texture: a linear or unspecified modifier always (the
+// driver decides the layout of an unspecified one), any other only when EGL_EXT_image_dma_buf_import_modifiers lists
+// it for the plane's format as usable without an external sampler. Refusing here, before the import, is what keeps a
+// tiled or compressed picture from being read as a linear one. No GL; any thread.
+bool gpu_dmabuf_plane_supported(GpuDevice* device, const GpuDmabufPlane& plane);
 
 // The pool of planes holds this many at once (a decoder keeps two per surface).
 inline constexpr u32 kGpuVideoPlaneCapacity = 1024;

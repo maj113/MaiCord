@@ -31,10 +31,12 @@ rm -rf "$out"
 # The stage row is the fourth channel of the list: general, media, Voice, Stage.
 "$here/test_discord_wayland.sh" --binary "$binary" --out "$out" --audio \
     wait:3 click:488,355 type:qa@example.invalid click:470,439 type:hunter2 key:Return wait:4 click:130,265 wait:10 \
-    audio:capture,playback shot:stage wait:2 close > "$out.log" 2>&1
+    audio:capture,playback inhibit shot:stage wait:2 close > "$out.log" 2>&1
 status=0
 grep -q "^audio capture: [1-9]" "$out.log" && grep -q "^audio playback: [1-9]" "$out.log" ||
     { echo "FAIL: the client has no capture and playback stream on the sound server" >&2; status=1; }
+# The call view is open: the window holds an idle inhibitor (the screen stays on in a call).
+grep -q "^idle inhibit: 1" "$out.log" || { echo "FAIL: the call view does not hold an idle inhibitor" >&2; status=1; }
 requests="$out/discord-requests.log"
 for line in "voice select protocol mode aead_aes256_gcm_rtpsize" "voice udp discovery ssrc 4242"; do
     grep -q "$line" "$requests" || { echo "FAIL: no '$line' in the server's log" >&2; status=1; }

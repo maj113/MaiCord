@@ -8,6 +8,10 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/ui/core/scene.hpp"
+#include "maicord/ui/voice/call_scene.hpp"
+#if !defined(_WIN32)
+#include "maicord/platform/window/wayland.hpp"
+#endif
 
 
 namespace maicord::app_detail {
@@ -51,6 +55,15 @@ void application_window_refresh_minimum_size() noexcept {
     u32 width = 0, height = 0;
     application_minimum_client_size(&width, &height);
     window_set_min_size(g_app.window, width, height);
+}
+
+void application_window_refresh_idle_inhibit() noexcept {
+    static bool applied;
+    const bool wanted = g_app.window && g_app.renderer_ready && g_app.renderer.call_scene && g_app.renderer.call_scene->active;
+    if (wanted == applied)
+        return;
+    applied = wanted;
+    window_wayland_set_idle_inhibit(g_app.window, wanted);
 }
 #endif
 

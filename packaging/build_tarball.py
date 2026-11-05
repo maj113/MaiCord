@@ -2,9 +2,12 @@
 """Builds the Linux release tarball: maicord-<version>-linux-x86_64.tar.gz and its .sha256.
 
     python3 packaging/build_tarball.py --binary PATH --version 0.6.6 --output-dir DIR
-    python3 packaging/build_tarball.py --stub --output-dir DIR        a stand-in program, until the client links
+    python3 packaging/build_tarball.py --stub --output-dir DIR        a stand-in program, for the packaging checks
+    python3 packaging/build_tarball.py --binary PATH --libc musl ...  maicord-<version>-linux-x86_64-musl.tar.gz
 
-The archive holds one directory, maicord-<version>-linux-x86_64/:
+A real program is audited first (tools/audit_elf.py --no-test-hooks: a client built with --test, which carries test-only
+switches, is refused); --libc musl first retargets the glibc image to musl's loader (tools/retarget_libc.py) and audits
+that. The archive holds one directory, maicord-<version>-linux-x86_64[-musl]/:
 
     MaiCord                    the program (PATH, or the stub)
     fonts/  licenses/          the bundled fonts and license notices, as next to MaiCord.exe (cmake/client.cmake)
@@ -155,10 +158,26 @@ def archive(directory: Path, output: Path, mtime: int) -> None:
         packed.write(buffer.getvalue())
 
 
+def prepared_binary(binary: Path, libc: str, scratch: Path) -> Path:
+    """The program to ship, audited: no test hooks compiled in, and for musl the retargeted copy (tools/retarget_libc.py)."""
+    tools = ROOT / 'tools'
+    if libc == 'musl':
+        retargeted = scratch / 'MaiCord-musl'
+        subprocess.run([sys.executable, '-B', str(tools / 'retarget_libc.py'), '--libc', 'musl', str(binary), str(retargeted)], check=True)
+        binary = retargeted
+    subprocess.run([sys.executable, '-B', str(tools / 'audit_elf.py'), '--libc', libc, '--no-test-hooks', str(binary)], check=True)
+    return binary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--binary', type=Path, help='the MaiCord program')
     parser.add_argument('--stub', action='store_true', help='use a stand-in program (the client does not link yet)')
+    parser.add_argument('--libc', choices=('glibc', 'musl'), default='glibc',
+                        help="musl: the glibc image retargeted to musl's loader, as maicord-X.Y.Z-linux-x86_64-musl.tar.gz")
+    parser.add_argument('--skip-audit-for-synthetic-image', action='store_true',
+                        help='tools/release/test_release_tools.py only: package a synthetic ELF without the ELF audit '
+                             '(and, with --libc musl, without the retarget); never for a program that ships')
     parser.add_argument('--version', help='X.Y.Z, or X.Y.Z-dev.N for a master build (default: the project version of CMakeLists.txt)')
     parser.add_argument('--date', help='YYYY-MM-DD of the release (default: the commit date)')
     parser.add_argument('--output-dir', type=Path, required=True)
@@ -173,8 +192,11 @@ def main() -> int:
     mtime = epoch(arguments)
     date = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).strftime('%Y-%m-%d')
     arguments.output_dir.mkdir(parents=True, exist_ok=True)
-    name = f'maicord-{version}-linux-x86_64'
+    name = f'maicord-{version}-linux-x86_64' + ('-musl' if arguments.libc == 'musl' else '')
     with tempfile.TemporaryDirectory() as scratch:
+        if arguments.binary:
+            if not arguments.skip_audit_for_synthetic_image:
+                arguments.binary = prepared_binary(arguments.binary, arguments.libc, Path(scratch))
         directory = Path(scratch) / name
         stage(arguments, directory, version, arguments.date or date)
         output = arguments.output_dir / f'{name}.tar.gz'

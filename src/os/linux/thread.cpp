@@ -155,8 +155,13 @@ bool threads_wait_all(Thread* const* threads, u32 count, u32 timeout_ms) noexcep
 }
 
 bool thread_exit_code(Thread* thread, u32* code) noexcept {
-    if (!finished(thread)) {
+    // thread_main signals `done` just before it publishes the end: a caller that the event woke waits out the few
+    // instructions in between instead of reporting a thread that has returned as running.
+    if (!finished(thread) && wait_one(thread->done, 0) != WAIT_OBJECT_0) {
         return false;
+    }
+    while (!finished(thread)) {
+        sys_sched_yield();
     }
     *code = thread->result;
     return true;

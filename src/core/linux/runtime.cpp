@@ -1,7 +1,11 @@
 // First-party compiler support for Linux images: the memory functions the compiler emits calls to (the Linux
 // counterpart of runtime_x64.asm). Built with -fno-builtin so the bodies are not turned back into calls of
 // themselves. Loads precede stores on the small paths, so memcpy and memmove share the overlap-safe code without
-// reading beyond the caller's range; AVX1 only, matching the -mavx contract.
+// reading beyond the caller's range; AVX1 only, matching the -mavx contract. Above 128 bytes a forward copy and a
+// fill run 4x32-byte AVX loops into a 32-byte aligned destination, and from kStreamingBytes on they stream (non-
+// temporal stores): `rep movsb` and `rep stosb` take the fast-string path only for write-back memory and crawl
+// (a byte at a time) into the write-combined mappings of GPU buffers (glMapBufferRange), where these loops and the
+// streaming stores write whole lines; they are also faster than the string instructions below the last-level cache.
 #include "maicord/core/base.hpp"
 #include "maicord/sys/crt.hpp"
 #include "maicord/sys/crt_extra.hpp"
@@ -20,6 +24,10 @@ typedef char V16 __attribute__((vector_size(16), aligned(1), may_alias));
 typedef u64 U64 __attribute__((aligned(1), may_alias));
 typedef u32 U32 __attribute__((aligned(1), may_alias));
 typedef u16 U16 __attribute__((aligned(1), may_alias));
+typedef char V32 __attribute__((vector_size(32), aligned(1), may_alias));
+// The streaming stores want the natural alignment, which the copy and fill loops guarantee.
+typedef char V32Aligned __attribute__((vector_size(32)));
+typedef long long V4Q __attribute__((vector_size(32)));
 
 // Up to 16 bytes: overlapping loads, then overlapping stores.
 inline void copy_small(u8* destination, const u8* source, usize count) noexcept {
@@ -49,6 +57,93 @@ inline V16 load(const u8* address) noexcept {
 
 inline void store(u8* address, V16 value) noexcept {
     *reinterpret_cast<V16*>(address) = value;
+}
+
+inline V32 load32(const u8* address) noexcept {
+    return *reinterpret_cast<const V32*>(address);
+}
+
+inline void store32(u8* address, V32 value) noexcept {
+    *reinterpret_cast<V32*>(address) = value;
+}
+
+inline void stream32(u8* address, V32 value) noexcept {
+    __builtin_nontemporal_store(static_cast<V32Aligned>(value), reinterpret_cast<V32Aligned*>(address));
+}
+
+// From this many bytes a copy or fill bypasses the caches: past the last-level cache's reach the write-allocate reads
+// of ordinary stores cost half the bandwidth, which the string instructions used to save and streaming stores save too.
+constexpr usize kStreamingBytes = 1u << 20;
+
+// More than 128 bytes, the destination not overlapping the source from above (below it, or past its end): the first 32
+// and the last 128 bytes are loaded before anything is stored and stored after the loop, which covers the unaligned head
+// and the remainder and keeps a destination just below the source correct (the loop never overwrites a byte it has
+// still to read: it loads each 128 bytes before storing them, and the destination trails the source).
+void copy_forward_wide(u8* destination, const u8* source, usize count) noexcept {
+    const V32 head = load32(source);
+    const V32 t0 = load32(source + count - 128), t1 = load32(source + count - 96), t2 = load32(source + count - 64),
+              t3 = load32(source + count - 32);
+    u8* const end = destination + count;
+    const usize skip = 32 - (reinterpret_cast<usize>(destination) & 31);
+    u8* d = destination + skip;
+    const u8* s = source + skip;
+    if (count >= kStreamingBytes) {
+        for (; d + 128 <= end; d += 128, s += 128) {
+            const V32 a = load32(s), b = load32(s + 32), c = load32(s + 64), e = load32(s + 96);
+            stream32(d, a);
+            stream32(d + 32, b);
+            stream32(d + 64, c);
+            stream32(d + 96, e);
+        }
+    } else {
+        for (; d + 128 <= end; d += 128, s += 128) {
+            const V32 a = load32(s), b = load32(s + 32), c = load32(s + 64), e = load32(s + 96);
+            store32(d, a);
+            store32(d + 32, b);
+            store32(d + 64, c);
+            store32(d + 96, e);
+        }
+    }
+    store32(destination, head);
+    store32(end - 128, t0);
+    store32(end - 96, t1);
+    store32(end - 64, t2);
+    store32(end - 32, t3);
+    if (count >= kStreamingBytes) {
+        __builtin_ia32_sfence();
+    }
+}
+
+// More than 128 bytes of `value` bytes.
+void fill_wide(u8* destination, int value, usize count) noexcept {
+    const long long pattern = static_cast<long long>(0x0101010101010101ull * static_cast<u8>(value));
+    const V4Q wide = {pattern, pattern, pattern, pattern};
+    const V32 fill = reinterpret_cast<V32>(wide);
+    u8* const end = destination + count;
+    u8* d = destination + (32 - (reinterpret_cast<usize>(destination) & 31));
+    if (count >= kStreamingBytes) {
+        for (; d + 128 <= end; d += 128) {
+            stream32(d, fill);
+            stream32(d + 32, fill);
+            stream32(d + 64, fill);
+            stream32(d + 96, fill);
+        }
+    } else {
+        for (; d + 128 <= end; d += 128) {
+            store32(d, fill);
+            store32(d + 32, fill);
+            store32(d + 64, fill);
+            store32(d + 96, fill);
+        }
+    }
+    store32(destination, fill);
+    store32(end - 128, fill);
+    store32(end - 96, fill);
+    store32(end - 64, fill);
+    store32(end - 32, fill);
+    if (count >= kStreamingBytes) {
+        __builtin_ia32_sfence();
+    }
 }
 
 } // namespace
@@ -84,10 +179,7 @@ void* memmove(void* destination_pointer, const void* source_pointer, size_t coun
         store(destination + count - 16, h);
     } else if (static_cast<usize>(destination - source) >= count) {
         // The destination is below the source or past its end: a forward copy never overwrites unread bytes.
-        void* d = destination;
-        const void* s = source;
-        usize c = count;
-        __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(c) : : "memory");
+        copy_forward_wide(destination, source, count);
     } else {
         // The destination overlaps the source from above: copy downward in 16-byte steps, the head last.
         const V16 head = load(source);
@@ -134,9 +226,7 @@ void* memset(void* destination_pointer, int value, size_t count) {
         }
         store(destination + count - 16, fill);
     } else {
-        void* d = destination;
-        usize c = count;
-        __asm__ volatile("rep stosb" : "+D"(d), "+c"(c) : "a"(value) : "memory");
+        fill_wide(destination, value, count);
     }
     return destination_pointer;
 }

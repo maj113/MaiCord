@@ -67,6 +67,8 @@ maicord_test(MaiCordLinuxIntegrationTests ENTRY maicord_linux_integration_entry
     TIMEOUT 10
     ENV XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/config
         XDG_DATA_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/data
+        APPDIR=${CMAKE_BINARY_DIR}
+        APPIMAGE=${CMAKE_BINARY_DIR}/test-profile/linux-integration/Test.AppImage
     TEST maicord_linux_integration)
 # The launch's arguments as the command line the launch parser reads (the Linux entry's input to the shared startup).
 maicord_test(MaiCordLinuxLaunchLineTests ENTRY maicord_linux_launch_line_entry

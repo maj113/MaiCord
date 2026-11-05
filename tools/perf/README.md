@@ -1,5 +1,10 @@
 # Performance benchmarks
 
+Opt-in micro-benchmarks (`benchmarks/`, `tests/bench`, targets in `cmake/benchmarks.cmake`) run with `tools\benchmark_<name>.ps1` where
+a driver parses their output (text, glyph, compression, event pump, ...), and with `tools\benchmark.ps1 -Target <MaiCord...Benchmark>
+[-Samples N]` for every other target, which prints the `name=value` lines the benchmark writes. The Linux size policy's measurements
+(`cmake/size_policy.cmake`) used these sources built for Linux.
+
 ## Offline workload
 
 ```

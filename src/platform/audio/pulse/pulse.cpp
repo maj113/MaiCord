@@ -4,7 +4,7 @@
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/thread.hpp"
-#include "maicord/sys/linux/process.hpp"
+#include "maicord/core/test_hook.hpp"
 
 namespace maicord::pulse {
 namespace {
@@ -30,8 +30,8 @@ void log_unavailable(const char* what, const char* name) noexcept {
 }
 
 bool load() noexcept {
-    // MAICORD_PULSE_LIBRARY replaces the soname (an unusual install, or a test of the no-libpulse path).
-    const char* soname = environment_get("MAICORD_PULSE_LIBRARY");
+    // A test can name another soname (the no-libpulse path); users and operators have MAICORD_LIBRARY_PATH.
+    const char* soname = test_hook("MAICORD_PULSE_LIBRARY");
     if (!soname || !*soname)
         soname = "libpulse.so.0";
     if (!shared_library_open(&g_library, soname)) {
@@ -337,10 +337,6 @@ bool track_alive(const Track& track) noexcept {
     return track.stream && (state == kStreamCreating || state == kStreamReady);
 }
 
-bool track_ready(const Track& track) noexcept {
-    return track.stream && InterlockedCompareExchange(const_cast<volatile LONG*>(&track.state), 0, 0) == kStreamReady;
-}
-
 void track_close(Track* track) noexcept {
     if (!track->stream)
         return;
@@ -368,12 +364,6 @@ void track_close(Track* track) noexcept {
 usize track_writable(Track* track) noexcept {
     Lock lock(*track->session);
     const usize bytes = g_api.pa_stream_writable_size(track->stream);
-    return bytes == ~usize{0} ? 0 : bytes;
-}
-
-usize track_readable(Track* track) noexcept {
-    Lock lock(*track->session);
-    const usize bytes = g_api.pa_stream_readable_size(track->stream);
     return bytes == ~usize{0} ? 0 : bytes;
 }
 

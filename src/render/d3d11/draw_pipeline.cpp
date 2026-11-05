@@ -170,9 +170,11 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* stage
 
 void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, GpuDevice* device, GpuContext* context,
                               const D3D11DrawPipelineConfig& config) noexcept {
+    // The scratch target has the format real frames have (the pipelines are made for it: a driver that compiles on
+    // the first draw would otherwise compile again on the first frame); a backend names it without a surface.
     GpuTexture* texture = nullptr;
     GpuRtv* target = nullptr;
-    if (!gpu_ok(gpu_texture_create(device, {4, 4, GpuFormat::bgra8, GpuUsage::default_, gpu_bind_rtv}, nullptr,
+    if (!gpu_ok(gpu_texture_create(device, {4, 4, gpu_surface_format(nullptr), GpuUsage::default_, gpu_bind_rtv}, nullptr,
                                    &texture)) ||
         !gpu_ok(gpu_rtv_create(device, texture, &target))) {
         gpu_release(texture);

@@ -1,10 +1,11 @@
-// The Wayland window: the connection, the registry, xdg-shell, the frame callback, a wl_shm clear for bring-up and
-// the window service of maicord/platform/window/window.hpp. Input is in pointer.cpp and keyboard.cpp, the loop in
-// pump.cpp; the shared state is in backend.hpp.
+// The Wayland window: the connection, the registry, xdg-shell, the frame callback and the window service of
+// maicord/platform/window/window.hpp. Input is in pointer.cpp and keyboard.cpp, the loop in pump.cpp, the integration
+// protocols in extras.cpp; the shared state is in backend.hpp. The window has no buffers: the GPU backend's EGL surface commits.
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/resource.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "maicord/platform/window/wayland.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/settings_map.hpp"
@@ -13,7 +14,6 @@
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "backend.hpp"
-#include "fd.hpp"
 
 namespace maicord::wayland {
 
@@ -27,7 +27,6 @@ constexpr u32 kSeatVersion = 8;
 constexpr u32 kWmBaseVersion = 6;
 constexpr u32 kCreateTimeoutMs = 10000;
 constexpr u32 kDefaultDpi = 96;
-constexpr u32 kDefaultClear = 0xFF1E1F22u;
 
 bool same(const char* left, const char* right) noexcept {
     while (*left && *left == *right) {
@@ -92,12 +91,12 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
             wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
         }
     } else if (same(interface, "wp_viewporter")) {
-        if (!g.viewporter && !environment_get("MAICORD_WAYLAND_NO_FRACTIONAL"))
+        if (!g.viewporter && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
     } else if (same(interface, "wp_fractional_scale_manager_v1")) {
         // MAICORD_WAYLAND_NO_FRACTIONAL=1 ignores this protocol and viewporter: the integer scale path (wl_surface
         // buffer scale), for testing it where the compositor offers both.
-        if (!g.fractional_manager && !environment_get("MAICORD_WAYLAND_NO_FRACTIONAL"))
+        if (!g.fractional_manager && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.fractional_manager = static_cast<wp_fractional_scale_manager_v1*>(
                 wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
     } else if (same(interface, "wp_cursor_shape_manager_v1")) {
@@ -128,6 +127,23 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
         if (!g.idle_manager)
             g.idle_manager = static_cast<zwp_idle_inhibit_manager_v1*>(
                 wl_registry_bind(registry, name, &zwp_idle_inhibit_manager_v1_interface, 1));
+    } else if (same(interface, "zxdg_exporter_v2")) {
+        if (!g.exporter_manager)
+            g.exporter_manager = static_cast<zxdg_exporter_v2*>(
+                wl_registry_bind(registry, name, &zxdg_exporter_v2_interface, 1));
+    } else if (same(interface, "ext_idle_notifier_v1")) {
+        if (!g.idle_notifier) {
+            g.idle_notifier_version = minimum(version, 2u);
+            g.idle_notifier = static_cast<ext_idle_notifier_v1*>(
+                wl_registry_bind(registry, name, &ext_idle_notifier_v1_interface, g.idle_notifier_version));
+        }
+    } else if (same(interface, "xdg_system_bell_v1")) {
+        if (!g.bell)
+            g.bell = static_cast<xdg_system_bell_v1*>(wl_registry_bind(registry, name, &xdg_system_bell_v1_interface, 1));
+    } else if (same(interface, "xdg_toplevel_icon_manager_v1")) {
+        if (!g.icon_manager)
+            g.icon_manager = static_cast<xdg_toplevel_icon_manager_v1*>(
+                wl_registry_bind(registry, name, &xdg_toplevel_icon_manager_v1_interface, 1));
     } else if (same(interface, "wl_output")) {
         // Version 2 reports the integer scale; the output is only tracked when the window needs it.
         if (version >= 2)
@@ -288,7 +304,7 @@ void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
     emit_state_changed((first || size_changed) ? state_geometry : 0);
     if (was_resizing && !now_resizing)
         emit_resize(EventType::resize_end);
-    present_clear();
+    surface_sync();
 }
 
 const xdg_surface_listener kSurfaceListener = {on_surface_configure};
@@ -317,35 +333,8 @@ void on_frame_done(void*, wl_callback* callback, u32 time) noexcept {
 
 const wl_callback_listener kFrameListener = {on_frame_done};
 
-// A wl_shm buffer of one colour, `width` by `height` client pixels.
-wl_buffer* make_clear_buffer(u32 width, u32 height, u32 color) noexcept {
-    if (!g.shm || width == 0 || height == 0)
-        return nullptr;
-    const usize stride = static_cast<usize>(width) * 4;
-    const usize bytes = stride * height;
-    const long fd = fd_memfd_create("maicord-clear");
-    if (syscall_failed(fd))
-        return nullptr;
-    wl_buffer* buffer = nullptr;
-    if (!syscall_failed(fd_truncate(static_cast<int>(fd), static_cast<long>(bytes)))) {
-        const long address = fd_map(static_cast<int>(fd), bytes, kProtectRead | kProtectWrite, kMapShared);
-        if (!syscall_failed(address)) {
-            u32* pixels = reinterpret_cast<u32*>(address);
-            for (usize i = 0; i < bytes / 4; ++i)
-                pixels[i] = color;
-            wl_shm_pool* pool = wl_shm_create_pool(g.shm, static_cast<i32>(fd), static_cast<i32>(bytes));
-            buffer = wl_shm_pool_create_buffer(pool, 0, static_cast<i32>(width), static_cast<i32>(height),
-                                               static_cast<i32>(stride), wl_shm_format_xrgb8888);
-            wl_shm_pool_destroy(pool);
-            sys_munmap(reinterpret_cast<void*>(address), bytes);
-        }
-    }
-    sys_close(static_cast<int>(fd));
-    return buffer;
-}
-
 void destroy_window_objects() noexcept {
-    extras_shutdown();  // the wl_egl_window, the idle inhibitor and an activation token belong to the surface
+    extras_shutdown();  // the idle inhibitor, the export, the idle watch and an activation token belong to the surface
     WindowState& window = g.window;
     if (window.frame_callback)
         wl_callback_destroy(window.frame_callback);
@@ -359,8 +348,6 @@ void destroy_window_objects() noexcept {
         xdg_toplevel_destroy(window.toplevel);
     if (window.shell_surface)
         xdg_surface_destroy(window.shell_surface);
-    if (window.shm_buffer)
-        wl_buffer_destroy(window.shm_buffer);
     if (window.surface)
         wl_surface_destroy(window.surface);
 }
@@ -384,6 +371,14 @@ void disconnect() noexcept {
         xdg_activation_v1_destroy(g.activation_manager);
     if (g.idle_manager)
         zwp_idle_inhibit_manager_v1_destroy(g.idle_manager);
+    if (g.exporter_manager)
+        zxdg_exporter_v2_destroy(g.exporter_manager);
+    if (g.idle_notifier)
+        ext_idle_notifier_v1_destroy(g.idle_notifier);
+    if (g.bell)
+        xdg_system_bell_v1_destroy(g.bell);
+    if (g.icon_manager)
+        xdg_toplevel_icon_manager_v1_destroy(g.icon_manager);
     if (g.seat) {
         if (g.seat_version >= wl_seat_release_since)
             wl_seat_release(g.seat);
@@ -592,32 +587,12 @@ void window_scale_changed(u32 scale_120) noexcept {
     // The same logical size is another pixel size: the app sizes its surface again.
     emit_state_changed(state_geometry);
     pointer_scale_changed();
-    present_clear();
+    surface_sync();
 }
 
-void present_clear() noexcept {
-    WindowState& window = g.window;
-    if (!window.configured || !window.surface)
-        return;
-    if (window.external_buffers) {
-        egl_sync();  // the GPU backend presents; the wl_egl_window follows the size
-        return;
-    }
-    if (!window.visible)
-        return;
-    u32 width = 0;
-    u32 height = 0;
-    window_pixel_size(&width, &height);
-    wl_buffer* buffer = make_clear_buffer(width, height, window.clear_color);
-    if (!buffer)
-        return;
-    apply_surface_geometry();
-    wl_surface_attach(window.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(window.surface, 0, 0, static_cast<i32>(width), static_cast<i32>(height));
-    wl_surface_commit(window.surface);
-    if (window.shm_buffer)
-        wl_buffer_destroy(window.shm_buffer);
-    window.shm_buffer = buffer;
+void surface_sync() noexcept {
+    if (g.window.configured && g.window.surface)
+        apply_surface_geometry();
 }
 
 // The window service ---------------------------------------------------------------------------------------------------
@@ -710,7 +685,6 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     window.floating_height = info.client_height_dips;
     window.scale_120 = 120;
     window.dpi = kDefaultDpi;
-    window.clear_color = kDefaultClear;
 
     g.caps = WindowCaps{};
     g.caps.csd = true;
@@ -721,14 +695,13 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     g.caps.fullscreen = true;
 
     char title[256];
-    char app_id[128];
     const auto copy = [](char* destination, u32 capacity, Utf8View text) {
         const u32 length = minimum<u32>(static_cast<u32>(text.bytes), capacity - 1);
         copy_bytes(destination, text.data, length);
         destination[length] = 0;
     };
     copy(title, sizeof(title), info.title);
-    copy(app_id, sizeof(app_id), info.app_id);
+    copy(window.app_id, sizeof(window.app_id), info.app_id);
 
     window.surface = wl_compositor_create_surface(g.compositor);
     window.shell_surface = xdg_wm_base_get_xdg_surface(g.wm_base, window.surface);
@@ -736,7 +709,7 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     window.toplevel = xdg_surface_get_toplevel(window.shell_surface);
     xdg_toplevel_add_listener(window.toplevel, &kToplevelListener, nullptr);
     xdg_toplevel_set_title(window.toplevel, title);
-    xdg_toplevel_set_app_id(window.toplevel, app_id);
+    xdg_toplevel_set_app_id(window.toplevel, window.app_id);
     if (g.decoration_manager) {
         window.decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(g.decoration_manager, window.toplevel);
         zxdg_toplevel_decoration_v1_add_listener(window.decoration, &kDecorationListener, nullptr);
@@ -776,13 +749,6 @@ void window_destroy(Window window) noexcept {
     disconnect();
 }
 
-void window_wayland_prefer_server_decorations(Window window, bool server) noexcept {
-    if (!is_window(window) || !g.window.decoration)
-        return;
-    zxdg_toplevel_decoration_v1_set_mode(g.window.decoration, server ? zxdg_toplevel_decoration_v1_mode_server_side
-                                                                      : zxdg_toplevel_decoration_v1_mode_client_side);
-}
-
 NativeWindow window_surface_native(Window window) noexcept {
     return is_window(window) ? g.window.surface : nullptr;
 }
@@ -793,15 +759,11 @@ void window_show(Window window, ShowMode mode) noexcept {
     switch (mode) {
     case ShowMode::hide:
         g.window.visible = false;
-        if (!g.window.external_buffers) {
-            wl_surface_attach(g.window.surface, nullptr, 0, 0);
-            wl_surface_commit(g.window.surface);
-        }
         break;
     case ShowMode::show:
     case ShowMode::show_default:
         g.window.visible = true;
-        present_clear();
+        surface_sync();
         break;
     case ShowMode::minimize_no_activate:
         window_minimize(window);
@@ -823,8 +785,6 @@ void window_set_title(Window window, Utf8View title) noexcept {
     text[length] = 0;
     xdg_toplevel_set_title(g.window.toplevel, text);
 }
-
-void window_set_icon(Window, const IconImage*, u32) noexcept {}
 
 // The program's icon: the ICO file the image carries (program_resource 1, PNG-compressed images, written by
 // tools/generate_app_icon.py), the stored image closest above the wanted size.
@@ -947,7 +907,6 @@ void window_frame_callback_request(Window window) noexcept {
         return;
     g.window.frame_callback = wl_surface_frame(g.window.surface);
     wl_callback_add_listener(g.window.frame_callback, &kFrameListener, nullptr);
-    wl_surface_commit(g.window.surface);
 }
 
 void window_set_frame_listener(Window window, FrameListener listener, void* context) noexcept {
@@ -967,7 +926,9 @@ void window_fatal_message(Utf8View title, Utf8View text) noexcept {
 PlatformSettings platform_settings_read() noexcept {
     dbus::DesktopSettings desktop;
     dbus::desktop_settings_get(&desktop);
-    return wayland::platform_settings_from_desktop(desktop);
+    PlatformSettings settings = wayland::platform_settings_from_desktop(desktop);
+    settings.system_idle_ms = extras_system_idle_ms();
+    return settings;
 }
 
 bool window_inject(Window window, const WindowEvent& event, WindowEventResult* result) noexcept {
@@ -1020,25 +981,6 @@ bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexce
     if (height)
         *height = static_cast<u32>(g.window.opaque_height);
     return true;
-}
-
-void window_wayland_use_external_buffers(Window window, bool external) noexcept {
-    if (!is_window(window))
-        return;
-    g.window.external_buffers = external;
-    if (external && g.window.shm_buffer) {
-        wl_buffer_destroy(g.window.shm_buffer);
-        g.window.shm_buffer = nullptr;
-    } else if (!external) {
-        present_clear();
-    }
-}
-
-void window_wayland_set_clear_color(Window window, u32 xrgb) noexcept {
-    if (!is_window(window))
-        return;
-    g.window.clear_color = xrgb | 0xFF000000u;
-    present_clear();
 }
 
 } // namespace maicord

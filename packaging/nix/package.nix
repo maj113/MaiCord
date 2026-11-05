@@ -159,7 +159,8 @@ stdenv.mkDerivation {
     cp -r ${shaderToolchain} $TMPDIR/toolchain
     chmod -R u+w $TMPDIR/toolchain
     export MAICORD_TOOLCHAIN_CACHE=$TMPDIR/toolchain
-    cmake -S . -B build -G Ninja \
+    # The generated sources must be outside the source tree: the build directory is beside it.
+    cmake -S . -B $TMPDIR/build -G Ninja \
       -DCMAKE_C_COMPILER=${llvm.clang-unwrapped}/bin/clang \
       -DCMAKE_CXX_COMPILER=${llvm.clang-unwrapped}/bin/clang++ \
       -DCMAKE_AR=${llvm.llvm}/bin/llvm-ar \
@@ -174,14 +175,14 @@ stdenv.mkDerivation {
     runHook preBuild
     export MAICORD_TOOLCHAIN_CACHE=$TMPDIR/toolchain
     export CXX=${stdenv.cc}/bin/c++
-    cmake --build build --target ${buildTarget}
+    cmake --build $TMPDIR/build --target ${buildTarget}
     runHook postBuild
   '';
 
   # The release tarball's layout, made by the same script the release uses, then installed like the -bin package.
   installPhase = ''
     runHook preInstall
-    python3 packaging/build_tarball.py --binary build/${buildTarget} --version ${version} --output-dir $TMPDIR/tarball
+    python3 packaging/build_tarball.py --binary $TMPDIR/build/${buildTarget} --version ${version} --output-dir $TMPDIR/tarball
     tar -xzf $TMPDIR/tarball/maicord-${version}-linux-x86_64.tar.gz -C $TMPDIR/tarball
     cd $TMPDIR/tarball/maicord-${version}-linux-x86_64
     install -Dm755 MaiCord $out/lib/maicord/MaiCord

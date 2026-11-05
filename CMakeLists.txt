@@ -31,7 +31,12 @@ endif()
 include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
 if(MAICORD_LINUX)
     # What the Linux port builds: the libraries (cmake/linux_libraries.cmake), the client (cmake/linux_client.cmake)
-    # and its tests (cmake/linux_tests.cmake).
+    # and its tests (cmake/linux_tests.cmake). A build with tests also compiles the environment switches that only the
+    # tests use (include/maicord/core/test_hook.hpp); the shipped client has none.
+    option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
+    if(MAICORD_BUILD_TESTS)
+        add_compile_definitions(MAICORD_TEST_HOOKS=1)
+    endif()
     include(cmake/linux_libraries.cmake)
     include(cmake/linux_client.cmake)
     include(cmake/linux_tests.cmake)

@@ -39,8 +39,8 @@
       packages.${system} = {
         default = maicord;
         inherit maicord maicord-bin;
-        # Until the client target exists: builds the shader pack test through the whole source pipeline (LLVM 23, DXC and
-        # SPIRV-Cross, the GLSL pack, patching) in the client's place.
+        # A test image, never shipped: builds the shader pack test through the whole source pipeline (LLVM 23, DXC and
+        # SPIRV-Cross, the GLSL pack, patching). Only this output sets buildTests; maicord is built without it.
         build-check = maicord.override {
           buildTarget = "MaiCordGpuShaderPackTests";
           buildTests = true;

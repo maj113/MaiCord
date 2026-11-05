@@ -40,9 +40,6 @@ struct ExportedObject {
 // Answers org.freedesktop.DBus.Properties (Get, GetAll; Set is refused as read-only), Introspectable.Introspect and
 // nothing else. True when `call` was one of those and a reply (or error) was sent.
 bool object_handle_standard(Connection* connection, const Message& call, const ExportedObject& object) noexcept;
-// PropertiesChanged(interface, {name: value}, []) for the named properties of one interface.
-bool object_emit_properties_changed(Connection* connection, const char* path, const ExportedObject& object,
-                                    const char* interface, const char* const* names, u32 count) noexcept;
 
 // Portal requests ------------------------------------------------------------------------------------------------------
 

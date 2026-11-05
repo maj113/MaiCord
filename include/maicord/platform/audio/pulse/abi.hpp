@@ -170,7 +170,6 @@ using FreeCb = void (*)(void*) noexcept;
     /* The integration test loads a null sink with these two. */                                                      \
     F(Operation*, pa_context_load_module, (Context*, const char*, const char*, ContextIndexCb, void*))                 \
     F(Operation*, pa_context_unload_module, (Context*, u32, ContextSuccessCb, void*))                                  \
-    F(i32, pa_operation_get_state, (const Operation*))                                                                 \
     F(void, pa_operation_cancel, (Operation*))                                                                         \
     F(void, pa_operation_unref, (Operation*))                                                                          \
     F(Stream*, pa_stream_new_with_proplist, (Context*, const char*, const SampleSpec*, const ChannelMap*,             \
@@ -186,7 +185,6 @@ using FreeCb = void (*)(void*) noexcept;
     F(void, pa_stream_set_underflow_callback, (Stream*, StreamNotifyCb, void*))                                        \
     F(void, pa_stream_set_overflow_callback, (Stream*, StreamNotifyCb, void*))                                         \
     F(usize, pa_stream_writable_size, (const Stream*))                                                                 \
-    F(usize, pa_stream_readable_size, (const Stream*))                                                                 \
     F(i32, pa_stream_write, (Stream*, const void*, usize, FreeCb, i64, i32))                                           \
     F(i32, pa_stream_peek, (Stream*, const void**, usize*))                                                            \
     F(i32, pa_stream_drop, (Stream*))                                                                                  \
@@ -195,7 +193,6 @@ using FreeCb = void (*)(void*) noexcept;
     F(i32, pa_stream_get_time, (Stream*, u64*))                                                                        \
     F(u32, pa_stream_get_index, (const Stream*))                                                                       \
     F(const BufferAttr*, pa_stream_get_buffer_attr, (Stream*))                                                         \
-    F(const char*, pa_strerror, (i32))                                                                                 \
     F(u32, pa_sw_volume_from_linear, (double))                                                                         \
     F(CVolume*, pa_cvolume_set, (CVolume*, u32, u32))
 

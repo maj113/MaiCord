@@ -582,28 +582,15 @@ void gpu_unmap(GpuContext* context, GpuBuffer* buffer) {
     buffer->mapped = false;
 }
 
-void gpu_copy_region(GpuContext* context, GpuTexture* destination, u32 x, u32 y, GpuTexture* source,
-                     const GpuBox& box) {
-    gl::Api& gl = api();
+void gpu_copy_region(GpuContext*, GpuTexture* destination, u32 x, u32 y, GpuTexture* source, const GpuBox& box) {
     const u32 width = box.right - box.left, height = box.bottom - box.top;
     if (width == 0 || height == 0)
         return;
     flush_barriers();
-    if (gl.glCopyImageSubData) {
-        gl.glCopyImageSubData(source->name, gl::kTexture2d, 0, static_cast<gl::Int>(box.left),
-                              static_cast<gl::Int>(box.top), 0, destination->name, gl::kTexture2d, 0,
-                              static_cast<gl::Int>(x), static_cast<gl::Int>(y), 0, static_cast<gl::Sizei>(width),
-                              static_cast<gl::Sizei>(height), 1);
-    } else {
-        const u32 framebuffer = texture_framebuffer(source);
-        if (!framebuffer)
-            return;
-        bind_framebuffer(*context, framebuffer);
-        bind_scratch_texture(*context, destination->name);
-        gl.glCopyTexSubImage2D(gl::kTexture2d, 0, static_cast<gl::Int>(x), static_cast<gl::Int>(y),
-                               static_cast<gl::Int>(box.left), static_cast<gl::Int>(box.top),
-                               static_cast<gl::Sizei>(width), static_cast<gl::Sizei>(height));
-    }
+    api().glCopyImageSubData(source->name, gl::kTexture2d, 0, static_cast<gl::Int>(box.left),
+                             static_cast<gl::Int>(box.top), 0, destination->name, gl::kTexture2d, 0,
+                             static_cast<gl::Int>(x), static_cast<gl::Int>(y), 0, static_cast<gl::Sizei>(width),
+                             static_cast<gl::Sizei>(height), 1);
     check_error("texture copy");
 }
 

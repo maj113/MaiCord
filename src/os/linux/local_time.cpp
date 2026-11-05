@@ -327,9 +327,4 @@ u32 local_zone_name(Slice<char> output) noexcept {
     return zone.name_length;
 }
 
-void local_zone_reload() noexcept {
-    Guard guard;
-    g_state.loaded = false;
-}
-
 } // namespace maicord

@@ -50,12 +50,23 @@ maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 TEST maicord_vaapi_no_n
 set_tests_properties(maicord_vaapi_no_node PROPERTIES SKIP_RETURN_CODE 77)
 
 # How the stream decoder chooses and gives up a tier (a hardware backend double: it defines the two functions the decoder
-# asks of the VA-API backend) and how a VA-API picture is submitted (a vaapi::Session over a recording libva).
+# asks of the VA-API backend), how a VA-API picture is submitted and waited for (a vaapi::Session over a recording libva)
+# and, where the machine has a DRM device (a VM's vgem: dumb buffers as dma-bufs), the renderer's import and the exports a
+# session keeps.
 maicord_test(MaiCordVideoHardwareTierTests ENTRY maicord_video_hardware_tier_entry
     SOURCES tests/platform/decode/video_hardware_tier.cpp
     LIBS maicord_video_decode maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core
     INCLUDES src
     TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_hardware_tier)
+
+# Pictures that arrive as dma-bufs (NV12 and P010 in dumb buffers of a DRM device), imported, converted by the video_frame
+# shader and compared with the CPU conversion; skipped (77) without a DRM device this user may use or an EGL that imports.
+maicord_test(MaiCordVideoDmabufTests ENTRY maicord_video_dmabuf_entry
+    SOURCES tests/platform/decode/video_dmabuf.cpp
+    LIBS maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles maicord_core
+    INCLUDES src
+    TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_dmabuf)
+set_tests_properties(maicord_video_dmabuf PROPERTIES SKIP_RETURN_CODE 77)
 
 # The movie decoder of attachments (mp4_decoder.hpp) with the software tier forced: movies from
 # tools/generate_mp4_fixtures.py against libavformat's and libavcodec's pictures and PCM. The AAC decoder is the

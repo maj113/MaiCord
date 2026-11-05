@@ -204,7 +204,7 @@ def emit_request(out, interface, opcode, message):
     parameters, wire, count, result, constructor = request_parameters_and_body(interface, opcode, message)
     function = interface.name + "_" + message.name
     if function in INTERFACE_NAMES:
-        function += "_request"  # wp_presentation.feedback would be named like the interface it creates
+        function += "_request"  # a request named like the interface it creates (wp_presentation.feedback)
     if message.summary:
         out.append("// " + message.summary + "\n")
     if message.since > 1:

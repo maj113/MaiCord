@@ -27,7 +27,6 @@ struct GpuCaps {
     bool timer_query;
     bool map_no_overwrite_on_srv;
     bool dmabuf_import;
-    bool copy_image;             // texture-to-texture copy of sub-rectangles
     bool surface_damage;         // presentation with damage rectangles
     bool buffer_age;
 };

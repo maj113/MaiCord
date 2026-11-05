@@ -8,8 +8,8 @@ namespace maicord {
 
 enum class UiCursor : u8;
 
-// The window service: free functions over an opaque handle. One top-level window per backend for now; window_id
-// in WindowEvent is reserved for a second.
+// The window service: free functions over an opaque handle. One top-level window per backend; window_id in
+// WindowEvent is reserved for a second.
 struct WindowObject;
 using Window = WindowObject*;
 
@@ -95,7 +95,8 @@ struct WindowMetrics {
 };
 WindowMetrics window_metrics(Window window) noexcept;
 
-// Presentation.
+// Presentation. Wayland: queues one frame callback on the surface (answered through the frame listener when the compositor
+// wants the next frame); it rides the next commit, which the GPU backend's buffer swap makes. Nothing on Windows.
 void window_frame_callback_request(Window window) noexcept;
 using FrameListener = void (*)(void* context, u32 time_ms) noexcept;
 void window_set_frame_listener(Window window, FrameListener listener, void* context) noexcept;

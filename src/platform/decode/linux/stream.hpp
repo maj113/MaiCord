@@ -119,8 +119,16 @@ void stream_present(GpuStream* stream, u8 slot, u32 rtp_timestamp, bool keyframe
 // Slots a new picture must not be decoded into (presented and held), as a bit set.
 u32 stream_held(const GpuStream& stream) noexcept;
 void stream_request_keyframe(GpuStream* stream, bool unsupported) noexcept;
+// Frees a slot's plane handles (the memory of a CPU slot is the planes').
+void stream_slot_release(StreamSurface* slot) noexcept;
 // Frees every slot's plane handles and memory.
 void stream_surfaces_release(GpuStream* stream) noexcept;
+// Replaces the planes of `slot` with the export of a VA surface (vaapi::export_picture): the old planes go once the
+// new ones are in, and false leaves the slot as it was.
+namespace vaapi {
+struct Session;
+}
+bool stream_slot_export(GpuDevice* device, vaapi::Session* session, u32 surface, StreamSurface* slot) noexcept;
 // CPU-backed slots (the software tier): `count` pictures of coded_width x coded_height (both even).
 bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u32 coded_height) noexcept;
 // Copies a decoded software picture into the CPU planes of slot and publishes them; the bytes written. The slot is at

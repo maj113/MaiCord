@@ -701,9 +701,4 @@ bool primary_selection_write_utf8(const Utf8View& text) noexcept {
     return true;
 }
 
-bool primary_selection_has_text() noexcept {
-    const Payload* own = g.data.primary_payload;
-    return (own && own->text) || (g.data.primary_selection && text_bit_of(g.data.primary_selection->mimes));
-}
-
 } // namespace maicord

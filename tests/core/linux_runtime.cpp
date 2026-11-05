@@ -92,6 +92,55 @@ void test_libraries() noexcept {
            "dlopen_rejects_empty_names");
 }
 
+// The program interpreter in the image's program headers (AT_PHDR, AT_PHENT, AT_PHNUM): the C library the image was
+// linked or retargeted for (tools/retarget_libc.py).
+const char* program_interpreter() noexcept {
+    struct Header {
+        u32 type, flags;
+        u64 offset, address, physical, file_size, memory_size, alignment;
+    };
+    constexpr u32 kSelf = 6, kInterpreter = 3;
+    const u64 headers = auxiliary_value(3), size = auxiliary_value(4), count = auxiliary_value(5);
+    u64 bias = 0;
+    for (u64 index = 0; index < count; ++index) {
+        const auto* header = reinterpret_cast<const Header*>(headers + index * size);
+        if (header->type == kSelf) bias = headers - header->address;
+    }
+    for (u64 index = 0; index < count; ++index) {
+        const auto* header = reinterpret_cast<const Header*>(headers + index * size);
+        if (header->type == kInterpreter) return reinterpret_cast<const char*>(bias + header->address);
+    }
+    return nullptr;
+}
+
+bool text_contains(const char* text, const char* word) noexcept {
+    for (; *text; ++text) {
+        const char* at = text;
+        const char* wanted = word;
+        while (*wanted && *at == *wanted) {
+            ++at;
+            ++wanted;
+        }
+        if (!*wanted) return true;
+    }
+    return false;
+}
+
+// _start tells musl from glibc (process_libc_is_musl) and starts musl's libc itself (__libc_start_main): the libc's
+// program name must be set (Mesa strrchr()s it), and the C library the loader mapped is the image's interpreter's.
+void test_c_library() noexcept {
+    const char* interpreter = program_interpreter();
+    expect(interpreter != nullptr, "c_library_interpreter");
+    if (interpreter) {
+        expect(process_libc_is_musl() == text_contains(interpreter, "ld-musl"), "c_library_is_the_interpreters");
+    }
+    SharedLibrary libc{};
+    expect(shared_library_open(&libc, "libc.so.6"), "c_library_opens_by_its_glibc_name");
+    const auto* name = static_cast<char* const*>(shared_library_symbol(libc, "program_invocation_name"));
+    expect(name && *name && **name, "c_library_program_name_is_set");
+    shared_library_close(&libc);
+}
+
 // MAICORD_LIBRARY_PATH names a directory without the library first: the search continues to the loader.
 void test_library_path() noexcept {
     expect(text_equal(environment_get("MAICORD_LIBRARY_PATH") ? environment_get("MAICORD_LIBRARY_PATH") : "",
@@ -227,6 +276,7 @@ MAICORD_TEST_ENTRY(maicord_linux_runtime_entry) {
         test_clock();
         test_threads();
         test_libraries();
+        test_c_library();
     }
     test_exit(g_failures, "maicord_linux_runtime");
 }

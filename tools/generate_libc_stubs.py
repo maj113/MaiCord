@@ -9,7 +9,10 @@ GLIBC_2.2.5 and GLIBC_2.17 and nothing newer, and name the libraries as glibc do
 in libdl.so.2, libpthread.so.0 and libc.so.6; after it libdl and libpthread are empty libraries that still carry
 the old version nodes, so the same image runs on both.
 
-The stubs are only linked against; the system's real libraries are what the loader maps at run time.
+The stubs are only linked against; the system's real libraries are what the loader maps at run time. musl needs none of
+this: its loader answers the stub sonames (libc.*, libdl.*, libpthread.*) by itself and ignores the versions, which is
+why tools/retarget_libc.py makes the musl image by changing only the program interpreter. Every function listed here
+must exist in musl too, or be imported weakly (malloc_trim).
 
     generate_libc_stubs.py --compiler clang --output-directory build/libc-stubs
 """

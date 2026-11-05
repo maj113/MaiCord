@@ -33,8 +33,10 @@
 #   Image     A dynamic PIE with its own _start (src/core/linux/start.cpp): no CRT, raw syscalls, DT_NEEDED
 #             libc.so.6 libdl.so.2 libpthread.so.0 as generated stubs (tools/generate_libc_stubs.py) that pin
 #             GLIBC_2.2.5 and GLIBC_2.17; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).
+#             The musl form is the same image with another program interpreter (tools/retarget_libc.py --libc musl).
 #   Audit     tools/audit_elf.py runs on every image: no GLIBC_ symbol version above 2.17, only the three stub
-#             libraries needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack.
+#             libraries needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack;
+#             and on the client's musl form (--libc musl).
 #   Tests     ctest under the build directory; each case runs with a private XDG_DATA_HOME below it.
 #   Cleanup   Unless --keep, the run ends with the build directory holding only the shipping client (MaiCord) and its
 #             runtime assets (fonts/, licenses/), as tools/build.ps1 leaves the Windows one with only the client.
@@ -193,6 +195,20 @@ if [ "$check_only" = 0 ]; then
         python3 "$source_directory/tools/audit_elf.py" "${images[@]}"
     else
         echo "No images to audit."
+    fi
+    # A build without tests is the one that ships: its client holds no test hook (a --test build's does, and is never packaged).
+    if [ "$run_tests" = 0 ] && [ -f "$build_directory/MaiCord" ]; then
+        python3 "$source_directory/tools/audit_elf.py" --no-test-hooks "$build_directory/MaiCord"
+    fi
+    # The musl form of the client (tools/retarget_libc.py: the same bytes with musl's interpreter) must audit as well.
+    if [ -f "$build_directory/MaiCord" ]; then
+        musl_client="$(mktemp)"
+        if ! python3 "$source_directory/tools/retarget_libc.py" --libc musl "$build_directory/MaiCord" "$musl_client" ||
+                ! python3 "$source_directory/tools/audit_elf.py" --libc musl "$musl_client"; then
+            rm -f "$musl_client"
+            exit 1
+        fi
+        rm -f "$musl_client"
     fi
 fi
 

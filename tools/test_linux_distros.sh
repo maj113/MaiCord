@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Runs the portable subset of the Linux tests (tools/linux_portable_tests.txt) inside distribution containers: the same
-# executables, built once on Ubuntu, on Ubuntu 22.04, Debian 12, Fedora, Arch Linux and NixOS. That is the proof of the one
-# binary claim (D1): a freestanding glibc image that needs only libc, libdl and libpthread and opens everything else by
-# soname finds its libraries wherever the distribution keeps them, and copes where one is missing.
+# executables, built once on Ubuntu, on Ubuntu 22.04, Debian 12, Fedora, Arch Linux and NixOS (glibc) and on Alpine, Void
+# and Chimera (musl). That is the proof of the one binary claim (D1): a freestanding image that needs only libc, libdl
+# and libpthread and opens everything else by soname finds its libraries wherever the distribution keeps them, and copes
+# where one is missing. The musl containers run the same bytes but for the program interpreter (the bundle's copy is
+# retargeted with tools/retarget_libc.py: musl's loader answers the needed libc.so.6, libdl.so.2 and libpthread.so.0 by
+# itself), and Alpine also compiles tools/check_libc_abi.py against musl's headers.
 #
 #   tools/test_linux_distros.sh --build ~/mc-build                  pack the cases from a build, run every distribution
 #   tools/test_linux_distros.sh --build ~/mc-build debian-12 fedora only those
@@ -10,6 +13,9 @@
 #   tools/test_linux_distros.sh --list                               the distributions
 #   options: --engine docker|podman (default: docker, else podman; MAICORD_CONTAINER_ENGINE)
 #            --out DIR  work directory and logs (default ~/mc-distro-test)
+#            --client PATH  another client than the bundle's MaiCord (the build's client travels in the bundle: where the
+#                           distribution installs sway, Alpine, it is also started on headless sway and its login
+#                           screenshot kept as OUT/<distribution>-login.png; tools/test_client_wayland.sh)
 #
 # Each distribution is one container: a root step installs only the runtime libraries below (and the tools the cases
 # call: openssl for the TLS server), then the cases run as an unprivileged user (uid 1000) with /mc/bundle (the
@@ -33,6 +39,10 @@
 #                                    libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0 | libwayland-client
 #                                    libwayland-egl libwayland-cursor libxkbcommon | wayland libxkbcommon |
 #                                    wayland libxkbcommon
+#   Alpine (apk): mesa-egl mesa-gles mesa-dri-gallium wayland-libs-* libxkbcommon libpulse libhunspell hunspell-en
+#   enchant2-libs fontconfig font-dejavu openssl; Void musl (xbps): mesa mesa-dri libglvnd wayland libxkbcommon
+#   libpulseaudio hunspell enchant2 fontconfig dejavu-fonts-ttf openssl; Chimera (apk): mesa mesa-dri libglvnd libxkbcommon
+#   libpulse hunspell-libs enchant fontconfig fonts-dejavu-ttf openssl3-libs.
 #   NixOS: the glibc loader is linked at /lib64/ld-linux-x86-64.so.2 and LD_LIBRARY_PATH names the profile's lib directory,
 #   which is what nix-ld does on a NixOS machine; a NixOS system with programs.nix-ld.enable does it for every program.
 set -uo pipefail
@@ -43,7 +53,8 @@ out="$HOME/mc-distro-test"
 build=""
 bundle=""
 selected=()
-all_distros=(ubuntu-22.04 debian-12 fedora archlinux nixos)
+all_distros=(ubuntu-22.04 debian-12 fedora archlinux nixos alpine void-musl chimera)
+client=""
 
 image_of() {
     case "$1" in
@@ -52,7 +63,18 @@ image_of() {
         fedora) echo docker.io/library/fedora:latest ;;
         archlinux) echo docker.io/library/archlinux:latest ;;
         nixos) echo docker.io/nixos/nix:latest ;;
+        alpine) echo docker.io/library/alpine:3.22 ;;
+        void-musl) echo ghcr.io/void-linux/void-musl:latest ;;
+        chimera) echo docker.io/chimeralinux/chimera:latest ;;
         *) return 1 ;;
+    esac
+}
+
+# The C library of a distribution: musl ones run the bundle's executables retargeted.
+libc_of() {
+    case "$1" in
+        alpine|void-musl|chimera) echo musl ;;
+        *) echo glibc ;;
     esac
 }
 
@@ -82,6 +104,36 @@ profile=/nix/var/nix/profiles/portable
 mkdir -p /lib64 /etc/fonts
 ln -sf "$profile/lib/ld-linux-x86-64.so.2" /lib64/ld-linux-x86-64.so.2
 printf "<?xml version=\"1.0\"?><fontconfig><dir>%s/share/fonts</dir><cachedir>/tmp/fontconfig</cachedir></fontconfig>\n" "$profile" > /etc/fonts/fonts.conf' ;;
+        alpine)
+            echo 'apk add --no-cache coreutils openssl tzdata ca-certificates fontconfig font-dejavu libhunspell hunspell-en \
+    enchant2-libs libpulse mesa-egl mesa-gles mesa-dri-gallium wayland-libs-client wayland-libs-egl wayland-libs-cursor \
+    libxkbcommon gcc musl-dev python3 >/dev/null && fc-cache -f' ;;
+        void-musl)
+            echo 'xbps-install -Syu xbps >/dev/null; xbps-install -Sy coreutils openssl tzdata ca-certificates fontconfig \
+    dejavu-fonts-ttf hunspell hunspell-en_US enchant2 libpulseaudio mesa mesa-dri libglvnd wayland libxkbcommon >/dev/null \
+    && fc-cache -f' ;;
+        chimera)
+            echo 'apk add --no-interactive openssl3-libs openssl3 ca-certificates tzdb fontconfig fonts-dejavu-ttf hunspell-libs \
+    hunspell-en enchant libpulse mesa mesa-dri libglvnd libxkbcommon wayland >/dev/null && fc-cache -f' ;;
+    esac
+}
+
+# What the client run (--client) needs on top: a compositor and the screenshot tools. The package's sway carries file
+# capabilities an unprivileged container user cannot exec, so a copy (which has none) goes first on the PATH.
+client_install_of() {
+    case "$1" in
+        alpine)
+            echo 'apk add --no-cache sway grim bash py3-pillow font-noto-emoji >/dev/null && cp -f /usr/bin/sway /usr/local/bin/sway \
+    && fc-cache -f' ;;
+        *) return 1 ;;
+    esac
+}
+
+# The checks that need a compiler, in the distributions that install one: the C library's headers against ours.
+abi_check_of() {
+    case "$1" in
+        alpine) echo 'python3 /mc/src/tools/check_libc_abi.py --compiler cc' ;;
+        *) return 1 ;;
     esac
 }
 
@@ -119,6 +171,7 @@ while [ "$#" -gt 0 ]; do
         --bundle) bundle="$2"; shift 2 ;;
         --engine) engine="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
+        --client) client="$2"; shift 2 ;;
         --list) printf '%s\n' "${all_distros[@]}"; exit 0 ;;
         -h|--help) usage 0 ;;
         -*) echo "Unknown argument: $1" >&2; usage 2 ;;
@@ -146,30 +199,51 @@ for distro in "${selected[@]}"; do
     log="$out/$distro.log"
     remove_tree "$work"
     cp -a "$bundle" "$work"
+    [ -z "$client" ] || cp "$client" "$work/MaiCord"
+    if [ "$(libc_of "$distro")" = musl ]; then
+        python3 "$repository/tools/retarget_libc.py" --libc musl --tree "$work/build" || { echo "retarget failed" >&2; exit 1; }
+        [ ! -f "$work/MaiCord" ] || python3 "$repository/tools/retarget_libc.py" --libc musl "$work/MaiCord" "$work/MaiCord" ||
+            { echo "retarget failed" >&2; exit 1; }
+    fi
+    run_client=0
+    [ -f "$work/MaiCord" ] && client_install_of "$distro" >/dev/null && run_client=1
     mkdir -p "$work/home" "$work/build"
     # A bundle that went through an artifact upload has lost its executable bits.
     find "$work/build" -type f -exec chmod a+rx {} +
     chmod -R a+rwX "$work"
     echo "== $distro ($image)"
     name="maicord-$distro-$$"
+    # io_uring is the network loop's only backend and the engines' default seccomp profiles refuse it (Docker EPERM,
+    # Podman ENOSYS), so the containers run without the profile.
     {
         "$engine" pull -q "$image" >/dev/null &&
-        "$engine" run -d --name "$name" --network=host -v "$work:/mc/bundle" -v "$repository:/mc/src:ro" "$image" sleep 3600 >/dev/null &&
+        "$engine" run -d --name "$name" --network=host --security-opt seccomp=unconfined -v "$work:/mc/bundle" -v "$repository:/mc/src:ro" "$image" sleep 3600 >/dev/null &&
         echo "image $("$engine" image inspect "$image" --format '{{.Id}}')" &&
         "$engine" exec "$name" sh -c "$(install_of "$distro")"
     } >"$log" 2>&1
     prepared=$?
     if [ "$prepared" -eq 0 ]; then
         environment_of "$distro"
+        outcome=0
+        if abi_check_of "$distro" >/dev/null; then
+            "$engine" exec "$name" sh -c "$(abi_check_of "$distro")" >>"$log" 2>&1 || outcome=1
+        fi
         "$engine" exec --user 1000:1000 -e HOME=/mc/bundle/home "${environment[@]}" "$name" \
-            sh /mc/bundle/portable.sh >>"$log" 2>&1
-        outcome=$?
+            sh /mc/bundle/portable.sh >>"$log" 2>&1 || outcome=1
+        if [ "$run_client" = 1 ]; then
+            # The client on headless sway with a private profile: it must stay up, draw the login screen and write no
+            # error to its log (tools/test_client_wayland.sh).
+            "$engine" exec "$name" sh -c "$(client_install_of "$distro")" >>"$log" 2>&1 &&
+                "$engine" exec --user 1000:1000 -e HOME=/mc/bundle/home "$name" bash /mc/src/tools/test_client_wayland.sh \
+                    --binary /mc/bundle/MaiCord --out /mc/bundle/client-qa >>"$log" 2>&1 || outcome=1
+            [ ! -f "$work/client-qa/login.png" ] || cp "$work/client-qa/login.png" "$out/$distro-login.png"
+        fi
     else
         outcome=99
         echo "setup failed (exit $prepared); see $log" >&2
     fi
     "$engine" rm -f "$name" >/dev/null 2>&1
-    grep -E "^(host:|image |PASS|SKIP|FAIL|[0-9]+ passed)" "$log" | grep -vE "^PASS" | sed 's/^/   /'
+    grep -E "^(host:|image |PASS|SKIP|FAIL|[0-9]+ passed|libc ABI|screenshot|window:|idle )" "$log" | grep -vE "^PASS" | sed 's/^/   /'
     if [ "$outcome" -eq 0 ]; then
         results[$distro]="ok: $(grep -E '^[0-9]+ passed' "$log")"
     else

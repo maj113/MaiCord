@@ -5,7 +5,8 @@
 #
 # An image is a dynamic position-independent executable with its own _start (src/core/linux/start.cpp). It links
 # libc.so.6, libdl.so.2 and libpthread.so.0 as generated stub libraries that pin the oldest symbol versions
-# (tools/generate_libc_stubs.py), so no glibc newer than 2.17 is ever required; everything else is dlopen()ed.
+# (tools/generate_libc_stubs.py), so no glibc newer than 2.17 is ever required; everything else is dlopen()ed. The
+# same image is the musl one once tools/retarget_libc.py has changed its program interpreter (src/core/linux/README.md).
 # tools/audit_elf.py checks the result.
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/file_chooser.hpp"
+#include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
 namespace maicord::dbus {
@@ -202,7 +203,7 @@ FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
     }
     Builder body;
     builder_init(&body);
-    builder_string(&body, options.parent ? options.parent : "");
+    builder_string(&body, options.parent ? options.parent : portal_parent_window());
     builder_string(&body, options.title ? options.title : (save ? "Save File" : "Open File"));
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, chooser->request);

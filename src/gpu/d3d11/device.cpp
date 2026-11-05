@@ -137,7 +137,7 @@ const GpuCaps& gpu_caps(const GpuDevice* device) {
         SUCCEEDED(const_cast<GpuDevice*>(device)->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options,
                                                                       sizeof(options)));
     caps = GpuCaps{16384, 65536, 1024, 32768, 8, true, true, true, true, true, true, true,
-                   options_known && options.MapNoOverwriteOnDynamicBufferSRV, false, true, true, false};
+                   options_known && options.MapNoOverwriteOnDynamicBufferSRV, false, true, false};
     return caps;
 }
 

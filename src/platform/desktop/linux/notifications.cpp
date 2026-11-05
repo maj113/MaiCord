@@ -8,6 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/dbus/notifications.hpp"
+#include "maicord/platform/window/wayland.hpp"
 
 namespace maicord {
 namespace {
@@ -87,6 +88,8 @@ void on_event(void* context, const dbus::NotificationEvent& event) noexcept {
             dbus::notification_close(event.id);
         break;
     case dbus::NotificationEventKind::action:
+        // The server's activation token for the click lets the compositor give the window the focus.
+        window_wayland_activate(event.activation_token);
         if (runtime->activation_count < kDesktopNotificationActivationCapacity)
             runtime->activations[runtime->activation_count++] = toast->target;
         if (runtime->wake.window)

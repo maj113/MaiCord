@@ -431,7 +431,7 @@ class ReleaseToolTests(unittest.TestCase):
         output = self.root / "tarball"
         packaging = Path(__file__).resolve().parents[2] / "packaging" / "build_tarball.py"
         subprocess.run([sys.executable, "-B", str(packaging), "--binary", str(program), "--version", "1.2.3",
-                        "--output-dir", str(output)], check=True, capture_output=True,
+                        "--skip-audit-for-synthetic-image", "--output-dir", str(output)], check=True, capture_output=True,
                        env=dict(os.environ, SOURCE_DATE_EPOCH="1760000000"))
         name = release.linux_artifact_name(release.parse_tag("v1.2.3").number)
         unpacked = release.validate_linux_tarball((output / name).read_bytes(), name)

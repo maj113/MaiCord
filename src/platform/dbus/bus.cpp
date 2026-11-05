@@ -253,30 +253,6 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
     return false;
 }
 
-bool object_emit_properties_changed(Connection* c, const char* path, const ExportedObject& object, const char* interface,
-                                    const char* const* names, u32 count) noexcept {
-    Builder body;
-    builder_init(&body);
-    builder_string(&body, interface);
-    builder_open_array(&body, "{sv}");
-    for (u32 i = 0; i < count; ++i) {
-        if (!owns_property(object, interface, names[i]))
-            continue;
-        builder_open_entry(&body);
-        builder_string(&body, names[i]);
-        if (!object.write(object.context, interface, names[i], &body))
-            body.failed = true;
-        builder_close_entry(&body);
-    }
-    builder_close_array(&body);
-    builder_open_array(&body, "s");
-    builder_close_array(&body);
-    const bool sent = builder_ok(body) &&
-                      connection_emit(c, path, "org.freedesktop.DBus.Properties", "PropertiesChanged", &body);
-    builder_release(&body);
-    return sent;
-}
-
 bool portal_request_begin(PortalRequest* request, Connection* c, PortalResponseHandler handler, void* context) noexcept {
     *request = PortalRequest{};
     request->connection = c;

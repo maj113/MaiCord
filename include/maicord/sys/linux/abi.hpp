@@ -134,7 +134,6 @@ inline constexpr int kOpenNoControllingTerminal = 0x100;
 // <linux/memfd.h>, <linux/fcntl.h>: anonymous memory files and their seals.
 inline constexpr u32 kMemfdCloseOnExec = 0x1;
 inline constexpr u32 kMemfdAllowSealing = 0x2;
-inline constexpr u32 kMemfdExec = 0x10;
 inline constexpr int kFcntlAddSeals = 1033;
 inline constexpr long kSealSeal = 0x1;
 inline constexpr long kSealShrink = 0x2;
@@ -284,7 +283,8 @@ struct TimeVal {
     i64 seconds;
     i64 microseconds;
 };
-// struct addrinfo of glibc (x86-64): the hints and the list getaddrinfo(3) returns.
+// struct addrinfo (x86-64): the hints and the list getaddrinfo(3) returns. glibc and musl declare the same fields in
+// this order and so the same layout; tools/check_libc_abi.py compares it with the installed C library's headers.
 struct AddrInfo {
     int flags;
     int family;
@@ -295,7 +295,9 @@ struct AddrInfo {
     char* canonical_name;
     AddrInfo* next;
 };
-static_assert(sizeof(AddrInfo) == 48);
+static_assert(sizeof(AddrInfo) == 48 && __builtin_offsetof(AddrInfo, address_length) == 16 &&
+              __builtin_offsetof(AddrInfo, address) == 24 && __builtin_offsetof(AddrInfo, canonical_name) == 32 &&
+              __builtin_offsetof(AddrInfo, next) == 40);
 
 // <sys/epoll.h>: x86-64 packs the event, so its data member sits at offset 4.
 inline constexpr int kEpollCloseOnExec = 0x80000;

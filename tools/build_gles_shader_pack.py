@@ -34,11 +34,7 @@ SHADER_LIST = ROOT / 'cmake' / 'generated_sources.cmake'
 PACKED_FILE = 'maicord_shader_pack_gles.bin'
 STAGES = {'vs': 0, 'ps': 1, 'cs': 2}
 CACHE = optimal_deflate.DeflateCache('gles_shaders')
-GLES_VARIANTS = [('colr_layers_narrow_compute', 'colr_layers_compute', ['COLR_SLICES=2']),
-                 # Without dual-source blending the composite is drawn twice (gles/draw.cpp): once for its weight and
-                 # once for its colour, each the only output of a plain pixel shader.
-                 ('fx_composite_weight_pixel', 'fx_composite_pixel', ['MC_COMPOSITE_WEIGHT=1']),
-                 ('fx_composite_color_pixel', 'fx_composite_pixel', ['MC_COMPOSITE_COLOR=1'])]
+GLES_VARIANTS = [('colr_layers_narrow_compute', 'colr_layers_compute', ['COLR_SLICES=2'])]
 
 
 def shader_list():

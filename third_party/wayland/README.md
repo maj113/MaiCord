@@ -10,13 +10,14 @@ the MIT licence stated in each file's `<copyright>` block. `tools/generate_wayla
 | `wayland.xml` | wayland 1.22 | core: compositor, shm, seat, pointer, keyboard, data device |
 | `xdg-shell.xml` | wayland-protocols 1.45 (stable) | toplevel windows |
 | `viewporter.xml` | stable | fractional-scale buffer sizes |
-| `presentation-time.xml` | stable | frame timing |
 | `tablet-v2.xml` | stable | only the types `cursor-shape-v1` names |
 | `fractional-scale-v1.xml` | staging | fractional scale |
 | `cursor-shape-v1.xml` | staging | cursor shapes |
 | `xdg-activation-v1.xml` | staging | window attention |
 | `ext-idle-notify-v1.xml` | staging | system idle |
 | `xdg-toplevel-icon-v1.xml` | staging | window icon |
+| `xdg-system-bell-v1.xml` | staging | alert beep |
+| `xdg-foreign-unstable-v2.xml` | unstable | the window as the parent of portal dialogs |
 | `text-input-unstable-v3.xml` | unstable | IME |
 | `primary-selection-unstable-v1.xml` | unstable | primary selection |
 | `xdg-decoration-unstable-v1.xml` | unstable | server-side decorations |

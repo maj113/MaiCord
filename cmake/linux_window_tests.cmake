@@ -8,12 +8,13 @@
 # environment (tools/test_wayland_window.sh does, after starting sway) and they run; otherwise they are registered
 # disabled. They assert the WindowEvents of a real window.
 #
-#   maicord_wayland_window_lifecycle   the window opens, is configured and acked, answers frame callbacks, presents a
-#                                      wl_shm clear and closes; any compositor (sway, Weston, WSLg)
+#   maicord_wayland_window_lifecycle   the window opens, is configured and acked, answers frame callbacks, takes a wl_shm
+#                                      buffer, the integration protocols (xdg-foreign handle, system bell, icon) and
+#                                      closes; any compositor (sway, Weston, WSLg)
 #   maicord_wayland_window_input       pointer, keyboard, client-side decorations, clipboard, primary selection, IME,
-#                                      window_post, attention and idle inhibit, driven through a virtual pointer and
-#                                      keyboard and two helper clients (sway and other wlroots compositors)
-#   maicord_wayland_window_egl         a real EGL window surface on the window's wl_egl_window, checked in a screenshot
+#                                      window_post, attention, idle inhibit and the system idle time, driven through a
+#                                      virtual pointer and keyboard and two helper clients (sway and other wlroots
+#                                      compositors)
 maicord_test(MaiCordWaylandInputTests ENTRY maicord_wayland_input_entry
     SOURCES tests/platform/window/wayland_input.cpp
     LIBS maicord_window_wayland maicord_core
@@ -29,10 +30,7 @@ maicord_test(MaiCordWaylandWindowTests ENTRY maicord_wayland_window_entry
     TIMEOUT 20 LABELS integration TEST maicord_wayland_window_lifecycle --lifecycle)
 maicord_add_tests(MaiCordWaylandWindowTests TIMEOUT 20 LABELS integration
     TEST maicord_wayland_window_input --input)
-maicord_add_tests(MaiCordWaylandWindowTests TIMEOUT 20 LABELS integration
-    TEST maicord_wayland_window_egl --egl)
-foreach(maicord_wayland_case IN ITEMS maicord_wayland_window_lifecycle maicord_wayland_window_input
-        maicord_wayland_window_egl)
+foreach(maicord_wayland_case IN ITEMS maicord_wayland_window_lifecycle maicord_wayland_window_input)
     # Status 77: no compositor to talk to. One window at a time on the compositor.
     set_tests_properties(${maicord_wayland_case} PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK wayland_compositor)
     if(NOT "$ENV{MAICORD_WAYLAND_INTEGRATION}")

@@ -1,0 +1,143 @@
+#!/bin/sh
+# Installs MaiCord for the current user, from the signed release channel of @REPOSITORY@.
+#
+#   curl -fsSL https://github.com/@REPOSITORY@/releases/latest/download/install.sh | sh
+#   sh install.sh [--channel stable|preview] [--prefix DIR] [--no-url-handler]
+#
+# What it does, and nothing else: it downloads the channel's manifest and its signature, checks the signature with the
+# public key written into this script (the key MaiCord's own updater trusts: ECDSA P-256 over SHA-256, `openssl` does the
+# check), checks that the manifest is current and names a Linux x86-64 tarball, downloads that tarball, checks its size and
+# SHA-256 against the signed manifest, unpacks it into a temporary directory and runs the tarball's install.sh (which
+# installs under ~/.local, or DIR with --prefix). Anything that does not verify stops the script before the tarball is
+# unpacked. No root is needed and nothing outside the prefix is written, except the default link handler of discord://
+# links in your mimeapps.list (--no-url-handler leaves it alone). The installed copy updates itself through the same
+# channel; ~/.local/opt/MaiCord/uninstall.sh removes it.
+#
+# Needs: curl or wget, tar, sha256sum (or shasum), od, awk, sed, cut and openssl (the command line tool). On a system
+# without them use the AppImage or your distribution's package instead (https://github.com/@REPOSITORY@#install).
+#
+# For a mirror or a test: --site URL (default https://@OWNER@.github.io/@NAME@) is where updates/p2/linux/ lives, and
+# --releases URL (default https://github.com/@REPOSITORY@/releases/download) where the tarball of a stable manifest is
+# fetched from; the signature is checked against the same key whatever they are.
+set -eu
+
+repository='@REPOSITORY@'
+site='https://@OWNER@.github.io/@NAME@'
+releases="https://github.com/$repository/releases/download"
+channel=stable
+prefix=""
+url_handler=1
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --channel) [ "$#" -ge 2 ] || { echo "--channel needs stable or preview" >&2; exit 2; }; channel="$2"; shift 2 ;;
+        --site) [ "$#" -ge 2 ] || { echo "--site needs a URL" >&2; exit 2; }; site="$2"; shift 2 ;;
+        --releases) [ "$#" -ge 2 ] || { echo "--releases needs a URL" >&2; exit 2; }; releases="$2"; shift 2 ;;
+        --prefix) [ "$#" -ge 2 ] || { echo "--prefix needs a directory" >&2; exit 2; }; prefix="$2"; shift 2 ;;
+        --no-url-handler) url_handler=0; shift ;;
+        -h|--help) sed -n '2,/^set -eu/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown argument: $1 (see --help)" >&2; exit 2 ;;
+    esac
+done
+case "$channel" in stable|preview) ;; *) echo "Unknown channel: $channel (stable or preview)" >&2; exit 2 ;; esac
+
+fail() { echo "install: $*" >&2; exit 1; }
+
+[ "$(uname -s)" = Linux ] || fail "this installs the Linux client; $(uname -s) is not Linux"
+[ "$(uname -m)" = x86_64 ] || fail "only x86-64 builds exist; this machine is $(uname -m)"
+for tool in tar od awk sed cut openssl; do
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is not installed (see the notes at the top of this script)"
+done
+if command -v curl >/dev/null 2>&1; then
+    download() { curl -fsSL --retry 2 -o "$2" "$1"; }
+elif command -v wget >/dev/null 2>&1; then
+    download() { wget -q -O "$2" "$1"; }
+else
+    fail "neither curl nor wget is installed"
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256_of() { sha256sum "$1" | awk '{print $1}'; }
+elif command -v shasum >/dev/null 2>&1; then
+    sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+else
+    fail "neither sha256sum nor shasum is installed"
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+# The key MaiCord's updater trusts (MAICORD_UPDATE_PUBLIC_KEY of this repository), as a PEM public key.
+cat >"$work/key.pem" <<'KEY'
+@PUBLIC_KEY_PEM@
+KEY
+
+if [ "$channel" = stable ]; then
+    manifest_path="updates/p2/linux/maicord-stable.manifest.json"
+else
+    manifest_path="updates/p2/linux/preview/maicord-preview.manifest.json"
+fi
+echo "Fetching the $channel manifest"
+download "$site/$manifest_path" "$work/manifest.json" || fail "cannot download $site/$manifest_path"
+download "$site/$manifest_path.sig" "$work/manifest.sig" || fail "cannot download the manifest's signature"
+
+# The signature: 64 bytes, r then s (IEEE P1363), over SHA-256("MaiCord update manifest v1\n" + the manifest). openssl
+# verifies a DER signature of a digest, so r and s become a DER SEQUENCE of two INTEGERs and the digest is made binary.
+[ "$(wc -c <"$work/manifest.sig" | tr -d ' ')" = 64 ] || fail "the signature is not 64 bytes"
+hex="$(od -An -v -tx1 "$work/manifest.sig" | tr -d ' \n')"
+r="$(printf '%s' "$hex" | cut -c1-64)"
+s="$(printf '%s' "$hex" | cut -c65-128)"
+cat >"$work/signature.cnf" <<CONF
+asn1 = SEQUENCE:signature
+[signature]
+r = INTEGER:0x$r
+s = INTEGER:0x$s
+CONF
+openssl asn1parse -genconf "$work/signature.cnf" -noout -out "$work/signature.der" >/dev/null 2>&1 || fail "cannot build the signature"
+{ printf 'MaiCord update manifest v1\n'; cat "$work/manifest.json"; } | openssl dgst -sha256 -binary >"$work/digest.bin"
+openssl pkeyutl -verify -pubin -inkey "$work/key.pem" -in "$work/digest.bin" -sigfile "$work/signature.der" >/dev/null 2>&1 ||
+    fail "the manifest's signature does not verify: nothing was installed"
+
+# The manifest is one line of compact JSON with a fixed field order (maicord_release.py): read its fields as the signed text.
+manifest="$(cat "$work/manifest.json")"
+field() { printf '%s' "$manifest" | sed -n "s/.*\"$1\":\"\\{0,1\\}\\([^\",}]*\\)\"\\{0,1\\}[,}].*/\\1/p"; }
+arch="$(field arch)"; artifact="$(field artifact)"; sha256="$(field sha256)"; bytes="$(field bytes)"
+issued="$(field issued)"; expires="$(field expires)"
+[ "$arch" = linux-x64 ] || fail "the manifest is for $arch, not linux-x64"
+now="$(date +%s)"
+{ [ "$issued" -le $((now + 3600)) ] && [ "$now" -lt "$expires" ]; } 2>/dev/null ||
+    fail "the manifest is not current (issued $issued, expires $expires, now $now): the channel needs a refresh"
+case "$artifact" in
+    maicord-*-linux-x86_64.tar.gz) ;;
+    *) fail "the manifest names an unexpected file: $artifact" ;;
+esac
+case "$artifact" in
+    */* | *..*) fail "the manifest holds an unexpected path" ;;
+esac
+case "$sha256" in
+    *[!0-9a-f]* | "") fail "the manifest holds no SHA-256" ;;
+esac
+case "$bytes" in
+    *[!0-9]* | "") fail "the manifest holds no size" ;;
+esac
+version="${artifact#maicord-}"
+version="${version%-linux-x86_64.tar.gz}"
+
+if [ "$channel" = stable ]; then
+    url="$releases/v$version/$artifact"
+else
+    url="$site/updates/p2/linux/preview/$artifact"
+fi
+echo "Downloading MaiCord $version ($((bytes / 1024)) KiB)"
+download "$url" "$work/$artifact" || fail "cannot download $url"
+[ "$(wc -c <"$work/$artifact" | tr -d ' ')" = "$bytes" ] || fail "$artifact has the wrong size"
+[ "$(sha256_of "$work/$artifact")" = "$sha256" ] || fail "$artifact does not match the signed SHA-256: nothing was installed"
+echo "Verified: signature, size and SHA-256 of $artifact"
+
+mkdir "$work/unpacked"
+tar -xzf "$work/$artifact" -C "$work/unpacked"
+directory="$work/unpacked/${artifact%.tar.gz}"
+[ -f "$directory/install.sh" ] || fail "the tarball has no install.sh"
+set --
+[ -z "$prefix" ] || set -- --prefix "$prefix"
+[ "$url_handler" = 1 ] || set -- "$@" --no-url-handler
+sh "$directory/install.sh" "$@"

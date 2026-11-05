@@ -162,6 +162,18 @@ void test_protocol() noexcept {
     check(!desktop_protocol_set(discord, wide(L"relative/program"), true), "protocol: a relative path is refused");
 }
 
+// The AppImage runtime sets APPIMAGE (the file) and APPDIR (its mount): the test registration puts this test's own directory
+// in APPDIR and a file under it in APPIMAGE, as the runtime does for the program it mounts.
+void test_appimage() noexcept {
+    wchar_t path[1024], expected[1024];
+    const u32 units = desktop_appimage_path(path, 1024);
+    const u32 wanted = environment_variable(L"APPIMAGE", expected, 1024);
+    check(units && units == wanted && bytes_equal(path, expected, units * sizeof(wchar_t)),
+          "appimage: from inside the mount named by APPDIR the registration names the file in APPIMAGE");
+    wchar_t small[8];
+    check(desktop_appimage_path(small, 8) == 0, "appimage: a path that does not fit is refused");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -169,5 +181,6 @@ MAICORD_TEST_ENTRY(maicord_linux_integration_entry) {
     using namespace maicord;
     test_startup();
     test_protocol();
+    test_appimage();
     test_exit(g_failures, "linux_integration");
 }

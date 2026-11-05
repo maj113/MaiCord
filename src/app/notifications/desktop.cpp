@@ -20,6 +20,7 @@
 #include "maicord/os/text.hpp"
 #include "maicord/platform/dbus/instance.hpp"
 #include "maicord/platform/dbus/tray.hpp"
+#include "maicord/platform/window/wayland.hpp"
 #endif
 
 namespace maicord::app_detail {
@@ -218,6 +219,8 @@ void on_tray(void*, const dbus::TrayEvent& event) noexcept {
 }
 // A launch another process handed over (a link, or just "show yourself").
 void on_launch(void*, const dbus::LaunchRequest& request) noexcept {
+    // The second launch brings the compositor's activation token (XDG_ACTIVATION_TOKEN): with it the window may take the focus.
+    window_wayland_activate(request.activation_token);
     reveal();
     wchar_t url[kDesktopUrlCapacity];
     const u32 units = request.url_present ? utf8_to_utf16(request.url, request.url_bytes, url, kDesktopUrlCapacity, true)

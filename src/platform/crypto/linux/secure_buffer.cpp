@@ -368,7 +368,7 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
     if (!allocation) {
         return failure(SecureBufferError::allocation_failed, static_cast<u32>(kErrorNoMemory));
     }
-    // Best effort: kernels before 4.14 do not know WIPEONFORK, and a refused DONTDUMP only widens a core dump.
+    // Best effort: a refused DONTDUMP or WIPEONFORK only widens a core dump or the key's reach into a child.
     sys_madvise(allocation, capacity, kAdviseDontDump);
     sys_madvise(allocation, capacity, kAdviseWipeOnFork);
     const long locked = sys_mlock(allocation, capacity);

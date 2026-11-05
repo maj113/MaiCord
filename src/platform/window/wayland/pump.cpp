@@ -137,9 +137,7 @@ namespace maicord {
 
 using namespace wayland;
 
-Waitable window_event_waitable() noexcept {
-    return g.display_waitable;
-}
+namespace {
 
 void window_wait_begin() noexcept {
     if (!g.display || g.failed || g.read_prepared)
@@ -173,9 +171,7 @@ void window_wait_end(bool display_ready) noexcept {
     }
 }
 
-u32 window_next_deadline_ms(u64 now_ms) noexcept {
-    return keyboard_repeat_wait_ms(now_ms);
-}
+} // namespace
 
 WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     WindowWaitResult result{};

@@ -13,8 +13,8 @@
 // /run/current-system/sw/share/zoneinfo. The zone is read on first use and again, when it changed, at most every
 // fifteen seconds; every function is thread safe and none allocates, logs or fails (an unreadable zone is UTC).
 //
-// Windows code calls the Win32 time zone functions directly for now (every one passes the null zone, the user's), so
-// there is nothing here for Windows to forward to.
+// Windows code calls the Win32 time zone functions directly (every one passes the null zone, the user's), so there is
+// nothing here for Windows to forward to.
 
 namespace maicord {
 
@@ -76,9 +76,5 @@ void local_time_now(CalendarTime* output) noexcept;
 // The IANA identifier of the zone ("Europe/Berlin") into output with its NUL, zero when the zone has none (a rule in
 // $TZ, a file outside any zoneinfo directory, UTC by default) or it does not fit.
 u32 local_zone_name(Slice<char> output) noexcept;
-
-// Forgets the zone: the next call reads it again. For tests that change $TZDIR's content; the process environment
-// itself is read once at start.
-void local_zone_reload() noexcept;
 
 } // namespace maicord

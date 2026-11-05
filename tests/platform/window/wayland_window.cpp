@@ -17,7 +17,7 @@
 // SKIP_RETURN_CODE expects.
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/connection.hpp"
-#include "maicord/core/shared_library.hpp"
+#include "maicord/platform/dbus/portal.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/global_keys.hpp"
 #include "maicord/platform/window/pump.hpp"
@@ -67,6 +67,8 @@ bool g_capture_on_press;
 bool g_frame_hits;  // the sink answers hit_test like an app with a caption and a resizable frame
 inject::Helper* g_helper;
 FrameHit frame_hit_at(float x, float y) noexcept;
+void paint(Window window) noexcept;  // the wl_shm painter below: the window's content in a test without a GPU
+bool g_repaint_pending;  // set by a resize; the pump's caller paints, so the sink stays quick (the pump has a time budget)
 bool g_veto_close;
 u32 g_frame_callbacks;
 u32 g_listener_calls;
@@ -116,6 +118,10 @@ void sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
         break;
     case EventType::frame_done:
         ++g_frame_callbacks;
+        break;
+    case EventType::resize:
+    case EventType::scale_changed:
+        g_repaint_pending = true;
         break;
     default:
         break;
@@ -247,6 +253,10 @@ void pump_once(u32 wait_ms) noexcept {
         g_quit = true;
         g_exit_code = pumped.exit_code;
     }
+    if (g_repaint_pending) {
+        g_repaint_pending = false;
+        paint(g_window);
+    }
 }
 
 template <typename Done> bool pump_until(Done done, u32 timeout_ms) noexcept {
@@ -280,6 +290,74 @@ bool arg_is(const char* argument, const char* expected) noexcept {
     sys_exit_group(77);
 }
 
+// The window's buffers belong to the GPU backend in the client, so a window without one has nothing on screen and the
+// compositor never maps it. This test has no GPU: it attaches a wl_shm buffer of one colour, again at each new size.
+struct Painter {
+    wl_shm* shm;
+    wl_buffer* buffer;
+    u32 color;
+};
+Painter g_painter;
+
+void on_painter_global(void*, wl_registry* registry, u32 name, const char* interface, u32) noexcept {
+    if (arg_is(interface, "wl_shm") && !g_painter.shm)
+        g_painter.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
+}
+
+void on_painter_global_remove(void*, wl_registry*, u32) noexcept {}
+
+const wl_registry_listener kPainterListener = {on_painter_global, on_painter_global_remove};
+
+// Binds wl_shm on the window's connection (the backend binds its own and keeps it).
+bool painter_open(Window window) noexcept {
+    WaylandSurfaceInfo info{};
+    if (!window_wayland_info(window, &info))
+        return false;
+    wl_display* display = static_cast<wl_display*>(info.display);
+    wl_registry* registry = wl_display_get_registry(display);
+    wl_registry_add_listener(registry, &kPainterListener, nullptr);
+    g_client.display_roundtrip(display);
+    wl_registry_destroy(registry);
+    return g_painter.shm != nullptr;
+}
+
+void paint(Window window) noexcept {
+    WaylandSurfaceInfo info{};
+    if (!g_painter.shm || !window_wayland_info(window, &info) || info.width_px == 0 || info.height_px == 0)
+        return;
+    const usize stride = static_cast<usize>(info.width_px) * 4;
+    const usize bytes = stride * info.height_px;
+    const long fd = sys_memfd_create("maicord-test-clear", kMemfdCloseOnExec);
+    if (syscall_failed(fd))
+        return;
+    if (!syscall_failed(sys_ftruncate(static_cast<int>(fd), bytes))) {
+        const long address = sys_mmap_file(static_cast<int>(fd), bytes, kProtectRead | kProtectWrite, kMapShared);
+        if (!syscall_failed(address)) {
+            u32* pixels = reinterpret_cast<u32*>(address);
+            for (usize i = 0; i < bytes / 4; ++i)
+                pixels[i] = 0xFF000000u | g_painter.color;
+            wl_shm_pool* pool = wl_shm_create_pool(g_painter.shm, static_cast<i32>(fd), static_cast<i32>(bytes));
+            wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, static_cast<i32>(info.width_px),
+                                                          static_cast<i32>(info.height_px), static_cast<i32>(stride),
+                                                          wl_shm_format_xrgb8888);
+            wl_shm_pool_destroy(pool);
+            sys_munmap(reinterpret_cast<void*>(address), bytes);
+            wl_surface* surface = static_cast<wl_surface*>(info.surface);
+            wl_surface_attach(surface, buffer, 0, 0);
+            wl_surface_damage_buffer(surface, 0, 0, static_cast<i32>(info.width_px), static_cast<i32>(info.height_px));
+            wl_surface_commit(surface);
+            if (g_painter.buffer)
+                wl_buffer_destroy(g_painter.buffer);
+            g_painter.buffer = buffer;
+        }
+    }
+    sys_close(static_cast<int>(fd));
+}
+
+void painter_close() noexcept {
+    g_painter = Painter{};
+}
+
 // The compositor's globals against the protocols MaiCord wants: the support matrix.
 void print_support_matrix() noexcept {
     struct Wanted {
@@ -288,20 +366,21 @@ void print_support_matrix() noexcept {
     };
     const Wanted wanted[] = {
         {"wl_compositor", "surfaces (v4+ required)"},
-        {"wl_shm", "bring-up clear, cursor fallback"},
+        {"wl_shm", "window icon, cursor fallback"},
         {"xdg_wm_base", "toplevel (required)"},
         {"wl_seat", "pointer and keyboard"},
         {"wp_viewporter", "fractional scale buffers"},
         {"wp_fractional_scale_manager_v1", "fractional scale"},
         {"wp_cursor_shape_manager_v1", "cursor shapes"},
         {"zxdg_decoration_manager_v1", "server-side decorations"},
-        {"zwp_text_input_manager_v3", "IME (L7)"},
-        {"zwp_primary_selection_device_manager_v1", "primary selection (L6)"},
-        {"wl_data_device_manager", "clipboard and drop (L6, L8)"},
-        {"xdg_activation_v1", "attention (P9)"},
-        {"zwp_idle_inhibit_manager_v1", "idle inhibit (calls)"},
-        {"ext_idle_notifier_v1", "system idle (L9)"},
-        {"wp_presentation", "frame timing"},
+        {"zwp_text_input_manager_v3", "IME"},
+        {"zwp_primary_selection_device_manager_v1", "primary selection"},
+        {"wl_data_device_manager", "clipboard and drop"},
+        {"xdg_activation_v1", "attention, notification and second-launch focus"},
+        {"zwp_idle_inhibit_manager_v1", "screen stays on in a call"},
+        {"ext_idle_notifier_v1", "system idle time (presence)"},
+        {"zxdg_exporter_v2", "parent window of the portals' dialogs"},
+        {"xdg_system_bell_v1", "alert beep"},
         {"xdg_toplevel_icon_manager_v1", "window icon"},
         {"zwlr_virtual_pointer_manager_v1", "tests: pointer injection"},
         {"zwp_virtual_keyboard_manager_v1", "tests: key injection"},
@@ -350,6 +429,12 @@ void print_support_matrix() noexcept {
     test_write_line("");
 }
 
+// A frame callback rides the next commit; in the client that is the GPU backend's swap, here a repaint.
+void request_frame() noexcept {
+    window_frame_callback_request(g_window);
+    paint(g_window);
+}
+
 bool create_window() noexcept {
     WindowCreateInfo info{};
     info.title = Utf8View{"maicord wayland test", 20};
@@ -357,7 +442,13 @@ bool create_window() noexcept {
     info.client_width_dips = kClientWidth;
     info.client_height_dips = kClientHeight;
     info.visible = true;
-    return window_create(info, sink, nullptr, &g_window);
+    if (!window_create(info, sink, nullptr, &g_window))
+        return false;
+    painter_close();
+    g_painter.color = 0x1E1F22;
+    if (painter_open(g_window))
+        paint(g_window);
+    return true;
 }
 
 // A window that is up, presented and answering frame callbacks.
@@ -371,8 +462,36 @@ void test_window_up() noexcept {
               surface.width_px == metrics.width_px,
           "surface info");
 
+    // The integration protocols, where the compositor has them (a missing one is not a failure: the matrix says which).
+    const auto has_global = [](const char* wanted) noexcept {
+        const char* name = nullptr;
+        u32 version = 0;
+        for (u32 i = 0; window_wayland_global(i, &name, &version); ++i)
+            if (arg_is(name, wanted))
+                return true;
+        return false;
+    };
+    // xdg-foreign: the export's handle is what the portals' dialogs take as their parent window.
+    const char* parent = dbus::portal_parent_window();
+    const bool parent_scheme = parent[0] == 'w' && parent[1] == 'a' && parent[2] == 'y' && parent[3] == 'l' &&
+                               parent[4] == 'a' && parent[5] == 'n' && parent[6] == 'd' && parent[7] == ':' && parent[8];
+    check(parent_scheme == has_global("zxdg_exporter_v2"), "the portals' parent window is wayland:<handle> where xdg-foreign exists");
+    // xdg-system-bell: only says whether the compositor takes the ring (a protocol error would end the connection).
+    check(window_wayland_system_bell() == has_global("xdg_system_bell_v1"), "the system bell rings where the protocol exists");
+    // xdg-toplevel-icon: pixel buffers in a wl_shm pool, straight alpha in, premultiplied out.
+    static u32 icon_small[32 * 32];
+    static u32 icon_large[64 * 64];
+    for (u32& pixel : icon_small)
+        pixel = 0x80FF4020u;
+    for (u32& pixel : icon_large)
+        pixel = 0xFF2040FFu;
+    const IconImage icons[] = {{icon_small, 32}, {icon_large, 64}};
+    window_set_icon(g_window, icons, 2);
+    settle(50);
+    check(!g_quit, "a window icon is accepted");
+
     window_set_frame_listener(g_window, frame_listener, nullptr);
-    window_frame_callback_request(g_window);
+    request_frame();
     const u32 before = g_frame_callbacks;
     check(pump_until([&] { return g_frame_callbacks > before; }, 5000), "a frame callback arrives");
     check(g_listener_calls >= 1, "the frame listener is called");
@@ -381,8 +500,8 @@ void test_window_up() noexcept {
     check(find_event(0, EventType::state_changed, [](const Record& r) { return (r.event.window_state.state & state_visible) != 0; }) != kNone,
           "state_changed reports the window visible");
     window_set_title(g_window, Utf8View{"maicord wayland test (retitled)", 31});
-    window_wayland_set_clear_color(g_window, 0x1A598C);
-    window_frame_callback_request(g_window);
+    g_painter.color = 0x1A598C;
+    request_frame();
     const u32 after = g_frame_callbacks;
     check(pump_until([&] { return g_frame_callbacks > after; }, 5000), "a frame callback follows the repaint");
 
@@ -1515,108 +1634,18 @@ void test_extras() noexcept {
     } else {
         test_write_line("SKIP idle inhibit: no zwp_idle_inhibit_manager_v1");
     }
-}
 
-// The window's wl_egl_window with a real EGL window surface -----------------------------------------------------------------
-
-struct EglApi {
-    void* (*get_platform_display)(u32 platform, void* native, const i32* attributes) noexcept;
-    u32 (*initialize)(void* display, i32* major, i32* minor) noexcept;
-    u32 (*bind_api)(u32 api) noexcept;
-    u32 (*choose_config)(void* display, const i32* attributes, void** configs, i32 capacity, i32* count) noexcept;
-    u32 (*get_config_attrib)(void* display, void* config, i32 attribute, i32* value) noexcept;
-    void* (*create_context)(void* display, void* config, void* share, const i32* attributes) noexcept;
-    void* (*create_window_surface)(void* display, void* config, void* window, const i32* attributes) noexcept;
-    u32 (*make_current)(void* display, void* draw, void* read, void* context) noexcept;
-    u32 (*swap_buffers)(void* display, void* surface) noexcept;
-    u32 (*swap_interval)(void* display, i32 interval) noexcept;
-    u32 (*terminate)(void* display) noexcept;
-    void (*clear_color)(float red, float green, float blue, float alpha) noexcept;
-    void (*clear)(u32 mask) noexcept;
-};
-
-template <typename Function> bool resolve_symbol(const SharedLibrary& library, const char* name, Function* slot) noexcept {
-    void* address = shared_library_symbol(library, name);
-    *slot = reinterpret_cast<Function>(address);
-    return address != nullptr;
-}
-
-// A window drawn by EGL: green. The driver screenshots it and reads a pixel in the middle; the test reads the answer.
-void run_egl() noexcept {
-    SharedLibrary egl_library{};
-    SharedLibrary gles_library{};
-    EglApi api{};
-    if (!shared_library_open(&egl_library, "libEGL.so.1") || !shared_library_open(&gles_library, "libGLESv2.so.2"))
-        skip("libEGL.so.1 or libGLESv2.so.2 is not installed");
-    const bool resolved = resolve_symbol(egl_library, "eglGetPlatformDisplay", &api.get_platform_display) &&
-                          resolve_symbol(egl_library, "eglInitialize", &api.initialize) &&
-                          resolve_symbol(egl_library, "eglBindAPI", &api.bind_api) &&
-                          resolve_symbol(egl_library, "eglChooseConfig", &api.choose_config) &&
-                          resolve_symbol(egl_library, "eglGetConfigAttrib", &api.get_config_attrib) &&
-                          resolve_symbol(egl_library, "eglCreateContext", &api.create_context) &&
-                          resolve_symbol(egl_library, "eglCreateWindowSurface", &api.create_window_surface) &&
-                          resolve_symbol(egl_library, "eglMakeCurrent", &api.make_current) &&
-                          resolve_symbol(egl_library, "eglSwapBuffers", &api.swap_buffers) &&
-                          resolve_symbol(egl_library, "eglSwapInterval", &api.swap_interval) &&
-                          resolve_symbol(egl_library, "eglTerminate", &api.terminate) &&
-                          resolve_symbol(gles_library, "glClearColor", &api.clear_color) &&
-                          resolve_symbol(gles_library, "glClear", &api.clear);
-    check(resolved, "EGL and GLES entry points");
-    void* native = window_wayland_egl_window(g_window);
-    if (!resolved || !native)
-        skip("libwayland-egl.so.1 is not installed, or EGL is unusable");
-    WaylandSurfaceInfo surface{};
-    window_wayland_info(g_window, &surface);
-    constexpr u32 kPlatformWayland = 0x31D8;
-    void* display = api.get_platform_display(kPlatformWayland, surface.display, nullptr);
-    i32 major = 0;
-    i32 minor = 0;
-    check(display && api.initialize(display, &major, &minor), "eglInitialize on the window's wl_display");
-    api.bind_api(0x30A0);  // EGL_OPENGL_ES_API
-    // As the GPU backend chooses it: 8-bit colour, and the config without alpha among them (an XRGB8888 window).
-    const i32 config_attributes[] = {0x3033, 0x4, 0x3040, 0x4, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3038};
-    void* candidates[32] = {};
-    i32 configs = 0;
-    check(api.choose_config(display, config_attributes, candidates, 32, &configs) && configs >= 1, "an RGB8 window config");
-    void* config = candidates[0];
-    bool without_alpha = false;
-    for (i32 i = 0; i < configs && !without_alpha; ++i) {
-        i32 alpha = 1;
-        if (api.get_config_attrib(display, candidates[i], 0x3021, &alpha) && alpha == 0) {
-            config = candidates[i];
-            without_alpha = true;
-        }
+    // The system's input idle time (ext-idle-notify): a short watch reads as active, then as idle once the compositor has
+    // seen no input for its timeout, and as active again after some.
+    if (window_wayland_watch_idle(g_window, 400)) {
+        check(platform_settings_read().system_idle_ms == 0, "a new idle watch reads as active");
+        check(pump_until([] { return platform_settings_read().system_idle_ms >= 400; }, 4000),
+              "the compositor reports the idle time once nothing was typed or moved for the timeout");
+        pointer_to(240, 160);
+        check(pump_until([] { return platform_settings_read().system_idle_ms == 0; }, 3000), "input ends the idle time");
+    } else {
+        test_write_line("SKIP system idle: no ext_idle_notifier_v1");
     }
-    check(without_alpha, "the compositor's EGL offers a window config without alpha");
-    const i32 context_attributes[] = {0x3098, 2, 0x3038};
-    void* context = api.create_context(display, config, nullptr, context_attributes);
-    void* egl_surface = api.create_window_surface(display, config, native, nullptr);
-    check(context && egl_surface, "an EGL window surface on the wl_egl_window");
-    check(api.make_current(display, egl_surface, egl_surface, context) != 0, "eglMakeCurrent");
-    api.swap_interval(display, 0);
-    bool ready_written = false;
-    const u64 start = clock_monotonic_milliseconds();
-    u32 frames = 0;
-    while (clock_monotonic_milliseconds() - start < 20000 && !file_exists("injected")) {
-        // Alpha one half: only a surface the compositor reads as opaque keeps the magenta desktop behind the window from
-        // showing through (XRGB buffers, and the window's opaque region).
-        api.clear_color(0.0f, 1.0f, 0.0f, 0.5f);
-        api.clear(0x4000);
-        api.swap_buffers(display, egl_surface);
-        ++frames;
-        if (frames == 5 && !ready_written) {
-            touch_file("ready");
-            ready_written = true;
-        }
-        pump_once(16);
-    }
-    check(frames > 5 && !g_quit, "frames were presented");
-    i32 pixel[3] = {0, 0, 0};
-    check(read_numbers("pixel", pixel, 3) == 3 && pixel[0] < 40 && pixel[1] > 215 && pixel[2] < 40,
-          "the compositor shows the EGL frame: the middle of the window is green");
-    api.make_current(display, nullptr, nullptr, nullptr);
-    api.terminate(display);
-    window_wayland_egl_release(g_window);
 }
 
 void run_input() noexcept {
@@ -1665,14 +1694,12 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     const ProcessStartup& startup = process_startup();
     bool input = false;
     bool lifecycle = false;
-    bool egl = false;
     for (int i = 1; i < startup.argc; ++i) {
         input |= arg_is(startup.argv[i], "--input");
-        egl |= arg_is(startup.argv[i], "--egl");
         lifecycle |= arg_is(startup.argv[i], "--lifecycle");
     }
-    if (!input && !lifecycle && !egl)
-        test_exit(1, "usage: --lifecycle, --input or --egl");
+    if (!input && !lifecycle)
+        test_exit(1, "usage: --lifecycle or --input");
     const char* directory = environment_get("MAICORD_WAYLAND_SYNC_DIR");
     if (directory && *directory) {
         u32 length = 0;
@@ -1683,7 +1710,7 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     }
     if (!environment_get("WAYLAND_DISPLAY") && !environment_get("WAYLAND_SOCKET"))
         skip("WAYLAND_DISPLAY is not set: no compositor to test against");
-    if ((input || egl) && !g_paths.enabled)
+    if (input && !g_paths.enabled)
         skip("MAICORD_WAYLAND_SYNC_DIR is not set: this test is run by tools/test_wayland_window.sh");
     if (!create_window()) {
         test_write_line("the window could not be created (see the log lines above)");
@@ -1691,8 +1718,6 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     }
     print_support_matrix();
     test_window_up();
-    if (egl)
-        run_egl();
     if (input) {
         run_input();
         if (g_failures)
@@ -1704,8 +1729,8 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
         test_global_shortcut();
     if (lifecycle) {
         // A token nobody issued is ignored by the compositor; an empty one is refused here.
-        check(!window_wayland_activate_with_token(g_window, ""), "an empty activation token is refused");
-        window_wayland_activate_with_token(g_window, "maicord-test-token");
+        check(!window_wayland_activate(""), "an empty activation token is refused");
+        window_wayland_activate("maicord-test-token");
         settle(50);
         check(!g_quit, "an unknown activation token does no harm");
     }
@@ -1722,5 +1747,5 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
     g_window = nullptr;
     if (lifecycle)
         test_recreate();
-    test_exit(g_failures, egl ? "wayland_window_egl" : input ? "wayland_window_input" : "wayland_window_lifecycle");
+    test_exit(g_failures, input ? "wayland_window_input" : "wayland_window_lifecycle");
 }

@@ -103,17 +103,4 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
     return result;
 }
 
-u32 window_next_deadline_ms(u64) noexcept {
-    return 0xFFFFFFFFu;
-}
-
-// The message queue is part of the wait itself on Windows (QS_ALLINPUT).
-Waitable window_event_waitable() noexcept {
-    return nullptr;
-}
-
-void window_wait_begin() noexcept {}
-
-void window_wait_end(bool) noexcept {}
-
 } // namespace maicord

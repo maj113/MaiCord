@@ -2,7 +2,8 @@
 // (and the pinned libdl.so.2 and libpthread.so.0), relocated the image and initialized libc's thread control block,
 // so libc functions (dlopen, pthread_create, clock_gettime) work although __libc_start_main never runs. _start reads
 // the initial stack (argc, argv, envp, auxv), records it and calls the image's entry, which ends the process with
-// exit_group. Static constructors do not run, as on Windows without the CRT.
+// exit_group (on musl through its __libc_start_main, below). Static constructors do not run, as on Windows without
+// the CRT.
 //
 // The image's relative relocations are packed as RELR (ld.lld --pack-dyn-relocs=relr --use-android-relr-tags: a few
 // hundred bytes where the RELA table was 70 KB). ld.so leaves them alone: glibc's own DT_RELR needs a loader of 2.36
@@ -10,16 +11,19 @@
 // Debian 11) cannot satisfy, while the Android tags are unknown to every glibc and so ignored. maicord_start applies
 // them first of all, before anything reads a pointer from the image's data.
 #include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/process.hpp"
 
 // The image's entry (maicord_program ENTRY): the linker aliases it to this name.
 extern "C" [[noreturn]] void maicord_program_entry() noexcept;
 
+// Where the linker maps the image's own ELF header.
+extern "C" const maicord::u8 __ehdr_start[] __attribute__((visibility("hidden")));
 namespace maicord {
 namespace {
 ProcessStartup g_startup{0, nullptr, nullptr, nullptr, 4096};
+bool g_libc_is_musl;
 
-constexpr u64 kAuxProgramHeaders = 3, kAuxProgramHeaderSize = 4, kAuxProgramHeaderCount = 5;
 constexpr u32 kProgramHeaderSelf = 6, kProgramHeaderDynamic = 2, kProgramHeaderRelro = 0x6474E552;
 // DT_ANDROID_RELR and DT_ANDROID_RELRSZ.
 constexpr i64 kDynamicRelr = 0x6FFFE000, kDynamicRelrSize = 0x6FFFE001;
@@ -28,20 +32,32 @@ struct ProgramHeader {
     u32 type, flags;
     u64 offset, address, physical, file_size, memory_size, alignment;
 };
+// The fields of the ELF header that locate the program headers.
+struct ElfHeader {
+    u8 identification[16];
+    u16 type, machine;
+    u32 version;
+    u64 entry, program_offset, section_offset;
+    u32 flags;
+    u16 header_size, program_size, program_count;
+};
 struct DynamicEntry {
     i64 tag;
     u64 value;
 };
 
-// Applies the packed relative relocations. The program headers are the kernel's (AT_PHDR); their PT_PHDR entry gives
-// the link-time address, hence the load bias. The RELRO range is read-only by now (ld.so protected it after its own
-// relocation pass, which did not include these): it is opened for the pass and closed again. Anything unexpected
-// ends the process, since an unrelocated image cannot run.
+// Applies the packed relative relocations. The program headers are found through the ELF header (__ehdr_start, which
+// the linker defines where the header is mapped): the auxiliary vector's AT_PHDR names the loader's own headers when
+// the image is started as `ld-musl-x86_64.so.1 image`, as musl (unlike glibc) leaves the vector as the kernel built
+// it. The PT_PHDR entry gives the link-time address, hence the load bias. The RELRO range is read-only by now (the
+// loader protected it after its own relocation pass, which did not include these): it is opened for the pass and
+// closed again. Anything unexpected ends the process, since an unrelocated image cannot run.
 void apply_packed_relocations() noexcept {
-    const u64 headers = auxiliary_value(kAuxProgramHeaders);
-    const u64 entry_size = auxiliary_value(kAuxProgramHeaderSize);
-    const u64 count = auxiliary_value(kAuxProgramHeaderCount);
-    if (headers == 0 || entry_size < sizeof(ProgramHeader)) {
+    const auto* elf = reinterpret_cast<const ElfHeader*>(__ehdr_start);
+    const u64 headers = reinterpret_cast<u64>(__ehdr_start) + elf->program_offset;
+    const u64 entry_size = elf->program_size;
+    const u64 count = elf->program_count;
+    if (entry_size < sizeof(ProgramHeader)) {
         return;
     }
     u64 bias = 0;
@@ -144,7 +160,20 @@ u64 auxiliary_value(u64 type) noexcept {
     return 0;
 }
 
+bool process_libc_is_musl() noexcept {
+    return g_libc_is_musl;
+}
+
 } // namespace maicord
+
+// musl runs the program's start through __libc_start_main, which is what its crt1 does for every dynamic program and
+// what its loader leaves undone: __progname and program_invocation_name (Mesa takes the process name from them and
+// strrchr()s it), the stack protector's canary and the threads' bookkeeping. glibc's loader has done all of that
+// before _start. The libc is told apart by gnu_get_libc_version, which only glibc defines; the functions are found by
+// name, so the image's imports stay the audited list.
+extern "C" [[noreturn]] int maicord_musl_main(int, char**, char**) noexcept {
+    maicord_program_entry();
+}
 
 // The stack pointer at _start points at argc, then argv[argc], a null, envp, a null and the auxiliary vector.
 extern "C" [[noreturn, gnu::used]] void maicord_start(maicord::usize* stack) noexcept {
@@ -165,6 +194,13 @@ extern "C" [[noreturn, gnu::used]] void maicord_start(maicord::usize* stack) noe
         g_startup.page_size = page_size;
     }
     apply_packed_relocations();
+    g_libc_is_musl = !dlsym(nullptr, "gnu_get_libc_version");
+    if (g_libc_is_musl) {
+        using LibcStart = int (*)(int (*)(int, char**, char**), int, char**, void (*)(), void (*)(), void (*)());
+        if (const auto start = reinterpret_cast<LibcStart>(dlsym(nullptr, "__libc_start_main"))) {
+            start(maicord_musl_main, argc, argv, nullptr, nullptr, nullptr);
+        }
+    }
     maicord_program_entry();
     sys_exit_group(0);
 }

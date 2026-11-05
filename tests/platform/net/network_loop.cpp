@@ -9,9 +9,13 @@
 #include "maicord/platform/net/socket.hpp"
 #include "maicord/platform/net/worker.hpp"
 #include "../../support/test_output.hpp"
+#if !defined(_WIN32)
+#include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/process.hpp"
+#endif
 
 // The network layer (maicord/platform/net/network.hpp) against sockets of this machine, the same on Windows (the
-// completion port) and Linux (epoll): streams, connected datagrams, name lookup, signals from other threads, file
+// completion port) and Linux (io_uring): streams, connected datagrams, name lookup, signals from other threads, file
 // operations and the worker. The model is checked, not the timing: every operation finishes as exactly one
 // completion from network_loop_poll, and closing an owner delivers one for each operation it still had pending.
 
@@ -514,6 +518,166 @@ void test_files(NetworkLoop* loop) noexcept {
     file_remove(path);
 }
 
+// A send larger than the socket buffers moves in pieces: it completes once, with every byte, in order.
+void test_large_send(NetworkLoop* loop) noexcept {
+    Pair pair;
+    check(open_pair(loop, &pair), "a connection for the large send");
+    constexpr u32 kBytes = 3u * 1024 * 1024;
+    static u8 payload[kBytes];
+    static u8 sink[64 * 1024];
+    for (u32 index = 0; index < kBytes; ++index) {
+        payload[index] = static_cast<u8>(index * 31 + (index >> 10));
+    }
+    check(network_connection_send(&pair.client, {payload, kBytes}).ok(), "post a send of three megabytes");
+    u32 received = 0;
+    bool in_order = true;
+    bool finished = false;
+    bool whole = false;
+    for (u32 round = 0; round < 5000 && !(finished && received == kBytes); ++round) {
+        for (;;) {
+            const i32 count = socket_receive(pair.server, sink, sizeof(sink));
+            if (count <= 0) {
+                break;
+            }
+            in_order = in_order && bytes_equal(sink, payload + received, static_cast<u32>(count));
+            received += static_cast<u32>(count);
+        }
+        const NetworkPollResult polled = network_loop_poll(loop, 2);
+        if (polled.state == NetworkPollState::completion && polled.completion.kind == NetworkOperationKind::send) {
+            finished = true;
+            whole = polled.completion.succeeded && !polled.completion.stale && polled.completion.transferred == kBytes;
+        }
+    }
+    check(finished && whole, "the send completes once with its full length");
+    check(received == kBytes && in_order, "the peer reads every byte in order");
+    check(idle(loop), "and nothing else completes");
+    close_pair(&pair);
+}
+
+// More requests than the ring has entries are queued before the loop is polled once; each still finishes once.
+void test_many_operations(NetworkLoop* loop) noexcept {
+    constexpr u32 kCount = 140;
+    static NetworkConnection clients[kCount];
+    static Socket servers[kCount];
+    static u8 inbound[kCount][8];
+    static const u8 outbound[8] = {'o', 'u', 't', 'b', 'o', 'u', 'n', 'd'};
+    Socket listener;
+    const SocketListenResult listening = socket_listen_loopback(&listener, 0, 0, 256);
+    check(listening.ok(), "a listener for many connections");
+    u32 connected = 0;
+    u32 accepted = 0;
+    for (u32 index = 0; index < kCount; ++index) {
+        NetworkCompletion done{};
+        connected += network_connection_connect(loop, &clients[index], loopback(listening.port)).ok() &&
+                     next(loop, NetworkOperationKind::connect, &done) && done.succeeded;
+    }
+    for (u32 index = 0; index < kCount; ++index) {
+        for (u32 attempt = 0; attempt < 200; ++attempt) {
+            bool from_loopback = false;
+            i32 error = 0;
+            if (socket_accept(&listener, &servers[accepted], &from_loopback, &error)) {
+                ++accepted;
+                break;
+            }
+            thread_sleep(1);
+        }
+    }
+    check(connected == kCount && accepted == kCount, "many connections are made and accepted");
+    u32 posted = 0;
+    for (u32 index = 0; index < kCount; ++index) {
+        posted += network_connection_receive(&clients[index], {inbound[index], 8}).ok();
+        posted += network_connection_send(&clients[index], {outbound, 8}).ok();
+    }
+    check(posted == 2 * kCount, "two hundred and eighty requests are queued at once");
+    u32 sent = 0;
+    while (sent < kCount) {
+        NetworkCompletion done{};
+        if (!next(loop, NetworkOperationKind::send, &done) || !done.succeeded || done.transferred != 8) {
+            break;
+        }
+        ++sent;
+    }
+    check(sent == kCount, "every send completes");
+    u32 answered = 0;
+    for (u32 index = 0; index < kCount; ++index) {
+        answered += socket_send(servers[index], "answer!!", 8) == 8;
+    }
+    u32 received = 0;
+    u32 intact = 0;
+    while (received < answered) {
+        NetworkCompletion done{};
+        if (!next(loop, NetworkOperationKind::receive, &done) || !done.succeeded) {
+            break;
+        }
+        ++received;
+        intact += done.transferred == 8 && bytes_equal(inbound[done.connection - clients], "answer!!", 8);
+    }
+    check(answered == kCount && received == kCount && intact == kCount, "every receive completes with its answer");
+    for (u32 index = 0; index < kCount; ++index) {
+        network_connection_close(&clients[index]);
+        socket_close(&servers[index]);
+    }
+    socket_close(&listener);
+    check(idle(loop), "nothing is left");
+}
+
+#if !defined(_WIN32)
+bool contains(const char* text, const char* part) noexcept {
+    for (; *text; ++text) {
+        const char* at = text;
+        const char* want = part;
+        while (*want && *at == *want) {
+            ++at;
+            ++want;
+        }
+        if (!*want) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct FilterInstruction {
+    u16 code;
+    u8 jump_true;
+    u8 jump_false;
+    u32 operand;
+};
+struct FilterProgram {
+    u16 length;
+    const FilterInstruction* instructions;
+};
+
+// The network loop is io_uring and nothing else: a system that refuses io_uring_setup (a seccomp profile with EPERM, as
+// Docker's and Podman's defaults answer, or ENOSYS, as a runtime that does not know the call answers) leaves the client
+// no loop, and network_unavailable_reason says why instead of the loop failing mysteriously.
+void test_ring_refused(int error, const char* expected) noexcept {
+    check(network_unavailable_reason() == nullptr, "io_uring is available before the filter");
+    constexpr u32 kRingSetupNumber = 425;
+    const FilterInstruction instructions[] = {
+        {0x20, 0, 0, 0},                                          // load the system call number
+        {0x15, 0, 1, kRingSetupNumber},                           // io_uring_setup: refuse it
+        {0x06, 0, 0, 0x00050000u | static_cast<u32>(error)},      // return errno
+        {0x06, 0, 0, 0x7fff0000u},                                // allow
+    };
+    const FilterProgram program{4, instructions};
+    check(!syscall_failed(syscall5(kSysPrctl, 38, 1, 0, 0, 0)) && // PR_SET_NO_NEW_PRIVS
+              !syscall_failed(syscall3(317, 1, 0, reinterpret_cast<long>(&program))), // seccomp(SET_MODE_FILTER)
+          "install the filter");
+    const char* reason = network_unavailable_reason();
+    check(reason != nullptr && contains(reason, expected), "the reason names the cause");
+    NetworkLoop loop{};
+    const NetworkResult result = network_loop_initialize(&loop);
+    check(!result.ok() && result.error == NetworkError::completion_port_create && result.native_error != 0 &&
+              !network_loop_ready(loop),
+          "no loop is made");
+    NetworkSignal signal{};
+    check(!network_signal_post(&loop, &signal, 1).ok() && network_loop_poll(&loop, 0).state == NetworkPollState::error,
+          "a loop that was not made refuses work");
+    network_loop_release(&loop);
+}
+#endif
+
 struct WorkerContext {
     volatile LONG started;
     volatile LONG stopped;
@@ -552,6 +716,15 @@ void test_worker() noexcept {
 
 MAICORD_TEST_ENTRY(maicord_network_loop_entry) {
     using namespace maicord;
+#if !defined(_WIN32)
+    const ProcessStartup& startup = process_startup();
+    const char* mode = startup.argc > 1 ? startup.argv[1] : "";
+    if (contains(mode, "ring-refused") || contains(mode, "ring-hidden")) {
+        const bool hidden = contains(mode, "ring-hidden");
+        test_ring_refused(hidden ? 38 : 1, hidden ? "Linux 6.1" : "seccomp");
+        test_exit(g_failures, "network_loop_ring_refused");
+    }
+#endif
     const i32 started = socket_startup();
     check(started == 0, "sockets start");
     test_addresses();
@@ -564,6 +737,8 @@ MAICORD_TEST_ENTRY(maicord_network_loop_entry) {
     test_datagrams(&loop);
     test_resolver(&loop);
     test_files(&loop);
+    test_large_send(&loop);
+    test_many_operations(&loop);
     network_loop_release(&loop);
     check(!network_loop_ready(loop), "release the loop");
     test_worker();

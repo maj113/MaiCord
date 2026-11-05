@@ -35,10 +35,12 @@ __forceinline void heap_free(void* block) noexcept {
 
 // Hands the heap's free memory back to the system. Mesa's shader compiler and the LLVM under llvmpipe leave tens of
 // megabytes of freed blocks in the C library's arenas after a compile; Linux only (Windows' heap returns pages
-// itself), so the Windows call is nothing.
+// itself), so the Windows call is nothing. musl has no malloc_trim (its allocator returns memory on free), so the call
+// is skipped where the symbol did not resolve.
 __forceinline void heap_trim() noexcept {
 #if !defined(_WIN32)
-    malloc_trim(0);
+    if (malloc_trim)
+        malloc_trim(0);
 #endif
 }
 

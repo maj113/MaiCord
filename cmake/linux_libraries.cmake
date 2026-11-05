@@ -270,8 +270,8 @@ maicord_library(maicord_crypto
     src/platform/net/linux/tls_client.cpp
     LIBS maicord_core maicord_dbus)
 
-# The network layer (include/maicord/platform/net): the completion-port model on epoll with its name lookup and file
-# pools (src/platform/net/linux), and the shared TLS stream and worker on top of it.
+# The network layer (include/maicord/platform/net): the completion-port model on io_uring with its name lookup pool
+# (src/platform/net/linux), and the shared TLS stream and worker on top of it.
 maicord_library(maicord_net
     src/platform/net/linux/address.cpp src/platform/net/linux/network.cpp src/platform/net/linux/datagram.cpp
     src/platform/net/linux/resolver.cpp src/platform/net/linux/file.cpp src/platform/net/linux/socket.cpp

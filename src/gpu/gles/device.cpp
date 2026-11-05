@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
+#include "maicord/core/test_hook.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -100,13 +101,23 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
         return false;
     }
     config = candidates[0];
+    // MAICORD_GLES_ALPHA_WINDOW=1 takes a window config with alpha instead (tests: a driver with no XRGB config).
+    const char* alpha_window = test_hook("MAICORD_GLES_ALPHA_WINDOW");
+    const bool want_alpha = alpha_window && alpha_window[0] == '1';
     for (egl::Int i = 0; window && i < count; ++i) {
         egl::Int alpha = 1;
-        if (device.egl.eglGetConfigAttrib(device.display, candidates[i], egl::kAlphaSize, &alpha) && alpha == 0) {
+        if (device.egl.eglGetConfigAttrib(device.display, candidates[i], egl::kAlphaSize, &alpha) &&
+            (alpha == 0) != want_alpha) {
             config = candidates[i];
             break;
         }
     }
+    // A window config that has alpha is made opaque by the surface (EGL_EXT_present_opaque): the compositor ignores it.
+    egl::Int config_alpha = 0;
+    device.egl.eglGetConfigAttrib(device.display, config, egl::kAlphaSize, &config_alpha);
+    device.present_opaque = window && config_alpha > 0 &&
+                            string_has_word(device.egl.eglQueryString(device.display, egl::kExtensions),
+                                            "EGL_EXT_present_opaque");
     const egl::Int context_attributes[] = {egl::kContextMajorVersion, 3, egl::kContextMinorVersion, 1, egl::kNone};
     device.context = device.egl.eglCreateContext(device.display, config, egl::kNoContext, context_attributes);
     if (!device.context)
@@ -157,7 +168,7 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.max_compute_invocations = static_cast<u32>(value);
     // MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=<n> lowers the group size limit the way a small device reports it (tests
     // only: the narrow shader variants and the decode gates).
-    const char* invocations = environment_get("MAICORD_GLES_MAX_COMPUTE_INVOCATIONS");
+    const char* invocations = test_hook("MAICORD_GLES_MAX_COMPUTE_INVOCATIONS");
     if (invocations && invocations[0] >= '0' && invocations[0] <= '9') {
         u32 limit = 0;
         for (const char* digit = invocations; *digit >= '0' && *digit <= '9'; ++digit)
@@ -176,10 +187,10 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
         caps.float_render_targets || has_extension(api, "GL_EXT_color_buffer_half_float");
     caps.float_linear = has_extension(api, "GL_OES_texture_float_linear");
     // MAICORD_GLES_NO_DUAL_SOURCE=1 and MAICORD_GLES_NO_TIMER_QUERY=1 take the paths of drivers without
-    // GL_EXT_blend_func_extended (the composite drawn in two halves) and GL_EXT_disjoint_timer_query (no GPU timing).
-    const char* no_dual = environment_get("MAICORD_GLES_NO_DUAL_SOURCE");
+    // GL_EXT_blend_func_extended (no background effects) and GL_EXT_disjoint_timer_query (no GPU timing).
+    const char* no_dual = test_hook("MAICORD_GLES_NO_DUAL_SOURCE");
     caps.dual_source_blend = has_extension(api, "GL_EXT_blend_func_extended") && !(no_dual && no_dual[0] == '1');
-    const char* no_timer = environment_get("MAICORD_GLES_NO_TIMER_QUERY");
+    const char* no_timer = test_hook("MAICORD_GLES_NO_TIMER_QUERY");
     caps.timer_query = false;
     device.gl.glGenQueriesEXT = nullptr;
     if (has_extension(api, "GL_EXT_disjoint_timer_query") && !(no_timer && no_timer[0] == '1')) {
@@ -213,12 +224,11 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
         }
         caps.surface_damage = device.egl.eglSwapBuffersWithDamage != nullptr;
     }
-    const char* copy_names[] = {"glCopyImageSubData", "glCopyImageSubDataOES", "glCopyImageSubDataEXT"};
+    // Copies between textures (atlas growth, the animation backups, frame caches) need glCopyImageSubData: ES 3.2 has
+    // it, 3.1 drivers have it as an extension; device creation refuses a driver with neither.
     device.gl.glCopyImageSubData = nullptr;
-    // MAICORD_GLES_NO_COPY_IMAGE=1 takes the framebuffer-copy path of drivers without copy-image (tests only).
-    const char* no_copy = environment_get("MAICORD_GLES_NO_COPY_IMAGE");
-    if ((!no_copy || no_copy[0] != '1') &&
-        (es32 || has_extension(api, "GL_OES_copy_image") || has_extension(api, "GL_EXT_copy_image"))) {
+    if (es32 || has_extension(api, "GL_OES_copy_image") || has_extension(api, "GL_EXT_copy_image")) {
+        const char* copy_names[] = {"glCopyImageSubData", "glCopyImageSubDataOES", "glCopyImageSubDataEXT"};
         for (const char* name : copy_names) {
             void* function = device.egl.eglGetProcAddress(name);
             if (function) {
@@ -227,7 +237,6 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
             }
         }
     }
-    caps.copy_image = device.gl.glCopyImageSubData != nullptr;
 }
 
 } // namespace
@@ -297,6 +306,9 @@ bool texture_format(const GpuDevice& device, GpuFormat format, u8 bind, FormatIn
             return false;
         *info = {gl::kRgba32f, gl::kRgba, gl::kFloat, 16};
         return true;
+    case GpuFormat::r16:
+    case GpuFormat::rg16:
+        // Planes of an imported 10-bit picture only (gpu_video_plane_import): never made from memory.
     case GpuFormat::r32_uint:
         return false;
     }
@@ -393,7 +405,12 @@ GpuStatus create_device_attempt() noexcept {
     }
     describe(d);
     probe_caps(d, major > 3 || minor >= 2);
-    const char* checks = environment_get("MAICORD_GLES_CHECK");
+    if (!d.gl.glCopyImageSubData) {
+        log_write(LogLevel::error, "gpu", "the driver cannot copy between textures (OpenGL ES 3.2 or GL_OES_copy_image)");
+        gpu_device_destroy(nullptr, nullptr);
+        return kGpuUnsupported;
+    }
+    const char* checks = test_hook("MAICORD_GLES_CHECK");
     d.debug_checks = checks && checks[0] == '1';
     d.gl.glDisable(gl::kDither);
     d.gl.glDisable(gl::kCullFace);
@@ -428,6 +445,8 @@ GpuStatus create_device_attempt() noexcept {
     }
     d.created = true;
     log_write(LogLevel::info, "gpu", d.description);
+    if (d.present_opaque)
+        log_write(LogLevel::info, "gpu", "the window config has alpha: surfaces present opaque (EGL_EXT_present_opaque)");
     return kGpuOk;
 }
 

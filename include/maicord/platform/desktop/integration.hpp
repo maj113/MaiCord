@@ -69,6 +69,11 @@ bool desktop_startup_set(const DesktopRegistryScope&, ConstSlice<wchar_t> execut
 // handler is never deleted.
 DesktopRegistration desktop_protocol_query(const DesktopRegistryScope&, ConstSlice<wchar_t> executable) noexcept;
 bool desktop_protocol_set(const DesktopRegistryScope&, ConstSlice<wchar_t> executable, bool enable) noexcept;
+#if !defined(_WIN32)
+// The AppImage file this process runs from: $APPIMAGE when this executable is inside $APPDIR (an AppImage's mount, which
+// changes with every launch, so a registration must name the file instead), else 0. Writes it into `output`.
+u32 desktop_appimage_path(wchar_t* output, u32 capacity) noexcept;
+#endif
 
 #if defined(_WIN32)
 // Single instance. The first process owns a named mutex; a later ordinary

@@ -17,6 +17,14 @@ inline void application_window_refresh_minimum_size() noexcept {}
 #else
 void application_window_refresh_minimum_size() noexcept;
 #endif
+// Keeps the screen saver and the idle lock off while the call view is open (a video call or a stream; Wayland's idle
+// inhibitor, which the compositor drops with the window). Every turn too: it only acts when the answer changed. Windows
+// has no such request here.
+#if defined(_WIN32)
+inline void application_window_refresh_idle_inhibit() noexcept {}
+#else
+void application_window_refresh_idle_inhibit() noexcept;
+#endif
 // Creates the main window; its events reach application_window_event (window_runtime.hpp).
 bool application_create_main_window() noexcept;
 // Before the renderer starts: what the window system must have ready for the GPU device (the Wayland connection the

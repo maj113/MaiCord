@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
+#include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -119,7 +120,7 @@ bool open_uri(const char* uri, const char* activation_token) noexcept {
     copy_bytes(pending->uri, uri, length_of(uri) + 1);
     Builder body;
     builder_init(&body);
-    builder_string(&body, "");  // no parent window handle
+    builder_string(&body, portal_parent_window());
     builder_string(&body, uri);
     builder_open_array(&body, "{sv}");
     if (activation_token && *activation_token) {

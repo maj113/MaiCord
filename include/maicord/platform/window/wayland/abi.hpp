@@ -84,17 +84,6 @@ extern ClientApi g_client;
 // of its functions is missing. Idempotent. UI thread only.
 bool client_load() noexcept;
 
-// libwayland-egl.so.1: the wl_egl_window of the window's surface, for the GPU backend's EGL window surface.
-struct EglWindow;
-struct EglWindowApi {
-    EglWindow* (*create)(wl_surface* surface, int width, int height) noexcept;
-    void (*destroy)(EglWindow* window) noexcept;
-    void (*resize)(EglWindow* window, int width, int height, int dx, int dy) noexcept;
-    void (*get_attached_size)(EglWindow* window, int* width, int* height) noexcept;
-};
-// Null when the library is not installed.
-const EglWindowApi* egl_window_api() noexcept;
-
 // libwayland-cursor.so.0: XCursor themes loaded into wl_shm buffers, for compositors without cursor-shape.
 struct CursorImage {
     u32 width;

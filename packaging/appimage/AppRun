@@ -1,0 +1,79 @@
+#!/bin/sh
+# The entry point of the MaiCord AppImage (packaging/appimage/build_appimage.py). The type 2 runtime mounts the image,
+# sets APPDIR (the mount) and APPIMAGE (the file the user started) and runs this script with the user's arguments.
+#
+#   MaiCord-X.Y.Z-x86_64.AppImage                      starts MaiCord
+#   MaiCord-X.Y.Z-x86_64.AppImage --integrate          adds MaiCord to the application menu and makes it the handler of
+#                                                      discord:// and maicord:// links (everything under ~/.local/share)
+#   MaiCord-X.Y.Z-x86_64.AppImage --integrate --no-url-handler    the menu entry and icons only
+#   MaiCord-X.Y.Z-x86_64.AppImage --unintegrate        removes what --integrate wrote
+#
+# --integrate names the AppImage file itself in the desktop entry, so move the file first and integrate afterwards (or
+# integrate again after moving it). The program's settings and data live under $XDG_DATA_HOME/maicord, which neither
+# option touches. Anything else is passed to the program.
+# shellcheck disable=SC2015 # "command -v tool && tool ... || true": the tool is optional and its failure is not one
+set -eu
+
+here="${APPDIR:-$(cd "$(dirname "$0")" && pwd -P)}"
+application_id=io.github.maj113.MaiCord
+
+case "${1:-}" in
+    --integrate | --unintegrate) ;;
+    *) exec "$here/usr/bin/MaiCord" "$@" ;;
+esac
+
+action="$1"
+shift
+url_handler=1
+for argument in "$@"; do
+    case "$argument" in
+        --no-url-handler) url_handler=0 ;;
+        *) echo "Unknown argument: $argument" >&2; exit 2 ;;
+    esac
+done
+
+data="${XDG_DATA_HOME:-$HOME/.local/share}"
+config="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+refresh() {
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$data/applications" 2>/dev/null || true
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t -f "$data/icons/hicolor" 2>/dev/null || true
+}
+
+if [ "$action" = --unintegrate ]; then
+    rm -f "$data/applications/$application_id.desktop"
+    find "$data/icons/hicolor" -type f -name "$application_id.png" -delete 2>/dev/null || true
+    mimeapps="$config/mimeapps.list"
+    if [ -f "$mimeapps" ] && grep -q "$application_id.desktop" "$mimeapps"; then
+        sed -i "/^x-scheme-handler\/\(discord\|maicord\)=$application_id.desktop;\{0,1\}$/d" "$mimeapps"
+    fi
+    refresh
+    echo "MaiCord's desktop integration is removed."
+    exit 0
+fi
+
+# The file the runtime started: the desktop entry's Exec runs exactly this path.
+image="${APPIMAGE:-}"
+[ -n "$image" ] && [ -f "$image" ] || { echo "Run this as the AppImage file, not from the extracted directory." >&2; exit 1; }
+case "$image" in
+    /*) ;;
+    *) echo "The AppImage's path $image is not absolute." >&2; exit 1 ;;
+esac
+# A desktop entry's Exec line quotes the path in double quotes: those characters need escapes, so refuse them.
+case "$image" in
+    *[\"\\\`\$%]* | *"
+"*) echo "The AppImage's path has a character a desktop entry cannot hold: rename the file." >&2; exit 1 ;;
+esac
+
+mkdir -p "$data/applications"
+sed "s|^Exec=.*|Exec=\"$image\" %U|" "$here/usr/share/applications/$application_id.desktop" >"$data/applications/$application_id.desktop.new"
+mv -f "$data/applications/$application_id.desktop.new" "$data/applications/$application_id.desktop"
+(cd "$here/usr/share/icons/hicolor" && find . -type f -name '*.png') | while IFS= read -r icon; do
+    mkdir -p "$data/icons/hicolor/$(dirname "$icon")"
+    cp "$here/usr/share/icons/hicolor/$icon" "$data/icons/hicolor/$icon"
+done
+refresh
+if [ "$url_handler" = 1 ] && command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default "$application_id.desktop" x-scheme-handler/discord x-scheme-handler/maicord || true
+fi
+echo "MaiCord is in the application menu: it starts $image."

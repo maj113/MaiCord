@@ -30,7 +30,6 @@ inline constexpr u32 kNoTimeout = 0xFFFFFFFFu;  // for connection_wait_ms: nothi
 
 // Opening. A failed open logs why and returns null.
 Connection* connection_open_session() noexcept;
-Connection* connection_open_system() noexcept;
 // `address` is a D-Bus address string ("unix:path=/run/user/1000/bus,guid=..."; several separated by ';').
 Connection* connection_open_address(const char* address) noexcept;
 void connection_close(Connection* connection) noexcept;  // pending calls complete with Status::disconnected

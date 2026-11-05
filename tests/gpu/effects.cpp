@@ -6,7 +6,7 @@
 // are pass graphs with persistent targets, grids, quads, additive blending and RGBA32F / RGBA16F planes: their
 // pictures at three frames show the persistent state carried across passes and frames. After aurora's last frame the
 // composite pass puts its target over six canvases in every blend mode, the light-adapted screen and add (the
-// dual-source blend, or the backend's two-draw equivalent) and a rounded tile.
+// dual-source blend) and a rounded tile.
 //
 // The same source runs on Windows and Linux. MAICORD_GPU_EFFECT_CAPTURE=<prefix> (on Windows: the goldens' source)
 // or MAICORD_GPU_EFFECT_DUMP=<prefix> (elsewhere, to look at a difference) writes every picture to

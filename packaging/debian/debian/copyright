@@ -1,0 +1,28 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: MaiCord
+Upstream-Contact: https://github.com/maj113/MaiCord/issues
+Source: https://github.com/maj113/MaiCord
+
+Files: *
+Copyright: maj113 and the MaiCord contributors
+License: MPL-2.0
+
+Files: fonts/*
+Copyright: the authors named in each font's OFL-*.txt notice
+License: OFL-1.1
+ The fonts are licensed under the SIL Open Font License, Version 1.1. Each
+ font's notice and reserved font name are in /usr/lib/maicord/fonts/OFL-*.txt.
+
+Files: licenses/*
+Copyright: see each file
+License: see-licenses-directory
+ /usr/lib/maicord/licenses holds the license texts of the third-party material
+ the program bundles (Opus: BSD-3-Clause, Twemoji graphics, the Unicode data,
+ the ICU Thai dictionary, the PyThaiNLP corpus, gemoji and emojibase: MIT,
+ Lucide: ISC, and the program's own sounds).
+
+License: MPL-2.0
+ This Source Code Form is subject to the terms of the Mozilla Public License,
+ v. 2.0. If a copy of the MPL was not distributed with this file, You can
+ obtain one at https://mozilla.org/MPL/2.0/. On Debian systems the text is
+ /usr/lib/maicord/licenses/MaiCord-MPL-2.0.txt.

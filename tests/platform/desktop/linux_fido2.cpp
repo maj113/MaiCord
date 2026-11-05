@@ -150,9 +150,6 @@ i32 dev_cancel(fido2::Device*) noexcept {
     InterlockedExchange(&g_fake.cancelled, 1);
     return fido2::kOk;
 }
-bool dev_is_fido2(const fido2::Device*) noexcept {
-    return true;
-}
 i32 dev_retries(fido2::Device*, i32* retries) noexcept {
     *retries = g_fake.retries;
     return fido2::kOk;
@@ -240,9 +237,6 @@ i32 assert_set_uv(fido2::Assertion* assertion, i32 option) noexcept {
     assertion->uv = option;
     return fido2::kOk;
 }
-i32 assert_set_up(fido2::Assertion*, i32) noexcept {
-    return fido2::kOk;
-}
 usize assert_count(const fido2::Assertion*) noexcept {
     return 1;
 }
@@ -273,8 +267,8 @@ usize assert_user_len(const fido2::Assertion*, usize) noexcept {
 
 const fido2::Api g_api = {
     fido_init_fake, info_new, info_free, info_manifest, info_ptr, info_path, dev_new, dev_free, dev_open, dev_close,
-    dev_cancel, dev_is_fido2, dev_retries, dev_get_assert, assert_new, assert_free, assert_set_rp, assert_set_hash,
-    assert_allow, assert_set_uv, assert_set_up, assert_count, assert_id, assert_id_len, assert_authdata,
+    dev_cancel, dev_retries, dev_get_assert, assert_new, assert_free, assert_set_rp, assert_set_hash,
+    assert_allow, assert_set_uv, assert_count, assert_id, assert_id_len, assert_authdata,
     assert_authdata_len, assert_sig, assert_sig_len, assert_user, assert_user_len};
 
 // The request -------------------------------------------------------------------------------------------------------------

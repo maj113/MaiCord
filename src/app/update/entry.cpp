@@ -3,6 +3,7 @@
 #if !defined(_WIN32)
 #include "maicord/app/update/portable.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/sys/linux/process.hpp"
 #endif
 
 // Build inputs from CMake (MAICORD_UPDATE_REPOSITORY, MAICORD_UPDATE_PUBLIC_KEY,
@@ -58,11 +59,13 @@ UpdateServiceConfig application_update_build_config() noexcept {
         update_service_config({}, {}, installed_version, &config);
 #if !defined(_WIN32)
     // Only the tarball install (the .maicord-portable marker beside the real executable, in a directory this user can
-    // write) may replace its own files; a package manager owns every other install (packaging/README.md).
+    // write) may replace its own files; a package manager owns every other install (packaging/README.md). The feeds
+    // carry the glibc tarball only: a musl image would be replaced by a program its loader cannot start.
     if (config.configured) {
         wchar_t executable[4096];
         const u32 count = executable_path(executable, 4096);
-        update_portable_gate(&config, kLinuxUpdatesPublished && count && count < 4096, {executable, count});
+        update_portable_gate(&config, kLinuxUpdatesPublished && !process_libc_is_musl() && count && count < 4096,
+                             {executable, count});
     }
 #endif
     return config;

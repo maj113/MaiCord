@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/global_shortcuts.hpp"
+#include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
 namespace maicord::dbus {
@@ -130,7 +131,7 @@ void bind_shortcuts(Connection* c) noexcept {
         builder_close_struct(&body);
     }
     builder_close_array(&body);
-    builder_string(&body, "");  // no parent window handle
+    builder_string(&body, portal_parent_window());
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, g.request);
     builder_close_array(&body);

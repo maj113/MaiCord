@@ -47,13 +47,8 @@ H264Error mapped(HevcError error) noexcept {
 }
 
 void slots_release(State* s) noexcept {
-    for (u32 i = 0; i < s->slots; ++i) {
-        StreamSurface& slot = s->slot[i];
-        gpu_release(slot.chroma_view);
-        gpu_release(slot.chroma_texture);
-        gpu_release(slot.luma_view);
-        gpu_release(slot.luma_texture);
-    }
+    for (u32 i = 0; i < s->slots; ++i)
+        stream_slot_release(&s->slot[i]);
     clear_bytes(s->slot, sizeof(s->slot));
     s->slots = 0;
 }
@@ -69,13 +64,10 @@ bool probe_hardware(State* s, const HevcPicture& picture) noexcept {
     if (hevc_reference_plan(s->references, s->config.sps, picture, 0, &plan) != HevcError::none ||
         !decode_picture(s, s->first_unit, picture, plan, 0))
         return false;
-    vaapi::ExportedPicture exported{};
-    if (!vaapi::export_picture(s->device, s->session, 0, &exported))
+    StreamSurface exported{};
+    if (!stream_slot_export(s->device, s->session, 0, &exported))
         return false;
-    gpu_release(exported.chroma_view);
-    gpu_release(exported.chroma_texture);
-    gpu_release(exported.luma_view);
-    gpu_release(exported.luma_texture);
+    stream_slot_release(&exported);
     return true;
 }
 
@@ -106,19 +98,10 @@ Mp4DecodedFrame output_frame(State& s) noexcept {
         return decoded;
     }
     StreamSurface& slot = s.slot[picture.surface];
-    vaapi::ExportedPicture exported{};
-    if (!vaapi::export_picture(s.device, s.session, picture.surface, &exported)) {
+    if (!stream_slot_export(s.device, s.session, picture.surface, &slot)) {
         decoded.error = Mp4DecodeError::sample;
         return decoded;
     }
-    gpu_release(slot.chroma_view);
-    gpu_release(slot.chroma_texture);
-    gpu_release(slot.luma_view);
-    gpu_release(slot.luma_texture);
-    slot.luma_texture = exported.luma_texture;
-    slot.luma_view = exported.luma_view;
-    slot.chroma_texture = exported.chroma_texture;
-    slot.chroma_view = exported.chroma_view;
     s.frame.texture = slot.luma_texture;
     s.frame.subresource = picture.surface;
     s.frame.luma = slot.luma_view;

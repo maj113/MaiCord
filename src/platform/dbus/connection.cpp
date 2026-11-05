@@ -828,11 +828,6 @@ Connection* connection_open_session() noexcept {
     return connection_open_address(fallback);
 }
 
-Connection* connection_open_system() noexcept {
-    const char* address = environment_get("DBUS_SYSTEM_BUS_ADDRESS");
-    return connection_open_address(address && *address ? address : "unix:path=/var/run/dbus/system_bus_socket");
-}
-
 void connection_close(Connection* c) noexcept {
     if (!c)
         return;

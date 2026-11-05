@@ -19,6 +19,10 @@ struct ProcessStartup {
 
 const ProcessStartup& process_startup() noexcept;
 
+// Whether the C library the loader mapped is musl (found once at _start). The image is the same for both C libraries; this
+// is for what differs outside it, such as the self-updater, which must not replace a musl install with the glibc package.
+bool process_libc_is_musl() noexcept;
+
 // The value of an environment variable of the process as it started, or null when it is unset.
 const char* environment_get(const char* name) noexcept;
 

@@ -1,0 +1,54 @@
+# The renderer on both systems
+
+`src/render` (the `D3D11Renderer` logic, text, layout, media, caption, effects, presentation and damage) builds on Linux over the same
+`gpu_*` calls (`cmake/linux_render.cmake`: `maicord_render_core`, `maicord_atlas_gpu`, `maicord_renderer`, `maicord_paint_program`, with
+the scene library `maicord_ui` and the theme in `maicord_theme`). The GPU backends are `src/gpu/d3d11` and `src/gpu/gles`.
+
+- `renderer_initialize` takes a `GpuSurfaceDesc`: the application passes `renderer_window_surface(window)`; a null window is an offscreen
+  surface on the GLES backend (the frame texture alone, no swap; `gpu_surface_target_texture` reads it back), which is how Linux tests
+  run.
+- Shared renderer code names no HWND, `GetTickCount64` or `GetClientRect`: the clock is `core/time.hpp`, files `core/data_path.hpp` and
+  `os/file.hpp`, local dates `os/local_time.hpp`.
+- A new renderer test is written against `gpu_*` and the renderer API (`gpu_surface_target_texture`, `gpu_readback`), not `ID3D11*`, so
+  it runs on both systems. The `tests/integration` probes stay Windows-only (they read the swap chain and own an HWND); a probe's
+  scene moves to `tests/render` as a portable test, not by building the probe.
+- `tests/render/scenes.cpp` is one source for both systems: the bootstrap title at three DPIs through the standalone draw path and the
+  window caption (band, glyphs, hover and pressed fills, update badge, theme colours checked on any font), on llvmpipe, with
+  `GALLIUM_DRIVER=d3d12` on WSL, and on Windows over a hidden window. Text differs between the systems by design (system fonts), so
+  scenes check theme colours, counts and repeat-draw identity.
+- GPU handles are released with `gpu_release`, never `com_release` (a handle is a COM object on Windows only).
+
+## Background effects
+
+Effects run through the shared pass executor (`d3d11/effect_renderer.cpp`, built into `maicord_effect_host`). A package of `.mcfx`
+interface 4 carries a GLSL section (type 10, one entry per DXBC shader: `include/maicord/gpu/glsl_shader.hpp`) next to the DXBC, which
+Windows ignores and Linux runs through `gpu_*_shader_create_blob`. `tools/maicord-plugin/mcfx_tool.py effect build --glsl auto|yes|no
+[--dxbc-from PACKAGE]` makes it with `tools/glsl_translate.py` (the shader pack's DXC and SPIRV-Cross chain;
+`MAICORD_GLSL_TOOLCHAIN=<dir>` names a prebuilt one). MaiCord-plugins' `scripts/build_universal.py` makes the catalog package from the
+Windows build, and `plugin_index.py` (`check_source`, `check_universal`) checks it.
+
+`tests/gpu/effects.cpp` (one source for both systems) renders every `samples/effects` effect and Silk Waves (`tests/gpu/effects/*.mcfx`)
+for 24 frames, including persistent and multi-pass targets, and compares named frames with PNGs captured from Direct3D 11 by PSNR.
+Changing an effect's HLSL, the SDK header or a sample rebuilds `tests/gpu/effects/*.mcfx` (DXBC on Windows, then the GLSL on Linux) and
+renews the PNGs with `tools/update_gpu_goldens.py --scene effects`. `MAICORD_GPU_EFFECT_DUMP=<prefix>` writes the raw pictures.
+
+## Lottie stickers
+
+`lottie_program.cpp` uses Direct2D as a CPU geometry engine (path, ellipse and rounded rectangle geometries, transforms, bounds,
+simplification, area, the four boolean combinations of mattes, masks and merge paths, and stroke widening). Windows still calls
+Direct2D, unchanged. Elsewhere the compiler gets the same method names from `include/maicord/os/linux/d2d1.hpp` (the Direct2D
+vocabulary over `include/maicord/render/effects/vector_geometry.hpp`) and the engine in `effects/`: `vector_geometry.cpp` (figures of
+cubics and lines in the arenas of one `Factory`, primitives, transforms, bounds, simplification), `vector_overlay.cpp` (flatten to a
+tolerance, snap to an integer grid, split every crossing exactly, a sheared sweep for the winding numbers, rings that keep the original
+curves between crossings: the four combinations and the area of a nonzero fill) and `vector_stroke.cpp` (caps, miter, bevel and round
+joins with the miter clip, one outline per figure or separate pieces where an inner join folds). Fills are nonzero everywhere; nothing is
+reference counted.
+
+A change is checked by `maicord_lottie_geometry` (a fixed list of shapes, combinations and strokes: areas and coverage against
+`tests/render/effects/golden/lottie_geometry.bin`, what Direct2D answered; Windows runs both and compares them) and
+`maicord_lottie_program` (the corpus `tests/render/effects/corpus` that `tools/generate_lottie_corpus.py` draws, compiled and compared
+mask by mask with `golden/lottie_program.bin`). Both write nothing and need no GPU. Renew a golden by running the test on Windows with
+`MAICORD_LOTTIE_GEOMETRY_CAPTURE` or `MAICORD_LOTTIE_PROGRAM_CAPTURE` set to the file's path. The sticker files the client shows are not
+ours to ship; to compare them anyway, list their paths in a file (`MAICORD_LOTTIE_CORPUS_LIST`), capture their digests on Windows with
+`MAICORD_LOTTIE_CORPUS_CAPTURE` and compare on Linux with `MAICORD_LOTTIE_CORPUS_COMPARE`. Not on Linux: the colour-glyph paint
+programs' tests that use Direct2D geometry.

@@ -10,6 +10,7 @@
 #include "maicord/media/video/video_display.hpp"
 #include "maicord/platform/decode/video_capability.hpp"
 #include "../software/software_decoder.hpp"
+#include "../vaapi/va.hpp"
 
 // The Linux counterpart of src/platform/decode/gpu_stream_decoder.cpp: the public interface of
 // maicord/platform/decode/gpu_stream_decoder.hpp over the backends of stream.hpp.
@@ -144,16 +145,30 @@ void stream_clear_geometry(GpuStream* stream) noexcept {
     stream->coded_width = stream->coded_height = 0;
 }
 
+void stream_slot_release(StreamSurface* slot) noexcept {
+    gpu_release(slot->chroma_view);
+    gpu_release(slot->chroma_texture);
+    gpu_release(slot->luma_view);
+    gpu_release(slot->luma_texture);
+}
+
 void stream_surfaces_release(GpuStream* stream) noexcept {
-    for (u32 i = 0; i < stream->surfaces.count; ++i) {
-        StreamSurface& slot = stream->surfaces.slot[i];
-        gpu_release(slot.chroma_view);
-        gpu_release(slot.chroma_texture);
-        gpu_release(slot.luma_view);
-        gpu_release(slot.luma_texture);
-    }
+    for (u32 i = 0; i < stream->surfaces.count; ++i)
+        stream_slot_release(&stream->surfaces.slot[i]);
     reset_value(&stream->surfaces);
     stream_clear_geometry(stream);
+}
+
+bool stream_slot_export(GpuDevice* device, vaapi::Session* session, u32 surface, StreamSurface* slot) noexcept {
+    vaapi::ExportedPicture picture{};
+    if (!vaapi::export_picture(device, session, surface, &picture))
+        return false;
+    stream_slot_release(slot);
+    slot->luma_texture = picture.luma_texture;
+    slot->luma_view = picture.luma_view;
+    slot->chroma_texture = picture.chroma_texture;
+    slot->chroma_view = picture.chroma_view;
+    return true;
 }
 
 bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u32 coded_height) noexcept {

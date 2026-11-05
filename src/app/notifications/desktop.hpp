@@ -54,11 +54,16 @@ void application_desktop_release() noexcept;
 bool application_desktop_open_link(const ConstSlice<wchar_t>& url) noexcept;
 
 // The executable that startup, protocol and notification registrations name:
-// this process's MaiCord.exe, which an update replaces in place. Empty when it
-// does not fit `capacity`.
+// this process's MaiCord.exe, which an update replaces in place (on Linux, the
+// AppImage file when it runs from one). Empty when it does not fit `capacity`.
 inline ConstSlice<wchar_t> application_desktop_registration_executable(wchar_t* buffer, u32 capacity) noexcept {
     if (!buffer || !capacity)
         return {};
+#if !defined(_WIN32)
+    // An AppImage runs from a mount that changes with every launch: the registration names the file the user started.
+    if (const u32 image = desktop_appimage_path(buffer, capacity))
+        return {buffer, image};
+#endif
     const u32 count = executable_path(buffer, capacity);
     if (!count || count >= capacity)
         return {};

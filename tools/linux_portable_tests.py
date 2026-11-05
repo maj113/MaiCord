@@ -14,6 +14,12 @@ on glibc distributions and on NixOS. The registry's MAICORD_TEST_FONT_SET and MA
 and dictionary assertions strict for the Ubuntu packages) are dropped: the assertions then hold on any host.
 
   linux_portable_tests.py --build ~/mc-build --output DIR [--sections default,wayland,gpu] [--timeout-scale 3]
+
+The bundle also holds the build's client as OUTPUT/MaiCord when there is one: tools/test_linux_distros.sh starts it on
+headless sway in the distributions that install sway.
+
+The executables are the glibc build's; tools/test_linux_distros.sh retargets its copy of them for the musl containers
+(tools/retarget_libc.py --tree), so the one build runs in Alpine, Void and Chimera as it runs in glibc distributions.
 """
 import argparse
 import json
@@ -38,7 +44,7 @@ mkdir -p "$logs"
 passed=0
 failed=0
 skipped=0
-echo "host: $( [ -r /etc/os-release ] && . /etc/os-release; echo "${PRETTY_NAME:-no os-release}"), $(uname -srm), glibc $(getconf GNU_LIBC_VERSION 2>/dev/null || echo unknown)"
+echo "host: $( [ -r /etc/os-release ] && . /etc/os-release; echo "${PRETTY_NAME:-no os-release}"), $(uname -srm), libc $(getconf GNU_LIBC_VERSION 2>/dev/null || ls /lib/ld-musl-* 2>/dev/null | head -n 1 || echo unknown)"
 
 # SECTIONS names the sections that run (default: all of them); a distribution without a Mesa EGL leaves out "gpu".
 # run SECTION NAME TIMEOUT SKIP-CODE WORKING-DIRECTORY VAR=value... COMMAND ARGUMENT...
@@ -110,7 +116,8 @@ def cache_value(build, name):
 
 
 def case_command(test, remap, strict):
-    """The environment (as `env` takes it: --unset=NAME options, then NAME=value) and the command of a ctest case."""
+    """The environment (as `env` takes it: `-u NAME` options, which GNU, busybox and BSD env accept, then NAME=value)
+    and the command of a ctest case."""
     command = list(test['command'])
     operations = []  # ('set', name, value) or ('unset', name), in the order ctest and cmake -E env apply them
     for property_ in test.get('properties', []):
@@ -134,7 +141,7 @@ def case_command(test, remap, strict):
     if not strict:
         for name in DROPPED:
             final.pop(name, None)
-    environment = ['--unset=%s' % name for name, value in final.items() if value is None]
+    environment = [item for name, value in final.items() if value is None for item in ('-u', name)]
     environment += ['%s=%s' % (name, remap(value)) for name, value in final.items() if value is not None]
     return environment, [remap(item) for item in command]
 
@@ -182,6 +189,8 @@ def main():
                                                     shlex.quote(directory),
                                                     ' '.join(shlex.quote(item) for item in environment + command)))
     script.append(EPILOGUE)
+    if (build / 'MaiCord').is_file():
+        shutil.copy2(build / 'MaiCord', output / 'MaiCord')
     (output / 'portable.sh').write_text(''.join(script), newline='\n')
     sizes = sum(path.stat().st_size for path in (output / 'build').rglob('*') if path.is_file())
     print('%d cases, %d files (%.1f MiB) in %s' % (len(names), len(copied), sizes / 1048576, output))

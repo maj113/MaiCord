@@ -175,13 +175,8 @@ Mp4DemuxError seek_fragment(State* s, i64 target, Mp4SeekPoint* point, bool star
 // ---- Slots -------------------------------------------------------------------------------------------------------
 
 void slots_release(State* s) noexcept {
-    for (u32 i = 0; i < s->slots; ++i) {
-        StreamSurface& slot = s->slot[i];
-        gpu_release(slot.chroma_view);
-        gpu_release(slot.chroma_texture);
-        gpu_release(slot.luma_view);
-        gpu_release(slot.luma_texture);
-    }
+    for (u32 i = 0; i < s->slots; ++i)
+        stream_slot_release(&s->slot[i]);
     clear_bytes(s->slot, sizeof(s->slot));
     s->slots = 0;
 }
@@ -376,13 +371,10 @@ bool probe_hardware(State* s) noexcept {
     if (h264_reference_plan(s->references, s->picture.sps, s->picture.header.first, 0, &plan) != H264Error::none ||
         !decode_hardware(s, plan, 0))
         return false;
-    vaapi::ExportedPicture exported{};
-    if (!vaapi::export_picture(s->device, s->session, 0, &exported))
+    StreamSurface exported{};
+    if (!stream_slot_export(s->device, s->session, 0, &exported))
         return false;
-    gpu_release(exported.chroma_view);
-    gpu_release(exported.chroma_texture);
-    gpu_release(exported.luma_view);
-    gpu_release(exported.luma_texture);
+    stream_slot_release(&exported);
     return true;
 }
 
@@ -417,20 +409,9 @@ Mp4DecodedFrame output_frame(State* s) noexcept {
         return decoded;
     }
     StreamSurface& slot = s->slot[picture.surface];
-    if (s->session) {
-        vaapi::ExportedPicture exported{};
-        if (!vaapi::export_picture(s->device, s->session, picture.surface, &exported)) {
-            decoded.error = Mp4DecodeError::sample;
-            return decoded;
-        }
-        gpu_release(slot.chroma_view);
-        gpu_release(slot.chroma_texture);
-        gpu_release(slot.luma_view);
-        gpu_release(slot.luma_texture);
-        slot.luma_texture = exported.luma_texture;
-        slot.luma_view = exported.luma_view;
-        slot.chroma_texture = exported.chroma_texture;
-        slot.chroma_view = exported.chroma_view;
+    if (s->session && !stream_slot_export(s->device, s->session, picture.surface, &slot)) {
+        decoded.error = Mp4DecodeError::sample;
+        return decoded;
     }
     s->frame.texture = slot.luma_texture;
     s->frame.subresource = picture.surface;

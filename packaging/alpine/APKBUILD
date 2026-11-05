@@ -1,0 +1,43 @@
+# Maintainer: Your Name <you@example.org>
+#
+# maicord: the release's musl tarball (packaging/build_tarball.py --libc musl) installed on Alpine. The program is the glibc
+# build's image with only its program interpreter retargeted to /lib/ld-musl-x86_64.so.1 (tools/retarget_libc.py); musl's loader
+# answers its libc.so.6, libdl.so.2 and libpthread.so.0 itself and opens everything else by soname, so the package needs
+# no gcompat. It is built upstream with LLVM 23, which Alpine's compiler is not, so this installs the program as released:
+# for a self-hosted repository or a testing/ submission once Alpine's maintainers accept a binary package. The tarball's
+# .maicord-portable marker is left out: apk owns these files, so the program does not update itself.
+#
+# Per release: set pkgver and run `abuild checksum`.
+pkgname=maicord
+pkgver=0.6.6
+pkgrel=0
+pkgdesc="Lightweight, native Discord client (unofficial)"
+url="https://maicord.com/"
+arch="x86_64"
+license="MPL-2.0"
+# What the program cannot start without: OpenSSL for TLS, the Wayland client libraries, xkbcommon, EGL and GLESv2.
+# The shared-library scan would add so:libc.so.6, which musl provides only through its loader: !tracedeps.
+depends="libssl3 wayland-libs-client wayland-libs-egl wayland-libs-cursor libxkbcommon mesa-egl mesa-gles"
+options="!check !strip !tracedeps"
+source="maicord-$pkgver-linux-x86_64-musl.tar.gz::https://github.com/maj113/MaiCord/releases/download/v$pkgver/maicord-$pkgver-linux-x86_64-musl.tar.gz"
+builddir="$srcdir/maicord-$pkgver-linux-x86_64-musl"
+
+build() {
+	:
+}
+
+package() {
+	install -Dm755 MaiCord "$pkgdir"/usr/lib/maicord/MaiCord
+	install -d "$pkgdir"/usr/bin "$pkgdir"/usr/lib/maicord/fonts "$pkgdir"/usr/lib/maicord/licenses
+	ln -s ../lib/maicord/MaiCord "$pkgdir"/usr/bin/maicord
+	install -m644 fonts/* "$pkgdir"/usr/lib/maicord/fonts/
+	install -m644 licenses/* "$pkgdir"/usr/lib/maicord/licenses/
+	find share -type f | while read -r file; do
+		install -Dm644 "$file" "$pkgdir"/usr/"$file"
+	done
+	install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+sha512sums="
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  maicord-0.6.6-linux-x86_64-musl.tar.gz
+"

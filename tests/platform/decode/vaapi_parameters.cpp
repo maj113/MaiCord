@@ -10,7 +10,7 @@
 // short slices leave them to the driver); their reference lists, weights, offsets and flags are checked against
 // values derived here, apart from the builders, from the parsers' own results.
 //
-// Real hardware validation of the same buffers is pending: VA-API needs a GPU, and WSL has no /dev/dri.
+// Real hardware validation of the same buffers is pending: VA-API needs a GPU, and WSL has no usable one.
 #include "../../fixtures/video/video_fixtures.hpp"
 #include "../../support/hevc_stream_fixture.hpp"
 #include "../../support/test_output.hpp"
@@ -823,6 +823,28 @@ u32 av1_stream(const VideoFixture& f, u32* tiles) noexcept {
     return frames;
 }
 
+// The AV1 picture parameters of a 10- and 12-bit sequence name their depth, and film grain is never requested of the
+// driver (a grain stream is the software tier's), whatever the stream says.
+void av1_bit_depths() noexcept {
+    static Av1SequenceHeader sequence;
+    static Av1FrameHeader header;
+    static PictureParameterAv1 parameters;
+    clear_bytes(&sequence, sizeof(sequence));
+    clear_bytes(&header, sizeof(header));
+    u8 slots[kAv1RefFrames];
+    for (u8& slot : slots)
+        slot = 255;
+    const u8 depths[]{8, 10, 12};
+    for (u32 i = 0; i < 3; ++i) {
+        sequence.bit_depth = depths[i];
+        sequence.film_grain_params_present = true;
+        header.film_grain.apply_grain = true;
+        av1_picture_parameters(sequence, header, slots, g_ids, 0, &parameters);
+        check(parameters.bit_depth_idx == i && parameters.film_grain_info.film_grain_info_fields.bits.apply_grain == 0,
+              "AV1: bit_depth_idx follows the sequence's depth and film grain is not requested");
+    }
+}
+
 } // namespace
 } // namespace maicord
 
@@ -897,6 +919,7 @@ MAICORD_TEST_ENTRY(maicord_vaapi_parameters_entry) {
         check(frames >= f->packet_count, "AV1: every frame is described");
         check(f != &av1_tiles || tiles >= 2 * frames, "AV1: the tiled stream has several tiles per frame");
     }
+    av1_bit_depths();
     check(g_h264_checked == kH264Rows && g_hevc_checked == kHevcRows,
           "every slice header the oracle read was compared with the in-house parser");
     check(!g_mismatches, "every VA parameter agrees with the DXVA builder's or the parsers' value");

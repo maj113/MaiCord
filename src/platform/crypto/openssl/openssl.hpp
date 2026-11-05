@@ -129,7 +129,6 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
     F(int, EVP_PKEY_CTX_set_rsa_oaep_md, (void*, const void*))                                                         \
     F(int, EVP_PKEY_CTX_set_rsa_mgf1_md, (void*, const void*))                                                         \
     F(int, EVP_PKEY_CTX_set_rsa_keygen_bits, (void*, int))                                                             \
-    F(int, EVP_PKEY_get_octet_string_param, (const void*, const char*, u8*, usize, usize*))                            \
     F(int, EVP_PKEY_get_bn_param, (const void*, const char*, void**))                                                  \
     F(int, BN_bn2binpad, (const void*, u8*, int))                                                                      \
     F(void, BN_clear_free, (void*))                                                                                    \

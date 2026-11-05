@@ -1,4 +1,4 @@
-// Loads libwayland-client (required), libwayland-egl and libwayland-cursor (optional) by soname; see abi.hpp.
+// Loads libwayland-client (required) and libwayland-cursor (optional) by soname; see abi.hpp.
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
@@ -11,10 +11,6 @@ namespace {
 
 SharedLibrary g_client_library;
 bool g_client_loaded;
-SharedLibrary g_egl_library;
-EglWindowApi g_egl_api;
-bool g_egl_tried;
-bool g_egl_loaded;
 SharedLibrary g_cursor_library;
 CursorApi g_cursor_api;
 bool g_cursor_tried;
@@ -83,28 +79,6 @@ bool client_load() noexcept {
     g_client = api;
     g_client_loaded = true;
     return true;
-}
-
-const EglWindowApi* egl_window_api() noexcept {
-    if (g_egl_tried)
-        return g_egl_loaded ? &g_egl_api : nullptr;
-    g_egl_tried = true;
-    if (!shared_library_open(&g_egl_library, "libwayland-egl.so.1"))
-        return nullptr;
-    Resolver resolve{g_egl_library, nullptr};
-    EglWindowApi api{};
-    resolve(&api.create, "wl_egl_window_create");
-    resolve(&api.destroy, "wl_egl_window_destroy");
-    resolve(&api.resize, "wl_egl_window_resize");
-    resolve(&api.get_attached_size, "wl_egl_window_get_attached_size");
-    if (resolve.missing) {
-        log_missing("libwayland-egl.so.1", resolve.missing);
-        shared_library_close(&g_egl_library);
-        return nullptr;
-    }
-    g_egl_api = api;
-    g_egl_loaded = true;
-    return &g_egl_api;
 }
 
 const CursorApi* cursor_api() noexcept {

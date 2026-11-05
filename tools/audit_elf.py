@@ -3,18 +3,26 @@
 
 A MaiCord image is a freestanding dynamic PIE (see cmake/build_contract_linux.cmake). It must
 
-  * be an x86-64 ET_DYN executable with the interpreter /lib64/ld-linux-x86-64.so.2;
+  * be an x86-64 ET_DYN executable with the interpreter of its C library: /lib64/ld-linux-x86-64.so.2 (glibc, the
+    builds' form) or /lib/ld-musl-x86_64.so.1 (musl: tools/retarget_libc.py makes it from the glibc image, which is
+    otherwise identical);
   * need exactly libc.so.6, libdl.so.2 and libpthread.so.0 (the generated stubs of tools/generate_libc_stubs.py) and
-    no other library: everything else is dlopen()ed;
+    no other library: everything else is dlopen()ed. musl's loader answers a needed libc.*, libdl.*, libpthread.* (and
+    libm, librt, libutil, libxnet) by itself, whatever the version suffix, and ignores symbol versions, so the same
+    entries run on both;
   * import only the functions the stubs define, each under a GLIBC_ version of at most 2.17, so no glibc newer than
-    that is ever required;
+    that is ever required. Every import is a function musl defines too, except malloc_trim, which must be a weak
+    import (null on musl);
   * carry no unwind data (.eh_frame, .eh_frame_hdr, .gcc_except_table) and no debug sections;
   * have no text relocations, no RPATH and no RUNPATH, full RELRO (relro and bind-now) and a non-executable stack,
     and no segment that is writable and executable;
   * pack its relative relocations under the Android RELR tags if at all, never DT_RELR (src/core/linux/start.cpp
     applies them; glibc 2.36 would refuse DT_RELR without a version dependency that older glibc cannot satisfy).
 
-    audit_elf.py IMAGE... [--needed NAME...] [--maximum-initialized-data-bytes N]
+    audit_elf.py IMAGE... [--libc glibc|musl] [--needed NAME...] [--maximum-initialized-data-bytes N] [--no-test-hooks]
+
+--no-test-hooks also fails an image that holds a test hook (include/maicord/core/test_hook.hpp leaves a marker string in
+every image that does): what ships is built without tests (tools/build_linux.sh, packaging/build_tarball.py).
 
 Exits 1 and names the first violated rule of any image.
 """
@@ -23,9 +31,11 @@ import argparse
 import struct
 import sys
 
-EXPECTED_INTERPRETER = "/lib64/ld-linux-x86-64.so.2"
+INTERPRETERS = {"glibc": "/lib64/ld-linux-x86-64.so.2", "musl": "/lib/ld-musl-x86_64.so.1"}
+TEST_HOOKS_MARKER = b"maicord-test-hooks-compiled-in"
 EXPECTED_NEEDED = ("libc.so.6", "libdl.so.2", "libpthread.so.0")
-# The imports of include/maicord/sys/linux/libc.hpp.
+# The imports of include/maicord/sys/linux/libc.hpp: all defined by glibc and musl, but for the glibc-only ones, which
+# the image must import weakly.
 ALLOWED_IMPORTS = {
     "dlopen", "dlsym", "dlclose", "dlerror",
     "pthread_create", "pthread_join", "pthread_detach", "pthread_attr_init", "pthread_attr_setstacksize",
@@ -34,10 +44,12 @@ ALLOWED_IMPORTS = {
     "malloc", "calloc", "free", "malloc_trim",
     "getaddrinfo", "freeaddrinfo",
 }
+GLIBC_ONLY_IMPORTS = {"malloc_trim"}
 MAXIMUM_GLIBC = (2, 17)
 FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id", ".rela.dyn.text")
 
 PT_LOAD, PT_DYNAMIC, PT_INTERP, PT_GNU_STACK, PT_GNU_RELRO = 1, 2, 3, 0x6474E551, 0x6474E552
+STB_WEAK = 2
 PF_X, PF_W = 1, 2
 SHT_PROGBITS, SHT_DYNSYM, SHT_NOBITS = 1, 11, 8
 SHF_WRITE, SHF_ALLOC = 1, 2
@@ -105,14 +117,15 @@ def glibc_version(name):
     return tuple(int(part) for part in parts)
 
 
-def audit(path, needed, maximum_data):
+def audit(path, libc, needed, maximum_data):
     image = Image(path)
     data = image.data
     check(image.machine == 62, "not an x86-64 image")
     check(image.type == 3, "not a position-independent executable (ET_DYN)")
 
     interpreters = [c_string(data, offset) for kind, _, offset, _, _, _, _, _ in image.programs if kind == PT_INTERP]
-    check(interpreters == [EXPECTED_INTERPRETER], "interpreter is %s, expected %s" % (interpreters, EXPECTED_INTERPRETER))
+    check(interpreters == [INTERPRETERS[libc]], "interpreter is %s, expected %s for %s" % (
+        interpreters, INTERPRETERS[libc], libc))
 
     dynamic = image.dynamic()
     check(dynamic, "no dynamic section")
@@ -175,7 +188,10 @@ def audit(path, needed, maximum_data):
         version = struct.unpack_from("<H", data, version_table + index * 2)[0] & 0x7FFF
         check(symbol in ALLOWED_IMPORTS, "unexpected import %s" % symbol)
         check(version in versions, "import %s is unversioned" % symbol)
-        imported.append("%s@%s" % (symbol, versions[version][1]))
+        # musl has no glibc-only function: a strong import would stop the image at load time (BIND_NOW).
+        check(symbol not in GLIBC_ONLY_IMPORTS or info >> 4 == STB_WEAK,
+              "%s is glibc-only and must be a weak import (musl does not define it)" % symbol)
+        imported.append("%s@%s%s" % (symbol, versions[version][1], " (weak)" if info >> 4 == STB_WEAK else ""))
 
     initialized = 0
     for section, name in zip(image.sections, image.section_names):
@@ -191,19 +207,28 @@ def audit(path, needed, maximum_data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("images", nargs="+")
+    parser.add_argument("--libc", choices=sorted(INTERPRETERS), default="glibc",
+                        help="the C library whose interpreter the images must name (default: glibc)")
     parser.add_argument("--needed", nargs="+", default=list(EXPECTED_NEEDED),
                         help="the exact DT_NEEDED set (default: libc.so.6 libdl.so.2 libpthread.so.0)")
     parser.add_argument("--maximum-initialized-data-bytes", type=int, default=-1,
                         help="fail when the writable initialized data exceeds this many bytes")
+    parser.add_argument("--no-test-hooks", action="store_true",
+                        help="fail when the image holds a test hook (a build with tests: tools/build_linux.sh --test)")
     arguments = parser.parse_args()
     for path in arguments.images:
         try:
-            imported, initialized = audit(path, arguments.needed, arguments.maximum_initialized_data_bytes)
+            imported, initialized = audit(path, arguments.libc, arguments.needed,
+                                          arguments.maximum_initialized_data_bytes)
+            if arguments.no_test_hooks:
+                with open(path, "rb") as handle:
+                    check(TEST_HOOKS_MARKER not in handle.read(), "the image holds test hooks (built with tests)")
         except (AuditError, ValueError, struct.error, StopIteration) as error:
             print("audit_elf: %s: %s" % (path, error), file=sys.stderr)
             return 1
-        print("ELF audit passed: %s (needs %s; imports %s; initialized data %d bytes)" % (
-            path, ", ".join(arguments.needed), ", ".join(imported) if imported else "none", initialized))
+        print("ELF audit passed: %s (%s; needs %s; imports %s; initialized data %d bytes)" % (
+            path, arguments.libc, ", ".join(arguments.needed), ", ".join(imported) if imported else "none",
+            initialized))
     return 0
 
 

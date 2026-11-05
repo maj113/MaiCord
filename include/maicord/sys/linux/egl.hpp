@@ -18,7 +18,6 @@ using Enum = u32;
 inline constexpr Int kFalse = 0;
 inline constexpr Int kTrue = 1;
 inline constexpr Int kNone = 0x3038;
-inline constexpr Int kSuccess = 0x3000;
 inline constexpr Int kExtensions = 0x3055;
 inline constexpr Int kVendor = 0x3053;
 inline constexpr Int kVersion = 0x3054;
@@ -35,10 +34,9 @@ inline constexpr Int kHeight = 0x3056;
 inline constexpr Enum kOpenGlEsApi = 0x30A0;
 inline constexpr Int kContextMajorVersion = 0x3098;
 inline constexpr Int kContextMinorVersion = 0x30FB;
-inline constexpr Int kContextOpenGlResetNotificationStrategy = 0x31BD;
-inline constexpr Int kLoseContextOnReset = 0x31BF;
 inline constexpr Int kPlatformSurfacelessMesa = 0x31DD;
 inline constexpr Int kPlatformDeviceExt = 0x313F;
+inline constexpr Int kPresentOpaqueExt = 0x31DF;
 inline constexpr Int kPlatformWaylandKhr = 0x31D8;
 inline constexpr Int kWindowBit = 0x0004;
 inline constexpr Int kBufferAgeExt = 0x313D;
@@ -63,7 +61,6 @@ inline constexpr Surface kNoSurface = nullptr;
     X(Boolean, eglMakeCurrent, (Display display, Surface draw, Surface read, Context context))                         \
     X(Boolean, eglDestroyContext, (Display display, Context context))                                                  \
     X(Boolean, eglDestroySurface, (Display display, Surface surface))                                                  \
-    X(Context, eglGetCurrentContext, ())                                                                               \
     X(Surface, eglCreateWindowSurface, (Display display, Config config, void* native_window, const Int* attributes))   \
     X(Boolean, eglSwapBuffers, (Display display, Surface surface))                                                     \
     X(Boolean, eglSwapInterval, (Display display, Int interval))                                                       \

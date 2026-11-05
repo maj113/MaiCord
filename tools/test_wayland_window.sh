@@ -48,7 +48,7 @@ runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export LANG="${LANG:-C.UTF-8}"
 sync="$out/sync"
 rm -rf "$out"
-mkdir -p "$sync/lifecycle" "$sync/input" "$sync/egl"
+mkdir -p "$sync/lifecycle" "$sync/input"
 # A machine without a login session (a container, a CI runner) has no /run/user/<uid>: the compositor gets a private one.
 if [ ! -d "$runtime" ] || [ ! -w "$runtime" ]; then
     runtime="$out/runtime"
@@ -79,7 +79,6 @@ if [ "$compositor" != current ]; then
     height="$(awk "BEGIN { print int(720 * $scale) }")"
     cat > "$config" <<EOF
 output * resolution ${width}x${height} scale $scale
-output * bg #ff00ff solid_color
 default_border none
 xwayland disable
 default_floating_border none
@@ -156,24 +155,6 @@ print(origin[0], origin[1], layout["width"], layout["height"])'
 
 shot() { grim "$out/$1.png" 2> "$out/grim.log" || echo "grim failed: $(cat "$out/grim.log")"; }
 
-# The EGL test draws green at half alpha over the magenta desktop; the pixel in the middle of its window, from the screenshot,
-# is the answer (`pixel`): green only where the window tells the compositor that it is opaque.
-drive_egl() {
-    wait_for "$sync/egl/ready" "$driver_wait" || return
-    sleep 0.6
-    shot "$compositor-egl"
-    geometry="$(window_geometry)" || { echo "no maicord window in sway's tree" >&2; return; }
-    python3 - "$out/$compositor-egl.png" "$geometry" "$scale" > "$sync/egl/pixel.tmp" <<'EOF' && mv "$sync/egl/pixel.tmp" "$sync/egl/pixel"
-import sys
-from PIL import Image
-path, geometry, scale = sys.argv[1], sys.argv[2].split(), float(sys.argv[3])
-origin_x, origin_y = int(geometry[0]), int(geometry[1])
-image = Image.open(path).convert("RGB")
-print(*image.getpixel((int((origin_x + 320) * scale), int((origin_y + 200) * scale))))
-EOF
-    touch "$sync/egl/injected"
-}
-
 drive_lifecycle() {
     wait_for "$sync/lifecycle/ready" "$driver_wait" || return
     sleep 0.6
@@ -215,7 +196,7 @@ drive_input() {
 
 if [ "$compositor" != current ]; then
     # Concurrent: ctest runs the cases in an order of its own choosing, and each waits for its own files.
-    ( drive_lifecycle & drive_input & drive_idle & drive_egl & wait ) > "$out/driver.log" 2>&1 &
+    ( drive_lifecycle & drive_input & drive_idle & wait ) > "$out/driver.log" 2>&1 &
     injector_pid=$!
 fi
 
@@ -240,12 +221,10 @@ if [ -n "$binary" ]; then
     if [ "$compositor" != current ]; then
         echo "== input"
         MAICORD_WAYLAND_SYNC_DIR="$sync/input" "$binary" --input || { rc=$?; [ "$rc" = 77 ] || status=1; }
-        echo "== egl"
-        MAICORD_WAYLAND_SYNC_DIR="$sync/egl" "$binary" --egl || { rc=$?; [ "$rc" = 77 ] || status=1; }
     fi
 else
     names="maicord_wayland_window_lifecycle"
-    [ "$compositor" != current ] && names="$names maicord_wayland_window_input maicord_wayland_window_egl"
+    [ "$compositor" != current ] && names="$names maicord_wayland_window_input"
     MAICORD_WAYLAND_INTEGRATION=1 MAICORD_WAYLAND_SYNC_DIR="$sync" \
         "$repository/tools/build_linux.sh" --keep --test $names || status=1
 fi

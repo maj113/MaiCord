@@ -1,16 +1,23 @@
 // The hardware tier's glue without a GPU: how the stream decoder chooses and gives up a tier, and how a VA-API picture
-// is submitted, against doubles (WSL has no /dev/dri; hardware validation is pending).
+// is submitted, against doubles (VA-API has no driver on this machine; hardware validation is pending).
 //
 //   tiers      a hardware backend that the probe lists is the one a stream is created on, with HEVC (no software
 //              decoder) refused when the probe lists none, and the codecs word reporting hardware codecs as such
 //   fallback   a hardware backend that gives up on a stream (the profile, size or format the driver refuses) hands it
 //              to the software tier, which asks for a keyframe and then decodes the stream; HEVC has no tier to fall to
 //   va session a vaapi::Session over a recording libva: the calls and their order for a picture (begin, parameter
-//              buffers, slices in groups, end, sync), the bytes of every buffer, a refused buffer (the picture still
+//              buffers, slices in groups, end; no wait), the bytes of every buffer, a refused buffer (the picture still
 //              ends, nothing leaks) and a picture of hundreds of slices
+//   waits      the wait for a picture (vaSyncSurface2 with its timeout, or vaSyncSurface), the wait before a session
+//              goes, and the surface requests (NV12 or P010, the usage hints and their refusal)
+//   imports    what the renderer's import refuses before touching a buffer (needs an EGL device)
+//   kept       export_picture over real dma-bufs (dumb buffers of a DRM device; skipped without one): the images of an
+//              export are kept per surface while the buffers and layout are the same, replaced when they change, and
+//              made again for a driver without stable exports
 //
 // The stream decoder's own link to the VA-API backend is two functions (hardware_probe_codecs and
 // hardware_stream_backend); this test defines them itself, so it links no libva code but the session.
+#include "../../support/dumb_dmabuf.hpp"
 #include "../../fixtures/mp4/mp4_fixtures.hpp"
 #include "../../fixtures/video/video_fixtures.hpp"
 #include "../../support/test_output.hpp"
@@ -147,8 +154,8 @@ void fallback(GpuDevice* device, const VideoFixture& h264) noexcept {
 // ---- A recording libva -------------------------------------------------------------------------------------------
 
 struct Call {
-    enum Kind : u8 { create_config, create_surfaces, create_context, begin, render, end, sync, create_buffer, destroy_buffer,
-                     destroy_context, destroy_surfaces, destroy_config } kind;
+    enum Kind : u8 { create_config, create_surfaces, create_context, begin, render, end, sync, sync2, create_buffer,
+                     destroy_buffer, destroy_context, destroy_surfaces, destroy_config } kind;
     i32 type;
     u32 size;
     u32 count;
@@ -161,14 +168,24 @@ u8 g_buffer_data[600][32]; // the first bytes of every buffer made
 u32 g_buffer_size[600], g_buffer_type[600];
 u32 g_buffers_made, g_buffers_alive;
 u32 g_fail_buffer = ~0u; // the buffer creation number that is refused
+struct SurfaceRequest {
+    u32 format, attribute_count, fourcc, hint;
+};
+SurfaceRequest g_surface_request[4]; // what vaCreateSurfaces was asked, call by call
+u32 g_surface_requests;
+bool g_refuse_hint;      // vaCreateSurfaces refuses a request that carries the usage hint
+u32 g_config_format;     // the render target format of the last config
+u64 g_sync_timeout;      // the timeout of the last vaSyncSurface2
+vaapi::Status g_sync2_status;
 
 void record(Call::Kind kind, i32 type = 0, u32 size = 0, u32 count = 0, u32 first = 0) noexcept {
     if (g_call_count < kMaxCalls)
         g_calls[g_call_count++] = {kind, type, size, count, first};
 }
 
-vaapi::Status fake_create_config(vaapi::Display, i32, i32, vaapi::ConfigAttrib*, i32, vaapi::ConfigId* id) {
+vaapi::Status fake_create_config(vaapi::Display, i32, i32, vaapi::ConfigAttrib* attributes, i32, vaapi::ConfigId* id) {
     record(Call::create_config);
+    g_config_format = attributes[0].value;
     *id = 7;
     return 0;
 }
@@ -176,8 +193,21 @@ vaapi::Status fake_destroy_config(vaapi::Display, vaapi::ConfigId) {
     record(Call::destroy_config);
     return 0;
 }
-vaapi::Status fake_create_surfaces(vaapi::Display, u32, u32, u32, vaapi::SurfaceId* ids, u32 count, vaapi::SurfaceAttrib*, u32) {
+vaapi::Status fake_create_surfaces(vaapi::Display, u32 format, u32, u32, vaapi::SurfaceId* ids, u32 count,
+                                   vaapi::SurfaceAttrib* attributes, u32 attribute_count) {
     record(Call::create_surfaces, 0, 0, count);
+    if (g_surface_requests < 4) {
+        SurfaceRequest& request = g_surface_request[g_surface_requests++];
+        request = {format, attribute_count, 0, 0};
+        for (u32 i = 0; i < attribute_count; ++i) {
+            if (attributes[i].type == vaapi::kSurfaceAttribPixelFormat)
+                request.fourcc = static_cast<u32>(attributes[i].value.value.i);
+            if (attributes[i].type == vaapi::kSurfaceAttribUsageHint)
+                request.hint = static_cast<u32>(attributes[i].value.value.i);
+        }
+    }
+    if (g_refuse_hint && attribute_count == 2)
+        return 12; // VA_STATUS_ERROR_ATTR_NOT_SUPPORTED
     for (u32 i = 0; i < count; ++i)
         ids[i] = 0x500 + i;
     return 0;
@@ -229,6 +259,11 @@ vaapi::Status fake_sync(vaapi::Display, vaapi::SurfaceId target) {
     record(Call::sync, 0, 0, 0, target);
     return 0;
 }
+vaapi::Status fake_sync2(vaapi::Display, vaapi::SurfaceId target, u64 timeout) {
+    record(Call::sync2, 0, 0, 0, target);
+    g_sync_timeout = timeout;
+    return g_sync2_status;
+}
 
 void install(vaapi::Driver* d) noexcept {
     clear_bytes(d, sizeof(*d));
@@ -264,6 +299,8 @@ u32 position(Call::Kind kind, u32 occurrence = 0) noexcept {
 void reset_log() noexcept {
     g_call_count = g_buffers_made = g_buffers_alive = 0;
     g_fail_buffer = ~0u;
+    g_surface_requests = 0;
+    g_refuse_hint = false;
 }
 
 void session() noexcept {
@@ -284,10 +321,12 @@ void session() noexcept {
               vaapi::picture_slice(s, slice0, sizeof(slice0), data0, sizeof(data0)) &&
               vaapi::picture_slice(s, slice1, sizeof(slice1), data1, sizeof(data1)) && vaapi::picture_end(s),
           "va session: a picture goes through");
-    const u32 begin = position(Call::begin), end = position(Call::end), sync = position(Call::sync);
-    check(g_calls[begin].first == 0x502 && begin < position(Call::render) && end > position(Call::render, 2) && sync > end &&
-              g_calls[sync].first == 0x502,
-          "va session: begin on the target surface, end after the renders, then the sync on the same surface");
+    const u32 begin = position(Call::begin), end = position(Call::end);
+    check(g_calls[begin].first == 0x502 && begin < position(Call::render) && end > position(Call::render, 2) &&
+              count_calls(Call::sync) == 0,
+          "va session: begin on the target surface, end after the renders, and no wait in picture_end");
+    check(vaapi::session_sync(s, 2) && count_calls(Call::sync) == 1 && g_calls[position(Call::sync)].first == 0x502,
+          "va session: session_sync waits for the surface with vaSyncSurface");
     // The renders: parameters, matrix, then the four slice buffers together in the order parameter, data, parameter, data.
     check(count_calls(Call::render) == 3 && g_calls[position(Call::render, 0)].count == 1 &&
               g_calls[position(Call::render, 1)].count == 1 && g_calls[position(Call::render, 2)].count == 4,
@@ -341,6 +380,97 @@ void session() noexcept {
     check(!vaapi::session_create(&driver, vaapi::kProfileHevcMain, 64, 64, 3) && count_calls(Call::destroy_surfaces) == 1 &&
               count_calls(Call::destroy_config) == 1 && count_calls(Call::destroy_context) == 0,
           "va session: a refused context releases the surfaces and the config");
+}
+
+// ---- Waits and surface requests ----------------------------------------------------------------------------------
+
+void one_picture(vaapi::Session* s, u32 surface) noexcept {
+    const u8 parameters[8] = {1};
+    vaapi::picture_begin(s, surface);
+    vaapi::picture_buffer(s, vaapi::kPictureParameterBuffer, parameters, sizeof(parameters));
+    vaapi::picture_end(s);
+}
+
+void waits() noexcept {
+    static vaapi::Driver driver;
+    install(&driver);
+    driver.api.vaSyncSurface2 = fake_sync2;
+    driver.timed_sync = true;
+    reset_log();
+    g_sync2_status = 0;
+    vaapi::Session* s = vaapi::session_create(&driver, vaapi::kProfileH264Main, 64, 48, 3);
+    if (!s) {
+        check(false, "waits: a session");
+        return;
+    }
+    one_picture(s, 1);
+    check(count_calls(Call::sync2) == 0 && count_calls(Call::sync) == 0, "waits: a picture is submitted without a wait");
+    check(vaapi::session_sync(s, 1) && count_calls(Call::sync2) == 1 && count_calls(Call::sync) == 0 &&
+              g_calls[position(Call::sync2)].first == 0x501 && g_sync_timeout == vaapi::kSyncTimeoutNanoseconds,
+          "waits: a driver with vaSyncSurface2 is waited on with the bounded timeout");
+    g_sync2_status = vaapi::kStatusTimedOut;
+    check(!vaapi::session_sync(s, 1), "waits: a timeout fails the wait");
+    g_sync2_status = 0;
+    check(!vaapi::session_sync(s, 3) && !vaapi::session_sync(nullptr, 0), "waits: a surface the session does not have is refused");
+    // A picture nobody waited for is waited for before its surfaces go.
+    one_picture(s, 2);
+    reset_log();
+    vaapi::session_destroy(s);
+    check(count_calls(Call::sync2) == 1 && g_calls[position(Call::sync2)].first == 0x502 &&
+              position(Call::sync2) < position(Call::destroy_context),
+          "waits: destroying a session waits for the picture still in flight, before the context goes");
+    // A picture that was waited for is not waited for again.
+    s = vaapi::session_create(&driver, vaapi::kProfileH264Main, 64, 48, 3);
+    if (!s) {
+        check(false, "waits: a second session");
+        return;
+    }
+    one_picture(s, 0);
+    vaapi::session_sync(s, 0);
+    reset_log();
+    vaapi::session_destroy(s);
+    check(count_calls(Call::sync2) == 0 && count_calls(Call::sync) == 0, "waits: a waited-for picture is not waited for again");
+    // A driver without vaSyncSurface2 is waited on with vaSyncSurface.
+    driver.timed_sync = false;
+    s = vaapi::session_create(&driver, vaapi::kProfileH264Main, 64, 48, 3);
+    if (!s) {
+        check(false, "waits: a third session");
+        return;
+    }
+    one_picture(s, 0);
+    reset_log();
+    check(vaapi::session_sync(s, 0) && count_calls(Call::sync) == 1 && count_calls(Call::sync2) == 0,
+          "waits: without vaSyncSurface2 the wait is vaSyncSurface");
+    vaapi::session_destroy(s);
+}
+
+void surface_requests() noexcept {
+    using namespace vaapi;
+    static Driver driver;
+    install(&driver);
+    reset_log();
+    Session* s = session_create(&driver, kProfileH264Main, 64, 48, 3);
+    check(s && g_surface_requests == 1 && g_surface_request[0].attribute_count == 2 &&
+              g_surface_request[0].fourcc == kFourccNv12 &&
+              g_surface_request[0].hint == (kSurfaceUsageHintDecoder | kSurfaceUsageHintExport) &&
+              g_surface_request[0].format == kRtFormatYuv420 && g_config_format == kRtFormatYuv420 && !s->ten_bit,
+          "surfaces: NV12 with the decoder and export hints");
+    session_destroy(s);
+    // A driver that refuses the hint gets the plain request, and the session works.
+    reset_log();
+    g_refuse_hint = true;
+    s = session_create(&driver, kProfileH264Main, 64, 48, 3);
+    check(s && g_surface_requests == 2 && g_surface_request[1].attribute_count == 1 &&
+              g_surface_request[1].fourcc == kFourccNv12 && g_surface_request[1].hint == 0 && s->count == 3,
+          "surfaces: a refused hint is dropped from a second request");
+    session_destroy(s);
+    // 10-bit: P010 surfaces in the 10-bit render target format, in a config of that format.
+    reset_log();
+    s = session_create(&driver, kProfileAv1Profile0, 64, 64, 2, true);
+    check(s && s->ten_bit && g_surface_requests == 1 && g_surface_request[0].fourcc == kFourccP010 &&
+              g_surface_request[0].format == kRtFormatYuv420_10 && g_config_format == kRtFormatYuv420_10,
+          "surfaces: a 10-bit session asks for P010");
+    session_destroy(s);
 }
 
 // ---- Movie samples through the session ---------------------------------------------------------------------------
@@ -420,7 +550,7 @@ void movie_samples() noexcept {
     check(parsed && h264_reference_plan(plan.after, first.sps, header.first, 1, &next) == H264Error::none &&
               vaapi::submit_h264_sample(h264, first.sps, first.pps, header, second.bytes, first.length_bytes, plan.after,
                                         next.decode_order, 1) &&
-              g_buffers_made == 2 + 2 * header.slice_count && count_calls(Call::sync) == 1,
+              g_buffers_made == 2 + 2 * header.slice_count && count_calls(Call::sync) == 0,
           "movie samples: a P sample goes through with the IDR as its reference");
     // A sample cut short: refused, still ended, no buffer left behind.
     reset_log();
@@ -471,6 +601,150 @@ void movie_samples() noexcept {
     vaapi::session_destroy(hevc);
 }
 
+// ---- The renderer's dma-buf import -------------------------------------------------------------------------------
+
+// What the import accepts and refuses before it touches a buffer; whether a dma-buf is imported at all depends on the
+// EGL driver (llvmpipe has none), so only the refusals that hold everywhere are asserted.
+void imports(GpuDevice* device) noexcept {
+    const bool available = gpu_caps(device).dmabuf_import;
+    test_write_metric("dmabuf import: ", available ? 1u : 0u);
+    GpuDmabufPlane plane{7, kDrmFormatR8, 64, 64, 0, 128, kDrmFormatModifierLinear, -1, 0, 0};
+    check(gpu_dmabuf_plane_supported(device, plane) == available,
+          "imports: a linear plane is importable exactly when the device imports dma-bufs");
+    plane.modifier = kDrmFormatModifierInvalid;
+    check(gpu_dmabuf_plane_supported(device, plane) == available,
+          "imports: so is one whose modifier the exporter left unspecified");
+    plane.aux_pitch = 64;
+    plane.aux_fd = 8;
+    check(!gpu_dmabuf_plane_supported(device, plane), "imports: metadata needs a tiled modifier");
+    plane.modifier = kDrmFormatModifierLinear;
+    check(!gpu_dmabuf_plane_supported(device, plane), "imports: metadata is not for a linear plane either");
+    GpuTexture* texture = nullptr;
+    GpuSrv* view = nullptr;
+    GpuDmabufPlane bad{-1, kDrmFormatR8, 64, 64, 0, 128, kDrmFormatModifierLinear, -1, 0, 0};
+    check(gpu_video_plane_import(device, bad, &texture, &view) == kGpuInvalidArgument && !texture && !view,
+          "imports: a plane without a descriptor is refused");
+    bad = {7, kDrmFormatR8, 64, 64, 0, 128, kDrmFormatModifierLinear, -1, 0, 64};
+    check(gpu_video_plane_import(device, bad, &texture, &view) == kGpuInvalidArgument && !texture && !view,
+          "imports: a metadata plane without a descriptor is refused");
+    bad = {7, 0x20203859, 64, 64, 0, 128, kDrmFormatModifierLinear, -1, 0, 0}; // 'Y8  '
+    check(gpu_video_plane_import(device, bad, &texture, &view) == kGpuInvalidArgument, "imports: another format is refused");
+    // A modifier the display does not list (or without the extension): never imported as a linear buffer.
+    bad = {7, kDrmFormatR8, 64, 64, 0, 128, 0x00dead0000000001ull, -1, 0, 0};
+    check(!gpu_ok(gpu_video_plane_import(device, bad, &texture, &view)) && !texture && !view,
+          "imports: an unlisted modifier is refused");
+}
+
+// ---- Kept exports against a real dma-buf -------------------------------------------------------------------------
+
+// A dma-buf the test exports again and again, as a driver does (tests/support/dumb_dmabuf.hpp): skipped where there is
+// no DRM device this user may use or this EGL does not import its buffers.
+struct ExportSource {
+    i32 node;
+    DumbBuffer buffer[2];
+    u32 current; // which one the next export names
+    u32 exports;
+    bool fail; // the next exports fail
+    i32 last_fd;
+};
+ExportSource g_source;
+
+vaapi::Status fake_export(vaapi::Display, vaapi::SurfaceId, u32, u32, void* descriptor) {
+    ++g_source.exports;
+    if (g_source.fail)
+        return 2;
+    const DumbBuffer& buffer = g_source.buffer[g_source.current];
+    g_source.last_fd = dumb_export(g_source.node, buffer);
+    if (g_source.last_fd < 0)
+        return 2;
+    auto* d = static_cast<vaapi::DrmPrimeDescriptor*>(descriptor);
+    *d = {};
+    d->fourcc = vaapi::kFourccNv12;
+    d->width = 64;
+    d->height = 64;
+    d->num_objects = 1;
+    d->objects[0] = {g_source.last_fd, static_cast<u32>(buffer.size), kDrmFormatModifierLinear};
+    d->num_layers = 2;
+    d->layers[0] = {kDrmFormatR8, 1, {0}, {0}, {buffer.pitch}};
+    d->layers[1] = {kDrmFormatGr88, 1, {0}, {buffer.pitch * 64}, {buffer.pitch}};
+    return 0;
+}
+
+bool same_picture(const vaapi::ExportedPicture& a, const vaapi::ExportedPicture& b) noexcept {
+    return a.luma_texture == b.luma_texture && a.luma_view == b.luma_view && a.chroma_texture == b.chroma_texture &&
+           a.chroma_view == b.chroma_view;
+}
+
+void release_picture(vaapi::ExportedPicture* picture) noexcept {
+    gpu_release(picture->luma_view);
+    gpu_release(picture->luma_texture);
+    gpu_release(picture->chroma_view);
+    gpu_release(picture->chroma_texture);
+    *picture = {};
+}
+
+void kept_exports(GpuDevice* device) noexcept {
+    using namespace vaapi;
+    if (!gpu_caps(device).dmabuf_import) {
+        test_write_line("kept exports skipped: the device does not import dma-bufs");
+        return;
+    }
+    clear_bytes(&g_source, sizeof(g_source));
+    g_source.node = dumb_open();
+    if (g_source.node < 0) {
+        test_write_line("kept exports skipped: no DRM device this user may open");
+        return;
+    }
+    // NV12 of 64 x 64: 96 rows of one byte.
+    const bool made = dumb_create(g_source.node, 64, 96, 8, &g_source.buffer[0]) &&
+                      dumb_create(g_source.node, 64, 96, 8, &g_source.buffer[1]);
+    static Driver driver;
+    install(&driver);
+    driver.api.vaExportSurfaceHandle = fake_export;
+    driver.stable_exports = true;
+    reset_log();
+    Session* s = made ? session_create(&driver, kProfileH264Main, 64, 64, 2) : nullptr;
+    ExportedPicture a{}, b{}, c{}, d{}, e{};
+    if (!s || !export_picture(device, s, 0, &a)) {
+        test_write_line("kept exports skipped: no buffers, or this EGL does not import them");
+    } else {
+        check(g_source.exports == 1 && sys_fcntl(g_source.last_fd, 1 /* F_GETFD */, 0) < 0 && count_calls(Call::sync) == 1,
+              "kept: a picture waits for its surface and its descriptor is closed after the import");
+        check(export_picture(device, s, 0, &b) && g_source.exports == 2 && count_calls(Call::sync) == 2 && same_picture(a, b),
+              "kept: the next export of a surface that names the same buffer is the same images, exported and waited for again");
+        check(export_picture(device, s, 1, &c) && !same_picture(a, c), "kept: another surface has images of its own");
+        // The surface moves to another buffer: new images, and the old ones go.
+        g_source.current = 1;
+        check(export_picture(device, s, 0, &d) && !same_picture(a, d) && sys_fcntl(g_source.last_fd, 1, 0) < 0,
+              "kept: a surface exported as another buffer is imported again");
+        check(export_picture(device, s, 0, &e) && same_picture(d, e), "kept: and the new images are the ones kept");
+        // A driver whose exports are not stable is imported every time.
+        release_picture(&e);
+        driver.stable_exports = false;
+        check(export_picture(device, s, 1, &e) && !same_picture(c, e), "kept: a driver without stable exports is imported again");
+        // A decoder slot takes the export's planes, and keeps its own when the export fails.
+        StreamSurface slot{};
+        check(stream_slot_export(device, s, 0, &slot) && slot.luma_texture && slot.chroma_view &&
+                  gpu_video_plane_owns(slot.luma_texture),
+              "kept: a slot takes the planes of an export");
+        const GpuTexture* held = slot.luma_texture;
+        g_source.fail = true;
+        check(!stream_slot_export(device, s, 0, &slot) && slot.luma_texture == held,
+              "kept: a failed export leaves the slot's planes in place");
+        g_source.fail = false;
+        stream_slot_release(&slot);
+    }
+    release_picture(&a);
+    release_picture(&b);
+    release_picture(&c);
+    release_picture(&d);
+    release_picture(&e);
+    session_destroy(s);
+    dumb_destroy(g_source.node, &g_source.buffer[0]);
+    dumb_destroy(g_source.node, &g_source.buffer[1]);
+    sys_close(g_source.node);
+}
+
 } // namespace
 
 // What the stream decoder asks of the VA-API backend (src/platform/decode/vaapi/va_stream.cpp), answered by the double.
@@ -488,19 +762,23 @@ MAICORD_TEST_ENTRY(maicord_video_hardware_tier_entry) {
     VideoFixture h264;
     check(video_fixture_parse("h264_baseline", kVideoH264Baseline, sizeof(kVideoH264Baseline), &h264), "video fixture parses");
     session();
+    waits();
+    surface_requests();
     movie_samples();
-    if (software_codec_available(GpuStreamCodec::h264)) {
-        GpuDevice* device = nullptr;
-        GpuContext* context = nullptr;
-        if (gpu_ok(gpu_device_create(&device, &context))) {
+    GpuDevice* device = nullptr;
+    GpuContext* context = nullptr;
+    if (gpu_ok(gpu_device_create(&device, &context))) {
+        imports(device);
+        kept_exports(device);
+        if (software_codec_available(GpuStreamCodec::h264)) {
             tiers(device, h264);
             fallback(device, h264);
-            gpu_device_destroy(&device, &context);
         } else {
-            test_write_line("tiers and fallback skipped: no EGL device");
+            test_write_line("tiers and fallback skipped: libopenh264 is not installed");
         }
+        gpu_device_destroy(&device, &context);
     } else {
-        test_write_line("tiers and fallback skipped: libopenh264 is not installed");
+        test_write_line("device tests skipped: no EGL device");
     }
     test_exit(g_failures, "maicord_video_hardware_tier");
 }

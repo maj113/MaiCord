@@ -85,9 +85,6 @@ struct GlesShader {
     const GlesBinding* rows;    // inside the pack, which outlives every shader, or owned_rows
     u32 row_count;
     ShaderId id;
-    // The composite pixel shader of a device without dual-source blending: `name` is 0 and the two outputs are two
-    // shaders, drawn one after the other (gpu_draw_instanced). Both have the manifest of the original.
-    u32 weight_name, color_name;
     GlesBinding owned_rows[kGlslBindingMaximum]; // a package shader's manifest
 };
 struct GpuVertexShader : GlesShader {};
@@ -133,12 +130,18 @@ inline constexpr u32 kGlesUniformBindings = 16; // vertex 0..7, pixel 8..15
 inline constexpr u32 kGlesStorageBindings = 8;
 inline constexpr u32 kGlesImageBindings = 8;
 inline constexpr u32 kGlesProgramCacheSize = 64;
+inline constexpr u32 kGlesPackCapacity = 32; // entries of the shader pack (shader_pack.cpp asserts it)
 
 struct GlesProgram {
     const GpuVertexShader* vertex;
     const GpuPixelShader* pixel;
     u32 name;
-    u32 variant; // 0 the pixel shader itself, 1 and 2 its weight and colour halves (GlesShader::weight_name)
+};
+
+// A compute shader's program, shared by every GpuComputeShader made of it (refs of them): GL programs are not state.
+struct GlesComputeProgram {
+    u32 name;
+    u32 refs;
 };
 
 // A timer's two timestamp queries (GL_EXT_disjoint_timer_query).
@@ -211,6 +214,7 @@ struct GpuDevice {
     egl::Context context;
     egl::Surface surface; // the 1x1 pbuffer when the context could not be made current without a surface
     egl::Config config;   // the config of the context; window surfaces use the same one
+    bool present_opaque;  // the window config has alpha and the surfaces ask the compositor to ignore it
     void* native_display; // the window system connection (wl_display*) this display was made from, or null
     GpuCaps caps;
     char description[160];
@@ -237,6 +241,7 @@ struct GpuDevice {
     GlesSlab<GpuFence, 8> fences;
     GlesProgram programs[kGlesProgramCacheSize];
     u32 program_count;
+    GlesComputeProgram compute_programs[kGlesPackCapacity]; // by shader pack entry
     // A shader or program was built since the last present: the driver's compiler (llvmpipe's LLVM, Mesa's NIR) left
     // freed memory in the C library's heap, which the present hands back (heap_trim).
     bool trim_pending;
@@ -305,7 +310,7 @@ u32 texture_framebuffer(GpuTexture* texture) noexcept;
 // Shader pack (shader_pack.cpp).
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum stage, GlesShader* shader) noexcept;
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept;
-u32 graphics_program(GpuContext* context, u32 variant = 0) noexcept;
+u32 graphics_program(GpuContext* context) noexcept;
 // Waits for the prestart worker, if one still runs, and makes the context current on the calling thread.
 void claim_context() noexcept;
 // Looks for the fences whose signals the GPU has passed and wakes the events armed for them.

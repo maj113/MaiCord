@@ -1,7 +1,12 @@
 // The smaller services of the window: the integer scale from wl_output and wl_surface for compositors without
-// fractional-scale, xdg-activation (attention, focus requests), idle inhibit and the wl_egl_window the GPU backend renders to.
+// fractional-scale, xdg-activation (attention, focus requests), idle inhibit, and the integration protocols:
+// xdg-foreign (the window as the parent of portal dialogs), ext-idle-notify (the system's input idle time),
+// xdg-system-bell and xdg-toplevel-icon.
+#include "maicord/core/time.hpp"
+#include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/window/wayland.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
+#include "maicord/sys/linux/calls.hpp"
 #include "backend.hpp"
 
 namespace maicord::wayland {
@@ -85,6 +90,32 @@ void on_token_done(void*, xdg_activation_token_v1* token, const char* string) no
 
 const xdg_activation_token_v1_listener kTokenListener = {on_token_done};
 
+// The export's handle arrives once; the portals take it as "wayland:<handle>" (dbus::portal_parent_window).
+void on_exported_handle(void*, zxdg_exported_v2*, const char* handle) noexcept {
+    char text[96];
+    u32 length = 0;
+    for (const char* scheme = "wayland:"; *scheme; ++scheme)
+        text[length++] = *scheme;
+    for (; *handle && length + 1 < sizeof(text); ++handle)
+        text[length++] = *handle;
+    text[*handle ? 0 : length] = 0;  // a handle that does not fit is no handle
+    dbus::portal_set_parent_window(text);
+}
+
+const zxdg_exported_v2_listener kExportedListener = {on_exported_handle};
+
+void on_idled(void*, ext_idle_notification_v1*) noexcept {
+    g.extras.idle_now = true;
+    g.extras.idle_mark_ms = clock_monotonic_milliseconds();
+}
+
+void on_resumed(void*, ext_idle_notification_v1*) noexcept {
+    g.extras.idle_now = false;
+    g.extras.idle_mark_ms = clock_monotonic_milliseconds();
+}
+
+const ext_idle_notification_v1_listener kIdleListener = {on_idled, on_resumed};
+
 bool is_window(Window window) noexcept {
     return g.window_exists && window == reinterpret_cast<Window>(&g.window);
 }
@@ -93,6 +124,10 @@ bool is_window(Window window) noexcept {
 
 void extras_attach_surface() noexcept {
     wl_surface_add_listener(g.window.surface, &kSurfaceEvents, nullptr);
+    if (g.exporter_manager) {
+        g.extras.exported = zxdg_exporter_v2_export_toplevel(g.exporter_manager, g.window.surface);
+        zxdg_exported_v2_add_listener(g.extras.exported, &kExportedListener, nullptr);
+    }
 }
 
 void extras_output_added(wl_output* output) noexcept {
@@ -113,8 +148,12 @@ void extras_shutdown() noexcept {
         xdg_activation_token_v1_destroy(extras.token);
     if (extras.inhibitor)
         zwp_idle_inhibitor_v1_destroy(extras.inhibitor);
-    if (extras.egl)
-        egl_window_api()->destroy(extras.egl);
+    if (extras.exported) {
+        zxdg_exported_v2_destroy(extras.exported);
+        dbus::portal_set_parent_window(nullptr);
+    }
+    if (extras.idle)
+        ext_idle_notification_v1_destroy(extras.idle);
     for (u32 i = 0; i < kMaxOutputs; ++i) {
         wl_output* output = extras.outputs[i];
         if (!output)
@@ -127,14 +166,17 @@ void extras_shutdown() noexcept {
     clear_bytes(&extras, static_cast<u32>(sizeof(extras)));
 }
 
-void egl_sync() noexcept {
-    if (g.extras.egl) {
-        u32 width = 0;
-        u32 height = 0;
-        window_pixel_size(&width, &height);
-        egl_window_api()->resize(g.extras.egl, static_cast<int>(width), static_cast<int>(height), 0, 0);
-    }
-    apply_surface_geometry();
+// What the system's input idle time is, for PlatformSettings: kSystemIdleUnknown without a watch; once the compositor has
+// said "idle" the timeout and what has passed since; while the user is active 0 (the protocol says no more than "less
+// than the timeout").
+u32 extras_system_idle_ms() noexcept {
+    const ExtrasState& extras = g.extras;
+    if (!extras.idle)
+        return kSystemIdleUnknown;
+    if (!extras.idle_now)
+        return 0;
+    const u64 total = extras.idle_timeout_ms + (clock_monotonic_milliseconds() - extras.idle_mark_ms);
+    return total >= kSystemIdleUnknown ? kSystemIdleUnknown - 1 : static_cast<u32>(total);
 }
 
 } // namespace maicord::wayland
@@ -156,14 +198,14 @@ void window_wayland_request_activation(Window window) noexcept {
     xdg_activation_token_v1_add_listener(extras.token, &kTokenListener, nullptr);
     if (g.seat && g.input_serial != 0)
         xdg_activation_token_v1_set_serial(extras.token, g.input_serial, g.seat);
-    xdg_activation_token_v1_set_app_id(extras.token, "maicord");
+    xdg_activation_token_v1_set_app_id(extras.token, g.window.app_id);
     xdg_activation_token_v1_set_surface(extras.token, g.window.surface);
     xdg_activation_token_v1_commit(extras.token);
     g_client.display_flush(g.display);
 }
 
-bool window_wayland_activate_with_token(Window window, const char* token) noexcept {
-    if (!is_window(window) || !g.activation_manager || !token || !*token)
+bool window_wayland_activate(const char* token) noexcept {
+    if (!g.window_exists || !g.activation_manager || !token || !*token)
         return false;
     xdg_activation_v1_activate(g.activation_manager, token, g.window.surface);
     g_client.display_flush(g.display);
@@ -190,32 +232,90 @@ bool window_wayland_set_idle_inhibit(Window window, bool inhibit) noexcept {
     return true;
 }
 
-void* window_wayland_egl_window(Window window) noexcept {
+bool window_wayland_watch_idle(Window window, u32 timeout_ms) noexcept {
     ExtrasState& extras = g.extras;
-    if (!is_window(window))
-        return nullptr;
-    if (!extras.egl) {
-        const EglWindowApi* api = egl_window_api();
-        if (!api)
-            return nullptr;
-        u32 width = 0;
-        u32 height = 0;
-        window_pixel_size(&width, &height);
-        extras.egl = api->create(g.window.surface, static_cast<int>(width), static_cast<int>(height));
-        if (!extras.egl)
-            return nullptr;
-        window_wayland_use_external_buffers(window, true);
-        apply_surface_geometry();
-    }
-    return extras.egl;
+    if (!is_window(window) || !g.idle_notifier || !g.seat || timeout_ms == 0)
+        return false;
+    if (extras.idle)
+        ext_idle_notification_v1_destroy(extras.idle);
+    // Version 2 has the notification that counts input alone: our own idle inhibitor (a call) must not hide the user's absence.
+    extras.idle = g.idle_notifier_version >= ext_idle_notifier_v1_get_input_idle_notification_since
+                      ? ext_idle_notifier_v1_get_input_idle_notification(g.idle_notifier, timeout_ms, g.seat)
+                      : ext_idle_notifier_v1_get_idle_notification(g.idle_notifier, timeout_ms, g.seat);
+    ext_idle_notification_v1_add_listener(extras.idle, &kIdleListener, nullptr);
+    extras.idle_timeout_ms = timeout_ms;
+    extras.idle_now = false;
+    extras.idle_mark_ms = clock_monotonic_milliseconds();
+    g_client.display_flush(g.display);
+    return true;
 }
 
-void window_wayland_egl_release(Window window) noexcept {
-    ExtrasState& extras = g.extras;
-    if (!is_window(window) || !extras.egl)
+bool window_wayland_system_bell() noexcept {
+    if (!g.bell)
+        return false;
+    xdg_system_bell_v1_ring(g.bell, g.window_exists ? g.window.surface : nullptr);
+    g_client.display_flush(g.display);
+    return true;
+}
+
+// The window's icon as xdg-toplevel-icon pixel buffers. IconImage is straight alpha; wl_shm's ARGB8888 is premultiplied.
+void window_set_icon(Window window, const IconImage* images, u32 count) noexcept {
+    constexpr u32 kMaxIcons = 4;
+    constexpr u32 kMaxExtent = 256;
+    if (!is_window(window) || !g.icon_manager || !g.shm || !images)
         return;
-    egl_window_api()->destroy(extras.egl);
-    extras.egl = nullptr;
+    const IconImage* chosen[kMaxIcons];
+    usize offsets[kMaxIcons];
+    u32 used = 0;
+    usize bytes = 0;
+    for (u32 i = 0; i < count && used < kMaxIcons; ++i) {
+        if (!images[i].pixels || images[i].extent == 0 || images[i].extent > kMaxExtent)
+            continue;
+        chosen[used] = &images[i];
+        offsets[used++] = bytes;
+        bytes += static_cast<usize>(images[i].extent) * images[i].extent * 4;
+    }
+    if (!used)
+        return;
+    const long fd = sys_memfd_create("maicord-icon", kMemfdCloseOnExec);
+    if (syscall_failed(fd))
+        return;
+    const long address = syscall_failed(sys_ftruncate(static_cast<int>(fd), bytes))
+                             ? -1
+                             : sys_mmap_file(static_cast<int>(fd), bytes, kProtectRead | kProtectWrite, kMapShared);
+    if (syscall_failed(address)) {
+        sys_close(static_cast<int>(fd));
+        return;
+    }
+    u32* memory = reinterpret_cast<u32*>(address);
+    for (u32 i = 0; i < used; ++i) {
+        u32* out = memory + offsets[i] / 4;
+        const u32 pixels = chosen[i]->extent * chosen[i]->extent;
+        for (u32 p = 0; p < pixels; ++p) {
+            const u32 pixel = chosen[i]->pixels[p];
+            const u32 alpha = pixel >> 24;
+            const auto scale = [alpha](u32 channel) { return (channel * alpha + 127) / 255; };
+            out[p] = alpha << 24 | scale(pixel >> 16 & 0xFF) << 16 | scale(pixel >> 8 & 0xFF) << 8 | scale(pixel & 0xFF);
+        }
+    }
+    wl_shm_pool* pool = wl_shm_create_pool(g.shm, static_cast<i32>(fd), static_cast<i32>(bytes));
+    sys_munmap(memory, bytes);
+    sys_close(static_cast<int>(fd));
+    xdg_toplevel_icon_v1* icon = xdg_toplevel_icon_manager_v1_create_icon(g.icon_manager);
+    wl_buffer* buffers[kMaxIcons];
+    for (u32 i = 0; i < used; ++i) {
+        const i32 extent = static_cast<i32>(chosen[i]->extent);
+        buffers[i] = wl_shm_pool_create_buffer(pool, static_cast<i32>(offsets[i]), extent, extent, extent * 4,
+                                               wl_shm_format_argb8888);
+        xdg_toplevel_icon_v1_add_buffer(icon, buffers[i], 1);
+    }
+    xdg_toplevel_icon_manager_v1_set_icon(g.icon_manager, g.window.toplevel, icon);
+    // The compositor keeps what it took; the buffers must outlive the icon object only.
+    xdg_toplevel_icon_v1_destroy(icon);
+    for (u32 i = 0; i < used; ++i)
+        wl_buffer_destroy(buffers[i]);
+    wl_shm_pool_destroy(pool);
+    g_client.display_flush(g.display);
 }
 
 } // namespace maicord

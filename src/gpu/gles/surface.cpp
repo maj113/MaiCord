@@ -138,7 +138,9 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
             log_write(LogLevel::error, "gpu", "wl_egl_window_create failed");
             return kGpuFail;
         }
-        s.surface = device->egl.eglCreateWindowSurface(device->display, device->config, s.window, nullptr);
+        const egl::Int opaque_attributes[] = {egl::kPresentOpaqueExt, egl::kTrue, egl::kNone};
+        s.surface = device->egl.eglCreateWindowSurface(device->display, device->config, s.window,
+                                                       device->present_opaque ? opaque_attributes : nullptr);
         if (!s.surface) {
             log_write(LogLevel::error, "gpu", "eglCreateWindowSurface failed");
             log_u64(LogLevel::error, "gpu", "egl_error", static_cast<u32>(device->egl.eglGetError()));

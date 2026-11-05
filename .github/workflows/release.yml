@@ -177,17 +177,19 @@ jobs:
         run: |
           Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
 
-  # The Linux tarball (packaging/README.md) goes onto the same draft as the Windows assets, and the release is published
-  # only if it built too. Off until the repository variable MAICORD_LINUX_RELEASES is 'true'; when it is off this job is
-  # skipped and the Windows release is unchanged. When it is on, the publish job also signs the tarball's own manifests
-  # (maicord_release.py linux) and puts them on the update channels (update_channels.ps1 -Linux), and the client built
-  # here is told that they exist, so the tarball install may update itself from them.
+  # The Linux assets (packaging/README.md) go onto the same draft as the Windows ones, and the release is published only if
+  # they built too: the tarballs (glibc, and the musl retarget of the same program), the AppImage with its zsync file, the
+  # .deb and .rpm, the one-line installer and their checksums. Off until the repository variable MAICORD_LINUX_RELEASES is
+  # 'true'; when it is off this job is skipped and the Windows release is unchanged. When it is on, the publish job also
+  # signs the tarball's own manifests (maicord_release.py linux) and puts them on the update channels
+  # (update_channels.ps1 -Linux), and the client built here is told that they exist, so the tarball install may update
+  # itself from them. Everything shipped comes from the build without --test (the tests' build has test-only switches).
   linux:
-    name: Linux tarball
+    name: Linux packages
     needs: release
     if: needs.release.outputs.published != 'true' && vars.MAICORD_LINUX_RELEASES == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: write     # the draft's assets
       id-token: write     # Sigstore identity for build provenance
@@ -196,6 +198,14 @@ jobs:
       TAG: ${{ github.ref_name }}
       GH_REPO: ${{ github.repository }}
       PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+      # The updater and the plugin catalog are compiled with this repository's published keys and the release's version and
+      # commit, as in the Windows job; the tarball's updater enables itself only in a build told that the channels carry it.
+      MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
+      MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+      MAICORD_UPDATE_COMMIT: ${{ github.sha }}
+      MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
+      MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
+      MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -211,27 +221,22 @@ jobs:
 
       - name: Shader toolchain cache key
         id: shader-key
-        run: echo "compiler=$(c++ --version | head -n 1 | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: >-
+          echo "key=maicord-shader-toolchain-$(c++ --version | head -n 1 | sha256sum | cut -c1-16)-${{
+          hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py')
+          }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the shader toolchain
         id: shader-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/maicord-toolchain
-          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+          key: ${{ steps.shader-key.outputs.key }}
 
-      # The same build and suite as ci.yml; the updater and the plugin catalog are compiled with this repository's
-      # published keys and the release's version and commit, as in the Windows job.
+      # The same build and suite as ci.yml.
       - name: Build, audit and test
         env:
-          MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
-          MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
           MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
-          MAICORD_UPDATE_COMMIT: ${{ github.sha }}
-          MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
-          MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
-          # The tarball's updater enables itself only in a build that is told the channels carry it (entry.cpp).
-          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: bash tools/build_linux.sh --test --keep --timeout-scale 3
 
       - name: Cache the shader toolchain
@@ -239,26 +244,52 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/maicord-toolchain
-          key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
+          key: ${{ steps.shader-key.outputs.key }}
 
-      - name: Package the tarball
+      # The client that ships: a build without the tests (no test-only environment switches), in a directory of its own;
+      # build_linux.sh audits it (tools/audit_elf.py --no-test-hooks), and build_tarball.py audits it again.
+      - name: Build the shipping client
         env:
-          SEMVER: ${{ steps.version.outputs.semver }}
+          MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
+          MAICORD_LINUX_BUILD: ${{ runner.temp }}/ship
+        run: bash tools/build_linux.sh
+
+      - name: Install the packaging tools
         run: |
           set -eu
-          python3 -B packaging/build_tarball.py --binary "$HOME/mc-build/MaiCord" --version "$SEMVER" --output-dir "$RUNNER_TEMP/linux-dist"
-          ls -l "$RUNNER_TEMP/linux-dist"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends squashfs-tools zsync rpm desktop-file-utils appstream
+          sh packaging/nfpm/install_nfpm.sh "$RUNNER_TEMP/tools"
+
+      - name: Package
+        env:
+          SEMVER: ${{ steps.version.outputs.semver }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+        run: |
+          set -eu
+          dist="$RUNNER_TEMP/linux-dist"
+          export PATH="$RUNNER_TEMP/tools:$PATH"
+          python3 -B packaging/build_tarball.py --binary "$RUNNER_TEMP/ship/MaiCord" --version "$SEMVER" --output-dir "$dist"
+          python3 -B packaging/build_tarball.py --binary "$RUNNER_TEMP/ship/MaiCord" --version "$SEMVER" --libc musl --output-dir "$dist"
+          python3 -B packaging/appimage/build_appimage.py --tarball "$dist/maicord-$SEMVER-linux-x86_64.tar.gz" --output-dir "$dist"
+          python3 -B packaging/appimage/build_appimage.py --tarball "$dist/maicord-$SEMVER-linux-x86_64-musl.tar.gz" --output-dir "$dist"
+          sh packaging/nfpm/build.sh "$dist/maicord-$SEMVER-linux-x86_64.tar.gz" "$dist"
+          python3 -B packaging/online/render_installer.py --repository "$GH_REPO" --public-key "$PUBLIC_KEY" --output "$dist/install.sh"
+          (cd "$dist" && find . -maxdepth 1 -type f ! -name '*.sha256' ! -name 'maicord-*-SHA256SUMS.txt' -printf '%P\n' | sort |
+            xargs sha256sum > "maicord-$SEMVER-linux-SHA256SUMS.txt")
+          bash packaging/check_artifacts.sh "$dist" "$SEMVER"
+          ls -l "$dist"
 
       - name: Attest build provenance
         if: env.PUBLIC_REPOSITORY == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/linux-dist/maicord-*-linux-x86_64.tar.gz
+          subject-checksums: ${{ runner.temp }}/linux-dist/maicord-${{ steps.version.outputs.semver }}-linux-SHA256SUMS.txt
 
       - name: Attach to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "$RUNNER_TEMP"/linux-dist/maicord-*-linux-x86_64.tar.gz "$RUNNER_TEMP"/linux-dist/maicord-*-linux-x86_64.tar.gz.sha256
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/linux-dist/*
 
   analysis:
     name: Static analysis
@@ -367,10 +398,50 @@ jobs:
           echo "::error::A required job (static analysis or the Linux tarball) failed; the $TAG draft was discarded."
           exit 1
 
+  # The signed apt and dnf repositories of the release's .deb and .rpm (packaging/repo), added to the Pages site of the
+  # update-channels branch beside the update channels. Off until the repository variable MAICORD_LINUX_REPOSITORY is 'true'
+  # and the MAICORD_REPO_SIGNING_KEY secret (the armored secret key of the repository, packaging/README.md) is set.
+  repository:
+    name: Linux package repositories
+    needs: [publish, linux]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.linux.result == 'success' && vars.MAICORD_LINUX_REPOSITORY == 'true' && !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: write     # the update-channels branch
+    outputs:
+      deploy: ${{ steps.site.outputs.deploy }}
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends apt-utils createrepo-c gnupg
+
+      - name: Download the packages of the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --dir "$RUNNER_TEMP/packages" --pattern 'maicord_*_amd64.deb' --pattern 'maicord-*.x86_64.rpm'
+
+      - name: Add them to the site
+        id: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAICORD_REPO_SIGNING_KEY: ${{ secrets.MAICORD_REPO_SIGNING_KEY }}
+          MAICORD_REPO_SIGNING_PASSPHRASE: ${{ secrets.MAICORD_REPO_SIGNING_PASSPHRASE }}
+        run: bash packaging/repo/publish_site.sh "$RUNNER_TEMP/packages" "$RUNNER_TEMP/site" "Add $TAG to the package repositories"
+
   pages:
     name: Pages
-    needs: publish
-    if: needs.publish.outputs.deploy == 'true'
+    needs: [publish, repository]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && (needs.publish.outputs.deploy == 'true' || needs.repository.outputs.deploy == 'true') }}
     permissions:
       contents: read
       pages: write

@@ -187,6 +187,19 @@ void window_wayland_global_shortcut_clear() noexcept {
     ++g.probe.shortcut_clears;
 }
 
+// The compositor's integration protocols: a headless window has none.
+bool window_wayland_set_idle_inhibit(Window, bool) noexcept {
+    return false;
+}
+
+bool window_wayland_system_bell() noexcept {
+    return false;
+}
+
+bool window_wayland_activate(const char*) noexcept {
+    return false;
+}
+
 void window_show(Window, ShowMode mode) noexcept {
     g.probe.shown = mode != ShowMode::hide && mode != ShowMode::minimize_no_activate;
 }

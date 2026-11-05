@@ -676,10 +676,9 @@ PluginLoadResult sealed_copy(const PinnedFile& file, ConstSlice<wchar_t> leaf, c
     for (; at + 1 < sizeof(kPrefix); ++at) name[at] = kPrefix[at];
     for (u32 i = 0; i < leaf.count; ++i) name[at++] = static_cast<char>(leaf[i]);
     name[at] = 0;
-    // MFD_EXEC says that the copy is to be mapped executable (Linux 6.3 warns when neither it nor MFD_NOEXEC_SEAL is
-    // given); older kernels do not know the flag and refuse it, and take the call without.
-    long memory = sys_memfd_create(name, kMemfdCloseOnExec | kMemfdAllowSealing | kMemfdExec);
-    if (memory == -kErrorInvalid) memory = sys_memfd_create(name, kMemfdCloseOnExec | kMemfdAllowSealing);
+    // No MFD_EXEC or MFD_NOEXEC_SEAL (Linux 6.3): the copy is mapped executable by dlopen, which the default of
+    // vm.memfd_noexec allows; a system that sets it to 2 refuses plugins.
+    const long memory = sys_memfd_create(name, kMemfdCloseOnExec | kMemfdAllowSealing);
     if (memory < 0) return failure(PluginLoadError::load, static_cast<DWORD>(-memory));
     *copy = static_cast<int>(memory);
     HashStream hash = nullptr;

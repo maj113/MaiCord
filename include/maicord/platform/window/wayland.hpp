@@ -5,7 +5,7 @@
 #include "maicord/platform/window/window.hpp"
 
 // Services of the Wayland window backend (Linux) that have no Windows counterpart: what the GPU backend needs to
-// create an EGL window surface on the window's wl_surface, and bring-up presentation without a GPU backend.
+// create an EGL window surface on the window's wl_surface, and the desktop integration the compositor's protocols give.
 // The portable window service is window.hpp; window_surface_native() returns the wl_surface*.
 
 namespace maicord {
@@ -24,23 +24,9 @@ bool window_wayland_info(Window window, WaylandSurfaceInfo* info) noexcept;
 // the creation of the window.
 void* window_wayland_connect() noexcept;
 
-// The GPU backend takes over the surface's buffers (true): from now on it attaches and commits (eglSwapBuffers) and
-// the window stops presenting its wl_shm clear. The window keeps the wp_viewport destination at the logical size
-// and sends frame callbacks through window_frame_callback_request. False hands the surface back; the window
-// presents its clear again.
-void window_wayland_use_external_buffers(Window window, bool external) noexcept;
-
-// The colour (0xRRGGBB) of the wl_shm clear the window presents while it owns the buffers. Dark grey by default.
-void window_wayland_set_clear_color(Window window, u32 xrgb) noexcept;
-
 // The globals the compositor advertised, in registry order: false past the last. The name stays valid until the
 // window is destroyed. What the protocol support matrix and diagnostics are built from.
 bool window_wayland_global(u32 index, const char** name, u32* version) noexcept;
-
-// Decorations. The window asks the compositor for client-side decorations (the app draws its own caption bar, D2); a
-// compositor that insists on its own makes window_caps().csd false and the app hides the bar. True prefers the
-// compositor's.
-void window_wayland_prefer_server_decorations(Window window, bool server) noexcept;
 
 // The window tells the compositor its whole surface is opaque (wl_surface.set_opaque_region, kept in step with the size and
 // the scale): it has no rounded or transparent corners, and the GPU backend draws into an EGL config without alpha, so the
@@ -52,8 +38,8 @@ bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexce
 // to focus the window, or mark it urgent when focus stealing is refused. Needs a recent input event for the token.
 void window_wayland_request_activation(Window window) noexcept;
 // Focuses the window with a token someone else made: the XDG_ACTIVATION_TOKEN of a second launch or the activation-token
-// of a notification click (platform/dbus/instance.hpp, notifications.hpp). False without xdg-activation or a token.
-bool window_wayland_activate_with_token(Window window, const char* token) noexcept;
+// of a notification click (platform/dbus/instance.hpp, notifications.hpp). False without a window, xdg-activation or a token.
+bool window_wayland_activate(const char* token) noexcept;
 // The activation tokens the compositor has answered, for diagnostics and tests.
 u32 window_wayland_activation_count() noexcept;
 
@@ -61,11 +47,15 @@ u32 window_wayland_activation_count() noexcept;
 // has no zwp_idle_inhibit_manager_v1.
 bool window_wayland_set_idle_inhibit(Window window, bool inhibit) noexcept;
 
-// A wl_egl_window on the window's surface for eglCreateWindowSurface, sized to the window and kept in step with its size
-// and scale by the window; the GPU backend then presents with eglSwapBuffers. Implies window_wayland_use_external_buffers.
-// Null when libwayland-egl is not installed. A GPU backend that creates its own wl_egl_window does not call these.
-void* window_wayland_egl_window(Window window) noexcept;
-void window_wayland_egl_release(Window window) noexcept;
+// The system's input idle time (ext-idle-notify-v1; the notification that ignores idle inhibitors where the compositor
+// has version 2). Starts watching for `timeout_ms` without input; from then on PlatformSettings::system_idle_ms is 0 while
+// the user is active and `timeout_ms` plus the time since the compositor said so once idle (the protocol only says
+// "idle for at least the timeout"). Without the protocol (GNOME's Mutter has none) it stays kSystemIdleUnknown and the
+// call returns false. Calling again replaces the watch.
+bool window_wayland_watch_idle(Window window, u32 timeout_ms) noexcept;
+
+// Rings the compositor's system bell for the window (xdg-system-bell-v1); false where it has none.
+bool window_wayland_system_bell() noexcept;
 
 // Text input (IME, zwp_text_input_v3). The app says a text field has focus, with the text around the caret and where the
 // caret is; the input method answers with ime_preedit, ime_commit and ime_delete_surrounding events (UTF-16, delete_*
@@ -88,7 +78,6 @@ void window_wayland_text_input_disable(NativeWindow window) noexcept;
 // and a write that needs a recent input event.
 ClipboardTextResult primary_selection_read_utf8(const Slice<char>& output) noexcept;
 bool primary_selection_write_utf8(const Utf8View& text) noexcept;
-bool primary_selection_has_text() noexcept;
 
 // What clipboard_capture_attachment found: files (their paths, as dropped files) or a PNG image.
 enum class ClipboardCaptureKind : u8 { files, image_png };

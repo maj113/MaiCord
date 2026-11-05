@@ -708,6 +708,7 @@ int run_application() noexcept {
         MAICORD_PERF_MARK("loop_before_present");
         // The login form and the main layout have different minimums: the compositor gets the current one with the frame.
         application_window_refresh_minimum_size();
+        application_window_refresh_idle_inhibit();
         application_present_pending_frame();
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon

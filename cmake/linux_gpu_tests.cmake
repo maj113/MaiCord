@@ -14,9 +14,6 @@ maicord_test(MaiCordGpuClearReadbackTests ENTRY maicord_gpu_clear_readback_entry
     SOURCES tests/gpu/clear_readback.cpp
     LIBS maicord_gpu_gles maicord_core
     TIMEOUT 10 TEST maicord_gpu_clear_readback)
-maicord_add_tests(MaiCordGpuClearReadbackTests TIMEOUT 10
-    ENV MAICORD_GLES_NO_COPY_IMAGE=1
-    TEST maicord_gpu_clear_readback_copy_fallback)
 
 # What draws or dispatches needs the shader pack too (the pinned toolchain builds it on first use).
 maicord_test(MaiCordGpuShaderPackTests ENTRY maicord_gpu_shader_pack_entry
@@ -27,7 +24,8 @@ maicord_test(MaiCordGpuShaderPackTests ENTRY maicord_gpu_shader_pack_entry
 maicord_add_tests(MaiCordGpuShaderPackTests TIMEOUT 20
     ENV MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128
     TEST maicord_gpu_shader_pack_small_groups)
-# A driver without GL_EXT_blend_func_extended: the composite pixel shader is made as its weight and colour halves.
+# A driver without GL_EXT_blend_func_extended refuses the composite pixel shader (a device without it has no background
+# effects).
 maicord_add_tests(MaiCordGpuShaderPackTests TIMEOUT 20
     ENV MAICORD_GLES_NO_DUAL_SOURCE=1
     TEST maicord_gpu_shader_pack_no_dual_source)
@@ -54,17 +52,13 @@ maicord_test(MaiCordGpuMediaTests ENTRY maicord_gpu_media_entry
 
 # Every sample effect and Silk Waves, as interface 4 packages, through the real pass executor against the pictures
 # Direct3D 11 made (the same source runs on Windows and captures them). The cost probe is off so a slow software
-# renderer can neither refuse an effect nor lower its resolution; the second run draws the composite without
-# dual-source blending.
+# renderer can neither refuse an effect nor lower its resolution.
 maicord_test(MaiCordGpuEffectsTests ENTRY maicord_gpu_effects_entry
     SOURCES tests/gpu/effects.cpp
     LIBS maicord_effect_host maicord_gpu_gles_shaders maicord_gpu_gles maicord_compression maicord_media_codec
         maicord_core
     INCLUDES src
     TIMEOUT 120 ENV MAICORD_GLES_NO_TIMER_QUERY=1 TEST maicord_gpu_effects)
-maicord_add_tests(MaiCordGpuEffectsTests TIMEOUT 120
-    ENV MAICORD_GLES_NO_TIMER_QUERY=1 MAICORD_GLES_NO_DUAL_SOURCE=1
-    TEST maicord_gpu_effects_no_dual_source)
 
 # A window on a compositor showing the same scene through the EGL window surface, the damage blit and the frame
 # callbacks. Opt-in like the Wayland window tests (a window opens): MAICORD_WAYLAND_INTEGRATION=1 at configure time;

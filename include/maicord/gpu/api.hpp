@@ -36,14 +36,15 @@ inline constexpr GpuStatus kGpuDeviceLost = static_cast<GpuStatus>(0x887A0005u);
 
 enum class GpuStage : u8 { vertex, pixel, compute };
 
-// Texel formats of textures. rgba8, rg8 and r8 are UNORM. bgra8 is for sampled textures that arrive as BGRA bytes
-// (it is not a render-target format on every backend). A backend may store a format wider than it names (r8 as
+// Texel formats of textures. rgba8, rg8, r8, rg16 and r16 are UNORM. bgra8 is for sampled textures that arrive as BGRA
+// bytes (it is not a render-target format on every backend). A backend may store a format wider than it names (r8 as
 // RGBA8 where 8-bit single-channel images are not storable) as long as sampling, upload, copy and readback behave as
-// the named format. r32_uint names the typed-buffer view format.
+// the named format. r32_uint names the typed-buffer view format. r16 and rg16 name the planes of a decoded 10-bit
+// picture (P010) that a backend imports; no backend makes them from memory.
 // The enumerators of GpuFormat, GpuUsage, GpuBind and GpuBlendFactor carry Direct3D 11's values (DXGI_FORMAT,
 // D3D11_USAGE, D3D11_BIND_*, D3D11_BLEND) so that backend passes them through unconverted; other backends switch on
 // the names and never depend on the numbers.
-enum class GpuFormat : u8 { rgba8 = 28, bgra8 = 87, r8 = 61, rg8 = 49, rgba16f = 10, rgba32f = 2, r32_uint = 42 };
+enum class GpuFormat : u8 { rgba8 = 28, bgra8 = 87, r8 = 61, rg8 = 49, r16 = 56, rg16 = 35, rgba16f = 10, rgba32f = 2, r32_uint = 42 };
 
 enum class GpuUsage : u8 {
     default_ = 0,     // GPU read/write; content set at creation or by the GPU
@@ -312,7 +313,10 @@ constexpr u32 gpu_texel_bytes(GpuFormat format) noexcept {
     case GpuFormat::r8:
         return 1;
     case GpuFormat::rg8:
+    case GpuFormat::r16:
         return 2;
+    case GpuFormat::rg16:
+        return 4;
     case GpuFormat::rgba16f:
         return 8;
     case GpuFormat::rgba32f:

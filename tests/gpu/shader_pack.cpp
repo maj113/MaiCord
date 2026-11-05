@@ -45,6 +45,12 @@ void run() noexcept {
         GpuInputLayout* layout = nullptr;
         GpuPixelShader* pixel = nullptr;
         bool layout_failed = true;
+        // The composite's second output is dual-source blending: a device without it refuses the shader.
+        if (pair.pixel == ShaderId::fx_composite_pixel && !gpu_caps(device).dual_source_blend) {
+            check(gpu_pixel_shader_create(device, pair.pixel, &pixel) == kGpuUnsupported && !pixel,
+                  "the composite pixel shader needs dual-source blending");
+            continue;
+        }
         const bool created =
             gpu_ok(gpu_vertex_shader_create(device, pair.vertex, pair.elements, &vertex, &layout, &layout_failed)) &&
             !layout_failed && (pair.elements.count == 0) == (layout == nullptr) &&
@@ -53,10 +59,7 @@ void run() noexcept {
         if (created) {
             context->vertex_shader = vertex;
             context->pixel_shader = pixel;
-            // Without dual-source blending the composite pixel shader is its weight and colour halves, two programs.
-            check(pixel->name ? gles::graphics_program(context) != 0
-                              : gles::graphics_program(context, 1) != 0 && gles::graphics_program(context, 2) != 0,
-                  pair.name);
+            check(gles::graphics_program(context) != 0, pair.name);
         }
         gpu_release(pixel);
         gpu_release(layout);
@@ -81,6 +84,20 @@ void run() noexcept {
         check(gpu_ok(status) && shader, "a compute shader links");
         gpu_release(shader);
     }
+    // The same compute shader made twice is one program, which outlives the first handle.
+    GpuComputeShader* first = nullptr;
+    GpuComputeShader* second = nullptr;
+    check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &first)) &&
+              gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &second)) && first->name == second->name,
+          "a compute shader made twice shares its program");
+    const u32 shared_program = second ? second->name : 0;
+    gpu_release(first);
+    check(second && second->name == shared_program && shared_program != 0, "the program outlives the first handle");
+    gpu_release(second);
+    GpuComputeShader* again = nullptr;
+    check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &again)) && again,
+          "a compute shader is made again after the last handle went");
+    gpu_release(again);
 
     GpuPixelShader* pixel = nullptr;
     check(gpu_pixel_shader_create(device, ShaderId::ui_vertex, &pixel) == kGpuInvalidArgument && !pixel,

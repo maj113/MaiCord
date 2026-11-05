@@ -11,11 +11,13 @@ Steps (one command-line argument each):
     move:X,Y              move the pointer to layout pixel X,Y (hover)
     drag:X0,Y0,X1,Y1      press at X0,Y0, move to X1,Y1, release
     scroll:X,Y,DELTA      move to X,Y and scroll the wheel (positive down)
+    scrollrun:X,Y,SECONDS,HZ  scroll the wheel continuously at HZ notches a second (a sustained-scroll load)
     type:TEXT             type text with wtype
     key:NAME              press a key (wtype -k NAME, such as Return, Escape, Tab)
     chord:MODS,KEY        press KEY with modifiers (ctrl, shift, alt, logo), such as chord:ctrl,a
     sway:COMMAND          any swaymsg command (output scale, fullscreen, resize, floating, ...)
     tree                  print the client's window rectangle in sway's tree
+    inhibit               print "idle inhibit: 1" when sway's tree says the client's window holds an idle inhibitor, else 0
     metrics               CPU time, voluntary context switches, VmRSS of the client (since the previous metrics step)
     audio:KINDS           capture and/or playback (comma separated): fail unless the sound server has that stream of the client open
     alive                 fail unless the client still runs
@@ -206,6 +208,28 @@ class Flow:
         self.pointer_command(f"scroll {delta}")
         time.sleep(0.3)
 
+    def step_scrollrun(self, argument):
+        """scrollrun:X,Y,SECONDS,HZ - scrolls the wheel at HZ notches a second for SECONDS, up and down in turn every 40
+        notches, with no pause after a command: the load of a sustained scroll, for `metrics` around it."""
+        x, y, seconds, hertz = (float(v) for v in argument.split(","))
+        self.pointer_command(f"move {int(x)} {int(y)}")
+        period = 1.0 / hertz
+        started = time.monotonic()
+        sent = 0
+        while time.monotonic() - started < seconds:
+            direction = 1 if (sent // 40) % 2 == 0 else -1
+            self.pointer.stdin.write(f"scroll {direction}\n")
+            self.pointer.stdin.flush()
+            if self.pointer.stdout.readline().strip() != "ok":
+                self.fail("the pointer helper refused a scroll")
+                return
+            sent += 1
+            delay = started + sent * period - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+        node = self.window()
+        print(f"scrollrun: {sent} notches in {time.monotonic() - started:.1f} s, window title: {node.get('name') if node else None}")
+
     def step_drag(self, argument):
         x0, y0, x1, y1 = (int(v) for v in argument.split(","))
         self.move(x0, y0)
@@ -251,6 +275,13 @@ class Flow:
         print(f"window: rect {rect['width']}x{rect['height']} at {rect['x']},{rect['y']}, content "
               f"{inner['width']}x{inner['height']}, floating={node.get('type') == 'floating_con'}, "
               f"fullscreen={node.get('fullscreen_mode')}, focused={node.get('focused')}")
+
+    def step_inhibit(self, _):
+        node = self.window()
+        if not node:
+            self.fail("no client window in sway's tree")
+            return
+        print(f"idle inhibit: {1 if node.get('inhibit_idle') else 0}")
 
     def sample(self):
         pid = self.client.pid

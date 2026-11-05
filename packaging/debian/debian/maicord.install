@@ -1,0 +1,6 @@
+MaiCord usr/lib/maicord
+fonts usr/lib/maicord
+licenses usr/lib/maicord
+share/applications usr/share
+share/icons usr/share
+share/metainfo usr/share
