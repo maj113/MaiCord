@@ -5,11 +5,29 @@
 #include "../shell/window.hpp"
 #include "../shell/window_runtime.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/gpu/gles/backend.hpp"
 #include "maicord/platform/window/wayland.hpp"
 
 namespace maicord::app_detail {
+namespace {
+
+// The compositor's frame callback is the frame clock: the surface asks for one before every swap and the window
+// reports it here. The renderer (and so its surface) is made and remade after the window, hence the checks.
+void frame_done(void*, u32) noexcept {
+    if (g_app.renderer_ready && gpu_surface_valid(&g_app.renderer.graphics.surface))
+        gpu_surface_frame_callback(&g_app.renderer.graphics.surface);
+}
+
+void frame_request(void*) noexcept {
+    window_frame_callback_request(g_app.window);
+}
+
+} // namespace
 
 void application_platform_window_prepare() noexcept {
+    // On WSL the GPU is Mesa's d3d12 driver, which the default lookup does not find; chosen before anything reads the
+    // environment on another thread.
+    gpu_device_prefer_wsl_gpu();
     // The GPU device is made on the compositor's connection (EGL gets its display from it); a missing compositor
     // is reported when the window is created.
     if (void* display = window_wayland_connect())
@@ -26,6 +44,8 @@ bool application_platform_window_create(Window* out, const char** failure) noexc
     // The renderer presents through its own EGL surface on the window's wl_surface; the window must not paint its
     // wl_shm clear over it at the next configure.
     window_wayland_use_external_buffers(*out, true);
+    window_set_frame_listener(*out, frame_done, nullptr);
+    gpu_surface_set_frame_request(frame_request, nullptr);
     return true;
 }
 

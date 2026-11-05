@@ -24,7 +24,8 @@ maicord_test(MaiCordCbdtTests ENTRY maicord_cbdt_entry SOURCES tests/text/openty
 maicord_add_tests(MaiCordCbdtTests TIMEOUT 5 TEST maicord_native_cbdt_fixture --fixture)
 
 # The text system over the installed fonts: shaping smoke checks (Latin, CJK, Devanagari, Arabic, Thai, Hebrew, emoji)
-# and the language-specific CJK fallback order.
+# and the language-specific CJK fallback order, and a bold chat paragraph whose emoji fall back to the bitmap colour
+# face (refused, not crashed on).
 maicord_test(MaiCordSystemTextTests ENTRY maicord_system_text_entry SOURCES tests/ui/text/system_text_linux_test.cpp
     LIBS maicord_text_system maicord_text_catalog maicord_font_system maicord_font maicord_unicode maicord_core
     TIMEOUT 15 ENV ${maicord_font_set_environment}

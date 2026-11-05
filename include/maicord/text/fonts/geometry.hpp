@@ -16,6 +16,13 @@ struct FontGeometry {
     SfntGvar gvar;
     FontGeometryKind kind;
 };
+// A bold request on a colour bitmap face (Linux only) has nothing to embolden: the face is drawn and measured as it is,
+// as browsers and DirectWrite draw colour emoji in bold text. Every other face kind needs the simulation or refuses it.
+#if defined(_WIN32)
+constexpr bool font_ignores_bold(const FontGeometry&) noexcept {return false;}
+#else
+constexpr bool font_ignores_bold(const FontGeometry& font) noexcept {return font.kind==FontGeometryKind::bitmap;}
+#endif
 struct FontGeometryInstance {
     const FontGeometry* font;
     // Nonnull keeps the normalized fvar coordinates, including paint/layout-only

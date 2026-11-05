@@ -465,7 +465,17 @@ has the same rules in more detail.
   `MaiCord`, `fonts/` and `licenses/` in `~/mc-build`. `tools/test_client_wayland.sh` (headless or nested sway, the running
   compositor; screenshot, idle CPU, wakeups, RSS, binary size) and `tools/client_flow.py` (clicks over
   `tools/wayland_pointer.py`, typing, scale and window commands, screenshots) run it with a private empty profile;
-  `GALLIUM_DRIVER=d3d12` selects WSL's GPU, and WSLg's Weston has no screencopy (nested sway is the screenshot path).
+  `GALLIUM_DRIVER=d3d12` selects WSL's GPU, and WSLg's Weston has no screencopy (nested sway is the screenshot path). The
+  frame clock is the compositor's frame callback: `application_platform_window_create` makes `window_set_frame_listener`
+  feed `gpu_surface_frame_callback` (the surface's eventfd) and `gpu_surface_set_frame_request` have every windowed
+  `gpu_surface_present` ask the window for the next callback before the swap commits (without it the clock never ticked
+  again and each frame after a pause waited the 100 ms watchdog, a resize present waited a second); on Wayland
+  `gpu_frame_wait` never blocks, a swap has no slot to exhaust. On WSL (`/dev/dxg`, environment choosing no renderer)
+  the client sets `GALLIUM_DRIVER=d3d12` itself (`gpu_device_prefer_wsl_gpu`, before the renderer's device start) and the
+  device creation retries without it when d3d12 cannot make a context; `MAICORD_WSL_GPU=0` keeps Mesa's default
+  (llvmpipe). Measured on WSLg (Ubuntu-Preview, Mesa 25.2.8, RX 9070 XT): `weston-simple-egl` and `es2gears_wayland` run
+  62 fps on both renderers, the client's scroll 61 fps on both with 136% CPU on llvmpipe against 28% on d3d12, and the
+  first frame is 0.51 s of CPU on llvmpipe (shader JIT) against 0.10 s.
   Shared code asks the files seam's path policy (`include/maicord/os/path.hpp`) whether a path is absolute (`path_root`: a
   drive or UNC root on Windows, `/` on Linux), where its last component starts (`path_leaf_start`) and whether a Linux name
   may hold its characters (`path_plain`), never a drive-letter test of its own (`maicord_path_policy` runs on both systems).

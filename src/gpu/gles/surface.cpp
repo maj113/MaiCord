@@ -9,6 +9,8 @@ namespace {
 using namespace gles;
 
 GlesSurface g_surface;
+GpuFrameRequest g_frame_request;
+void* g_frame_request_context;
 
 struct WaylandEglApi {
     void* (*create)(void* surface, int width, int height);
@@ -228,6 +230,9 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
         s.swap_interval = 0;
     }
     flush_barriers();
+    // The compositor's answer to this frame is the frame clock's next tick: asked before the swap commits the buffer.
+    if (g_frame_request)
+        g_frame_request(g_frame_request_context);
 
     // What this back buffer misses: the damage of this frame and of the frames drawn since it was last shown.
     GlesDamage now = damage_of(dirty, dirty_count, s.width, s.height);
@@ -343,12 +348,20 @@ bool gpu_frame_try_acquire(GpuSurface* surface) {
     return wait_one(surface->impl->clock, 0) == WAIT_OBJECT_0;
 }
 
-bool gpu_frame_wait(GpuSurface* surface, u32 timeout_ms) {
-    return wait_one(surface->impl->clock, timeout_ms) == WAIT_OBJECT_0;
+// A Wayland surface has no queue of swap slots to exhaust: the swap never blocks, so a present that comes without a
+// frame callback (a resize paints at once) simply goes ahead. The wait takes a callback that has arrived and returns.
+bool gpu_frame_wait(GpuSurface* surface, u32) {
+    (void)wait_one(surface->impl->clock, 0);
+    return true;
 }
 
 void gpu_surface_frame_callback(GpuSurface* surface) {
     event_set(surface->impl->clock);
+}
+
+void gpu_surface_set_frame_request(GpuFrameRequest request, void* context) noexcept {
+    g_frame_request = request;
+    g_frame_request_context = context;
 }
 
 } // namespace maicord

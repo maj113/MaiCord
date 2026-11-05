@@ -13,7 +13,9 @@
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/text/fonts/family.hpp"
 #include "maicord/text/fonts/run.hpp"
+#include "maicord/text/layout/paragraph_hits.hpp"
 #include "maicord/text/opentype/bitmap_color.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/ui/text/text.hpp"
 
 #include "../../../src/ui/text/native_text_catalog_owner.hpp"
@@ -160,6 +162,63 @@ void shape(TextSystem& system, const Sample& sample, const char* expect_family) 
     shaped_text_reset(&shaped);
 }
 
+NativeParagraphHitCluster g_hit_clusters[256];
+NativeParagraphHitLine g_hit_lines[257];
+float g_hit_advances[1280];
+SfntFontLineParts g_hit_parts[256];
+NativeParagraphHitRun g_hit_runs[256];
+
+// The description of an embedded post as a chat message lays it out (selectable geometry under the message hit policy,
+// every emoji through ordinary font fallback): its statistics line is bold. Noto Color Emoji answers for the emoji and
+// is a bitmap face with nothing to embolden, so a bold request on it is drawn as the face is. Its fallback binding once
+// failed to prepare, the selectable layout dereferenced the missing binding and crashed, and after the null check the
+// whole paragraph was still refused. Both the selectable layout and the drawn run list must now hold the line, with
+// the emoji drawn by the colour bitmap face.
+void message_bold_emoji_statistics(TextSystem& base) noexcept {
+    TextSystem system = base;
+    system.message_hit_policy = true;
+    const Utf8View text = utf8_literal(
+        "ABD'de 4 yavruya hamile oldu\xC4\x9Fu d\xC3\xBC\xC5\x9F\xC3\xBCn\xC3\xBClen bir ay\xC4\xB1 g\xC3\xB6r\xC3\xBCnt"
+        "\xC3\xBClendi.\n\n\xF0\x9F\x92\xAC 136\xE2\x80\x82\xF0\x9F\x94\x81 994\xE2\x80\x82\xE2\x9D\xA4\xEF\xB8\x8F "
+        "17.7K\xE2\x80\x82\xF0\x9F\x91\x81\xEF\xB8\x8F 607.8K\xE2\x80\x82");
+    constexpr u32 size = text_style_heading_1 | text_style_heading_3;
+    const TextStyleSpan styles[] = {{0, 73, size},  {73, 4, size | text_style_bold}, {77, 7, size | text_style_bold},
+                                    {84, 4, size | text_style_bold}, {88, 7, size | text_style_bold},
+                                    {95, 6, size | text_style_bold}, {101, 26, size | text_style_bold}};
+    check(text.bytes == 127, "statistics_text_is_127_bytes");
+    NativeParagraphHits geometry{};
+    NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
+                                       &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
+    TextMeasureResult measured{};
+    const bool selectable = native_text_candidate_styled(system, text, {styles, 7}, 1000.0f, 1000.0f, nullptr,
+                                                         &measured, TextWrapping::wrap, TextOverflow::clip, {},
+                                                         &retained);
+    ShapedText shaped{};
+    check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                 {g_storage.clusters, kGlyphCapacity}),
+          "shaped_text_initialize");
+    const bool drawn =
+        native_text_candidate_styled(system, text, {styles, 7}, 1000.0f, 1000.0f, &shaped, nullptr, TextWrapping::wrap);
+    bool emoji_face = false, glyphs_real = drawn;
+    for (u32 r = 0; drawn && r < shaped.run_count; ++r) {
+        SystemFontName name{};
+        bool cbdt = false;
+        const NativeFontFace* face = nullptr;
+        if (run_family(system, shaped.runs[r], &name, &cbdt, &face))
+            emoji_face = emoji_face || cbdt;
+    }
+    for (u32 i = 0; drawn && i < shaped.glyph_count; ++i)
+        glyphs_real = glyphs_real && shaped.glyphs[i].index != 0;
+    if (strict()) {
+        check(selectable && geometry.lines.count >= 3, "bold_bitmap_colour_fallback_selectable");
+        check(drawn && glyphs_real, "bold_bitmap_colour_fallback_drawn_without_tofu");
+        check(emoji_face, "bold_bitmap_colour_fallback_uses_the_colour_bitmap_face");
+    }
+    shaped_text_reset(&shaped);
+    const Sample latin{"latin_after_bold_emoji_paragraph", "The quick brown fox", 'q', nullptr};
+    shape(base, latin, nullptr);
+}
+
 bool run(const char* mode, const char* expected_family) noexcept {
     TextSystem system{};
     const wchar_t* ui = default_font_family(DefaultFont::ui);
@@ -199,6 +258,7 @@ bool run(const char* mode, const char* expected_family) noexcept {
     };
     for (const Sample& sample : samples)
         shape(system, sample, sample.family_prefix);
+    message_bold_emoji_statistics(system);
     return g_failures == 0;
 }
 

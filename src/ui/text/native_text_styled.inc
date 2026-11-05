@@ -327,7 +327,9 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                 // paint cuts within one mapped font-property item do not.
                 if(editor&&mapped_script==han_script)end=mapping_limit;
                 font=mapped;script=mapped_script;end=minimum(end,mapped_end);if(changed&&font!=base)*changed=true;
-                if(editor&&(font->key&binding_missing_family)&&(script==64||script==arabic_script||script==armenian_script||script==georgian_script)){
+                // binding_face answers null for a face that cannot be prepared (a bold simulation of a bitmap
+                // colour face); the refusal below handles it, this block must not read it first.
+                if(editor&&font&&(font->key&binding_missing_family)&&(script==64||script==arabic_script||script==armenian_script||script==georgian_script)){
                     const bool standard=script==armenian_script||script==georgian_script;
                     // A missing family resolves neutral punctuation and spaces
                     // as one item. Marks and join controls keep Arabic context.

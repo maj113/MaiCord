@@ -139,7 +139,17 @@ def seed() -> None:
          mentions=[{"id": OTHER}])
 
 
+def seed_extra() -> None:
+    """MAICORD_FAKE_EXTRA_MESSAGES=FILE: a JSON list of {"channel": "general"|"media", "author": "me"|"other", "content": str,
+    "embeds": [...]} posted after the seed, for a run that needs one particular message (an embed with a given description)."""
+    path = os.environ.get("MAICORD_FAKE_EXTRA_MESSAGES")
+    for item in json.load(open(path, encoding="utf-8")) if path else []:
+        post({"general": CID, "media": MEDIA}[item.get("channel", "media")], UID if item.get("author") == "me" else OTHER,
+             item.get("content", ""), embeds=item.get("embeds", []))
+
+
 seed()
+seed_extra()
 GATEWAYS = []  # one dispatch function per open user gateway connection
 
 

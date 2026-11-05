@@ -1,5 +1,7 @@
 #include "maicord/core/log.hpp"
+#include "maicord/core/shared_library.hpp"
 #include "maicord/os/thread.hpp"
+#include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "gpu/gles/internal.hpp"
 #include "gpu/gles/video_planes_internal.hpp"
@@ -11,6 +13,27 @@ namespace {
 GpuDevice g_device;
 GpuContext g_context;
 void* g_requested_display; // gpu_device_set_native_display: copied into the device by gpu_device_create
+bool g_wsl_gpu_set;        // gpu_device_prefer_wsl_gpu put GALLIUM_DRIVER=d3d12 into the environment
+
+bool environment_set(const char* name) noexcept {
+    const char* value = environment_get(name);
+    return value && *value;
+}
+
+// Puts GALLIUM_DRIVER=d3d12 into (or takes it out of) the environment that Mesa reads. The process image imports no
+// setenv: libc's is found by name.
+bool set_wsl_driver(bool present) noexcept {
+    SharedLibrary libc{};
+    if (!shared_library_open(&libc, "libc.so.6"))
+        return false;
+    using SetEnvironment = int (*)(const char*, const char*, int);
+    using UnsetEnvironment = int (*)(const char*);
+    const auto set = reinterpret_cast<SetEnvironment>(shared_library_symbol(libc, "setenv"));
+    const auto unset = reinterpret_cast<UnsetEnvironment>(shared_library_symbol(libc, "unsetenv"));
+    const bool done = present ? set && set("GALLIUM_DRIVER", "d3d12", 1) == 0 : unset && unset("GALLIUM_DRIVER") == 0;
+    shared_library_close(&libc);
+    return done;
+}
 
 constexpr gl::Enum kContextLost = 0x0507;
 constexpr gl::Enum kOutOfMemory = 0x0505;
@@ -308,6 +331,21 @@ void gpu_device_set_native_display(void* native_display) {
     gles::g_requested_display = native_display;
 }
 
+void gpu_device_prefer_wsl_gpu() noexcept {
+    using namespace gles;
+    // Not when the environment already chose a renderer. /dev/dxg is WSL2's GPU paravirtualization device; a render node
+    // beside it (vgem on the stock kernel) is a software one that Mesa's default does not use for the GPU either.
+    if (g_wsl_gpu_set || environment_set("GALLIUM_DRIVER") || environment_set("MESA_LOADER_DRIVER_OVERRIDE") ||
+        environment_set("LIBGL_ALWAYS_SOFTWARE"))
+        return;
+    const char* disabled = environment_get("MAICORD_WSL_GPU");
+    if (disabled && disabled[0] == '0')
+        return;
+    if (sys_access("/dev/dxg", 0) != 0)
+        return;
+    g_wsl_gpu_set = set_wsl_driver(true);
+}
+
 namespace gles {
 namespace {
 
@@ -324,7 +362,7 @@ struct DevicePrestart {
 DevicePrestart g_prestart;
 bool g_prestarted_device; // the device in use came from the worker
 
-GpuStatus create_device_here() noexcept {
+GpuStatus create_device_attempt() noexcept {
     GpuDevice& d = gles::device();
     if (d.created)
         return kGpuFail;
@@ -391,6 +429,23 @@ GpuStatus create_device_here() noexcept {
     d.created = true;
     log_write(LogLevel::info, "gpu", d.description);
     return kGpuOk;
+}
+
+// The device, on d3d12 first where gpu_device_prefer_wsl_gpu chose it. A WSL GPU that cannot make a context, or whose
+// EGL cannot make the window's display, falls back to what Mesa picks without the variable.
+GpuStatus create_device_here() noexcept {
+    GpuStatus status = create_device_attempt();
+    if (!g_wsl_gpu_set)
+        return status;
+    GpuDevice& d = gles::device();
+    if (gpu_ok(status) && (!gles::g_requested_display || d.native_display))
+        return status;
+    log_write(LogLevel::warning, "gpu", "wsl_d3d12_unavailable");
+    if (gpu_ok(status))
+        gpu_device_destroy(nullptr, nullptr);
+    g_wsl_gpu_set = false;
+    set_wsl_driver(false);
+    return create_device_attempt();
 }
 
 u32 prestart_worker(void*) noexcept {

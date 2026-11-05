@@ -149,7 +149,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
         return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* font=native_font_instance_get(*store->instances,instance);if(!font)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* face=native_font_get(*store->instances->fonts,font->face);if(!face)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
-    const bool bold=(simulations&1)!=0;
+    const bool bold=(simulations&1)!=0&&!font_ignores_bold(face->geometry);
     if(bold&&(face->geometry.kind!=FontGeometryKind::truetype||face->geometry.gvar.table.data))return failure(SfntStatus::unsupported);
     u32 available=store->slots.count;
     if(store->slots.count>work)return failure(SfntStatus::resource_limit);

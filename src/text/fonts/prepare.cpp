@@ -10,7 +10,8 @@ NativeFontResult native_font_prepare(NativeFontSession* session,NativeFontHandle
     if(!session||!scratch||!scratch->base||!output||(settings.count&&!settings.data))return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* selected=native_font_get(*native_font_session_fonts(session),face);if(!selected)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(simulations>3||((simulations&2)&&!oblique)||((simulations&1)&&!bold))return failure(SfntStatus::unsupported);
-    const auto& font=selected->geometry;if((simulations&1)&&(font.kind!=FontGeometryKind::truetype||font.gvar.table.data))return failure(SfntStatus::unsupported);
+    const auto& font=selected->geometry;const bool plain_bold=font_ignores_bold(font);
+    if((simulations&1)&&!plain_bold&&(font.kind!=FontGeometryKind::truetype||font.gvar.table.data))return failure(SfntStatus::unsupported);
     bool instructions=false;TtOutlineRequirements requirements{};
     if(outline_instructions&&font.kind==FontGeometryKind::truetype){SfntStatus status=SfntStatus::ok;
         // Bold prep policy affects widening even when glyphs have no bytecode.
@@ -20,6 +21,6 @@ NativeFontResult native_font_prepare(NativeFontSession* session,NativeFontHandle
     NativeFontPrepareScratch prepare{take<AxisSegmentMap>(*scratch,font.axes.axis_count),take<double>(*scratch,font.axes.axis_count),
         take<i32>(*scratch,instructions?maximum<u32>(64,requirements.stack):0),take<TtCallFrame>(*scratch,instructions?64:0)};
     const auto result=native_font_session_instance(session,face,settings,instructions,prepare,output);
-    if(result.ok()){if(oblique)*oblique=(simulations&2)!=0;if(bold)*bold=(simulations&1)!=0;}return result;
+    if(result.ok()){if(oblique)*oblique=(simulations&2)!=0;if(bold)*bold=(simulations&1)!=0&&!plain_bold;}return result;
 }
 }

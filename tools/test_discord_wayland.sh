@@ -17,6 +17,10 @@
 # calling user: in a user namespace the directories root owns look owned by nobody, which the plugin loader (src/app/
 # plugins/loader.cpp) refuses as the parent of a plugins directory, so a run that installs a plugin needs it.
 #
+# MAICORD_FAKE_EXTRA_MESSAGES=FILE adds messages to the fake server's seed (see seed_extra in tools/fake_discord_server.py: a
+# JSON list of {"channel": "general"|"media", "author": "me"|"other", "content", "embeds"}), for a run that needs one particular
+# message, such as an embed with a given description; the channel the client opens is general, so no navigation is needed.
+#
 # --dbus starts a private session bus with the desktop mocks (notifications, portals, secrets) and a swaybar that hosts the
 # tray, and prints what the mocks received; --bar runs swaybar alone, which reserves the top 23 pixels of the output (the
 # window sits below it: layout y of a click is the window's y plus 23). A screenshot repaints the output first, because
