@@ -60,11 +60,14 @@ maicord_spellcheck_lc_messages
 maicord_spellcheck_missing
 maicord_system_spellcheck
 maicord_system_spellcheck_enchant
-# audio (libpulse through dlopen: no library, no server) and D-Bus (the wire format)
+# audio (libpulse and libspeechd through dlopen: no library, no server) and D-Bus (the wire format, the AT-SPI objects)
 maicord_audio_pure
 maicord_audio_no_server
 maicord_audio_no_library
+maicord_speechd
+maicord_speechd_no_library
 maicord_dbus_wire
+maicord_atspi_map
 [wayland]
 maicord_wayland_input
 [gpu]

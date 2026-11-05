@@ -220,6 +220,9 @@ struct WindowState {
     u32 clear_color;
     wl_buffer* shm_buffer;
     u32 min_logical_width, min_logical_height;  // what xdg_toplevel.set_min_size last said
+    // The opaque region last sent (from the origin, in surface units): the compositor keeps it until another one comes.
+    i32 opaque_width, opaque_height;
+    bool opaque_sent;
 };
 
 struct Backend {

@@ -21,6 +21,7 @@ depends=('glibc' 'openssl' 'wayland' 'libxkbcommon' 'libglvnd' 'hicolor-icon-the
 optdepends=(
     'mesa: OpenGL ES drivers for the GPU (llvmpipe without one); your GPU vendor'\''s driver works too'
     'libpulse: voice, notification and media audio (PulseAudio, or PipeWire with pipewire-pulse)'
+    'speech-dispatcher: text-to-speech for "Speak message"'
     'fontconfig: system fonts and the fallback for scripts the bundled fonts lack'
     'noto-fonts-emoji: colour emoji'
     'noto-fonts-cjk: Chinese, Japanese and Korean text'

@@ -22,7 +22,7 @@ Connection* session_bus() noexcept;
 // Incremented on every new connection: a service compares it with the one it subscribed on.
 u32 session_bus_generation() noexcept;
 
-// Called with each new connection, right after it opens (and again after a reconnect), on the UI thread. At most 8.
+// Called with each new connection, right after it opens (and again after a reconnect), on the UI thread. At most 12.
 using SessionBusHook = void (*)(Connection* connection) noexcept;
 bool session_bus_add_hook(SessionBusHook hook) noexcept;
 
@@ -31,6 +31,19 @@ bool session_bus_add_hook(SessionBusHook hook) noexcept;
 Waitable session_bus_waitable() noexcept;
 u32 session_bus_wait_ms(u64 now_ms) noexcept;
 void session_bus_process(u64 now_ms) noexcept;
+
+// A further connection the window loop serves along with the session bus (the accessibility bus): its waitable wakes the
+// loop, its next due time bounds the sleep (session_bus_wait_ms includes it), and it is processed with the session bus.
+// At most kSessionBusExtraMaximum; they live as long as the process.
+inline constexpr u32 kSessionBusExtraMaximum = 4;
+struct SessionBusExtra {
+    Waitable (*waitable)() noexcept;  // null while there is no connection
+    u32 (*wait_ms)(u64 now_ms) noexcept;  // kNoTimeout when nothing is due
+    void (*process)(u64 now_ms) noexcept;
+};
+bool session_bus_add_extra(const SessionBusExtra& extra) noexcept;
+// The extras' waitables (those that have one), at most `capacity`; the count.
+u32 session_bus_extra_waitables(Waitable* out, u32 capacity) noexcept;
 
 // Pumps the bus (waiting on it) until `*done` or the time passes; for the start of a service that wants an answer
 // before the first frame. True when `*done` became true.

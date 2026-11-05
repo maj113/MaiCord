@@ -685,6 +685,14 @@ bool application_input_blocked() noexcept {
 
 void application_window_event(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
     observe_window_state(event);
+#if !defined(_WIN32)
+    // The AT-SPI requests the accessibility host deferred arrive as wake events (UI Automation's are window messages that
+    // the Windows shell hook takes before this sink).
+    if (application_accessibility_window_event(event)) {
+        result->handled = true;
+        return;
+    }
+#endif
     result->handled = chain(event, result);
 }
 

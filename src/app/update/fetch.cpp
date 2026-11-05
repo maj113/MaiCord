@@ -152,7 +152,15 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         if (!tag_bytes) return false;
         out->host = UpdateHost::github;
         w.add("/", 1); w.add(repository); w.add(utf8_literal("/releases/download/v")); w.add(tag, tag_bytes);
-        w.add("/", 1); w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
+        w.add("/", 1);
+#if defined(_WIN32)
+        w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
+#else
+        char name[kUpdateArtifactNameCapacity];
+        const u32 name_bytes = update_artifact_name(version, {name, sizeof(name)});
+        if (!name_bytes) return false;
+        w.add(name, name_bytes);
+#endif
     } else {
         out->host = UpdateHost::pages;
         for (u32 i = 0; i < slash; ++i) out->origin[i] = ascii_lower(repository.data[i]);
@@ -160,11 +168,26 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         out->origin_bytes = slash + kPagesSuffix.bytes;
         w.add("/", 1); w.add({repository.data + slash + 1, repository.bytes - slash - 1});
         w.add(kUpdateProtocolDirectory);
+#if defined(_WIN32)
         if (asset == UpdateAsset::package) {
             w.add(utf8_literal("preview/")); w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
         } else {
-            w.add(channel == UpdateChannel::stable ? utf8_literal("maicord-stable.") : utf8_literal("preview/maicord-preview."));
+#else
+        if (asset == UpdateAsset::package) {
+            // A development build's tarball sits beside the Linux preview manifest, as the Windows zip does.
+            char name[kUpdateArtifactNameCapacity];
+            const u32 name_bytes = update_artifact_name(version, {name, sizeof(name)});
+            if (!name_bytes) return false;
+            w.add(kUpdateLinuxDirectory); w.add(utf8_literal("preview/")); w.add(name, name_bytes);
+        } else {
+#endif
             const bool changelog = asset == UpdateAsset::changelog || asset == UpdateAsset::changelog_signature;
+#if !defined(_WIN32)
+            // The changelog describes versions, not packages: both systems read the same document. A Linux manifest sits
+            // in its own directory, with the same channel layout as the Windows ones.
+            if (!changelog) w.add(kUpdateLinuxDirectory);
+#endif
+            w.add(channel == UpdateChannel::stable ? utf8_literal("maicord-stable.") : utf8_literal("preview/maicord-preview."));
             w.add(changelog ? utf8_literal("changelog.json") : utf8_literal("manifest.json"));
             if (asset == UpdateAsset::signature || asset == UpdateAsset::changelog_signature) w.add(utf8_literal(".sig"));
         }
@@ -172,6 +195,24 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
     out->target_bytes = w.ok ? w.used : 0;
     return w.ok;
 }
+
+#if !defined(_WIN32)
+u32 update_artifact_name(u64 version, Slice<char> output) noexcept {
+    const u64 sequence = version % 1000, base = version / 1000;
+    if (!sequence || base / 1000000 >= 1000) return 0;
+    char name[kUpdateArtifactNameCapacity];
+    u32 used = 0;
+    const auto add = [&](Utf8View text) noexcept { copy_bytes(name + used, text.data, text.bytes); used += text.bytes; };
+    const auto number = [&](u64 value) noexcept { used += decimal_write(name + used, value); };
+    add(utf8_literal("maicord-"));
+    number(base / 1000000); add(utf8_literal(".")); number(base / 1000 % 1000); add(utf8_literal(".")); number(base % 1000);
+    if (sequence != 999) { add(utf8_literal("-dev.")); number(sequence); }
+    add(utf8_literal("-linux-x86_64.tar.gz"));
+    if (!output.data || used > output.count) return 0;
+    copy_bytes(output.data, name, used);
+    return used;
+}
+#endif
 
 bool update_redirect_target(const UpdateLocation& current, ConstSlice<u8> location, UpdateLocation* next) noexcept {
     if (!next || !location_valid(current) || !location.data || !location.count) return false;

@@ -55,24 +55,34 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
                                            egl::kGreenSize,      8,                    egl::kBlueSize,
                                            8,                    egl::kAlphaSize,      8,
                                            egl::kNone};
+    // A window takes no alpha: the compositor then reads the surface's buffers as opaque (XRGB8888), which the window's
+    // opaque region repeats. Any config of 8-bit colour does for the choice; the one without alpha is picked below.
     const egl::Int attributes_window[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kSurfaceType,
                                           egl::kWindowBit,      egl::kRedSize,        8,
                                           egl::kGreenSize,      8,                    egl::kBlueSize,
-                                          8,                    egl::kAlphaSize,      8,
-                                          egl::kNone};
+                                          8,                    egl::kNone};
     // On a window system display the config can draw to windows (the surfaces made later share the context's
     // config); there is no pbuffer fallback there.
     const bool window = device.native_display != nullptr;
     if (window && pbuffer)
         return false;
     egl::Config config = nullptr;
+    egl::Config candidates[32];
     egl::Int count = 0;
     if (!device.egl.eglBindAPI(egl::kOpenGlEsApi) ||
         !device.egl.eglChooseConfig(device.display,
                                     window ? attributes_window : (pbuffer ? attributes_pbuffer : attributes_surfaceless),
-                                    &config, 1, &count) ||
+                                    candidates, window ? 32 : 1, &count) ||
         count < 1) {
         return false;
+    }
+    config = candidates[0];
+    for (egl::Int i = 0; window && i < count; ++i) {
+        egl::Int alpha = 1;
+        if (device.egl.eglGetConfigAttrib(device.display, candidates[i], egl::kAlphaSize, &alpha) && alpha == 0) {
+            config = candidates[i];
+            break;
+        }
     }
     const egl::Int context_attributes[] = {egl::kContextMajorVersion, 3, egl::kContextMinorVersion, 1, egl::kNone};
     device.context = device.egl.eglCreateContext(device.display, config, egl::kNoContext, context_attributes);

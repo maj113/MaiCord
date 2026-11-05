@@ -39,11 +39,14 @@ static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VER
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV);
 #if !defined(_WIN32)
-// The release channels carry the Windows client's package only: a zip of MaiCord.exe, a PE image, named by manifests
-// signed for the Windows build. Staging and swapping that over a Linux ELF would end the install, so no Linux install
-// updates itself, marker or not, until the channels publish the Linux tarball and the package reader takes it; the marker
-// check in application_update_build_config is what that change then turns on.
-constexpr bool kLinuxUpdatesPublished = false;
+// Whether the release channels carry the Linux tarball (the Linux manifests of maicord_release.py linux): the build
+// option MAICORD_LINUX_UPDATES_PUBLISHED, which the release workflow sets from its MAICORD_LINUX_RELEASES variable. A
+// build that is not told so never stages anything, so no Linux install replaces itself with a package nobody signed
+// for it; the marker check in update_portable_gate is what then enables the tarball install and no other.
+#if !defined(MAICORD_LINUX_UPDATES_PUBLISHED)
+#define MAICORD_LINUX_UPDATES_PUBLISHED 0
+#endif
+constexpr bool kLinuxUpdatesPublished = MAICORD_LINUX_UPDATES_PUBLISHED != 0;
 #endif
 } // namespace
 
@@ -59,8 +62,7 @@ UpdateServiceConfig application_update_build_config() noexcept {
     if (config.configured) {
         wchar_t executable[4096];
         const u32 count = executable_path(executable, 4096);
-        if (!kLinuxUpdatesPublished || !count || count >= 4096 || !update_portable_install({executable, count}))
-            config.configured = false;
+        update_portable_gate(&config, kLinuxUpdatesPublished && count && count < 4096, {executable, count});
     }
 #endif
     return config;

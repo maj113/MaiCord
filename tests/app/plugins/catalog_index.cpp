@@ -288,7 +288,8 @@ void test_state(const wchar_t* root) noexcept {
     VirtualFree(state, 0, MEM_RELEASE);
 }
 
-// A real index CI built: MAICORD_CATALOG_E2E_DIR holds index-3.json(.sig), details/, previews/ and files/;
+// A real index CI built: MAICORD_CATALOG_E2E_DIR holds this system's index file (index-3.json on Windows, index-4.json on
+// Linux) with its .sig, details/, previews/ and files/;
 // MAICORD_CATALOG_E2E_KEY is the public key.
 void test_end_to_end() noexcept {
     wchar_t directory[MAX_PATH], key_text[140];
@@ -313,10 +314,15 @@ void test_end_to_end() noexcept {
     check(ok, "e2e: MAICORD_CATALOG_E2E_KEY is a 130-digit public key");
     wchar_t path[MAX_PATH];
     const u32 base = wide_copy(path, 0, directory);
-    wide_copy(path, base, L"\\index-3.json");
+    const auto file_path = [&](const Utf8View& name, const wchar_t* suffix) noexcept {
+        u32 at = wide_copy(path, base, L"\\");
+        for (u32 i = 0; i < name.bytes; ++i) path[at++] = static_cast<wchar_t>(name.data[i]);
+        wide_copy(path, at, suffix);
+    };
+    file_path(kCatalogIndexFile, L"");
     u32 document_bytes = 0, signature_bytes = 0;
     u8* document = read_file(path, &document_bytes);
-    wide_copy(path, base, L"\\index-3.json.sig");
+    file_path(kCatalogIndexFile, L".sig");
     u8* signature = read_file(path, &signature_bytes);
     const P256Key* keys[]{&key};
     const auto verified = ok && document && signature

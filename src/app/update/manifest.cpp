@@ -38,7 +38,7 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = json_value_to_u64(value, &number) && number == kUpdateProtocol;
         break;
     case product: valid = string(value, &text) && utf8_equal(text, utf8_literal("MaiCord")); break;
-    case arch: valid = string(value, &text) && utf8_equal(text, utf8_literal("x64")); break;
+    case arch: valid = string(value, &text) && utf8_equal(text, kUpdateManifestArchitecture); break;
     case channel:
         valid = string(value, &text);
         if (valid && utf8_equal(text, utf8_literal("stable"))) parsed.candidate.channel = UpdateChannel::stable;
@@ -69,6 +69,7 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     if (!valid) parsed.error = UpdateManifestError::field;
     return valid;
 }
+#if defined(_WIN32)
 bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
     char name[kUpdateArtifactNameCapacity]{};
     const Utf8View prefix = kUpdateArtifactPrefix;
@@ -79,6 +80,13 @@ bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
     used += suffix.bytes;
     return utf8_equal({name, used}, {manifest.artifact_name, manifest.artifact_name_bytes});
 }
+#else
+bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
+    char name[kUpdateArtifactNameCapacity]{};
+    const u32 used = update_artifact_name(manifest.version, {name, sizeof(name)});
+    return used && utf8_equal({name, used}, {manifest.artifact_name, manifest.artifact_name_bytes});
+}
+#endif
 UpdateManifestResult verify_manifest(const Utf8View& document, const ConstSlice<u8>& signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
     const UpdateManifestPolicy* admission, u64 maximum_artifact_bytes,

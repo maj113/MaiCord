@@ -229,7 +229,7 @@ if(MAICORD_LINUX)
     # thread, wait and srwlock, the GLES draw, resource and video upload wrappers, the AEAD and hash wrappers, the
     # in-house AAC decoder, the Lottie geometry, the bitmap colour glyphs).
     maicord_compact_sources(
-        TARGETS maicord_window_wayland maicord_dbus maicord_audio_pulse maicord_net maicord_desktop_system
+        TARGETS maicord_window_wayland maicord_dbus maicord_atspi maicord_audio_pulse maicord_net maicord_desktop_system
             maicord_font_system maicord_video_vaapi maicord_video_software maicord_video_decode
             maicord_ui_secure_text maicord_effect_host
         SOURCES
@@ -239,7 +239,7 @@ if(MAICORD_LINUX)
             src/os/linux/ordinal.cpp src/os/linux/pages.cpp src/os/linux/process.cpp src/platform/time/tzif.cpp
             src/gpu/gles/device.cpp src/gpu/gles/loader.cpp src/gpu/gles/shader_pack.cpp src/gpu/gles/surface.cpp
             src/gpu/gles/sync.cpp
-            src/platform/audio/speech_unavailable.cpp
+            src/platform/audio/speechd/speech.cpp
             src/platform/crypto/linux/random.cpp src/platform/crypto/linux/secure_buffer.cpp
             src/platform/crypto/openssl/openssl.cpp src/platform/crypto/openssl/kdf_sha256.cpp
             src/platform/crypto/openssl/p256.cpp src/platform/crypto/openssl/remote_auth_crypto.cpp

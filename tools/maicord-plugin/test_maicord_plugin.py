@@ -41,7 +41,14 @@ try:
 except core.ToolError as error:
     TOOLCHAIN = None
     print(f"NOTE: no LLVM toolchain ({error}); the build tests are skipped", file=sys.stderr)
-needs_toolchain = unittest.skipUnless(TOOLCHAIN, "no clang-cl and lld-link")
+# The DLL tests are the Windows host's: the tool builds for the system it runs on unless told otherwise.
+needs_toolchain = unittest.skipUnless(TOOLCHAIN and os.name == "nt", "no clang-cl and lld-link on Windows")
+try:
+    LINUX_TOOLCHAIN = core.find_linux_toolchain()
+except core.ToolError as error:
+    LINUX_TOOLCHAIN = None
+    print(f"NOTE: no clang and ld.lld ({error}); the Linux target's build tests are skipped", file=sys.stderr)
+needs_linux_toolchain = unittest.skipUnless(LINUX_TOOLCHAIN, "no clang and ld.lld")
 needs_windows = unittest.skipUnless(os.name == "nt", "the effect compiler is d3dcompiler_47.dll")
 
 
@@ -886,6 +893,219 @@ class EffectTests(Case):
         with self.assertRaises(core.ToolError):
             mcfx_tool.check_bytecode(b"DXBC" + bytes(mcfx_tool.DXBC_MAX))
 
+
+# ---- the Linux target -------------------------------------------------------------------------------------------
+def descriptor_file_offset(data: bytes) -> int:
+    """The file offset of the descriptor in a good shared object: where the one exported symbol points."""
+    image = core._ElfImage(data)
+    vaddr, offset, size = image.dynamic
+    tags = dict(struct.unpack_from("<QQ", data, offset + at) for at in range(0, size, 16))
+    count = core._elf_symbol_count(image, tags)
+    symbols = image.backed(tags[core._DT_SYMTAB], count * 24)
+    for index in range(1, count):
+        _, info, other, section, value, _ = struct.unpack_from("<IBBHQQ", data, symbols + 24 * index)
+        if info >> 4 and other & 3 not in (1, 2):
+            return image.backed(value, 232)
+    raise AssertionError("no export")
+
+
+@needs_linux_toolchain
+class LinuxTargetTests(Case):
+    """A shared object from the same plugin.cpp: built, checked, copied into the dev folder and packed."""
+
+    def built_linux(self, name="hello"):
+        directory = self.new(name)
+        code, out, err = run("build", "--dir", directory, "--target", "linux")
+        return code, out + err, directory, directory / "build" / f"{name}.so"
+
+    def test_build_makes_a_checked_shared_object(self):
+        code, text, directory, so = self.built_linux()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(so.read_bytes()[:4], b"\x7fELF")
+        self.assertTrue(1000 < so.stat().st_size < 64 * 1024)
+        self.assertEqual(sorted(p.name for p in so.parent.iterdir()), ["hello.so"], "no object stays")
+        report = core.inspect_dll(so)
+        self.assertTrue(report.ok, report.errors)
+        self.assertEqual((report.format, report.warnings), ("ELF", []))
+        info = report.info
+        self.assertEqual((info["name"], info["version"], info["api_level"]), ("Hello", "0.1.0", API_LEVEL))
+        self.assertEqual((info["permissions"], info["settings"], info["commands"], info["state_bytes"]),
+                         (["message_send"], 2, 1, 4))
+        self.assertIn("The ELF headers and the descriptor pass.", run("check", so)[1])
+        self.assertIn("Hello 0.1.0", run("check", "--dir", directory, "--target", "linux")[1])
+
+    def test_build_is_reproducible(self):
+        code, text, directory, so = self.built_linux()
+        first = hashlib.sha256(so.read_bytes()).hexdigest()
+        self.assertEqual(run("build", "--dir", directory, "--target", "linux")[0], 0)
+        self.assertEqual(hashlib.sha256(so.read_bytes()).hexdigest(), first, "the same source is the same file")
+
+    def test_the_samples_build_and_pass(self):
+        for sample in ("clear-urls", "translate", "silent-toggle", "show-me-your-name", "reverse-image-search"):
+            directory = self.root / sample
+            directory.mkdir()
+            shutil.copyfile(REPOSITORY / "samples" / "plugins" / sample / "plugin.cpp", directory / "plugin.cpp")
+            code, out, err = run("build", "--dir", directory, "--target", "linux")
+            self.assertEqual(code, 0, out + err)
+        translate = core.inspect_dll(self.root / "translate" / "build" / "translate.so").info
+        self.assertEqual(translate["network"], ["translate.googleapis.com", "api-free.deepl.com", "api.deepl.com"])
+
+    def test_a_compile_error_is_reported_and_the_old_object_removed(self):
+        code, text, directory, so = self.built_linux()
+        source = directory / "plugin.cpp"
+        source.write_text(source.read_text(encoding="utf-8").replace("MC_HOOKS(pre_send);", "MC_HOOKS(missing_function);"),
+                          encoding="utf-8")
+        code, out, err = run("build", "--dir", directory, "--target", "linux")
+        self.assertEqual(code, 1)
+        self.assertIn("the compile failed", err)
+        self.assertFalse(so.exists(), "a stale object must not look like the build of the broken source")
+
+    def test_dev_copies_the_shared_object(self):
+        directory = self.new("hello")
+        code, out, err = run("dev", "--dir", directory, "--target", "linux")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("copied", out)
+        self.assertEqual(sorted(p.name for p in self.plugin_dev.iterdir()), ["hello.so"])
+        self.assertIn("unchanged", run("dev", "--dir", directory, "--target", "linux")[1])
+        project = core.open_project(str(directory))
+        self.assertFalse(core.is_stale(project, "linux"))
+
+    def test_pack_needs_a_current_shared_object(self):
+        directory = self.new("hello")
+        code, out, err = run("pack", "--dir", directory, "--target", "linux", "--author", "Ada", "--license", "MPL-2.0")
+        self.assertEqual(code, 1)
+        self.assertIn("build first", err)
+        self.assertIn("shared object", err)
+        self.assertEqual(run("build", "--dir", directory, "--target", "linux")[0], 0)
+        code, out, err = run("pack", "--dir", directory, "--target", "linux", "--author", "Ada", "--license", "MPL-2.0")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(sorted(p.name for p in (directory / "dist" / "hello").iterdir()),
+                         ["catalog.json", "details.md", "plugin.cpp"])
+        self.assertIn("Linux shared object", out)
+
+    def test_the_lookup_order(self):
+        fake = self.root / "llvm"
+        fake.mkdir()
+        with self.assertRaises(core.ToolError):
+            core.find_linux_toolchain(str(fake))  # named, but empty: never falls back silently
+        for name in ("clang++", "ld.lld"):
+            path = fake / (name + (".exe" if os.name == "nt" else ""))
+            path.write_bytes(b"")
+            path.chmod(0o755)
+        found = core.find_linux_toolchain(str(fake))
+        self.assertEqual((found.clang.parent, found.linker.parent, found.origin), (fake, fake, "--llvm-bin"))
+
+    def test_the_flags_are_cmakes(self):
+        support = (REPOSITORY / "cmake" / "test_support.cmake").read_text(encoding="utf-8")
+        branch = re.search(r"if\(MAICORD_LINUX\)(.*?)return\(\)", support, re.S).group(1)
+        for flag in ("-nostdinc", "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
+                     "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-O2", "-Wall", "-Wextra", "-Werror",
+                     "-Wno-missing-field-initializers", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics"):
+            self.assertIn(flag, branch)
+            self.assertIn(flag, core.LINUX_COMPILE)
+        for cmake, option in (("-nostdlib", "-nostdlib"), ("-Bsymbolic", "-Wl,-Bsymbolic"),
+                              ("-z,noexecstack", "-Wl,-z,noexecstack"), ("-z,now", "-Wl,-z,now"),
+                              ("--hash-style=gnu", "-Wl,--hash-style=gnu"), ("--build-id=none", "-Wl,--build-id=none"),
+                              ("--gc-sections", "-Wl,--gc-sections")):
+            self.assertIn(cmake, branch)
+            self.assertIn(option, core.LINUX_LINK)
+
+
+@needs_linux_toolchain
+class LinuxCheckTests(Case):
+    """Each way the loader refuses a shared object, on a copy of a good one (or on one built to break the rule)."""
+
+    def setUp(self):
+        super().setUp()
+        self.directory = self.new("hello")
+        code, out, err = run("build", "--dir", self.directory, "--target", "linux")
+        self.assertEqual(code, 0, out + err)
+        self.so = self.directory / "build" / "hello.so"
+        self.good = self.so.read_bytes()
+        self.table = struct.unpack_from("<Q", self.good, 32)[0]
+        self.count = struct.unpack_from("<H", self.good, 56)[0]
+
+    def header(self, kind, flags_mask=None):
+        """The offset of the first program header of the type (and with a flag, when given)."""
+        for index in range(self.count):
+            at = self.table + 56 * index
+            type_, flags = struct.unpack_from("<II", self.good, at)
+            if type_ == kind and (flags_mask is None or flags & flags_mask):
+                return at
+        self.fail(f"no program header of type {kind:#x}")
+
+    def mutated(self, offset, data):
+        bad = bytearray(self.good)
+        bad[offset:offset + len(data)] = data
+        path = self.root / "bad.so"
+        path.write_bytes(bytes(bad))
+        return " ".join(core.inspect_dll(path).errors)
+
+    def built_with(self, name, change):
+        """A shared object built from the skeleton as change edits it, without the build command's checks."""
+        directory = self.new(name)
+        source = directory / "plugin.cpp"
+        source.write_text(change(source.read_text(encoding="utf-8")), encoding="utf-8")
+        project = core.open_project(str(directory))
+        return core.build_project(project, LINUX_TOOLCHAIN, core.sdk_include(), False, "linux")
+
+    def test_a_good_object_has_no_findings(self):
+        self.assertEqual(core.inspect_dll(self.so).errors, [])
+
+    def test_header_problems(self):
+        self.assertIn("x86-64", self.mutated(18, struct.pack("<H", 3)))
+        self.assertIn("not a shared object", self.mutated(16, struct.pack("<H", 2)))
+        self.assertIn("64-bit", self.mutated(4, bytes([1])))
+        self.assertIn("not a PE", self.mutated(1, b"X"))  # the magic is gone: read as a PE, and refused as one
+        self.assertIn("entry point", self.mutated(24, struct.pack("<Q", 0x1000)))
+        for length in (30, 100, 1500):
+            path = self.root / "short.so"
+            path.write_bytes(self.good[:length])
+            self.assertFalse(core.inspect_dll(path).ok, length)
+
+    def test_segment_problems(self):
+        code = self.header(1, 1)
+        flags = struct.unpack_from("<I", self.good, code + 4)[0]
+        self.assertIn("writable and executable", self.mutated(code + 4, struct.pack("<I", flags | 2)))
+        stack = self.header(0x6474E551)
+        flags = struct.unpack_from("<I", self.good, stack + 4)[0]
+        self.assertIn("stack is executable", self.mutated(stack + 4, struct.pack("<I", flags | 1)))
+        self.assertIn("interpreter", self.mutated(stack, struct.pack("<I", 3)))
+        self.assertIn("thread-local", self.mutated(stack, struct.pack("<I", 7)))
+        self.assertIn("lack", self.mutated(stack, struct.pack("<I", 0x6474E552)))
+
+    def test_dynamic_problems(self):
+        dynamic = self.header(2)
+        offset, size = struct.unpack_from("<Q", self.good, dynamic + 8)[0], struct.unpack_from("<Q", self.good, dynamic + 32)[0]
+        entries = {struct.unpack_from("<Q", self.good, offset + at)[0]: offset + at for at in range(0, size, 16)}
+        victim = entries[core._DT_STRSZ]  # an entry the checks read before it is used; rewritten as each unwanted tag
+        for tag, text in ((1, "needs another library"), (12, "initializer"), (13, "initializer"), (25, "initializer"),
+                          (26, "initializer"), (32, "initializer"), (22, "text relocations"), (17, "REL or RELR"),
+                          (36, "REL or RELR"), (0x7FFFFFFF, "needs another library")):
+            self.assertIn(text, self.mutated(victim, struct.pack("<QQ", tag, 0)), f"DT {tag:#x}")
+
+    def test_imports_and_initializers(self):
+        imports = self.built_with("imports", lambda s: s.replace(
+            "using namespace mc;", 'using namespace mc;\nextern "C" __attribute__((visibility("default"))) int getpid();', 1
+        ).replace("++ctx.state<State>().greeted;", "ctx.state<State>().greeted = static_cast<u32>(getpid());"))
+        self.assertIn("imports something", " ".join(core.inspect_dll(imports).errors))
+        initialized = self.built_with("initialized", lambda s: s.replace(
+            "using namespace mc;",
+            "using namespace mc;\nstatic volatile int sink;\n__attribute__((constructor)) static void init() { sink = 1; }", 1))
+        self.assertIn("initializer", " ".join(core.inspect_dll(initialized).errors))
+
+    def test_descriptor_problems_are_read_through_the_relocations(self):
+        at = descriptor_file_offset(self.good)
+        self.assertEqual(struct.unpack_from("<I", self.good, at + 4)[0], 6)
+        self.assertIn("ABI 5", self.mutated(at + 4, struct.pack("<I", 5)))
+        self.assertIn("owner", self.mutated(at + 16, struct.pack("<Q", 0)))
+        self.assertIn("api level", self.mutated(at + 8, struct.pack("<I", 0)))
+        self.assertIn("name", self.mutated(at + 24 + 8, struct.pack("<I", 0)))
+
+    def test_a_file_that_is_neither_is_refused(self):
+        path = self.root / "text.so"
+        path.write_bytes(b"#!/bin/sh\n" * 20)
+        self.assertIn("not a PE", " ".join(core.inspect_dll(path).errors))
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

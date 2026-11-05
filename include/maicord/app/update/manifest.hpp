@@ -10,9 +10,23 @@ namespace maicord {
 // updates/p<protocol>/ and accepts manifests whose format is its protocol. A
 // release that changes it is also published under the previous protocol, so
 // older clients reach it through the newest release they can still install.
+//
+// Each system has its own manifests and package, signed with the same publisher key:
+// the Windows client reads a zip of MaiCord.exe from updates/p2/, the Linux client a
+// release tarball from updates/p2/linux/. The schema has no room for either to carry
+// the other's entry (a member the reader doesn't know fails the manifest), so a
+// system never sees the other's file. What a manifest names is checked against the
+// system that reads it: its architecture field and the artifact's name, both signed.
 inline constexpr u32 kUpdateProtocol = 2;
 inline constexpr Utf8View kUpdateProtocolDirectory = utf8_literal("/updates/p2/");
+#if defined(_WIN32)
+inline constexpr Utf8View kUpdateManifestArchitecture = utf8_literal("x64");
 inline constexpr Utf8View kUpdateArtifactPrefix = utf8_literal("MaiCord-x64-p2-");
+#else
+// Pages directory of the Linux manifests, below the protocol directory.
+inline constexpr Utf8View kUpdateLinuxDirectory = utf8_literal("linux/");
+inline constexpr Utf8View kUpdateManifestArchitecture = utf8_literal("linux-x64");
+#endif
 inline constexpr u32 kUpdateManifestMaximumBytes = 4096;
 inline constexpr u32 kUpdateArtifactNameCapacity = 64;
 // Sign this prefix followed by the UTF-8 document bytes, with SHA-256
@@ -49,6 +63,13 @@ struct UpdateManifest {
     u32 artifact_name_bytes;
     UpdateChannel channel;
 };
+
+#if !defined(_WIN32)
+// The release tarball of a version, as packaging/build_tarball.py names it and the manifest's `artifact` field must:
+// maicord-<X.Y.Z>-linux-x86_64.tar.gz, with X.Y.Z-dev.N for a development build. Written into output without a
+// terminator; returns the length, or 0 for a version with no sequence number or when it does not fit.
+u32 update_artifact_name(u64 version, Slice<char> output) noexcept;
+#endif
 
 // Verification gate only: no network, unpacking, installation or restart.
 // The ECDSA key must come from a trusted application key inventory, never the

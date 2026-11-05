@@ -264,8 +264,9 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
         gl.glBindFramebuffer(gl::kReadFramebuffer, frame_fbo);
         gl.glBindFramebuffer(gl::kDrawFramebuffer, 0);
         if (moved) {
-            const float transparent[4] = {0, 0, 0, 0};
-            gl.glClearBufferfv(gl::kColor, 0, transparent);
+            // The window has no alpha (its EGL config is XRGB), so the strips the move leaves bare show the picture at
+            // rest, drawn first, instead of the transparent desktop a Direct3D composition visual lets through.
+            gl.glBlitFramebuffer(0, 0, width, height, 0, height, width, 0, gl::kColorBufferBit, gl::kNearest);
             gl.glBlitFramebuffer(0, 0, width, height, s.offset_x, height - s.offset_y, width + s.offset_x,
                                  -s.offset_y, gl::kColorBufferBit, gl::kNearest);
         } else if (region.box.right > region.box.left) {

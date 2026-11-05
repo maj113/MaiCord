@@ -209,6 +209,13 @@ other name; `clock` and `appearance` live in the package's manifest. The catalog
 `"interface"`, in `index-3.json` (MaiCord 0.6.4 and later) and `index-full.json` (0.6.3), whose readers show an
 effect above their own interface as needing a newer MaiCord; `index.json`, which 0.6.0 to 0.6.2 read, leaves it out.
 
+**Linux.** The Linux client runs GLSL, not DXBC. A package of manifest `"interface": 4` carries both (a GLSL section next
+to the DXBC, one file for both systems), and the catalog serves that file to the Linux client in `index-4.json` while
+`index-3.json` and the older indexes keep the DXBC package of the same version for Windows. The catalog's build makes
+the interface 4 package from the one you submit (scripts/build_universal.py in MaiCord-plugins), so a submission is
+still one HLSL file. `maicord-plugin effect build` adds the section itself when the shader toolchain is there (see
+`--glsl`); without it the package runs on Windows only, and a Linux client reports that it has no payload for it.
+
 **Previewing.** `maicord-plugin effect preview` can stand in for both inputs while you work, for every effect, in
 Developer Mode:
 

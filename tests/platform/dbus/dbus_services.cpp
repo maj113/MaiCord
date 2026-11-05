@@ -14,10 +14,11 @@
 // The desktop services over the session bus (tools/test_dbus.sh): the settings portal, notifications (the daemon and the
 // portal), OpenURI with its xdg-open fallback, the Secret Service and the portal probes, each against the python mock
 // services, whose libdbus decodes every request (the mock logs what it received in a canonical, type-tagged form that
-// the expectations below spell out). Three runs share this program:
+// the expectations below spell out). Four runs share this program:
 //
 //   (no argument)  the mock bus: settings, direct notifications, open-uri, secrets, probes
 //   --portal       the mock bus with MAICORD_NOTIFICATION_BACKEND=portal: the portal notification backend
+//   --plain        the mock bus with a notification daemon that does not read markup in the body
 //   --bare         a bus without any service: every client reports its absence, open-uri falls back to xdg-open
 //
 // Without MAICORD_DBUS_TEST_BUS naming the run's bus (and DBUS_SESSION_BUS_ADDRESS = MAICORD_DBUS_TEST_ADDRESS) the test
@@ -531,6 +532,76 @@ void test_notification_direct() noexcept {
     builder_bool(&mode, false);
     control("SetMode", &mode);
     builder_release(&mode);
+
+    // The text of a message is text: a daemon that reads markup gets &, < and > as entities (a link or an image tag in
+    // a message stays inert), and the summary, which is plain, goes in as it is.
+    NotificationRequest markup{};
+    markup.summary = "R&D <team>";
+    markup.body = "<a href=\"https://x\">a & b</a> > c \xC3\xA9";
+    markup.icon = "/tmp/maicord avatar.png";
+    markup.timeout_ms = -1;
+    markup.cookie = 6;
+    take_log();
+    check(notification_show(markup), "a notification whose text holds markup characters");
+    const Recorded* marked = next_event();
+    check(marked && marked->kind == NotificationEventKind::shown && marked->cookie == 6, "shown");
+    take_log();
+    expect_line("Notify",
+                "Notify s:MaiCord u:0 s:/tmp/maicord avatar.png s:R&D <team> "
+                "s:&lt;a href=\"https://x\"&gt;a &amp; b&lt;/a&gt; &gt; c \xC3\xA9 [] {s:urgency=v(y:1)} i:-1",
+                "the body is escaped for a daemon that reads markup, the avatar is its path, the summary is plain");
+    // Text that is only too long is cut (the mock reports the length it received and whether it ends inside an entity;
+    // it would refuse a body that is not UTF-8, so the cut is not inside a character either).
+    static char big[24 * 1024];
+    for (u32 i = 0; i < sizeof(big) - 1; i += 3) {
+        big[i] = '<';
+        big[i + 1] = static_cast<char>(0xC3);
+        big[i + 2] = static_cast<char>(0xA9);
+    }
+    big[sizeof(big) - 1] = 0;
+    NotificationRequest long_text{};
+    long_text.summary = "Long";
+    long_text.body = big;
+    long_text.timeout_ms = -1;
+    long_text.cookie = 7;
+    take_log();
+    check(notification_show(long_text), "a notification with a very long body");
+    const Recorded* long_shown = next_event();
+    check(long_shown && long_shown->kind == NotificationEventKind::shown && long_shown->cookie == 7,
+          "it arrives, cut inside no character");
+    take_log();
+    const char* long_line = find_line("NotifyLong");
+    check(long_line && starts_with(long_line, "NotifyLong 2047") && text_equal(long_line + text_length(long_line) - 2, " 1"),
+          "the cut falls between whole entities");
+}
+
+// A daemon that does not read markup gets the body as it is.
+void test_notification_plain() noexcept {
+    notifications_set_handler(on_notification, nullptr);
+    check(notification_backend() == NotificationBackend::direct, "outside a sandbox the daemon is used directly");
+    Builder mode;
+    builder_init(&mode);
+    builder_string(&mode, "no-markup");
+    builder_bool(&mode, true);
+    control("SetMode", &mode);
+    builder_release(&mode);
+    NotificationRequest request{};
+    request.summary = "R&D";
+    request.body = "<b>a & b</b>";
+    request.timeout_ms = -1;
+    request.cookie = 31;
+    take_log();
+    check(notification_show(request), "a notification for a daemon without body-markup");
+    const Recorded* shown = next_event();
+    check(shown && shown->kind == NotificationEventKind::shown && shown->cookie == 31, "shown");
+    take_log();
+    expect_line("Notify", "Notify s:MaiCord u:0 s: s:R&D s:<b>a & b</b> [] {s:urgency=v(y:1)} i:-1",
+                "the body stays plain text");
+    builder_init(&mode);
+    builder_string(&mode, "no-markup");
+    builder_bool(&mode, false);
+    control("SetMode", &mode);
+    builder_release(&mode);
 }
 
 void test_notification_portal() noexcept {
@@ -580,6 +651,50 @@ void test_notification_portal() noexcept {
     check(closed && closed->kind == NotificationEventKind::closed && closed->cookie == 9 && closed->reason == 3, "closed");
     take_log();
     expect_line("RemoveNotification", "RemoveNotification s:1", "RemoveNotification's argument");
+
+    // An avatar is a file the portal's host may not see: it gets the file's bytes. A file that is not there is no icon.
+    const char* directory = environment_get("MAICORD_DBUS_TEST_DIR");
+    char avatar[512];
+    u32 avatar_length = directory ? text_length(directory) : 0;
+    if (avatar_length && avatar_length < 400) {
+        copy_bytes(avatar, directory, avatar_length);
+        const char name[] = "/avatar.png";
+        copy_bytes(avatar + avatar_length, name, sizeof(name));
+        const u8 image[7] = {0x89, 'P', 'N', 'G', 1, 2, 3};
+        const long created = sys_openat(kAtCurrentDirectory, avatar,
+                                        kOpenWriteOnly | kOpenCreate | kOpenTruncate | kOpenCloseOnExec, 0600);
+        check(!syscall_failed(created), "the test makes an avatar file");
+        if (!syscall_failed(created)) {
+            sys_write(static_cast<int>(created), image, sizeof(image));
+            sys_close(static_cast<int>(created));
+        }
+        NotificationRequest with_avatar{};
+        with_avatar.summary = "Alice";
+        with_avatar.icon = avatar;
+        with_avatar.cookie = 10;
+        take_log();
+        check(notification_show(with_avatar), "a portal notification with an avatar");
+        const Recorded* avatar_shown = next_event();
+        check(avatar_shown && avatar_shown->kind == NotificationEventKind::shown && avatar_shown->cookie == 10, "shown");
+        take_log();
+        expect_line("AddNotification",
+                    "AddNotification s:2 {s:icon=v((s:bytes,v([y:137,y:80,y:78,y:71,y:1,y:2,y:3]))),s:priority=v(s:normal),"
+                    "s:title=v(s:Alice)}",
+                    "the avatar goes to the portal as the bytes of the file");
+        NotificationRequest missing{};
+        missing.summary = "Bob";
+        missing.icon = "/maicord-no-such-avatar.png";
+        missing.cookie = 11;
+        take_log();
+        check(notification_show(missing), "a portal notification whose avatar file is missing");
+        const Recorded* missing_shown = next_event();
+        check(missing_shown && missing_shown->kind == NotificationEventKind::shown && missing_shown->cookie == 11, "shown");
+        take_log();
+        expect_line("AddNotification", "AddNotification s:3 {s:priority=v(s:normal),s:title=v(s:Bob)}",
+                    "and goes without an icon");
+    } else {
+        test_write_line("SKIP the portal avatar (MAICORD_DBUS_TEST_DIR is not set)");
+    }
 }
 
 // OpenURI ------------------------------------------------------------------------------------------------------------------
@@ -829,6 +944,7 @@ MAICORD_TEST_ENTRY(maicord_dbus_services_entry) {
     const char* mode = startup.argc > 1 ? startup.argv[1] : "";
     const bool bare = text_equal(mode, "--bare");
     const bool portal = text_equal(mode, "--portal");
+    const bool plain = text_equal(mode, "--plain");
     if (!skip_unless(bare ? "bare" : "mock")) {
         test_write_line("SKIP dbus_services (the private bus is not set up: tools/test_dbus.sh)");
         test_process_exit(77);
@@ -845,6 +961,10 @@ MAICORD_TEST_ENTRY(maicord_dbus_services_entry) {
     if (portal) {
         test_notification_portal();
         test_exit(g_failures, "dbus_services_portal");
+    }
+    if (plain) {
+        test_notification_plain();
+        test_exit(g_failures, "dbus_services_plain");
     }
     test_caption_parser();
     test_settings();

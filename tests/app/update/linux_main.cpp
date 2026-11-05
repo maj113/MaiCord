@@ -10,6 +10,7 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_package(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_portable(void (*check)(bool, const char*) noexcept) noexcept;
+void test_update_linux_replay(void (*check)(bool, const char*) noexcept) noexcept;
 
 namespace {
 u32 g_failures = 0;
@@ -28,5 +29,6 @@ MAICORD_TEST_ENTRY(maicord_update_pipeline_entry) {
     test_update_prepare(check);
     test_update_package(check);
     test_update_portable(check);
+    test_update_linux_replay(check);
     test_exit(g_failures, "update_pipeline");
 }

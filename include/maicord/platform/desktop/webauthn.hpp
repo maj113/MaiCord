@@ -37,4 +37,14 @@ WindowsWebAuthnResult windows_webauthn_authenticate(
     Window owner, const WebAuthnMfaRequestOptions& request,
     SecureBuffer* serialized_credential) noexcept;
 
+// Whether this system has a security-key ceremony. Windows does (webauthn.dll is asked when the ceremony runs, and
+// answers `unavailable` where it cannot). Linux has none: libfido2 (the only route to USB and NFC keys there) was
+// evaluated and not bound, because its call blocks on a touch while the Windows ceremony is a modal OS dialog that the
+// caller's loop sits in (AGENTS.md, "WebAuthn on Linux"). The login says so at once rather than start one.
+#if defined(_WIN32)
+inline constexpr bool kWebAuthnAvailable = true;
+#else
+inline constexpr bool kWebAuthnAvailable = false;
+#endif
+
 } // namespace maicord

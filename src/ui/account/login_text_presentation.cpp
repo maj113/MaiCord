@@ -437,7 +437,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
             ? MAICORD_OS_TEXT("Complete verification in the Windows security prompt.",
                               "Complete verification with your security key.")
         : view.status == LoginStatus::webauthn_failed
-            ? utf8_literal("Security-key verification failed or was cancelled. Try again.")
+            ? MAICORD_OS_TEXT("Security-key verification failed or was cancelled. Try again.",
+                              "Security keys aren't supported on Linux yet. Use another method.")
             : Utf8View{};
 
     const bool credential_error = view.auth_rate_limited || view.status == LoginStatus::session_expired ||

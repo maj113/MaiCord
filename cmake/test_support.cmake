@@ -274,20 +274,34 @@ function(maicord_ui_probe_test test variable)
 endfunction()
 
 # maicord_plugin(<target> <source>...)
-# An ABI-6 plugin DLL built as samples/plugins/clear-urls/README.md documents:
-# only the SDK headers (<stdint.h> and <stddef.h> from sys/libc), /W4 /WX
-# without the client's warning exceptions, no CRT and no entry point. C++
-# sources take memcpy and the other compiler helpers from plugin.hpp
-# (MC_RUNTIME); C sources list $<TARGET_OBJECTS:maicord_runtime> instead.
+# An ABI-6 plugin built as samples/plugins/clear-urls/README.md documents. Windows: a DLL from only the SDK headers
+# (<stdint.h> and <stddef.h> from sys/libc), /W4 /WX without the client's warning exceptions, no CRT and no entry
+# point. Linux: plugins/<target's output name>.so from the same headers, -Wall -Wextra -Werror, no libc, hidden
+# symbols, a non-executable stack and only relative relocations (-fPIC with -Bsymbolic), whose one export is the
+# descriptor. C++ sources take memcpy and the other compiler helpers from plugin.hpp (MC_RUNTIME); C sources list
+# $<TARGET_OBJECTS:maicord_runtime> (Windows) or ${MAICORD_PLUGIN_C_RUNTIME} (Linux) instead.
 function(maicord_plugin target)
     add_library(${target} SHARED ${ARGN})
     target_include_directories(${target} PRIVATE include include/maicord/sys/libc)
+    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(MAICORD_LINUX)
+        target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
+        target_compile_options(${target} PRIVATE -nostdinc -fPIC -fvisibility=hidden -fno-stack-protector
+            -fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -Wall -Wextra -Werror
+            -Wno-missing-field-initializers
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>)
+        target_link_options(${target} PRIVATE -fuse-ld=lld -nostdlib LINKER:-Bsymbolic LINKER:-z,noexecstack
+            LINKER:-z,now LINKER:--hash-style=gnu LINKER:--build-id=none LINKER:--gc-sections)
+        set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX ".so" SKIP_BUILD_RPATH ON
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins")
+        return()
+    endif()
     target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
     target_compile_options(${target} PRIVATE /clang:-nostdinc /W4 /WX /utf-8 /Zl /GS- /O2 $<$<COMPILE_LANGUAGE:CXX>:/GR->)
     target_link_libraries(${target} PRIVATE maicord_link_contract)
     target_link_options(${target} PRIVATE /NOENTRY /SUBSYSTEM:WINDOWS,6.02)
-    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 endfunction()
 
 # Tests that exercise the shipping pair itself (update staging, the account

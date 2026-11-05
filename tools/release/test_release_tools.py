@@ -8,13 +8,16 @@ Everything is written to a temporary directory that is removed afterwards.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -49,6 +52,19 @@ def fake_pe(dll: bool, payload: bytes) -> bytes:
     struct.pack_into("<HH", header, 84, 240, 0x0022 | (0x2000 if dll else 0))
     struct.pack_into("<H", header, 88, 0x20B)
     return bytes(header) + payload
+
+
+def fake_elf(machine: int = 62, kind: int = 3, tag: int = 7) -> bytes:
+    """An x86-64 ELF executable of the structure the client checks (never run): a code segment holding the entry
+    point and a data segment with a zero-filled tail."""
+    data = bytearray(0x1100)
+    data[0:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHIQQQIHHH", data, 16, kind, machine, 1, 0x100, 64, 0, 0, 64, 56, 2)
+    struct.pack_into("<IIQQQQQQ", data, 64, 1, 5, 0, 0, 0, 0x1000, 0x1000, 0x1000)
+    struct.pack_into("<IIQQQQQQ", data, 120, 1, 6, 0x1000, 0x2000, 0, 0x100, 0x300, 0x1000)
+    for index in range(0x100, 0x200):
+        data[index] = (tag + index) & 255
+    return bytes(data)
 
 
 class ReleaseToolTests(unittest.TestCase):
@@ -316,6 +332,308 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(self.run_cli("release", "--tag", "v1.2.3", "--binaries", str(self.binaries),
                                       "--output-dir", str(self.root / "dist"), "--key-file", str(self.key_file),
                                       "--public-key", self.other.public_point.hex()), 1)
+
+    # ---------------------------------------------------------------------------------------- the Linux package
+
+    def linux_package(self, members=None, version: int = 1002003999, program: bytes | None = None) -> tuple[str, bytes]:
+        """A release tarball in the producer's layout (GNU tar in one gzip member), with `members` replacing the
+        default list of (path below the directory, type, mode, data)."""
+        name = release.linux_artifact_name(version)
+        top = name[:-len(".tar.gz")]
+        if members is None:
+            members = [("", tarfile.DIRTYPE, 0o755, b""), ("MaiCord", tarfile.REGTYPE, 0o755, program or fake_elf()),
+                       ("fonts", tarfile.DIRTYPE, 0o755, b""), ("fonts/Kalam.ttf", tarfile.REGTYPE, 0o644, b"kalam"),
+                       ("licenses", tarfile.DIRTYPE, 0o755, b""), ("licenses/Opus-BSD.txt", tarfile.REGTYPE, 0o644, b"opus"),
+                       ("share/icons/a-long-path-" + "x" * 90 + ".png", tarfile.REGTYPE, 0o644, b"png"),
+                       (".maicord-portable", tarfile.REGTYPE, 0o644, b"maicord-portable 1\n")]
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.GNU_FORMAT) as archive:
+            for path, kind, mode, data in members:
+                info = tarfile.TarInfo(f"{top}/{path}" if path else top)
+                info.type, info.mode, info.size = kind, mode, len(data) if kind == tarfile.REGTYPE else 0
+                if kind == tarfile.SYMTYPE:
+                    info.linkname = "MaiCord"
+                archive.addfile(info, io.BytesIO(data) if kind == tarfile.REGTYPE else None)
+        return name, gzip.compress(buffer.getvalue(), mtime=0)
+
+    def test_linux_names_and_manifest_layout(self):
+        self.assertEqual(release.linux_artifact_name(1002003999), "maicord-1.2.3-linux-x86_64.tar.gz")
+        self.assertEqual(release.linux_artifact_name(1002003005), "maicord-1.2.3-dev.5-linux-x86_64.tar.gz")
+        self.assertEqual(release.linux_artifact_name(6), "maicord-0.0.0-dev.6-linux-x86_64.tar.gz")
+        for bad in (1002003000, 1000000000999):
+            with self.assertRaises(release.ReleaseError):
+                release.linux_artifact_name(bad)
+        digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        document = release.render_manifest(6, "stable", 90, 200, 4096, digest, release.linux_artifact_name(6), release.LINUX)
+        self.assertEqual(document, CLIENT_FIXTURE_DOCUMENT.replace(b'"x64"', b'"linux-x64"').replace(
+            b"MaiCord-x64-p2-6.zip", b"maicord-0.0.0-dev.6-linux-x86_64.tar.gz"))
+        self.assertEqual(release.parse_manifest(document, release.LINUX)["artifact"], "maicord-0.0.0-dev.6-linux-x86_64.tar.gz")
+        # Neither system's reader takes the other's manifest, though it is signed with the same key.
+        with self.assertRaises(release.ReleaseError):
+            release.parse_manifest(document)
+        with self.assertRaises(release.ReleaseError):
+            release.parse_manifest(CLIENT_FIXTURE_DOCUMENT, release.LINUX)
+        with self.assertRaises(release.ReleaseError):
+            release.render_manifest(6, "stable", 90, 200, 4096, digest, "MaiCord-x64-p2-6.zip", release.LINUX)
+        with self.assertRaises(release.ReleaseError):
+            release.render_manifest(6, "stable", 90, 200, 4096, digest, release.linux_artifact_name(6))
+
+    def test_linux_tarball_matches_client_subset(self):
+        name, package = self.linux_package()
+        self.assertEqual(release.validate_linux_tarball(package, name),
+                         ["MaiCord", "fonts/Kalam.ttf", "licenses/Opus-BSD.txt"])
+        top = name[:-len(".tar.gz")]
+        file, directory = tarfile.REGTYPE, tarfile.DIRTYPE
+        good = [("", directory, 0o755, b""), ("MaiCord", file, 0o755, fake_elf())]
+        broken = {
+            "no program": [("fonts/Kalam.ttf", file, 0o644, b"x")],
+            "program that is not executable": [("MaiCord", file, 0o644, fake_elf())],
+            "program that is not an ELF": [("MaiCord", file, 0o755, b"#!/bin/sh\n")],
+            "ELF for another machine": [("MaiCord", file, 0o755, fake_elf(machine=183))],
+            "shared object": [("MaiCord", file, 0o755, fake_elf(kind=1))],
+            "second program": good + [("MaiCord", file, 0o755, fake_elf())],
+            "repeated font": good + [("fonts/A.ttf", file, 0o644, b"a"), ("fonts/A.ttf", file, 0o644, b"b")],
+            "nested font": good + [("fonts/deeper/A.ttf", file, 0o644, b"a")],
+            "hidden font": good + [("fonts/.hidden", file, 0o644, b"a")],
+            "font with a space": good + [("fonts/A b.ttf", file, 0o644, b"a")],
+            "link": good + [("fonts/Link.ttf", tarfile.SYMTYPE, 0o777, b"")],
+            "path that climbs out": good + [("fonts/../../escape", file, 0o644, b"a")],
+            "program as a directory": [("MaiCord", directory, 0o755, b"")],
+            "program with a child": good + [("MaiCord/x", file, 0o644, b"a")],
+        }
+        for label, members in broken.items():
+            with self.assertRaises(release.ReleaseError, msg=label):
+                release.validate_linux_tarball(self.linux_package(members)[1], name)
+        # Outside the package's directory, in another version's directory, and not a .tar.gz at all.
+        outside = self.linux_package(good + [("../elsewhere", file, 0o644, b"a")])[1]
+        with self.assertRaises(release.ReleaseError):
+            release.validate_linux_tarball(outside, name)
+        with self.assertRaises(release.ReleaseError):
+            release.validate_linux_tarball(package, release.linux_artifact_name(1002004999))
+        with self.assertRaises(release.ReleaseError):
+            release.validate_linux_tarball(package, top)
+        # Not one gzip member: truncated, a second member, trailing bytes, a damaged checksum.
+        damaged = bytearray(package)
+        damaged[-8] ^= 1
+        for bad in (package[:-30], package + gzip.compress(b"more", mtime=0), package + b"\0", bytes(damaged), b""):
+            with self.assertRaises(release.ReleaseError):
+                release.validate_linux_tarball(bad, name)
+        # A tar that does not end, or has data after its end marker.
+        raw = gzip.decompress(package)
+        unterminated = raw[:(len(raw.rstrip(b"\0")) + 511) // 512 * 512]
+        for bad in (unterminated, raw + b"x" * 512):
+            with self.assertRaises(release.ReleaseError):
+                release.validate_linux_tarball(gzip.compress(bad, mtime=0), name)
+
+    def test_build_tarball_output_is_a_valid_linux_package(self):
+        program = self.root / "MaiCord"
+        program.write_bytes(fake_elf())
+        output = self.root / "tarball"
+        packaging = Path(__file__).resolve().parents[2] / "packaging" / "build_tarball.py"
+        subprocess.run([sys.executable, "-B", str(packaging), "--binary", str(program), "--version", "1.2.3",
+                        "--output-dir", str(output)], check=True, capture_output=True,
+                       env=dict(os.environ, SOURCE_DATE_EPOCH="1760000000"))
+        name = release.linux_artifact_name(release.parse_tag("v1.2.3").number)
+        unpacked = release.validate_linux_tarball((output / name).read_bytes(), name)
+        self.assertIn("MaiCord", unpacked)
+        self.assertTrue(any(path.startswith("fonts/") for path in unpacked) and
+                        any(path.startswith("licenses/") for path in unpacked), unpacked)
+
+    def linux_release(self, out: Path, tag: str = "v1.2.3", *extra: str) -> int:
+        version = release.parse_tag(tag).number
+        name, package = self.linux_package(version=version)
+        tarball = self.root / "tarballs" / name
+        tarball.parent.mkdir(exist_ok=True)
+        tarball.write_bytes(package)
+        return self.run_cli("linux", "--tag", tag, "--tarball", str(tarball), "--output-dir", str(out), "--key-file",
+                            str(self.key_file), *extra)
+
+    def test_linux_release_signs_and_verifies_each_channel(self):
+        out = self.root / "dist"
+        public = self.key.public_point.hex()
+        self.assertEqual(self.linux_release(out, "v1.2.3", "--public-key", public), 0)
+        name = release.linux_artifact_name(1002003999)
+        package = (self.root / "tarballs" / name).read_bytes()
+        for channel in ("stable", "preview"):
+            stem = f"maicord-linux-{channel}.manifest.json"
+            document, signature = (out / stem).read_bytes(), (out / f"{stem}.sig").read_bytes()
+            fields = release.verify_offer(document, signature, self.key.public_point, package, flavor=release.LINUX)
+            self.assertEqual((fields["channel"], fields["version"], fields["artifact"]), (channel, 1002003999, name))
+            self.assertEqual(self.run_cli("verify", "--manifest", str(out / stem), "--signature", str(out / f"{stem}.sig"),
+                                          "--public-key", public, "--artifact", str(self.root / "tarballs" / name),
+                                          "--linux"), 0)
+            # The Windows reader refuses it, as it refuses a package that is not its own.
+            with self.assertRaises(release.ReleaseError):
+                release.verify_offer(document, signature, self.key.public_point)
+            self.assertEqual(self.run_cli("verify", "--manifest", str(out / stem), "--signature", str(out / f"{stem}.sig"),
+                                          "--public-key", public), 1)
+        # A tarball that is not named for the tag, one the sidecar disowns, a wrong key and a broken package.
+        wrong = self.root / "tarballs" / release.linux_artifact_name(1002004999)
+        wrong.write_bytes(package)
+        self.assertEqual(self.run_cli("linux", "--tag", "v1.2.3", "--tarball", str(wrong), "--output-dir",
+                                      str(self.root / "bad"), "--key-file", str(self.key_file)), 1)
+        sidecar = self.root / "tarballs" / f"{name}.sha256"
+        sidecar.write_text("0" * 64 + f"  {name}\n", encoding="ascii")
+        self.assertEqual(self.linux_release(self.root / "bad", "v1.2.3"), 1)
+        sidecar.write_text(hashlib.sha256(package).hexdigest() + f"  {name}\n", encoding="ascii")
+        self.assertEqual(self.linux_release(self.root / "bad", "v1.2.3", "--public-key", self.other.public_point.hex()), 1)
+        (self.root / "tarballs" / name).write_bytes(self.linux_package([("MaiCord", tarfile.REGTYPE, 0o755, b"nope")])[1])
+        self.assertEqual(self.run_cli("linux", "--tag", "v1.2.3", "--tarball", str(self.root / "tarballs" / name),
+                                      "--output-dir", str(self.root / "bad"), "--key-file", str(self.key_file)), 1)
+        self.assertFalse((self.root / "bad").exists())
+
+    def linux_site_fields(self, site: Path, slot: str) -> dict:
+        document = site / next(entry.manifest for entry in release.LINUX_SLOTS if entry.name == slot)
+        return release.verify_offer(document.read_bytes(), Path(f"{document}.sig").read_bytes(), self.key.public_point,
+                                    flavor=release.LINUX)
+
+    def test_channels_publish_the_linux_manifests_only_with_the_linux_flag(self):
+        stable, linux = self.root / "stable", self.root / "linux"
+        self.release_to("v1.2.0", stable)
+        self.assertEqual(self.linux_release(linux, "v1.2.0"), 0)
+        # One publish directory, as release.yml leaves it: the Windows manifests and the Linux ones.
+        both = self.root / "both"
+        both.mkdir()
+        for directory in (stable, linux):
+            for path in directory.iterdir():
+                shutil.copyfile(path, both / path.name)
+        site = self.root / "site"
+        linux_directory = site / "updates" / "p2" / "linux"
+        # Without the flag the Linux files are not read, and so are not installed.
+        self.assertEqual(self.channels(site, "--publish", str(both)), 0)
+        self.assertFalse(linux_directory.exists())
+        self.assertEqual(self.channels(site, "--publish", str(both), "--linux"), 0)
+        self.assertEqual(sorted(path.name for path in linux_directory.iterdir()),
+                         ["maicord-stable.manifest.json", "maicord-stable.manifest.json.sig", "preview"])
+        self.assertEqual(sorted(path.name for path in (linux_directory / "preview").iterdir()),
+                         ["maicord-preview.manifest.json", "maicord-preview.manifest.json.sig"])
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": 1002000999, "linux-preview": 1002000999})
+        # The Windows reader never meets them: its files, and the Linux ones of another version, stay apart.
+        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "preview": 1002000999})
+        # A Linux release moves both of its channels and never back; a dev build is refused on this feed.
+        newer, older = self.root / "newer", self.root / "older"
+        self.assertEqual(self.linux_release(newer, "v1.3.0"), 0)
+        self.assertEqual(self.linux_release(older, "v1.1.0"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(newer), "--linux"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(older), "--linux"), 0)
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": 1003000999, "linux-preview": 1003000999})
+        # A development manifest never reaches the stable channel; on the preview feed it needs its tarball beside it.
+        dev = self.root / "dev"
+        dev.mkdir()
+        document = release.render_manifest(1002003005, "stable", 10, 10 + 86400, 100, "0" * 64,
+                                           release.linux_artifact_name(1002003005), release.LINUX)
+        (dev / "maicord-linux-stable.manifest.json").write_bytes(document)
+        (dev / "maicord-linux-stable.manifest.json.sig").write_bytes(release.sign_document(self.key, document, None))
+        self.assertEqual(self.channels(site, "--publish", str(dev), "--linux"), 1)
+        # A manifest signed by another key, or the Windows one at the Linux name, is refused outright.
+        forged = self.root / "forged"
+        other_key = self.root / "other.jwk"
+        other_key.write_text(self.other.to_jwk(), encoding="utf-8")
+        self.assertEqual(self.linux_release(forged, "v9.0.0", "--key-file", str(other_key)), 0)
+        self.assertEqual(self.channels(site, "--publish", str(forged), "--linux"), 1)
+        copied = self.root / "copied"
+        copied.mkdir()
+        shutil.copyfile(stable / "maicord-stable.manifest.json", copied / "maicord-linux-stable.manifest.json")
+        shutil.copyfile(stable / "maicord-stable.manifest.json.sig", copied / "maicord-linux-stable.manifest.json.sig")
+        self.assertEqual(self.channels(site, "--publish", str(copied), "--linux"), 1)
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": 1003000999, "linux-preview": 1003000999})
+        # Expiring Linux manifests are re-signed with the rest when the flag is given, and only then.
+        short = self.root / "short"
+        self.assertEqual(self.linux_release(short, "v2.0.0", "--validity-days", "10"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(short), "--linux"), 0)
+        old = self.linux_site_fields(site, "linux-stable")
+        self.assertEqual(self.channels(site, "--refresh-within-days", "30"), 0)
+        self.assertEqual(self.linux_site_fields(site, "linux-stable"), old)
+        self.assertEqual(self.channels(site, "--refresh-within-days", "30", "--linux"), 0)
+        new = self.linux_site_fields(site, "linux-stable")
+        self.assertGreater(new["expires"], old["expires"])
+        self.assertEqual({k: new[k] for k in ("version", "bytes", "sha256")}, {k: old[k] for k in ("version", "bytes", "sha256")})
+        # Damaged Linux state is refused with the flag instead of being deployed.
+        (linux_directory / "preview" / "maicord-preview.manifest.json.sig").write_bytes(b"\0" * 64)
+        self.assertEqual(self.channels(site, "--refresh-within-days", "30", "--linux"), 1)
+        self.assertEqual(self.channels(site, "--refresh-within-days", "30"), 0)
+
+    def linux_preview_build(self, repository: Path, out: Path, *extra: str) -> int:
+        """HEAD's master build as a Linux tarball and its signed preview manifest, beside the Windows files in out."""
+        identity = release.build_identity(repository, "HEAD")
+        name, package = self.linux_package(version=identity.number)
+        tarball = self.root / "tarballs" / name
+        tarball.parent.mkdir(exist_ok=True)
+        tarball.write_bytes(package)
+        return self.run_cli("linux", "--preview", "--tarball", str(tarball), "--output-dir", str(out), "--repository",
+                            str(repository), "--key-file", str(self.key_file), *extra)
+
+    def test_channels_serve_linux_master_builds_on_the_linux_preview_feed_only(self):
+        repository = self.git_repository()
+        site = self.root / "site"
+        feed = site / "updates" / "p2" / "linux" / "preview"
+        stable_out = self.root / "stable"
+        self.release_to("v1.2.0", stable_out)
+        self.assertEqual(self.linux_release(stable_out, "v1.2.0"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(stable_out), "--linux"), 0)
+        builds = []
+        for index in range(3):
+            out = self.root / f"dev{index}"
+            self.preview_build(repository, out)
+            self.assertEqual(self.linux_preview_build(repository, out), 0)
+            builds.append(out)
+            self.assertEqual(self.channels(site, "--publish", str(out), "--linux"), 0)
+            self.commit(repository, f"Change number {index}")
+        linux = {slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS}
+        self.assertEqual(linux, {"linux-stable": 1002000999, "linux-preview": 1002001005})
+        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "preview": 1002001005})
+        # The current tarball and the one before it stay; older ones go. The Windows feed keeps its own packages.
+        self.assertEqual(sorted(path.name for path in feed.glob("*.tar.gz")),
+                         ["maicord-1.2.1-dev.4-linux-x86_64.tar.gz", "maicord-1.2.1-dev.5-linux-x86_64.tar.gz"])
+        self.assertEqual(sorted(path.name for path in (site / "updates" / "p2" / "preview").glob("*.zip")),
+                         ["MaiCord-x64-p2-1002001004.zip", "MaiCord-x64-p2-1002001005.zip"])
+        fields = self.linux_site_fields(site, "linux-preview")
+        package = feed / fields["artifact"]
+        self.assertEqual(hashlib.sha256(package.read_bytes()).hexdigest(), fields["sha256"])
+        # Replaying an older build never moves the feed back; without --linux the Linux files are left as they are.
+        self.assertEqual(self.channels(site, "--publish", str(builds[0]), "--linux"), 0)
+        self.assertEqual(self.linux_site_fields(site, "linux-preview")["version"], 1002001005)
+        before = sorted(path.name for path in feed.iterdir())
+        self.assertEqual(self.channels(site, "--publish", str(builds[0])), 0)
+        self.assertEqual(sorted(path.name for path in feed.iterdir()), before)
+        # A dev manifest never reaches the Linux stable channel.
+        bad = self.root / "bad"
+        bad.mkdir()
+        for name in ("maicord-linux-preview.manifest.json", "maicord-linux-preview.manifest.json.sig"):
+            (bad / name.replace("preview", "stable")).write_bytes((builds[2] / name).read_bytes())
+        self.assertEqual(self.channels(site, "--publish", str(bad), "--linux"), 1)
+        # Its tarball must come with it, and be the one the manifest names.
+        lonely = self.root / "lonely"
+        lonely.mkdir()
+        for name in ("maicord-linux-preview.manifest.json", "maicord-linux-preview.manifest.json.sig"):
+            (lonely / name).write_bytes((builds[2] / name).read_bytes())
+        self.assertEqual(self.channels(site, "--publish", str(lonely), "--linux"), 1)
+        # A stable release moves every Linux channel, and the development tarballs are retired.
+        self.commit(repository, "MaiCord 1.2.1", project="1.2.1")
+        self.git(repository, "tag", "v1.2.1")
+        released = self.root / "released"
+        self.release_to("v1.2.1", released)
+        self.assertEqual(self.linux_release(released, "v1.2.1"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(released), "--linux"), 0)
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": 1002001999, "linux-preview": 1002001999})
+        self.assertEqual(list(feed.glob("*.tar.gz")), [])
+        self.assertEqual(self.run_cli("linux", "--preview", "--tarball", str(self.root / "tarballs" /
+                                      release.linux_artifact_name(1002001999)), "--output-dir", str(self.root / "no"),
+                                      "--repository", str(repository), "--key-file", str(self.key_file)), 1)
+        # A development manifest after it, a missing package for the served build, and a tarball of another build.
+        self.commit(repository, "Start 1.2.2")
+        dev = self.root / "dev-after"
+        self.preview_build(repository, dev)
+        self.assertEqual(self.linux_preview_build(repository, dev), 0)
+        self.assertEqual(self.channels(site, "--publish", str(dev), "--linux"), 0)
+        self.assertEqual(self.linux_site_fields(site, "linux-preview")["version"], 1002002001)
+        (feed / release.linux_artifact_name(1002002001)).unlink()
+        self.assertEqual(self.channels(site, "--linux"), 1)
+        self.assertEqual(self.linux_preview_build(repository, self.root / "wrong", "--expect-version", "9.9.9-dev.1"), 1)
 
     def release_to(self, tag: str, out: Path, *extra: str) -> None:
         self.assertEqual(self.run_cli("release", "--tag", tag, "--binaries", str(self.binaries), "--output-dir", str(out),

@@ -1,10 +1,11 @@
-"""The plugin half of maicord-plugin: names, the SDK and dev folders, the toolchain, projects, the PE and
-descriptor checks, and the new, build, check, dev and pack commands. maicord_plugin.py is the command line.
+"""The plugin half of maicord-plugin: names, the SDK and dev folders, the toolchain, projects, the PE and ELF
+and descriptor checks, and the new, build, check, dev and pack commands. maicord_plugin.py is the command line.
 
-Python 3.9 or newer, standard library only. The compiler is the pinned clang-cl and lld-link of
-tools/llvm_toolchain.json (fetched once into %LOCALAPPDATA%\\MaiCord-toolchain, as tools/build.ps1 does),
-or the pair found on PATH. Plugins compile against MaiCord's own SDK headers only (no Windows SDK or
-Visual Studio): the repository's include/ directory, or the include/ of an SDK folder.
+Python 3.9 or newer, standard library only. A Windows DLL is built with the pinned clang-cl and lld-link of
+tools/llvm_toolchain.json (fetched once into %LOCALAPPDATA%\\MaiCord-toolchain, as tools/build.ps1 does), or the
+pair found on PATH; a Linux shared object with clang and ld.lld (on PATH, or the pinned release on Windows).
+Plugins compile against MaiCord's own SDK headers only (no Windows SDK, Visual Studio or libc): the repository's
+include/ directory, or the include/ of an SDK folder.
 """
 
 from __future__ import annotations
@@ -43,6 +44,35 @@ COMPILE = ["/nologo", "/c", "/std:c++latest", "/clang:-nostdinc", "/O2", "/W4", 
 LINK = ["/nologo", "/DLL", "/NOENTRY", "/NODEFAULTLIB", "/SUBSYSTEM:WINDOWS,6.02", "/DYNAMICBASE", "/HIGHENTROPYVA",
         "/NXCOMPAT", "/CETCOMPAT", "/OPT:REF", "/OPT:ICF=8", "/INCREMENTAL:NO", "/ALLOWBIND:NO",
         "/MERGE:.pdata=.rdata", "/DEBUG:NONE", "/Brepro", "/mllvm:-enable-machine-outliner"]
+# The Linux recipe of cmake's maicord_plugin() and of the catalog's Linux build: a freestanding shared object (the SDK
+# headers only, no libc), hidden symbols, relative relocations only (-fPIC with -Bsymbolic), a non-executable stack and
+# no build id, so a local build is the catalog's build: same source, same compiler, same bytes.
+LINUX_TRIPLE = "x86_64-unknown-linux-gnu"
+LINUX_COMPILE = ["-std=c++23", "-O2", "-Wall", "-Wextra", "-Werror", "-Wno-missing-field-initializers", "-nostdinc",
+                 "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
+                 "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-exceptions", "-fno-rtti",
+                 "-fno-threadsafe-statics", "-DMC_RUNTIME"]
+LINUX_LINK = ["-fuse-ld=lld", "-nostdlib", "-shared", "-Wl,-Bsymbolic", "-Wl,-z,noexecstack", "-Wl,-z,now",
+              "-Wl,--hash-style=gnu", "-Wl,--build-id=none", "-Wl,--gc-sections"]
+TARGETS = ("windows", "linux")
+
+
+def host_target() -> str:
+    return "windows" if os.name == "nt" else "linux"
+
+
+def target_of(arguments) -> str:
+    """The --target of a command, else the system the tool runs on."""
+    return getattr(arguments, "target", None) or host_target()
+
+
+def target_option(target: str) -> str:
+    """What to add to a command line to ask for target when it is not the default."""
+    return "" if target == host_target() else f" --target {target}"
+
+
+def binary_kind(target: str) -> str:
+    return "DLL" if target == "windows" else "shared object"
 
 
 class ToolError(Exception):
@@ -107,14 +137,23 @@ def local_app_data() -> Path:
     return Path(base)
 
 
+def data_home() -> Path:
+    """MaiCord's data folder on this system: %LOCALAPPDATA%\\MaiCord on Windows, $XDG_DATA_HOME/maicord (else
+    ~/.local/share/maicord) on Linux."""
+    if os.name == "nt":
+        return local_app_data() / "MaiCord"
+    base = os.environ.get("XDG_DATA_HOME")
+    return Path(base if base and os.path.isabs(base) else Path.home() / ".local" / "share") / "maicord"
+
+
 def dev_folder(kind: str, explicit: str | None = None) -> Path:
-    """Where Developer Mode watches: plugins\\dev or effects\\dev under %LOCALAPPDATA%\\MaiCord, or the override."""
+    """Where Developer Mode watches: plugins\\dev or effects\\dev under the data folder, or the override."""
     if explicit:
         return Path(explicit)
     variable = "MAICORD_PLUGIN_DEV" if kind == "plugin" else "MAICORD_EFFECT_DEV"
     if os.environ.get(variable):
         return Path(os.environ[variable])
-    return local_app_data() / "MaiCord" / ("plugins" if kind == "plugin" else "effects") / "dev"
+    return data_home() / ("plugins" if kind == "plugin" else "effects") / "dev"
 
 
 # ---- the toolchain ----------------------------------------------------------------------------------
@@ -192,6 +231,33 @@ def find_toolchain(explicit: str | None = None, fetch: bool = True) -> Toolchain
     raise ToolError("clang-cl and lld-link were not found (use --llvm-bin, MAICORD_LLVM_BIN, or put them on PATH)")
 
 
+def _linux_toolchain(directory: Path | None, origin: str) -> Toolchain | None:
+    search = str(directory) if directory else None
+    clang = next((found for name in ("clang++", "clang") if (found := shutil.which(name, path=search))), None)
+    linker = shutil.which("ld.lld", path=search)
+    return Toolchain(Path(clang), Path(linker), origin) if clang and linker else None
+
+
+def find_linux_toolchain(explicit: str | None = None) -> Toolchain:
+    """The clang and ld.lld that build a Linux shared object: --llvm-bin, MAICORD_LLVM_BIN, then PATH. A plugin includes
+    only the SDK headers and links no library, so a plain LLVM install will do, on Windows too (the pinned release
+    holds only clang-cl and lld-link, which build the DLL)."""
+    for value, origin in ((explicit, "--llvm-bin"), (os.environ.get("MAICORD_LLVM_BIN"), "MAICORD_LLVM_BIN")):
+        if value:
+            found = _linux_toolchain(Path(value), origin)
+            if not found:
+                raise ToolError(f"{origin} {value} has no clang and ld.lld")
+            return found
+    found = _linux_toolchain(None, "PATH")
+    if not found:
+        raise ToolError("clang and ld.lld were not found (use --llvm-bin, MAICORD_LLVM_BIN, or put them on PATH)")
+    return found
+
+
+def find_target_toolchain(target: str, explicit: str | None = None, fetch: bool = True) -> Toolchain:
+    return find_linux_toolchain(explicit) if target == "linux" else find_toolchain(explicit, fetch)
+
+
 # ---- projects ------------------------------------------------------------------------------------------
 @dataclass
 class Project:
@@ -206,6 +272,14 @@ class Project:
     @property
     def dll(self) -> Path:
         return self.build_directory / f"{self.slug}.dll"
+
+    @property
+    def shared_object(self) -> Path:
+        return self.build_directory / f"{self.slug}.so"
+
+    def output(self, target: str) -> Path:
+        """What a build for target leaves: the DLL (windows) or the shared object (linux)."""
+        return self.dll if target == "windows" else self.shared_object
 
 
 def folder_slug(directory: Path) -> str:
@@ -233,10 +307,11 @@ def sources(project: Project) -> list[Path]:
     return found
 
 
-def is_stale(project: Project) -> bool:
-    if not project.dll.is_file():
+def is_stale(project: Project, target: str | None = None) -> bool:
+    binary = project.output(target or host_target())
+    if not binary.is_file():
         return True
-    built = project.dll.stat().st_mtime_ns
+    built = binary.stat().st_mtime_ns
     return any(p.stat().st_mtime_ns > built for p in sources(project))
 
 
@@ -251,9 +326,21 @@ def run(command: list, label: str, verbose: bool) -> None:
         say((result.stdout + result.stderr).strip())
 
 
-def build_project(project: Project, toolchain: Toolchain, include: Path, verbose: bool = False) -> Path:
-    """Compiles and links plugin.cpp into build/<slug>.dll, then runs the PE checks on it."""
+def build_project(project: Project, toolchain: Toolchain, include: Path, verbose: bool = False,
+                  target: str | None = None) -> Path:
+    """Compiles and links plugin.cpp into build/<slug>.dll (Windows) or build/<slug>.so (Linux), then returns the file;
+    the caller runs the checks on it."""
+    target = target or host_target()
     project.build_directory.mkdir(exist_ok=True)
+    if target == "linux":
+        obj, shared_object = project.build_directory / f"{project.slug}.o", project.shared_object
+        shared_object.unlink(missing_ok=True)  # a failed link must not leave the last good build looking current
+        driver = [toolchain.clang, "--driver-mode=g++", f"--target={LINUX_TRIPLE}"]
+        run([*driver, *LINUX_COMPILE, f"-I{include}", f"-I{include / 'maicord' / 'sys' / 'libc'}", "-c", project.source,
+             "-o", obj], "the compile", verbose)
+        run([*driver, *LINUX_LINK, obj, "-o", shared_object], "the link", verbose)
+        obj.unlink(missing_ok=True)
+        return shared_object
     obj = project.build_directory / f"{project.slug}.obj"
     dll = project.dll
     dll.unlink(missing_ok=True)  # a failed link must not leave the last good build looking current
@@ -273,6 +360,7 @@ class Inspection:
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     info: dict = field(default_factory=dict)
+    format: str = "PE"  # "ELF" for a Linux shared object
 
     @property
     def ok(self) -> bool:
@@ -351,6 +439,87 @@ class _Image:
         return value
 
 
+def _page_up(value: int) -> int:
+    return (value + 4095) & ~4095
+
+
+class _ElfImage(_Image):
+    """A Linux shared object as the loader sees it once mapped: its load segments at their virtual addresses, and (after
+    _check_elf has applied the relative relocations) pointers that read as addresses, so the base is 0."""
+
+    def __init__(self, data: bytes):
+        self.data = data
+        if len(data) < 64 or data[:4] != b"\x7fELF":
+            raise ToolError("not an ELF file")
+        if data[4] != 2 or data[5] != 1 or data[6] != 1:
+            raise ToolError("not a 64-bit little-endian ELF file")
+        kind, machine, version, entry, table, _, _, header_bytes, entry_bytes, count = struct.unpack_from("<HHIQQQIHHH", data, 16)
+        if kind != 3 or version != 1 or header_bytes != 64:
+            raise ToolError("not a shared object")
+        if machine != 62:
+            raise ToolError("not an x86-64 image")
+        if entry:
+            raise ToolError("the shared object has an entry point: link with -nostdlib and without -e")
+        if entry_bytes != 56 or not 0 < count <= 32 or table < 64 or table + 56 * count > len(data):
+            raise ToolError("the program header table is malformed")
+        self.base = 0
+        self.loads = []  # (vaddr, file offset, file bytes, memory bytes, flags)
+        self.dynamic = None
+        stack, end = False, 0
+        for index in range(count):
+            kind, flags, offset, vaddr, _, file_bytes, memory_bytes, align = struct.unpack_from("<IIQQQQQQ", data, table + 56 * index)
+            if kind == 3:
+                raise ToolError("the shared object names an interpreter: it is not a plugin")
+            if kind == 7:
+                raise ToolError("the shared object has a thread-local storage segment: a plugin must not use thread-local storage")
+            if kind == 0x6474E551:  # PT_GNU_STACK
+                if flags & 1:
+                    raise ToolError("the stack is executable: link with -z noexecstack")
+                stack = True
+            elif kind == 2:
+                if self.dynamic:
+                    raise ToolError("the program headers have two dynamic segments")
+                self.dynamic = (vaddr, offset, file_bytes)
+            elif kind == 1:
+                if (len(self.loads) == 16 or not memory_bytes or file_bytes > memory_bytes or offset + file_bytes > len(data) or
+                        vaddr + memory_bytes > 32 << 20 or align < 4096 or align & (align - 1) or align > 0x200000 or
+                        vaddr % align != offset % align or not flags & 4 or (flags & 1 and flags & 2)):
+                    raise ToolError("a load segment is malformed, unreadable, or both writable and executable")
+                ordered = (vaddr >= end and vaddr & ~4095 <= _page_up(end)) if self.loads else vaddr == 0
+                if not ordered:
+                    raise ToolError("the load segments are out of order, overlap, or leave pages unmapped between them")
+                self.loads.append((vaddr, offset, file_bytes, memory_bytes, flags))
+                end = vaddr + memory_bytes
+        if not self.loads or not self.dynamic or not stack:
+            raise ToolError("the program headers lack a load segment, the dynamic segment or PT_GNU_STACK")
+        self.image_bytes = _page_up(end)
+        self.flat = bytearray(self.image_bytes)
+        for vaddr, offset, file_bytes, _, _ in self.loads:
+            self.flat[vaddr:vaddr + file_bytes] = data[offset:offset + file_bytes]
+
+    def backed(self, vaddr: int, size: int) -> int:
+        """The file offset of [vaddr, vaddr + size) when it lies in the file-backed part of one load segment."""
+        for start, offset, file_bytes, _, _ in self.loads:
+            if start <= vaddr and vaddr - start <= file_bytes and size <= file_bytes - (vaddr - start):
+                return offset + vaddr - start
+        raise ToolError(f"address {vaddr:#x} is not backed by the file")
+
+    def segment(self, vaddr: int, size: int):
+        """The load segment that holds [vaddr, vaddr + size) in memory, or None."""
+        for segment in self.loads:
+            if segment[0] <= vaddr and vaddr - segment[0] <= segment[3] and size <= segment[3] - (vaddr - segment[0]):
+                return segment
+        return None
+
+    def read(self, rva: int, size: int) -> bytes:
+        if rva < 0 or size < 0 or rva + size > self.image_bytes:
+            raise ToolError(f"address {rva:#x} is outside the image")
+        return bytes(self.flat[rva:rva + size])
+
+    def executable(self, value: int) -> bool:
+        return any(flags & 1 and start <= value < start + memory for start, _, _, memory, flags in self.loads)
+
+
 def _host_valid(host: str) -> bool:
     body = host[2:] if host.startswith("*.") else host
     labels = body.split(".")
@@ -359,12 +528,17 @@ def _host_valid(host: str) -> bool:
 
 
 def inspect_dll(path: Path) -> Inspection:
-    """The checks the client's loader runs before it maps a plugin, done on the file alone. The client repeats
-    all of them (and more) at load: this finds the obvious problems before MaiCord does."""
+    """The checks the client's loader runs before it maps a plugin (a PE DLL or an ELF shared object, by its first
+    bytes), done on the file alone. The client repeats all of them (and more) at load: this finds the obvious problems
+    before MaiCord does."""
     report = Inspection()
     try:
         data = Path(path).read_bytes()
-        _check_pe(_Image(data), report)
+        if data[:4] == b"\x7fELF":
+            report.format = "ELF"
+            _check_elf(_ElfImage(data), report)
+        else:
+            _check_pe(_Image(data), report)
     except ToolError as error:
         report.errors.append(str(error))
     except OSError as error:
@@ -419,6 +593,135 @@ def _check_pe(image: _Image, report: Inspection) -> None:
         errors.append("the export is code or outside every section: it must be the const descriptor")
         return
     _check_descriptor(image, rva, report)
+
+
+def _check_elf(image: _ElfImage, report: Inspection) -> None:
+    """What the client's loader (src/app/plugins/loader.cpp) checks of a shared object, in its order: nothing is
+    needed, nothing runs at load or unload, only relative relocations, no undefined symbol and exactly one export, the
+    descriptor as data. The descriptor itself is then read from the image with the relocations applied."""
+    try:
+        data = image.data
+        vaddr, offset, size = image.dynamic
+        if size < 16 or size > 4096 or size % 16 or image.backed(vaddr, size) != offset:
+            raise ToolError("the dynamic segment is malformed")
+        tags: dict = {}
+        ended = False
+        for at in range(0, size, 16):
+            tag, value = struct.unpack_from("<QQ", data, offset + at)
+            if tag == _DT_NULL:
+                ended = True
+                break
+            if tag in _DT_IMPORTS:
+                raise ToolError("the shared object needs another library (DT_NEEDED) or filters one: link with -nostdlib and no libraries")
+            if tag in _DT_RUNS_CODE:
+                raise ToolError("the shared object has an initializer or finalizer: dlopen would run it")
+            if tag == _DT_TEXTREL or (tag == _DT_FLAGS and value & 4):
+                raise ToolError("the shared object has text relocations: it must be position independent (-fPIC)")
+            if tag in _DT_OTHER_RELOCATIONS:
+                raise ToolError("the shared object has REL or RELR relocations: only RELA relative ones are accepted")
+            if (tag == _DT_SYMENT and value != 24) or (tag == _DT_RELAENT and value != 24) or (tag == _DT_PLTREL and value != 7):
+                raise ToolError("the symbol or relocation entry size is not the x86-64 one")
+            if tag in _DT_USED:
+                if tag in tags:
+                    raise ToolError("a dynamic tag is repeated: which one would the loader use?")
+                tags[tag] = value
+        if not ended:
+            raise ToolError("the dynamic section has no end")
+        value = _elf_symbols(image, tags)
+        _elf_relocations(image, tags.get(_DT_RELA, 0), tags.get(_DT_RELASZ, 0))
+        _elf_relocations(image, tags.get(_DT_JMPREL, 0), tags.get(_DT_PLTRELSZ, 0))
+    except ToolError as error:
+        report.errors.append(str(error))
+        return
+    _check_descriptor(image, value, report)
+
+
+# Dynamic tags of the loader's checks (DT_*): what the shared object may not name, what runs, and what it needs.
+_DT_NULL, _DT_PLTRELSZ, _DT_HASH, _DT_STRTAB, _DT_SYMTAB, _DT_RELA, _DT_RELASZ, _DT_RELAENT = 0, 2, 4, 5, 6, 7, 8, 9
+_DT_STRSZ, _DT_SYMENT, _DT_PLTREL, _DT_TEXTREL, _DT_JMPREL, _DT_FLAGS, _DT_GNU_HASH = 10, 11, 20, 22, 23, 30, 0x6FFFFEF5
+_DT_IMPORTS = {1, 0x6FFFFEFB, 0x6FFFFEFC, 0x6FFFFFFE, 0x7FFFFFFD, 0x7FFFFFFF}  # NEEDED, DEPAUDIT, AUDIT, VERNEED, AUXILIARY, FILTER
+_DT_RUNS_CODE = {12, 13, 25, 26, 32}                                             # INIT, FINI, INIT_ARRAY, FINI_ARRAY, PREINIT_ARRAY
+_DT_OTHER_RELOCATIONS = {17, 18, 19, 35, 36, 37}                                 # REL, RELSZ, RELENT, RELRSZ, RELR, RELRENT
+_DT_USED = {_DT_SYMTAB, _DT_STRTAB, _DT_STRSZ, _DT_HASH, _DT_GNU_HASH, _DT_RELA, _DT_RELASZ, _DT_JMPREL, _DT_PLTRELSZ}
+_SYMBOLS_MAX = 4096
+
+
+def _elf_symbol_count(image: _ElfImage, tags: dict) -> int:
+    """How many entries the symbol table has, as the hash tables the loader looks symbols up with count them."""
+    data = image.data
+    count = 0
+    if _DT_HASH in tags:
+        count = struct.unpack_from("<I", data, image.backed(tags[_DT_HASH], 8) + 4)[0]
+    if _DT_GNU_HASH in tags:
+        offset = image.backed(tags[_DT_GNU_HASH], 16)
+        buckets, first, bloom = struct.unpack_from("<III", data, offset)
+        if not 0 < buckets <= _SYMBOLS_MAX or bloom > _SYMBOLS_MAX or first > _SYMBOLS_MAX:
+            raise ToolError("the GNU hash table is malformed")
+        image.backed(tags[_DT_GNU_HASH], 16 + 8 * bloom + 4 * buckets)
+        bucket_at = offset + 16 + 8 * bloom
+        last = max(struct.unpack_from(f"<{buckets}I", data, bucket_at))
+        gnu = first
+        if last:
+            if last < first:
+                raise ToolError("the GNU hash table is malformed")
+            for index in range(last, _SYMBOLS_MAX):
+                if struct.unpack_from("<I", data, bucket_at + 4 * buckets + 4 * (index - first))[0] & 1:
+                    gnu = index + 1
+                    break
+            else:
+                raise ToolError("the GNU hash chains are too long")
+        count = max(count, gnu)
+    if count > _SYMBOLS_MAX:
+        raise ToolError("the symbol table is too long")
+    return count
+
+
+def _elf_symbols(image: _ElfImage, tags: dict) -> int:
+    """No undefined, thread-local or indirect symbol; exactly one exported, named as EXPORT_NAME, as data in a segment
+    that is not executable. Returns its address."""
+    data = image.data
+    needed = (_DT_SYMTAB, _DT_STRTAB, _DT_STRSZ)
+    count = _elf_symbol_count(image, tags) if all(tag in tags for tag in needed) and (_DT_HASH in tags or _DT_GNU_HASH in tags) else 0
+    if count < 2 or not tags[_DT_STRSZ]:
+        raise ToolError(f"the shared object exports nothing: it must export {EXPORT_NAME.decode()}")
+    symbols = image.backed(tags[_DT_SYMTAB], count * 24)
+    strings = image.backed(tags[_DT_STRTAB], tags[_DT_STRSZ])
+    exported, found = 0, 0
+    for index in range(1, count):
+        name, info, other, section, value, _ = struct.unpack_from("<IBBHQQ", data, symbols + 24 * index)
+        if not section or info & 15 in (6, 10):
+            raise ToolError("the shared object has an undefined, thread-local or indirect symbol: it imports something")
+        if not info >> 4 or other & 3 in (1, 2):
+            continue  # local, or not exported
+        exported += 1
+        spelled = data[strings + name:strings + name + len(EXPORT_NAME) + 1] if name < tags[_DT_STRSZ] else b""
+        if exported > 1 or info & 15 != 1 or section >= 0xFF00 or spelled != EXPORT_NAME + b"\0":
+            raise ToolError(f"a plugin exports exactly one symbol, {EXPORT_NAME.decode()}, as data")
+        segment = image.segment(value, 232)
+        if not segment or segment[4] & 1:
+            raise ToolError("the export is code or outside every segment: it must be the const descriptor")
+        found = value
+    if exported != 1:
+        raise ToolError(f"the shared object exports nothing: it must export {EXPORT_NAME.decode()}")
+    return found
+
+
+def _elf_relocations(image: _ElfImage, address: int, size: int) -> None:
+    """Only R_X86_64_RELATIVE without a symbol, aimed at a word of a writable segment; applied to the image."""
+    if not size:
+        return
+    if size % 24 or size > 4 << 20:
+        raise ToolError("the relocation table is malformed")
+    offset = image.backed(address, size)
+    for at in range(0, size, 24):
+        target, info, addend = struct.unpack_from("<QQq", image.data, offset + at)
+        if info != 8:
+            raise ToolError("the shared object imports something (a relocation that resolves a symbol) or has a kind of "
+                            "relocation other than relative: build with -fPIC -fvisibility=hidden -Wl,-Bsymbolic")
+        segment = image.segment(target, 8)
+        if not segment or not segment[4] & 2:
+            raise ToolError("a relocation is aimed outside the writable segments")
+        image.flat[target:target + 8] = struct.pack("<Q", addend & (2 ** 64 - 1))
 
 
 def _check_descriptor(image: _Image, rva: int, report: Inspection) -> None:
@@ -573,18 +876,22 @@ In MaiCord turn on Developer Mode, then open Settings > Plugins > Developer: the
 `%LOCALAPPDATA%\\MaiCord\\plugins\\dev` (the first time it asks for your consent), reloads whenever the DLL
 changes, and its `ctx.log` lines, budget strikes and reloads show on that page.
 
+On Linux the same commands build `build/{slug}.so` (clang and ld.lld; `--target linux` builds it on Windows too,
+`--target windows` the DLL) and the folder is `$XDG_DATA_HOME/maicord/plugins/dev`.
+
 `plugin.cpp` is the whole plugin. Bump `.version` in `MC_PLUGIN` for every release you publish: the catalog
 refuses a changed source with an old version.
 '''
 
-IGNORE_TEMPLATE = "build/\ndist/\n*.dll\n*.obj\n*.lib\n*.exp\n*.pdb\n# machine-specific: `maicord-plugin build` writes it again when it is missing\n.clangd\n"
+IGNORE_TEMPLATE = "build/\ndist/\n*.dll\n*.so\n*.obj\n*.o\n*.lib\n*.exp\n*.pdb\n# machine-specific: `maicord-plugin build` writes it again when it is missing\n.clangd\n"
 
 
-def clangd_text(include: Path) -> str:
+def clangd_text(include: Path, target: str | None = None) -> str:
     inc = include.as_posix()
+    triple = LINUX_TRIPLE if (target or host_target()) == "linux" else "x86_64-pc-windows-msvc"
     return ("# Resolves the SDK headers in editors that use clangd (machine-specific; not committed).\n"
             "CompileFlags:\n"
-            "  Add: [--target=x86_64-pc-windows-msvc, -std=c++23, -nostdinc, -fno-rtti, -fno-exceptions, -DMC_RUNTIME, "
+            f"  Add: [--target={triple}, -std=c++23, -nostdinc, -fno-rtti, -fno-exceptions, -DMC_RUNTIME, "
             f"\"-I{inc}\", \"-I{inc}/maicord/sys/libc\"]\n")
 
 
@@ -627,29 +934,31 @@ def command_new(arguments) -> int:
 # ---- build, check, dev ------------------------------------------------------------------------------------
 def command_build(arguments) -> int:
     project = open_project(arguments.dir, arguments.source)
-    toolchain = find_toolchain(arguments.llvm_bin, not arguments.no_fetch)
+    target = target_of(arguments)
+    toolchain = find_target_toolchain(target, arguments.llvm_bin, not arguments.no_fetch)
     include = sdk_include(arguments.sdk)
     if not (project.directory / ".clangd").exists():
-        write_text(project.directory / ".clangd", clangd_text(include))
+        write_text(project.directory / ".clangd", clangd_text(include, target))
     started = time.monotonic()
-    dll = build_project(project, toolchain, include, arguments.verbose)
-    report = inspect_dll(dll)
-    for line in describe(report, dll):
+    binary = build_project(project, toolchain, include, arguments.verbose, target)
+    report = inspect_dll(binary)
+    for line in describe(report, binary):
         say(line)
     if not report.ok:
-        dll.unlink(missing_ok=True)
-        raise ToolError("the DLL fails the plugin checks (above); MaiCord would refuse to load it")
-    say(f"Built {dll} in {time.monotonic() - started:.1f} s ({toolchain.origin}).")
+        binary.unlink(missing_ok=True)
+        raise ToolError(f"the {binary_kind(target)} fails the plugin checks (above); MaiCord would refuse to load it")
+    say(f"Built {binary} in {time.monotonic() - started:.1f} s ({toolchain.origin}).")
     return 0
 
 
 def command_check(arguments) -> int:
-    path = Path(arguments.dll) if arguments.dll else open_project(arguments.dir, arguments.source).dll
+    target = target_of(arguments)
+    path = Path(arguments.dll) if arguments.dll else open_project(arguments.dir, arguments.source).output(target)
     report = inspect_dll(path)
     for line in describe(report, path):
         say(line)
     if report.ok:
-        say("The PE headers and the descriptor pass.")
+        say(f"The {report.format} headers and the descriptor pass.")
     return 0 if report.ok else 1
 
 
@@ -690,20 +999,22 @@ def watch(files, step, interval: float = 0.4, rounds: int | None = None) -> None
 
 def command_dev(arguments) -> int:
     project = open_project(arguments.dir, arguments.source)
+    target = target_of(arguments)
+    binary = project.output(target)
     folder = dev_folder("plugin", arguments.dev_folder)
     include = sdk_include(arguments.sdk)
     toolchain = None
 
     def build_and_deploy(force: bool) -> None:
         nonlocal toolchain
-        if force or is_stale(project):
-            toolchain = toolchain or find_toolchain(arguments.llvm_bin, not arguments.no_fetch)
-            dll = build_project(project, toolchain, include, arguments.verbose)
-            report = inspect_dll(dll)
+        if force or is_stale(project, target):
+            toolchain = toolchain or find_target_toolchain(target, arguments.llvm_bin, not arguments.no_fetch)
+            build_project(project, toolchain, include, arguments.verbose, target)
+            report = inspect_dll(binary)
             if not report.ok:
-                dll.unlink(missing_ok=True)
-                raise ToolError("the DLL fails the plugin checks:\n" + "\n".join(describe(report, dll)))
-        deploy(project.dll, folder)
+                binary.unlink(missing_ok=True)
+                raise ToolError(f"the {binary_kind(target)} fails the plugin checks:\n" + "\n".join(describe(report, binary)))
+        deploy(binary, folder)
 
     build_and_deploy(False)
     if not arguments.watch:
@@ -716,14 +1027,16 @@ def command_dev(arguments) -> int:
 # ---- pack -------------------------------------------------------------------------------------------------
 def command_pack(arguments) -> int:
     project = open_project(arguments.dir, arguments.source)
-    dll = project.dll
-    if not dll.is_file() or is_stale(project):
-        raise ToolError("build first (maicord-plugin build): the DLL is missing or older than the source")
-    report = inspect_dll(dll)
-    for line in describe(report, dll):
+    target = target_of(arguments)
+    binary = project.output(target)
+    if not binary.is_file() or is_stale(project, target):
+        raise ToolError(f"build first (maicord-plugin build{target_option(target)}): the {binary_kind(target)} is missing or "
+                        "older than the source")
+    report = inspect_dll(binary)
+    for line in describe(report, binary):
         say(line)
     if not report.ok:
-        raise ToolError("the DLL fails the plugin checks")
+        raise ToolError(f"the {binary_kind(target)} fails the plugin checks")
     info = report.info
     authors = [{"name": arguments.author}] if arguments.author else ([{"name": info["author"]}] if info["author"] else [])
     if not authors:
@@ -761,5 +1074,6 @@ def command_pack(arguments) -> int:
     write_text(folder / "details.md", text)
     say(f"Wrote {folder}: plugin.cpp, catalog.json, details.md.")
     say(f"Copy it to plugins/{project.slug}/ in a clone of maj113/MaiCord-plugins and open a pull request;")
-    say("CI builds the DLL from plugin.cpp, so keep it the only source file, and bump .version for every change.")
+    say("CI builds the DLL and the Linux shared object from plugin.cpp, so keep it the only source file, and bump .version "
+        "for every change.")
     return 0

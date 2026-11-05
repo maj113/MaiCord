@@ -10,7 +10,7 @@ maicord_library(maicord_test_shell_units
 
 set(maicord_linux_app_test_libs maicord_app_client maicord_test_shell_units maicord_ui maicord_ui_secure_text
     maicord_text_system maicord_text_catalog maicord_font_system maicord_font maicord_font_color maicord_theme
-    maicord_unicode maicord_render_core maicord_window_null maicord_desktop_system maicord_dbus maicord_model
+    maicord_unicode maicord_render_core maicord_window_null maicord_desktop_system maicord_dbus maicord_atspi maicord_model
     maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto maicord_net
     maicord_core)
 maicord_test_bundle(MaiCordAppUnitTests LIBS ${maicord_linux_app_test_libs} INCLUDES src/app)
@@ -19,9 +19,9 @@ maicord_test_bundle(MaiCordUiUnitTests LIBS ${maicord_linux_app_test_libs} maico
 maicord_test_bundle(MaiCordAccountRequestTests LIBS ${maicord_linux_app_test_libs} INCLUDES src/app)
 
 # Not registered here: the Windows fixtures that drive a real Win32 window and message loop, call the Windows API
-# directly (BCrypt, Winsock, GDI, UI Automation, the registry), load plugin DLLs, or depend on the Windows clipboard
+# directly (BCrypt, Winsock, GDI, UI Automation, the registry), depend on the Windows clipboard
 # (ChannelOverviewRuntime, SearchRuntime: the clipboard seam is the Wayland backend's) or on the size of a Windows
-# committed region (MessageReactionRuntime).
+# committed region (MessageReactionRuntime). The plugin runtime tests, which load plugins, are cmake/linux_plugin_tests.cmake.
 
 # The seams this port added, on both systems (tests/os) and the Linux services behind the desktop layer.
 maicord_test(MaiCordOsTextTests ENTRY maicord_os_text_entry SOURCES tests/os/text.cpp
@@ -38,6 +38,11 @@ maicord_test(MaiCordLinuxCatalogTextTests ENTRY maicord_linux_catalog_text_entry
     SOURCES tests/app/settings/linux_catalog_text.cpp
     LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
     TIMEOUT 10 TEST maicord_linux_catalog_text)
+# The sign-in screen's wording for a security key on Linux, where none can be used (src/ui/account/login_text_presentation.cpp).
+maicord_test(MaiCordLinuxWebAuthnTextTests ENTRY maicord_linux_webauthn_text_entry
+    SOURCES tests/ui/account/linux_webauthn_text.cpp
+    LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+    TIMEOUT 10 TEST maicord_linux_webauthn_text)
 # Push to talk through the GlobalShortcuts portal while a call is open (src/app/voice/push_to_talk_binding.cpp).
 maicord_test(MaiCordPushToTalkBindingTests ENTRY maicord_push_to_talk_binding_entry
     SOURCES tests/app/voice/push_to_talk_binding.cpp
@@ -73,13 +78,16 @@ maicord_test(MaiCordLinuxAccountPathsTests ENTRY maicord_linux_account_paths_ent
     SOURCES tests/app/account/linux_account_paths.cpp
     LIBS maicord_app_client maicord_core
     TIMEOUT 10 TEST maicord_linux_account_paths)
-# The toast layer without a session bus: no daemon is ever reached.
+# The toast layer without a session bus: no daemon is ever reached. The _mock case runs it against the mock notification
+# daemon of tools/test_dbus.sh (skipped, 77, outside that script).
 maicord_test(MaiCordLinuxNotificationsTests ENTRY maicord_linux_notifications_entry
     SOURCES tests/platform/desktop/linux_notifications.cpp
     LIBS maicord_app_client maicord_desktop_system maicord_dbus maicord_window_null maicord_core
     TIMEOUT 10
     ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/maicord-no-session-bus
     TEST maicord_linux_notifications)
+maicord_add_tests(MaiCordLinuxNotificationsTests TIMEOUT 20 TEST maicord_linux_notifications_mock --mock)
+set_tests_properties(maicord_linux_notifications_mock PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK dbus_private_bus)
 
 
 maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry

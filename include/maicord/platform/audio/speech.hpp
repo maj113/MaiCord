@@ -4,9 +4,9 @@
 namespace maicord {
 // Text-to-speech for "Speak message". Opened lazily on the UI thread on first
 // use; speaking is asynchronous and a new request interrupts the previous one.
-// Windows speaks through SAPI 5. Linux has no speech engine yet, so speech_speak
-// returns false there (speech-dispatcher is the later backend); callers already
-// treat false as "speech unavailable".
+// Windows speaks through SAPI 5, Linux through speech-dispatcher (libspeechd,
+// opened with dlopen; src/platform/audio/speechd). Without a speech engine
+// speech_speak returns false; callers treat that as "speech unavailable".
 struct Speech {
     void* voice; // The backend's speech object, null while closed or unavailable.
     bool attempted, initialized;

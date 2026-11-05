@@ -88,6 +88,13 @@ bool webauthn_failed() noexcept {
     return present(LoginStatus::webauthn_failed);
 }
 
+// The second factors the sign-in may pick first. Where a security key cannot be used the others come first, when the
+// account has any (the key stays on offer: choosing it says why it cannot be used).
+u8 first_choice_capabilities(u8 capabilities) noexcept {
+    constexpr u8 key = static_cast<u8>(login_mfa_capability_webauthn);
+    return !kWebAuthnAvailable && (capabilities & ~key) != 0 ? static_cast<u8>(capabilities & ~key) : capabilities;
+}
+
 } // namespace
 namespace auth_detail {
 
@@ -192,6 +199,11 @@ bool begin_webauthn() noexcept {
         return false;
     if (application_login_auth_cooldown_active())
         return true;
+    if (!kWebAuthnAvailable) {
+        // No security-key ceremony on this system: the status says so at once, instead of one that cannot run.
+        log_write(LogLevel::info, "auth", "webauthn_unavailable");
+        return webauthn_failed();
+    }
     if (!g_app.account.login_instance || !g_app.account.api.login_copy_webauthn_challenge)
         return present(LoginStatus::webauthn_failed);
     if (g_app.login.webauthn_attempted) {
@@ -919,7 +931,8 @@ bool application_login_pump() noexcept {
             return present(LoginStatus::rejected);
         if ((needs_initial_selection ||
              (g_app.login.mfa_capabilities & login_mfa_capability(g_app.login.mfa_type)) == 0) &&
-            !login_mfa_first_supported(g_app.login.mfa_capabilities, &g_app.login.mfa_type))
+            !login_mfa_first_supported(first_choice_capabilities(g_app.login.mfa_capabilities),
+                                       &g_app.login.mfa_type))
             return present(LoginStatus::rejected);
         return application_login_select_mfa(g_app.login.mfa_type, false);
     }

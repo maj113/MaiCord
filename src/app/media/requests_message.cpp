@@ -4,6 +4,9 @@
 #include "../shell/log_fields.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#if !defined(_WIN32)
+#include "maicord/sys/linux/path.hpp"
+#endif
 #include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -901,6 +904,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     constexpr u32 kMaximumExtent = 256;
     if (!resident.ok() || resident.width > kMaximumExtent || resident.height > kMaximumExtent)
         return {};
+#if defined(_WIN32)
     wchar_t path[MAX_PATH]{};
     const u32 base = local_data_root(path, MAX_PATH);
     if (!base || base >= MAX_PATH - 96)
@@ -912,6 +916,14 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     dir_create(path);
     builder.append(L"\\notification-avatars");
     dir_create(path);
+#else
+    // The files can be made again: they live in the cache directory ($XDG_CACHE_HOME/maicord/notification-avatars).
+    wchar_t path[MAX_PATH]{};
+    const DataPathResult directory = cache_path(path, MAX_PATH - 32, L"notification-avatars", true);
+    if (!directory.ok())
+        return {};
+    PathBuilder builder{path, directory.length};
+#endif
     builder.append(L"\\");
     builder.append_hex(user_id, 16);
     builder.append(L"-");
@@ -947,6 +959,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
         if (!written)
             return {};
     }
+#if defined(_WIN32)
     // file:///C:/... with forward slashes; toasts reject '?', '#' and backslashes.
     static constexpr char prefix[] = "file:///";
     copy_bytes(storage.data, prefix, sizeof(prefix) - 1);
@@ -961,6 +974,31 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
             return {};
     }
     return {storage.data, bytes};
+#else
+    // file:// and the absolute path, every byte a path name does not carry as it is written %XX.
+    char utf8[MAX_PATH * 3];
+    if (!path_to_utf8(path, utf8, sizeof(utf8)) || utf8[0] != '/')
+        return {};
+    static constexpr char prefix[] = "file://";
+    copy_bytes(storage.data, prefix, sizeof(prefix) - 1);
+    u32 bytes = sizeof(prefix) - 1;
+    for (const char* c = utf8; *c; ++c) {
+        const char value = *c;
+        const bool plain = (value >= '0' && value <= '9') || (value >= 'A' && value <= 'Z') ||
+                           (value >= 'a' && value <= 'z') || value == '/' || value == '-' || value == '.' ||
+                           value == '_' || value == '~';
+        if (bytes + (plain ? 1 : 3) >= storage.count)
+            return {};
+        if (plain) {
+            storage.data[bytes++] = value;
+        } else {
+            storage.data[bytes++] = '%';
+            storage.data[bytes++] = "0123456789ABCDEF"[static_cast<u8>(value) >> 4];
+            storage.data[bytes++] = "0123456789ABCDEF"[static_cast<u8>(value) & 15];
+        }
+    }
+    return {storage.data, bytes};
+#endif
 }
 
 } // namespace maicord::app_detail

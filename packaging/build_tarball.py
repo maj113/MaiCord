@@ -39,6 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent
 APPLICATION_ID = 'io.github.maj113.MaiCord'
 MARKER = '.maicord-portable'
 MARKER_TEXT = 'maicord-portable 1\n'
+EXECUTABLES = ('MaiCord', 'install.sh', 'uninstall.sh')
 LICENSE_SOURCES = (
     ('third_party/opus/COPYING', 'Opus-BSD.txt'),
     ('LICENSE', 'MaiCord-MPL-2.0.txt'),
@@ -83,8 +84,10 @@ def epoch(arguments) -> int:
 
 def write_metainfo(destination: Path, version: str, date: str) -> None:
     template = (ROOT / 'packaging' / 'metainfo' / f'{APPLICATION_ID}.metainfo.xml.in').read_text(encoding='utf-8')
+    # A master build has no release page of its own.
+    page = 'releases' if '-dev.' in version else f'releases/tag/v{version}'
     release = (f'<releases>\n    <release version="{version}" date="{date}">\n'
-               f'      <url type="details">https://github.com/maj113/MaiCord/releases/tag/v{version}</url>\n'
+               f'      <url type="details">https://github.com/maj113/MaiCord/{page}</url>\n'
                f'    </release>\n  </releases>')
     if '@RELEASES@' not in template:
         raise SystemExit('error: the metainfo template has no @RELEASES@')
@@ -140,7 +143,9 @@ def archive(directory: Path, output: Path, mtime: int) -> None:
             if info.isdir():
                 info.mode = 0o755
             else:
-                info.mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
+                relative = path.relative_to(directory).as_posix()
+                # The mode bit is the host's: a Windows host has none, so the executables are named.
+                info.mode = 0o755 if relative in EXECUTABLES or path.stat().st_mode & stat.S_IXUSR else 0o644
             if info.isfile():
                 with path.open('rb') as stream:
                     tar.addfile(info, stream)
@@ -154,7 +159,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--binary', type=Path, help='the MaiCord program')
     parser.add_argument('--stub', action='store_true', help='use a stand-in program (the client does not link yet)')
-    parser.add_argument('--version', help='X.Y.Z (default: the project version of CMakeLists.txt)')
+    parser.add_argument('--version', help='X.Y.Z, or X.Y.Z-dev.N for a master build (default: the project version of CMakeLists.txt)')
     parser.add_argument('--date', help='YYYY-MM-DD of the release (default: the commit date)')
     parser.add_argument('--output-dir', type=Path, required=True)
     arguments = parser.parse_args()
@@ -163,8 +168,8 @@ def main() -> int:
     if arguments.binary and not arguments.binary.is_file():
         parser.error(f'{arguments.binary} is not a file')
     version = arguments.version or project_version()
-    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
-        parser.error(f'version {version} is not X.Y.Z')
+    if not re.fullmatch(r'\d+\.\d+\.\d+(-dev\.\d+)?', version):
+        parser.error(f'version {version} is not X.Y.Z or X.Y.Z-dev.N')
     mtime = epoch(arguments)
     date = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).strftime('%Y-%m-%d')
     arguments.output_dir.mkdir(parents=True, exist_ok=True)

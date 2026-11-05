@@ -121,6 +121,15 @@ bool file_uri_path(Utf8View uri, char* output, u32 capacity) noexcept {
         output[length++] = c;
     }
     output[length] = 0;
+    // "file:///x" is the spelling; the path of an absolute file appended to "file:///" gives "file:////x", the same file.
+    u32 start = 0;
+    while (output[start] == '/' && output[start + 1] == '/')
+        ++start;
+    if (start) {
+        for (u32 i = 0; i + start <= length; ++i)
+            output[i] = output[i + start];
+        length -= start;
+    }
     return length > 1 && output[0] == '/';
 }
 

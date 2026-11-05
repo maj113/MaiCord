@@ -1,14 +1,20 @@
 /*
- * MaiCord native plugin SDK, ABI 6. Pure C (C11 or C++), Windows x64 only.
+ * MaiCord native plugin SDK, ABI 6. Pure C (C11 or C++), x86-64: a DLL on Windows, a shared object on Linux.
  *
  * OVERVIEW
- *   A plugin is a DLL whose only export is one const data object:
+ *   A plugin is a DLL (Windows) or shared object (Linux) whose only export is one const data object:
  *
  *     MC_EXPORT const mc_descriptor maicord_plugin_v6 = { ... };
  *
  *   The DLL has no entry point and no TLS callbacks (link /NOENTRY, no CRT),
  *   so loading it runs none of its code. The host checks this in the PE
- *   headers before LoadLibrary, then validates the descriptor once: strings,
+ *   headers before LoadLibrary. A Linux shared object is built the same way
+ *   (-nostdlib -shared -fPIC -fvisibility=hidden -Wl,-Bsymbolic, no libc): no
+ *   DT_NEEDED, no undefined symbol, no initializer, finalizer or TLS segment, no
+ *   relocation but relative ones, a non-executable stack and one exported
+ *   symbol, which the host checks in the ELF headers before dlopen. The calling
+ *   convention is the platform's (MC_CALL: __stdcall on Windows, the System V
+ *   x86-64 convention on Linux). The host then validates the descriptor once: strings,
  *   counts, settings offsets, hooks, commands, menus, buttons, network hosts
  *   and api_level. Everything the plugin does is declared there: metadata,
  *   permissions, settings schema, state size, hooks, slash commands, context
@@ -55,8 +61,13 @@ extern "C" {
 
 #define MC_ABI 6u
 #define MC_API_LEVEL 3u /* highest mc_api level this header describes */
+#if defined(_WIN32)
 #define MC_CALL __stdcall
 #define MC_EXPORT __declspec(dllexport)
+#else
+#define MC_CALL /* the System V x86-64 convention */
+#define MC_EXPORT __attribute__((visibility("default")))
+#endif
 #define MC_DESCRIPTOR_SYMBOL maicord_plugin_v6
 #define MC_DESCRIPTOR_EXPORT "maicord_plugin_v6"
 

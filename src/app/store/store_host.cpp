@@ -1,4 +1,5 @@
 #include "store_host.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/os/text.hpp"
 #include "store_preview.hpp"
 #include "store_source.hpp"
@@ -232,7 +233,7 @@ void start_pick(u8 purpose) noexcept {
         return;
     if (native_file_picker_start(&g->picker, g_app.window, 1,
                                  purpose == 0 ? utf8_literal("Choose a theme or effect")
-                                              : page().kind == CatalogKind::plugin ? utf8_literal("Load a plugin DLL") : utf8_literal("Load an effect"))
+                                              : page().kind == CatalogKind::plugin ? MAICORD_OS_TEXT("Load a plugin DLL", "Load a plugin") : utf8_literal("Load an effect"))
         == NativeFilePickerError::none) {
         g->picking = true;
         g->pick_for = purpose;

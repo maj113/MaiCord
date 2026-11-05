@@ -33,6 +33,7 @@ enum SyscallNumber : long {
     kSysSocketpair = 53,
     kSysSetsockopt = 54,
     kSysGetsockopt = 55,
+    kSysExecve = 59,
     kSysExit = 60,
     kSysKill = 62,
     kSysUname = 63,
@@ -40,6 +41,8 @@ enum SyscallNumber : long {
     kSysFlock = 73,
     kSysFsync = 74,
     kSysFtruncate = 77,
+    kSysChmod = 90,
+    kSysGeteuid = 107,
     kSysFstatfs = 138,
     kSysSchedSetscheduler = 144,
     kSysMlock = 149,
@@ -75,7 +78,9 @@ enum SyscallNumber : long {
     kSysInotifyInit1 = 294,
     kSysRenameat2 = 316,
     kSysGetrandom = 318,
+    kSysMemfdCreate = 319,
     kSysStatx = 332,
+    kSysCloseRange = 436,
 };
 
 inline long syscall1(long number, long a) noexcept {

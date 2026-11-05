@@ -183,8 +183,19 @@ void publish(const Publish& p) noexcept {
     if (p.bad_signature) g->signature[3] ^= 1;
     auto& s = g->server;
     plugin_fake::reset(s, kOrigin);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-3.json", 200, t.data, t.bytes);
-    plugin_fake::serve(s, UpdateHost::pages, "/MaiCord-plugins/index-3.json.sig", 200, g->signature, 64);
+    // The index this system's client reads (index-3.json on Windows, index-4.json on Linux).
+    // The fake server keeps the pointers, so the strings live in the catalog.
+    char(&index_target)[64] = g->index_target;
+    char(&signature_target)[64] = g->signature_target;
+    u32 at = 0;
+    for (const char* c = "/MaiCord-plugins/"; *c; ++c) index_target[at++] = *c;
+    for (u32 i = 0; i < kCatalogIndexFile.bytes; ++i) index_target[at++] = kCatalogIndexFile.data[i];
+    index_target[at] = 0;
+    for (u32 i = 0; i <= at; ++i) signature_target[i] = index_target[i];
+    for (u32 i = 0; i < 4; ++i) signature_target[at + i] = ".sig"[i];
+    signature_target[at + 4] = 0;
+    plugin_fake::serve(s, UpdateHost::pages, index_target, 200, t.data, t.bytes);
+    plugin_fake::serve(s, UpdateHost::pages, signature_target, 200, g->signature, 64);
     for (const Blob& b : g->plugin) plugin_fake::serve(s, UpdateHost::pages, b.target, 200, b.data, b.bytes);
     const Blob& theme = p.corrupt_theme ? g->corrupt : g->theme;
     plugin_fake::serve(s, UpdateHost::pages, g->theme.target, 200, theme.data, theme.bytes);

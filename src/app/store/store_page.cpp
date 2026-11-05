@@ -1,5 +1,6 @@
 #include "store_build.hpp"
 #include "maicord/core/name_list.hpp"
+#include "maicord/core/os_text.hpp"
 
 namespace maicord::app_detail {
 namespace store_build {
@@ -934,7 +935,7 @@ void build_developer(Ctx& c) noexcept {
         auto& col = c.b.open(UiStoreKind::column);
         col.gap = 2;
         col.flags = ui_store_flex;
-        c.b.text(kind == CatalogKind::plugin ? utf8_literal("Load a plugin DLL...") : utf8_literal("Load a .mcfx..."), UiStoreType::body, UiStoreInk::strong);
+        c.b.text(kind == CatalogKind::plugin ? MAICORD_OS_TEXT("Load a plugin DLL...", "Load a plugin...") : utf8_literal("Load a .mcfx..."), UiStoreType::body, UiStoreInk::strong);
         subtle(c, kind == CatalogKind::plugin ? utf8_literal("Asks for your consent as an unreviewed plugin with full access to your PC.")
                                               : utf8_literal("Shows the not-reviewed card with a preview before it is installed."),
                ui_store_wrap);

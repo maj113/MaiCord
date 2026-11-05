@@ -95,8 +95,27 @@ if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     endif()
     maicord_check_p256_point(MAICORD_UPDATE_PUBLIC_KEY)
 endif()
-set_source_files_properties(src/app/update/entry.cpp PROPERTIES COMPILE_DEFINITIONS
+# Whether the release channels carry the Linux tarball (maicord_release.py linux, MAICORD_LINUX_RELEASES in
+# .github/workflows/release.yml). A Linux build compiled without it never enables the updater, tarball install or not
+# (src/app/update/entry.cpp). The release workflow's Linux job sets the variable from the same repository variable that
+# turns the job on; the Windows client has no use for it.
+if(DEFINED ENV{MAICORD_LINUX_RELEASES} AND "$ENV{MAICORD_LINUX_RELEASES}" STREQUAL "true")
+    set(maicord_default_linux_updates_published ON)
+else()
+    set(maicord_default_linux_updates_published OFF)
+endif()
+option(MAICORD_LINUX_UPDATES_PUBLISHED "The release channels carry the Linux tarball: a tarball install may update itself"
+    "${maicord_default_linux_updates_published}")
+set(maicord_update_definitions
     "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
+if(NOT WIN32)
+    if(MAICORD_LINUX_UPDATES_PUBLISHED)
+        list(APPEND maicord_update_definitions "MAICORD_LINUX_UPDATES_PUBLISHED=1")
+    else()
+        list(APPEND maicord_update_definitions "MAICORD_LINUX_UPDATES_PUBLISHED=0")
+    endif()
+endif()
+set_source_files_properties(src/app/update/entry.cpp PROPERTIES COMPILE_DEFINITIONS "${maicord_update_definitions}")
 
 # The official catalog (maj113/MaiCord-plugins on GitHub Pages): the current
 # and the next (offline) P-256 key. Setting both keys empty compiles the

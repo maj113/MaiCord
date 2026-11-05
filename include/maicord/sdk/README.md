@@ -1,10 +1,11 @@
 # MaiCord plugin SDK (ABI 6)
 
-A MaiCord plugin is a native x64 DLL with no entry point whose only export is
+A MaiCord plugin is a native x64 DLL (a freestanding x86-64 shared object on
+Linux) with no entry point whose only export is
 one `const` descriptor, `maicord_plugin_v6`. The descriptor declares
 everything the plugin does: metadata, permissions, settings, state, hooks,
 slash commands, context-menu items, buttons and the HTTPS hosts it may reach.
-Loading a plugin runs none of its code; the host checks the PE and the
+Loading a plugin runs none of its code; the host checks the PE (or ELF) and the
 descriptor first.
 
 - `maicord_plugin.h` is the C ABI (C11 or C++). It's the reference for every
@@ -25,11 +26,12 @@ turns misbehaving plugins off, but it isn't a sandbox.
 
 ## Quick start
 
-You need Windows 10 or 11 x64 and Python 3.9 or newer. You don't need Visual
-Studio or the Windows SDK: the tool compiles with MaiCord's pinned clang-cl
-and lld-link (downloaded once into `%LOCALAPPDATA%\MaiCord-toolchain`, checked
-against the SHA-256 in `tools/llvm_toolchain.json`, or taken from `PATH`) and
-against the headers in this folder only.
+You need Windows 10 or 11 x64 or Linux x86-64, and Python 3.9 or newer. You
+don't need Visual Studio or the Windows SDK: on Windows the tool compiles with
+MaiCord's pinned clang-cl and lld-link (downloaded once into
+`%LOCALAPPDATA%\MaiCord-toolchain`, checked against the SHA-256 in
+`tools/llvm_toolchain.json`, or taken from `PATH`), on Linux with clang and
+ld.lld from `PATH`, and against the headers in this folder only.
 
 ```powershell
 # in a MaiCord checkout (or an SDK folder); put tools\maicord-plugin on PATH
@@ -61,16 +63,19 @@ The commands:
 | Command | What it does |
 |---|---|
 | `new <name>` | Creates the project: a ClearURLs-sized `plugin.cpp` (a setting, a hook, a command, state), `README.md`, `.gitignore`, and a `.clangd` so editors find these headers |
-| `build` | Compiles and links `plugin.cpp` into `build\<folder>.dll` with the flags of the catalog's CI (so the DLL is byte for byte what CI builds), then checks the PE and the descriptor |
-| `check [dll]` | Runs those checks again, offline: no entry point, no TLS, one export, sections, descriptor strings, limits, hooks and commands in code |
-| `dev [--watch]` | Builds if the DLL is stale, then copies it atomically into the dev folder. `--watch` rebuilds when a source changes |
+| `build` | Compiles and links `plugin.cpp` into `build\<folder>.dll` (Linux: `build/<folder>.so`) with the flags of the catalog's CI (so the file is byte for byte what CI builds), then checks the PE or ELF headers and the descriptor |
+| `check [file]` | Runs those checks again, offline: no entry point, no TLS, one export, sections (Linux: no `DT_NEEDED`, imports, initializers or non-relative relocations), descriptor strings, limits, hooks and commands in code |
+| `dev [--watch]` | Builds if the file is stale, then copies it atomically into the dev folder. `--watch` rebuilds when a source changes |
 | `pack` | Checks, then writes `dist\<slug>\` (`plugin.cpp`, `catalog.json`, `details.md`) for a pull request to the catalog; see "Publishing" |
 | `effect new / build / preview` | The same for background effects; `effect preview --time HH:MM --date MM-DD --day-seconds N --appearance dark\|light` stands in for the clock and appearance inputs (`--real-inputs` stops it) |
 
 Useful options: `--dir` (project folder), `--sdk` (a folder with
 `include\maicord\sdk`), `--llvm-bin` (a folder with `clang-cl.exe` and
-`lld-link.exe`), `--dev-folder`, `-v` (print the compiler commands). The dev
-folder is `%LOCALAPPDATA%\MaiCord\plugins\dev`, or `%MAICORD_PLUGIN_DEV%` for
+`lld-link.exe`, or with clang and ld.lld for `--target linux`), `--target
+windows|linux` (default: the system the tool runs on), `--dev-folder`, `-v`
+(print the compiler commands). The dev
+folder is `%LOCALAPPDATA%\MaiCord\plugins\dev` (`$XDG_DATA_HOME/maicord/plugins/dev`
+on Linux), or `%MAICORD_PLUGIN_DEV%` for
 both MaiCord and the tool; effects use `...\effects\dev` and
 `%MAICORD_EFFECT_DEV%`. The tool's own test is
 `python -B tools/maicord-plugin/test_maicord_plugin.py`.
@@ -107,16 +112,16 @@ Rules:
   `MC_PLUGIN` appear at most once; `MC_PLUGIN` comes last.
 - Designated options follow declaration order (see the structs in `plugin.hpp`).
 - Define `MC_RUNTIME` in the one translation unit, so `plugin.hpp` provides
-  `memcpy`, `memset`, `memmove`, `memcmp`, `__chkstk` and `_fltused`.
-  (`maicord-plugin build` does.)
+  `memcpy`, `memset`, `memmove` and `memcmp` (on Windows also `__chkstk` and
+  `_fltused`). (`maicord-plugin build` does.)
 - Every entry point gets a `Ctx&` that is valid until it returns. Strings the
   host passes in are valid for the call; copy what you keep.
 - A mistake the compiler can see is a compile error with a sentence: a missing
   permission (`ctx.copy needs .permissions = MC_PERM_CLIPBOARD`), a second
   hook of one kind, a command with the wrong parameters.
 
-By hand, with clang-cl and lld-link (`<include>` holds `maicord/sdk/`; these
-are the flags `maicord-plugin build` uses):
+By hand, with clang-cl and lld-link on Windows (`<include>` holds `maicord/sdk/`;
+these are the flags `maicord-plugin build` uses):
 
 ```powershell
 clang-cl /nologo /c /std:c++latest /clang:-nostdinc /O2 /W4 /WX /utf-8 /Zl /GS- /GR- /permissive- `
@@ -128,7 +133,48 @@ lld-link /nologo /DLL /NOENTRY /NODEFAULTLIB /SUBSYSTEM:WINDOWS,6.02 /DYNAMICBAS
 ```
 
 With CMake, `cmake/test_support.cmake` has `maicord_plugin(<target> <source>)`,
-which this repository uses for its samples and fixtures.
+which this repository uses for its samples and fixtures (DLLs on Windows, shared
+objects on Linux).
+
+### On Linux
+
+The same `plugin.cpp` builds a shared object for MaiCord on Linux (x86-64). It is
+freestanding: the SDK headers only, no libc, and the one export is the descriptor.
+On Linux the tool is `python3 tools/maicord-plugin/maicord_plugin.py new|build|dev|check|pack`
+(its default target is the system it runs on), and it needs clang and ld.lld on `PATH`.
+By hand with clang and ld.lld (`maicord-plugin build --target linux` runs exactly this
+and checks the result, on Windows too when clang and ld.lld are on `PATH`):
+
+```sh
+clang++ --target=x86_64-unknown-linux-gnu -std=c++23 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers \
+  -nostdinc -I<include> -I<include>/maicord/sys/libc -fPIC -fvisibility=hidden -fno-stack-protector \
+  -fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-exceptions -fno-rtti \
+  -fno-threadsafe-statics -DMC_RUNTIME -c plugin.cpp -o plugin.o
+clang++ --target=x86_64-unknown-linux-gnu -fuse-ld=lld -nostdlib -shared -Wl,-Bsymbolic -Wl,-z,noexecstack \
+  -Wl,-z,now -Wl,--hash-style=gnu -Wl,--build-id=none -Wl,--gc-sections plugin.o -o my-plugin.so
+```
+
+(`-nostdinc` with `<include>/maicord/sys/libc` gives `stdint.h` and `stddef.h`;
+with a normal hosted toolchain you can use its own freestanding headers instead.)
+MaiCord's loader refuses anything else before `dlopen` maps it, so a plugin that
+builds with these flags loads, and one that doesn't says why in the Developer
+Console:
+
+- no `DT_NEEDED`, no undefined symbol and no filter: a plugin imports nothing
+  (that is what `-nostdlib` is for; calling `printf` or `getpid` is refused);
+- no entry point, initializer or finalizer (`DT_INIT`, `DT_FINI`, `.init_array`:
+  no `__attribute__((constructor))`, no global with a constructor), no
+  thread-local storage segment;
+- only relative relocations (`-fPIC`, `-fvisibility=hidden`, `-Wl,-Bsymbolic`:
+  one preemptible exported symbol would otherwise be reached through the GOT);
+- a non-executable stack (`-z noexecstack`), no segment that is writable and
+  executable, an x86-64 `ET_DYN`;
+- exactly one exported symbol, `maicord_plugin_v6`, as data.
+
+The calling convention of `MC_CALL` is the platform's (the System V one on Linux),
+and the file must be the user's own and not writable by others: the loader opens
+it without following links, copies it into a sealed memory file while it checks
+its SHA-256, and loads that copy, so what was hashed and checked is what runs.
 
 ## Descriptor (`MC_PLUGIN`)
 
@@ -586,6 +632,12 @@ logging deleted messages (`persistent_log`); it also refuses hidden network
 use, telemetry and obfuscated code. Such plugins can still be sideloaded by
 users who turn on Developer Mode. A listed build can be revoked (its SHA-256
 goes into the signed index and every client turns it off).
+
+One source, two payloads: CI builds the DLL for Windows and a shared object for
+Linux (x86-64) from the same `plugin.cpp`, with the flags of "On Linux" above, and
+the signed index lists each version's Linux file next to its DLL (the Linux client
+reads `index-4.json`, where that file is the version's file). A plugin that does
+not build for Linux, or only calls into Windows, is listed for Windows only.
 
 ## Writing a plugin in C
 

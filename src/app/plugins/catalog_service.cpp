@@ -252,10 +252,10 @@ void delete_unreferenced_plugins() noexcept {
     if (!dir_open(&scan, directory)) return;
     DirEntry found{};
     while (dir_next(&scan, &found)) {
-        if (found.kind != FileKind::regular || wide_length(found.name, 260) != 68) continue;
-        static constexpr wchar_t kExtension[] = L".dll";
+        if (found.kind != FileKind::regular || wide_length(found.name, 260) != kCatalogPluginLeafCharacters) continue;
         bool dll = true;
-        for (u32 i = 0; i < 4; ++i) dll = dll && (found.name[64 + i] | 0x20) == kExtension[i];
+        for (u32 i = 0; i < kCatalogPluginExtensionCharacters; ++i)
+            dll = dll && (found.name[64 + i] | 0x20) == kCatalogPluginExtension[i];
         if (!dll) continue;
         u8 sha[32];
         bool valid = true;
@@ -508,7 +508,7 @@ bool review_plugin() noexcept {
     wchar_t leaf[69];
     catalog_plugin_leaf(g->op.sha256, leaf);
     unload_consent_image();
-    const auto loaded = plugin_image_load(&g->consent_image, r->runtime.directory, {leaf, 68}, ~0ull, g->op.sha256);
+    const auto loaded = plugin_image_load(&g->consent_image, r->runtime.directory, {leaf, kCatalogPluginLeafCharacters}, ~0ull, g->op.sha256);
     if (!loaded.ok()) {
         UpdateLog(kLog, "plugin_refused").field("error", static_cast<u8>(loaded.error)).field("problem", static_cast<u8>(loaded.problem)).write(LogLevel::warning);
         if (g->op.reload) {
@@ -696,7 +696,7 @@ bool sideload_file(const wchar_t* path, u32 characters, u32 file) noexcept {
         g->op.dev_file = static_cast<u8>(file);
         g->op.dev_started_ms = clock_monotonic_milliseconds();
         const wchar_t* name = g->dev_files[file].name;
-        const u32 stem = wide_length(name, 64) - 4; // without ".dll"
+        const u32 stem = wide_length(name, 64) - kCatalogPluginExtensionCharacters; // without ".dll" (".so" on Linux)
         for (u32 i = 0; i < stem && g->op.dev_name_bytes < kDevLineNameBytes; ++i)
             g->op.dev_name[g->op.dev_name_bytes++] = name[i] < 0x80 ? static_cast<char>(name[i]) : '?';
     }
@@ -749,11 +749,11 @@ bool dev_effects_watch() noexcept {
 }
 
 bool dev_dll(const wchar_t* name, u32 length) noexcept {
-    static constexpr wchar_t kExtension[] = L".dll";
-    if (length <= 4 || length >= 64) return false;
-    for (u32 i = 0; i < 4; ++i) {
-        const wchar_t c = name[length - 4 + i];
-        if ((c | 0x20) != kExtension[i]) return false;
+    constexpr u32 kExtension = kCatalogPluginExtensionCharacters;
+    if (length <= kExtension || length >= 64) return false;
+    for (u32 i = 0; i < kExtension; ++i) {
+        const wchar_t c = name[length - kExtension + i];
+        if ((c | 0x20) != kCatalogPluginExtension[i]) return false;
     }
     return true;
 }
@@ -924,7 +924,11 @@ CatalogItemState application_catalog_item_state(CatalogKind kind, const Utf8View
 }
 
 void application_catalog_browse() noexcept {
-    if (!g || !g->restored || !configured()) return;
+    if (!g) return;
+    // The shell restores the catalog when the account session is ready; the store pages open before that (signed out,
+    // or while the session is restoring) and must list the catalog all the same.
+    if (!g->restored) application_catalog_restore();
+    if (!configured()) return;
     g->browsing = true;
     load_cache();
     if (now_unix() >= g->state.checked_unix + kBrowseRefreshSeconds) g->next_check_unix = now_unix();

@@ -13,6 +13,7 @@ Everything a service receives is recorded as one line of text per call (the argu
 decoded by libdbus, not by the code under test); the test fetches the lines with org.maicord.Mock.Take.
 """
 import os
+import re
 import sys
 
 import dbus
@@ -382,11 +383,16 @@ class Notifications(dbus.service.Object):
     @dbus.service.method('org.freedesktop.Notifications', in_signature='susssasa{sv}i', out_signature='u')
     def Notify(self, app_name, replaces_id, icon, summary, body, actions, hints, timeout):
         record('Notify %s' % ' '.join(canon(a) for a in (app_name, replaces_id, icon, summary, body, actions, hints, timeout)))
+        size = len(str(body).encode('utf-8'))
+        if size > 4000:
+            # A body cut short must end between whole entities: the line says how long it was and whether it did.
+            record('NotifyLong %d %d' % (size, 0 if re.search(r'&[a-z]{0,3}$', str(body)) else 1))
         if modes.get('notify-error'):
             raise dbus.exceptions.DBusException('no notifications', name='org.freedesktop.Notifications.Error.Failed')
         if int(replaces_id):
             return dbus.UInt32(int(replaces_id))
         Notifications.next_id += 1
+        record('NotifyId %d' % Notifications.next_id)
         return dbus.UInt32(Notifications.next_id)
 
     @dbus.service.method('org.freedesktop.Notifications', in_signature='u', out_signature='')
@@ -396,6 +402,8 @@ class Notifications(dbus.service.Object):
 
     @dbus.service.method('org.freedesktop.Notifications', in_signature='', out_signature='as')
     def GetCapabilities(self):
+        if modes.get('no-markup'):
+            return ['actions', 'body', 'persistence']
         return ['actions', 'body', 'body-markup', 'persistence']
 
     @dbus.service.method('org.freedesktop.Notifications', in_signature='', out_signature='ssss')

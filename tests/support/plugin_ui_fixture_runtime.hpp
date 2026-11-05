@@ -2,9 +2,13 @@
 
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/ui.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#if !defined(_WIN32)
+#include "../app/plugins/plugin_fixture.hpp"
+#endif
 
 // The ABI-6 UI fixture (tests/fixtures/plugin_ui_fixture.c) enabled through the real plugin runtime, for the
 // tests of the application's side of plugin menus: a private temporary plugins directory, the DLL copied next
@@ -40,7 +44,7 @@ struct Fixture {
     static void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
         u32 at = 0;
         for (; directory[at]; ++at) output[at] = directory[at];
-        output[at++] = L'\\';
+        output[at++] = kPathSeparator;
         for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
         output[at] = 0;
     }
@@ -56,6 +60,7 @@ struct Fixture {
         join(plugins, base, L"plugins");
         join(data, base, L"data");
         if (!CreateDirectoryW(plugins, nullptr) || !CreateDirectoryW(data, nullptr)) return false;
+#if defined(_WIN32)
         const DWORD count = GetModuleFileNameW(nullptr, module, MAX_PATH);
         u32 at = count;
         while (at && module[at - 1] != L'\\') --at;
@@ -64,6 +69,14 @@ struct Fixture {
         join(source, module, built);
         join(destination, plugins, L"ui.dll");
         if (!CopyFileW(source, destination, FALSE)) return false;
+#else
+        (void)module;
+        (void)source;
+        (void)destination;
+        plugin_fixture::Root root{};
+        plugin_fixture::make_paths(&root, base);
+        if (!plugin_fixture::install(root, built, L"ui.dll")) return false;
+#endif
         const PluginLoadResult open_result =
             plugin_runtime_open(&runtime, {plugins, length(plugins)}, {data, length(data)}, nullptr);
         opened = open_result.ok();
@@ -86,6 +99,7 @@ struct Fixture {
         binding = enabled.ok() ? enabled.binding : nullptr;
         return binding != nullptr;
     }
+#if defined(_WIN32)
     void remove_tree(const wchar_t* directory) noexcept {
         wchar_t pattern[MAX_PATH];
         join(pattern, directory, L"*");
@@ -105,6 +119,11 @@ struct Fixture {
         }
         RemoveDirectoryW(directory);
     }
+#else
+    void remove_tree(const wchar_t* directory) noexcept {
+        plugin_fixture::remove_tree(directory);
+    }
+#endif
     // Disables anything left, closes the runtime and deletes the private directory.
     void release() noexcept {
         disable();

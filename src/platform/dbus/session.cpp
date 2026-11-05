@@ -5,7 +5,7 @@
 namespace maicord::dbus {
 namespace {
 
-constexpr u32 kMaxHooks = 8;
+constexpr u32 kMaxHooks = 12;
 constexpr u32 kRetryMs = 10000;
 
 Connection* g_session;
@@ -15,6 +15,8 @@ u32 g_generation;
 u64 g_retry_at;  // monotonic ms before which no new connection is tried
 SessionBusHook g_hooks[kMaxHooks];
 u32 g_hook_count;
+SessionBusExtra g_extras[kSessionBusExtraMaximum];
+u32 g_extra_count;
 
 void drop_connection(u64 now) noexcept {
     connection_close(g_session);
@@ -72,12 +74,33 @@ Waitable session_bus_waitable() noexcept {
     return session_bus() ? connection_waitable(g_session) : nullptr;
 }
 
+bool session_bus_add_extra(const SessionBusExtra& extra) noexcept {
+    if (g_extra_count == kSessionBusExtraMaximum)
+        return false;
+    g_extras[g_extra_count++] = extra;
+    return true;
+}
+
+u32 session_bus_extra_waitables(Waitable* out, u32 capacity) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < g_extra_count && count < capacity; ++i)
+        if (const Waitable waitable = g_extras[i].waitable())
+            out[count++] = waitable;
+    return count;
+}
+
 u32 session_bus_wait_ms(u64 now_ms) noexcept {
+    u32 wait = kNoTimeout;
     if (g_session)
-        return connection_wait_ms(g_session, now_ms);
-    if (!g_wanted)
-        return kNoTimeout;
-    return now_ms >= g_retry_at ? 0 : static_cast<u32>(g_retry_at - now_ms);
+        wait = connection_wait_ms(g_session, now_ms);
+    else if (g_wanted)
+        wait = now_ms >= g_retry_at ? 0 : static_cast<u32>(g_retry_at - now_ms);
+    for (u32 i = 0; i < g_extra_count; ++i) {
+        const u32 due = g_extras[i].wait_ms(now_ms);
+        if (due < wait)
+            wait = due;
+    }
+    return wait;
 }
 
 void session_bus_process(u64 now_ms) noexcept {
@@ -88,6 +111,8 @@ void session_bus_process(u64 now_ms) noexcept {
     } else if (g_wanted) {
         try_open(now_ms);
     }
+    for (u32 i = 0; i < g_extra_count; ++i)
+        g_extras[i].process(now_ms);
 }
 
 bool session_bus_wait_for(const volatile bool* done, u32 timeout_ms) noexcept {

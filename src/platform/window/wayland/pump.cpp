@@ -179,7 +179,7 @@ u32 window_next_deadline_ms(u64 now_ms) noexcept {
 
 WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     WindowWaitResult result{};
-    constexpr u32 kExtra = 5;  // the display, the loop wake, the key-repeat timer, the session bus and the instance socket
+    constexpr u32 kExtra = 5 + dbus::kSessionBusExtraMaximum;  // the display, the loop wake, the key-repeat timer, the session bus, the instance socket, the bus extras
     if (count > kWaitMaximumCount - kExtra) {
         result.failed = true;
         return result;
@@ -240,6 +240,12 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
         instance_bit = total;
         all[total++] = instance;
     }
+    // The session bus's extra connections (the accessibility bus) and their due times.
+    Waitable extras[dbus::kSessionBusExtraMaximum];
+    const u32 extra_count = dbus::session_bus_extra_waitables(extras, dbus::kSessionBusExtraMaximum);
+    const u32 extra_first = total;
+    for (u32 i = 0; i < extra_count; ++i)
+        all[total++] = extras[i];
     const u32 bus_ms = dbus::session_bus_wait_ms(now);
     if (bus_ms < timeout_ms)
         timeout_ms = bus_ms;
@@ -251,8 +257,10 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     result.ready_mask = waited.ready_mask & ((1ull << count) - 1);
     const bool woken = (waited.ready_mask >> wake_bit) & 1;
     const bool repeat_fired = repeat_bit != ~0u && ((waited.ready_mask >> repeat_bit) & 1);
+    const u64 extra_mask = extra_count ? ((1ull << extra_count) - 1) << extra_first : 0;
     const bool bus_ready = (bus_bit != ~0u && ((waited.ready_mask >> bus_bit) & 1)) ||
-                           (instance_bit != ~0u && ((waited.ready_mask >> instance_bit) & 1));
+                           (instance_bit != ~0u && ((waited.ready_mask >> instance_bit) & 1)) ||
+                           (waited.ready_mask & extra_mask) != 0;
     result.window_input = woken || repeat_fired || bus_ready || work_pending();
     result.timed_out = waited.timed_out && !result.window_input;
     result.failed = waited.failed;

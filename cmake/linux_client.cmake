@@ -19,7 +19,7 @@ maicord_program(MaiCord ENTRY maicord_entry
         maicord_renderer maicord_atlas_gpu maicord_render_colr_paint maicord_paint_program maicord_render_core
         maicord_effect_host maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles
         maicord_window_wayland maicord_audio_pulse maicord_aac_decoder maicord_video_decode
-        maicord_desktop_system maicord_dbus maicord_model maicord_protocol maicord_voice_encoder
+        maicord_desktop_system maicord_dbus maicord_atspi maicord_model maicord_protocol maicord_voice_encoder
         maicord_notification_pcm maicord_media_core maicord_media_codec maicord_compression
         maicord_crypto maicord_net maicord_core
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")

@@ -542,6 +542,33 @@ bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept {
     return true;
 }
 
+// The opaque region: the whole surface. The compositor then draws the window without blending and stops drawing what
+// lies behind it. The window has no rounded or transparent corners (the caption bar is square and drawn inside the
+// surface) and nothing in it is transparent (the GPU backend's EGL config has no alpha). The compositor keeps the region
+// until another one comes, so it is sent only when the surface's size changes; the next commit applies it.
+static void apply_opaque_region() noexcept {
+    WindowState& window = g.window;
+    if (!window.surface || !g.compositor)
+        return;
+    const i32 width = static_cast<i32>(window.logical_width);
+    const i32 height = static_cast<i32>(window.logical_height);
+    if (window.opaque_sent && width == window.opaque_width && height == window.opaque_height)
+        return;
+    window.opaque_width = width;
+    window.opaque_height = height;
+    window.opaque_sent = true;
+    if (width == 0 || height == 0) {
+        wl_surface_set_opaque_region(window.surface, nullptr);
+        return;
+    }
+    wl_region* region = wl_compositor_create_region(g.compositor);
+    if (!region)
+        return;
+    wl_region_add(region, 0, 0, width, height);
+    wl_surface_set_opaque_region(window.surface, region);
+    wl_region_destroy(region);
+}
+
 // What the surface needs besides a buffer: the destination size of the viewport (fractional scale) or the integer buffer
 // scale. Both are applied by the next commit, whoever makes it.
 void apply_surface_geometry() noexcept {
@@ -551,6 +578,7 @@ void apply_surface_geometry() noexcept {
                                     static_cast<i32>(window.logical_height));
     else if (g.compositor_version >= wl_surface_set_buffer_scale_since)
         wl_surface_set_buffer_scale(window.surface, static_cast<i32>(maximum<u32>(window.dpi / kDefaultDpi, 1)));
+    apply_opaque_region();
 }
 
 void window_scale_changed(u32 scale_120) noexcept {
@@ -981,6 +1009,16 @@ bool window_wayland_info(Window window, WaylandSurfaceInfo* info) noexcept {
     info->scale_120 = g.window.dpi * 120 / 96;
     info->logical_width = g.window.logical_width;
     info->logical_height = g.window.logical_height;
+    return true;
+}
+
+bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexcept {
+    if (!is_window(window) || !g.window.opaque_sent || g.window.opaque_width == 0 || g.window.opaque_height == 0)
+        return false;
+    if (width)
+        *width = static_cast<u32>(g.window.opaque_width);
+    if (height)
+        *height = static_cast<u32>(g.window.opaque_height);
     return true;
 }
 

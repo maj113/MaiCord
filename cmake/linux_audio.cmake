@@ -4,12 +4,12 @@
 # libpulse is dlopen()ed ("libpulse.so.0": PulseAudio, pipewire-pulse and WSLg), so the image gains no DT_NEEDED and a
 # machine without a sound server library or without a running server reports audio as unavailable. media_audio_ring.cpp
 # and notification_audio_mixer.cpp are the transport-free halves of media and notification audio the Windows build
-# compiles too; text-to-speech has no Linux engine yet (speech_unavailable.cpp: speech_speak reports false).
+# compiles too; text-to-speech is speech-dispatcher through libspeechd, also dlopen()ed (src/platform/audio/speechd).
 maicord_library(maicord_audio_pulse
     src/platform/audio/pulse/pulse.cpp src/platform/audio/pulse/voice_audio_output.cpp
     src/platform/audio/pulse/voice_audio_capture.cpp src/platform/audio/media_audio_ring.cpp
     src/platform/audio/pulse/media_audio.cpp src/platform/audio/notification_audio_mixer.cpp
-    src/platform/audio/pulse/notification_audio.cpp src/platform/audio/speech_unavailable.cpp
+    src/platform/audio/pulse/notification_audio.cpp src/platform/audio/speechd/speech.cpp
     LIBS maicord_core)
 
 # The AAC decoder interface of include/maicord/platform/decode/aac_decoder.hpp on Linux (Windows decodes AAC through

@@ -16,9 +16,11 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import struct
 import sys
 import tempfile
 import unittest
+import zlib
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -295,6 +297,145 @@ class PluginIndexToolTests(unittest.TestCase):
         with self.assertRaises(plugin_index.PluginIndexError) as raised:
             plugin_index.render_index(source)
         self.assertEqual(raised.exception.code, "unknown_field", "rendering refuses members no reader defines")
+
+    def test_universal_packages_and_index_4(self):
+        source = spec()
+        items = {(i["kind"], i["slug"]): i for i in source["items"]}
+        aurora, starfield = items["effect", "aurora"], items["effect", "starfield"]
+        aurora["interface"] = 3
+        before = [plugin_index.render_index(plugin_index.reader_source(source, r), r) for r in (3, 2, 1)]
+        aurora["universal"] = file("aurora-universal", 5000)
+        plugin_index.check_source(source)
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.render_index(source)
+        self.assertEqual(raised.exception.code, "unknown_field", "no reader's document names it")
+        after = [plugin_index.render_index(plugin_index.reader_source(source, r), r) for r in (3, 2, 1)]
+        self.assertEqual(after, before, "index-3.json, index-full.json and index.json do not change by a byte")
+        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(
+            plugin_index.render_index(plugin_index.reader_source(source, 4), 4), None, reader=4)["items"]}
+        self.assertEqual((listed["effect", "aurora"]["interface"], listed["effect", "aurora"]["file"]),
+                         (4, file("aurora-universal", 5000)), "index-4.json lists the universal package as the file")
+        self.assertNotIn("universal", listed["effect", "aurora"])
+        self.assertEqual(listed["effect", "starfield"].get("file"), starfield["file"], "other effects are untouched")
+        self.assertEqual(listed["theme", "obsidian"].get("interface"), items["theme", "obsidian"].get("interface"))
+        self.assertEqual(listed["effect", "aurora"]["version"], aurora["version"])
+        # A document that carries the member: readers 3 and 4 skip it, the older ones refuse it.
+        document = json.dumps(dict(plugin_index.reader_source(source, 3), items=[
+            dict(i, universal=file("aurora-universal", 5000)) if i["slug"] == "aurora" else i
+            for i in plugin_index.reader_source(source, 3)["items"]]), separators=(",", ":")).encode()
+        self.assertEqual([self.code(document, reader=r) for r in (4, 3, 2, 1)],
+                         ["none", "none", "unknown_field", "unknown_field"])
+        self.assertEqual(plugin_index.INDEXES[0][1:], (4, 3), "index-4.json is signed above index-3.json")
+        for bad, code in ((0, "file"), (1536 * 1024 + 1, "file")):
+            aurora["universal"] = file("aurora-universal", bad)
+            with self.assertRaises(plugin_index.PluginIndexError) as raised:
+                plugin_index.check_source(source)
+            self.assertEqual(raised.exception.code, code)
+        items["theme", "obsidian"]["universal"] = file("x", 1)
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.check_source(source)
+        self.assertEqual(raised.exception.code, "unknown_field", "only an effect has one")
+
+    def test_universal_package_check(self):
+        types = {name: number for number, name in plugin_index._SECTIONS.items()}
+
+        def package(sections: dict) -> bytes:
+            names = sorted(sections, key=types.__getitem__)
+            at, table, body = 16 + 16 * len(names), b"", b""
+            for name in names:
+                table += struct.pack("<IIII", types[name], at + len(body), len(sections[name]), 0)
+                body += sections[name]
+            return struct.pack("<4sHHII", b"MCFX", 1, len(names), at + len(body), 0) + table + body
+
+        def dxbc() -> bytes:
+            return b"DXBC" + bytes(20) + struct.pack("<I", 32) + bytes(4)
+
+        def entry(stage: int, text: bytes = b"#version 310 es\nvoid main() {}\n") -> bytes:
+            packed = zlib.compress(text)
+            return struct.pack("<IBBHII", 16 + len(packed), stage, 0, 0, len(text), len(packed)) + packed
+
+        def manifest(interface: int) -> bytes:
+            return json.dumps({"interface": interface, "slug": "x", "passes": [{"ps": 0, "vs": 1}]},
+                              separators=(",", ":")).encode()
+
+        base = {"MANIFEST": manifest(3), "DXBC": dxbc(), "SOURCE": b"float4 main() {}", "SHADERS": dxbc()}
+        plain = package(base)
+
+        def universal(**changes) -> bytes:
+            sections = dict(base, MANIFEST=manifest(4), GLSL=struct.pack("<HH", 2, 0) + entry(1) + entry(2))
+            sections.update(changes)
+            return package({k: v for k, v in sections.items() if v is not None})
+
+        def code(candidate: bytes, against: bytes = plain) -> str:
+            try:
+                plugin_index.check_universal(against, candidate)
+            except plugin_index.PluginIndexError as error:
+                return error.code
+            return "none"
+
+        self.assertEqual(code(universal()), "none")
+        for label, candidate in (
+                ("no GLSL section", universal(GLSL=None)),
+                ("manifest still interface 3", universal(MANIFEST=manifest(3))),
+                ("another manifest member", universal(MANIFEST=manifest(4).replace(b'"x"', b'"y"'))),
+                ("another DXBC", universal(DXBC=dxbc() + b"!")),
+                ("a missing source", universal(SOURCE=None)),
+                ("one shader of two", universal(GLSL=struct.pack("<HH", 1, 0) + entry(1))),
+                ("the vertex shader first", universal(GLSL=struct.pack("<HH", 2, 0) + entry(2) + entry(1))),
+                ("a reserved word set", universal(GLSL=struct.pack("<HH", 2, 1) + entry(1) + entry(2))),
+                ("bytes after the entries", universal(GLSL=struct.pack("<HH", 2, 0) + entry(1) + entry(2) + b"\0")),
+                ("not a zlib stream", universal(GLSL=struct.pack("<HH", 2, 0) + entry(1)[:16] + b"\x01" * 4 + entry(2))),
+                ("not GLSL ES 3.10", universal(GLSL=struct.pack("<HH", 2, 0) + entry(1, b"void main() {}\n") + entry(2))),
+                ("a truncated package", universal()[:-1])):
+            self.assertEqual(code(candidate), "file", label)
+        self.assertEqual(code(plain, plain), "file", "a plain package is not universal")
+        self.assertEqual(code(universal(), universal()), "file", "the file must not be universal")
+
+    def test_linux_plugin_payloads_and_index_4(self):
+        source = spec()
+        items = {(i["kind"], i["slug"]): i for i in source["items"]}
+        clear = items["plugin", "clear-urls"]
+        before = [plugin_index.render_index(plugin_index.reader_source(source, r), r) for r in (3, 2, 1)]
+        clear["versions"][0]["linux"] = file("clear-urls-1.1.0-linux", 7168)  # only the newest has a shared object
+        plugin_index.check_source(source)
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.render_index(source)
+        self.assertEqual(raised.exception.code, "unknown_field", "no reader's document names it")
+        after = [plugin_index.render_index(plugin_index.reader_source(source, r), r) for r in (3, 2, 1)]
+        self.assertEqual(after, before, "index-3.json, index-full.json and index.json do not change by a byte")
+        listed = {(i["kind"], i["slug"]): i for i in plugin_index.parse_index(
+            plugin_index.render_index(plugin_index.reader_source(source, 4), 4), None, reader=4)["items"]}
+        self.assertNotIn(("plugin", "translate"), listed, "a plugin without a shared object has nothing to run on Linux")
+        versions = listed["plugin", "clear-urls"]["versions"]
+        newest = clear["versions"][0]
+        self.assertEqual([v["version"] for v in versions], ["1.1.0"], "a version without one is left out")
+        self.assertEqual(versions[0]["file"], file("clear-urls-1.1.0-linux", 7168), "the shared object is the version's file")
+        self.assertNotIn("linux", versions[0])
+        for member in ("version", "released", "commit", "api_level", "permissions", "network"):
+            self.assertEqual(versions[0][member], newest[member], member + " is the DLL's: one source")
+        self.assertEqual(listed["effect", "starfield"]["file"], items["effect", "starfield"]["file"], "other kinds are untouched")
+        # A document that carries the member: readers 3 and 4 skip it, the older ones refuse it.
+        document = json.loads(plugin_index.render_index(plugin_index.reader_source(source, 3), 3))
+        for item in document["items"]:
+            if item["slug"] == "clear-urls":
+                item["versions"][0]["linux"] = file("clear-urls-1.1.0-linux", 7168)
+        document = json.dumps(document, separators=(",", ":")).encode()
+        self.assertEqual([self.code(document, reader=r) for r in (4, 3, 2, 1)],
+                         ["none", "none", "unknown_field", "unknown_field"])
+        for bad, code in ((0, "file"), (8 * 1024 * 1024 + 1, "file")):
+            clear["versions"][0]["linux"] = file("clear-urls-1.1.0-linux", bad)
+            with self.assertRaises(plugin_index.PluginIndexError) as raised:
+                plugin_index.check_source(source)
+            self.assertEqual(raised.exception.code, code)
+        del clear["versions"][0]["linux"]
+        items["effect", "starfield"]["linux"] = file("x", 1)
+        with self.assertRaises(plugin_index.PluginIndexError) as raised:
+            plugin_index.check_source(source)
+        self.assertEqual(raised.exception.code, "unknown_field", "only a plugin version has one")
+        digest_text = digest("clear-urls-1.1.0-linux")
+        self.assertEqual(plugin_index.file_name("plugin", digest_text), f"files/{digest_text}.dll")
+        self.assertEqual(plugin_index.file_name("plugin", digest_text, "linux"), f"files/{digest_text}.so")
+        self.assertEqual(plugin_index.file_name("effect", digest_text, "linux"), f"files/{digest_text}.mcfx")
 
     def test_signatures(self):
         key, other = cng_p256.PrivateKey.generate(), cng_p256.PrivateKey.generate()

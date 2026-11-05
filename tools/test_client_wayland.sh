@@ -85,6 +85,7 @@ if [ "$compositor" != current ]; then
     height="$(awk "BEGIN { print int(800 * $scale) }")"
     cat > "$out/sway.conf" <<EOF
 output * resolution ${width}x${height} scale $scale
+output * bg #ff00ff solid_color
 default_border none
 xwayland disable
 default_floating_border none
@@ -144,7 +145,11 @@ image = Image.open(sys.argv[1]).convert("RGB")
 colors = image.getcolors(maxcolors=1 << 24)
 count = len(colors) if colors else 1 << 24
 print("screenshot %dx%d, %d distinct colours" % (image.width, image.height, count))
-sys.exit(0 if count > 8 else 1)
+# The desktop behind the window is magenta (the sway configuration above) and the window covers the output: any magenta
+# pixel is the desktop showing through the window.
+through = sum(n for n, c in (colors or []) if c == (255, 0, 255))
+print("desktop showing through the window: %d pixels" % through)
+sys.exit(0 if count > 8 and through == 0 else 1)
 EOF
         fi
         swaymsg -t get_tree 2>/dev/null | python3 -c '

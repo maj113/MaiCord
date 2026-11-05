@@ -60,10 +60,29 @@ The updater's Linux mode enables itself only when the marker exists in the direc
 directory is writable (`update_portable_install`, `src/app/update/linux/portable.cpp`). The place is
 `application_update_build_config()` in `src/app/update/entry.cpp`: it returns the `UpdateServiceConfig`, and a config with
 `configured == false` is what makes `ApplicationUpdateState::disabled` (src/app/update/updates.cpp, `update_service_init`'s
-`config.configured ? idle : disabled`). On Linux that function clears `configured` when the marker check fails. It also
-clears it while `kLinuxUpdatesPublished` is false: the release channels carry the Windows zip only, so even a portable
-install would stage a PE and swap it over the ELF. Set the constant when the channels publish the tarball (and the
-updater's artifact step unpacks it). The Windows build never looks for any of this.
+`config.configured ? idle : disabled`). On Linux `update_portable_gate` clears `configured` when the marker check fails.
+It also clears it in a build that is not told that the release channels carry the tarball: the CMake option
+`MAICORD_LINUX_UPDATES_PUBLISHED` (default: the `MAICORD_LINUX_RELEASES` environment variable is `true`), which
+`release.yml`'s `linux` job sets from the repository variable of that name, so only the released tarball's program can
+update itself. The Windows build never looks for any of this.
+
+### How the tarball install updates itself
+
+The release channels carry the tarball. `maicord_release.py linux` signs, with the Windows manifests' key, a stable and a
+preview manifest for it (`arch` `linux-x64`, the artifact `maicord-<X.Y.Z>-linux-x86_64.tar.gz` of the version, which is
+exactly this tarball) into `updates/p2/linux/` of the Pages site; the Windows client reads other files, and a manifest
+of the other system fails its reader on the signed architecture and artifact name. The preview feed
+(`updates/p2/linux/preview/`) carries master builds: the `linux` job of `ci.yml` packages one tarball per master commit
+(`build_tarball.py --version X.Y.Z-dev.N`), and a stable release moves it to the release. The check, the
+signature and freshness, the durable rollback floor and the download are the Windows updater's own (`update_service_check`).
+Staging is the Linux package reader (`src/app/update/linux/package.cpp`): the package is read whole while its SHA-256 is
+taken and compared with the signed one, gunzipped (`gzip_inflate` checks CRC-32 and size), and its tar walked in the
+producer's layout only: the program (an x86-64 ELF executable, checked structurally), and the flat `fonts/` and `licenses/`
+files go into `MaiCord.update/` beside the install; everything else in the tarball (desktop entry, icons, scripts, the
+marker) is left alone. A failure leaves nothing. At exit after *Restart to update* the swap (`update_swap`,
+`src/app/update/linux/stage.cpp`) moves the live `fonts/`, `licenses/` and `MaiCord` into `MaiCord.old/` and the staged
+ones in, the program first, undoing every move when one fails; renaming a running image is allowed. The process then
+replaces itself (`execve` of the real executable path), and the next start deletes `MaiCord.old/`.
 
 ## Distribution packages
 
@@ -72,7 +91,7 @@ All of them install the tarball's contents (or build the same tree) and leave th
 **AUR (`aur/`).** `maicord-bin`: `/usr/lib/maicord` holds the program, fonts and licenses, `/usr/bin/maicord` links to it.
 `depends` are what the program cannot start without (glibc, openssl, wayland, libxkbcommon, libglvnd, hicolor-icon-theme);
 `optdepends` are the libraries it opens with `dlopen` when present (libpulse, fontconfig, hunspell and a dictionary, enchant,
-fonts, portals, a Secret Service) and the Mesa drivers. Per release: bump `pkgver`, `updpkgsums`,
+fonts, portals, a Secret Service, speech-dispatcher for "Speak message") and the Mesa drivers. Per release: bump `pkgver`, `updpkgsums`,
 `makepkg --printsrcinfo > .SRCINFO`, push to the AUR git repository of `maicord-bin`. Tested in an `archlinux` container
 with `makepkg`, `namcap` and `pacman -U`.
 

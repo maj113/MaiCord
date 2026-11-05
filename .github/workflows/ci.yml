@@ -200,24 +200,33 @@ jobs:
 
   # The Linux port (D1, D11): one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the
   # same tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested
-  # with Mesa's llvmpipe for the GPU cases, with nothing published yet. A clean build of everything took 44 seconds on 16
+  # with Mesa's llvmpipe for the GPU cases. A clean build of everything took 44 seconds on 16
   # cores in a pristine ubuntu:24.04 container, and the suite then ran in 3 seconds; the shader toolchain (DXC, SPIRV-Cross,
   # mc_shadertool) is cached by the pins that name it (tools/linux_shader_toolchain.json, the tool's source and the
   # compiler that builds it), so only a change of pin builds SPIRV-Cross again. The compositor, D-Bus and audio scripts
   # run beside it (every case under 20 s: headless sway about 13 s, D-Bus 17 s, PulseAudio 8 s on the development
   # machine); they are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING
   # is 'true'. The portable subset of the built tests then goes to the distros job as a one-day artifact of this run.
-  # Neither job gates the preview channel: the Windows client is what ships.
+  # Neither job gates the preview channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also
+  # packages a master build's tarball (the Linux preview feed, signed by the preview job); nothing else is published from here.
   linux:
     name: Linux (x86-64 build, tests, ELF audit)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       bundle: ${{ steps.bundle.outputs.name }}
+      preview: ${{ steps.preview.outputs.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # The build identity counts commits since the last release tag (see the client job).
+      - name: Build identity
+        id: identity
+        run: |
+          python3 -B tools/release/maicord_release.py identity --repository . || echo '::warning::No build identity; building as the project version without the updater.'
 
       # clang, lld and llvm 23 from apt.llvm.org (the archive key is checked against its pinned fingerprint), cmake, ninja,
       # and the runtime libraries, fonts, dictionaries and tools the tests and the integration scripts use.
@@ -238,6 +247,12 @@ jobs:
       # Configures into ~/mc-build in place (the checkout is on a native file system), builds, runs tools/audit_elf.py on
       # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner.
       - name: Build, audit and test
+        env:
+          # The shipping client's updater identity, as the Windows client job gives its build, and the flag that lets the
+          # tarball install update itself from the channels once they carry the tarball (entry.cpp).
+          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
+          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: bash tools/build_linux.sh --test --keep --timeout-scale 3
 
       - name: Cache the shader toolchain
@@ -247,11 +262,13 @@ jobs:
           path: ~/.cache/maicord-toolchain
           key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
 
-      # The declarations the Linux build resolves with dlsym against the installed headers (libssl-dev, libpulse-dev).
+      # The declarations the Linux build resolves with dlsym against the installed headers (libssl-dev, libpulse-dev,
+      # libspeechd-dev).
       - name: dlopen ABI checks
         run: |
           python3 tools/check_openssl_abi.py --compiler /usr/lib/llvm-23/bin/clang
           python3 tools/check_pulse_abi.py --compiler /usr/lib/llvm-23/bin/clang
+          python3 tools/check_speechd_abi.py --compiler /usr/lib/llvm-23/bin/clang
 
       # The tarball around a stand-in program (packaging/README.md): reproducible, valid desktop entry and AppStream
       # metadata, install and uninstall under a private home.
@@ -275,6 +292,14 @@ jobs:
         continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
         run: bash tools/test_client_wayland.sh --binary "$HOME/mc-build/MaiCord" --out "$RUNNER_TEMP/client"
 
+      # The client behind the real at-spi-bus-launcher and registry, read through libatspi (python3-gi): the tree of the
+      # sign-in form, an action, field text, focus and text events, and accessibility off again.
+      - name: Screen reader (AT-SPI, headless sway)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: |
+          sudo apt-get install -y --no-install-recommends at-spi2-core gir1.2-atspi-2.0 python3-gi
+          bash tools/test_atspi.sh --binary "$HOME/mc-build/MaiCord" --out "$RUNNER_TEMP/atspi"
+
       # tools/test_dbus_real.sh (the real xdg-desktop-portal and gnome-keyring) is left to a machine with a graphical
       # session: the portal's GTK backend needs a display and the document portal needs FUSE, which a hosted runner lacks.
       - name: D-Bus (mock services)
@@ -285,6 +310,10 @@ jobs:
         continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
         run: bash tools/test_pulse_audio.sh --private --binary "$HOME/mc-build/MaiCordPulseLoopbackTests"
 
+      - name: Text-to-speech (private speech-dispatcher, dummy module)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: bash tools/test_speechd.sh --binary "$HOME/mc-build/MaiCordSpeechdTests"
+
       # The cases tools/linux_portable_tests.txt names and the executables they run: what the distros job runs in other
       # distributions' containers.
       - name: Pack the portable tests
@@ -292,6 +321,29 @@ jobs:
         run: |
           python3 tools/linux_portable_tests.py --build "$HOME/mc-build" --output "$RUNNER_TEMP/portable"
           echo "name=linux-portable-${GITHUB_SHA::8}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      # The master build's tarball (packaging/README.md) for the Linux preview feed: only for a push to master of the
+      # repository that publishes, and only while the Linux channels are published.
+      - name: Package the preview tarball
+        id: preview
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/master' && github.repository == 'maj113/MaiCord' &&
+          steps.identity.outputs.dev == 'true' && vars.MAICORD_LINUX_RELEASES == 'true'
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          set -eu
+          python3 -B packaging/build_tarball.py --binary "$HOME/mc-build/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
+          ls -l "$RUNNER_TEMP/linux-preview"
+          echo "name=MaiCord-linux-x64-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.preview.outputs.name != ''
+        with:
+          name: ${{ steps.preview.outputs.name }}
+          path: ${{ runner.temp }}/linux-preview
+          if-no-files-found: error
+          retention-days: 14
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -333,14 +385,18 @@ jobs:
 
   # Every green master build of maj113/MaiCord goes to the preview channel.
   # Only this job reads the signing key, and the release environment admits
-  # only master and v* tags, so pull requests and forks never reach it.
+  # only master and v* tags, so pull requests and forks never reach it. The
+  # Linux job's tarball of the build joins it on the Linux preview feed when
+  # there is one; the job's own result does not decide whether the Windows
+  # build is published.
   preview:
     name: Publish the preview build
-    needs: [client, tests]
+    needs: [client, tests, linux]
     if: >-
+      ${{ !cancelled() && needs.client.result == 'success' && needs.tests.result == 'success' &&
       github.event_name == 'push' && github.ref == 'refs/heads/master' &&
       github.repository == 'maj113/MaiCord' && !github.event.repository.private &&
-      needs.client.outputs.dev == 'true'
+      needs.client.outputs.dev == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 20
     environment: release
@@ -388,6 +444,35 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem "$env:RUNNER_TEMP\preview" | Format-Table Name, Length -AutoSize
 
+      # The Linux tarball of the same master build (the linux job, when MAICORD_LINUX_RELEASES is 'true') is signed into the
+      # Linux preview feed beside the Windows files. The Linux job gates nothing: without its tarball the Linux feed stays
+      # where it is.
+      - name: Fetch the Linux tarball
+        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux.outputs.preview != ''
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ needs.linux.outputs.preview }}
+        run: |
+          gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $env:ARTIFACT --dir "$env:RUNNER_TEMP\linux"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Sign the Linux preview build
+        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux.outputs.preview != ''
+        shell: powershell
+        env:
+          MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!$env:MAICORD_UPDATE_SIGNING_KEY -or !$env:PUBLIC_KEY) { throw 'The signing key secret or the public key variable is missing.' }
+          $tarball = Get-ChildItem "$env:RUNNER_TEMP\linux" -Filter 'maicord-*-linux-x86_64.tar.gz' | Select-Object -First 1
+          if (!$tarball) { throw 'The Linux job published no tarball.' }
+          python -B tools/release/maicord_release.py linux --preview --tarball $tarball.FullName `
+            --output-dir "$env:RUNNER_TEMP\preview" --repository . --expect-version $env:VERSION --public-key $env:PUBLIC_KEY
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:RUNNER_TEMP\preview" | Format-Table Name, Length -AutoSize
+
       - name: Update the preview channel
         id: channels
         shell: powershell
@@ -395,6 +480,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          # The Linux manifests (a stable release's tarball) are verified and re-signed with the rest; a master build has no
+          # Linux package of its own.
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: |
           ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish "$env:RUNNER_TEMP\preview" `
             -Message "Publish $env:VERSION to the preview channel"

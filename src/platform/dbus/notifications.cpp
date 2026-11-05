@@ -1,9 +1,12 @@
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/platform/dbus/notifications.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
+#include "maicord/sys/linux/path.hpp"
 
 namespace maicord::dbus {
 namespace {
@@ -16,6 +19,11 @@ constexpr const char* kPortalInterface = "org.freedesktop.portal.Notification";
 constexpr u32 kCallTimeoutMs = 10000;
 constexpr u32 kMaxEntries = 64;
 constexpr u32 kTokenCapacity = 128;
+constexpr u32 kCapabilitiesTimeoutMs = 500;
+// The portal takes an icon as bytes (a file path means nothing to a host that cannot see the sandbox): the avatar PNGs
+// the application writes are a few kilobytes, never near this.
+constexpr u32 kPortalIconMaximumBytes = 512 * 1024;
+constexpr u32 kEscapedCapacity = 20 * 1024;
 
 struct Entry {
     bool used;
@@ -31,6 +39,8 @@ NotificationHandler g_handler;
 void* g_handler_context;
 bool g_hook_registered;
 NotificationBackend g_backend;  // none until chosen
+u32 g_markup;                   // 0 not asked, 1 the daemon reads markup in the body, 2 it does not
+char g_escaped[kEscapedCapacity];
 
 bool equals(const char* a, const char* b) noexcept {
     while (*a && *a == *b)
@@ -166,6 +176,7 @@ void subscribe(Connection* c) noexcept {
 void on_session(Connection* c) noexcept {
     for (Entry& entry : g_entries)
         entry = Entry{};
+    g_markup = 0;
     subscribe(c);
 }
 
@@ -237,14 +248,77 @@ void hint_string(Builder* b, const char* key, const char* value) noexcept {
     builder_close_entry(b);
 }
 
+// Whether the daemon reads markup in the body (the capability body-markup of the specification), asked once per session.
+// A daemon that does not answer is taken to: message text then stays text on one that reads markup, and the rare entity
+// shows on one that does not.
+bool daemon_reads_markup(Connection* c) noexcept {
+    if (g_markup != 0)
+        return g_markup == 1;
+    g_markup = 1;
+    const CallTarget target{kDaemonName, kDaemonPath, kDaemonName, "GetCapabilities"};
+    Message reply;
+    const Status status = connection_call_sync(c, target, nullptr, kCapabilitiesTimeoutMs, &reply);
+    if (status == Status::ok) {
+        Reader r;
+        message_reader(reply, &r);
+        bool markup = false;
+        if (reader_enter_array(&r)) {
+            while (reader_more(r)) {
+                const char* name = nullptr;
+                if (!reader_string(&r, &name, nullptr))
+                    break;
+                markup = markup || equals(name, "body-markup");
+            }
+            reader_leave(&r);
+        }
+        g_markup = markup ? 1 : 2;
+    }
+    if (status == Status::ok || status == Status::error_reply)
+        message_release(&reply);
+    return g_markup == 1;
+}
+
+// `text` as markup: &, < and > as entities, so that a message with a link or an image tag in it is shown as typed (the
+// Windows toast escapes the same way). Into a buffer of this file; text that does not fit is cut at a character.
+const char* escape_markup(const char* text) noexcept {
+    u32 used = 0;
+    for (const char* p = text; *p; ++p) {
+        const char* entity = *p == '&' ? "&amp;" : *p == '<' ? "&lt;" : *p == '>' ? "&gt;" : nullptr;
+        u32 length = 1;
+        while (entity && entity[length])
+            ++length;
+        if (used + (entity ? length : 1) + 1 > kEscapedCapacity) {
+            // Not the rest of a character whose start is already in.
+            if ((static_cast<u8>(*p) & 0xC0) == 0x80)
+                while (used && (static_cast<u8>(g_escaped[used - 1]) & 0xC0) == 0x80)
+                    --used;
+            if (used && (static_cast<u8>(*p) & 0xC0) == 0x80)
+                --used;
+            break;
+        }
+        if (entity) {
+            copy_bytes(g_escaped + used, entity, length);
+            used += length;
+        } else {
+            g_escaped[used++] = *p;
+        }
+    }
+    g_escaped[used] = 0;
+    return g_escaped;
+}
+
 bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry) noexcept {
+    // The body goes in as plain text unless the daemon reads markup (asked before the call is built: it may wait).
+    const char* body_text = !request.body                      ? ""
+                            : daemon_reads_markup(c)           ? escape_markup(request.body)
+                                                               : request.body;
     Builder body;
     builder_init(&body);
     builder_string(&body, "MaiCord");
     builder_u32(&body, request.replaces_id);
     builder_string(&body, request.icon ? request.icon : "");
     builder_string(&body, request.summary);
-    builder_string(&body, request.body ? request.body : "");
+    builder_string(&body, body_text);
     builder_open_array(&body, "s");
     if (request.default_action) {
         builder_string(&body, "default");
@@ -283,6 +357,33 @@ bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry
     return sent;
 }
 
+// The content of the image file `path` (an absolute UTF-8 path) on the heap, for the portal; null when it is missing,
+// empty or larger than the maximum. The caller frees it with heap_free.
+u8* read_icon_file(const char* path, u32* count) noexcept {
+    wchar_t wide[1024];
+    if (!path_from_utf8(path, wide, 1024))
+        return nullptr;
+    const FileHandle file = file_open(wide, {FileAccess::read, FileCreate::existing, kFileShareRead | kFileShareWrite, 0});
+    if (file == INVALID_HANDLE_VALUE)
+        return nullptr;
+    u64 size = 0;
+    u8* bytes = nullptr;
+    u32 read = 0;
+    bool ok = file_size(file, &size) && size != 0 && size <= kPortalIconMaximumBytes;
+    if (ok) {
+        bytes = static_cast<u8*>(heap_allocate(static_cast<usize>(size)));
+        ok = bytes && file_read(file, bytes, static_cast<u32>(size), &read) && read == size;
+    }
+    file_close(file);
+    if (!ok) {
+        if (bytes)
+            heap_free(bytes);
+        return nullptr;
+    }
+    *count = read;
+    return bytes;
+}
+
 bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry) noexcept {
     // The portal names a notification with a string: the decimal local id.
     entry->id = ++g_local_id;
@@ -303,18 +404,28 @@ bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry
     hint_string(&body, "title", request.summary);
     if (request.body)
         hint_string(&body, "body", request.body);
-    if (request.icon && request.icon[0] != '/') {
-        // A themed icon: ("themed", ["name"]).
+    // The icon is a themed name, or the bytes of an image file (a path means nothing to the portal's host).
+    u32 image_bytes = 0;
+    u8* image = request.icon && request.icon[0] == '/' ? read_icon_file(request.icon, &image_bytes) : nullptr;
+    if (request.icon && (request.icon[0] != '/' || image)) {
+        // ("themed", ["name"]) or ("bytes", the image's bytes).
         builder_open_entry(&body);
         builder_string(&body, "icon");
         builder_open_variant(&body, "(sv)");
         builder_open_struct(&body, "(sv)");
-        builder_string(&body, "themed");
-        builder_open_variant(&body, "as");
-        builder_open_array(&body, "s");
-        builder_string(&body, request.icon);
-        builder_close_array(&body);
-        builder_close_variant(&body);
+        if (image) {
+            builder_string(&body, "bytes");
+            builder_open_variant(&body, "ay");
+            builder_byte_array(&body, image, image_bytes);
+            builder_close_variant(&body);
+        } else {
+            builder_string(&body, "themed");
+            builder_open_variant(&body, "as");
+            builder_open_array(&body, "s");
+            builder_string(&body, request.icon);
+            builder_close_array(&body);
+            builder_close_variant(&body);
+        }
         builder_close_struct(&body);
         builder_close_variant(&body);
         builder_close_entry(&body);
@@ -345,6 +456,8 @@ bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry
     const bool sent = connection_call(c, target, &body, kCallTimeoutMs, on_portal_reply,
                                       reinterpret_cast<void*>(static_cast<usize>(entry - g_entries) + 1));
     builder_release(&body);
+    if (image)
+        heap_free(image);
     return sent;
 }
 

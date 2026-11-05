@@ -57,8 +57,9 @@
 // .visible_if = Setting::toggle, or Setting::choice with .visible_value = index.
 // The field name is the persisted key: 1..32 bytes of [a-z0-9_].
 //
-// Define MC_RUNTIME (clang-cl) in the plugin's one translation unit to get
-// memcpy, memmove, memset, memcmp, __chkstk and _fltused without a CRT.
+// Define MC_RUNTIME (clang-cl, or clang on Linux) in the plugin's one translation unit to get memcpy, memmove,
+// memset and memcmp without a CRT (on Windows also __chkstk and _fltused). On Linux compile with -fvisibility=hidden
+// so they stay private to the shared object: its only export is the descriptor.
 #pragma once
 
 #include "maicord_plugin.h"
@@ -2737,9 +2738,11 @@ template <auto F, int D> consteval u32 button_index() {
 
 #if defined(MC_RUNTIME)
 #if !defined(__clang__)
-#error "MC_RUNTIME needs clang-cl; with MSVC, link memcpy, memmove, memset, memcmp and __chkstk yourself."
+#error "MC_RUNTIME needs clang or clang-cl; with MSVC, link memcpy, memmove, memset, memcmp and __chkstk yourself."
 #endif
+#if defined(_WIN32)
 extern "C" const int _fltused = 0;
+#endif
 extern "C" void* memcpy(void* destination, const void* source, size_t bytes) {
     void* result = destination;
     __asm__ volatile("rep movsb" : "+D"(destination), "+S"(source), "+c"(bytes) : : "memory");
@@ -2769,6 +2772,7 @@ extern "C" __attribute__((no_builtin)) int memcmp(const void* a, const void* b, 
             return left[i] < right[i] ? -1 : 1;
     return 0;
 }
+#if defined(_WIN32)
 // Probes each page of a stack allocation of rax bytes (the compiler emits the call for frames over 4 KiB).
 extern "C" __attribute__((naked)) void __chkstk() {
     __asm__ volatile("pushq %rcx\n\t"
@@ -2789,4 +2793,5 @@ extern "C" __attribute__((naked)) void __chkstk() {
                      "popq %rcx\n\t"
                      "retq");
 }
+#endif
 #endif

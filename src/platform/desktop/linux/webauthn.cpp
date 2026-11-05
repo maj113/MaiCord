@@ -1,5 +1,6 @@
-// WebAuthn sign-in on Linux: no platform authenticator API is bound (Windows Hello and the inbox webauthn.dll are the
-// Windows side, webauthn.cpp). The caller falls back to the other second factors when the ceremony is unavailable.
+// WebAuthn sign-in on Linux: no authenticator API is bound (Windows Hello and the inbox webauthn.dll are the Windows side,
+// webauthn.cpp; libfido2 was evaluated and left unbound, see AGENTS.md). kWebAuthnAvailable is false here, so the sign-in
+// says that security keys are not supported before it starts a ceremony; this answer is for a caller that asks anyway.
 #include "maicord/platform/desktop/webauthn.hpp"
 
 namespace maicord {

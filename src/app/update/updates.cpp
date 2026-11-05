@@ -682,8 +682,19 @@ void application_updates_release(bool normal_exit) noexcept {
 void application_updates_relaunch() noexcept {
     if (!g_relaunch_count) return;
     u32 native = 0;
+#if defined(_WIN32)
     const bool started = process_launch_detached(g_relaunch, &native);
     UpdateLog("relaunch").field("started", started).field("native", native).write(started ? LogLevel::info : LogLevel::warning);
+#else
+    // The new image takes this process's place: the same program path, which the swap has pointed at the new version.
+    // A successful exec never returns, so what the log holds is written first.
+    ProcessCommand command{};
+    const bool built = process_command(g_relaunch, &command, &native);
+    UpdateLog("relaunch").field("replace", built).field("native", native).write(built ? LogLevel::info : LogLevel::warning);
+    log_flush();
+    if (built && !process_replace(command, &native))
+        UpdateLog("relaunch").field("replaced", 0).field("native", native).write(LogLevel::warning);
+#endif
 }
 void application_updates_ready() noexcept {
     Worker* w = g_worker;

@@ -9,6 +9,9 @@ The formats here mirror the client's verifiers exactly:
     ECDSA P-256, stored as a raw 64-byte P1363 (r || s) signature.
   * src/app/update/changelog.cpp - the channel changelog, signed the same way
     under "MaiCord update changelog v1\\n".
+  * src/app/update/linux/package.cpp and fetch.cpp - the Linux package: the release tarball of
+    packaging/build_tarball.py (one gzip member of a tar), named by manifests of their own (arch linux-x64) in the
+    site's linux/ directory and signed with the same key.
 
 Run `python tools/release/maicord_release.py --help` for the subcommands.
 Only the Python standard library and Windows CNG are used.
@@ -315,20 +318,212 @@ def validate_update_zip(package: bytes) -> list[str]:
     return names
 
 
+# --------------------------------------------------------------------------- Linux tarball
+
+# The Linux client reads the release tarball (packaging/build_tarball.py), not a zip. Its manifests sit in their own
+# directory of the Pages site and say linux-x64; the artifact is named for the version.
+LINUX_ARCH = "linux-x64"
+LINUX_SITE_DIRECTORY = f"{SITE_DIRECTORY}/linux"
+LINUX_PROGRAM = "MaiCord"
+LINUX_DIRECTORIES = ("fonts", "licenses")
+LINUX_TAR_MAXIMUM_BYTES = 192 * 1024 * 1024
+LINUX_ENTRIES_MAXIMUM = 512
+LINUX_FILES_MAXIMUM = 128
+LINUX_FILE_MAXIMUM_BYTES = 64 * 1024 * 1024
+LINUX_NAME_MAXIMUM = 64
+LINUX_FLAT_NAME = re.compile(r"[A-Za-z0-9_+-][A-Za-z0-9._+-]*")
+LINUX_SEGMENTS_MAXIMUM = 32
+
+
+def linux_artifact_name(number: int) -> str:
+    """maicord-<X.Y.Z>-linux-x86_64.tar.gz (X.Y.Z-dev.N for a dev build), as update_artifact_name in fetch.cpp."""
+    if number % 1000 == 0 or number // 1000000000 >= 1000:
+        raise ReleaseError(f"Version {number} has no Linux package name.")
+    return f"maicord-{version_text(number)}-linux-x86_64.tar.gz"
+
+
+def validate_linux_elf(data: bytes) -> None:
+    """Mirror of the structural ELF checks in app/update/linux/package.cpp: an x86-64 position-independent executable
+    whose loadable segments fit the file without overlapping and hold the entry point in an executable one."""
+    def fail(reason: str):
+        raise ReleaseError(f"{LINUX_PROGRAM} is not a usable x86-64 ELF executable: {reason}.")
+    if len(data) < 64 or data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1 or data[6] != 1 or data[7] not in (0, 3):
+        fail("the identification")
+    (kind, machine, version, entry, table, _, _, header_bytes, segment_bytes, count) = struct.unpack_from(
+        "<HHIQQQIHHH", data, 16)
+    if kind != 3 or machine != 62 or version != 1 or header_bytes != 64 or segment_bytes != 56:
+        fail("the header")
+    if not 0 < count <= LINUX_SEGMENTS_MAXIMUM or table < 64 or table > len(data) or count * 56 > len(data) - table:
+        fail("the program headers")
+    loads = []
+    executable = False
+    for index in range(count):
+        kind, flags, offset, address, _, in_file, in_memory, align = struct.unpack_from("<IIQQQQQQ", data,
+                                                                                         table + index * 56)
+        if kind != 1:
+            continue
+        limit = 1 << 47
+        if (in_file > in_memory or offset > len(data) or in_file > len(data) - offset or address >= limit or
+                in_memory >= limit or (align > 1 and (align & (align - 1) or offset % align != address % align))):
+            fail("a loadable segment")
+        for other_address, other_memory in loads:
+            if in_memory and other_memory and address < other_address + other_memory and other_address < address + in_memory:
+                fail("overlapping segments")
+        loads.append((address, in_memory))
+        if flags & 1 and address <= entry < address + in_file:
+            executable = True
+    if not loads or not executable:
+        fail("the entry point")
+
+
+def validate_linux_tarball(package: bytes, name: str) -> list[str]:
+    """Mirror of app/update/linux/package.cpp's layout checks (not the ELF's); returns the names that would be
+    unpacked: one gzip member of one tar whose directory holds the program and the flat fonts/ and licenses/."""
+    def fail(reason: str):
+        raise ReleaseError(f"Linux package rejected: {reason}.")
+    if not name.endswith(".tar.gz"):
+        fail(f"{name} is not a .tar.gz")
+    top = name[:-len(".tar.gz")]
+    if not 18 <= len(package) <= PACKAGE_CLIENT_MAXIMUM_BYTES:
+        fail("size")
+    inflater = zlib.decompressobj(wbits=31)
+    try:
+        tar = inflater.decompress(package, LINUX_TAR_MAXIMUM_BYTES + 1)
+    except zlib.error as error:
+        fail(f"gzip stream: {error}")
+    if not inflater.eof or inflater.unused_data or len(tar) > LINUX_TAR_MAXIMUM_BYTES or len(tar) < 1024:
+        fail("the gzip stream must be one member of at most 192 MiB")
+    if struct.unpack_from("<I", package, len(package) - 4)[0] != len(tar) & 0xFFFFFFFF:
+        fail("gzip length")
+
+    def octal(field: bytes) -> int:
+        text = field.rstrip(b"\0 ").lstrip(b" ")
+        if not text or field[0] & 0x80 or any(c not in b"01234567" for c in text):
+            fail("a tar number")
+        return int(text, 8)
+    at, headers, long_name, program, unpacked = 0, 0, None, None, []
+    while True:
+        if len(tar) - at < 512:
+            fail("no end marker")
+        header = tar[at:at + 512]
+        if not any(header):
+            if long_name is not None or any(tar[at:]):
+                fail("data after the end marker")
+            break
+        headers += 1
+        if headers > LINUX_ENTRIES_MAXIMUM:
+            fail("too many members")
+        if octal(header[148:156]) != sum(header) - sum(header[148:156]) + 8 * 32 or header[257:262] != b"ustar":
+            fail("a tar header")
+        size, mode, kind = octal(header[124:136]), octal(header[100:108]), header[156:157]
+        at += 512
+        padded = (size + 511) // 512 * 512
+        if padded > len(tar) - at:
+            fail("a member runs past the archive")
+        data = tar[at:at + size]
+        at += padded
+        if kind == b"L":
+            if long_name is not None or not 0 < size <= 1024 or data[-1:] != b"\0" or b"\0" in data[:-1]:
+                fail("a GNU long name")
+            long_name = data[:-1]
+            continue
+        directory = kind == b"5"
+        if not directory and kind not in (b"0", b"\0"):
+            fail("a member that is neither a file nor a directory")
+        if long_name is not None:
+            path, long_name = long_name, None
+        else:
+            path = header[:100].split(b"\0")[0]
+            prefix = header[345:500].split(b"\0")[0] if header[262] == 0 else b""
+            path = prefix + b"/" + path if prefix else path
+        text = path.decode("utf-8", "replace")
+        if directory and text.endswith("/"):
+            text = text[:-1]
+        parts = text.split("/")
+        if not text or text.startswith("/") or any(p in ("", ".", "..") for p in parts) or any(ord(c) < 32 for c in text):
+            fail(f"the member name {text!r}")
+        if parts[0] != top:
+            fail(f"{text!r} is outside {top}/")
+        relative = parts[1:]
+        if not relative:
+            if not directory:
+                fail("the package's directory is not a directory")
+            continue
+        leaf = None
+        if relative == [LINUX_PROGRAM]:
+            if directory or not mode & 0o100 or not size:
+                fail(f"{LINUX_PROGRAM} must be an executable file")
+            leaf = LINUX_PROGRAM
+        elif relative[0] == LINUX_PROGRAM:
+            fail(f"{LINUX_PROGRAM} is not a directory")
+        elif relative[0] in LINUX_DIRECTORIES:
+            if len(relative) == 1:
+                if not directory:
+                    fail(f"{relative[0]} must be a directory")
+            elif (directory or len(relative) != 2 or len(relative[1]) > LINUX_NAME_MAXIMUM or
+                  not LINUX_FLAT_NAME.fullmatch(relative[1])):
+                fail(f"{text!r} is not a plain file of {relative[0]}/")
+            else:
+                leaf = "/".join(relative)
+        if leaf is not None:
+            if size > LINUX_FILE_MAXIMUM_BYTES or leaf in unpacked or len(unpacked) >= LINUX_FILES_MAXIMUM:
+                fail(f"{leaf!r} repeats or is too large, or there are too many files")
+            unpacked.append(leaf)
+            if leaf == LINUX_PROGRAM:
+                program = data
+    if program is None:
+        fail(f"no {LINUX_PROGRAM}")
+    validate_linux_elf(program)
+    return unpacked
+
+
+@dataclass(frozen=True)
+class Flavor:
+    """What differs between the system's update packages: the manifests' architecture and artifact, where their
+    files sit on the site and in a publish directory, and how a package is checked."""
+    name: str
+    arch: str
+    site_directory: str
+    publish_stem: str
+    artifact_name: object
+    validate_package: object
+    # The version number a package file name carries, or None for a file that is not one of this system's packages.
+    package_number: object
+
+
+def windows_package_number(name: str) -> int | None:
+    found = re.fullmatch(re.escape(ARTIFACT_PREFIX) + r"(\d+)\.zip", name)
+    return int(found[1]) if found else None
+
+
+def linux_package_number(name: str) -> int | None:
+    found = re.fullmatch(r"maicord-(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?-linux-x86_64\.tar\.gz", name)
+    if not found:
+        return None
+    return version_number(int(found[1]), int(found[2]), int(found[3]), int(found[4]) if found[4] else STABLE_SEQUENCE)
+
+
+WINDOWS = Flavor("windows", "x64", SITE_DIRECTORY, "maicord", lambda number: artifact_name(number),
+                 lambda package, name: validate_update_zip(package), windows_package_number)
+LINUX = Flavor("linux", LINUX_ARCH, LINUX_SITE_DIRECTORY, "maicord-linux", linux_artifact_name, validate_linux_tarball,
+               linux_package_number)
+
+
 # --------------------------------------------------------------------------- manifest
 
 def render_manifest(version: int, channel: str, issued: int, expires: int, artifact_bytes: int,
-                    artifact_sha256: str, name: str) -> bytes:
+                    artifact_sha256: str, name: str, flavor: Flavor | None = None) -> bytes:
+    flavor = flavor or WINDOWS
     if channel not in CHANNELS:
         raise ReleaseError(f"Unknown channel {channel!r}.")
     if not re.fullmatch(r"[0-9a-f]{64}", artifact_sha256):
         raise ReleaseError("The artifact digest must be 64 lowercase hex digits.")
     if not (0 < issued < expires) or not (0 < version < 2 ** 64) or not (0 < artifact_bytes <= PACKAGE_MAXIMUM_BYTES):
         raise ReleaseError("Manifest numbers are out of range.")
-    if name != artifact_name(version):
-        raise ReleaseError(f"The artifact name must be {ARTIFACT_PREFIX}<version>.zip.")
+    if name != flavor.artifact_name(version):
+        raise ReleaseError(f"The artifact name must be {flavor.artifact_name(version)}.")
     # Field order and compact separators are fixed; strings never need escapes.
-    document = (f'{{"format":{PROTOCOL},"product":"MaiCord","arch":"x64","channel":"{channel}","version":{version},'
+    document = (f'{{"format":{PROTOCOL},"product":"MaiCord","arch":"{flavor.arch}","channel":"{channel}","version":{version},'
                 f'"issued":{issued},"expires":{expires},"bytes":{artifact_bytes},"sha256":"{artifact_sha256}",'
                 f'"artifact":"{name}"}}').encode("ascii")
     if len(document) > MANIFEST_MAXIMUM_BYTES:
@@ -336,8 +531,9 @@ def render_manifest(version: int, channel: str, issued: int, expires: int, artif
     return document
 
 
-def parse_manifest(document: bytes) -> dict:
+def parse_manifest(document: bytes, flavor: Flavor | None = None) -> dict:
     """Strict reading equivalent to app/update/manifest.cpp's field rules."""
+    flavor = flavor or WINDOWS
     if not document or len(document) > MANIFEST_MAXIMUM_BYTES:
         raise ReleaseError("Manifest size is invalid.")
     if b"\\" in document:
@@ -357,11 +553,11 @@ def parse_manifest(document: bytes) -> dict:
     integers = ("format", "version", "issued", "expires", "bytes")
     if any(type(fields[name]) is not int or not 0 <= fields[name] < 2 ** 64 for name in integers):
         raise ReleaseError("Manifest numeric fields must be unsigned 64-bit integers.")
-    if (fields["format"] != PROTOCOL or fields["product"] != "MaiCord" or fields["arch"] != "x64" or
+    if (fields["format"] != PROTOCOL or fields["product"] != "MaiCord" or fields["arch"] != flavor.arch or
             fields["channel"] not in CHANNELS or not isinstance(fields["sha256"], str) or
             not re.fullmatch(r"[0-9a-f]{64}", fields["sha256"]) or not fields["version"] or
             not fields["issued"] or fields["expires"] <= fields["issued"] or not fields["bytes"] or
-            fields["artifact"] != artifact_name(fields["version"])):
+            fields["artifact"] != flavor.artifact_name(fields["version"])):
         raise ReleaseError("Manifest field values are invalid.")
     return fields
 
@@ -391,18 +587,19 @@ def sign_document(key: cng_p256.PrivateKey, document: bytes, expected_public: by
 
 
 def verify_offer(document: bytes, signature: bytes, public_point: bytes, artifact: bytes | None = None,
-                 now: int | None = None) -> dict:
+                 now: int | None = None, flavor: Flavor | None = None) -> dict:
+    flavor = flavor or WINDOWS
     if len(signature) != 64:
         raise ReleaseError("Signatures must be exactly 64 bytes (P1363 r || s).")
     if not cng_p256.verify_digest(public_point, manifest_digest(document), signature):
         raise ReleaseError("Manifest signature does not verify with the given public key.")
-    fields = parse_manifest(document)
+    fields = parse_manifest(document, flavor)
     if now is not None and not fields["issued"] <= now < fields["expires"]:
         raise ReleaseError("Manifest is not currently valid (issued/expires).")
     if artifact is not None:
         if len(artifact) != fields["bytes"] or hashlib.sha256(artifact).hexdigest() != fields["sha256"]:
             raise ReleaseError("Artifact size or SHA-256 does not match the manifest.")
-        validate_update_zip(artifact)
+        flavor.validate_package(artifact, fields["artifact"])
     return fields
 
 
@@ -626,13 +823,17 @@ def command_build_identity(arguments) -> None:
 
 
 def signed_manifest(arguments, key, expected, version: int, channel: str, artifact_bytes: int, digest: str,
-                    output_dir: Path, issued: int) -> None:
+                    output_dir: Path, issued: int, flavor: Flavor | None = None, name: str | None = None) -> None:
+    """Writes <name> (default <flavor stem>-<channel>.manifest.json) and its .sig into output_dir."""
+    flavor = flavor or WINDOWS
     expires = issued + arguments.validity_days * 86400
-    document = render_manifest(version, channel, issued, expires, artifact_bytes, digest, artifact_name(version))
+    document = render_manifest(version, channel, issued, expires, artifact_bytes, digest, flavor.artifact_name(version),
+                               flavor)
     signature = sign_document(key, document, expected)
+    name = name or f"{flavor.publish_stem}-{channel}.manifest.json"
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / f"maicord-{channel}.manifest.json").write_bytes(document)
-    (output_dir / f"maicord-{channel}.manifest.json.sig").write_bytes(signature)
+    (output_dir / name).write_bytes(document)
+    (output_dir / f"{name}.sig").write_bytes(signature)
 
 
 def write_changelog(key, expected, document: bytes, output_dir: Path) -> None:
@@ -670,6 +871,48 @@ def command_release(arguments) -> None:
         signature = (output_dir / f"maicord-{channel}.manifest.json.sig").read_bytes()
         verify_offer(document, signature, expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS)
     print(f"{version.artifact_name}: {len(artifact)} bytes, sha256 {digest}")
+
+
+def command_linux(arguments) -> None:
+    """Sign the manifests of a Linux tarball, the file packaging/build_tarball.py made, so they name exactly the
+    package. For a tag (a stable release, whose tarball the release carries) both the stable and the preview manifest,
+    as `release` advances the preview channel too. With --preview, HEAD's master build: the preview manifest only, and
+    the tarball is copied beside it for the site's preview feed, as `preview` packages the Windows build."""
+    if arguments.preview:
+        repository = Path(arguments.repository)
+        identity = build_identity(repository, "HEAD")
+        if is_stable(identity.number):
+            raise ReleaseError(f"HEAD is the {identity.semver} release; release.yml publishes it.")
+        if arguments.expect_version and arguments.expect_version != identity.semver:
+            raise ReleaseError(f"The tarball was built as {arguments.expect_version}, HEAD is {identity.semver}.")
+        number, label, channels = identity.number, identity.label, ("preview",)
+    else:
+        version = parse_tag(arguments.tag)
+        number, label, channels = version.number, version.tag, CHANNELS
+    tarball = Path(arguments.tarball)
+    name = linux_artifact_name(number)
+    if tarball.name != name:
+        raise ReleaseError(f"The tarball of {label} must be named {name}, not {tarball.name}.")
+    artifact = tarball.read_bytes()
+    if len(artifact) > PACKAGE_CLIENT_MAXIMUM_BYTES:
+        raise ReleaseError(f"{name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
+    validate_linux_tarball(artifact, name)
+    digest = hashlib.sha256(artifact).hexdigest()
+    sidecar = tarball.with_name(f"{name}.sha256")
+    if sidecar.exists() and sidecar.read_text(encoding="ascii").split()[:1] != [digest]:
+        raise ReleaseError(f"{sidecar.name} does not hold the SHA-256 of {name}.")
+    key = load_private_key(arguments)
+    expected = cng_p256.parse_public_point(arguments.public_key) if arguments.public_key else None
+    issued = (arguments.issued or int(time.time())) - CLOCK_SKEW_SECONDS
+    output_dir = Path(arguments.output_dir)
+    for channel in channels:
+        signed_manifest(arguments, key, expected, number, channel, len(artifact), digest, output_dir, issued, LINUX)
+        stem = f"{LINUX.publish_stem}-{channel}.manifest.json"
+        verify_offer((output_dir / stem).read_bytes(), (output_dir / f"{stem}.sig").read_bytes(),
+                     expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS, flavor=LINUX)
+    if arguments.preview and tarball.resolve() != (output_dir / name).resolve():
+        shutil.copyfile(tarball, output_dir / name)
+    print(f"{name}: {len(artifact)} bytes, sha256 {digest}")
 
 
 def command_preview(arguments) -> None:
@@ -720,6 +963,9 @@ class Slot:
     channel: str
     manifest: str
     changelog: str | None
+    flavor: Flavor = WINDOWS
+    # Whether the feed carries master builds, whose packages sit on the site beside the manifest.
+    dev_builds: bool = False
 
 
 # The Pages site: this protocol's files under updates/p<protocol>/, with the
@@ -730,23 +976,30 @@ SLOTS = (
     Slot("stable", "stable", f"{SITE_DIRECTORY}/maicord-stable.manifest.json",
          f"{SITE_DIRECTORY}/maicord-stable.changelog.json"),
     Slot("preview", "preview", f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json",
-         f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json"),
+         f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json", dev_builds=True),
 )
 PREVIEW_SLOT = SLOTS[1]
+# The Linux client's manifests: the same channels and layout, in their own directory, naming tarballs. The preview feed
+# carries master builds with their tarballs beside the manifest; the changelogs are SLOTS', which describe versions.
+LINUX_SLOTS = (
+    Slot("linux-stable", "stable", f"{LINUX_SITE_DIRECTORY}/maicord-stable.manifest.json", None, LINUX),
+    Slot("linux-preview", "preview", f"{LINUX_SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json", None,
+         LINUX, dev_builds=True),
+)
 
 
 def read_offer(site: Path, slot: Slot, public: bytes, now: int | None = None) -> dict:
     document = site / slot.manifest
-    fields = verify_offer(document.read_bytes(), Path(f"{document}.sig").read_bytes(), public, now=now)
+    fields = verify_offer(document.read_bytes(), Path(f"{document}.sig").read_bytes(), public, now=now, flavor=slot.flavor)
     if fields["channel"] != slot.channel:
         raise ReleaseError(f"The {slot.name} manifest carries the {fields['channel']} channel.")
-    if slot is not PREVIEW_SLOT and not is_stable(fields["version"]):
+    if not slot.dev_builds and not is_stable(fields["version"]):
         raise ReleaseError(f"The {slot.name} manifest offers dev build {fields['version']}.")
     return fields
 
 
-def preview_package(site: Path, number: int) -> Path:
-    return site / SITE_DIRECTORY / PREVIEW_DIRECTORY / artifact_name(number)
+def preview_package(site: Path, slot: Slot, number: int) -> Path:
+    return (site / slot.manifest).parent / slot.flavor.artifact_name(number)
 
 
 def command_channels(arguments) -> None:
@@ -758,13 +1011,17 @@ def command_channels(arguments) -> None:
     --refresh-within-days re-signs manifests close to expiry. Every manifest
     left must verify and be currently valid, every changelog must match its
     manifest's version, and a preview dev build's package must be present.
+    --linux adds the Linux manifests (LINUX_SLOTS) to all of that: those found
+    in --publish are installed, and those on the site are verified and re-signed.
+    Without it the Linux files on the site are left as they are.
     """
     site = Path(arguments.site)
+    slots = SLOTS + LINUX_SLOTS if arguments.linux else SLOTS
     expected = cng_p256.parse_public_point(arguments.public_key)
     now = int(time.time())
     changed = []
     current = {}
-    for slot in SLOTS:
+    for slot in slots:
         document = site / slot.manifest
         if document.exists() or Path(f"{document}.sig").exists():
             try:
@@ -774,24 +1031,27 @@ def command_channels(arguments) -> None:
     if arguments.publish:
         source = Path(arguments.publish)
         offers = []
-        for channel in CHANNELS:
-            document = source / f"maicord-{channel}.manifest.json"
-            if not document.exists():
-                continue
-            payload, signature = document.read_bytes(), Path(f"{document}.sig").read_bytes()
-            fields = verify_offer(payload, signature, expected, now=now)
-            if fields["channel"] != channel:
-                raise ReleaseError(f"{document.name} carries the {fields['channel']} channel.")
-            if is_stable(fields["version"]):
-                offers += [(slot, payload, signature, fields, None) for slot in SLOTS if slot.channel == channel]
-            elif channel == "stable":
-                raise ReleaseError(f"{document.name} offers dev build {fields['version']} on the stable channel.")
-            else:
-                package = source / fields["artifact"]
-                verify_offer(payload, signature, expected, package.read_bytes())
-                if fields["bytes"] > PACKAGE_CLIENT_MAXIMUM_BYTES:
-                    raise ReleaseError(f"{package.name} exceeds the client's package limit.")
-                offers.append((PREVIEW_SLOT, payload, signature, fields, package))
+        # The Windows files of the channels, and with --linux the Linux ones.
+        for flavor in (WINDOWS, LINUX) if arguments.linux else (WINDOWS,):
+            for channel in CHANNELS:
+                document = source / f"{flavor.publish_stem}-{channel}.manifest.json"
+                if not document.exists():
+                    continue
+                payload, signature = document.read_bytes(), Path(f"{document}.sig").read_bytes()
+                fields = verify_offer(payload, signature, expected, now=now, flavor=flavor)
+                if fields["channel"] != channel:
+                    raise ReleaseError(f"{document.name} carries the {fields['channel']} channel.")
+                targets = [slot for slot in slots if slot.channel == channel and slot.flavor is flavor]
+                if is_stable(fields["version"]):
+                    offers += [(slot, payload, signature, fields, None) for slot in targets]
+                elif channel == "stable":
+                    raise ReleaseError(f"{document.name} offers dev build {fields['version']} on the stable channel.")
+                else:
+                    package = source / fields["artifact"]
+                    verify_offer(payload, signature, expected, package.read_bytes(), flavor=flavor)
+                    if fields["bytes"] > PACKAGE_CLIENT_MAXIMUM_BYTES:
+                        raise ReleaseError(f"{package.name} exceeds the client's package limit.")
+                    offers += [(slot, payload, signature, fields, package) for slot in targets if slot.dev_builds]
         for slot, payload, signature, fields, package in offers:
             previous = current.get(slot.name)
             # An equal version keeps the site's copy, which may be re-signed.
@@ -802,12 +1062,12 @@ def command_channels(arguments) -> None:
             target = site / slot.manifest
             target.parent.mkdir(parents=True, exist_ok=True)
             if package:
-                shutil.copyfile(package, preview_package(site, fields["version"]))
+                shutil.copyfile(package, preview_package(site, slot, fields["version"]))
             target.write_bytes(payload)
             Path(f"{target}.sig").write_bytes(signature)
             current[slot.name] = fields
             changed.append(f"{slot.name} -> {fields['version']}")
-        for slot in SLOTS:
+        for slot in slots:
             document = source / f"maicord-{slot.channel}.changelog.json"
             if not slot.changelog or not document.exists():
                 continue
@@ -825,16 +1085,17 @@ def command_channels(arguments) -> None:
             changed.append(f"{slot.name} changelog -> {fields['version']}")
     if arguments.refresh_within_days is not None:
         key = None
-        for slot in SLOTS:
+        for slot in slots:
             fields = current.get(slot.name)
             if not fields or fields["expires"] - now > arguments.refresh_within_days * 86400:
                 continue
             key = key or load_private_key(arguments)
             signed_manifest(arguments, key, expected, fields["version"], slot.channel, fields["bytes"],
-                            fields["sha256"], (site / slot.manifest).parent, now - CLOCK_SKEW_SECONDS)
+                            fields["sha256"], (site / slot.manifest).parent, now - CLOCK_SKEW_SECONDS, slot.flavor,
+                            Path(slot.manifest).name)
             current[slot.name] = read_offer(site, slot, expected, now)
             changed.append(f"{slot.name} re-signed")
-    for slot in SLOTS:
+    for slot in slots:
         if not slot.changelog or not (site / slot.changelog).exists():
             continue
         target = site / slot.changelog
@@ -844,31 +1105,36 @@ def command_channels(arguments) -> None:
             target.unlink()
             Path(f"{target}.sig").unlink(missing_ok=True)
             changed.append(f"{slot.name} changelog removed")
-    feed = current.get(PREVIEW_SLOT.name)
-    keep = []
-    if feed and not is_stable(feed["version"]):
-        package = preview_package(site, feed["version"])
-        if not package.exists():
-            raise ReleaseError(f"The preview package {package.name} is missing from the site.")
-        keep.append(package)
-    packages = sorted(((int(path.stem.rsplit("-", 1)[1]), path) for path in
-                       (site / SITE_DIRECTORY / PREVIEW_DIRECTORY).glob(f"{ARTIFACT_PREFIX}*.zip")
-                       if re.fullmatch(re.escape(ARTIFACT_PREFIX) + r"\d+", path.stem)), reverse=True)
-    for number, path in packages:
-        if path in keep:
+    # Each master-build feed keeps the package of its current build and the one before it; a stable release retires them.
+    for slot in slots:
+        if not slot.dev_builds:
             continue
-        if keep and len(keep) < PREVIEW_PACKAGES_KEPT and number < feed["version"]:
-            keep.append(path)
-            continue
-        path.unlink()
-        changed.append(f"removed {path.name}")
-    for slot in SLOTS:
+        feed = current.get(slot.name)
+        keep = []
+        if feed and not is_stable(feed["version"]):
+            package = preview_package(site, slot, feed["version"])
+            if not package.exists():
+                raise ReleaseError(f"The {slot.name} package {package.name} is missing from the site.")
+            keep.append(package)
+        directory = (site / slot.manifest).parent
+        found = sorted(((slot.flavor.package_number(path.name), path)
+                        for path in (directory.iterdir() if directory.is_dir() else ())
+                        if path.is_file() and slot.flavor.package_number(path.name) is not None), reverse=True)
+        for number, path in found:
+            if path in keep:
+                continue
+            if keep and len(keep) < PREVIEW_PACKAGES_KEPT and number < feed["version"]:
+                keep.append(path)
+                continue
+            path.unlink()
+            changed.append(f"removed {path.name}")
+    for slot in slots:
         if slot.name not in current:
             continue
         fields = read_offer(site, slot, expected, now)
-        if slot is PREVIEW_SLOT and not is_stable(fields["version"]):
+        if slot.dev_builds and not is_stable(fields["version"]):
             verify_offer((site / slot.manifest).read_bytes(), Path(f"{site / slot.manifest}.sig").read_bytes(),
-                         expected, preview_package(site, fields["version"]).read_bytes(), now)
+                         expected, preview_package(site, slot, fields["version"]).read_bytes(), now, flavor=slot.flavor)
         print(f"{slot.name}: {version_text(fields['version'])}, expires in {(fields['expires'] - now) // 86400} days")
     print("changed: " + (", ".join(changed) if changed else "nothing"))
     write_outputs({"changed": str(bool(changed)).lower()})
@@ -878,7 +1144,8 @@ def command_verify(arguments) -> None:
     public = cng_p256.parse_public_point(arguments.public_key)
     fields = verify_offer(Path(arguments.manifest).read_bytes(), Path(arguments.signature).read_bytes(), public,
                           Path(arguments.artifact).read_bytes() if arguments.artifact else None,
-                          now=int(time.time()) if arguments.check_time else None)
+                          now=int(time.time()) if arguments.check_time else None,
+                          flavor=LINUX if arguments.linux else WINDOWS)
     print(json.dumps(fields, indent=2))
     if arguments.changelog:
         changelog = Path(arguments.changelog)
@@ -1041,6 +1308,19 @@ def main(argv: list[str] | None = None) -> int:
     key_options(command)
     command.set_defaults(run=command_release)
 
+    command = sub.add_parser("linux", help="sign the Linux tarball's manifests: a release's, or HEAD's master build (--preview)")
+    which = command.add_mutually_exclusive_group(required=True)
+    which.add_argument("--tag", help="a stable release: the stable and preview manifests")
+    which.add_argument("--preview", action="store_true", help="HEAD's master build: the preview manifest, tarball beside it")
+    command.add_argument("--repository", default=".", help="with --preview: the checkout whose HEAD names the build")
+    command.add_argument("--expect-version", help="with --preview: the version the tarball was built as")
+    command.add_argument("--tarball", required=True, help="maicord-X.Y.Z-linux-x86_64.tar.gz (packaging/build_tarball.py)")
+    command.add_argument("--output-dir", required=True)
+    command.add_argument("--public-key", help="expected public point (hex); signing fails on mismatch")
+    command.add_argument("--issued", type=int, help=argparse.SUPPRESS)
+    key_options(command)
+    command.set_defaults(run=command_linux)
+
     command = sub.add_parser("preview", help="package and sign HEAD's master build for the preview channel")
     command.add_argument("--binaries", required=True)
     command.add_argument("--output-dir", required=True)
@@ -1067,6 +1347,8 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--public-key", required=True)
     command.add_argument("--publish", metavar="DIRECTORY", help="install the signed files found here")
     command.add_argument("--refresh-within-days", type=int, help="re-sign manifests expiring within this many days")
+    command.add_argument("--linux", action="store_true",
+                         help="also publish, verify and re-sign the Linux manifests (MAICORD_LINUX_RELEASES)")
     key_options(command)
     command.set_defaults(run=command_channels)
 
@@ -1077,6 +1359,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--artifact")
     command.add_argument("--changelog", help="a changelog (with .sig beside it) that must match the manifest")
     command.add_argument("--check-time", action="store_true")
+    command.add_argument("--linux", action="store_true", help="a manifest of the Linux package (linux-x64, a tarball)")
     command.set_defaults(run=command_verify)
 
     command = sub.add_parser("portable", help="build the portable first-install ZIP")

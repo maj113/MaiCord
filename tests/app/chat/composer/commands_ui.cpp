@@ -6,7 +6,9 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "../../../support/test_output.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_user.hpp"
+#endif
 #include "maicord/platform/window/key.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 
@@ -21,6 +23,12 @@ GpuStatus gpu_surface_set_offset(GpuSurface*, float x, float y, bool* needs_pres
 GpuStatus gpu_surface_present(GpuSurface*, u32, const GpuRect*, u32) {
     return 0;
 }
+#if !defined(_WIN32)
+// The Wayland backend holds the clipboard and the headless window backend of the tests has none; no case reads it.
+bool clipboard_write_utf8(const Utf8View&) noexcept {
+    return true;
+}
+#endif
 
 } // namespace maicord
 

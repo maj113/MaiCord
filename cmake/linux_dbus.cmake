@@ -11,3 +11,12 @@ maicord_library(maicord_dbus
     src/platform/dbus/tray.cpp src/platform/dbus/global_shortcuts.cpp src/platform/dbus/instance.cpp
     src/platform/dbus/file_chooser.cpp src/platform/dbus/launcher_entry.cpp
     LIBS maicord_core)
+
+# The AT-SPI server over that client (src/platform/atspi, include/maicord/platform/atspi): the application's objects on the
+# accessibility bus for screen readers, answered from the accessibility snapshot (ui/accessibility). Linux only, like
+# the UI Automation server it stands beside (maicord_uia, Windows only). Nothing connects until org.a11y.Status says an
+# assistive technology is on.
+maicord_library(maicord_atspi
+    src/platform/atspi/map.cpp src/platform/atspi/accessible.cpp src/platform/atspi/server.cpp
+    src/platform/atspi/events.cpp
+    LIBS maicord_dbus maicord_ui maicord_core)

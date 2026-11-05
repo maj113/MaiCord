@@ -1,4 +1,5 @@
 #include "maicord/app/update/package.hpp"
+#include "package_admission.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/core/crc32.hpp"
@@ -220,36 +221,10 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
     const P256Key& key, KdfSha256Workspace& workspace, const UpdateManifestPolicy& policy,
     const UpdateAcceptanceTransaction& acceptance, Slice<u32> scratch, ConstSlice<wchar_t> destination,
     UpdatePackage* output) noexcept {
-    if (!source || !owner(source->file) || !output || output->file || !offer.document.data || !offer.document.bytes ||
-        offer.document.bytes > kUpdateManifestMaximumBytes || !offer.signature.data || offer.signature.count != 64 ||
-        !scratch.data || !scratch.count || scratch.count > ~u32{0} / sizeof(u32) ||
-        !destination.data || !destination.count || destination.count > kUpdateArtifactMaximumPathCharacters) return invalid();
-    for (u32 i = 0; i < destination.count; ++i) if (!destination[i]) return invalid();
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(source), sizeof(*source)}, {reinterpret_cast<const u8*>(&offer), sizeof(offer)},
-        {reinterpret_cast<const u8*>(offer.document.data), offer.document.bytes}, offer.signature,
-        {reinterpret_cast<const u8*>(&key), sizeof(key)}, {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)},
-        {workspace.storage.data, workspace.storage.capacity},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(output), sizeof(*output)}, {reinterpret_cast<const u8*>(&policy), sizeof(policy)},
-        {reinterpret_cast<const u8*>(&acceptance), sizeof(acceptance)},
-        {reinterpret_cast<const u8*>(destination.data), destination.count * static_cast<u32>(sizeof(wchar_t))}};
-    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return invalid();
+    UpdateManifest manifest{};
+    const auto admitted = package_detail::admit(source, offer, key, workspace, policy, acceptance, scratch, destination, output, &manifest);
+    if (!admitted.ok()) return admitted;
     Reader reader{source->file, source->bytes, {}};
-    UpdateManifestPolicy captured{}; UpdateManifest manifest{};
-    if (!update_acceptance_capture_policy(acceptance, policy, &captured).ok()) {
-        reader.fail(UpdatePackageError::acceptance); return reader.status;
-    }
-    const auto verified = update_manifest_verify(offer.document, offer.signature, key, workspace, captured, scratch, &manifest);
-    if (!verified.ok()) { reader.fail(UpdatePackageError::offer); reader.status.manifest_error = verified.error; return reader.status; }
-    const auto& admitted = acceptance.state.channels[static_cast<u32>(manifest.channel)];
-    if (!acceptance.record_present || !admitted.present || admitted.highest_version != manifest.version ||
-        !bytes_equal(admitted.manifest_sha256, manifest.manifest_sha256, 32)) {
-        reader.fail(UpdatePackageError::acceptance); return reader.status;
-    }
-    if (source->bytes != manifest.artifact_bytes || source->version != manifest.version ||
-        !bytes_equal(source->manifest_sha256, manifest.manifest_sha256, 32) ||
-        !bytes_equal(source->sha256, manifest.artifact_sha256, 32)) { reader.fail(UpdatePackageError::source); return reader.status; }
     Member member{}; UpdatePackage candidate{};
     // owned[0] is the output while writable, owned[1] once sealed.
     HANDLE owned[2]{};

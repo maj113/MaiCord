@@ -97,6 +97,29 @@ has the same rules in more detail.
   `.desktop` file (`MimeType=x-scheme-handler/discord`) and the hicolor icons into `<build>/packaging` (target
   `maicord_desktop_entry`). `tools/test_dbus_tray.sh` checks the tray against swaybar's real watcher and host (a screenshot of
   its bar, `busctl` on the item and its menu) and single instance with `gdbus call`.
+  Screen readers on Linux reach the application through AT-SPI (`src/platform/atspi`, `include/maicord/platform/atspi`; the
+  counterpart of the UI Automation server, `src/platform/uia`, over the same `UiAccessTree` snapshots). Nothing is connected
+  until it is wanted: `server.hpp` watches `org.a11y.Bus` on the session bus and reads `org.a11y.Status` without starting
+  the service, and when `IsEnabled` or `ScreenReaderEnabled` is true it asks `GetAddress`, opens the accessibility bus
+  through the in-house client and registers the application root with the registry (`org.a11y.atspi.Socket.Embed`); both
+  false, or the bus ending, closes it. `accessible.hpp` turns one method call into one reply (the application root with
+  `Application`; each snapshot node with `Accessible`, `Component`, `Action`, `Text`, `EditableText`, `Value`, `Selection`
+  and `Properties`; paths are `/org/a11y/atspi/accessible/<key>`), `map.hpp` is the role, state, interface and action
+  mapping, and `events.cpp` sends focus, state, text (insert and delete as a diff of the focused value), caret, property,
+  children and `Announcement` signals once a client has called (before that a frame costs a flag test, as UI Automation
+  before its first `WM_GETOBJECT`). The accessibility bus connection is a `SessionBusExtra` (`session.hpp`): the Wayland
+  pump waits on it and processes it with the session bus, and its due times bound the sleep. Bounds are logical pixels (the
+  snapshot's DIPs) from the window's own origin: Wayland does not give a client its screen position, so screen coordinates
+  equal window coordinates. `src/app/accessibility/linux` is the host: callbacks over the shared snapshot and
+  `access_act` (deferred actions arrive as `wake_accessibility` events in `application_window_event`), the status
+  announcements of the Windows server (`accessibility_status.cpp`), and the frame hook. Password fields expose no text.
+  `maicord_atspi_map` checks the mapping and the answers on a synthetic window without a bus; `maicord_atspi_bus`
+  (`tools/test_dbus.sh`, the bare private bus; skips without it) plays `org.a11y.Bus`, the registry and a screen reader
+  around the server: off means no connection, `IsEnabled` or `ScreenReaderEnabled` brings it and the `Embed`, a call, an
+  action, the events of a snapshot difference, off again, and a registry that comes back; `tools/test_atspi.sh` runs the
+  client on headless sway behind the real `at-spi-bus-launcher` and registry, and `tests/platform/atspi/atspi_client.py`
+  (python3-gi, gir1.2-atspi-2.0) walks the sign-in form, invokes a button, reads and sets text and waits for events;
+  `--orca` also runs Orca (on a private Xvfb, speech-dispatcher's dummy module) and reads what it spoke from its debug log.
   The Linux GPU backend (`src/gpu/gles`) is OpenGL ES 3.1 over EGL; EGL, GLES and libwayland-egl are opened with `dlopen`
   (`libEGL.so.1`, `libGLESv2.so.2`, `libwayland-egl.so.1`); the shaders are the HLSL of `src/render/shaders` translated by
   `tools/build_gles_shader_pack.py` (DXC and SPIRV-Cross pinned in `tools/linux_shader_toolchain.json`, built into
@@ -108,7 +131,15 @@ has the same rules in more detail.
   `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=<n>` reports a smaller compute group (the narrow COLR variant, the decode
   gates). `tools/test_gpu_surface.sh` starts headless (or nested) sway, runs `tests/gpu/surface_wayland.cpp` (an EGL
   window surface fed by an offscreen frame texture, damage blits with buffer age, frame callbacks as the frame clock)
-  and checks a `grim` screenshot, with `--scale` for the scale paths.
+  and checks a `grim` screenshot, with `--scale` for the scale paths. The window surface is opaque: the EGL config is the
+  one without alpha among the 8-bit window configs (`make_current` in `src/gpu/gles/device.cpp`: Mesa then makes XRGB8888
+  buffers, which a compositor reads as opaque), the Wayland window sends the whole surface as `wl_surface.set_opaque_region`
+  and keeps it at the logical size (`apply_opaque_region`, with the viewport destination, so a resize or a scale change
+  moves it; `window_wayland_opaque_region` reads it back), and the caption bar is square and inside the surface, so there
+  is no rounded or transparent corner to leave out. The app's shake (`gpu_surface_set_offset`) therefore draws the picture
+  at rest first and the moved one over it, where Direct3D lets a transparent strip through. `tools/test_wayland_window.sh`
+  and `tools/test_client_wayland.sh` put a magenta `output bg` behind the window: the EGL test clears at alpha one half
+  and the screenshot's middle pixel must still be pure green, and the client screenshot must hold no magenta pixel.
   The background effects run through the same pass executor as on Windows (`src/render/d3d11/effect_renderer.cpp`, built
   into `maicord_effect_host`). A package of `.mcfx` interface 4 carries a GLSL section (type 10, one entry per DXBC shader:
   `include/maicord/gpu/glsl_shader.hpp`) next to the DXBC, which Windows ignores and Linux runs through
@@ -121,6 +152,37 @@ has the same rules in more detail.
   (`MAICORD_GLES_NO_DUAL_SOURCE=1`) the composite pixel shader is drawn as a weight pass and a colour pass; without
   GL_EXT_disjoint_timer_query (`MAICORD_GLES_NO_TIMER_QUERY=1`, which the effects tests set so the cost probe cannot move
   a resolution) `caps.timer_query` is false; `MAICORD_GLES_CHECK=1` reports GL errors after each draw and clear.
+  The official catalog (MaiCord-plugins) lists each effect's interface 4 package for the Linux client in `index-4.json`
+  (`kCatalogIndexFile` in `catalog_index.hpp`: `index-3.json` on Windows, which keeps the DXBC packages, `index-4.json`
+  on Linux; `tools/release/plugin_index.py`: reader level 4, the effect item's source member `universal`, `check_source`,
+  `check_universal`). `tests/app/plugins/catalog_effects.cpp` (`maicord_catalog_effects`) takes a signed catalog of
+  `tests/gpu/effects` packages through verify, list, download, parse, install and removal on Linux, and with
+  `MAICORD_CATALOG_E2E_DIR` and `MAICORD_CATALOG_E2E_KEY` set the effects of a site the catalog scripts built.
+  `tools/test_catalog_wayland.sh` runs the whole client against such a site over real TLS on headless sway: the catalog
+  host (`<owner>.github.io`, the official owner) is 127.0.0.1 in a private user, network and mount namespace
+  (`unshare -Urnm`, a private `/etc/hosts`), `tools/catalog_site_server.py` serves the site on 443 with a certificate the
+  client trusts through `SSL_CERT_FILE`, and the client is built with the site's test key
+  (`MAICORD_PLUGIN_CATALOG_PUBLIC_KEY` at configure) and driven by `tools/client_flow.py` steps. Settings opens signed out;
+  its Effects page (Appearance > Browse effects) lists, downloads and installs from the catalog (`application_catalog_browse`
+  restores the catalog itself when the account session has not), and an installed effect runs in its knob page's live
+  preview. The Themes page is signed-in only (`page_allowed`).
+  Native plugins on Linux are freestanding shared objects (`src/app/plugins/loader.cpp`: the `#else` half is the ELF loader, the
+  `_WIN32` half the PE one, the descriptor rules are shared). `plugin_directory_open` pins every ancestor with
+  `O_PATH|O_DIRECTORY|O_NOFOLLOW` (owned by root or the user, not writable by others unless sticky; the plugins directory the
+  user's alone); `plugin_image_load` opens the leaf relative to the pin with `O_NOFOLLOW` (a regular file of the user that nobody
+  else can write, whose `/proc/self/fd` path is the pinned path and name), copies it into a sealed `memfd` while it hashes it,
+  checks the ELF on that copy (`elf_check`: x86-64 `ET_DYN`, no entry, `PT_INTERP` or `PT_TLS`, readable and never W+X loads, a
+  non-executable `PT_GNU_STACK`, no `DT_NEEDED`, initializer, finalizer or text relocation, no undefined, TLS or IFUNC symbol,
+  one exported symbol, `maicord_plugin_v6`, as data, only `R_X86_64_RELATIVE` relocations) and `dlopen`s `/proc/self/fd/N` of the
+  copy with `RTLD_NOW|RTLD_LOCAL`: what was hashed and checked is what runs. The copy stays open while the plugin is loaded
+  (`PluginImage::sealed_token`), because glibc returns an already loaded module for a repeated name. `maicord_plugin_loader_elf`
+  is the policy test (a fixture per defect, symlinks, modes, a renamed pin), `maicord_plugin_binding|network|pipeline|ui|surfaces`
+  run the Windows runtime tests over `.so` builds (`cmake/linux_plugin_tests.cmake`; `maicord_plugin()` in
+  `cmake/test_support.cmake` is the one build recipe; the built plugins are in `plugins/` of the build directory),
+  `maicord_plugin_compile_*` the SDK's diagnostics. `MC_CALL` is empty (System V) and `MC_EXPORT` a default-visibility attribute
+  off Windows; `tools/maicord-plugin build|check|dev|pack --target linux` builds and checks a `.so` from the same `plugin.cpp`
+  (`_check_elf` mirrors the loader); a catalog plugin version's Linux file is the source member `linux` of `plugin_index.py`
+  (reader 4 lists it as the version's `file`, `files/<sha256>.so`; a version without one is not in `index-4.json`).
   `tests/gpu/sync.cpp` covers the prestart worker, view and `gpu_retain` ownership, timers and fences. Float render targets
   (`rgba32f`) need ES 3.2 or `GL_EXT_color_buffer_float` and are sampled with a point twin where the driver cannot filter them.
   The shared renderer (`src/render`: the `D3D11Renderer` logic, text, layout, media, caption, effects, presentation and
@@ -145,8 +207,21 @@ has the same rules in more detail.
   injected clock (`maicord_audio_pure`), the media and notification logic shared with Windows
   (`maicord_notification_audio`) and the no-server and no-library cases; `tools/test_pulse_audio.sh` runs the opt-in
   `maicord_pulse_loopback` against WSLg's PulseServer, `$PULSE_SERVER` or a private `pulseaudio`: it loads a null sink,
-  plays voice, notification and media audio into it and records the sink's monitor with the voice capture. Text-to-speech
-  has no Linux engine (`speech_speak` returns false); speech-dispatcher is the later backend.
+  plays voice, notification and media audio into it and records the sink's monitor with the voice capture.
+  Text-to-speech ("Speak message", the one caller of `speech_speak`; the message "tts" flag is always false and the client
+  reads no notification aloud, as Windows) is speech-dispatcher (`src/platform/audio/speechd/speech.cpp`, the same
+  `speech.hpp` SAPI answers on Windows): `libspeechd.so.2` through `dlopen` (`MAICORD_SPEECHD_LIBRARY` names another
+  soname; `include/maicord/platform/audio/speechd/abi.hpp`, checked against libspeechd-dev by
+  `python tools/check_speechd_abi.py`), the client `maicord` on `spd_open2` (single threaded, the default address, so
+  `$SPEECHD_ADDRESS`, with the daemon's autospawn), `spd_cancel` before each `spd_say` at priority text (SAPI's
+  `SPF_PURGEBEFORESPEAK`), `spd_cancel` and `spd_close` at release. The voice, rate and language are the user's: the
+  daemon's own configuration and its per-client section for `maicord`, as SAPI takes the Windows speech settings. A text
+  goes in as its valid UTF-8 prefix, cut at 4096 bytes and at the first NUL; with no library, no daemon (not retried: each
+  try can wait on the spawn) or a refused say the call returns false and the caller logs `speech_unavailable`; a failed say
+  drops the connection so that the next call opens another. `maicord_speechd` runs the logic against fake libspeechd entry
+  points, `maicord_speechd_no_library` and `_no_daemon` the real library's absent states, and `tools/test_speechd.sh`
+  (CI, and `maicord_speechd_live`) starts a private `speech-dispatcher` with its dummy output module and reads its log:
+  both texts, in order, the second after a cancel, the invalid one never, the client removed at release.
   AAC on Linux is an in-house AAC-LC decoder (`src/media/audio/aac_lc.cpp`, interface in
   `src/platform/decode/linux/aac_decoder.cpp`; Windows keeps Media Foundation): mono and stereo, section and
   scalefactor data, Huffman codebooks, pulses, M/S, intensity stereo, PNS, TNS, sine and KBD windows, long and short
@@ -214,7 +289,8 @@ has the same rules in more detail.
   need no GPU; a list of other files (`MAICORD_LOTTIE_CORPUS_LIST`, see the test's header) is compared the same way.
   The application transport and updater units build on Linux too (`cmake/linux_app_libraries.cmake`: `maicord_app_net`,
   `maicord_app_update`, `maicord_app_packages`), with `maicord_update_pipeline` (manifest, artifact, acceptance,
-  preparation, package), `maicord_https_file_download`, `maicord_transport` (WebSocket, HTTP/1, REST request heads and
+  preparation, the Linux tarball package and its replay over a fake network),
+  `maicord_https_file_download`, `maicord_transport` (WebSocket, HTTP/1, REST request heads and
   transactions, TLS stream contract, resolver, worker, loopback), `maicord_client_identity` and
   `maicord_gateway_self_status_runtime` in the normal suite. Shared code reaches files, events, threads and time only
   through `os/` and `core/time.hpp`; where the two systems differ (rooted paths against drive paths, advisory sharing
@@ -290,8 +366,9 @@ has the same rules in more detail.
   AI-generated manifests and AI-opened submissions): do not write or submit one.
 - The application (`src/app`, `src/ui`) builds for both systems. Not in `maicord_app_client` on Linux: `src/app/shell`
   (the client's own sources), `src/app/windows` (the Win32 entry and window procedure), `src/app/linux` (the Linux entry
-  and window glue) and the UI Automation server (`accessibility.cpp`,
-  `accessibility_actions.cpp`; `src/app/accessibility/linux` stands in, the snapshots are shared).
+  and window glue) and the UI Automation server (`accessibility.cpp`; `src/app/accessibility/linux` stands in with the
+  AT-SPI server's host; the snapshots, `accessibility_describe.cpp`, and the actions they route,
+  `accessibility_actions.cpp`, are shared).
   `cmake/linux_app_client.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and
   must use the seams: `os/process.hpp` (`process_launch_detached`), `os/text.hpp` (`utf16_to_utf8`, `utf8_to_utf16`),
   `os/thread.hpp` (`thread_waitable` for a wait set that holds a thread, `thread_com_enter`), `os/local_time.hpp` (local
@@ -303,12 +380,36 @@ has the same rules in more detail.
   keeps `#if defined(_WIN32)` in its file with the Linux alternative beside it: `notifications/desktop.cpp` (the tray
   over the StatusNotifierItem and the single instance over `org.freedesktop.Application`),
   `platform/desktop/taskbar_attention.cpp` (the launcher entry), `platform/desktop/linux/notifications.cpp` (toasts over
-  D-Bus), `platform/desktop/linux/integration.cpp` (the startup entry is an XDG autostart file, the scheme handler a
-  desktop file plus the default in `mimeapps.list`), `platform/desktop/linux/webauthn.cpp` (unavailable), the plugin
-  loader (`PluginLoadError::unsupported`) and game detection (`/proc/*/comm`). The application and UI fixtures that need
+  D-Bus: the Windows toast carries a title, a body, a circular author avatar and the click that opens the message, no reply
+  box, and so does the Linux one: title, body, the avatar as the icon, the `default` action with the server's activation
+  token, the sound request, removal by message, channel or profile; the avatar PNG is `application_notification_avatar_uri`'s,
+  in `$XDG_CACHE_HOME/maicord/notification-avatars`, handed over as a `file://` URI and passed to the daemon as a plain path,
+  and to the portal as the file's bytes because a sandbox's host cannot see the file; `dbus/notifications.cpp` asks the
+  daemon once per session for `body-markup` and, when it reads markup, sends the body with `&`, `<` and `>` as entities,
+  as the Windows toast escapes its XML, so a message with a link or an image tag in it stays text; the mock daemon of
+  `tools/test_dbus.sh` logs every call, and `maicord_dbus_services`, `_plain` and `maicord_linux_notifications_mock` check
+  it), `platform/desktop/linux/integration.cpp` (the startup entry is an XDG autostart file, the scheme handler a
+  desktop file plus the default in `mimeapps.list`), `platform/desktop/linux/webauthn.cpp` (unavailable: see below), the plugin
+  loader (`PluginLoadError`: the ELF loader below) and game detection (`/proc/*/comm`). The application and UI fixtures that need
   no Win32 window run on Linux from `cmake/linux_app_ui_tests.cmake` over `maicord_window_null`, with the Win32 calls
   they make shimmed for tests only in `tests/support/linux_test_app.hpp`; a fixture that calls other Windows API
   directly stays Windows-only and is listed there.
+  WebAuthn on Linux: `windows_webauthn_authenticate` answers unavailable and `kWebAuthnAvailable` (`platform/desktop/webauthn.hpp`)
+  is false, so `begin_webauthn` presents `webauthn_failed` at once ("Security keys aren't supported on Linux yet. Use another
+  method."; `maicord_linux_webauthn_text`) and the sign-in chooses another second factor first when the account has one.
+  libfido2 (`libfido2.so.1` through `dlopen`: `fido_dev_info_manifest`, `fido_dev_open`, `fido_assert_*`, `fido_dev_get_assert`)
+  was evaluated for the assertion and not bound: the ceremony here is one blocking call inside the OS's modal prompt, and
+  `application_login_run_webauthn` is written for that (Back stays up through the nested message loop, the state is checked
+  again after it); `fido_dev_get_assert` blocks on a touch with no prompt of its own, so Linux needs a worker thread, a
+  completion wake, the function split into a begin and a finish half, a cancel from Back (`fido_dev_cancel`) and an on-screen
+  prompt, all in Windows-compiled sign-in code; a key with a PIN or user verification needs a PIN field the sign-in screen has
+  not got; USB keys need the hidraw udev rules (`libfido2`'s, `libu2f-udev`) the user's system may lack; and there is nothing
+  to test against (libfido2 has no software authenticator, the WSL kernel has no `/dev/uhid` or `hidraw` to attach a virtual
+  one to, its custom I/O hook would take a CTAP2 emulator written for the purpose, and no hardware key was at hand). The
+  request mapping is the shared `webauthn_mfa_*` code, which a binding would reuse unchanged:
+  `webauthn_mfa_write_client_data` for the data to hash, `fido_assert_set_clientdata_hash`, `fido_assert_set_rp`,
+  `fido_assert_allow_cred` per credential, `fido_assert_set_uv` from the user verification, and the credential id, raw
+  authenticator data, signature and user handle of `fido_assert_*` into `webauthn_mfa_write_assertion`.
   The client is the `MaiCord` target (`cmake/linux_client.cmake`): the shell (`src/app/shell`) compiled on Linux with
   `src/app/linux/entry.cpp` (`argv` as the one command line `desktop_launch_parse` reads, via
   `platform/desktop/launch_line.hpp`: `--startup`, `--url -- <link>`, a bare `discord://` argument and single-instance
@@ -317,9 +418,11 @@ has the same rules in more detail.
   the Wayland backend is linked (`maicord_window_null` is the tests'); the resources Windows takes from `.rc` are
   embedded (`core/linux/resource.cpp`: the sounds and the icon, which `window_app_icon_png` reads as an ICO). Shared
   paths join with `kPathSeparator` (`core/data_path.hpp`), not a literal backslash, wherever they are compared or
-  split, and `directory_ensure` makes missing ancestors on Linux. The updater is disabled on Linux until the release
-  channels carry the tarball (`application_update_build_config()`, `kLinuxUpdatesPublished`); then only the install with the
-  `.maicord-portable` marker beside its real executable (`update_portable_install`) enables it. `build_linux.sh` leaves
+  split, and `directory_ensure` makes missing ancestors on Linux. The updater (`src/app/update/linux`: `package.cpp` reads
+  the release tarball, `stage.cpp` swaps the install's `MaiCord`, `fonts/` and `licenses/`; `update_portable_gate`) updates
+  only the install with the `.maicord-portable` marker beside its real executable, and only in a build compiled with
+  `MAICORD_LINUX_UPDATES_PUBLISHED` (the `MAICORD_LINUX_RELEASES` environment variable at configure time; the channels carry
+  the tarball's own manifests, `maicord_release.py linux`); the relaunch is `process_replace` (`execve`). `build_linux.sh` leaves
   `MaiCord`, `fonts/` and `licenses/` in `~/mc-build`. `tools/test_client_wayland.sh` (headless or nested sway, the running
   compositor; screenshot, idle CPU, wakeups, RSS, binary size) and `tools/client_flow.py` (clicks over
   `tools/wayland_pointer.py`, typing, scale and window commands, screenshots) run it with a private empty profile;
@@ -340,8 +443,9 @@ has the same rules in more detail.
   Push to talk beyond the focused window is the GlobalShortcuts portal (`app/voice/push_to_talk_binding.cpp`, bound while a
   call is open in push-to-talk mode; `maicord_push_to_talk_binding`), and the portal's interface and monospace fonts reach the
   text system through `application_platform_desktop_fonts()` (`src/app/linux/desktop_fonts.cpp`) before the first text.
-  What the last audit left unreachable on purpose: the accessibility server (`src/ui/accessibility`, AT-SPI is not written),
-  the PE plugin loader, the updater's swap (until the channels carry the tarball), speech and WebAuthn (no Linux engine), the
+  What the last audit left unreachable on purpose:
+  the PE plugin loader (the ELF loader of `src/app/plugins/loader.cpp` is the Linux client's), the updater's swap (until the
+  channels carry the tarball), WebAuthn (no Linux engine), the
   Windows notification settings page and the voice processing switch (`settings_binding_unavailable`); the rest is test-only code.
   The Linux client is held to the Windows client's size (6.47 MB stripped against `MaiCord.exe`'s 6.49 MB; report a
   change in either). The one list of size-compiled sources is `cmake/size_policy.cmake` (Windows and Linux paths side by

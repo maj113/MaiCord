@@ -81,17 +81,23 @@ if [ -n "$binary_directory" ]; then
     run_program mock "$mock_address" MaiCordDbusBusTests
     run_program mock "$mock_address" MaiCordDbusServicesTests
     MAICORD_NOTIFICATION_BACKEND=portal run_program mock "$mock_address" MaiCordDbusServicesTests --portal
+    run_program mock "$mock_address" MaiCordDbusServicesTests --plain
+    run_program mock "$mock_address" MaiCordLinuxNotificationsTests --mock
     run_program bare "$bare_address" MaiCordDbusServicesTests --bare
     run_program mock "$mock_address" MaiCordSecureBufferServiceTests
     run_program bare "$bare_address" MaiCordSecureBufferServiceTests --bare
     run_program mock "$mock_address" MaiCordDbusDesktopTests
     run_program bare "$bare_address" MaiCordDbusDesktopTests --bare
+    run_program bare "$bare_address" MaiCordAtspiBusTests
     MAICORD_INSTANCE_BACKEND=socket run_program mock "$mock_address" MaiCordDbusDesktopTests --socket
 else
     run_ctest mock "$mock_address" maicord_dbus_wire maicord_dbus_bus maicord_dbus_services maicord_dbus_secure_buffer \
         maicord_dbus_desktop maicord_dbus_instance_socket maicord_desktop_entry maicord_desktop_entry_validate
     MAICORD_NOTIFICATION_BACKEND=portal run_ctest mock "$mock_address" maicord_dbus_services_portal
-    run_ctest bare "$bare_address" maicord_dbus_services_bare maicord_dbus_secure_buffer_bare maicord_dbus_desktop_bare
+    run_ctest mock "$mock_address" maicord_dbus_services_plain
+    run_ctest mock "$mock_address" maicord_linux_notifications_mock
+    run_ctest bare "$bare_address" maicord_dbus_services_bare maicord_dbus_secure_buffer_bare maicord_dbus_desktop_bare \
+        maicord_atspi_bus
 fi
 
 echo "--- mock service log ($out/mock.err)"

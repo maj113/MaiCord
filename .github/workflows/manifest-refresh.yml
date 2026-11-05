@@ -44,6 +44,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          # The Linux manifests are kept verified and re-signed too, while the Linux channels are published.
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (!$env:PUBLIC_KEY -or !$env:MAICORD_UPDATE_SIGNING_KEY) { throw 'Signing key secret or public key variable is missing.' }

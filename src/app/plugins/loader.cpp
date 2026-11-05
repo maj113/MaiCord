@@ -10,12 +10,17 @@
 #include "maicord/os/path.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/crypto.hpp"
+#else
+#include "maicord/os/text.hpp"
+#include "maicord/platform/crypto/hash_stream.hpp"
+#include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/libc.hpp"
 #endif
 
 namespace maicord {
-#if defined(_WIN32) // The PE loader; elsewhere the stubs at the end report that plugins cannot be loaded.
 namespace {
 
+#if defined(_WIN32)
 // PE32+ header offsets (little endian). The headers are read as bytes: a loader
 // that parses untrusted files gains nothing from overlaying SDK structs.
 constexpr u32 kHeaderBytes = 4096;
@@ -32,6 +37,7 @@ constexpr u32 kDirectoryExport = 0;
 constexpr u32 kDirectoryTls = 9;
 constexpr u32 kExportDirectoryBytes = 40;
 constexpr u32 kExportNameBytes = sizeof(MC_DESCRIPTOR_EXPORT);
+#endif
 
 PluginLoadResult failure(PluginLoadError error, DWORD win32_error = 0) noexcept {
     return {error, PluginDescriptorProblem::none, win32_error, 0};
@@ -43,6 +49,7 @@ PluginLoadResult success() noexcept {
     return {};
 }
 
+#if defined(_WIN32)
 bool read_at(HANDLE file, u64 offset, void* output, u32 bytes) noexcept {
     Win32LargeInteger position{static_cast<LONGLONG>(offset)};
     DWORD read = 0;
@@ -69,6 +76,7 @@ const Section* section_of(const Section* sections, u32 count, u32 rva) noexcept 
         if (rva >= sections[i].rva && rva - sections[i].rva < sections[i].virtual_bytes) return &sections[i];
     return nullptr;
 }
+#endif
 
 // Descriptor-side string and pointer checks, relative to the mapped image.
 struct Image {
@@ -288,6 +296,7 @@ bool button_ok(const mc_button_def& b, const Image& image) noexcept {
            (!b.visible || image.code(reinterpret_cast<const void*>(b.visible)));
 }
 
+#if defined(_WIN32)
 // ---- The pinned directory and the file opened beside it -------------------------------------------
 
 // CON, PRN, AUX, NUL, COM1-9 and LPT1-9 in any case: Windows device names, with or without an extension.
@@ -452,8 +461,538 @@ bool file_digest_equals(HANDLE file, u64 bytes, const u8* expected) noexcept {
     return match;
 }
 
-} // namespace
+#else
+// ---- Linux: the pinned directory, the sealed copy and the ELF checks ------------------------------
+
+// ELF64 little-endian fields (System V x86-64), read as bytes for the same reason as the PE headers: nothing here
+// overlays a struct on an untrusted file.
+constexpr u32 kElfHeaderBytes = 64;
+constexpr u32 kProgramHeaderBytes = 56;
+constexpr u32 kProgramHeaderMaximum = 32;
+constexpr u32 kSymbolBytes = 24;
+constexpr u32 kRelocationBytes = 24;
+constexpr u32 kSymbolMaximum = 4096;
+constexpr u32 kRelocationMaximumBytes = 4u * 1024u * 1024u;
+constexpr u32 kDynamicMaximumBytes = 4096;
+constexpr u32 kPageBytes = 4096;
+constexpr u32 kAlignMaximum = 0x200000;
+constexpr u32 kLeafMaximumCharacters = 128;
+constexpr u32 kCopyChunkBytes = 16384;
+constexpr u32 kPtLoad = 1, kPtDynamic = 2, kPtInterp = 3, kPtTls = 7, kPtGnuStack = 0x6474e551;
+constexpr u32 kPfExecute = 1, kPfWrite = 2, kPfRead = 4;
+constexpr u32 kRelativeRelocation = 8; // R_X86_64_RELATIVE: the one relocation a plugin may have
+constexpr u32 kSectionSpecial = 0xff00; // st_shndx values from here on are not section indexes (SHN_ABS, SHN_COMMON, ...)
+constexpr u64 kDtNull = 0, kDtNeeded = 1, kDtPltRelSize = 2, kDtHash = 4, kDtStrtab = 5, kDtSymtab = 6, kDtRela = 7,
+              kDtRelaSize = 8, kDtRelaEntry = 9, kDtStrSize = 10, kDtSymEntry = 11, kDtInit = 12, kDtFini = 13,
+              kDtRel = 17, kDtRelSize = 18, kDtRelEntry = 19, kDtPltRel = 20, kDtTextRel = 22, kDtJmpRel = 23,
+              kDtInitArray = 25, kDtFiniArray = 26, kDtFlags = 30, kDtPreinitArray = 32, kDtRelrSize = 35, kDtRelr = 36,
+              kDtRelrEntry = 37, kDtGnuHash = 0x6ffffef5, kDtDepAudit = 0x6ffffefb, kDtAudit = 0x6ffffefc,
+              kDtVerNeed = 0x6ffffffe, kDtAuxiliary = 0x7ffffffd, kDtFilter = 0x7fffffff;
+constexpr u64 kDfTextRel = 4;
+
+u64 page_up(u64 value) noexcept {
+    return (value + (kPageBytes - 1)) & ~u64{kPageBytes - 1};
+}
+u64 page_down(u64 value) noexcept {
+    return value & ~u64{kPageBytes - 1};
+}
+
+// 0, or the errno of the failed or short read.
+i32 read_exact(int file, u64 offset, void* output, u32 bytes) noexcept {
+    auto* at = static_cast<u8*>(output);
+    while (bytes) {
+        const long got = sys_pread(file, at, bytes, offset);
+        if (got == -kErrorInterrupted) continue;
+        if (got < 0) return static_cast<i32>(-got);
+        if (!got) return kErrorInvalid;
+        at += got;
+        offset += static_cast<u64>(got);
+        bytes -= static_cast<u32>(got);
+    }
+    return 0;
+}
+
+// Descriptors are held in a PluginDirectory as the descriptor plus one, so that zero is no handle.
+HANDLE descriptor_token(int descriptor) noexcept {
+    return reinterpret_cast<HANDLE>(static_cast<usize>(descriptor) + 1);
+}
+int token_descriptor(HANDLE token) noexcept {
+    return static_cast<int>(reinterpret_cast<usize>(token) - 1);
+}
+
+// "/proc/self/fd/<descriptor>": the name under which an open file is opened again, or loaded.
+u32 descriptor_path(int descriptor, char (&output)[32]) noexcept {
+    constexpr char kPrefix[] = "/proc/self/fd/";
+    u32 at = 0;
+    for (; at + 1 < sizeof(kPrefix); ++at) output[at] = kPrefix[at];
+    char digits[12];
+    u32 count = 0;
+    for (u32 value = static_cast<u32>(descriptor); count == 0 || value; value /= 10) digits[count++] = static_cast<char>('0' + value % 10);
+    while (count) output[at++] = digits[--count];
+    output[at] = 0;
+    return at;
+}
+
+// A directory that may be an ancestor of the plugins: a directory of root or the user that others cannot rename
+// entries in (not writable by others unless sticky; writable by the group only when the user's own, as with a private
+// group per user). The plugins directory itself, owned: the user's alone and writable by nobody else.
+bool directory_trusted(int directory, bool owned, i32* error) noexcept {
+    constexpr u32 kNeeded = kStatxType | kStatxMode | kStatxUser;
+    Statx stat{};
+    const long result = sys_statx(directory, "", kAtEmptyPath, kNeeded, &stat);
+    if (result < 0) {
+        *error = static_cast<i32>(-result);
+        return false;
+    }
+    *error = kErrorAccess;
+    const u32 user = static_cast<u32>(sys_geteuid());
+    if ((stat.mask & kNeeded) != kNeeded || (stat.mode & kModeTypeMask) != kModeDirectory) return false;
+    if (owned) return stat.user == user && !(stat.mode & (kModeGroupWrite | kModeOtherWrite));
+    if (stat.user != 0 && stat.user != user) return false;
+    if ((stat.mode & kModeOtherWrite) && !(stat.mode & kModeSticky)) return false;
+    return !(stat.mode & kModeGroupWrite) || (stat.mode & kModeSticky) || stat.user == user;
+}
+// Closes the held ancestors, deepest first. False (with the error) leaves the rest held for a retry.
+bool directory_release(PluginDirectory* directory, i32* error) noexcept {
+    while (directory->ancestor_count) {
+        const long result = sys_close(token_descriptor(directory->ancestors[directory->ancestor_count - 1]));
+        if (result < 0 && result != -kErrorInterrupted) {
+            *error = static_cast<i32>(-result);
+            return false;
+        }
+        directory->ancestors[--directory->ancestor_count] = nullptr;
+    }
+    reset_value(directory);
+    return true;
+}
+// Every component is opened without following a link, relative to the one before it, and held while descendants are
+// opened: a checked ancestor cannot be swapped for another directory between the hash and the load, and the file is
+// opened relative to the last of them.
+bool directory_pin(PluginDirectory* directory, ConstSlice<wchar_t> path, i32* error) noexcept {
+    constexpr int kFlags = kOpenPath | kOpenDirectory | kOpenNoFollow | kOpenCloseOnExec;
+    *error = kErrorInvalid;
+    if (!path.data || path.count >= kPluginPathCapacity || path_root(path) != PathRoot::rooted || !path_plain(path)) return false;
+    const u32 bytes = utf16_to_utf8(path.data, path.count, directory->utf8, sizeof(directory->utf8) - 1, true);
+    if (!bytes) return false;
+    directory->utf8[bytes] = 0;
+    directory->utf8_bytes = bytes;
+    copy_bytes(directory->path, path.data, path.count * 2u);
+    directory->path[path.count] = 0;
+    directory->path_characters = path.count;
+    long descriptor = sys_openat(kAtCurrentDirectory, "/", kFlags);
+    u32 start = 1;
+    for (bool more = true; more;) {
+        if (descriptor < 0) {
+            *error = static_cast<i32>(-descriptor);
+            return false;
+        }
+        if (directory->ancestor_count == kPluginPathMaximumAncestors) {
+            sys_close(static_cast<int>(descriptor));
+            return false;
+        }
+        directory->ancestors[directory->ancestor_count++] = descriptor_token(static_cast<int>(descriptor));
+        more = start < bytes;
+        if (!directory_trusted(static_cast<int>(descriptor), !more, error)) return false;
+        if (!more) break;
+        u32 end = start;
+        while (end < bytes && directory->utf8[end] != '/') ++end;
+        const u32 length = end - start;
+        if (!length || length > 255 || (length == 1 && directory->utf8[start] == '.') ||
+            (length == 2 && directory->utf8[start] == '.' && directory->utf8[start + 1] == '.') ||
+            (end + 1 == bytes && directory->utf8[end] == '/'))
+            return false;
+        char name[256];
+        copy_bytes(name, directory->utf8 + start, length);
+        name[length] = 0;
+        descriptor = sys_openat(static_cast<int>(descriptor), name, kFlags);
+        start = end + 1;
+    }
+    return true;
+}
+
+// A file opened beside the pinned directory.
+struct PinnedFile {
+    int descriptor;
+    u64 bytes;
+};
+// A plain name: printable ASCII without '/' or '\\', no leading dot, short.
+bool leaf_valid(ConstSlice<wchar_t> leaf) noexcept {
+    if (!leaf.data || !leaf.count || leaf.count >= kLeafMaximumCharacters || leaf[0] == L'.') return false;
+    for (u32 i = 0; i < leaf.count; ++i)
+        if (leaf[i] <= 32 || leaf[i] >= 127 || leaf[i] == L'/' || leaf[i] == L'\\') return false;
+    return true;
+}
+// Opens leaf relative to the pinned plugins directory without following a link: a regular, non-empty file of the
+// user that only the user can write, which is still where the pin says it is (the path the system reports for the
+// open file is the pinned one and the name, so a directory renamed since the pin, or a bind mount, is refused).
+bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, PinnedFile* out, i32* error) noexcept {
+    *error = kErrorInvalid;
+    if (!directory.ancestor_count || !leaf_valid(leaf)) return false;
+    char name[kLeafMaximumCharacters];
+    for (u32 i = 0; i < leaf.count; ++i) name[i] = static_cast<char>(leaf[i]);
+    name[leaf.count] = 0;
+    const long opened = sys_openat(token_descriptor(directory.ancestors[directory.ancestor_count - 1]), name,
+                                   kOpenReadOnly | kOpenNoFollow | kOpenCloseOnExec | kOpenNonBlock |
+                                       kOpenNoControllingTerminal);
+    if (opened < 0) {
+        *error = static_cast<i32>(-opened);
+        return false;
+    }
+    out->descriptor = static_cast<int>(opened);
+    constexpr u32 kNeeded = kStatxType | kStatxMode | kStatxUser | kStatxSize;
+    Statx stat{};
+    const long result = sys_statx(out->descriptor, "", kAtEmptyPath, kNeeded, &stat);
+    if (result < 0) {
+        *error = static_cast<i32>(-result);
+        return false;
+    }
+    *error = kErrorAccess;
+    if ((stat.mask & kNeeded) != kNeeded || (stat.mode & kModeTypeMask) != kModeRegular ||
+        stat.user != static_cast<u32>(sys_geteuid()) || (stat.mode & (kModeGroupWrite | kModeOtherWrite)) || !stat.size)
+        return false;
+    char link[32];
+    descriptor_path(out->descriptor, link);
+    char expected[sizeof(directory.utf8) + kLeafMaximumCharacters + 1], actual[sizeof(expected) + 1];
+    u32 count = directory.utf8_bytes;
+    copy_bytes(expected, directory.utf8, count);
+    if (count > 1) expected[count++] = '/';
+    for (u32 i = 0; i < leaf.count; ++i) expected[count++] = name[i];
+    const long length = sys_readlink(link, actual, sizeof(actual));
+    if (length < 0) {
+        *error = static_cast<i32>(-length);
+        return false;
+    }
+    if (static_cast<u32>(length) != count || !bytes_equal(actual, expected, count)) return false;
+    out->bytes = stat.size;
+    return true;
+}
+
+// Copies the file into a sealed anonymous memory file while hashing it (when sha256 is given): the bytes that were
+// hashed are the bytes that are checked and mapped, and nobody can change them afterwards.
+PluginLoadResult sealed_copy(const PinnedFile& file, ConstSlice<wchar_t> leaf, const u8* sha256, int* copy) noexcept {
+    char name[sizeof("maicord-plugin:") + kLeafMaximumCharacters];
+    constexpr char kPrefix[] = "maicord-plugin:";
+    u32 at = 0;
+    for (; at + 1 < sizeof(kPrefix); ++at) name[at] = kPrefix[at];
+    for (u32 i = 0; i < leaf.count; ++i) name[at++] = static_cast<char>(leaf[i]);
+    name[at] = 0;
+    // MFD_EXEC says that the copy is to be mapped executable (Linux 6.3 warns when neither it nor MFD_NOEXEC_SEAL is
+    // given); older kernels do not know the flag and refuse it, and take the call without.
+    long memory = sys_memfd_create(name, kMemfdCloseOnExec | kMemfdAllowSealing | kMemfdExec);
+    if (memory == -kErrorInvalid) memory = sys_memfd_create(name, kMemfdCloseOnExec | kMemfdAllowSealing);
+    if (memory < 0) return failure(PluginLoadError::load, static_cast<DWORD>(-memory));
+    *copy = static_cast<int>(memory);
+    HashStream hash = nullptr;
+    if (sha256 && hash_stream_begin(&hash, HashAlgorithm::sha256) < 0) return failure(PluginLoadError::digest);
+    PluginLoadResult result = success();
+    u8 buffer[kCopyChunkBytes];
+    u64 total = 0;
+    while (result.ok()) {
+        const long got = sys_read(file.descriptor, buffer, sizeof(buffer));
+        if (got == -kErrorInterrupted) continue;
+        if (got < 0) result = failure(PluginLoadError::read, static_cast<DWORD>(-got));
+        else if (!got) break;
+        else if ((total += static_cast<u64>(got)) > file.bytes) result = failure(PluginLoadError::read, kErrorInvalid);
+        else if (hash && hash_stream_update(hash, buffer, static_cast<u32>(got)) < 0) result = failure(PluginLoadError::digest);
+        for (long done = 0; result.ok() && done < got;) {
+            const long put = sys_write(*copy, buffer + done, static_cast<usize>(got - done));
+            if (put == -kErrorInterrupted) continue;
+            if (put <= 0) result = failure(PluginLoadError::read, static_cast<DWORD>(put < 0 ? -put : kErrorNoSpace));
+            else done += put;
+        }
+    }
+    if (result.ok() && total != file.bytes) result = failure(PluginLoadError::read, kErrorInvalid); // it changed under us
+    if (hash) {
+        u8 digest[32];
+        if (result.ok() && (hash_stream_finish(hash, digest, sizeof(digest)) < 0 || !bytes_equal(digest, sha256, sizeof(digest))))
+            result = failure(PluginLoadError::digest);
+        hash_stream_destroy(hash);
+    }
+    if (result.ok() && sys_fcntl(*copy, kFcntlAddSeals, kSealSeal | kSealShrink | kSealGrow | kSealWrite) < 0)
+        result = failure(PluginLoadError::load, kErrorInvalid);
+    return result;
+}
+
+// One PT_LOAD: where it lies in the file and in memory.
+struct Segment {
+    u64 vaddr, offset, file_bytes, memory_bytes;
+    u32 flags;
+};
+struct Elf {
+    int file;
+    u64 file_bytes;
+    u32 load_count;
+    Segment loads[kPluginMaximumSections];
+    u64 descriptor; // the export's address in the image
+};
+// The file offset of [vaddr, vaddr + bytes) when it lies in the file-backed part of one segment.
+bool vaddr_to_offset(const Elf& elf, u64 vaddr, u64 bytes, u64* offset) noexcept {
+    for (u32 i = 0; i < elf.load_count; ++i) {
+        const Segment& s = elf.loads[i];
+        if (vaddr < s.vaddr || vaddr - s.vaddr > s.file_bytes || bytes > s.file_bytes - (vaddr - s.vaddr)) continue;
+        *offset = s.offset + (vaddr - s.vaddr);
+        return true;
+    }
+    return false;
+}
+// The segment that holds [vaddr, vaddr + bytes) in memory.
+const Segment* segment_of(const Elf& elf, u64 vaddr, u64 bytes) noexcept {
+    for (u32 i = 0; i < elf.load_count; ++i) {
+        const Segment& s = elf.loads[i];
+        if (vaddr >= s.vaddr && vaddr - s.vaddr <= s.memory_bytes && bytes <= s.memory_bytes - (vaddr - s.vaddr)) return &s;
+    }
+    return nullptr;
+}
+
+// The file header and the program headers: an x86-64 shared object with no entry point, interpreter or TLS, whose
+// loadable segments are readable, never writable and executable, ascend and leave no unmapped page between them, and
+// whose stack is not executable (dlopen would make the whole process's stack executable). Records the executable
+// ranges and the image size, and the dynamic segment.
+PluginLoadResult elf_headers(Elf* elf, Segment* dynamic, PluginImage* output) noexcept {
+    u8 header[kElfHeaderBytes];
+    if (elf->file_bytes < kElfHeaderBytes) return failure(PluginLoadError::not_pe);
+    if (const i32 error = read_exact(elf->file, 0, header, sizeof(header))) return failure(PluginLoadError::read, static_cast<DWORD>(error));
+    if (!bytes_equal(header, "\x7f" "ELF", 4) || header[4] != 2 || header[5] != 1 || header[6] != 1 ||
+        byte_load_le16(header + 16) != 3 || byte_load_le32(header + 20) != 1)
+        return failure(PluginLoadError::not_pe);
+    if (byte_load_le16(header + 18) != 62) return failure(PluginLoadError::machine);
+    if (byte_load_le64(header + 24)) return failure(PluginLoadError::entry_point);
+    const u64 table = byte_load_le64(header + 32);
+    const u32 count = byte_load_le16(header + 56);
+    if (byte_load_le16(header + 52) != kElfHeaderBytes || byte_load_le16(header + 54) != kProgramHeaderBytes || !count ||
+        count > kProgramHeaderMaximum || table < kElfHeaderBytes || table > elf->file_bytes ||
+        count * kProgramHeaderBytes > elf->file_bytes - table)
+        return failure(PluginLoadError::sections);
+    u8 headers[kProgramHeaderMaximum * kProgramHeaderBytes];
+    if (const i32 error = read_exact(elf->file, table, headers, count * kProgramHeaderBytes))
+        return failure(PluginLoadError::read, static_cast<DWORD>(error));
+    bool stack = false, has_dynamic = false;
+    u64 previous_end = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* h = headers + i * kProgramHeaderBytes;
+        const u32 type = byte_load_le32(h), flags = byte_load_le32(h + 4);
+        const u64 offset = byte_load_le64(h + 8), vaddr = byte_load_le64(h + 16), file_bytes = byte_load_le64(h + 32),
+                  memory_bytes = byte_load_le64(h + 40), align = byte_load_le64(h + 48);
+        if (type == kPtInterp) return failure(PluginLoadError::not_pe);
+        if (type == kPtTls) return failure(PluginLoadError::tls);
+        if (type == kPtGnuStack) {
+            if (flags & kPfExecute) return failure(PluginLoadError::sections);
+            stack = true;
+        } else if (type == kPtDynamic) {
+            if (has_dynamic) return failure(PluginLoadError::sections);
+            *dynamic = {vaddr, offset, file_bytes, memory_bytes, flags};
+            has_dynamic = true;
+        } else if (type == kPtLoad) {
+            if (elf->load_count == kPluginMaximumSections || !memory_bytes || file_bytes > memory_bytes ||
+                offset > elf->file_bytes || file_bytes > elf->file_bytes - offset || vaddr > kPluginImageMaximumBytes ||
+                memory_bytes > kPluginImageMaximumBytes - vaddr || !is_power_of_two(align) || align < kPageBytes ||
+                align > kAlignMaximum || vaddr % align != offset % align || !(flags & kPfRead) ||
+                ((flags & kPfExecute) && (flags & kPfWrite)))
+                return failure(PluginLoadError::sections);
+            // The first segment starts at zero and each next one begins in or right after the last page of the one before.
+            if (elf->load_count ? vaddr < previous_end || page_down(vaddr) > page_up(previous_end) : vaddr != 0)
+                return failure(PluginLoadError::sections);
+            elf->loads[elf->load_count++] = {vaddr, offset, file_bytes, memory_bytes, flags};
+            previous_end = vaddr + memory_bytes;
+            if (flags & kPfExecute) output->executable[output->executable_count++] = {static_cast<u32>(vaddr), static_cast<u32>(previous_end)};
+        }
+    }
+    if (!elf->load_count || !has_dynamic || !stack) return failure(PluginLoadError::sections);
+    output->image_bytes = static_cast<u32>(page_up(previous_end));
+    return success();
+}
+
+// What the dynamic section names that the checks use.
+enum DynamicSlot : u32 { d_symtab, d_strtab, d_strsize, d_hash, d_gnu_hash, d_rela, d_rela_size, d_jmprel, d_jmprel_size, d_slots };
+struct Dynamic {
+    u64 value[d_slots];
+    u32 seen;
+};
+// The dynamic section: nothing is needed (no library is loaded for it), nothing runs at load or unload (no
+// initializer or finalizer), no text relocation and no relocation but the relative ones that the tables below hold.
+PluginLoadResult elf_dynamic(const Elf& elf, const Segment& segment, Dynamic* dynamic) noexcept {
+    u64 at = 0;
+    u8 table[kDynamicMaximumBytes];
+    if (segment.file_bytes < 16 || segment.file_bytes > sizeof(table) || segment.file_bytes % 16 ||
+        !vaddr_to_offset(elf, segment.vaddr, segment.file_bytes, &at) || at != segment.offset)
+        return failure(PluginLoadError::sections);
+    if (const i32 error = read_exact(elf.file, at, table, static_cast<u32>(segment.file_bytes)))
+        return failure(PluginLoadError::read, static_cast<DWORD>(error));
+    bool ended = false;
+    for (u32 entry = 0; entry < segment.file_bytes && !ended; entry += 16) {
+        const u64 tag = byte_load_le64(table + entry), value = byte_load_le64(table + entry + 8);
+        u32 slot = d_slots;
+        switch (tag) {
+        case kDtNull: ended = true; break;
+        case kDtNeeded:
+        case kDtFilter:
+        case kDtAuxiliary:
+        case kDtAudit:
+        case kDtDepAudit:
+        case kDtVerNeed: return failure(PluginLoadError::imports);
+        case kDtInit:
+        case kDtFini:
+        case kDtInitArray:
+        case kDtFiniArray:
+        case kDtPreinitArray: return failure(PluginLoadError::entry_point);
+        case kDtTextRel: return failure(PluginLoadError::sections);
+        case kDtFlags:
+            if (value & kDfTextRel) return failure(PluginLoadError::sections);
+            break;
+        case kDtRel:
+        case kDtRelSize:
+        case kDtRelEntry:
+        case kDtRelr:
+        case kDtRelrSize:
+        case kDtRelrEntry: return failure(PluginLoadError::relocations);
+        case kDtSymEntry:
+            if (value != kSymbolBytes) return failure(PluginLoadError::exports);
+            break;
+        case kDtRelaEntry:
+            if (value != kRelocationBytes) return failure(PluginLoadError::relocations);
+            break;
+        case kDtPltRel:
+            if (value != kDtRela) return failure(PluginLoadError::relocations);
+            break;
+        case kDtSymtab: slot = d_symtab; break;
+        case kDtStrtab: slot = d_strtab; break;
+        case kDtStrSize: slot = d_strsize; break;
+        case kDtHash: slot = d_hash; break;
+        case kDtGnuHash: slot = d_gnu_hash; break;
+        case kDtRela: slot = d_rela; break;
+        case kDtRelaSize: slot = d_rela_size; break;
+        case kDtJmpRel: slot = d_jmprel; break;
+        case kDtPltRelSize: slot = d_jmprel_size; break;
+        default: break;
+        }
+        if (slot == d_slots) continue;
+        if (dynamic->seen & (1u << slot)) return failure(PluginLoadError::sections); // which one would the loader use?
+        dynamic->seen |= 1u << slot;
+        dynamic->value[slot] = value;
+    }
+    return ended ? success() : failure(PluginLoadError::sections);
+}
+
+// How many entries the symbol table has, as the hash tables that the loader looks symbols up with count them (the
+// header of a GNU hash names the first hashed symbol, the chain of the last bucket ends at the last one; DT_HASH
+// names its chain count). 0 when it cannot be told or is above the limit.
+u32 symbol_count(const Elf& elf, const Dynamic& dynamic) noexcept {
+    u32 count = 0;
+    u64 at = 0;
+    u8 words[16];
+    if ((dynamic.seen & (1u << d_hash)) && (!vaddr_to_offset(elf, dynamic.value[d_hash], 8, &at) ||
+                                              read_exact(elf.file, at, words, 8)))
+        return 0;
+    if (dynamic.seen & (1u << d_hash)) count = byte_load_le32(words + 4);
+    if (dynamic.seen & (1u << d_gnu_hash)) {
+        const u64 table = dynamic.value[d_gnu_hash];
+        if (!vaddr_to_offset(elf, table, 16, &at) || read_exact(elf.file, at, words, 16)) return 0;
+        const u32 buckets = byte_load_le32(words), first = byte_load_le32(words + 4), bloom = byte_load_le32(words + 8);
+        u64 check = 0;
+        if (!buckets || buckets > kSymbolMaximum || bloom > kSymbolMaximum || first > kSymbolMaximum ||
+            !vaddr_to_offset(elf, table, 16 + u64{bloom} * 8 + u64{buckets} * 4, &check))
+            return 0;
+        const u64 bucket_at = at + 16 + u64{bloom} * 8;
+        u32 last = 0;
+        for (u32 i = 0; i < buckets; ++i) {
+            u8 word[4];
+            if (read_exact(elf.file, bucket_at + u64{i} * 4, word, 4)) return 0;
+            last = maximum(last, byte_load_le32(word));
+        }
+        u32 gnu_count = first;
+        if (last) {
+            if (last < first) return 0;
+            for (u32 index = last;; ++index) {
+                u8 word[4];
+                if (index >= kSymbolMaximum || read_exact(elf.file, bucket_at + u64{buckets} * 4 + u64{index - first} * 4, word, 4)) return 0;
+                if (byte_load_le32(word) & 1) {
+                    gnu_count = index + 1;
+                    break;
+                }
+            }
+        }
+        count = maximum(count, gnu_count);
+    }
+    return count <= kSymbolMaximum ? count : 0;
+}
+
+// Every symbol: none undefined (nothing is imported), none thread-local or indirect (those run or resolve code at
+// load), and exactly one exported, by name MC_DESCRIPTOR_EXPORT, as data in a segment that is not executable.
+PluginLoadResult elf_symbols(Elf* elf, const Dynamic& dynamic) noexcept {
+    constexpr u32 kRequired = (1u << d_symtab) | (1u << d_strtab) | (1u << d_strsize);
+    u64 symbols = 0, strings = 0;
+    const u32 count = (dynamic.seen & kRequired) == kRequired && (dynamic.seen & ((1u << d_hash) | (1u << d_gnu_hash)))
+                          ? symbol_count(*elf, dynamic) : 0;
+    const u64 string_bytes = dynamic.value[d_strsize];
+    if (count < 2 || !string_bytes || !vaddr_to_offset(*elf, dynamic.value[d_symtab], u64{count} * kSymbolBytes, &symbols) ||
+        !vaddr_to_offset(*elf, dynamic.value[d_strtab], string_bytes, &strings))
+        return failure(PluginLoadError::exports);
+    u32 exported = 0;
+    for (u32 i = 1; i < count; ++i) {
+        u8 symbol[kSymbolBytes];
+        if (const i32 error = read_exact(elf->file, symbols + u64{i} * kSymbolBytes, symbol, sizeof(symbol)))
+            return failure(PluginLoadError::read, static_cast<DWORD>(error));
+        const u32 name = byte_load_le32(symbol), type = symbol[4] & 15, bind = symbol[4] >> 4, visibility = symbol[5] & 3;
+        const u32 section = byte_load_le16(symbol + 6);
+        const u64 value = byte_load_le64(symbol + 8);
+        if (!section || type == 6 || type == 10) return failure(PluginLoadError::imports); // undefined, TLS, indirect function
+        if (!bind || visibility == 1 || visibility == 2) continue;                          // local, or not exported
+        char text[sizeof(MC_DESCRIPTOR_EXPORT)];
+        if (++exported > 1 || type != 1 || section >= kSectionSpecial || name >= string_bytes ||
+            string_bytes - name < sizeof(text))
+            return failure(PluginLoadError::exports);
+        if (const i32 error = read_exact(elf->file, strings + name, text, sizeof(text)))
+            return failure(PluginLoadError::read, static_cast<DWORD>(error));
+        const Segment* data = segment_of(*elf, value, sizeof(mc_descriptor));
+        if (!bytes_equal(text, MC_DESCRIPTOR_EXPORT, sizeof(text)) || !data || (data->flags & kPfExecute))
+            return failure(PluginLoadError::exports);
+        elf->descriptor = value;
+    }
+    return exported == 1 ? success() : failure(PluginLoadError::exports);
+}
+
+// A relocation table: only R_X86_64_RELATIVE without a symbol, aimed at a word in a writable segment. Any other kind
+// resolves a symbol against the process (a libc function would be found there), or runs a resolver, or addresses
+// thread-local storage.
+PluginLoadResult elf_relocations(const Elf& elf, u64 vaddr, u64 bytes) noexcept {
+    u64 at = 0;
+    if (!bytes) return success();
+    if (bytes % kRelocationBytes || bytes > kRelocationMaximumBytes || !vaddr_to_offset(elf, vaddr, bytes, &at))
+        return failure(PluginLoadError::relocations);
+    u8 chunk[64 * kRelocationBytes];
+    for (u64 done = 0; done < bytes;) {
+        const u32 now = static_cast<u32>(minimum<u64>(bytes - done, sizeof(chunk)));
+        if (const i32 error = read_exact(elf.file, at + done, chunk, now))
+            return failure(PluginLoadError::read, static_cast<DWORD>(error));
+        for (u32 i = 0; i < now; i += kRelocationBytes) {
+            const u64 target = byte_load_le64(chunk + i), info = byte_load_le64(chunk + i + 8);
+            if (info != kRelativeRelocation) return failure((info >> 32) ? PluginLoadError::imports : PluginLoadError::relocations);
+            const Segment* segment = segment_of(elf, target, 8);
+            if (!segment || !(segment->flags & kPfWrite)) return failure(PluginLoadError::relocations);
+        }
+        done += now;
+    }
+    return success();
+}
+
+// The checks plugin_image_load applies to the sealed copy before dlopen sees it. Fills the image's executable ranges
+// and size, and *descriptor with the export's address inside the image.
+PluginLoadResult elf_check(int file, u64 file_bytes, PluginImage* output, u64* descriptor) noexcept {
+    Elf elf{};
+    elf.file = file;
+    elf.file_bytes = file_bytes;
+    Segment segment{};
+    Dynamic dynamic{};
+    PluginLoadResult result = elf_headers(&elf, &segment, output);
+    if (result.ok()) result = elf_dynamic(elf, segment, &dynamic);
+    if (result.ok()) result = elf_symbols(&elf, dynamic);
+    if (result.ok()) result = elf_relocations(elf, dynamic.value[d_rela], dynamic.value[d_rela_size]);
+    if (result.ok()) result = elf_relocations(elf, dynamic.value[d_jmprel], dynamic.value[d_jmprel_size]);
+    *descriptor = elf.descriptor;
+    return result;
+}
 #endif
+} // namespace
 
 // Unbound, or a key that cannot be typing: with Ctrl or Alt, or a function key.
 bool plugin_keybind_valid(u32 key) noexcept {
@@ -584,7 +1123,6 @@ u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
     return implied;
 }
 
-#if defined(_WIN32)
 PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, const mc_descriptor* d,
                                          PluginInfo* info, u64* permissions) noexcept {
     const Image image{base, pe.image_bytes, &pe};
@@ -665,6 +1203,7 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     return success();
 }
 
+#if defined(_WIN32)
 PluginLoadResult plugin_directory_open(PluginDirectory* directory, ConstSlice<wchar_t> absolute_path) noexcept {
     if (!directory) return failure(PluginLoadError::invalid_argument);
     if (directory->ancestor_count) return failure(PluginLoadError::already_loaded);
@@ -735,27 +1274,92 @@ PluginLoadResult plugin_image_unload(PluginImage* image) noexcept {
 }
 
 #else
-namespace {
-PluginLoadResult unsupported() noexcept {
-    return {PluginLoadError::unsupported, PluginDescriptorProblem::none, 0, 0};
+PluginLoadResult plugin_directory_open(PluginDirectory* directory, ConstSlice<wchar_t> absolute_path) noexcept {
+    if (!directory) return failure(PluginLoadError::invalid_argument);
+    if (directory->ancestor_count) return failure(PluginLoadError::already_loaded);
+    i32 error = 0;
+    if (directory_pin(directory, absolute_path, &error)) return success();
+    // A failed pin keeps the descriptors it acquired; give them back before reporting.
+    i32 release_error = 0;
+    if (!directory_release(directory, &release_error)) return failure(PluginLoadError::release, static_cast<DWORD>(release_error));
+    return failure(PluginLoadError::directory, static_cast<DWORD>(error));
 }
-} // namespace
 
-PluginLoadResult plugin_pe_check(HANDLE, u64, PluginImage*) noexcept {
-    return unsupported();
+PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
+    if (!directory) return failure(PluginLoadError::invalid_argument);
+    i32 error = 0;
+    return directory_release(directory, &error) ? success() : failure(PluginLoadError::release, static_cast<DWORD>(error));
 }
-PluginLoadResult plugin_directory_open(PluginDirectory*, ConstSlice<wchar_t>) noexcept {
-    return unsupported();
+
+PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory,
+                                   const ConstSlice<wchar_t>& leaf, u64 approved,
+                                   const u8* sha256) noexcept {
+    if (!image || !leaf.data || !leaf.count) return failure(PluginLoadError::invalid_argument);
+    if (image->module) return failure(PluginLoadError::already_loaded);
+    reset_value(image);
+    PinnedFile file{};
+    file.descriptor = -1;
+    int copy = -1;
+    void* module = nullptr;
+    u64 descriptor_value = 0;
+    i32 open_error = 0;
+    PluginLoadResult result = success();
+    if (!file_open(directory, leaf, &file, &open_error)) result = failure(PluginLoadError::open, static_cast<DWORD>(open_error));
+    else if (file.bytes > kPluginDllMaximumBytes) result = failure(PluginLoadError::not_pe);
+    else result = sealed_copy(file, leaf, sha256, &copy);
+    if (result.ok()) result = elf_check(copy, file.bytes, image, &descriptor_value);
+    if (result.ok()) {
+        // The sealed copy is what was hashed and checked: no file name is opened again. Nothing is imported, so the
+        // system loader finds no library to search for and has no initializer to run.
+        char path[32];
+        descriptor_path(copy, path);
+        module = dlopen(path, kDlNow | kDlLocal);
+        if (!module) result = failure(PluginLoadError::load);
+    }
+    if (result.ok()) {
+        // The export is data, so this is the descriptor's address; no plugin code ran. The image is mapped at the
+        // address that puts the export where its symbol says.
+        const auto* descriptor = reinterpret_cast<const mc_descriptor*>(dlsym(module, MC_DESCRIPTOR_EXPORT));
+        const u8* base = reinterpret_cast<const u8*>(descriptor) - descriptor_value;
+        if (!descriptor || (reinterpret_cast<usize>(base) & (kPageBytes - 1))) result = failure(PluginLoadError::exports);
+        else result = plugin_descriptor_check(base, *image, descriptor, &image->info, &image->permissions);
+        if (result.ok() && (image->permissions & ~approved)) result = failure(PluginLoadError::permissions);
+        if (result.ok()) {
+            image->module = module;
+            image->descriptor = descriptor;
+            image->owner_id = descriptor->owner_id;
+        }
+    }
+    if (!result.ok() && module && dlclose(module) != 0) {
+        // The plugin cannot be released now; the caller keeps the module (and with it the copy it was loaded from) to
+        // retry the unload.
+        result = failure(PluginLoadError::release);
+        reset_value(image);
+        image->module = module;
+        module = nullptr;
+    } else if (!result.ok()) {
+        reset_value(image);
+    }
+    // The system loader remembers a module by the name it was opened under, and a second open of the same name
+    // returns the first module: a loaded plugin keeps its copy open (so no other copy gets that descriptor number)
+    // until it is unloaded.
+    if (image->module) {
+        image->sealed_token = static_cast<u32>(copy) + 1;
+        copy = -1;
+    }
+    // A failed close cannot be acted on here: the image is already mapped or already refused.
+    if (copy >= 0) sys_close(copy);
+    if (file.descriptor >= 0) sys_close(file.descriptor);
+    return result;
 }
-PluginLoadResult plugin_directory_close(PluginDirectory*) noexcept {
-    return {};
-}
-PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>&, u64,
-                                   const u8*) noexcept {
-    return unsupported();
-}
-PluginLoadResult plugin_image_unload(PluginImage*) noexcept {
-    return {};
+
+PluginLoadResult plugin_image_unload(PluginImage* image) noexcept {
+    if (!image || !image->module) return failure(PluginLoadError::invalid_argument);
+    if (dlclose(image->module) != 0) return failure(PluginLoadError::release);
+    // After the module: the name "/proc/self/fd/<n>" it was loaded under is free to name another copy only now.
+    if (image->sealed_token) sys_close(static_cast<int>(image->sealed_token - 1));
+    reset_value(image);
+    return success();
 }
 #endif
 } // namespace maicord

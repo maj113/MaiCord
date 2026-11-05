@@ -126,6 +126,7 @@ void application_dev_load_error_text(const PluginLoadResult& load, DevText* text
     DevText& w = *text;
     switch (load.error) {
     case PluginLoadError::directory: w.add("The plugins folder couldn't be opened."); break;
+#if defined(_WIN32)
     case PluginLoadError::open:
     case PluginLoadError::read: w.add("The DLL couldn't be read (is the build still writing it?)."); break;
     case PluginLoadError::not_pe:
@@ -134,10 +135,23 @@ void application_dev_load_error_text(const PluginLoadResult& load, DevText* text
     case PluginLoadError::tls: w.add("The DLL uses thread-local storage."); break;
     case PluginLoadError::sections: w.add("The DLL's sections are malformed, or writable and executable."); break;
     case PluginLoadError::exports: w.add("The DLL must export only maicord_plugin_v6, as data."); break;
-#if defined(_WIN32)
     case PluginLoadError::load: w.add("Windows couldn't load the DLL (does it import anything?)."); break;
 #else
-    case PluginLoadError::unsupported: w.add("This system can't load native plugins."); break;
+    case PluginLoadError::open:
+    case PluginLoadError::read: w.add("The file couldn't be read (is the build still writing it, or is it writable by others?)."); break;
+    case PluginLoadError::not_pe:
+    case PluginLoadError::machine: w.add("It isn't an x86-64 shared object."); break;
+    case PluginLoadError::entry_point: w.add("The shared object has an entry point or an initializer; link with -nostdlib."); break;
+    case PluginLoadError::tls: w.add("The shared object uses thread-local storage."); break;
+    case PluginLoadError::sections:
+        w.add("The shared object's segments are malformed, writable and executable, or the stack is executable.");
+        break;
+    case PluginLoadError::exports: w.add("The shared object must export only maicord_plugin_v6, as data."); break;
+    case PluginLoadError::load: w.add("The system couldn't load the shared object."); break;
+    case PluginLoadError::imports: w.add("The shared object imports something; link with -nostdlib and no libraries."); break;
+    case PluginLoadError::relocations:
+        w.add("The shared object has relocations other than relative ones; build with -fvisibility=hidden and -Wl,-Bsymbolic.");
+        break;
 #endif
     case PluginLoadError::descriptor: {
         w.add("The descriptor is invalid: ");

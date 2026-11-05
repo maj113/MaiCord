@@ -57,6 +57,7 @@ inline constexpr Surface kNoSurface = nullptr;
     X(const char*, eglQueryString, (Display display, Int name))                                                        \
     X(Boolean, eglBindAPI, (Enum api))                                                                                 \
     X(Boolean, eglChooseConfig, (Display display, const Int* attributes, Config* configs, Int capacity, Int* count))   \
+    X(Boolean, eglGetConfigAttrib, (Display display, Config config, Int attribute, Int * value))                       \
     X(Context, eglCreateContext, (Display display, Config config, Context share, const Int* attributes))               \
     X(Surface, eglCreatePbufferSurface, (Display display, Config config, const Int* attributes))                       \
     X(Boolean, eglMakeCurrent, (Display display, Surface draw, Surface read, Context context))                         \

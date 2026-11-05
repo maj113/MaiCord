@@ -41,7 +41,7 @@ bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable
 // %LOCALAPPDATA%\MaiCord\updates and this process's executable.
 bool update_paths_default(UpdatePaths*) noexcept;
 // Startup: deletes <executable>.old and a stage an earlier session left
-// behind. A stage is only ever swapped in by the process that verified it; a
+// behind (on Linux whole directories). A stage is only ever swapped in by the process that verified it; a
 // package that session kept is verified and staged again by the next check.
 void update_paths_cleanup(const UpdatePaths&) noexcept;
 
@@ -133,6 +133,12 @@ struct UpdateSwapResult {
 // back), so the executable path names a MaiCord.exe on every path. Windows
 // allows renaming the running image; its file is deleted at the next start.
 UpdateSwapResult update_swap(const UpdatePaths&) noexcept;
+#if !defined(_WIN32)
+// On Linux the stage and <executable>.old are directories of the install's own layout (MaiCord, fonts/, licenses/):
+// the swap moves the live fonts/, licenses/ and executable into <executable>.old (a leftover one is deleted first) and
+// the staged ones in, the program first, with the same undo on a failed move, so the install keeps one whole version.
+// Only the entries the stage holds move. Renaming a running image is allowed; the process relaunches through exec.
+#endif
 // Exit after the user chose to install: swaps in the executable this service
 // staged, then deletes its package. Never moves a stage it did not verify
 // (nothing_staged); the stage handle is closed just before the moves.

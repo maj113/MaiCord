@@ -18,6 +18,7 @@ inline constexpr int kOpenAppend = 0x400;
 inline constexpr int kOpenDirectory = 0x10000;
 inline constexpr int kOpenNoFollow = 0x20000;
 inline constexpr int kOpenCloseOnExec = 0x80000;
+inline constexpr u32 kCloseRangeCloseOnExec = 4; // CLOSE_RANGE_CLOEXEC
 inline constexpr int kAtCurrentDirectory = -100; // AT_FDCWD
 inline constexpr int kAtRemoveDirectory = 0x200;
 inline constexpr int kAccessWrite = 2;           // W_OK
@@ -73,6 +74,7 @@ inline constexpr int kSignalHangup = 1;
 inline constexpr int kSignalInterrupt = 2;
 inline constexpr int kSignalTerminate = 15;
 inline constexpr int kSignalBlock = 0;
+inline constexpr int kSignalSetMask = 2;
 inline constexpr int kSignalfdNonBlock = 0x800;
 inline constexpr int kSignalfdCloseOnExec = 0x80000;
 inline constexpr u32 kSignalfdRecordBytes = 128;
@@ -126,6 +128,18 @@ inline constexpr int kOpenDataSync = 0x1000;
 inline constexpr int kOpenPath = 0x200000;
 inline constexpr int kAtSymlinkNoFollow = 0x100;
 inline constexpr int kAtEmptyPath = 0x1000;
+inline constexpr int kOpenNonBlock = 0x800;
+inline constexpr int kOpenNoControllingTerminal = 0x100;
+
+// <linux/memfd.h>, <linux/fcntl.h>: anonymous memory files and their seals.
+inline constexpr u32 kMemfdCloseOnExec = 0x1;
+inline constexpr u32 kMemfdAllowSealing = 0x2;
+inline constexpr u32 kMemfdExec = 0x10;
+inline constexpr int kFcntlAddSeals = 1033;
+inline constexpr long kSealSeal = 0x1;
+inline constexpr long kSealShrink = 0x2;
+inline constexpr long kSealGrow = 0x4;
+inline constexpr long kSealWrite = 0x8;
 
 // <linux/stat.h>: statx(2). The kernel fills only what `mask` asks for and reports what it filled in `mask`.
 inline constexpr u32 kStatxType = 0x1;
@@ -133,10 +147,15 @@ inline constexpr u32 kStatxMtime = 0x40;
 inline constexpr u32 kStatxCtime = 0x80;
 inline constexpr u32 kStatxSize = 0x200;
 inline constexpr u32 kStatxBasicStats = 0x7ff;
+inline constexpr u32 kStatxMode = 0x2;
+inline constexpr u32 kStatxUser = 0x8;
 inline constexpr u16 kModeTypeMask = 0xF000;
 inline constexpr u16 kModeRegular = 0x8000;
 inline constexpr u16 kModeDirectory = 0x4000;
 inline constexpr u16 kModeLink = 0xA000;
+inline constexpr u16 kModeGroupWrite = 0020;
+inline constexpr u16 kModeOtherWrite = 0002;
+inline constexpr u16 kModeSticky = 01000;
 struct StatxTimestamp {
     i64 seconds;
     u32 nanoseconds;

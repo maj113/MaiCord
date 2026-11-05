@@ -62,8 +62,9 @@ using ReplyHandler = void (*)(void* context, Status status, const Message* reply
 
 // Sends a method call. With a handler the call is pending until its reply or `timeout_ms`; without one the call is sent
 // with no-reply-expected. `body` may be null; the caller releases it either way. False when nothing was sent.
+// `flags` are MessageFlag bits added to the call (flag_no_auto_start: do not start the service to answer it).
 bool connection_call(Connection* connection, const CallTarget& target, const Builder* body, u32 timeout_ms,
-                     ReplyHandler handler, void* context) noexcept;
+                     ReplyHandler handler, void* context, u8 flags = 0) noexcept;
 // Sends a call and waits for the reply, dispatching other traffic meanwhile. On Status::ok or Status::error_reply
 // `*reply` holds the message (the caller releases it with message_release).
 Status connection_call_sync(Connection* connection, const CallTarget& target, const Builder* body, u32 timeout_ms,

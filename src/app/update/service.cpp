@@ -8,6 +8,9 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/path.hpp"
 #include "maicord/os/file.hpp"
+#if !defined(_WIN32)
+#include "linux/tree.hpp"
+#endif
 
 namespace maicord {
 namespace {
@@ -206,6 +209,12 @@ const UpdateChangelog* changelog_refresh(UpdateService* s, const UpdateTransport
     // The buffer was overwritten: the old document comes back from the cache.
     return changelog_load(s, channel);
 }
+// The stage this session left or an earlier one did: one executable file on Windows, a directory tree on Linux.
+#if defined(_WIN32)
+bool remove_stage(const UpdatePaths& paths) noexcept { return file_remove(paths.staged); }
+#else
+bool remove_stage(const UpdatePaths& paths) noexcept { return update_tree_remove(paths.staged); }
+#endif
 } // namespace
 
 bool update_service_config(Utf8View repository, Utf8View key_hex, u64 own_version, UpdateServiceConfig* out) noexcept {
@@ -241,11 +250,13 @@ bool update_paths_default(UpdatePaths* out) noexcept {
     const u32 n = executable_path(executable, kUpdatePathCapacity);
     return built.ok() && n && update_paths_build({base, built.length}, {executable, n}, out);
 }
+#if defined(_WIN32)
 void update_paths_cleanup(const UpdatePaths& paths) noexcept {
     const bool replaced = file_remove(paths.replaced);
     const bool stale = file_remove(paths.staged);
     if (replaced || stale) UpdateLog("cleanup").field("replaced", replaced).field("stale_stage", stale).write();
 }
+#endif
 
 Utf8View update_service_error_text(UpdateServiceError e) noexcept {
     switch (e) {
@@ -280,7 +291,14 @@ UpdateServiceError update_service_initialize(UpdateService* s, const UpdateServi
 void update_service_release(UpdateService* s) noexcept {
     if (!s || !s->initialized) return;
     release_work(s);
+#if !defined(_WIN32)
+    const bool staged = s->staged.file != nullptr;
+#endif
     update_package_release(&s->staged, true);
+#if !defined(_WIN32)
+    // The stage is a directory here: the file goes with its handle, the rest of the tree with its name.
+    if (staged) remove_stage(s->paths);
+#endif
     p256_release(&s->key); kdf_sha256_release(&s->workspace);
     SecureZeroMemory(s, sizeof(*s));
 }
@@ -407,7 +425,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     //    An earlier stage is replaced only now; a stale file from an earlier
     //    session is never adopted.
     update_package_release(&s->staged, true);
-    if (!s->staged.file) file_remove(s->paths.staged);
+    if (!s->staged.file) remove_stage(s->paths);
     UpdatePackage package{};
     const UpdatePackageOffer offer{{s->document, s->document_bytes}, {s->signature, 64}};
     const auto extracted = update_package_extract(&s->preparation.artifact, offer, s->key, s->workspace, policy,
@@ -437,6 +455,7 @@ const UpdateChangelog* update_service_cached_changelog(UpdateService* s, UpdateC
         ? changelog_held(s, channel) : nullptr;
 }
 
+#if defined(_WIN32)
 UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     UpdateSwapResult r{};
     if (!file_replace(paths.executable, paths.replaced, true)) {
@@ -451,13 +470,22 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     }
     return r;
 }
+#endif
 UpdateSwapResult update_service_swap(UpdateService* s) noexcept {
     UpdateSwapResult r{};
     if (!s || !s->initialized || !s->staged.file) { r.error = UpdateSwapError::nothing_staged; return r; }
     const u64 version = s->staged.version;
+#if !defined(_WIN32)
+    // Sharing is advisory here: before the stage moves, prove it still holds the file that was verified.
+    const bool intact = update_package_intact(s->staged, {s->paths.staged, s->paths.staged_count});
+    const u32 intact_error = intact ? 0 : thread_last_error();
+#endif
     // Close (not discard) the verified stage: the moves need it unopened.
     const auto released = update_package_release(&s->staged, false);
     if (!released.ok()) { r.error = UpdateSwapError::release; r.native_error = released.native_error; }
+#if !defined(_WIN32)
+    else if (!intact) { r.error = UpdateSwapError::release; r.native_error = intact_error; }
+#endif
     else r = update_swap(s->paths);
     // Installed: the package it came from is not needed again.
     if (r.ok()) file_remove(s->paths.download);

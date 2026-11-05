@@ -903,12 +903,12 @@ void connection_process(Connection* c, u64 now_ms) noexcept {
 }
 
 bool connection_call(Connection* c, const CallTarget& target, const Builder* body, u32 timeout_ms, ReplyHandler handler,
-                     void* context) noexcept {
+                     void* context, u8 flags) noexcept {
     if (!c->alive || (handler && c->pending_count == kMaxPending))
         return false;
     MessageHeader header{};
     header.type = MessageType::method_call;
-    header.flags = handler ? 0 : flag_no_reply_expected;
+    header.flags = static_cast<u8>((handler ? 0 : flag_no_reply_expected) | flags);
     header.destination = target.destination;
     header.path = target.path;
     header.interface = target.interface;

@@ -24,8 +24,8 @@ enum class NotificationUrgency : u8 { normal = 0, low = 1, critical = 2 };
 
 struct NotificationRequest {
     const char* summary;        // required
-    const char* body;           // may be null
-    const char* icon;           // an icon theme name or an absolute path; may be null
+    const char* body;           // plain text, may be null (sent as markup, escaped, to a daemon that reads markup)
+    const char* icon;           // an icon theme name or an absolute path (the portal gets the file's bytes); may be null
     const char* category;       // "im.received" ...; may be null
     const char* desktop_entry;  // the .desktop file's name without the extension; null for none
     const NotificationAction* actions;  // buttons

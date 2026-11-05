@@ -24,10 +24,12 @@
 #   libhunspell-1.7.so.0              libhunspell-1.7-0, hunspell-en-us, hunspell-de-de
 #   libenchant-2.so.2                 libenchant-2-2
 #   libpulse.so.0                     libpulse0 (pulseaudio for the loopback integration test)
+#   libspeechd.so.2                   libspeechd2, libspeechd-dev for the ABI check (speech-dispatcher, with its dummy module,
+#                                     for tools/test_speechd.sh)
 #   libEGL.so.1 libGLESv2.so.2        libegl1 libgles2 and Mesa's drivers libegl-mesa0 libgl1-mesa-dri (llvmpipe, no GPU)
 #   libwayland-client.so.0 libwayland-egl.so.1 libwayland-cursor.so.0 libxkbcommon.so.0
 #                                     libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
-#   integration                       sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio (tools/test_dbus_real.sh,
+#   integration                       sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher (tools/test_dbus_real.sh,
 #                                     which needs a graphical session, also wants xdg-desktop-portal xdg-desktop-portal-gtk gnome-keyring)
 #
 # Needs apt-get; runs it through sudo when not root. Exit status: nonzero on any failure.
@@ -121,9 +123,9 @@ if [ "$with_tests" = 1 ]; then
     packages=("$libssl" openssl libfontconfig1 fonts-dejavu-core fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji
               fonts-liberation libhunspell-1.7-0 hunspell-en-us hunspell-de-de libenchant-2-2 libpulse0 libegl1 libgles2
               libegl-mesa0 libgl1-mesa-dri libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
-              libssl-dev libpulse-dev)
+              libssl-dev libpulse-dev libspeechd-dev libspeechd2)
     if [ "$with_integration" = 1 ]; then
-        packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio)
+        packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher)
     fi
     apt_install "${packages[@]}"
 fi

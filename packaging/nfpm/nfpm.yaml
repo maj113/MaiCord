@@ -87,6 +87,7 @@ overrides:
       - fonts-noto-cjk
       - hunspell-en-us
       - enchant-2
+      - speech-dispatcher
   rpm:
     depends:
       - glibc
@@ -109,6 +110,7 @@ overrides:
       - google-noto-sans-cjk-fonts
       - hunspell-en-US
       - enchant2
+      - speech-dispatcher
 
 deb:
   compression: xz

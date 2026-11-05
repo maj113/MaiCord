@@ -1,16 +1,22 @@
 #pragma once
 
+#include "maicord/core/os_text.hpp"
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/platform/crypto/p256.hpp"
 
-// The official catalog's index, format 2, in three signed files, each with its detached 64-byte .sig (P-256/P1363
-// over SHA-256 of the domain followed by the document): index-3.json, which this reader reads, lists every item;
-// index-full.json (0.6.3) leaves out the themes and plugins that name an interface; index.json (0.6.0 to 0.6.2) also
-// the effects that do. This reader ignores members it doesn't know and items of kinds it doesn't know, so later
-// fields join index-3.json without another split. tools/release/plugin_index.py is the reference writer and
-// verifier; tests/fixtures/plugin_index/format2 holds the shared vectors.
+// The official catalog's index, format 2, in four signed files, each with its detached 64-byte .sig (P-256/P1363
+// over SHA-256 of the domain followed by the document): index-4.json, which the Linux client reads, lists every item
+// with an effect's interface 4 package (the one that carries the GLSL section the GLES backend runs); index-3.json,
+// which the Windows client reads, lists every item with its DXBC package; index-full.json (0.6.3) leaves out the
+// themes and plugins that name an interface; index.json (0.6.0 to 0.6.2) also the effects that do. This reader
+// ignores members it doesn't know and items of kinds it doesn't know, so later fields join index-3.json and
+// index-4.json without another split. tools/release/plugin_index.py is the reference writer and verifier;
+// tests/fixtures/plugin_index/format2 holds the shared vectors.
 namespace maicord {
 
+// The index file this client reads next to the catalog's address, and its signature.
+inline constexpr Utf8View kCatalogIndexFile = MAICORD_OS_TEXT("index-3.json", "index-4.json");
+inline constexpr Utf8View kCatalogIndexSignatureFile = MAICORD_OS_TEXT("index-3.json.sig", "index-4.json.sig");
 inline constexpr Utf8View kCatalogIndexSignatureDomain = utf8_literal("MaiCord plugin index v2\n");
 inline constexpr u32 kCatalogIndexMaximumBytes = 256 * 1024;
 // Structural offsets a valid index can need; denser documents are refused.

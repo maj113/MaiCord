@@ -82,6 +82,12 @@ enum class UpdateAsset : u8 { manifest, signature, package, changelog, changelog
 //   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-p<protocol>-<version>.zip
 //   https://<owner>.github.io/<repo>/updates/p<protocol>/preview/MaiCord-x64-p<protocol>-<version>.zip
 // A package version needs a sequence of 1..999 and major < 1000.
+// The Linux client reads its own manifests and packages (maicord_release.py linux), signed with the same key and laid
+// out like the Windows ones; the changelogs are the ones above, since they describe versions:
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/maicord-stable.manifest.json[.sig]
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/preview/maicord-preview.manifest.json[.sig]
+//   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/maicord-<X.Y.Z>-linux-x86_64.tar.gz
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/preview/maicord-<X.Y.Z>-dev.<N>-linux-x86_64.tar.gz
 bool update_asset_location(Utf8View repository, UpdateChannel, UpdateAsset, u64 version, UpdateLocation*) noexcept;
 // Location header: absolute https on an allowed host, or origin-relative on
 // the current host. github.com and the release-asset hosts redirect among

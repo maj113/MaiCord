@@ -19,10 +19,14 @@ of the domain and the document); verify checks the signature, schema and
 freshness; manifest prints the install record the client derives for one
 listed file.
 
-The catalog publishes three signed indexes of one source, one per reader:
-INDEX_3 (every item; any item may name the interface it needs in "interface"),
-which MaiCord 0.6.4 and later read: their reader ignores members and item kinds
-it doesn't know, so later fields need no further split. FULL_INDEX, for 0.6.3,
+The catalog publishes four signed indexes of one source, one per reader: INDEX_4, which the Linux client reads
+(reader_source(source, 4): an effect that names a "universal" package lists it, the interface 4 package whose GLSL
+section the GLES backend runs, as its file with "interface": 4); INDEX_3 (every item; any item may name the interface
+it needs in "interface"), which MaiCord 0.6.4 and later on Windows read, and which keeps the DXBC package of every
+effect: their reader ignores members and item kinds it doesn't know, so later fields need no further split.
+"universal" and a plugin version's "linux" (the shared object built from the same source, files/<sha256>.so) exist in
+the source only (check_source): reader 4 lists "linux" as the version's file, and no other reader sees either member.
+FULL_INDEX, for 0.6.3,
 is reader_source(source, 2) one sequence lower: its reader takes "interface"
 on effects only, so themes and plugins that name one are left out. LEGACY_INDEX,
 for 0.6.0 to 0.6.2, is reader_source(source, 1) two sequences lower: their
@@ -37,8 +41,10 @@ import argparse
 import hashlib
 import json
 import re
+import struct
 import sys
 import time
+import zlib
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -67,11 +73,12 @@ DETAILS_MAX_BYTES = 16 * 1024
 PREVIEW_MAX_BYTES = 256 * 1024
 LOOP_MAX_BYTES = 2 * 1024 * 1024
 FILE_MAX_BYTES = {"plugin": 8 * 1024 * 1024, "theme": 64 * 1024, "effect": 1536 * 1024}
+INDEX_4 = "index-4.json"
 INDEX_3 = "index-3.json"
 FULL_INDEX = "index-full.json"
 LEGACY_INDEX = "index.json"
 # (file, reader, sequence offset): each newer client's index is signed higher, so every update moves forward.
-INDEXES = ((INDEX_3, 3, 2), (FULL_INDEX, 2, 1), (LEGACY_INDEX, 1, 0))
+INDEXES = ((INDEX_4, 4, 3), (INDEX_3, 3, 2), (FULL_INDEX, 2, 1), (LEGACY_INDEX, 1, 0))
 FILE_EXTENSIONS = {"plugin": "dll", "theme": "json", "effect": "mcfx"}
 IMAGE_MAX_EXTENT = 4096
 
@@ -122,13 +129,14 @@ class PluginIndexError(Exception):
 
 
 # The reader a validation runs as (INDEXES) and whether unknown members are refused: readers 1 and 2 refuse them,
-# reader 3 skips them, and render_index refuses them for every reader. Set by _reading().
-_reader = {"level": 3, "strict": False}
+# readers 3 and 4 skip them, and render_index refuses them for every reader. "source" is the catalog's own source
+# (check_source), which alone may name an effect's "universal" package. Set by _reading().
+_reader = {"level": 4, "strict": False, "source": False}
 
 
 class _reading:
-    def __init__(self, level: int, strict: bool):
-        self.state = {"level": level, "strict": strict or level < 3}
+    def __init__(self, level: int, strict: bool, source: bool = False):
+        self.state = {"level": level, "strict": strict or level < 3, "source": source}
 
     def __enter__(self):
         self.saved = dict(_reader)
@@ -284,9 +292,13 @@ def version_key(text: str) -> tuple:
     return tuple(int(match.group(i)) for i in (1, 2, 3))
 
 
-def file_name(kind: str, sha256: str) -> str:
-    """Where a package lives next to the index."""
-    return f"files/{sha256}.{FILE_EXTENSIONS[kind]}"
+PAYLOAD_EXTENSIONS = {"windows": "dll", "linux": "so"}  # a plugin's file by the system it runs on
+
+
+def file_name(kind: str, sha256: str, platform: str = "windows") -> str:
+    """Where a package lives next to the index. A plugin has a file per platform (PAYLOAD_EXTENSIONS)."""
+    extension = PAYLOAD_EXTENSIONS[platform] if kind == "plugin" else FILE_EXTENSIONS[kind]
+    return f"files/{sha256}.{extension}"
 
 
 # ---- strict schema ---------------------------------------------------------------
@@ -479,11 +491,21 @@ def _plugin_version_post(version: dict) -> None:
 
 
 def _plugin_version_check():
-    return _obj([("version", _version_check, True), ("released", _released, True),
-                 ("changelog", _text(CHANGELOG_MAX, False), False), ("commit", _commit, False),
-                 ("api_level", _integer(1, 0xFFFF, "api_level"), True), ("permissions", _permission_set, True),
-                 ("network", _list(_host_check, MAX_HOSTS, unique=True), True),
-                 ("file", _file(FILE_MAX_BYTES["plugin"]), True)], _plugin_version_post)
+    check = _obj([("version", _version_check, True), ("released", _released, True),
+                  ("changelog", _text(CHANGELOG_MAX, False), False), ("commit", _commit, False),
+                  ("api_level", _integer(1, 0xFFFF, "api_level"), True), ("permissions", _permission_set, True),
+                  ("network", _list(_host_check, MAX_HOSTS, unique=True), True),
+                  ("file", _file(FILE_MAX_BYTES["plugin"]), True),
+                  ("linux", _file(FILE_MAX_BYTES["plugin"]), False)], _plugin_version_post)
+
+    def run(value):
+        if isinstance(value, dict) and "linux" in value and not _reader["source"]:
+            # A member no reader defines: strict readers refuse it, the others skip it.
+            if _reader["strict"]:
+                raise PluginIndexError("unknown_field", "linux")
+            value = {name: member for name, member in value.items() if name != "linux"}
+        return check(value)
+    return run
 
 
 def _versions(value) -> list:
@@ -567,7 +589,7 @@ _ITEM_FIELDS = {
     "effect": _COMMON + [("previews", _list(_preview_check(), MAX_PREVIEWS, 1), True)] + _data_fields("effect") + [
         ("cost", _choice(COSTS), True), ("blend", _choice(BLENDS), True),
         ("uses", _list(_choice(USES), len(USES), unique=True), True), ("knobs", _knobs, True),
-        ("loop", _loop_check(), False), _INTERFACE],
+        ("loop", _loop_check(), False), _INTERFACE, ("universal", _file(FILE_MAX_BYTES["effect"]), False)],
 }
 _ITEM = {kind: _obj(fields) for kind, fields in _ITEM_FIELDS.items()}
 
@@ -581,6 +603,11 @@ def _item_check(value) -> dict | None:
         raise PluginIndexError("choice" if "kind" in value else "missing_field", "kind")
     if "interface" in value and (_reader["level"] == 1 or (_reader["level"] == 2 and kind != "effect")):
         raise PluginIndexError("unknown_field", "interface")
+    if "universal" in value and not _reader["source"]:
+        # A member no reader defines: strict readers refuse it, the others skip it.
+        if _reader["strict"]:
+            raise PluginIndexError("unknown_field", "universal")
+        value = {name: member for name, member in value.items() if name != "universal"}
     return _ITEM[kind](value)
 
 
@@ -689,11 +716,56 @@ def render_index(index: dict, reader: int = 3) -> bytes:
     return document
 
 
+def check_source(index: dict) -> dict:
+    """Validates the catalog's index source: the members every reader knows, plus an effect's "universal" package
+    (a file record like "file", for the interface 4 package of the same version; the package itself is checked by
+    check_universal) and a plugin version's "linux" payload (a file record for the shared object built from the same
+    source: the same API level, permissions and hosts as the DLL). Returns the canonical form."""
+    with _reading(4, True, True):
+        return _check_root(dict(index, revoked=index.get("revoked", []), blocklist=index.get("blocklist", [])), None)
+
+
+def _with_universal(index: dict, reader: int) -> dict:
+    """Readers from 4 list an effect's "universal" package, the one with the GLSL section, as its file and name interface
+    4 for it; the others never see the member (and keep the DXBC package of the item)."""
+    items = []
+    for item in index.get("items", []):
+        if "universal" in item:
+            rest = {k: v for k, v in item.items() if k != "universal"}
+            item = dict(rest, file=item["universal"], interface=4) if reader >= 4 else rest
+        items.append(item)
+    return dict(index, items=items)
+
+
+def _with_linux(index: dict, reader: int) -> dict:
+    """Readers from 4 (the Linux client) list a plugin version's "linux" payload, its shared object, as the version's
+    file, and leave out the versions without one (a plugin with none has nothing to run there). The other readers never
+    see the member and keep the DLL of every version."""
+    items = []
+    for item in index.get("items", []):
+        if item.get("kind") == "plugin":
+            versions = []
+            for version in item.get("versions", []):
+                if reader < 4:
+                    versions.append({k: v for k, v in version.items() if k != "linux"})
+                elif "linux" in version:
+                    versions.append(dict({k: v for k, v in version.items() if k not in ("linux", "file")}, file=version["linux"]))
+            if not versions:
+                continue
+            item = dict(item, versions=versions)
+        items.append(item)
+    return dict(index, items=items)
+
+
 def reader_source(index: dict, reader: int) -> dict:
-    """The index source for `reader` (INDEXES); 3 reads the source itself. Reader 2 (0.6.3) takes "interface" on
+    """The index source for `reader` (INDEXES). Reader 4 (the Linux client) lists an effect's "universal" package as
+    its file at interface 4, and a plugin version's "linux" shared object as its file (a plugin version without one is
+    left out); 3 reads the rest of the source as it is (an item names the interface it needs on any kind,
+    and an effect keeps its DXBC package). Reader 2 (0.6.3) takes "interface" on
     effects only: plugins and themes that name an interface above 1 are left out, and the others lose the member.
     Reader 1 (0.6.0 to 0.6.2) takes it nowhere and runs .mcfx interface 1 only: effects that need more are left out
     too, with a theme's link to one. The other items are unchanged."""
+    index = _with_linux(_with_universal(index, reader), reader)
     if reader >= 3:
         return index
     kept = ("effect",) if reader == 2 else ()
@@ -709,6 +781,94 @@ def reader_source(index: dict, reader: int) -> dict:
             item = {k: v for k, v in item.items() if k != "effect"}
         items.append(item)
     return dict(index, items=items)
+
+
+# ---- the interface 4 package ------------------------------------------------------------------------------------
+_SECTIONS = {1: "MANIFEST", 2: "DXBC", 3: "TEXTURE0", 4: "TEXTURE1", 5: "SOURCE", 6: "PREVIEW", 7: "TEXTURE2",
+             8: "TEXTURE3", 9: "SHADERS", 10: "GLSL"}
+GLSL_ENTRY_HEADER = 16
+GLSL_PACKED_MAX, GLSL_RAW_MAX, GLSL_BINDING_MAX = 64 * 1024, 256 * 1024, 64
+
+
+def _package_sections(package: bytes, what: str) -> dict:
+    """The sections of a .mcfx by name; the container as mcfx_parse reads it (ascending types, packed back to back)."""
+    def bad(detail: str):
+        return PluginIndexError("file", f"{what}: {detail}")
+    if len(package) < 16 or package[:4] != b"MCFX":
+        raise bad("not a .mcfx package")
+    format_, count, total, reserved = struct.unpack_from("<HHII", package, 4)
+    if format_ != 1 or not 1 <= count <= len(_SECTIONS) or total != len(package) or reserved or len(package) < 16 + 16 * count:
+        raise bad("the container header is wrong")
+    sections, at, last = {}, 16 + 16 * count, 0
+    for i in range(count):
+        kind, offset, size, zero = struct.unpack_from("<IIII", package, 16 + 16 * i)
+        if kind not in _SECTIONS or kind <= last or zero or offset != at or size > len(package) - at:
+            raise bad("the section table is wrong")
+        sections[_SECTIONS[kind]] = package[offset:offset + size]
+        last, at = kind, at + size
+    if at != len(package):
+        raise bad("the last section does not end the file")
+    return sections
+
+
+def _dxbc_count(blob: bytes, what: str) -> int:
+    """The DXBC containers back to back in a SHADERS section (each states its own size at byte 24)."""
+    count, at = 0, 0
+    while at < len(blob):
+        size = struct.unpack_from("<I", blob, at + 24)[0] if len(blob) - at >= 28 else 0
+        if blob[at:at + 4] != b"DXBC" or size < 32 or size > len(blob) - at:
+            raise PluginIndexError("file", f"{what}: the SHADERS section is not a run of DXBC containers")
+        count, at = count + 1, at + size
+    return count
+
+
+def check_universal(plain: bytes, universal: bytes) -> None:
+    """What an effect's "universal" package must be next to its "file": the same package with the manifest naming
+    interface 4 and a GLSL section that holds one well-formed entry per shader (u16 count, u16 0, then glsl_shader.hpp's
+    entries in DXBC order: pixel, or vertex where a pass names the shader as its "vs"). Every other section is byte for
+    byte the plain package's, so one effect runs on both systems; the C++ mcfx_parse is the oracle. Raises
+    PluginIndexError("file")."""
+    old, new = _package_sections(plain, "file"), _package_sections(universal, "universal")
+    if "GLSL" in old or "GLSL" not in new:
+        raise PluginIndexError("file", "the universal package carries the GLSL section and the plain one does not")
+    if set(old) - {"GLSL"} != set(new) - {"GLSL"}:
+        raise PluginIndexError("file", "the universal package's sections are not the plain package's")
+    for name in old:
+        if name != "MANIFEST" and old[name] != new[name]:
+            raise PluginIndexError("file", f"the universal package's {name} differs from the plain package's")
+    try:
+        manifest = {"plain": json.loads(old["MANIFEST"].decode("utf-8")), "universal": json.loads(new["MANIFEST"].decode("utf-8"))}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise PluginIndexError("file", "a manifest is not JSON") from None
+    if manifest["plain"].get("interface") not in (1, 2, 3) or manifest["universal"].get("interface") != 4:
+        raise PluginIndexError("file", "the plain package is interface 1 to 3 and the universal one interface 4")
+    if {k: v for k, v in manifest["plain"].items() if k != "interface"} != {
+            k: v for k, v in manifest["universal"].items() if k != "interface"}:
+        raise PluginIndexError("file", "the manifests differ in more than the interface")
+    shaders = 1 + (_dxbc_count(old["SHADERS"], "file") if "SHADERS" in old else 0)
+    vertex = {p["vs"] for p in manifest["plain"].get("passes", []) if "vs" in p}
+    section = new["GLSL"]
+    if len(section) < 4 or struct.unpack_from("<HH", section) != (shaders, 0):
+        raise PluginIndexError("file", f"the GLSL section does not hold {shaders} shaders")
+    at = 4
+    for i in range(shaders):
+        if len(section) - at < GLSL_ENTRY_HEADER:
+            raise PluginIndexError("file", f"GLSL shader {i} is cut short")
+        size, stage, rows, z0, z1, raw, packed = struct.unpack_from("<IBBBBII", section, at)
+        if (size != GLSL_ENTRY_HEADER + 4 * rows + packed or size > len(section) - at or z0 or z1 or
+                stage != (2 if i in vertex else 1) or rows > GLSL_BINDING_MAX or not 0 < raw <= GLSL_RAW_MAX or
+                not 0 < packed <= GLSL_PACKED_MAX):
+            raise PluginIndexError("file", f"GLSL shader {i} is malformed")
+        inflater = zlib.decompressobj()
+        try:
+            text = inflater.decompress(section[at + GLSL_ENTRY_HEADER + 4 * rows:at + size], raw + 1)
+        except zlib.error:
+            raise PluginIndexError("file", f"GLSL shader {i} is not a zlib stream") from None
+        if len(text) != raw or not inflater.eof or not text.startswith(b"#version 310 es\n"):
+            raise PluginIndexError("file", f"GLSL shader {i} is not {raw} bytes of GLSL ES 3.10")
+        at += size
+    if at != len(section):
+        raise PluginIndexError("file", "the GLSL section has bytes after its last shader")
 
 
 def _quoted(text: str) -> str:
@@ -751,8 +911,8 @@ def main(argv: list[str] | None = None) -> int:
     verify = commands.add_parser("verify", help="check signature, schema and freshness")
     verify.add_argument("--public-key", required=True, help="130 hex digits: the compiled catalog key")
     verify.add_argument("--now", type=int, default=None, help="unix time (default: now)")
-    verify.add_argument("--reader", type=int, choices=(1, 2, 3), default=3,
-                        help="the client the file is for: 3 index-3.json, 2 index-full.json, 1 index.json")
+    verify.add_argument("--reader", type=int, choices=(1, 2, 3, 4), default=3,
+                        help="the client the file is for: 4 index-4.json, 3 index-3.json, 2 index-full.json, 1 index.json")
     verify.add_argument("index", type=Path)
     manifest = commands.add_parser("manifest", help="print the install record of one listed file")
     manifest.add_argument("index", type=Path)

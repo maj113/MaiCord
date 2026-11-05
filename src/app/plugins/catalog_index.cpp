@@ -902,7 +902,11 @@ bool catalog_version_code(Utf8View text, u64* code) noexcept {
 
 u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> output) noexcept {
     static constexpr char alphabet[] = "0123456789abcdef";
+#if defined(_WIN32)
     static constexpr char extensions[] = "dll\0json\0mcfx\0";
+#else
+    static constexpr char extensions[] = "so\0json\0mcfx\0"; // a plugin's file on Linux is its shared object
+#endif
     const Utf8View extension = name_list_at(extensions, static_cast<u32>(kind));
     const u32 bytes = 6 + 64 + 1 + extension.bytes;
     if (!output.data || output.count < bytes || !extension.bytes) return 0;

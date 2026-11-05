@@ -23,6 +23,16 @@ any Windows machine with Python 3.10 or newer will do.
   release can't add other files (`PACKAGE_EXECUTABLE`). Timestamps are fixed,
   so the same binary always gives the same bytes. At most 64 MiB. Checked by
   `src/app/update/package.cpp`.
+- **Linux package**: `maicord-<X.Y.Z>-linux-x86_64.tar.gz`, the release tarball of
+  `packaging/build_tarball.py` byte for byte (the manifest's `sha256` is the release asset's).
+  One gzip member of a tar in the version's directory: `MaiCord`, an x86-64
+  position-independent ELF executable, and the flat `fonts/` and `licenses/` files (plain
+  names of at most 64 characters), which the client stages beside the install and swaps in
+  with the program; everything else in the tarball is left alone, and any other member
+  type, a name outside the directory, a nested or repeated file or a second program fails
+  the package. At most 64 MiB packed and 192 MiB unpacked. Checked by
+  `src/app/update/linux/package.cpp`; `validate_linux_tarball` and `validate_linux_elf` in
+  `maicord_release.py` mirror it.
 - **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
   fields `format` (the update protocol, 2), `product`, `arch`, `channel`,
   `version`, `issued`, `expires`, `bytes`, `sha256` and `artifact`; at most 4096
@@ -62,6 +72,9 @@ release. GitHub Pages serves the site of the `update-channels` branch:
 | `updates/p2/maicord-stable.{manifest,changelog}.json[.sig]` | the stable channel |
 | `updates/p2/preview/maicord-preview.{manifest,changelog}.json[.sig]` | the preview feed |
 | `updates/p2/preview/MaiCord-x64-p2-<number>.zip` | the current master build and the one before it |
+| `updates/p2/linux/maicord-stable.manifest.json[.sig]` | the Linux client's stable channel (its package is the release tarball) |
+| `updates/p2/linux/preview/maicord-preview.manifest.json[.sig]` | the Linux preview feed |
+| `updates/p2/linux/preview/maicord-<X.Y.Z>-dev.<N>-linux-x86_64.tar.gz` | its current master build and the one before it |
 
 A stable package downloads from its release,
 `https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-p2-<number>.zip`;
@@ -97,6 +110,30 @@ not involved.
   with `MAICORD_UPDATE_PUBLIC_KEY` and be currently valid, every changelog must
   match its manifest's version (a stale one is removed), and a dev build's
   package must be present, or the job fails before deploying.
+- **The Linux entry** (`MAICORD_LINUX_RELEASES` repository variable `true`): the Linux
+  client reads its own manifests, `updates/p2/linux/maicord-stable.manifest.json[.sig]` and `updates/p2/linux/preview/maicord-preview.manifest.json[.sig]`,
+  signed with the same key, whose `arch` is `linux-x64` and whose `artifact` is the release
+  tarball `maicord-<X.Y.Z>-linux-x86_64.tar.gz` that `packaging/build_tarball.py` made (the
+  `linux` job of `release.yml` attaches it to the draft). The `publish` job signs them from
+  the *published* tarball (`maicord_release.py linux`, which first checks the tarball the
+  way the client's reader does: one gzip member of a tar with the program, an x86-64 ELF,
+  and flat `fonts/` and `licenses/` in the version's directory) and `update_channels.ps1`
+  (`-Linux`, or the same variable in its environment) installs them beside the Windows
+  files, verifies them and, when they near expiry, re-signs them. Without the flag the Linux
+  files on the site are left alone. A manifest the other system's reader would meet fails
+  its checks on the signed `arch` and `artifact` (a Windows manifest at the Linux path, or
+  a Linux one at the Windows path), so the schema needs no new member. The Linux preview
+  feed works like the Windows one: every green master build of `maj113/MaiCord` is
+  packaged by the `linux` job of `ci.yml` as a tarball of its own version
+  (`maicord-<X.Y.Z>-dev.<N>-linux-x86_64.tar.gz`, `build_tarball.py --version X.Y.Z-dev.N`),
+  which the `preview` job signs (`maicord_release.py linux --preview`) and
+  `update_channels.ps1` installs as `updates/p2/linux/preview/maicord-preview.manifest.json`
+  with the tarball beside it (the current one and the one before it are kept; a stable
+  release retires them). The Linux job gates nothing: without its tarball the Windows
+  build is still published and the Linux feed stays where it was. A stable release's
+  tarball needs no copy on the site (it is a release asset). The changelogs are the
+  Windows client's files, which describe versions, so a master build's one document
+  serves both; the Linux client shows an older cached one while its feed lags.
 - The branch is the only state and holds a single commit: each update replaces
   it, so retired packages leave no history. Writers in different concurrency
   groups lease the push on the commit they read and retry from the new tip.
@@ -286,8 +323,23 @@ item, renders the format-2 index with `plugin_index.py` from this repository's
 `master` once per client reader (`plugin_index.INDEXES`), signs them, verifies
 them, and deploys them to GitHub Pages:
 
+- `https://maj113.github.io/MaiCord-plugins/index-4.json` (+ `.sig`): the Linux
+  client's index (`plugin_index.reader_source(source, 4)`), signed three
+  sequences above `index.json`. It is `index-3.json` with each effect's
+  interface 4 package: the same package with the manifest naming `interface`
+  4 and a GLSL section (type 10) holding the effect's shaders translated to
+  GLSL ES 3.10 (`maicord-plugin effect build --glsl yes --dxbc-from`), which
+  the Linux GLES backend runs where Windows runs the DXBC. The source names it
+  in the effect item's `universal` member (a file record like `file`, for the
+  same version): only the source has it, `reader_source` swaps it in as `file`
+  for reader 4 and drops it for every other reader, and `check_source`
+  validates it. `plugin_index.check_universal(plain, universal)` checks the
+  two packages (every other section byte for byte the same, the GLSL section
+  one well-formed entry per shader, DXBC order and stage). A Linux client
+  refuses a package without the section (`McfxError::payload`), which is why
+  an effect's DXBC package stays what the other three indexes list.
 - `https://maj113.github.io/MaiCord-plugins/index-3.json` (+ `.sig`): every
-  item, which MaiCord 0.6.4 and later read. Any item (plugin, theme or effect)
+  item, which MaiCord 0.6.4 and later read on Windows. Any item (plugin, theme or effect)
   may name the interface it needs in `interface`: an effect's `.mcfx` interface,
   a theme's document interface (2 for a theme with `variants`, which changes
   with the time of day), a plugin entry's level (1). The client lists an item
@@ -314,7 +366,7 @@ are `tests/fixtures/plugin_index/format2`. The workflow runs on every push to
 `main`, on manual dispatch and weekly. Each run issues an index valid for 30
 days (the client accepts at most 35) whose `sequence` is its issue time, so
 every run outranks the last one. Each newer client's index takes one more
-(`index-full.json` +1, `index-3.json` +2), so updating MaiCord from 0.6.2 to
+(`index-full.json` +1, `index-3.json` +2, `index-4.json` +3), so updating MaiCord from 0.6.2 to
 0.6.3 to 0.6.4 always moves to an index above the one it last accepted. A
 scheduled run also lands an empty commit when `main` is 45 days old, because
 GitHub disables the schedules of a public repository after 60 days without one.

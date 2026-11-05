@@ -4,7 +4,7 @@
 #include "maicord/sdk/maicord_plugin.h"
 #include "plugin_surfaces_fixture.h"
 
-__declspec(dllimport) void __stdcall Sleep(unsigned long milliseconds);
+#include "plugin_sleep.h"
 
 static mc_str str(const char* text) {
     mc_str result = {text, 0, 0};

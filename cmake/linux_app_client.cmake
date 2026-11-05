@@ -2,13 +2,16 @@
 # (linux_app_libraries.cmake) do not already hold, as one library (cmake/client.cmake lists them for Windows). The
 # shell (src/app/shell) belongs to the window layer and is not here, nor are src/app/windows (the Win32 entry and
 # window procedure) and src/app/linux (the Linux entry and window glue): those are the programs' own (the client,
-# cmake/linux_client.cmake). accessibility.cpp and accessibility_actions.cpp are the UI Automation server (the Linux
-# unit that stands in for them is src/app/accessibility/linux/accessibility.cpp).
+# cmake/linux_client.cmake). accessibility.cpp is the UI Automation server (the units that stand in for it are in
+# src/app/accessibility/linux: the AT-SPI server's host, over platform/atspi); the snapshot (accessibility_describe.cpp)
+# and the actions it routes (accessibility_actions.cpp) are shared. src/app/update/package.cpp, the zip
+# and PE reader of the Windows updater, is not here either: src/app/update/linux/package.cpp (in maicord_app_update)
+# reads the Linux tarball instead.
 file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/src/app/*.cpp")
 list(FILTER MAICORD_APP_CLIENT_SOURCES EXCLUDE REGEX
-    "^src/app/shell/|^src/app/windows/|^src/app/linux/|^src/app/accessibility/accessibility(_actions)?\\.cpp$")
-foreach(library maicord_app_net maicord_app_update maicord_app_packages)
+    "^src/app/shell/|^src/app/windows/|^src/app/linux/|^src/app/accessibility/accessibility\\.cpp$|^src/app/update/package\\.cpp$")
+foreach(library maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index)
     get_target_property(held_sources ${library} SOURCES)
     list(REMOVE_ITEM MAICORD_APP_CLIENT_SOURCES ${held_sources})
 endforeach()
@@ -23,9 +26,9 @@ maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
     # The file dialog (the FileChooser portal) and the dropped and pasted files it checks.
     src/platform/desktop/linux/file_picker.cpp
     src/model/chat/message_reconcile.cpp
-    LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_ui maicord_core maicord_model
+    LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index maicord_ui maicord_core maicord_model
         maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto
-        maicord_desktop_system maicord_dbus
+        maicord_desktop_system maicord_dbus maicord_atspi
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
 target_compile_options(maicord_app_client PRIVATE -Wno-c23-extensions)
 

@@ -277,6 +277,12 @@ bool log_open() noexcept {
     return g_log.file >= 0;
 }
 
+void log_flush() noexcept {
+    g_log.lock.acquire();
+    flush_locked();
+    g_log.lock.release();
+}
+
 void log_close() noexcept {
     g_log.lock.acquire();
     flush_locked();

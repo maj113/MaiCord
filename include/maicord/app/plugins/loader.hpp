@@ -4,9 +4,9 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/sdk/maicord_plugin.h"
 
-// Loads plugin DLLs: a pinned plugins directory, the PE header checks that make
-// LoadLibrary run no plugin code, and the one-time validation of the exported
-// descriptor. UI thread only. Nothing here calls into a plugin.
+// Loads native plugins: a DLL on Windows (the PE header checks that make LoadLibrary run no plugin code) and a
+// freestanding shared object on Linux (the ELF checks that make dlopen run none), both through a pinned plugins
+// directory and the one-time validation of the exported descriptor. UI thread only. Nothing here calls into a plugin.
 namespace maicord {
 
 inline constexpr u32 kPluginDllMaximumBytes = 8u * 1024u * 1024u;
@@ -18,21 +18,22 @@ enum class PluginLoadError : u8 {
     invalid_argument,
     already_loaded,
     directory,    // pinning the plugins directory failed
-    open,         // the DLL could not be opened beside the pinned directory
+    open,         // the plugin file could not be opened beside the pinned directory
     read,
-    not_pe,       // truncated headers or an image this loader doesn't read
-    machine,      // not an x64 DLL
-    entry_point,  // AddressOfEntryPoint is not zero
-    tls,          // a TLS directory is present
-    sections,     // section table out of bounds, overlapping or writable and executable
+    not_pe,       // truncated headers or an image this loader doesn't read (not a PE or an ELF shared object)
+    machine,      // not an x64 DLL / x86-64 shared object
+    entry_point,  // PE: AddressOfEntryPoint is not zero; ELF: an entry point, an initializer or a finalizer
+    tls,          // a TLS directory (PE) or segment (ELF) is present
+    sections,     // section table / program headers out of bounds, overlapping, or writable and executable (ELF: or an executable stack)
     exports,      // not exactly one named export, or it is code or forwarded
-    load,         // LoadLibraryExW failed
+    load,         // LoadLibraryExW or dlopen failed
     descriptor,   // the exported descriptor failed validation (see PluginLoadResult::problem)
     api_level,    // the plugin needs a newer host
     permissions,  // the plugin needs permissions that were not approved
-    release,      // FreeLibrary failed; the image stays owned for a retry
+    release,      // FreeLibrary or dlclose failed; the image stays owned for a retry
     digest,       // the file is not the SHA-256 the caller expects
-    unsupported,  // this platform loads no native plugins
+    imports,      // ELF: a needed library, an undefined symbol, or a symbol or indirect-function relocation
+    relocations,  // ELF: a relocation other than relative ones inside the image
 };
 
 // Which descriptor rule failed.
@@ -58,14 +59,16 @@ enum class PluginDescriptorProblem : u8 {
 struct PluginLoadResult {
     PluginLoadError error;
     PluginDescriptorProblem problem;
-    DWORD win32_error;
+    DWORD win32_error; // the system's error number: Win32 on Windows, errno on Linux
     // descriptor errors: the 1-based setting, hook, command, menu, button or host index, else 0.
     u32 index;
     constexpr bool ok() const noexcept { return error == PluginLoadError::none; }
 };
 
-// The plugins directory, pinned once with every ancestor (no reparse points, no
-// replacement while open). Zero-initialized, caller-owned, stable address.
+// The plugins directory, pinned once with every ancestor (Windows: no reparse points, no replacement while open;
+// Linux: each ancestor opened without following a link and held, owned by root or the user and not writable by
+// others, and the directory itself the user's alone). Zero-initialized, caller-owned, stable address. On Linux the
+// ancestors are descriptors plus one.
 inline constexpr u32 kPluginPathCapacity = 1024;
 inline constexpr u32 kPluginPathMaximumAncestors = 64;
 struct PluginDirectory {
@@ -73,6 +76,10 @@ struct PluginDirectory {
     u32 ancestor_count;
     wchar_t path[kPluginPathCapacity];
     u32 path_characters;
+#if !defined(_WIN32)
+    char utf8[3 * kPluginPathCapacity];
+    u32 utf8_bytes;
+#endif
 };
 
 PluginLoadResult plugin_directory_open(PluginDirectory*, ConstSlice<wchar_t> absolute_path) noexcept;
@@ -105,22 +112,30 @@ struct PluginImage {
     u32 image_bytes;
     u32 executable_count;
     PluginExecutableRange executable[kPluginMaximumSections];
+#if !defined(_WIN32)
+    // Linux: the descriptor of the sealed copy the plugin was loaded from, plus one; open until the plugin is unloaded.
+    u32 sealed_token;
+#endif
 };
 
-// Opens leaf (a file name in the pinned directory) without following links,
-// checks its PE headers, maps it and validates the descriptor. The file is held
-// open against writes until the call returns, so a nonnull sha256 is checked on
-// exactly the bytes that are mapped. approved must contain every permission the
-// descriptor needs; on any failure nothing stays loaded.
+// Opens leaf (a file name in the pinned directory) without following links and checks it. Windows checks the PE
+// headers, holds the file open against writes and maps it; Linux copies the bytes it hashed into a sealed memory
+// file, checks the ELF headers, dynamic section and symbols on that copy and dlopen()s the copy, so what was hashed
+// and checked is exactly what is mapped. Either way the descriptor is then validated. approved must contain every
+// permission the descriptor needs; on any failure nothing stays loaded. The pin's directory on Linux must be the
+// file's parent still (its final path is compared), the file regular, the user's and not writable by others.
 PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>& leaf,
                                    u64 approved_permissions, const u8* sha256 = nullptr) noexcept;
-// FreeLibrary and reset. The caller stopped the plugin and removed its hooks first.
+// FreeLibrary or dlclose, and reset. The caller stopped the plugin and removed its hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 
+#if defined(_WIN32)
 // The checks plugin_image_load applies, on their own, for tests and tooling:
 // headers (bytes of the file's first kilobytes are enough for sections and the
 // export names are read through file), then the descriptor inside a mapped image.
 PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept;
+#endif
+// The descriptor rules, on a loaded image: image is where the image's first byte is mapped.
 PluginLoadResult plugin_descriptor_check(const u8* image, const PluginImage& pe, const mc_descriptor* descriptor,
                                          PluginInfo* info, u64* permissions) noexcept;
 // The permissions a validated descriptor's hooks, buttons and network hosts imply

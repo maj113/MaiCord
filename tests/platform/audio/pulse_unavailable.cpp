@@ -1,5 +1,5 @@
 // Audio with nothing to talk to must be a state, not a crash: the device lists are empty, the voice workers keep
-// retrying, the notification and media workers report a device error, speech reports unavailable.
+// retrying, the notification and media workers report a device error.
 //
 //   --no-server    libpulse loads but PULSE_SERVER names a socket nobody listens on (the case of a machine without
 //                  a sound server)
@@ -12,7 +12,6 @@
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/audio/media_audio.hpp"
 #include "maicord/platform/audio/notification_audio.hpp"
-#include "maicord/platform/audio/speech.hpp"
 #include "maicord/platform/audio/voice_audio_capture.hpp"
 #include "maicord/platform/audio/voice_audio_output.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -128,11 +127,6 @@ void run(bool no_library) noexcept {
               media_status.native_error != 0 && (!no_library || media_status.native_error == expected),
           "audio unavailable: media status holds no stream, no clock and the native error");
     check(media_audio_release(&media, 2000).ok() && !media.runtime, "audio unavailable: the media worker joins");
-
-    Speech speech{};
-    check(!speech_speak(&speech, {"hello", 5}) && !speech.voice, "audio unavailable: speech reports unavailable");
-    speech_release(&speech);
-    check(!speech.attempted, "audio unavailable: releasing speech resets it");
 }
 
 } // namespace

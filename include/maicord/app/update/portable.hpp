@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/app/update/service.hpp"
 #include "maicord/core/slice.hpp"
 
 #if !defined(_WIN32)
@@ -24,6 +25,11 @@ u32 update_portable_marker_path(ConstSlice<wchar_t> executable, wchar_t* output,
 // kUpdatePortableMarkerLine, and the directory lets this process create files (the updater stages the new image beside
 // the old one and swaps them).
 bool update_portable_install(ConstSlice<wchar_t> executable) noexcept;
+
+// The updater's configuration for the install at `executable`: a configured one stays configured only when the release
+// channels carry the Linux tarball (`published`) and the install is the tarball install (update_portable_install). Every
+// other install - a package manager's, or a build whose channels do not carry its package - has the updater disabled.
+void update_portable_gate(UpdateServiceConfig* config, bool published, ConstSlice<wchar_t> executable) noexcept;
 
 } // namespace maicord
 

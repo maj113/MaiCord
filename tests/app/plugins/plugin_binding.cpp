@@ -7,7 +7,12 @@
 #include "plugin_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_process_launch.hpp"
+#else
+#include "maicord/core/data_path.hpp"
+#include "maicord/os/process.hpp"
+#endif
 
 // The plugin loader, bindings and hook dispatch against real DLLs: the ABI-6 fixtures
 // (tests/fixtures/plugin_runtime_fixture.c), the clear-urls sample and the C fixture.
@@ -23,7 +28,9 @@ void check(bool value, const char* label) noexcept {
     test_write_line(label);
 }
 
+#if defined(_WIN32)
 constexpr wchar_t kChildVariable[] = L"MAICORD_PLUGIN_BINDING_CHILD";
+#endif
 constexpr u64 kFullOwner = 0x4D43525446554C4Cull, kSlowOwner = 0x4D4352545357464Cull,
               kCrashOwner = 0x4D43525443525348ull, kClearUrlsOwner = 0x6D63'636C'7572'6C73ull,
               kCOwner = 0x6D63635F61626943ull;
@@ -109,9 +116,34 @@ bool write_file(const Root& root, const wchar_t* name, const u8* bytes, u32 coun
     CloseHandle(file);
     return ok;
 }
+#if defined(_WIN32)
 bool loaded(const wchar_t* name) noexcept {
     return GetModuleHandleW(name) != nullptr;
 }
+#else
+// Whether the plugin installed as name is still mapped: the loader maps a sealed copy it names
+// "maicord-plugin:<name>", which /proc/self/maps lists as "/memfd:maicord-plugin:<name> (deleted)".
+bool loaded(const wchar_t* name) noexcept {
+    static char maps[1 << 20];
+    HANDLE file = CreateFileW(L"/proc/self/maps", GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    u32 used = 0;
+    for (DWORD got = 1; got && used < sizeof(maps);) {
+        got = 0;
+        if (!ReadFile(file, maps + used, static_cast<DWORD>(sizeof(maps) - used), &got, nullptr)) break;
+        used += got;
+    }
+    CloseHandle(file);
+    char needle[160] = "maicord-plugin:";
+    u32 length = 15;
+    for (u32 i = 0; name[i] && length < sizeof(needle) - 1; ++i) needle[length++] = static_cast<char>(name[i]);
+    for (u32 at = 0; at + length <= used; ++at)
+        if (bytes_equal(maps + at, needle, length) && (at + length == used || maps[at + length] == ' ' || maps[at + length] == '\n'))
+            return true;
+    return false;
+}
+#endif
 
 PluginDraftResult send(const char* text, PluginHook hook = PluginHook::pre_send) noexcept {
     u32 bytes = 0;
@@ -186,6 +218,7 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
     install(root, L"MaiCordPluginRuntimeFullFixture.dll", L"damaged.dll");
     u8 head[1024];
     read_head(root, L"damaged.dll", head, sizeof(head));
+#if defined(_WIN32)
     const u32 nt = byte_load_le32(head + 0x3C);
     const u32 table = nt + 24 + byte_load_le16(head + nt + 20);
     const u16 other_machine = 0x14c;
@@ -200,6 +233,31 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
               PluginLoadError::sections,
           "a section that is writable and executable is refused");
     patch(root, L"damaged.dll", table + 36, head + table + 36, 4);
+#else
+    // The program headers sit at e_phoff; the first segment that is executable is the one made writable.
+    const u64 table = byte_load_le64(head + 32);
+    u32 code = 0;
+    for (u32 i = 0, count = byte_load_le16(head + 56); i < count && table + 56u * (i + 1) <= sizeof(head); ++i) {
+        const u32 header = static_cast<u32>(table) + 56u * i;
+        if (byte_load_le32(head + header) == 1 && (byte_load_le32(head + header + 4) & 1)) {
+            code = header;
+            break;
+        }
+    }
+    check(code != 0, "the fixture has an executable segment");
+    const u16 other_machine = 3;
+    patch(root, L"damaged.dll", 18, &other_machine, 2);
+    check(plugin_image_load(&image, runtime->directory, leaf(L"damaged.dll"), MC_PERM_MESSAGE_SEND).error ==
+              PluginLoadError::machine,
+          "a non-x86-64 image is refused");
+    patch(root, L"damaged.dll", 18, head + 18, 2);
+    const u32 writable_code = byte_load_le32(head + code + 4) | 2;
+    patch(root, L"damaged.dll", code + 4, &writable_code, 4);
+    check(plugin_image_load(&image, runtime->directory, leaf(L"damaged.dll"), MC_PERM_MESSAGE_SEND).error ==
+              PluginLoadError::sections,
+          "a segment that is writable and executable is refused");
+    patch(root, L"damaged.dll", code + 4, head + code + 4, 4);
+#endif
     const u8 junk[16]{'M', 'Z'};
     write_file(root, L"truncated.dll", head, 1024);
     write_file(root, L"junk.dll", junk, sizeof(junk));
@@ -508,9 +566,54 @@ void test_clear_urls(PluginRuntime* runtime, const Root& root) noexcept {
           "the last disable empties the hook lists");
 }
 
+#if !defined(_WIN32)
+// The launched program gets this process's own environment, so the crash child is told where the test's folder is
+// by a note in the data root instead of an environment variable. The child takes the note (and removes it).
+bool child_note(wchar_t (&path)[MAX_PATH]) noexcept {
+    wchar_t root[MAX_PATH];
+    if (!local_data_root(root, MAX_PATH) || !directory_ensure(root)) return false;
+    join(path, root, L"plugin-binding-child.note");
+    return true;
+}
+bool write_note(const wchar_t* path, const wchar_t* base) noexcept {
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    const DWORD bytes = (length(base) + 1) * sizeof(wchar_t);
+    const bool ok = WriteFile(file, base, bytes, &written, nullptr) && written == bytes;
+    return CloseHandle(file) && ok;
+}
+bool take_child_note(wchar_t (&base)[MAX_PATH]) noexcept {
+    wchar_t path[MAX_PATH];
+    if (!child_note(path)) return false;
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD got = 0;
+    const bool ok = ReadFile(file, base, sizeof(base) - sizeof(wchar_t), &got, nullptr) && got >= sizeof(wchar_t);
+    CloseHandle(file);
+    DeleteFileW(path);
+    base[got / sizeof(wchar_t)] = 0;
+    return ok;
+}
+// The first bytes of the file at path (the marker, which the child owns and holds open).
+bool read_head_path(const wchar_t* path, u8* output, u32 count) noexcept {
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD got = 0;
+    const bool ok = ReadFile(file, output, count, &got, nullptr) && got == count;
+    CloseHandle(file);
+    return ok;
+}
+#endif
+
 // The child of the crash test: loads the crash fixture and runs its hook, which faults.
 u32 run_crash_child(const wchar_t* base) noexcept {
+#if defined(_WIN32)
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#else
+    sys_prctl(4, 0); // PR_SET_DUMPABLE: the fault leaves no core file
+#endif
     Root root;
     make_paths(&root, base);
     static PluginRuntime runtime;
@@ -527,6 +630,7 @@ u32 run_crash_child(const wchar_t* base) noexcept {
 // A plugin that faults inside a hook leaves its owner and call in the marker.
 void test_crash(const Root& root) noexcept {
     install(root, L"MaiCordPluginRuntimeCrashFixture.dll", L"crash.dll");
+#if defined(_WIN32)
     wchar_t executable[MAX_PATH], command[MAX_PATH + 4];
     const DWORD count = GetModuleFileNameW(nullptr, executable, MAX_PATH);
     if (!count || count >= MAX_PATH) {
@@ -550,6 +654,27 @@ void test_crash(const Root& root) noexcept {
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     check(exited, "the crash child ends");
+#else
+    wchar_t executable[MAX_PATH], note[MAX_PATH];
+    check(executable_path(executable, MAX_PATH) && child_note(note) && write_note(note, root.base),
+          "the crash child's note is written");
+    u32 error = 0;
+    const bool started = process_launch_detached(executable, &error);
+    check(started, "the crash child starts");
+    if (!started) {
+        DeleteFileW(note);
+        return;
+    }
+    // The child is not waited for: the marker names the call from the moment it begins, and the child dies in it.
+    bool in_call = false;
+    for (u32 waited = 0; waited < 30'000 && !in_call; waited += 20) {
+        u8 record[32]{};
+        in_call = read_head_path(root.marker, record, sizeof(record)) && record[20] == 1;
+        if (!in_call) Sleep(20);
+    }
+    check(in_call, "the crash child enters the plugin's call");
+    Sleep(500);
+#endif
     PluginCallLedger reader{};
     PluginCallMarker leftover{};
     check(plugin_call_ledger_open(&reader, root.marker, &leftover) && leftover.present && leftover.owner_id == kCrashOwner &&
@@ -596,8 +721,12 @@ void run() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_plugin_binding_tests_entry() noexcept {
     using namespace maicord;
     wchar_t base[MAX_PATH];
+#if defined(_WIN32)
     const DWORD count = GetEnvironmentVariableW(plugin_binding_tests::kChildVariable, base, MAX_PATH);
     if (count && count < MAX_PATH) ExitProcess(plugin_binding_tests::run_crash_child(base));
+#else
+    if (plugin_binding_tests::take_child_note(base)) ExitProcess(plugin_binding_tests::run_crash_child(base));
+#endif
     plugin_binding_tests::run();
     ExitProcess(plugin_binding_tests::failures ? 1 : 0);
 }

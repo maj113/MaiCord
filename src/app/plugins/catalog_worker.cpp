@@ -272,12 +272,12 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     Network net{&w};
     u8 *document = nullptr, *signature = nullptr;
     u32 document_bytes = 0, signature_bytes = 0;
-    // index-3.json lists every item with the interface it needs (catalog_index.hpp). index-full.json (0.6.3) and
-    // index.json (0.6.0 to 0.6.2) leave out what those can't read and are signed one and two sequences lower, so
-    // each update moves forward.
-    r.error = fetch(w, net, utf8_literal("index-3.json"), kCatalogIndexMaximumBytes, 0, &document, &document_bytes, &r.retry_at_unix);
+    // The index lists every item with the interface it needs (catalog_index.hpp); the file is the one this system's
+    // client reads. The older indexes leave out what their clients can't read and are signed lower, so each update
+    // moves forward.
+    r.error = fetch(w, net, kCatalogIndexFile, kCatalogIndexMaximumBytes, 0, &document, &document_bytes, &r.retry_at_unix);
     if (r.error == CatalogError::none)
-        r.error = fetch(w, net, utf8_literal("index-3.json.sig"), kSignatureBytes, kSignatureBytes, &signature, &signature_bytes,
+        r.error = fetch(w, net, kCatalogIndexSignatureFile, kSignatureBytes, kSignatureBytes, &signature, &signature_bytes,
                         &r.retry_at_unix);
     Crypto crypto{};
     if (r.error == CatalogError::none)
@@ -512,12 +512,18 @@ u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative,
     copy_bytes(output, base.data, base.count * 2);
     output[base.count] = 0;
     u32 length = base.count;
-    return wide_append(output, 600, &length, L"\\") && wide_append(output, 600, &length, relative) ? length : 0;
+    if (!wide_append(output, 600, &length, L"\\") || !wide_append(output, 600, &length, relative)) return 0;
+#if !defined(_WIN32)
+    // The pinned plugins directory, and every path the loader sees, are plain '/' paths.
+    for (u32 i = 0; i < length; ++i)
+        if (output[i] == L'\\') output[i] = L'/';
+#endif
+    return length;
 }
 
 void catalog_plugin_leaf(const u8 (&sha256)[32], wchar_t (&leaf)[69]) noexcept {
     hex_wide(sha256, 32, leaf);
-    copy_bytes(leaf + 64, L".dll", 5 * sizeof(wchar_t));
+    copy_bytes(leaf + 64, kCatalogPluginExtension, sizeof(kCatalogPluginExtension));
 }
 
 bool catalog_worker_start(const CatalogWorkerOptions& options) noexcept {

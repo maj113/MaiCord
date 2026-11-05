@@ -42,6 +42,12 @@ bool window_wayland_global(u32 index, const char** name, u32* version) noexcept;
 // compositor's.
 void window_wayland_prefer_server_decorations(Window window, bool server) noexcept;
 
+// The window tells the compositor its whole surface is opaque (wl_surface.set_opaque_region, kept in step with the size and
+// the scale): it has no rounded or transparent corners, and the GPU backend draws into an EGL config without alpha, so the
+// compositor can skip blending and what lies behind the window. This reads the region last sent, in surface units (the
+// size of WaylandSurfaceInfo::logical_*), for tests and diagnostics; false before the first one.
+bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexcept;
+
 // Activation (xdg-activation-v1). window_request_attention(Attention::flash) does this; the call asks the compositor
 // to focus the window, or mark it urgent when focus stealing is refused. Needs a recent input event for the token.
 void window_wayland_request_activation(Window window) noexcept;

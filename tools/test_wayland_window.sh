@@ -79,6 +79,7 @@ if [ "$compositor" != current ]; then
     height="$(awk "BEGIN { print int(720 * $scale) }")"
     cat > "$config" <<EOF
 output * resolution ${width}x${height} scale $scale
+output * bg #ff00ff solid_color
 default_border none
 xwayland disable
 default_floating_border none
@@ -155,7 +156,8 @@ print(origin[0], origin[1], layout["width"], layout["height"])'
 
 shot() { grim "$out/$1.png" 2> "$out/grim.log" || echo "grim failed: $(cat "$out/grim.log")"; }
 
-# The EGL test draws green; the pixel in the middle of its window, from the screenshot, is the answer (`pixel`).
+# The EGL test draws green at half alpha over the magenta desktop; the pixel in the middle of its window, from the screenshot,
+# is the answer (`pixel`): green only where the window tells the compositor that it is opaque.
 drive_egl() {
     wait_for "$sync/egl/ready" "$driver_wait" || return
     sleep 0.6

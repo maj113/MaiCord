@@ -61,9 +61,17 @@ bool catalog_worker_take(CatalogJobResult*) noexcept;
 void catalog_worker_progress(u64* bytes, u64* total) noexcept;
 void catalog_worker_free(void* memory) noexcept;
 
-// <base>\<relative>, NUL-terminated; characters written or 0.
+// <base>\<relative>, NUL-terminated; characters written or 0. Linux writes the separators as '/'.
 u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative, wchar_t (&output)[600]) noexcept;
-// "<64 hex>.dll": a catalog plugin's file in plugins\.
+// The file extension of a native plugin on this system: a DLL, or a shared object.
+#if defined(_WIN32)
+inline constexpr wchar_t kCatalogPluginExtension[] = L".dll";
+#else
+inline constexpr wchar_t kCatalogPluginExtension[] = L".so";
+#endif
+inline constexpr u32 kCatalogPluginExtensionCharacters = sizeof(kCatalogPluginExtension) / sizeof(wchar_t) - 1;
+// "<64 hex>.dll" (".so" on Linux): a catalog plugin's file in plugins\.
+inline constexpr u32 kCatalogPluginLeafCharacters = 64 + kCatalogPluginExtensionCharacters;
 void catalog_plugin_leaf(const u8 (&sha256)[32], wchar_t (&leaf)[69]) noexcept;
 
 } // namespace maicord::app_detail

@@ -7,8 +7,8 @@
 # leased on the commit the site was built from and the whole update is retried
 # from the new tip. Writes deploy=true|false to GITHUB_OUTPUT.
 #
-# Environment: GH_TOKEN (contents: write), GITHUB_REPOSITORY, PUBLIC_KEY and,
-# when a manifest needs re-signing, MAICORD_UPDATE_SIGNING_KEY.
+# Environment: GH_TOKEN (contents: write), GITHUB_REPOSITORY, PUBLIC_KEY, MAICORD_LINUX_RELEASES (true: the Linux entry,
+# as -Linux) and, when a manifest needs re-signing, MAICORD_UPDATE_SIGNING_KEY.
 param(
     [Parameter(Mandatory = $true)][string]$Site,
     [string]$Publish,
@@ -16,12 +16,18 @@ param(
     [Parameter(Mandatory = $true)][string]$Message,
     # Deploy the current site even when nothing changed (manual runs).
     [switch]$AlwaysDeploy,
+    # Also publish the Linux manifests found in -Publish and keep the site's Linux manifests verified and re-signed.
+    [switch]$Linux,
     # Local dry runs point this at a scratch bare repository.
     [string]$Remote = "https://github.com/$env:GITHUB_REPOSITORY.git",
     [int]$Attempts = 3
 )
 $ErrorActionPreference = 'Stop'
 $branch = 'update-channels'
+# The Linux manifests (updates/p2/linux/) are published, verified and re-signed with the rest when asked for, or when the
+# repository variable MAICORD_LINUX_RELEASES is 'true' (the workflows pass it in the environment); otherwise the Linux
+# files on the site are left as they are.
+$linux = $Linux -or $env:MAICORD_LINUX_RELEASES -eq 'true'
 if (!$env:GH_TOKEN -or !$env:GITHUB_REPOSITORY -or !$env:PUBLIC_KEY) { throw 'GH_TOKEN, GITHUB_REPOSITORY and PUBLIC_KEY are required.' }
 
 # Authenticate this process's git commands only; the token never reaches argv.
@@ -53,6 +59,7 @@ for ($attempt = 1; ; $attempt++) {
     $arguments = @('-B', (Join-Path $PSScriptRoot 'maicord_release.py'), 'channels', '--site', $Site,
         '--public-key', $env:PUBLIC_KEY, '--refresh-within-days', $RefreshWithinDays)
     if ($Publish) { $arguments += @('--publish', $Publish) }
+    if ($linux) { $arguments += '--linux' }
     python @arguments
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
 

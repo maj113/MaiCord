@@ -36,6 +36,35 @@ maicord_test(MaiCordAudioUnavailableTests ENTRY maicord_audio_unavailable_entry
 maicord_add_tests(MaiCordAudioUnavailableTests TIMEOUT 20 ENV MAICORD_PULSE_LIBRARY=libmaicord-no-such-pulse.so.0
     TEST maicord_audio_no_library --no-library)
 
+# Text-to-speech (src/platform/audio/speechd), the logic against fake libspeechd entry points and the real library's
+# unavailable states. The no-daemon case has no daemon to reach and none it could start (an address in a directory that
+# does not exist, no PATH for the spawn).
+#
+#   maicord_speechd                    what is opened and said, the text handed over, the failure and release rules
+#   maicord_speechd_no_library         without libspeechd: speech reports unavailable
+#   maicord_speechd_no_daemon          libspeechd but no speech-dispatcher: the same (skipped without libspeechd)
+#
+# The integration test needs speech-dispatcher with its dummy output module, so it is opt-in: configure with
+# MAICORD_SPEECHD_INTEGRATION=1 in the environment (tools/test_speechd.sh does, with a private daemon whose log it reads
+# afterwards).
+#
+#   maicord_speechd_live               the real libspeechd says, interrupts and closes against that daemon
+maicord_test(MaiCordSpeechdTests ENTRY maicord_speechd_entry
+    SOURCES tests/platform/audio/speechd.cpp
+    LIBS maicord_audio_pulse maicord_core
+    TIMEOUT 20 TEST maicord_speechd)
+maicord_add_tests(MaiCordSpeechdTests TIMEOUT 20 ENV MAICORD_SPEECHD_LIBRARY=libmaicord-no-such-speechd.so.2
+    TEST maicord_speechd_no_library --no-library)
+maicord_add_tests(MaiCordSpeechdTests TIMEOUT 60
+    ENV SPEECHD_ADDRESS=unix_socket:/maicord-no-such-directory/speech.sock PATH=/maicord-no-such-path
+    TEST maicord_speechd_no_daemon --no-daemon)
+maicord_add_tests(MaiCordSpeechdTests TIMEOUT 60 LABELS integration RESOURCE_LOCK speech_dispatcher
+    TEST maicord_speechd_live --live)
+set_tests_properties(maicord_speechd_no_daemon maicord_speechd_live PROPERTIES SKIP_RETURN_CODE 77)
+if(NOT "$ENV{MAICORD_SPEECHD_INTEGRATION}")
+    set_tests_properties(maicord_speechd_live PROPERTIES DISABLED TRUE)
+endif()
+
 maicord_test(MaiCordPulseLoopbackTests ENTRY maicord_pulse_loopback_entry
     SOURCES tests/platform/audio/pulse_loopback.cpp tests/platform/audio/window_post_stub.cpp
     LIBS maicord_audio_pulse maicord_core

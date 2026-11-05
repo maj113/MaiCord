@@ -1,6 +1,7 @@
 // maicord/os/process.hpp on Linux: posix_spawn from the libc the image already has loaded (the image links no libc
 // archive, so the function is looked up by name, as src/platform/dbus/open_uri.cpp does for xdg-open).
 #include "maicord/os/process.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
@@ -66,6 +67,39 @@ bool process_launch_detached(const wchar_t* executable, u32* native_error) noexc
         return false;
     }
     return true;
+}
+
+bool process_command(const wchar_t* executable, ProcessCommand* command, u32* native_error) noexcept {
+    const u32 bytes = executable ? path_to_utf8(executable, command->path, sizeof(command->path)) : 0;
+    if (bytes == 0 || command->path[0] != '/') {
+        if (native_error)
+            *native_error = ERROR_INVALID_PARAMETER;
+        return false;
+    }
+    return true;
+}
+
+bool process_replace(const ProcessCommand& command, u32* native_error) noexcept {
+    // A blocked signal and an ignored one both survive execve: the new image starts with the defaults.
+    const u64 none = 0;
+    sys_sigprocmask(kSignalSetMask, &none, nullptr);
+    if (g_children_ignored) {
+        KernelSigaction action{};
+        syscall4(kCallRtSigaction, kSignalChild, reinterpret_cast<long>(&action), 0, 8);
+    }
+    // Marked close-on-exec where the kernel can mark a range (5.11), else closed now: the process is leaving this
+    // image either way, and a refused exec ends in the normal exit that follows.
+    if (syscall_failed(sys_close_range(3, ~0u, kCloseRangeCloseOnExec)) && syscall_failed(sys_close_range(3, ~0u, 0)))
+        for (int fd = 3; fd < 1024; ++fd)
+            sys_close(fd);
+    // The path is read-only for the kernel; the vector wants mutable pointers.
+    char path[sizeof(command.path)];
+    copy_bytes(path, command.path, sizeof(path));
+    char* const argv[2] = {path, nullptr};
+    const long result = sys_execve(path, argv, process_startup().environment);
+    if (native_error)
+        *native_error = win32_error_from_result(result);
+    return false;
 }
 
 } // namespace maicord

@@ -59,6 +59,23 @@ inline long sys_link(const char* existing, const char* created) noexcept {
                     reinterpret_cast<long>(created), 0);
 }
 
+// chmod(2): sets the permission bits of the file at `path`.
+inline long sys_chmod(const char* path, u32 mode) noexcept {
+    return syscall2(kSysChmod, reinterpret_cast<long>(path), static_cast<long>(mode));
+}
+
+// execve(2): replaces the process image; returns only as a negated errno.
+inline long sys_execve(const char* path, char* const argv[], char* const environment[]) noexcept {
+    return syscall3(kSysExecve, reinterpret_cast<long>(path), reinterpret_cast<long>(argv),
+                    reinterpret_cast<long>(environment));
+}
+
+// close_range(2): closes the descriptors first through last, or with kCloseRangeCloseOnExec only marks them
+// close-on-exec (Linux 5.9 and 5.11 and later; -ENOSYS or -EINVAL before).
+inline long sys_close_range(u32 first, u32 last, u32 flags) noexcept {
+    return syscall3(kSysCloseRange, static_cast<long>(first), static_cast<long>(last), static_cast<long>(flags));
+}
+
 // Sets the modification time of the file at `path` (the access time stays), as utimensat(2) with UTIME_OMIT.
 inline long sys_set_modification_time(const char* path, i64 seconds, i64 nanoseconds) noexcept {
     constexpr i64 kTimeOmit = (1 << 30) - 2;
@@ -92,6 +109,20 @@ inline long sys_pread(int fd, void* buffer, usize bytes, u64 offset) noexcept {
 inline long sys_pwrite(int fd, const void* buffer, usize bytes, u64 offset) noexcept {
     return syscall4(kSysPwrite64, fd, reinterpret_cast<long>(buffer), static_cast<long>(bytes),
                     static_cast<long>(offset));
+}
+
+// The effective user id of the process.
+inline long sys_geteuid() noexcept {
+    return syscall1(kSysGeteuid, 0);
+}
+
+// A new anonymous memory file (flags: kMemfd*), or a negated errno.
+inline long sys_memfd_create(const char* name, u32 flags) noexcept {
+    return syscall2(kSysMemfdCreate, reinterpret_cast<long>(name), static_cast<long>(flags));
+}
+
+inline long sys_fcntl(int fd, int command, long argument) noexcept {
+    return syscall3(kSysFcntl, fd, command, argument);
 }
 
 inline long sys_fsync(int fd) noexcept {

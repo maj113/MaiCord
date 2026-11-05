@@ -92,8 +92,9 @@ bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotification
 // Disconnects every element; later calls on retained elements fail cleanly.
 void uia_host_shutdown(UiaProviderHost* host) noexcept;
 #else
-// Linux has no UI Automation host: the application's accessibility state keeps this one, which holds only what the
-// shared snapshot code (src/app/accessibility/accessibility_describe.cpp) writes; an AT-SPI bridge can grow it.
+// Linux has no UI Automation host (its screen reader server is AT-SPI, platform/atspi, which reads the snapshot through
+// its own callbacks): the application's accessibility state keeps this one, which holds only what the shared snapshot code
+// (src/app/accessibility/accessibility_describe.cpp) writes.
 struct UiaProviderHost {
     // Client pixels above the snapshot's DIP origin (a custom window caption).
     i32 content_offset_y;

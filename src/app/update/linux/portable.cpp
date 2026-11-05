@@ -71,4 +71,9 @@ bool update_portable_install(ConstSlice<wchar_t> executable) noexcept {
     return !syscall_failed(sys_access(path, kAccessWrite));
 }
 
+void update_portable_gate(UpdateServiceConfig* config, bool published, ConstSlice<wchar_t> executable) noexcept {
+    if (config->configured && (!published || !update_portable_install(executable)))
+        config->configured = false;
+}
+
 } // namespace maicord

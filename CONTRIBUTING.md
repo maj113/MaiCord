@@ -113,6 +113,16 @@ the translation in `tools/glsl_translate.py`), and Windows ignores the section. 
 header or a sample rebuilds `tests/gpu/effects/*.mcfx` (DXBC on Windows, then the GLSL on Linux) and renews the PNGs
 with `tools/update_gpu_goldens.py --scene effects`; the Linux frames must stay within the PSNR of `tests/gpu/effects.cpp`.
 
+The official catalog serves the Linux client an effect's interface 4 package in `index-4.json` and keeps the DXBC package in
+`index-3.json` for Windows (`kCatalogIndexFile` picks the file; `tools/release/README.md`, "Plugin catalog"). MaiCord-plugins'
+`scripts/build_universal.py` makes the package from the Windows build with `mcfx_tool.py effect build --glsl yes
+--dxbc-from`, and `plugin_index.py` (`check_source`, `check_universal`) checks it. To check a catalog build on Linux, run
+`maicord_catalog_effects` with `MAICORD_CATALOG_E2E_DIR=<site>` and `MAICORD_CATALOG_E2E_KEY=<public key hex>`.
+To see the client's store against a local catalog, build the client with the test key
+(`MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=<hex> tools/build_linux.sh`, in a fresh build directory), build a site with the catalog
+scripts and a throwaway key, and run `tools/test_catalog_wayland.sh --binary <client> --site <site> --expect index-4.json
+--expect .mcfx wait:2 click:1139,16 ...` (the steps are `tools/client_flow.py`'s).
+
 The renderer (`src/render`) builds for both systems (`cmake/linux_render.cmake` is the Linux side) and renders the same
 scenes in `tests/render/scenes.cpp`: on an offscreen surface on Linux (`renderer_initialize` with a null window), over a
 window on Windows. Shared renderer code takes the window only as a `GpuSurfaceDesc` (`renderer_window_surface(Window)`),
@@ -176,7 +186,8 @@ through `$DICPATH`.
 Linux CI runs in `.github/workflows/ci.yml` on `ubuntu-24.04`: the `linux` job installs the toolchain with
 `tools/install_linux_toolchain.sh --integration`, builds and tests with `tools/build_linux.sh --test --keep --timeout-scale 3`
 (which audits every image with `tools/audit_elf.py`), checks the `dlopen` tables against the installed headers
-(`tools/check_openssl_abi.py`, `tools/check_pulse_abi.py`), runs the headless-sway, D-Bus and PulseAudio scripts
+(`tools/check_openssl_abi.py`, `tools/check_pulse_abi.py`, `tools/check_speechd_abi.py`), runs the headless-sway, D-Bus,
+PulseAudio and speech-dispatcher scripts
 (reported, not failing, until the repository variable `MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`) and packs the
 portable cases; the `distros` job runs those cases in Ubuntu 22.04, Debian 12, Fedora, Arch Linux and NixOS containers
 with `tools/test_linux_distros.sh`. To reproduce one distribution locally in WSL, build with `tools/build_linux.sh --test
@@ -228,7 +239,9 @@ fixtures (`maicord_transport`); a test written for both systems states what it a
 
 The application proper (`src/app` outside `shell/` and `windows/`, and `src/ui`) is `maicord_app_client` and `maicord_ui`
 on Linux (`cmake/linux_app_client.cmake` globs `src/app`, so a new unit is built there by default; the UI Automation
-server is replaced by `src/app/accessibility/linux`). Shared application code reaches the system only through the seams:
+server is replaced by the AT-SPI host in `src/app/accessibility/linux`, over `platform/atspi`, and the shared snapshot and
+its actions, `accessibility_describe.cpp` and `accessibility_actions.cpp`, build on both systems, so a new describer or
+action needs no AT-SPI work). Shared application code reaches the system only through the seams:
 `os/process.hpp` (`process_launch_detached`), `os/text.hpp` (`utf16_to_utf8`, `utf8_to_utf16`), `os/thread.hpp`
 (`thread_waitable` lets a wait set hold a thread; `thread_com_enter` brackets COM use), `os/local_time.hpp`,
 `core/data_path.hpp` (`environment_variable`, `local_data_root`, `executable_path`), `core/module.hpp` (`module_image`),
@@ -239,11 +252,16 @@ the Linux alternative next to it: the tray and single instance (`notifications/d
 `platform/dbus/tray.hpp` and `instance.hpp`), the taskbar badge (`taskbar_attention.cpp`, the launcher entry), toasts
 (`platform/desktop/linux/notifications.cpp`), startup and protocol registration (`platform/desktop/linux/integration.cpp`:
 an XDG autostart file, a scheme handler desktop file and the default in `mimeapps.list`), WebAuthn (unavailable), the
-plugin loader (`PluginLoadError::unsupported`) and game detection (`/proc/*/comm`). The application and UI fixtures that
+plugin loader (an ELF loader beside the PE one: `src/app/plugins/loader.cpp`) and game detection (`/proc/*/comm`). The application and UI fixtures that
 need no Win32 window are registered in `cmake/linux_app_ui_tests.cmake` under their Windows names, over
 `maicord_window_null`; the few Win32 calls they make are shimmed for tests only in `tests/support/linux_test_app.hpp`.
 A fixture that calls other Windows API directly (BCrypt, Winsock, GDI, UI Automation, the registry, a real window) is
-not registered on Linux, and the clipboard-bound ones wait for a clipboard in the headless backend.
+not registered on Linux, and the clipboard-bound ones wait for a clipboard in the headless backend. Plugins are shared
+objects there (`maicord_plugin()` in `cmake/test_support.cmake` builds them into `plugins/` of the build directory; the loader
+is the ELF half of `src/app/plugins/loader.cpp`): `cmake/linux_plugin_tests.cmake` runs `maicord_plugin_loader_elf` (the
+loader's policy: a fixture per defect, links, modes, a renamed pin) and the plugin runtime tests of the Windows suite
+(`maicord_plugin_binding`, `_network`, `_pipeline`, `_ui`, `_surfaces`) over the same fixtures, plus the SDK's compile
+diagnostics (`maicord_plugin_compile_*`); `tools/maicord-plugin build --target linux` makes the same file from a `plugin.cpp`.
 
 The client itself is the `MaiCord` target of `cmake/linux_client.cmake` (the shell, `src/app/shell`, with the Linux entry
 and window glue in `src/app/linux`, over `maicord_window_wayland`; the null backend is the tests'). `src/app/linux/entry.cpp`
@@ -255,9 +273,21 @@ forwarding are the Windows startup's. `tools/build_linux.sh` leaves `MaiCord`, `
 profile, takes a `grim` screenshot and reports the idle CPU, wakeups and memory; `tools/client_flow.py` drives it through
 clicks, typing (`wtype`), scroll, output scale and window commands with screenshots in between (`tools/wayland_pointer.py`
 is the long-lived virtual pointer it uses). WSLg's Weston has no screencopy, so a screenshot there is the nested run.
-The updater is off on Linux, whatever the build's publisher: the channels carry the Windows package only. When they carry
-the tarball, `application_update_build_config()` enables it for the install that has the `.maicord-portable` marker next
-to its real executable (`update_portable_install`, `maicord_update_pipeline`) and for no other.
+`tools/test_atspi.sh` runs the client behind the real `at-spi-bus-launcher` and registry on a private session bus and reads
+it as a screen reader does (`tests/platform/atspi/atspi_client.py`, python3-gi with gir1.2-atspi-2.0): accessibility is off
+when the client starts and its tree is invisible, then on; roles, names, states, bounds and actions of the sign-in form, a
+button's action, field text read and set, focus and text events. `--orca` runs Orca too (on a private Xvfb with
+speech-dispatcher's dummy module) and checks what it says for the fields. The same checks of the mapping without a bus are
+`maicord_atspi_map`.
+The updater is on in a Linux build only for the tarball install: the build must be told that the release channels carry the
+tarball (`MAICORD_LINUX_UPDATES_PUBLISHED`, from `MAICORD_LINUX_RELEASES=true` at configure time, as `release.yml`'s `linux`
+job does), and `update_portable_gate` enables it for the install that has the `.maicord-portable` marker next to its real
+executable (`update_portable_install`) and for no other. It reads the Linux manifests (`updates/p2/linux/`, signed by
+`maicord_release.py linux`), stages the release tarball's program, `fonts/` and `licenses/` through
+`src/app/update/linux/package.cpp`, swaps them in at exit keeping the old version in `MaiCord.old/` (`stage.cpp`) and relaunches
+with `process_replace` (`execve`). `maicord_update_pipeline` replays all of that over a fake network with a throwaway key
+(`tests/app/update/linux_package.cpp`); `MAICORD_UPDATE_TEST_TARBALL=<a tarball from packaging/build_tarball.py>` runs the same
+over the producer's own file.
 Text that names the operating system is chosen per system: `MAICORD_OS_TEXT("Windows didn't save this change.", "Couldn't
 save this change.")` (`include/maicord/core/os_text.hpp`) compiles one wording, and the settings catalog keeps its Windows
 data (`catalog_data.inc`, packed) with a Linux table applied once in `catalog.cpp`; a row Linux has nothing behind is listed

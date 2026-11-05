@@ -385,6 +385,31 @@ void test_window_up() noexcept {
     window_frame_callback_request(g_window);
     const u32 after = g_frame_callbacks;
     check(pump_until([&] { return g_frame_callbacks > after; }, 5000), "a frame callback follows the repaint");
+
+    // The whole surface is opaque (no rounded or transparent corners) at its logical size, and the region follows the size.
+    const auto region_is_surface = [&]() noexcept {
+        WaylandSurfaceInfo now{};
+        u32 width = 0, height = 0;
+        return window_wayland_info(g_window, &now) && window_wayland_opaque_region(g_window, &width, &height) &&
+               width == now.logical_width && height == now.logical_height;
+    };
+    check(region_is_surface(), "the opaque region is the whole surface");
+    window_wayland_info(g_window, &surface);
+    if (window_set_fullscreen(g_window, true)) {
+        check(pump_until([&] {
+                  WaylandSurfaceInfo now{};
+                  return window_wayland_info(g_window, &now) && now.logical_width != surface.logical_width &&
+                         region_is_surface();
+              }, 5000),
+              "the opaque region follows a resize");
+        window_set_fullscreen(g_window, false);
+        check(pump_until([&] {
+                  WaylandSurfaceInfo now{};
+                  return window_wayland_info(g_window, &now) && now.logical_width == surface.logical_width &&
+                         region_is_surface();
+              }, 5000),
+              "and the size it comes back to");
+    }
 }
 
 void test_lifecycle() noexcept {
@@ -1499,6 +1524,7 @@ struct EglApi {
     u32 (*initialize)(void* display, i32* major, i32* minor) noexcept;
     u32 (*bind_api)(u32 api) noexcept;
     u32 (*choose_config)(void* display, const i32* attributes, void** configs, i32 capacity, i32* count) noexcept;
+    u32 (*get_config_attrib)(void* display, void* config, i32 attribute, i32* value) noexcept;
     void* (*create_context)(void* display, void* config, void* share, const i32* attributes) noexcept;
     void* (*create_window_surface)(void* display, void* config, void* window, const i32* attributes) noexcept;
     u32 (*make_current)(void* display, void* draw, void* read, void* context) noexcept;
@@ -1526,6 +1552,7 @@ void run_egl() noexcept {
                           resolve_symbol(egl_library, "eglInitialize", &api.initialize) &&
                           resolve_symbol(egl_library, "eglBindAPI", &api.bind_api) &&
                           resolve_symbol(egl_library, "eglChooseConfig", &api.choose_config) &&
+                          resolve_symbol(egl_library, "eglGetConfigAttrib", &api.get_config_attrib) &&
                           resolve_symbol(egl_library, "eglCreateContext", &api.create_context) &&
                           resolve_symbol(egl_library, "eglCreateWindowSurface", &api.create_window_surface) &&
                           resolve_symbol(egl_library, "eglMakeCurrent", &api.make_current) &&
@@ -1546,10 +1573,21 @@ void run_egl() noexcept {
     i32 minor = 0;
     check(display && api.initialize(display, &major, &minor), "eglInitialize on the window's wl_display");
     api.bind_api(0x30A0);  // EGL_OPENGL_ES_API
-    const i32 config_attributes[] = {0x3033, 0x4, 0x3040, 0x4, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8, 0x3038};
-    void* config = nullptr;
+    // As the GPU backend chooses it: 8-bit colour, and the config without alpha among them (an XRGB8888 window).
+    const i32 config_attributes[] = {0x3033, 0x4, 0x3040, 0x4, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3038};
+    void* candidates[32] = {};
     i32 configs = 0;
-    check(api.choose_config(display, config_attributes, &config, 1, &configs) && configs == 1, "an RGBA8 window config");
+    check(api.choose_config(display, config_attributes, candidates, 32, &configs) && configs >= 1, "an RGB8 window config");
+    void* config = candidates[0];
+    bool without_alpha = false;
+    for (i32 i = 0; i < configs && !without_alpha; ++i) {
+        i32 alpha = 1;
+        if (api.get_config_attrib(display, candidates[i], 0x3021, &alpha) && alpha == 0) {
+            config = candidates[i];
+            without_alpha = true;
+        }
+    }
+    check(without_alpha, "the compositor's EGL offers a window config without alpha");
     const i32 context_attributes[] = {0x3098, 2, 0x3038};
     void* context = api.create_context(display, config, nullptr, context_attributes);
     void* egl_surface = api.create_window_surface(display, config, native, nullptr);
@@ -1560,7 +1598,9 @@ void run_egl() noexcept {
     const u64 start = clock_monotonic_milliseconds();
     u32 frames = 0;
     while (clock_monotonic_milliseconds() - start < 20000 && !file_exists("injected")) {
-        api.clear_color(0.0f, 1.0f, 0.0f, 1.0f);
+        // Alpha one half: only a surface the compositor reads as opaque keeps the magenta desktop behind the window from
+        // showing through (XRGB buffers, and the window's opaque region).
+        api.clear_color(0.0f, 1.0f, 0.0f, 0.5f);
         api.clear(0x4000);
         api.swap_buffers(display, egl_surface);
         ++frames;

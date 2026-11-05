@@ -10,7 +10,13 @@
      LEVEL      the descriptor needs a newer api level than the host has
      SLOW       pre_send sleeps past any small budget
      CRASH      pre_send writes through a null pointer
-     NET        HTTP to declared hosts, completions, secret and the other typed settings, setting and keybind hooks */
+     NET        HTTP to declared hosts, completions, secret and the other typed settings, setting and keybind hooks
+   Linux shared objects only (cmake/linux_plugin_tests.cmake):
+     ABI        valid, but the descriptor is of the previous ABI
+     NEEDED     valid, but the shared object needs another library
+     IMPORT     valid, but it calls a function of the C library
+     INIT       valid, but it has an initializer
+     EXECSTACK  valid, but it asks for an executable stack */
 #include "maicord/sdk/maicord_plugin.h"
 
 #if defined(FIXTURE_FULL)
@@ -39,12 +45,22 @@
 #define OWNER 0x4D43525450495041ull
 #elif defined(FIXTURE_PIPELINEBARE)
 #define OWNER 0x4D43525450495042ull
+#elif defined(FIXTURE_ABI)
+#define OWNER 0x4D43525441424921ull
+#elif defined(FIXTURE_NEEDED)
+#define OWNER 0x4D435254444E4544ull
+#elif defined(FIXTURE_IMPORT)
+#define OWNER 0x4D43525449505254ull
+#elif defined(FIXTURE_INIT)
+#define OWNER 0x4D43525449494E49ull
+#elif defined(FIXTURE_EXECSTACK)
+#define OWNER 0x4D43525445584543ull
 #else
 #error "define one FIXTURE_* variant"
 #endif
 
 #if defined(FIXTURE_SLOW)
-__declspec(dllimport) void __stdcall Sleep(unsigned long milliseconds);
+#include "plugin_sleep.h"
 #endif
 
 #if !defined(FIXTURE_NET) && !defined(FIXTURE_PIPELINE) && !defined(FIXTURE_PIPELINEAUTO) && !defined(FIXTURE_PIPELINEBARE)
@@ -483,8 +499,15 @@ static mc_status MC_CALL pre_send(mc_ctx* ctx, mc_draft* draft) {
     return MC_OK;
 }
 #else
+#if defined(FIXTURE_IMPORT)
+/* A function of the C library: an undefined symbol, resolved against the process if the loader let it. */
+__attribute__((visibility("default"))) extern int getpid(void);
+#endif
 static mc_status MC_CALL pre_send(mc_ctx* ctx, mc_draft* draft) {
     (void)ctx;
+#if defined(FIXTURE_IMPORT)
+    if (getpid() < 0) return MC_E_INVALID;
+#endif
     put(draft, "x", 1);
     return MC_OK;
 }
@@ -500,15 +523,21 @@ static const mc_hook hooks[] = {{MC_HOOK_PRE_SEND, 0, 0, {pre_send}}};
 #endif
 
 #if defined(FIXTURE_ENTRY)
+#if defined(_WIN32)
 int __stdcall fixture_entry(void* instance, unsigned long reason, void* reserved) {
     (void)instance;
     (void)reason;
     (void)reserved;
     return 1;
 }
+#else
+/* The link names it the entry point (-e fixture_entry). */
+void fixture_entry(void) {}
+#endif
 #endif
 
 #if defined(FIXTURE_TLS)
+#if defined(_WIN32)
 /* What the CRT's tlssup provides: a directory with no callbacks, found through _tls_used. */
 static unsigned char tls_template[8];
 static unsigned long tls_index;
@@ -518,6 +547,16 @@ __declspec(allocate(".rdata$T")) const struct {
     unsigned long zero, characteristics;
 } _tls_used = {(unsigned long long)tls_template, (unsigned long long)(tls_template + sizeof(tls_template)),
                (unsigned long long)&tls_index, 0, 0, 0};
+#else
+/* A thread-local data section: the link (which keeps unused sections for this variant) makes a PT_TLS segment of it. */
+__asm__(".section .tdata,\"awT\",@progbits\n\t.long 1\n\t.previous");
+#endif
+#endif
+
+#if defined(FIXTURE_INIT)
+/* An initializer array: dlopen would run it. It stores to a variable so that the optimizer keeps it. */
+static volatile int fixture_initialized;
+__attribute__((constructor)) static void fixture_init(void) { fixture_initialized = 1; }
 #endif
 
 #if defined(FIXTURE_EXTRA)
@@ -594,8 +633,14 @@ MC_EXPORT int maicord_fixture_extra(void) { return 7; }
 #define PERMISSIONS 0
 #endif
 
+#if defined(FIXTURE_ABI)
+#define ABI (MC_ABI - 1)
+#else
+#define ABI MC_ABI
+#endif
+
 MC_EXPORT const mc_descriptor MC_DESCRIPTOR_SYMBOL = {
-    sizeof(mc_descriptor), MC_ABI, LEVEL, 0, OWNER,
+    sizeof(mc_descriptor), ABI, LEVEL, 0, OWNER,
     NAME, MC_S("1.0.0"), MC_S("ABI 6 loader and runtime fixture."), MC_S("MaiCord"), {0},
     PERMISSIONS, NETWORK_TABLE, NETWORK_COUNT, STATE_BYTES, STATE_BYTES ? 4 : 0, SETTINGS_BYTES, 1,
     SETTING_TABLE, SETTING_COUNT, HOOK_COUNT, hooks,

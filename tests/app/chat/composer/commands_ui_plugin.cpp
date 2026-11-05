@@ -8,6 +8,9 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
+#if !defined(_WIN32)
+#include "../../plugins/plugin_fixture.hpp"
+#endif
 
 // Plugin slash commands in the composer: the picker lists the plugin as an app section, option chips and
 // their validation come from its typed arguments, Enter runs the command and its reply lands where it
@@ -32,6 +35,7 @@ u32 length(const wchar_t* text) noexcept {
     while (text[count]) ++count;
     return count;
 }
+#if defined(_WIN32)
 void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
     u32 at = 0;
     for (; directory[at]; ++at) output[at] = directory[at];
@@ -57,6 +61,10 @@ void remove_tree(const wchar_t* directory) noexcept {
     }
     RemoveDirectoryW(directory);
 }
+#else
+using plugin_fixture::join;
+using plugin_fixture::remove_tree;
+#endif
 
 // What the application side of the plugin UI was asked to show.
 struct Shown {
@@ -122,6 +130,7 @@ void plugin_cases() noexcept {
     bool opened = false;
     PluginBinding* binding = nullptr;
     if (initialized) {
+#if defined(_WIN32)
         const DWORD count = GetTempPathW(MAX_PATH, temp);
         const DWORD built = GetModuleFileNameW(nullptr, module, MAX_PATH);
         bool ready = count && count < MAX_PATH && built && built < MAX_PATH &&
@@ -137,6 +146,15 @@ void plugin_cases() noexcept {
             ready = CreateDirectoryW(plugins, nullptr) && CreateDirectoryW(data, nullptr) &&
                     CopyFileW(source, destination, FALSE);
         }
+#else
+        (void)temp, (void)module, (void)source, (void)destination;
+        plugin_fixture::Root root{};
+        bool ready = plugin_fixture::make_root(&root, L"mcc") &&
+                     plugin_fixture::install(root, L"MaiCordPluginUiFixture.dll", L"ui.dll");
+        copy_bytes(base, root.base, (length(root.base) + 1) * sizeof(wchar_t));
+        copy_bytes(plugins, root.plugins, (length(root.plugins) + 1) * sizeof(wchar_t));
+        copy_bytes(data, root.data, (length(root.data) + 1) * sizeof(wchar_t));
+#endif
         opened = ready && plugin_runtime_open(&runtime, {plugins, length(plugins)}, {data, length(data)}, nullptr).ok();
         check(opened, "the plugin fixture is installed");
     }
