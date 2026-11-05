@@ -1,6 +1,6 @@
 # MaiCord from the release tarball (packaging/build_tarball.py, attached to every GitHub release): the same program the
-# source package builds, patched for Nix. The image is a freestanding glibc PIE with libc, libdl and libpthread as its only
-# DT_NEEDED entries and every other library opened with dlopen: autoPatchelfHook gives it the Nix loader and glibc,
+# source package builds, patched for Nix. The image is a freestanding glibc PIE with libc as its only
+# DT_NEEDED entry and every other library opened with dlopen: autoPatchelfHook gives it the Nix loader and glibc,
 # runtimeDependencies puts the dlopen()ed libraries on its run path, and appendRunpaths adds /run/opengl-driver/lib for
 # the GPU drivers. The tarball's .maicord-portable marker is not installed: the Nix store is read only, so the program does
 # not update itself.

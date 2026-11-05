@@ -1,24 +1,26 @@
 #pragma once
 
 // The C library functions MaiCord imports, declared as glibc and musl declare them (the two agree on x86-64; types
-// without the headers). These are the only imports of a Linux image besides what it dlopens: libc.so.6, libdl.so.2
-// and libpthread.so.0 are linked as stub libraries (tools/generate_libc_stubs.py) that carry the oldest symbol
-// versions, so the image never requires a newer glibc than 2.17; musl's loader answers those names itself and ignores
-// the versions (tools/retarget_libc.py makes the musl image). Add a function only together with its stub entry there,
-// and only if musl defines it too (or import it weakly, as malloc_trim). tools/check_libc_abi.py compares the types
-// and constants below with the installed C library's headers.
+// without the headers). These are the only imports of a Linux image besides what it dlopens: it needs libc.so.6 alone
+// (glibc 2.34 moved dlopen and the pthread functions into it, and kernel 6.1 admits no older glibc), linked as a stub
+// library (tools/generate_libc_stubs.py) that carries the oldest symbol versions libc.so.6 exports, so the image never
+// requires a newer glibc than 2.34; musl's loader answers libc.so.6 itself and ignores the versions
+// (tools/retarget_libc.py makes the musl image). Add a function only together with its stub entry there, and only if
+// musl defines it too (or import it weakly, as malloc_trim). tools/check_libc_abi.py compares the types and constants
+// below with the installed C library's headers.
 
 #include "maicord/sys/linux/abi.hpp"
 
 extern "C" {
 
-// <dlfcn.h> (libdl.so.2, GLIBC_2.2.5)
+// <dlfcn.h> (libc.so.6, GLIBC_2.34)
 void* dlopen(const char* file, int mode);
 void* dlsym(void* handle, const char* name);
 int dlclose(void* handle);
 char* dlerror(void);
 
-// <pthread.h> (libpthread.so.0, GLIBC_2.2.5). The attribute is null or a PthreadAttribute.
+// <pthread.h> (libc.so.6, GLIBC_2.34 but pthread_attr_init and pthread_attr_destroy, GLIBC_2.2.5). The attribute is
+// null or a PthreadAttribute.
 int pthread_create(unsigned long* thread, const void* attributes, void* (*start)(void*), void* argument);
 int pthread_join(unsigned long thread, void** result);
 int pthread_detach(unsigned long thread);

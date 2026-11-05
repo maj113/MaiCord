@@ -45,12 +45,6 @@ void run() noexcept {
         GpuInputLayout* layout = nullptr;
         GpuPixelShader* pixel = nullptr;
         bool layout_failed = true;
-        // The composite's second output is dual-source blending: a device without it refuses the shader.
-        if (pair.pixel == ShaderId::fx_composite_pixel && !gpu_caps(device).dual_source_blend) {
-            check(gpu_pixel_shader_create(device, pair.pixel, &pixel) == kGpuUnsupported && !pixel,
-                  "the composite pixel shader needs dual-source blending");
-            continue;
-        }
         const bool created =
             gpu_ok(gpu_vertex_shader_create(device, pair.vertex, pair.elements, &vertex, &layout, &layout_failed)) &&
             !layout_failed && (pair.elements.count == 0) == (layout == nullptr) &&

@@ -31,11 +31,11 @@
 #             --icf=all, --gc-sections, packed relocations, and the client is linked stripped (--symbols keeps its
 #             symbol table for nm and profilers).
 #   Image     A dynamic PIE with its own _start (src/core/linux/start.cpp): no CRT, raw syscalls, DT_NEEDED
-#             libc.so.6 libdl.so.2 libpthread.so.0 as generated stubs (tools/generate_libc_stubs.py) that pin
-#             GLIBC_2.2.5 and GLIBC_2.17; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).
+#             libc.so.6 alone, as a generated stub (tools/generate_libc_stubs.py) that pins GLIBC_2.2.5, GLIBC_2.17
+#             and GLIBC_2.34; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).
 #             The musl form is the same image with another program interpreter (tools/retarget_libc.py --libc musl).
-#   Audit     tools/audit_elf.py runs on every image: no GLIBC_ symbol version above 2.17, only the three stub
-#             libraries needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack;
+#   Audit     tools/audit_elf.py runs on every image: no GLIBC_ symbol version above 2.34, only the libc stub
+#             library needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack;
 #             and on the client's musl form (--libc musl).
 #   Tests     ctest under the build directory; each case runs with a private XDG_DATA_HOME below it.
 #   Cleanup   Unless --keep, the run ends with the build directory holding only the shipping client (MaiCord) and its

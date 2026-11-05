@@ -24,11 +24,6 @@ maicord_test(MaiCordGpuShaderPackTests ENTRY maicord_gpu_shader_pack_entry
 maicord_add_tests(MaiCordGpuShaderPackTests TIMEOUT 20
     ENV MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128
     TEST maicord_gpu_shader_pack_small_groups)
-# A driver without GL_EXT_blend_func_extended refuses the composite pixel shader (a device without it has no background
-# effects).
-maicord_add_tests(MaiCordGpuShaderPackTests TIMEOUT 20
-    ENV MAICORD_GLES_NO_DUAL_SOURCE=1
-    TEST maicord_gpu_shader_pack_no_dual_source)
 
 # The ui quads scene against the PNG that tests/gpu/ui_quads_windows.cpp captured from Direct3D 11.
 maicord_test(MaiCordGpuUiQuadsTests ENTRY maicord_gpu_ui_quads_entry

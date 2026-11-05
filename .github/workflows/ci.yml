@@ -344,7 +344,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu-22.04, debian-12, fedora, archlinux, nixos, alpine, void-musl, chimera]
+        distro: [ubuntu-22.04, debian-12, almalinux-9, fedora, archlinux, nixos, alpine, void-musl, chimera]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

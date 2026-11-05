@@ -8,14 +8,19 @@ bundles one.
 
 ## C library: glibc and musl, one image
 
-- The build links the glibc form: interpreter `/lib64/ld-linux-x86-64.so.2`, `DT_NEEDED` `libc.so.6 libdl.so.2
-  libpthread.so.0` (generated stub libraries, `tools/generate_libc_stubs.py`, pinning `GLIBC_2.2.5`/`2.17`, so glibc 2.17+
-  runs it). Its libc imports are the ones of `include/maicord/sys/linux/libc.hpp` (dlopen family, `pthread_create` family,
+- The build links the glibc form: interpreter `/lib64/ld-linux-x86-64.so.2`, `DT_NEEDED` `libc.so.6` alone (one generated
+  stub library, `tools/generate_libc_stubs.py`, pinning each import at the oldest default version glibc 2.34's `libc.so.6`
+  exports: `GLIBC_2.2.5` (`malloc` family, `getaddrinfo`, `pthread_attr_init`/`pthread_attr_destroy`), `GLIBC_2.17`
+  (`clock_gettime`) and `GLIBC_2.34` (`dlopen` family, `pthread_create`/`join`/`detach`/`attr_setstacksize`), so glibc 2.34+
+  runs it). glibc 2.34 moved `dlopen` and the pthread functions out of `libdl.so.2` and `libpthread.so.0` (empty since) into
+  `libc.so.6`; every distribution the kernel floor (Linux 6.1) admits has at least that: Red Hat 9 and its rebuilds 2.34,
+  Ubuntu 22.04 2.35, Debian 12 2.36, Fedora, Arch and NixOS newer. Its libc imports are the ones of
+  `include/maicord/sys/linux/libc.hpp` (dlopen family, `pthread_create` family,
   `malloc`/`calloc`/`free`, `getaddrinfo`, `clock_gettime`); `malloc_trim` is glibc-only and a *weak* import.
 - The musl image is the same bytes with another interpreter: `python3 tools/retarget_libc.py --libc musl MaiCord
   MaiCord-musl` rewrites PT_INTERP to `/lib/ld-musl-x86_64.so.1` and nothing else, and `tools/audit_elf.py --libc musl`
-  audits it. It needs nothing more because musl's loader (`ldso/dynlink.c`, `load_library`) answers any needed `libc.*`,
-  `libdl.*`, `libpthread.*`, `libm.*`, `librt.*`, `libutil.*`, `libxnet.*` by itself whatever the version suffix, takes the
+  audits it. It needs nothing more because musl's loader (`ldso/dynlink.c`, `load_library`) answers any needed `libc.*`
+  (and `libdl.*`, `libpthread.*`, `libm.*`, `librt.*`, `libutil.*`, `libxnet.*`) by itself whatever the version suffix, takes the
   imports from itself and ignores symbol versions. The tests of a glibc build therefore are the tests of the musl image
   (`tools/test_linux_distros.sh` retargets its bundle for Alpine, Void musl and Chimera).
 - `_start` tells the libc by `dlsym(RTLD_DEFAULT, "gnu_get_libc_version")` (glibc only). On musl it calls the libc's
@@ -62,7 +67,7 @@ sweep, the overlaps, the guard-page bounds and the streaming sizes.
 
 ## ELF audit
 
-`tools/audit_elf.py` (run by `tools/build_linux.sh` on every image): x86-64 ET_DYN, the interpreter of its libc, exactly the
-three needed stubs, only the allowed imports under `GLIBC_` nodes of at most 2.17 (`malloc_trim` weak), no unwind or debug
+`tools/audit_elf.py` (run by `tools/build_linux.sh` on every image): x86-64 ET_DYN, the interpreter of its libc, exactly one
+needed library (`libc.so.6`), only the allowed imports under `GLIBC_` nodes of at most 2.34 (`malloc_trim` weak), no unwind or debug
 sections, no TEXTREL/RPATH/RUNPATH, `DT_RELR` absent (relative relocations are packed under the Android tags and applied
 by `start.cpp`: glibc's own `DT_RELR` needs 2.36 and a version node), full RELRO, a non-executable stack, no W+X segment.

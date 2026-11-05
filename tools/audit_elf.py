@@ -6,13 +6,12 @@ A MaiCord image is a freestanding dynamic PIE (see cmake/build_contract_linux.cm
   * be an x86-64 ET_DYN executable with the interpreter of its C library: /lib64/ld-linux-x86-64.so.2 (glibc, the
     builds' form) or /lib/ld-musl-x86_64.so.1 (musl: tools/retarget_libc.py makes it from the glibc image, which is
     otherwise identical);
-  * need exactly libc.so.6, libdl.so.2 and libpthread.so.0 (the generated stubs of tools/generate_libc_stubs.py) and
-    no other library: everything else is dlopen()ed. musl's loader answers a needed libc.*, libdl.*, libpthread.* (and
-    libm, librt, libutil, libxnet) by itself, whatever the version suffix, and ignores symbol versions, so the same
-    entries run on both;
-  * import only the functions the stubs define, each under a GLIBC_ version of at most 2.17, so no glibc newer than
-    that is ever required. Every import is a function musl defines too, except malloc_trim, which must be a weak
-    import (null on musl);
+  * need exactly libc.so.6 (the generated stub of tools/generate_libc_stubs.py) and no other library: everything else is
+    dlopen()ed, and since glibc 2.34 dlopen and the pthread functions live in libc.so.6 (libdl and libpthread are empty).
+    musl's loader answers a needed libc.* by itself and ignores symbol versions, so the same entry runs on both;
+  * import only the functions the stub defines, each under a GLIBC_ version of at most 2.34, so no glibc newer than
+    that is ever required (2.34 is the oldest glibc of a distribution that Linux 6.1 admits: Red Hat 9). Every import is
+    a function musl defines too, except malloc_trim, which must be a weak import (null on musl);
   * carry no unwind data (.eh_frame, .eh_frame_hdr, .gcc_except_table) and no debug sections;
   * have no text relocations, no RPATH and no RUNPATH, full RELRO (relro and bind-now) and a non-executable stack,
     and no segment that is writable and executable;
@@ -33,7 +32,7 @@ import sys
 
 INTERPRETERS = {"glibc": "/lib64/ld-linux-x86-64.so.2", "musl": "/lib/ld-musl-x86_64.so.1"}
 TEST_HOOKS_MARKER = b"maicord-test-hooks-compiled-in"
-EXPECTED_NEEDED = ("libc.so.6", "libdl.so.2", "libpthread.so.0")
+EXPECTED_NEEDED = ("libc.so.6",)
 # The imports of include/maicord/sys/linux/libc.hpp: all defined by glibc and musl, but for the glibc-only ones, which
 # the image must import weakly.
 ALLOWED_IMPORTS = {
@@ -45,7 +44,7 @@ ALLOWED_IMPORTS = {
     "getaddrinfo", "freeaddrinfo",
 }
 GLIBC_ONLY_IMPORTS = {"malloc_trim"}
-MAXIMUM_GLIBC = (2, 17)
+MAXIMUM_GLIBC = (2, 34)
 FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id", ".rela.dyn.text")
 
 PT_LOAD, PT_DYNAMIC, PT_INTERP, PT_GNU_STACK, PT_GNU_RELRO = 1, 2, 3, 0x6474E551, 0x6474E552
@@ -210,7 +209,7 @@ def main():
     parser.add_argument("--libc", choices=sorted(INTERPRETERS), default="glibc",
                         help="the C library whose interpreter the images must name (default: glibc)")
     parser.add_argument("--needed", nargs="+", default=list(EXPECTED_NEEDED),
-                        help="the exact DT_NEEDED set (default: libc.so.6 libdl.so.2 libpthread.so.0)")
+                        help="the exact DT_NEEDED set (default: libc.so.6)")
     parser.add_argument("--maximum-initialized-data-bytes", type=int, default=-1,
                         help="fail when the writable initialized data exceeds this many bytes")
     parser.add_argument("--no-test-hooks", action="store_true",

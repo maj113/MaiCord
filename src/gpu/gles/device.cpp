@@ -186,10 +186,7 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.half_render_targets =
         caps.float_render_targets || has_extension(api, "GL_EXT_color_buffer_half_float");
     caps.float_linear = has_extension(api, "GL_OES_texture_float_linear");
-    // MAICORD_GLES_NO_DUAL_SOURCE=1 and MAICORD_GLES_NO_TIMER_QUERY=1 take the paths of drivers without
-    // GL_EXT_blend_func_extended (no background effects) and GL_EXT_disjoint_timer_query (no GPU timing).
-    const char* no_dual = test_hook("MAICORD_GLES_NO_DUAL_SOURCE");
-    caps.dual_source_blend = has_extension(api, "GL_EXT_blend_func_extended") && !(no_dual && no_dual[0] == '1');
+    // MAICORD_GLES_NO_TIMER_QUERY=1 takes the path of a driver without GL_EXT_disjoint_timer_query (no GPU timing).
     const char* no_timer = test_hook("MAICORD_GLES_NO_TIMER_QUERY");
     caps.timer_query = false;
     device.gl.glGenQueriesEXT = nullptr;
@@ -407,6 +404,12 @@ GpuStatus create_device_attempt() noexcept {
     probe_caps(d, major > 3 || minor >= 2);
     if (!d.gl.glCopyImageSubData) {
         log_write(LogLevel::error, "gpu", "the driver cannot copy between textures (OpenGL ES 3.2 or GL_OES_copy_image)");
+        gpu_device_destroy(nullptr, nullptr);
+        return kGpuUnsupported;
+    }
+    // The background-effect composite blends with a second fragment output: GL_EXT_blend_func_extended.
+    if (!has_extension(d.gl, "GL_EXT_blend_func_extended")) {
+        log_write(LogLevel::error, "gpu", "the driver lacks GL_EXT_blend_func_extended");
         gpu_device_destroy(nullptr, nullptr);
         return kGpuUnsupported;
     }

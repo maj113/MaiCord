@@ -1,5 +1,5 @@
-// The process entry of Linux images. The kernel starts the image at _start; ld.so has already loaded libc.so.6
-// (and the pinned libdl.so.2 and libpthread.so.0), relocated the image and initialized libc's thread control block,
+// The process entry of Linux images. The kernel starts the image at _start; ld.so has already loaded libc.so.6 (the
+// image's only library), relocated the image and initialized libc's thread control block,
 // so libc functions (dlopen, pthread_create, clock_gettime) work although __libc_start_main never runs. _start reads
 // the initial stack (argc, argv, envp, auxv), records it and calls the image's entry, which ends the process with
 // exit_group (on musl through its __libc_start_main, below). Static constructors do not run, as on Windows without
@@ -7,8 +7,8 @@
 //
 // The image's relative relocations are packed as RELR (ld.lld --pack-dyn-relocs=relr --use-android-relr-tags: a few
 // hundred bytes where the RELA table was 70 KB). ld.so leaves them alone: glibc's own DT_RELR needs a loader of 2.36
-// or later and a symbol-version dependency that older loaders (2.35 of Ubuntu 22.04, 2.34 of Red Hat 9, 2.31 of
-// Debian 11) cannot satisfy, while the Android tags are unknown to every glibc and so ignored. maicord_start applies
+// or later and a symbol-version dependency that older loaders (2.35 of Ubuntu 22.04, 2.34 of Red Hat 9) cannot
+// satisfy, while the Android tags are unknown to every glibc and so ignored. maicord_start applies
 // them first of all, before anything reads a pointer from the image's data.
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"

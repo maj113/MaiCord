@@ -25,15 +25,16 @@ draw or dispatch happens.
   that compiles on the first draw (d3d12 pipeline states, llvmpipe's LLVM) compiles again on the first frame otherwise.
 - The pack order is `ShaderId` order (`MAICORD_SHADER_ORDER`); backend-only variants go after it (`GLES_VARIANTS`). Compute
   programs are shared per pack entry (`GlesComputeProgram`): creating the same shader twice costs one compile.
-- Requirements: ES 3.1 with `glCopyImageSubData` (ES 3.2, `GL_OES_copy_image` or `GL_EXT_copy_image`); device creation refuses
-  a driver without. `GL_EXT_blend_func_extended` (dual-source) is needed by the background-effect composite, which is refused
-  without it (no effects); `GL_EXT_disjoint_timer_query` is optional (no GPU timing); `EGL_EXT_buffer_age` and swap with damage
-  are optional (a full blit and a full-damage swap).
+- Requirements: ES 3.1 with `glCopyImageSubData` (ES 3.2, `GL_OES_copy_image` or `GL_EXT_copy_image`) and
+  `GL_EXT_blend_func_extended` (the background-effect composite blends with a second fragment output); device creation refuses a
+  driver without either. Every Mesa driver (radeonsi, iris, freedreno, panfrost, llvmpipe, d3d12, zink) and NVIDIA has both.
+  `GL_EXT_disjoint_timer_query` is optional (no GPU timing); `EGL_EXT_buffer_age` and swap with damage are optional (a full blit
+  and a full-damage swap).
 - Compute group limits are capability data (`GpuCaps`): `colr_layers` has a 2-slice variant for devices under 512
   invocations, the decode gates test `max_compute_invocations`.
 - The window config is the one without alpha (the compositor reads the buffers as XRGB); a driver with only alpha configs gets
   `EGL_EXT_present_opaque` on the surface instead.
-- Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS`, `_NO_DUAL_SOURCE`, `_NO_TIMER_QUERY`,
+- Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS`, `_NO_TIMER_QUERY`,
   `_ALPHA_WINDOW`, `_CHECK` (a GL error is reported after each draw and clear). User override: `MAICORD_WSL_GPU=0` keeps Mesa's
   default (llvmpipe) on WSL instead of d3d12.
 - Tests: `maicord_gpu_*` (goldens captured from Direct3D 11 in `tests/gpu/golden`, renewed by `tools/update_gpu_goldens.py`) run on

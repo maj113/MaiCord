@@ -3,7 +3,7 @@
 # pinned SPIRV-Cross) is made by the derivations below from the pins of tools/linux_shader_toolchain.json and handed to
 # tools/fetch_linux_shader_toolchain.py as its cache, which finds it ready and fetches nothing.
 #
-# The image is a freestanding glibc PIE: its only DT_NEEDED entries are libc, libdl and libpthread (generated stubs),
+# The image is a freestanding glibc PIE: its only DT_NEEDED entry is libc (a generated stub),
 # and everything else is opened with dlopen. autoPatchelfHook gives it the Nix loader and glibc, runtimeDependencies puts
 # the dlopen()ed libraries on its run path, and appendRunpaths adds /run/opengl-driver/lib for the GPU drivers.
 # nixpkgs' compiler wrappers and hardening flags are not used: the build runs the unwrapped clang, and the contract

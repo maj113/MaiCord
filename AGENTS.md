@@ -66,7 +66,7 @@ Linux:
 ## Linux rules
 
 - One freestanding PIE with its own `_start`, raw syscalls and no CRT, in two forms of the same bytes: glibc (`DT_NEEDED`
-  `libc.so.6 libdl.so.2 libpthread.so.0`, generated stubs pin symbol versions at most GLIBC_2.17) and musl (`tools/retarget_libc.py`
+  `libc.so.6` alone, a generated stub pins symbol versions at most GLIBC_2.34: dlopen and pthread live in libc since glibc 2.34, the floor) and musl (`tools/retarget_libc.py`
   changes the interpreter); `tools/audit_elf.py [--libc musl]` enforces it. A new libc import must also be defined by musl (else weak)
   and appear in the stubs, `ALLOWED_IMPORTS` and `tools/check_libc_abi.py`'s pins. Every other library is opened with `dlopen` through
   `core/shared_library.hpp`: absent means "unavailable", never a crash. A new `dlopen`ed function needs its table entry (and no unused

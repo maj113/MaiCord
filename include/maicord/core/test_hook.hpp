@@ -1,7 +1,7 @@
 #pragma once
 
 // Environment switches that exist for the tests and nothing else: a library name that does not exist (a machine without
-// libpulse), a driver without an extension (GL_EXT_blend_func_extended), a compositor without fractional scale. A
+// libpulse), a driver without an extension (GL_EXT_disjoint_timer_query), a compositor without fractional scale. A
 // shipped client has none of them: test_hook() is a constant null there and the branch it guards compiles away. Only a
 // build with tests (cmake -DMAICORD_BUILD_TESTS=ON, tools/build_linux.sh --test) defines MAICORD_TEST_HOOKS and reads
 // the process's environment; such a build also carries kTestHooksMarker, which `tools/audit_elf.py --no-test-hooks`

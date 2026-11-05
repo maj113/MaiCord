@@ -2,7 +2,7 @@
 #
 # maicord: the release's musl tarball (packaging/build_tarball.py --libc musl) installed on Alpine. The program is the glibc
 # build's image with only its program interpreter retargeted to /lib/ld-musl-x86_64.so.1 (tools/retarget_libc.py); musl's loader
-# answers its libc.so.6, libdl.so.2 and libpthread.so.0 itself and opens everything else by soname, so the package needs
+# answers its libc.so.6 itself and opens everything else by soname, so the package needs
 # no gcompat. It is built upstream with LLVM 23, which Alpine's compiler is not, so this installs the program as released:
 # for a self-hosted repository or a testing/ submission once Alpine's maintainers accept a binary package. The tarball's
 # .maicord-portable marker is left out: apk owns these files, so the program does not update itself.

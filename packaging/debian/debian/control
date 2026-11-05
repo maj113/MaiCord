@@ -11,7 +11,7 @@ Vcs-Browser: https://github.com/maj113/MaiCord
 Package: maicord
 Architecture: amd64
 Depends: ${misc:Depends},
- libc6 (>= 2.17),
+ libc6 (>= 2.34),
  libssl3t64 | libssl3,
  libwayland-client0,
  libwayland-egl1,

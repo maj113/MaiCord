@@ -23,7 +23,6 @@ struct GpuCaps {
     bool float_render_targets;   // RGBA16F and RGBA32F render targets
     bool half_render_targets;    // RGBA16F render targets
     bool float_linear;           // linear filtering of RGBA32F
-    bool dual_source_blend;
     bool timer_query;
     bool map_no_overwrite_on_srv;
     bool dmabuf_import;

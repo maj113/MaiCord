@@ -50,7 +50,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
 ### Linux
 
 The Linux port builds the client (`MaiCord`), the libraries behind it and their tests: one freestanding PIE with its own `_start`,
-raw syscalls and no CRT, needing only libc, libdl and libpthread (generated stubs pin the oldest symbol versions), everything else
+raw syscalls and no CRT, needing only libc.so.6 (a generated stub pins the oldest symbol versions glibc 2.34 exports: dlopen and the
+pthread functions live in libc since 2.34, so glibc 2.34 is the floor), everything else
 opened with `dlopen`. The same bytes run on glibc and, with the interpreter changed by `tools/retarget_libc.py --libc musl`, on musl
 (`tools/audit_elf.py [--libc musl]` audits either form). The target is Linux 6.1 or newer; the code uses the 6.1 kernel interface
 unconditionally, with no version probes and no fallbacks for older kernels, and the network loop needs io_uring. Optional user-space
@@ -199,7 +200,7 @@ must exit 0.
 `dlopen` tables and the libc pins against the installed headers (`tools/check_{libc,openssl,pulse,speechd,fido2,video}_abi.py`), run
 `packaging/check.sh`, run `tools/test_linux_integration.sh` (reported, not failing, until the repository variable
 `MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`) and pack the portable cases for the `distros` job, which runs them in Ubuntu 22.04,
-Debian 12, Fedora, Arch Linux, NixOS, Alpine, Void (musl) and Chimera containers (`tools/test_linux_distros.sh`; its header lists each
+Debian 12, AlmaLinux 9, Fedora, Arch Linux, NixOS, Alpine, Void (musl) and Chimera containers (`tools/test_linux_distros.sh`; its header lists each
 distribution's packages; containers run with `--security-opt seccomp=unconfined` because the runtime needs io_uring). The shader toolchain
 cache is keyed by the pins, the tool's source and the compiler. The tarball for the preview feed is built in a second build without tests.
 To reproduce a distribution locally in WSL: build with `tools/build_linux.sh --test --keep`, install podman, run

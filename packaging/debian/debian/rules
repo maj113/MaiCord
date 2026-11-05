@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 # The source package is the release tarball of MaiCord (packaging/build_tarball.py): the program is built upstream with
 # LLVM 23, which a Launchpad builder does not have, and installed here as it is. dh_strip and dh_shlibdeps are skipped on
-# purpose: the image is already stripped and size-optimized, and its only DT_NEEDED entries are libc stubs (the real
+# purpose: the image is already stripped and size-optimized, and its only DT_NEEDED entry is a libc stub (the real
 # dependencies are listed in debian/control: everything else is opened with dlopen).
 
 %:

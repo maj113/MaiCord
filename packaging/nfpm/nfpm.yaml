@@ -71,7 +71,7 @@ contents:
 overrides:
   deb:
     depends:
-      - libc6 (>= 2.17)
+      - libc6 (>= 2.34)
       - libssl3t64 | libssl3
       - libwayland-client0
       - libwayland-egl1
@@ -95,7 +95,7 @@ overrides:
       - libfido2-1
   rpm:
     depends:
-      - glibc
+      - glibc >= 2.34
       - libssl.so.3()(64bit)
       - libwayland-client.so.0()(64bit)
       - libwayland-egl.so.1()(64bit)

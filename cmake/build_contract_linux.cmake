@@ -4,10 +4,11 @@
 # maicord_compile_contract, maicord_runtime, maicord_library, maicord_program) are the same.
 #
 # An image is a dynamic position-independent executable with its own _start (src/core/linux/start.cpp). It links
-# libc.so.6, libdl.so.2 and libpthread.so.0 as generated stub libraries that pin the oldest symbol versions
-# (tools/generate_libc_stubs.py), so no glibc newer than 2.17 is ever required; everything else is dlopen()ed. The
-# same image is the musl one once tools/retarget_libc.py has changed its program interpreter (src/core/linux/README.md).
-# tools/audit_elf.py checks the result.
+# libc.so.6 as a generated stub library that pins the oldest symbol versions glibc 2.34's libc.so.6 exports
+# (tools/generate_libc_stubs.py), so no glibc newer than 2.34 is ever required (dlopen and pthread live in libc.so.6
+# since then, and the Linux floor admits no older glibc); everything else is dlopen()ed. The same image is the musl one
+# once tools/retarget_libc.py has changed its program interpreter (src/core/linux/README.md). tools/audit_elf.py checks
+# the result.
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -52,18 +53,15 @@ set(MAICORD_FOLD_OPTION -finline-functions)
 # entry). The Windows contract has no such level.
 set(MAICORD_BALANCED_OPTION -Os)
 
-# The libc stubs: libc.so.6, libdl.so.2 and libpthread.so.0 carrying the pinned symbol versions.
+# The libc stub: libc.so.6 carrying the pinned symbol versions.
 set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")
-set(maicord_libc_stub_files
-    "${MAICORD_LIBC_STUB_DIRECTORY}/libc.so.6"
-    "${MAICORD_LIBC_STUB_DIRECTORY}/libdl.so.2"
-    "${MAICORD_LIBC_STUB_DIRECTORY}/libpthread.so.0")
+set(maicord_libc_stub_files "${MAICORD_LIBC_STUB_DIRECTORY}/libc.so.6")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT ${maicord_libc_stub_files}
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
         --compiler "${CMAKE_C_COMPILER}" --output-directory "${MAICORD_LIBC_STUB_DIRECTORY}"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
-    COMMENT "Generating the libc, libdl and libpthread stub libraries"
+    COMMENT "Generating the libc stub library"
     VERBATIM)
 add_custom_target(maicord_libc_stubs DEPENDS ${maicord_libc_stub_files})
 
@@ -77,13 +75,11 @@ target_link_options(maicord_link_contract INTERFACE
     LINKER:--build-id=none
     LINKER:--gc-sections LINKER:--icf=all
     # Relative relocations packed as RELR under the Android tags, which no glibc knows: src/core/linux/start.cpp
-    # applies them itself, so one image runs on every glibc from 2.17 (DT_RELR needs 2.36 and a version dependency).
+    # applies them itself, so one image runs on every glibc from 2.34 (DT_RELR needs 2.36 and a version dependency).
     LINKER:--pack-dyn-relocs=relr LINKER:--use-android-relr-tags
     LINKER:--no-undefined
-    # libdl and libpthread are separate libraries before glibc 2.34 and empty stubs after it; link them either way.
-    LINKER:--no-as-needed
     "-L${MAICORD_LIBC_STUB_DIRECTORY}"
-    -l:libc.so.6 -l:libdl.so.2 -l:libpthread.so.0)
+    -l:libc.so.6)
 
 add_library(maicord_compile_contract INTERFACE)
 target_link_libraries(maicord_compile_contract INTERFACE maicord_link_contract)

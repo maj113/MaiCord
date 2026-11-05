@@ -321,7 +321,6 @@ void run() noexcept {
     test_write_metric("caps float_render_targets=", caps.float_render_targets);
     test_write_metric("caps half_render_targets=", caps.half_render_targets);
     test_write_metric("caps float_linear=", caps.float_linear);
-    test_write_metric("caps dual_source_blend=", caps.dual_source_blend);
     test_write_metric("caps timer_query=", caps.timer_query);
     check(caps.compute && caps.max_texture_size >= 2048 && caps.max_compute_invocations >= 128 &&
               caps.max_shared_bytes >= 16384 && caps.max_compute_storage_buffers >= 4,

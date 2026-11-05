@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Runs the portable subset of the Linux tests (tools/linux_portable_tests.txt) inside distribution containers: the same
-# executables, built once on Ubuntu, on Ubuntu 22.04, Debian 12, Fedora, Arch Linux and NixOS (glibc) and on Alpine, Void
-# and Chimera (musl). That is the proof of the one binary claim (D1): a freestanding image that needs only libc, libdl
-# and libpthread and opens everything else by soname finds its libraries wherever the distribution keeps them, and copes
-# where one is missing. The musl containers run the same bytes but for the program interpreter (the bundle's copy is
-# retargeted with tools/retarget_libc.py: musl's loader answers the needed libc.so.6, libdl.so.2 and libpthread.so.0 by
-# itself), and Alpine also compiles tools/check_libc_abi.py against musl's headers.
+# executables, built once on Ubuntu, on Ubuntu 22.04, Debian 12, AlmaLinux 9 (Red Hat 9's glibc 2.34, the oldest the
+# image admits), Fedora, Arch Linux and NixOS (glibc) and on Alpine, Void and Chimera (musl). That is the proof of the
+# one binary claim (D1): a freestanding image that needs only libc.so.6 and opens everything else by soname finds its
+# libraries wherever the distribution keeps them, and copes where one is missing. The musl containers run the same
+# bytes but for the program interpreter (the bundle's copy is retargeted with tools/retarget_libc.py: musl's loader
+# answers the needed libc.so.6 by itself), and Alpine also compiles tools/check_libc_abi.py against musl's headers.
 #
 #   tools/test_linux_distros.sh --build ~/mc-build                  pack the cases from a build, run every distribution
 #   tools/test_linux_distros.sh --build ~/mc-build debian-12 fedora only those
@@ -23,8 +23,8 @@
 # containers use the host network (no tun device is needed, which rootless podman on WSL lacks). Exit status: nonzero
 # when a case fails in any distribution; a distribution that cannot be set up (no network, no image) fails the run.
 #
-# The dlopen()ed libraries by distribution (soname: package). Fonts, hunspell and enchant are optional for the cases,
-# which hold without them; the rest are what the Linux build opens:
+# The dlopen()ed libraries by distribution (soname: package; AlmaLinux 9 takes Fedora's packages). Fonts, hunspell and
+# enchant are optional for the cases, which hold without them; the rest are what the Linux build opens:
 #   libssl.so.3 / libcrypto.so.3     ubuntu, debian: libssl3 (libssl3t64 on 24.04) | fedora: openssl-libs | arch: openssl |
 #                                    nixos: openssl.out
 #   libfontconfig.so.1               libfontconfig1 | fontconfig | fontconfig | fontconfig.lib (+ a font: fonts-dejavu-core,
@@ -53,13 +53,14 @@ out="$HOME/mc-distro-test"
 build=""
 bundle=""
 selected=()
-all_distros=(ubuntu-22.04 debian-12 fedora archlinux nixos alpine void-musl chimera)
+all_distros=(ubuntu-22.04 debian-12 almalinux-9 fedora archlinux nixos alpine void-musl chimera)
 client=""
 
 image_of() {
     case "$1" in
         ubuntu-22.04) echo docker.io/library/ubuntu:22.04 ;;
         debian-12) echo docker.io/library/debian:12 ;;
+        almalinux-9) echo docker.io/library/almalinux:9 ;;
         fedora) echo docker.io/library/fedora:latest ;;
         archlinux) echo docker.io/library/archlinux:latest ;;
         nixos) echo docker.io/nixos/nix:latest ;;
@@ -88,7 +89,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates openssl libssl3 libfontconfig1 fonts-dejavu-core \
     libhunspell-1.7-0 hunspell-en-us libenchant-2-2 libpulse0 libegl1 libgles2 libegl-mesa0 libgl1-mesa-dri \
     libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0 tzdata >/dev/null' ;;
-        fedora)
+        fedora|almalinux-9)
             echo 'dnf -y -q install --setopt=install_weak_deps=False openssl fontconfig dejavu-sans-fonts hunspell \
     hunspell-en-US enchant2 pulseaudio-libs mesa-libEGL mesa-libGLES mesa-dri-drivers libwayland-client \
     libwayland-egl libwayland-cursor libxkbcommon ca-certificates >/dev/null' ;;

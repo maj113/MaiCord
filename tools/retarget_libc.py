@@ -2,12 +2,12 @@
 """Makes the musl form of a Linux MaiCord image: the same bytes but for the program interpreter.
 
 The build links one image per target, for glibc (cmake/build_contract_linux.cmake: interpreter
-/lib64/ld-linux-x86-64.so.2, needed libc.so.6 libdl.so.2 libpthread.so.0, imports under GLIBC_2.2.5 and 2.17). musl's
-loader runs it unchanged: it answers a needed libc.*, libdl.*, libpthread.* by itself (the reserved names of
-ldso/dynlink.c's load_library), takes every import from itself and ignores the symbol versions, and the one function
-musl lacks, malloc_trim, is a weak import. Only the kernel's PT_INTERP differs, so this rewrites that string in place
-(and PT_INTERP's size, and the .interp section's) and nothing else: the code, the stubs and the audit's rules are the
-glibc image's, which is what the tests ran.
+/lib64/ld-linux-x86-64.so.2, needed libc.so.6 alone, imports under GLIBC_2.2.5, 2.17 and 2.34). musl's
+loader runs it unchanged: it answers a needed libc.* by itself (the reserved names of ldso/dynlink.c's load_library:
+libc, libpthread, librt, libm, libdl, libutil, libxnet), takes every import from itself and ignores the symbol
+versions, and the one function musl lacks, malloc_trim, is a weak import. Only the kernel's PT_INTERP differs, so this
+rewrites that string in place (and PT_INTERP's size, and the .interp section's) and nothing else: the code, the stub
+and the audit's rules are the glibc image's, which is what the tests ran.
 
     retarget_libc.py --libc musl IMAGE OUTPUT
     retarget_libc.py --libc musl --tree DIRECTORY        every executable image under DIRECTORY, in place

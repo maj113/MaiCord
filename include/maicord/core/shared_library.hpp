@@ -3,7 +3,7 @@
 #include "maicord/core/base.hpp"
 
 // System libraries loaded at run time (Linux; Windows images use delay-loaded imports and LoadLibrary). A Linux image
-// links only libc, libdl and libpthread; every other library (libwayland-client, libEGL, libxkbcommon, ...) is
+// links only libc; every other library (libwayland-client, libEGL, libxkbcommon, ...) is
 // opened by soname through this helper, so a missing optional library is an error value, not a loader failure.
 
 namespace maicord {

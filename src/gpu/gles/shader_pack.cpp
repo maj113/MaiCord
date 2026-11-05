@@ -408,10 +408,7 @@ GpuStatus gpu_pixel_shader_create(GpuDevice* device, ShaderId id, GpuPixelShader
     GpuPixelShader* result = device->pixel_shaders.allocate();
     if (!result)
         return kGpuOutOfMemory;
-    // The composite's second output is dual-source blending (a device without it has no background effects).
-    const GpuStatus status = id == ShaderId::fx_composite_pixel && !device->caps.dual_source_blend
-                                 ? kGpuUnsupported
-                                 : create_shader(device, id, gl::kFragmentShader, result);
+    const GpuStatus status = create_shader(device, id, gl::kFragmentShader, result);
     if (!gpu_ok(status)) {
         device->pixel_shaders.release(result);
         return status;
