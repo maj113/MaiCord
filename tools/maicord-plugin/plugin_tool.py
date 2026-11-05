@@ -865,15 +865,15 @@ README_TEMPLATE = '''\
 Written with the MaiCord plugin SDK (`include/maicord/sdk/README.md`).
 
 ```
-maicord-plugin build      compile build\\{slug}.dll and check it
+maicord-plugin build      compile build\\{slug}.dll (build/{slug}.so on Linux) and check it
 maicord-plugin dev        copy it into MaiCord's Developer Mode folder (add --watch to rebuild on save)
-maicord-plugin check      validate the DLL again, offline
+maicord-plugin check      validate the DLL or shared object again, offline
 maicord-plugin pack --author "Your Name" --license MPL-2.0
                           write dist\\{slug}\\ for a pull request to the plugin catalog
 ```
 
 In MaiCord turn on Developer Mode, then open Settings > Plugins > Developer: the plugin loads from
-`%LOCALAPPDATA%\\MaiCord\\plugins\\dev` (the first time it asks for your consent), reloads whenever the DLL
+`%LOCALAPPDATA%\\MaiCord\\plugins\\dev` (the first time it asks for your consent), reloads whenever the DLL or `.so`
 changes, and its `ctx.log` lines, budget strikes and reloads show on that page.
 
 On Linux the same commands build `build/{slug}.so` (clang and ld.lld; `--target linux` builds it on Windows too,

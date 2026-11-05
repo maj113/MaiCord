@@ -14,6 +14,10 @@ namespace maicord::app_detail {
 UpdateServiceConfig application_update_build_config() noexcept;
 // The first seven hex digits of the build's commit; empty when unknown.
 Utf8View application_update_build_commit() noexcept;
+#if !defined(_WIN32)
+// "1.2.3", or "1.2.4-dev.5+abcdef0" for a development build: what `MaiCord --version` prints. 0 when it does not fit.
+u32 application_update_build_version_text(Slice<char> output) noexcept;
+#endif
 
 // installing: the download is verified and staged; nothing is installed
 // before the user chooses Restart to update.

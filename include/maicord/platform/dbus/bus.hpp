@@ -34,7 +34,7 @@ struct ExportedObject {
     u32 property_count;
     PropertyWriter write;
     void* context;
-    const char* introspection;  // the XML answered to org.freedesktop.DBus.Introspectable.Introspect; null for none
+    const char* introspection;  // the object's own interfaces as XML (the node and standard interfaces are added); null for none
 };
 
 // Answers org.freedesktop.DBus.Properties (Get, GetAll; Set is refused as read-only), Introspectable.Introspect and

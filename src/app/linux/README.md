@@ -10,7 +10,9 @@ AT-SPI host).
 
 ## Entry and window
 
-- `entry.cpp`: `argv` becomes the Windows command line (`platform/desktop/launch_line.hpp`).
+- `entry.cpp`: `MaiCord --version` prints `MaiCord <version>` (the build's number as the updater knows it, `-dev.N+commit` for a
+  master build) and exits 0 before anything else runs (`maicord_linux_client_version`); otherwise `argv` becomes the Windows command
+  line (`platform/desktop/launch_line.hpp`).
 - `platform_window.cpp`: the window through the Wayland backend; `application_platform_window_prepare` connects the compositor
   before the renderer's device start, which EGL needs. `application_platform_window_create` makes `window_set_frame_listener` feed
   `gpu_surface_frame_callback` (the surface's eventfd), and `gpu_surface_set_frame_request` has every windowed `gpu_surface_present`
@@ -63,12 +65,16 @@ Linux constants and those expected strings together (the Windows profile is sepa
 
 ## Updater (`src/app/update/linux`)
 
-`package.cpp` reads the release tarball, `stage.cpp` swaps the install's `MaiCord`, `fonts/` and `licenses/` (keeping the old version in
-`MaiCord.old/`), `portable.cpp` is `update_portable_gate`. The updater is on only for the install with the `.maicord-portable` marker
-beside its real executable (`update_portable_install`, checked next to `/proc/self/exe` in `application_update_build_config()`), and only in
+`package.cpp` reads the release tarball (or, for an AppImage, takes the file whole after a check of the runtime's identification),
+`stage.cpp` swaps the install's `MaiCord`, `fonts/` and `licenses/` (keeping the old version in `MaiCord.old/`), `portable.cpp` is
+`update_portable_gate`. The updater is on only for the install with the `.maicord-portable` marker
+beside its real executable (`update_portable_install`, checked next to `/proc/self/exe` in `application_update_build_config()`) and for an
+AppImage (`$APPIMAGE` a regular file in a writable directory, the program running from its mount: `update_appimage_install`), and only in
 a build compiled with `MAICORD_LINUX_UPDATES_PUBLISHED` (from `MAICORD_LINUX_RELEASES=true` at configure time, as `release.yml`'s linux job
-does). It reads the Linux manifests (`updates/p2/linux/`, signed by `maicord_release.py linux`); the relaunch is `process_replace`
-(`execve`). Every package-manager install leaves the marker out. `maicord_update_pipeline` replays the whole thing over a fake network
+does). It reads the Linux manifests (`updates/p2/linux/`, signed by `maicord_release.py linux`; the AppImage's own, `arch`
+`linux-x64-appimage`, in `linux/appimage/`: `g_update_flavor`); the AppImage is staged as `<APPIMAGE>.update`, swapped by the same
+`update_swap` (one item, files instead of directories) and relaunched by `execve` of `$APPIMAGE`; the tarball install relaunches through `process_replace` (`execve`) too. Every package-manager
+install leaves the marker out. `maicord_update_pipeline` replays the whole thing over a fake network
 with a throwaway key (`tests/app/update/linux_package.cpp`); `MAICORD_UPDATE_TEST_TARBALL=<tarball from packaging/build_tarball.py>`
 runs the same over the producer's own file.
 

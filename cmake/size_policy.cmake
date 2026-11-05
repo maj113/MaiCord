@@ -328,8 +328,12 @@ maicord_fold_helpers(
 # and event decoding, the event pump, inflate and zstd, the fonts, GIF, and the render, GPU and container code. The text
 # shapers also drop loop unrolling and vectorization (neutral, 5 KB); the same on the stores, text entry or the OpenType
 # tables made them 3-43% slower, and outlining the -Os group made the stores and text entry 3-20% slower, so neither is
-# done there. third_party/opus has its own tiers (third_party/opus/CMakeLists.txt). The Windows build never defines or
-# calls any of this.
+# done there. Code that runs once per user action or per network request (the media sessions and CDN pipeline, the
+# Gateway handlers of the rarer events, HTTP/1, the MP4 and MPEG-TS containers) compiles -Oz: with it the Gateway
+# replay, the event pump and the channel switch moved 0.0-0.8% in instructions (the wall times inside the noise), while
+# -Oz on the whole of src/app/gateway made the READY producer 10% slower, so only the handlers named below.
+# third_party/opus has its own tiers (third_party/opus/CMakeLists.txt). The Windows build never defines or calls any of
+# this.
 if(MAICORD_LINUX)
     # maicord_source_options(OPTIONS <option>... [INCLUDE <regex>...] [EXCLUDE <regex>...]): appends the options to
     # every src/*.cpp that no list above compiled for size or balance, when it matches INCLUDE (any, without it) and not EXCLUDE.
@@ -370,6 +374,10 @@ if(MAICORD_LINUX)
             endforeach()
         endforeach()
     endfunction()
+    maicord_source_options(OPTIONS ${MAICORD_SIZE_OPTION}
+        INCLUDE "^src/app/media/(account_|cdn_)"
+            "^src/app/gateway/(guild_admin|thread_member|voice|dispatch_notifications|relationship|read_state|private)_dispatch"
+            "^src/protocol/http/" "^src/protocol/gateway/reaction_events" "^src/media/containers/")
     maicord_source_options(OPTIONS ${MAICORD_BALANCED_OPTION}
         EXCLUDE "^src/core/(json_reader|json_scan|utf)\\.cpp$" "^src/core/linux/(runtime|start)\\.cpp$"
             "^src/os/linux/(thread|wait|srwlock)\\.cpp$" "^src/platform/crypto/"

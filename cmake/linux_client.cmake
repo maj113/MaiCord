@@ -77,5 +77,10 @@ add_test(NAME maicord_linux_client_text
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_linux_ui_text.py" "$<TARGET_FILE:MaiCord>")
 set_tests_properties(maicord_linux_client_text PROPERTIES TIMEOUT 30)
 
+# `MaiCord --version` prints the build's number and nothing else (src/app/linux/entry.cpp).
+add_test(NAME maicord_linux_client_version COMMAND MaiCord --version)
+set_tests_properties(maicord_linux_client_version PROPERTIES
+    PASS_REGULAR_EXPRESSION "^MaiCord [0-9]+\\.[0-9]+\\.[0-9]+[^\n]*\n$" TIMEOUT 10)
+
 # Cold code compiled for size, as the Windows client's (shared list: cmake/size_policy.cmake).
 include(cmake/size_policy.cmake)

@@ -191,14 +191,22 @@ constexpr LinuxText kLinuxNodeText[]{
      utf8_literal("dock launcher panel icon flash attention blink urgent")},
     {utf8_literal("notifications.unread_badge"), {}, {}, utf8_literal("dock launcher icon overlay badge count dot")},
     {utf8_literal("language.time_format"), {}, utf8_literal("Auto follows your system locale."), {}},
+    {utf8_literal("voice.push_to_talk_key"), {},
+     utf8_literal("Hold this key to talk. Where your desktop allows global shortcuts it works in the background too."), {}},
+    {utf8_literal("keybinds.custom"), {},
+     utf8_literal("Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord without needing to "
+                  "click through menus. Voice keybinds also work in the background during a call if your desktop allows "
+                  "global shortcuts."),
+     {}},
     // A footnote's text is its label.
     {utf8_literal("updates.assets"),
-     utf8_literal("Updates replace MaiCord. Fonts and licenses come with a fresh download from the releases page."), {},
+     utf8_literal("Updates replace MaiCord, its fonts and its licenses."), {},
      {}},
 };
 constexpr LinuxText kLinuxPanelText[]{
     {utf8_literal("system"), {}, utf8_literal("Startup, the tray and how links open on your desktop."),
      utf8_literal("startup autostart tray links protocol")},
+    {utf8_literal("updates"), {}, utf8_literal("Updates are signed. Nothing installs until you restart."), {}},
 };
 void apply_linux_text() noexcept {
     for (const LinuxText& text : kLinuxNodeText) {

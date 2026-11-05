@@ -54,26 +54,40 @@ u32 update_portable_marker_path(ConstSlice<wchar_t> executable, wchar_t* output,
     return count;
 }
 
-bool update_portable_install(ConstSlice<wchar_t> executable) noexcept {
-    wchar_t marker[kPathCapacity];
-    const u32 count = update_portable_marker_path(executable, marker, kPathCapacity);
-    if (!count || !marker_first_line(marker))
-        return false;
-    // The directory, to stage the new image beside the old one.
-    u32 directory = count - (sizeof(kUpdatePortableMarkerName) - 1);
+// Whether this process may create files in the directory of `file` (a path of `count` characters): the update is staged
+// beside the file it replaces and swapped in by rename.
+bool directory_writable(const wchar_t* file, u32 count) noexcept {
+    u32 directory = count;
+    while (directory && file[directory - 1] != L'/')
+        --directory;
     if (directory > 1)
         --directory;
     char path[kPathCapacity * 3];
-    const u32 bytes = utf16_to_utf8(marker, directory, path, sizeof(path) - 1, true);
+    const u32 bytes = directory ? utf16_to_utf8(file, directory, path, sizeof(path) - 1, true) : 0;
     if (!bytes)
         return false;
     path[bytes] = 0;
     return !syscall_failed(sys_access(path, kAccessWrite));
 }
 
-void update_portable_gate(UpdateServiceConfig* config, bool published, ConstSlice<wchar_t> executable) noexcept {
-    if (config->configured && (!published || !update_portable_install(executable)))
+bool update_portable_install(ConstSlice<wchar_t> executable) noexcept {
+    wchar_t marker[kPathCapacity];
+    const u32 count = update_portable_marker_path(executable, marker, kPathCapacity);
+    return count && marker_first_line(marker) && directory_writable(marker, count);
+}
+
+bool update_appimage_install(ConstSlice<wchar_t> image) noexcept {
+    FileStat stat{};
+    return image.count && file_path_stat(image.data, &stat) && stat.kind == FileKind::regular &&
+           directory_writable(image.data, image.count);
+}
+
+void update_portable_gate(UpdateServiceConfig* config, bool published, ConstSlice<wchar_t> executable,
+                          ConstSlice<wchar_t> image) noexcept {
+    const bool appimage = image.count != 0;
+    if (config->configured && (!published || !(appimage ? update_appimage_install(image) : update_portable_install(executable))))
         config->configured = false;
+    g_update_flavor = appimage ? UpdateFlavor::appimage : UpdateFlavor::tarball;
 }
 
 } // namespace maicord

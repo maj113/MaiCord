@@ -89,8 +89,9 @@ Linux:
   integration tests need their script (`MAICORD_WAYLAND_INTEGRATION`, `MAICORD_PULSE_INTEGRATION`, `MAICORD_SPEECHD_INTEGRATION`).
 - The client identity is the official desktop client of the host platform (`client_user_agent.hpp`); bump the Linux constants and
   `tests/app/account/client_identity.cpp` together.
-- Packaging: the application id is `io.github.maj113.MaiCord`; only the tarball install carries `.maicord-portable` and may self-update
-  (AppImages update through AppImageUpdate, musl installs never self-update). Package files stay in step (`packaging/nfpm/nfpm.yaml`,
+- Packaging: the application id is `io.github.maj113.MaiCord`; the tarball install (it alone carries `.maicord-portable`) and the glibc
+  AppImage (`$APPIMAGE`, own manifests: `arch` `linux-x64-appimage`, `g_update_flavor`) may self-update; musl installs never do, and the
+  musl AppImage keeps AppImageUpdate. Package files stay in step (`packaging/nfpm/nfpm.yaml`,
   `rpm/maicord.spec`, `debian/control`); `packaging/check.sh` and `check_artifacts.sh` are the gates. Flathub needs a hand-written
   source-build manifest (its policy refuses AI-generated manifests and AI-opened submissions): do not write or submit one.
 
@@ -123,7 +124,7 @@ Linux:
   `#if defined(_WIN32)` beside the Linux alternative.
 - Plugins: PE and ELF loaders in `src/app/plugins/loader.cpp`. Updater: `src/app/update` (Linux `update/linux`).
 - Runtime: `src/core/linux` (`_start`, raw-syscall runtime, memory functions, libc stub contract, the glibc/musl image; see its
-  README). Packaging: `packaging/` (tarball, AppImage, one-line installer, nfpm `.deb`/`.rpm`, signed apt/dnf repositories, PPA, COPR/OBS,
+  README). Packaging: `packaging/` (tarball, AppImage, one-line installer, nfpm `.deb`/`.rpm`/Arch package, signed apt/dnf/pacman repositories, PPA, COPR/OBS,
   AUR, Alpine/Void/Gentoo, Flatpak, Nix; its README is the reference).
 - Build files: `CMakeLists.txt` includes `cmake/*.cmake`; Linux files are `cmake/linux_*.cmake`; tests are registered in
   `cmake/test_registry.cmake` (Windows) and `cmake/linux_test_registry.cmake` (Linux).

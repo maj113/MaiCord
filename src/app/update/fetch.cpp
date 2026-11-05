@@ -168,6 +168,13 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         out->origin_bytes = slash + kPagesSuffix.bytes;
         w.add("/", 1); w.add({repository.data + slash + 1, repository.bytes - slash - 1});
         w.add(kUpdateProtocolDirectory);
+#if !defined(_WIN32)
+        // The Linux manifests and packages sit in their own directory, the AppImage's in a directory of its own below it.
+        const auto linux_directory = [&]() noexcept {
+            w.add(kUpdateLinuxDirectory);
+            if (g_update_flavor == UpdateFlavor::appimage) w.add(utf8_literal("appimage/"));
+        };
+#endif
 #if defined(_WIN32)
         if (asset == UpdateAsset::package) {
             w.add(utf8_literal("preview/")); w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
@@ -178,14 +185,14 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
             char name[kUpdateArtifactNameCapacity];
             const u32 name_bytes = update_artifact_name(version, {name, sizeof(name)});
             if (!name_bytes) return false;
-            w.add(kUpdateLinuxDirectory); w.add(utf8_literal("preview/")); w.add(name, name_bytes);
+            linux_directory(); w.add(utf8_literal("preview/")); w.add(name, name_bytes);
         } else {
 #endif
             const bool changelog = asset == UpdateAsset::changelog || asset == UpdateAsset::changelog_signature;
 #if !defined(_WIN32)
             // The changelog describes versions, not packages: both systems read the same document. A Linux manifest sits
             // in its own directory, with the same channel layout as the Windows ones.
-            if (!changelog) w.add(kUpdateLinuxDirectory);
+            if (!changelog) linux_directory();
 #endif
             w.add(channel == UpdateChannel::stable ? utf8_literal("maicord-stable.") : utf8_literal("preview/maicord-preview."));
             w.add(changelog ? utf8_literal("changelog.json") : utf8_literal("manifest.json"));
@@ -204,10 +211,15 @@ u32 update_artifact_name(u64 version, Slice<char> output) noexcept {
     u32 used = 0;
     const auto add = [&](Utf8View text) noexcept { copy_bytes(name + used, text.data, text.bytes); used += text.bytes; };
     const auto number = [&](u64 value) noexcept { used += decimal_write(name + used, value); };
+    const bool image = g_update_flavor == UpdateFlavor::appimage;
     add(utf8_literal("maicord-"));
+    if (image) { name[0] = 'M'; name[3] = 'C'; } // MaiCord-, where the tarball's is maicord-
     number(base / 1000000); add(utf8_literal(".")); number(base / 1000 % 1000); add(utf8_literal(".")); number(base % 1000);
     if (sequence != 999) { add(utf8_literal("-dev.")); number(sequence); }
-    add(utf8_literal("-linux-x86_64.tar.gz"));
+    if (!image) add(utf8_literal("-linux"));
+    add(utf8_literal("-x86_64"));
+    if (image) add(utf8_literal(".AppImage"));
+    else add(utf8_literal(".tar.gz"));
     if (!output.data || used > output.count) return 0;
     copy_bytes(output.data, name, used);
     return used;

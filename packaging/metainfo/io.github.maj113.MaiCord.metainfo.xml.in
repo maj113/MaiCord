@@ -20,6 +20,11 @@
       interface on the GPU: there is no Electron, no browser engine and no web view.
     </p>
     <p>
+      It does chat, voice and video, with notifications, a tray icon and saved accounts, and installs plugins, themes and
+      animated backgrounds from a signed catalog. On Linux it is a native Wayland client drawing with OpenGL ES, and it
+      plays and records audio through PulseAudio or PipeWire.
+    </p>
+    <p>
       MaiCord is not affiliated with, endorsed by or supported by Discord Inc. Using a third-party client may violate
       Discord's Terms of Service and could put your account at risk.
     </p>

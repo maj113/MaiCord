@@ -138,6 +138,9 @@ UpdateSwapResult update_swap(const UpdatePaths&) noexcept;
 // the swap moves the live fonts/, licenses/ and executable into <executable>.old (a leftover one is deleted first) and
 // the staged ones in, the program first, with the same undo on a failed move, so the install keeps one whole version.
 // Only the entries the stage holds move. Renaming a running image is allowed; the process relaunches through exec.
+// An AppImage (g_update_flavor) is the executable alone, one file: UpdatePaths::executable is $APPIMAGE (the file the
+// runtime started, not the program in its mount), the stage <APPIMAGE>.update and the replaced file <APPIMAGE>.old, which
+// are files, not directories; the moves and the undo are the same.
 #endif
 // Exit after the user chose to install: swaps in the executable this service
 // staged, then deletes its package. Never moves a stage it did not verify

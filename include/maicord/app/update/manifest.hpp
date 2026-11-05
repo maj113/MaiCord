@@ -25,6 +25,12 @@ inline constexpr Utf8View kUpdateArtifactPrefix = utf8_literal("MaiCord-x64-p2-"
 #else
 // Pages directory of the Linux manifests, below the protocol directory.
 inline constexpr Utf8View kUpdateLinuxDirectory = utf8_literal("linux/");
+// What the running program is, so which feed it reads: an install from the tarball (the marker beside the executable), or
+// an AppImage ($APPIMAGE). Each has its own manifests (architecture linux-x64 or linux-x64-appimage, in linux/ or
+// linux/appimage/) and package, signed with the same key. Chosen once at start (update_portable_gate) before any path or
+// location is made.
+enum class UpdateFlavor : u8 { tarball, appimage };
+inline UpdateFlavor g_update_flavor = UpdateFlavor::tarball;
 inline constexpr Utf8View kUpdateManifestArchitecture = utf8_literal("linux-x64");
 #endif
 inline constexpr u32 kUpdateManifestMaximumBytes = 4096;
@@ -65,9 +71,10 @@ struct UpdateManifest {
 };
 
 #if !defined(_WIN32)
-// The release tarball of a version, as packaging/build_tarball.py names it and the manifest's `artifact` field must:
-// maicord-<X.Y.Z>-linux-x86_64.tar.gz, with X.Y.Z-dev.N for a development build. Written into output without a
-// terminator; returns the length, or 0 for a version with no sequence number or when it does not fit.
+// The package of a version on Linux, as the file the build's packaging makes and the manifest's `artifact` field must name:
+// the release tarball (packaging/build_tarball.py), maicord-<X.Y.Z>-linux-x86_64.tar.gz, or the AppImage
+// (packaging/appimage/build_appimage.py), MaiCord-<X.Y.Z>-x86_64.AppImage; X.Y.Z-dev.N for a development build. Written
+// into output without a terminator; returns the length, or 0 for a version with no sequence number or when it does not fit.
 u32 update_artifact_name(u64 version, Slice<char> output) noexcept;
 #endif
 

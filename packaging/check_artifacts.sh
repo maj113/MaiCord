@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Checks the Linux release artifacts in a directory (what release.yml's linux job builds, or what packaging/check.sh builds
 # around the stand-in program): checksums, the tarballs, the AppImage (update information, contents, that its program is the
-# tarball's), the .deb and .rpm and the one-line installer. Nothing is installed or run.
+# tarball's), the .deb, .rpm and Arch package and the one-line installer. Nothing is installed or run.
 #
 #   packaging/check_artifacts.sh DIST VERSION [--stub]
 #
-# Needs: sha256sum, tar, readelf, dpkg-deb, rpm, desktop-file-validate and appstreamcli; the AppImage is unpacked with its own
+# Needs: sha256sum, tar with zstd, readelf, dpkg-deb, rpm, desktop-file-validate and appstreamcli; the AppImage is unpacked with its own
 # --appimage-extract, which needs no FUSE. --stub: the program is the shell stand-in, so no ELF checks.
 # shellcheck disable=SC2015 # "[ a ] && [ b ] || fail": the failure of either test is the report
 set -euo pipefail
@@ -25,8 +25,9 @@ appimage="MaiCord-$version-x86_64.AppImage"
 appimage_musl="MaiCord-$version-x86_64-musl.AppImage"
 deb="maicord_${version}_amd64.deb"
 rpm="maicord-$version-1.x86_64.rpm"
+pacman_package="maicord-$version-1-x86_64.pkg.tar.zst"
 for file in "$tarball" "$tarball.sha256" "$musl" "$musl.sha256" "$appimage" "$appimage.sha256" "$appimage.zsync" \
-    "$appimage_musl" "$appimage_musl.sha256" "$appimage_musl.zsync" "$deb" "$rpm" install.sh "maicord-$version-linux-SHA256SUMS.txt"; do
+    "$appimage_musl" "$appimage_musl.sha256" "$appimage_musl.zsync" "$deb" "$rpm" "$pacman_package" install.sh "maicord-$version-linux-SHA256SUMS.txt"; do
     [ -f "$dist/$file" ] || fail "$file is missing from $dist"
 done
 
@@ -74,6 +75,11 @@ grep -q ' ./usr/lib/maicord/MaiCord$' "$scratch/deb.list" || fail "the .deb lack
 [ "$(rpm -qp --queryformat '%{VERSION}' "$dist/$rpm")" = "$version" ] || fail "the .rpm has another version"
 rpm -qpl "$dist/$rpm" >"$scratch/rpm.list"
 grep -qx '/usr/lib/maicord/MaiCord' "$scratch/rpm.list" || fail "the .rpm lacks the program"
+tar --zstd -tf "$dist/$pacman_package" >"$scratch/pacman.list"
+grep -qx 'usr/lib/maicord/MaiCord' "$scratch/pacman.list" || fail "the Arch package lacks the program"
+grep -qx '.PKGINFO' "$scratch/pacman.list" && grep -qx '.MTREE' "$scratch/pacman.list" || fail "the Arch package lacks .PKGINFO or .MTREE"
+tar --zstd -xOf "$dist/$pacman_package" .PKGINFO >"$scratch/pkginfo"
+grep -qx "pkgver = $version-1" "$scratch/pkginfo" || fail "the Arch package has another version"
 
 # The installer: no placeholder left, parses.
 ! grep -q '@[A-Z_]*@' "$dist/install.sh" || fail "install.sh has an unfilled placeholder"

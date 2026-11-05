@@ -89,8 +89,17 @@ void test_replacements() noexcept {
               equals(settings_catalog().panels[where.panel].nodes[where.node].label(), "Enable App Icon Flashing"),
           "the taskbar flashing row names the app icon");
     check(ui_settings_schema_find(settings_catalog(), utf8_literal("updates.assets"), &where) &&
-              holds(settings_catalog().panels[where.panel].nodes[where.node].label(), "Updates replace MaiCord. Fonts"),
-          "the update footnote names the program, not an .exe");
+              equals(settings_catalog().panels[where.panel].nodes[where.node].label(),
+                     "Updates replace MaiCord, its fonts and its licenses."),
+          "the update footnote names the program, its fonts and its licenses, not an .exe");
+    check(equals(settings_catalog_panel(SettingsPanel::updates).summary,
+                 "Updates are signed. Nothing installs until you restart."),
+          "the updates page's summary does not promise that every install updates itself");
+    check(ui_settings_schema_find(settings_catalog(), utf8_literal("voice.push_to_talk_key"), &where) &&
+              holds(settings_catalog().panels[where.panel].nodes[where.node].description(), "allows global shortcuts") &&
+              ui_settings_schema_find(settings_catalog(), utf8_literal("keybinds.custom"), &where) &&
+              holds(settings_catalog().panels[where.panel].nodes[where.node].description(), "allows global shortcuts"),
+          "the push-to-talk wording depends on the desktop's global shortcuts");
     const UiSettingsSchemaPanel& system = settings_catalog_panel(SettingsPanel::system);
     check(equals(system.summary, "Startup, the tray and how links open on your desktop."),
           "the system page's summary names the desktop");

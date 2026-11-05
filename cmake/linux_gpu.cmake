@@ -8,6 +8,21 @@
 # needs the pinned toolchain (tools/linux_shader_toolchain.json: DXC and SPIRV-Cross, fetched and built into
 # $MAICORD_TOOLCHAIN_CACHE, default ~/.cache/maicord-toolchain, by tools/fetch_linux_shader_toolchain.py), so the
 # second library is not part of the default build: the tests that link it build it.
+#
+# A build offline from distribution packages sets MAICORD_DXC (the dxc executable) and MAICORD_SPIRV_CROSS_PREFIX (an
+# installed SPIRV-Cross with its static libraries) instead: nothing is fetched, only mc_shadertool is compiled against
+# that SPIRV-Cross, with the C++ compiler named by $CXX (a hosted one, not this build's freestanding clang). They are
+# the script's MAICORD_DXC and MAICORD_SPIRV_CROSS and are set together or not at all.
+set(MAICORD_DXC "" CACHE FILEPATH "dxc executable to translate the shaders with, instead of the pinned download")
+set(MAICORD_SPIRV_CROSS_PREFIX "" CACHE PATH "Prefix of an installed SPIRV-Cross, instead of the pinned build")
+set(maicord_shader_tool_environment "")
+if(MAICORD_DXC OR MAICORD_SPIRV_CROSS_PREFIX)
+    if(NOT MAICORD_DXC OR NOT MAICORD_SPIRV_CROSS_PREFIX)
+        message(FATAL_ERROR "Set MAICORD_DXC and MAICORD_SPIRV_CROSS_PREFIX together, or neither.")
+    endif()
+    set(maicord_shader_tool_environment ${CMAKE_COMMAND} -E env "MAICORD_DXC=${MAICORD_DXC}"
+        "MAICORD_SPIRV_CROSS=${MAICORD_SPIRV_CROSS_PREFIX}")
+endif()
 
 maicord_library(maicord_gpu_gles
     src/gpu/gles/loader.cpp src/gpu/gles/device.cpp src/gpu/gles/resources.cpp src/gpu/gles/draw.cpp
@@ -19,7 +34,7 @@ file(GLOB maicord_hlsl_sources CONFIGURE_DEPENDS src/render/shaders/*.hlsl)
 add_custom_command(
     OUTPUT "${MAICORD_GLES_SHADER_PACK}"
     BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack_gles.bin"
-    COMMAND "${Python3_EXECUTABLE}" -B tools/build_gles_shader_pack.py "${MAICORD_GLES_SHADER_PACK}"
+    COMMAND ${maicord_shader_tool_environment} "${Python3_EXECUTABLE}" -B tools/build_gles_shader_pack.py "${MAICORD_GLES_SHADER_PACK}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     DEPENDS tools/build_gles_shader_pack.py tools/glsl_translate.py tools/fetch_linux_shader_toolchain.py
         tools/linux_shader_toolchain.json

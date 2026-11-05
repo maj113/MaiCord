@@ -3,6 +3,7 @@
 #if !defined(_WIN32)
 #include "maicord/app/update/portable.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/platform/desktop/integration.hpp"
 #include "maicord/sys/linux/process.hpp"
 #endif
 
@@ -40,10 +41,10 @@ static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VER
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV);
 #if !defined(_WIN32)
-// Whether the release channels carry the Linux tarball (the Linux manifests of maicord_release.py linux): the build
+// Whether the release channels carry the Linux packages (the Linux manifests of maicord_release.py linux): the build
 // option MAICORD_LINUX_UPDATES_PUBLISHED, which the release workflow sets from its MAICORD_LINUX_RELEASES variable. A
 // build that is not told so never stages anything, so no Linux install replaces itself with a package nobody signed
-// for it; the marker check in update_portable_gate is what then enables the tarball install and no other.
+// for it; update_portable_gate then enables the tarball install (its marker) and the AppImage ($APPIMAGE), no other.
 #if !defined(MAICORD_LINUX_UPDATES_PUBLISHED)
 #define MAICORD_LINUX_UPDATES_PUBLISHED 0
 #endif
@@ -59,13 +60,14 @@ UpdateServiceConfig application_update_build_config() noexcept {
         update_service_config({}, {}, installed_version, &config);
 #if !defined(_WIN32)
     // Only the tarball install (the .maicord-portable marker beside the real executable, in a directory this user can
-    // write) may replace its own files; a package manager owns every other install (packaging/README.md). The feeds
-    // carry the glibc tarball only: a musl image would be replaced by a program its loader cannot start.
+    // write) and an AppImage ($APPIMAGE, the file the runtime started, in such a directory) may replace their own files; a
+    // package manager owns every other install (packaging/README.md). The feeds carry the glibc packages only: a musl image
+    // would be replaced by a program its loader cannot start.
     if (config.configured) {
-        wchar_t executable[4096];
+        wchar_t executable[4096], image[4096];
         const u32 count = executable_path(executable, 4096);
         update_portable_gate(&config, kLinuxUpdatesPublished && !process_libc_is_musl() && count && count < 4096,
-                             {executable, count});
+                             {executable, count}, {image, desktop_appimage_path(image, 4096)});
     }
 #endif
     return config;
@@ -74,5 +76,10 @@ UpdateServiceConfig application_update_build_config() noexcept {
 Utf8View application_update_build_commit() noexcept {
     return {commit, sizeof(commit) == 41 ? kApplicationUpdatesCommitChars : 0u};
 }
+#if !defined(_WIN32)
+u32 application_update_build_version_text(Slice<char> output) noexcept {
+    return update_build_version_text(installed_version, application_update_build_commit(), output);
+}
+#endif
 
 } // namespace maicord::app_detail

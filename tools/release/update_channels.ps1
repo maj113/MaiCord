@@ -24,9 +24,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $branch = 'update-channels'
-# The Linux manifests (updates/p2/linux/) are published, verified and re-signed with the rest when asked for, or when the
-# repository variable MAICORD_LINUX_RELEASES is 'true' (the workflows pass it in the environment); otherwise the Linux
-# files on the site are left as they are.
+# The Linux manifests (updates/p2/linux/, and the AppImage's below it, linux/appimage/) are published, verified and
+# re-signed with the rest when asked for, or when the repository variable MAICORD_LINUX_RELEASES is 'true' (the workflows
+# pass it in the environment); otherwise the Linux files on the site are left as they are.
 $linux = $Linux -or $env:MAICORD_LINUX_RELEASES -eq 'true'
 if (!$env:GH_TOKEN -or !$env:GITHUB_REPOSITORY -or !$env:PUBLIC_KEY) { throw 'GH_TOKEN, GITHUB_REPOSITORY and PUBLIC_KEY are required.' }
 

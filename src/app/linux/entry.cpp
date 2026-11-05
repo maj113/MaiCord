@@ -1,9 +1,10 @@
-// The process entry of the Linux client: the arguments as the one command line the launch parser reads (the Windows
-// entry hands it GetCommandLineW's), a check that the network loops can run (they are io_uring rings and there is no
-// other backend), a second launch handing its link to the running client, the termination signals turned into a loop
-// event, then the application.
+// The process entry of the Linux client: `--version`, which answers before anything starts, the arguments as the one
+// command line the launch parser reads (the Windows entry hands it GetCommandLineW's), a check that the network loops
+// can run (they are io_uring rings and there is no other backend), a second launch handing its link to the running
+// client, the termination signals turned into a loop event, then the application.
 #include "../notifications/desktop.hpp"
 #include "../shell/run.hpp"
+#include "../update/updates.hpp"
 #include "shutdown_signal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/platform/desktop/launch_line.hpp"
@@ -34,10 +35,39 @@ constexpr maicord::u32 kCommandLineCapacity = 4096;
     sys_exit_group(1);
 }
 
+// `MaiCord --version`: the build's number and a line break on standard output, exit status 0. Nothing else is looked at,
+// so it works where the client cannot run (no io_uring, no display).
+bool version_requested(const maicord::ProcessStartup& startup) noexcept {
+    constexpr char kOption[] = "--version";
+    if (startup.argc != 2)
+        return false;
+    for (maicord::usize i = 0; i < sizeof(kOption); ++i) {
+        if (startup.argv[1][i] != kOption[i])
+            return false;
+    }
+    return true;
+}
+
+[[noreturn]] void print_version() noexcept {
+    using namespace maicord;
+    constexpr char kName[] = "MaiCord ";
+    char text[64];
+    for (usize i = 0; i < sizeof(kName) - 1; ++i) {
+        text[i] = kName[i];
+    }
+    const u32 length = app_detail::application_update_build_version_text({text + sizeof(kName) - 1, 48});
+    text[sizeof(kName) - 1 + length] = '\n';
+    sys_write(1, text, sizeof(kName) + length);
+    sys_exit_group(0);
+}
+
 } // namespace
 
-extern "C" [[noreturn]] void maicord_entry() noexcept {
+extern "C" [[noreturn, gnu::used]] void maicord_entry() noexcept {
     using namespace maicord;
+    if (version_requested(process_startup())) {
+        print_version();
+    }
     if (const char* reason = network_unavailable_reason()) {
         refuse_to_start(reason);
     }

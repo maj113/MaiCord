@@ -16,8 +16,12 @@
   libglvnd,
   fontconfig,
   libpulseaudio,
+  libva,
+  dav1d,
+  openh264,
+  libfido2,
+  speechd-minimal,
   hunspell,
-  enchant,
   stdenv,
   version ? "0.6.6",
   # Not called src: callPackage would fill that from the (renamed) top-level attribute of nixpkgs.
@@ -43,8 +47,12 @@ stdenvNoCC.mkDerivation {
     libglvnd
     fontconfig
     libpulseaudio
+    libva
+    dav1d
+    openh264
+    libfido2
+    speechd-minimal
     hunspell
-    enchant
   ];
   # The GPU drivers of NixOS (and of non-NixOS systems with nixGL-style setups) live under /run/opengl-driver.
   appendRunpaths = [ "${addDriverRunpath.driverLink}/lib" ];

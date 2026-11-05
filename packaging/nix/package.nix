@@ -1,141 +1,68 @@
-# MaiCord built from source with LLVM 23 (the toolchain the Linux port is written for: tools/build_linux.sh refuses any
-# other major), the way tools/build_linux.sh builds it, but offline: the shader toolchain that script fetches (DXC, the
-# pinned SPIRV-Cross) is made by the derivations below from the pins of tools/linux_shader_toolchain.json and handed to
-# tools/fetch_linux_shader_toolchain.py as its cache, which finds it ready and fetches nothing.
-#
-# The image is a freestanding glibc PIE: its only DT_NEEDED entry is libc (a generated stub),
-# and everything else is opened with dlopen. autoPatchelfHook gives it the Nix loader and glibc, runtimeDependencies puts
-# the dlopen()ed libraries on its run path, and appendRunpaths adds /run/opengl-driver/lib for the GPU drivers.
-# nixpkgs' compiler wrappers and hardening flags are not used: the build runs the unwrapped clang, and the contract
-# (-nostdinc, its own headers, no stack protector) is the project's.
-#
-# buildTarget is the CMake target whose image becomes bin/maicord. While the client target is not in the tree
-# (the Linux port's tests are what builds), `nix build .#build-check` builds a test image in its place to prove the
-# toolchain, the shader pack and the patching; the build then needs the tests configured (buildTests).
+# MaiCord built from source: the recipe of nixpkgs' pkgs/by-name/ma/maicord/package.nix, which differs from this file only in
+# where the source and version come from (src and version are arguments here, fetchFromGitHub of the tag there) and in the
+# maintainers. Keep the two in step (packaging/README.md, "Nix (nix/) and nixpkgs"). The decisions are explained beside the
+# lines they concern: LLVM 23 as the project's contract wants it, nixpkgs' DXC and SPIRV-Cross for the shaders (no downloads),
+# the run-time libraries on the program's run path, and the tarball's layout without the self-updater's marker.
 {
   lib,
+  callPackage,
   stdenv,
-  runCommand,
-  fetchurl,
-  fetchFromGitHub,
+  # The checkout the flake is in and its version; nixpkgs fetches the tag instead.
+  src,
+  version,
   cmake,
   ninja,
   python3,
   llvmPackages_23,
   autoPatchelfHook,
   addDriverRunpath,
-  zlib,
+  directx-shader-compiler,
+  spirv-cross,
+  versionCheckHook,
+  nix-update-script,
+  # Opened with dlopen at run time, by soname: see "runtimeDependencies" below.
   openssl,
   wayland,
   libxkbcommon,
   libglvnd,
   fontconfig,
   libpulseaudio,
+  libva,
+  dav1d,
+  openh264,
+  libfido2,
+  speechd-minimal,
   hunspell,
-  enchant,
-  src,
-  version,
-  buildTarget ? "MaiCord",
-  buildTests ? false,
 }:
 
 let
-  pins = builtins.fromJSON (builtins.readFile ../../tools/linux_shader_toolchain.json);
-
-  dxcTarball = fetchurl {
-    url = pins.dxc.url;
-    sha256 = pins.dxc.sha256;
-  };
-
-  spirvCrossSource = fetchFromGitHub {
-    owner = "KhronosGroup";
-    repo = "SPIRV-Cross";
-    rev = pins.spirv_cross.commit;
-    hash = "sha256-9ET3qtdCeCUC069lAtEhDCUi85qedllOncwn7Hx6zJk=";
-  };
-
-  # SPIRV-Cross as static libraries with the options tools/fetch_linux_shader_toolchain.py configures it with.
-  spirvCross = stdenv.mkDerivation {
-    pname = "spirv-cross-maicord";
-    version = pins.spirv_cross.tag;
-    src = spirvCrossSource;
-    nativeBuildInputs = [
-      cmake
-      ninja
-    ];
-    hardeningDisable = [ "all" ];
-    # Only the static C++ libraries are used; the C API's pkg-config file is not even enabled and nixpkgs rejects its paths.
-    postInstall = ''
-      rm -rf $out/lib/pkgconfig
-    '';
-    cmakeFlags = [
-      "-DSPIRV_CROSS_ENABLE_TESTS=OFF"
-      "-DSPIRV_CROSS_CLI=OFF"
-      "-DSPIRV_CROSS_STATIC=ON"
-      "-DSPIRV_CROSS_SHARED=OFF"
-      "-DSPIRV_CROSS_ENABLE_GLSL=ON"
-      "-DSPIRV_CROSS_ENABLE_HLSL=OFF"
-      "-DSPIRV_CROSS_ENABLE_MSL=OFF"
-      "-DSPIRV_CROSS_ENABLE_CPP=OFF"
-      "-DSPIRV_CROSS_ENABLE_REFLECT=OFF"
-      "-DSPIRV_CROSS_ENABLE_C_API=OFF"
-      "-DSPIRV_CROSS_ENABLE_UTIL=OFF"
-      "-DSPIRV_CROSS_SKIP_INSTALL=OFF"
-    ];
-  };
-
-  # The cache directory the fetch script keeps: directories named by their pin, each with a .ready marker written last.
-  shaderToolchain =
-    runCommand "maicord-shader-toolchain"
-      {
-        nativeBuildInputs = [
-          autoPatchelfHook
-          python3
-          stdenv.cc
-        ];
-        buildInputs = [
-          stdenv.cc.cc.lib
-          zlib
-        ];
-      }
-      ''
-        dxc=$out/dxc-${builtins.substring 0 12 pins.dxc.sha256}
-        mkdir -p $dxc
-        tar -xzf ${dxcTarball} -C $dxc
-        chmod +x $dxc/${pins.dxc.executable}
-        # runCommand has no fixup phase, so the hook's function is called here: DXC gets the Nix loader and libstdc++.
-        autoPatchelf $dxc
-        echo -n ${pins.dxc.version} > $dxc/.ready
-
-        cross=$out/spirv-cross-${builtins.substring 0 12 pins.spirv_cross.commit}
-        mkdir -p $cross
-        ln -s ${spirvCross} $cross/install
-        echo -n ${pins.spirv_cross.commit} > $cross/.ready
-
-        # The host tool that links SPIRV-Cross, made by the project's own script (it finds DXC and SPIRV-Cross ready and
-        # compiles only mc_shadertool). The compiler is part of the tool's cache key, so the build below names the same one.
-        mkdir -p $TMPDIR/project
-        cp -r ${src}/tools $TMPDIR/project/tools
-        MAICORD_TOOLCHAIN_CACHE=$out CXX=${stdenv.cc}/bin/c++ python3 -B $TMPDIR/project/tools/fetch_linux_shader_toolchain.py
-      '';
-
+  # The client is written for exactly this LLVM major: its freestanding contract (-nostdinc, its own headers, its own
+  # _start, no libc beyond a generated stub) is checked by upstream with clang and lld 23 only.
   llvm = llvmPackages_23;
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "maicord";
-  inherit version src;
+  inherit src version;
+
+  strictDeps = true;
+  __structuredAttrs = true;
 
   nativeBuildInputs = [
     cmake
     ninja
     python3
+    # The unwrapped compilers: the build is freestanding and the nixpkgs wrappers (libc paths, hardening flags and
+    # a program interpreter of their own at link time) would only fight its contract.
     llvm.clang-unwrapped
     llvm.lld
     llvm.llvm
     autoPatchelfHook
   ];
-  buildInputs = [ stdenv.cc.libc ];
-  # The library output of each (openssl's default output is its command line tool, not libssl).
+
+  # The program's only DT_NEEDED entry is libc.so.6 (a generated stub), which autoPatchelfHook resolves to the glibc of
+  # the stdenv. Every other library is opened with dlopen by soname, and a missing one only turns a feature off, so the
+  # loader never reports it: runtimeDependencies puts them on the run path of the program, and the GPU drivers (Mesa,
+  # NVIDIA, the VA-API drivers) of NixOS live under /run/opengl-driver.
   runtimeDependencies = map lib.getLib [
     openssl
     wayland
@@ -143,62 +70,100 @@ stdenv.mkDerivation {
     libglvnd
     fontconfig
     libpulseaudio
+    libva
+    dav1d
+    openh264
+    libfido2
+    speechd-minimal
     hunspell
-    enchant
   ];
-  # The GPU drivers of NixOS live under /run/opengl-driver.
   appendRunpaths = [ "${addDriverRunpath.driverLink}/lib" ];
 
-  hardeningDisable = [ "all" ];
-  dontUseCmakeConfigure = true;
-  dontStrip = true;
+  cmakeFlags = [
+    (lib.cmakeFeature "CMAKE_C_COMPILER" "${llvm.clang-unwrapped}/bin/clang")
+    (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${llvm.clang-unwrapped}/bin/clang++")
+    (lib.cmakeFeature "CMAKE_AR" "${llvm.llvm}/bin/llvm-ar")
+    (lib.cmakeFeature "CMAKE_RANLIB" "${llvm.llvm}/bin/llvm-ranlib")
+    # The unwrapped clang cannot link a hosted program: the compiler check only needs to compile.
+    (lib.cmakeFeature "CMAKE_TRY_COMPILE_TARGET_TYPE" "STATIC_LIBRARY")
+    # The shaders are HLSL, translated at build time with DXC and SPIRV-Cross from nixpkgs instead of the pinned
+    # downloads of tools/linux_shader_toolchain.json (mc_shadertool is compiled against this SPIRV-Cross).
+    (lib.cmakeFeature "MAICORD_DXC" (lib.getExe' directx-shader-compiler "dxc"))
+    (lib.cmakeFeature "MAICORD_SPIRV_CROSS_PREFIX" "${spirv-cross}")
+  ];
 
-  configurePhase = ''
-    runHook preConfigure
-    # A writable copy: the fetch script takes a lock file and builds its host tool in the cache.
-    cp -r ${shaderToolchain} $TMPDIR/toolchain
-    chmod -R u+w $TMPDIR/toolchain
-    export MAICORD_TOOLCHAIN_CACHE=$TMPDIR/toolchain
-    # The generated sources must be outside the source tree: the build directory is beside it.
-    cmake -S . -B $TMPDIR/build -G Ninja \
-      -DCMAKE_C_COMPILER=${llvm.clang-unwrapped}/bin/clang \
-      -DCMAKE_CXX_COMPILER=${llvm.clang-unwrapped}/bin/clang++ \
-      -DCMAKE_AR=${llvm.llvm}/bin/llvm-ar \
-      -DCMAKE_RANLIB=${llvm.llvm}/bin/llvm-ranlib \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-      -DMAICORD_BUILD_TESTS=${if buildTests then "ON" else "OFF"}
-    runHook postConfigure
+  env = {
+    # Numbers the build (there is no git checkout to take it from). MAICORD_LINUX_RELEASES is not set, so this build
+    # never carries the self-updater: it is for the tarball install, whose .maicord-portable marker the store has not.
+    MAICORD_UPDATE_VERSION = finalAttrs.version;
+  };
+
+  preConfigure = ''
+    # The generated sources must not land inside the source tree, so the build directory is beside it.
+    cmakeDir=$PWD
+    cmakeBuildDir=$NIX_BUILD_TOP/build
+    # The shader tool is compiled here: its cache must be writable (the default is under $HOME).
+    export MAICORD_TOOLCHAIN_CACHE=$NIX_BUILD_TOP/maicord-toolchain
   '';
 
-  buildPhase = ''
-    runHook preBuild
-    export MAICORD_TOOLCHAIN_CACHE=$TMPDIR/toolchain
-    export CXX=${stdenv.cc}/bin/c++
-    cmake --build $TMPDIR/build --target ${buildTarget}
-    runHook postBuild
+  # Upstream's audit of the image (no GLIBC_ symbol above 2.34, libc.so.6 the only DT_NEEDED entry, no run path, no test
+  # hooks): it forbids what autoPatchelfHook adds below, so it runs before the fixup.
+  postBuild = ''
+    python3 -B $cmakeDir/tools/audit_elf.py --no-test-hooks MaiCord
   '';
 
-  # The release tarball's layout, made by the same script the release uses, then installed like the -bin package.
   installPhase = ''
     runHook preInstall
-    python3 packaging/build_tarball.py --binary $TMPDIR/build/${buildTarget} --version ${version} --output-dir $TMPDIR/tarball
-    tar -xzf $TMPDIR/tarball/maicord-${version}-linux-x86_64.tar.gz -C $TMPDIR/tarball
-    cd $TMPDIR/tarball/maicord-${version}-linux-x86_64
+
+    # The program finds fonts/ and licenses/ next to its real executable (/proc/self/exe), so the store keeps them
+    # together, and bin/maicord is a link to it.
     install -Dm755 MaiCord $out/lib/maicord/MaiCord
-    install -d $out/bin
-    ln -s $out/lib/maicord/MaiCord $out/bin/maicord
     cp -r fonts licenses $out/lib/maicord/
-    mkdir -p $out/share
-    cp -r share/. $out/share/
+    mkdir -p $out/bin
+    ln -s $out/lib/maicord/MaiCord $out/bin/maicord
+
+    # The desktop entry (discord:// and maicord:// links), the icons and the AppStream metadata.
+    mkdir -p $out/share/metainfo
+    cp -r packaging/applications packaging/icons $out/share/
+    substitute $cmakeDir/packaging/metainfo/io.github.maj113.MaiCord.metainfo.xml.in \
+      $out/share/metainfo/io.github.maj113.MaiCord.metainfo.xml --replace-fail '@RELEASES@' ""
+
     runHook postInstall
   '';
 
+  doInstallCheck = true;
+  nativeInstallCheckInputs = [ versionCheckHook ];
+
+  passthru = {
+    tests.gpu = callPackage ./gpu-tests.nix { maicord = finalAttrs.finalPackage; };
+    updateScript = nix-update-script { };
+  };
+
   meta = {
-    description = "A lightweight, native Discord client (unofficial)";
+    description = "Unofficial native Discord client written in C++";
+    longDescription = ''
+      MaiCord is a Discord client written from scratch in C++: it shapes its own text and draws its own interface on
+      the GPU, with no Electron, browser engine or web view. It runs on Wayland.
+
+      It is not affiliated with, endorsed by or supported by Discord Inc., and using a third-party client may violate
+      Discord's Terms of Service.
+    '';
     homepage = "https://maicord.com/";
-    license = lib.licenses.mpl20;
+    changelog = "https://github.com/maj113/MaiCord/releases/tag/v${finalAttrs.version}";
+    license = with lib.licenses; [
+      mpl20
+      # The bundled fonts, the Twemoji flags, Opus's notice, the emoji tables, Lucide icons and Unicode data.
+      ofl
+      cc-by-40
+      cc0
+      bsd3
+      mit
+      isc
+      unicode-30
+    ];
     mainProgram = "maicord";
+    # nixpkgs: maintainers = with lib.maintainers; [ maj113 ]; the flake's nixpkgs-unstable has no such handle until that lands.
+    maintainers = [ ];
     platforms = [ "x86_64-linux" ];
   };
-}
+})

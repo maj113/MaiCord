@@ -209,7 +209,14 @@ const UpdateChangelog* changelog_refresh(UpdateService* s, const UpdateTransport
     // The buffer was overwritten: the old document comes back from the cache.
     return changelog_load(s, channel);
 }
-// The stage this session left or an earlier one did: one executable file on Windows, a directory tree on Linux.
+// A tarball install and an AppImage of the same profile each keep their own record: their manifests for one version differ.
+inline const wchar_t* acceptance_file() noexcept {
+#if !defined(_WIN32)
+    if (g_update_flavor == UpdateFlavor::appimage) return L"acceptance-appimage.bin";
+#endif
+    return L"acceptance.bin";
+}
+// The stage this session left or an earlier one did: one file on Windows and for an AppImage, a directory tree for the tarball.
 #if defined(_WIN32)
 bool remove_stage(const UpdatePaths& paths) noexcept { return file_remove(paths.staged); }
 #else
@@ -238,7 +245,7 @@ bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable
     p.executable_count = executable.count;
     const bool ok = join(p.work, p.base, base.count, L"work", &p.work_count) &&
         join(p.channel, p.base, base.count, L"channel") && join(p.interval, p.base, base.count, L"interval") &&
-        join(p.acceptance, p.work, p.work_count, L"acceptance.bin", &p.acceptance_count) &&
+        join(p.acceptance, p.work, p.work_count, acceptance_file(), &p.acceptance_count) &&
         join(p.download, p.work, p.work_count, L"package.download", &p.download_count) &&
         suffixed(p.staged, executable, L".update", &p.staged_count) && suffixed(p.replaced, executable, L".old");
     if (!ok) return false;
@@ -247,7 +254,13 @@ bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable
 bool update_paths_default(UpdatePaths* out) noexcept {
     wchar_t base[kUpdatePathCapacity]{}, executable[kUpdatePathCapacity]{};
     const DataPathResult built = data_path(base, kUpdatePathCapacity, L"updates");
+#if defined(_WIN32)
     const u32 n = executable_path(executable, kUpdatePathCapacity);
+#else
+    // An AppImage replaces its own file: the path the runtime started, not the program inside its mount.
+    const u32 n = g_update_flavor == UpdateFlavor::appimage ? environment_variable(L"APPIMAGE", executable, kUpdatePathCapacity)
+                                                            : executable_path(executable, kUpdatePathCapacity);
+#endif
     return built.ok() && n && update_paths_build({base, built.length}, {executable, n}, out);
 }
 #if defined(_WIN32)
@@ -262,7 +275,7 @@ Utf8View update_service_error_text(UpdateServiceError e) noexcept {
     switch (e) {
     case SE::none: return {};
     case SE::configuration: return MAICORD_OS_TEXT("Updates aren't configured for this build.",
-                                                   "Updates aren't set up for this install. Use your package manager.");
+                                                   "This install doesn't update itself. Use your package manager or download a new release.");
     case SE::transport: return utf8_literal("Couldn't reach GitHub. Check your connection.");
     case SE::rate_limited: return utf8_literal("GitHub is limiting requests. MaiCord will try again later.");
     case SE::not_found: return utf8_literal("No update is published for this channel yet.");

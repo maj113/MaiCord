@@ -99,8 +99,13 @@ bool lay_out(const UpdatePaths& paths, Item* items) noexcept {
         if (!join(&items[i].kept, paths.replaced, replaced_count, names[i], n)) return false;
     }
     Item& exe = items[kExecutable];
-    copy_bytes(exe.live.text, paths.executable, (paths.executable_count + 1) * sizeof(wchar_t));
-    exe.live.count = paths.executable_count;
+    const auto whole = [](Path* path, const wchar_t* text, u32 count) noexcept {
+        copy_bytes(path->text, text, (count + 1) * sizeof(wchar_t));
+        path->count = count;
+        return true;
+    };
+    whole(&exe.live, paths.executable, paths.executable_count);
+    if (g_update_flavor == UpdateFlavor::appimage) return whole(&exe.staged, paths.staged, staged_count) && whole(&exe.kept, paths.replaced, replaced_count);
     return join(&exe.staged, paths.staged, staged_count, kStagedExecutable, length(kStagedExecutable)) &&
            join(&exe.kept, paths.replaced, replaced_count, live_leaf, live_leaf_count);
 }
@@ -142,7 +147,8 @@ void update_paths_cleanup(const UpdatePaths& paths) noexcept {
 
 // The swap: the live fonts/, licenses/ and executable move into <executable>.old (a leftover one is deleted first), then
 // the staged ones move in, the executable first. Only the entries the stage holds are replaced. A failed move puts
-// back everything already moved, so the install always has one whole version.
+// back everything already moved, so the install always has one whole version. An AppImage is the executable alone: its
+// stage and its replaced file are files, not directories.
 UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     UpdateSwapResult r{};
     Item items[kItems]{};
@@ -162,7 +168,8 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     if (exists(paths.replaced) && !update_tree_remove(paths.replaced)) {
         r.error = UpdateSwapError::replace; r.native_error = thread_last_error(); return r;
     }
-    if (!dir_create(paths.replaced)) { r.error = UpdateSwapError::replace; r.native_error = thread_last_error(); return r; }
+    // The replaced install is a directory holding the moved entries, but an AppImage's is the old file itself.
+    if (g_update_flavor != UpdateFlavor::appimage && !dir_create(paths.replaced)) { r.error = UpdateSwapError::replace; r.native_error = thread_last_error(); return r; }
     // The old version goes out: fonts/ and licenses/ where the new one brings its own, then the program.
     for (u32 i = 0; i < kItems; ++i) {
         if (!staged[i] || (i != kExecutable && !exists(items[i].live.text))) continue;

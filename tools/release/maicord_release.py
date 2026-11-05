@@ -324,6 +324,8 @@ def validate_update_zip(package: bytes) -> list[str]:
 # directory of the Pages site and say linux-x64; the artifact is named for the version.
 LINUX_ARCH = "linux-x64"
 LINUX_SITE_DIRECTORY = f"{SITE_DIRECTORY}/linux"
+APPIMAGE_ARCH = "linux-x64-appimage"
+APPIMAGE_SITE_DIRECTORY = f"{LINUX_SITE_DIRECTORY}/appimage"
 LINUX_PROGRAM = "MaiCord"
 LINUX_DIRECTORIES = ("fonts", "licenses")
 LINUX_TAR_MAXIMUM_BYTES = 192 * 1024 * 1024
@@ -333,6 +335,32 @@ LINUX_FILE_MAXIMUM_BYTES = 64 * 1024 * 1024
 LINUX_NAME_MAXIMUM = 64
 LINUX_FLAT_NAME = re.compile(r"[A-Za-z0-9_+-][A-Za-z0-9._+-]*")
 LINUX_SEGMENTS_MAXIMUM = 32
+
+def appimage_artifact_name(number: int) -> str:
+    """MaiCord-<X.Y.Z>-x86_64.AppImage (X.Y.Z-dev.N for a dev build), as packaging/appimage/build_appimage.py names it and
+    update_artifact_name in fetch.cpp does for an AppImage."""
+    if number % 1000 == 0 or number // 1000000000 >= 1000:
+        raise ReleaseError(f"Version {number} has no AppImage name.")
+    return f"MaiCord-{version_text(number)}-x86_64.AppImage"
+
+
+def validate_appimage(package: bytes, name: str) -> None:
+    """Mirror of app/update/linux/package.cpp's check of an AppImage (the runtime's identification bytes) and of the layout
+    the runtime itself relies on: the SquashFS starts where the runtime's ELF ends."""
+    def fail(reason: str):
+        raise ReleaseError(f"AppImage rejected: {reason}.")
+    if not name.endswith(".AppImage"):
+        fail(f"{name} is not an .AppImage")
+    if not 4096 <= len(package) <= PACKAGE_CLIENT_MAXIMUM_BYTES:
+        fail("size")
+    if package[:4] != b"\x7fELF" or package[4] != 2 or package[5] != 1 or package[8:11] != b"AI\x02":
+        fail("not a type 2 AppImage runtime")
+    section_table, = struct.unpack_from("<Q", package, 0x28)
+    entry_size, count = struct.unpack_from("<HH", package, 0x3A)
+    end = section_table + entry_size * count
+    if end + 4 > len(package) or package[end:end + 4] != b"hsqs":
+        fail("no SquashFS image behind the runtime")
+    return None
 
 
 def linux_artifact_name(number: int) -> str:
@@ -496,6 +524,13 @@ def windows_package_number(name: str) -> int | None:
     return int(found[1]) if found else None
 
 
+def appimage_package_number(name: str) -> int | None:
+    found = re.fullmatch(r"MaiCord-(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?-x86_64\.AppImage", name)
+    if not found:
+        return None
+    return version_number(int(found[1]), int(found[2]), int(found[3]), int(found[4]) if found[4] else STABLE_SEQUENCE)
+
+
 def linux_package_number(name: str) -> int | None:
     found = re.fullmatch(r"maicord-(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?-linux-x86_64\.tar\.gz", name)
     if not found:
@@ -507,6 +542,8 @@ WINDOWS = Flavor("windows", "x64", SITE_DIRECTORY, "maicord", lambda number: art
                  lambda package, name: validate_update_zip(package), windows_package_number)
 LINUX = Flavor("linux", LINUX_ARCH, LINUX_SITE_DIRECTORY, "maicord-linux", linux_artifact_name, validate_linux_tarball,
                linux_package_number)
+APPIMAGE = Flavor("appimage", APPIMAGE_ARCH, APPIMAGE_SITE_DIRECTORY, "maicord-appimage", appimage_artifact_name,
+                  validate_appimage, appimage_package_number)
 
 
 # --------------------------------------------------------------------------- manifest
@@ -874,10 +911,11 @@ def command_release(arguments) -> None:
 
 
 def command_linux(arguments) -> None:
-    """Sign the manifests of a Linux tarball, the file packaging/build_tarball.py made, so they name exactly the
-    package. For a tag (a stable release, whose tarball the release carries) both the stable and the preview manifest,
-    as `release` advances the preview channel too. With --preview, HEAD's master build: the preview manifest only, and
-    the tarball is copied beside it for the site's preview feed, as `preview` packages the Windows build."""
+    """Sign the manifests of a Linux package, the file packaging/build_tarball.py made (the tarball) or, with --appimage,
+    packaging/appimage/build_appimage.py (the AppImage, which has its own manifests), so they name exactly the package.
+    For a tag (a stable release, whose package the release carries) both the stable and the preview manifest, as `release`
+    advances the preview channel too. With --preview, HEAD's master build: the preview manifest only, and the package is
+    copied beside it for the site's preview feed, as `preview` packages the Windows build."""
     if arguments.preview:
         repository = Path(arguments.repository)
         identity = build_identity(repository, "HEAD")
@@ -889,14 +927,15 @@ def command_linux(arguments) -> None:
     else:
         version = parse_tag(arguments.tag)
         number, label, channels = version.number, version.tag, CHANNELS
+    flavor = APPIMAGE if arguments.appimage else LINUX
     tarball = Path(arguments.tarball)
-    name = linux_artifact_name(number)
+    name = flavor.artifact_name(number)
     if tarball.name != name:
-        raise ReleaseError(f"The tarball of {label} must be named {name}, not {tarball.name}.")
+        raise ReleaseError(f"The {'AppImage' if arguments.appimage else 'tarball'} of {label} must be named {name}, not {tarball.name}.")
     artifact = tarball.read_bytes()
     if len(artifact) > PACKAGE_CLIENT_MAXIMUM_BYTES:
         raise ReleaseError(f"{name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
-    validate_linux_tarball(artifact, name)
+    flavor.validate_package(artifact, name)
     digest = hashlib.sha256(artifact).hexdigest()
     sidecar = tarball.with_name(f"{name}.sha256")
     if sidecar.exists() and sidecar.read_text(encoding="ascii").split()[:1] != [digest]:
@@ -906,10 +945,10 @@ def command_linux(arguments) -> None:
     issued = (arguments.issued or int(time.time())) - CLOCK_SKEW_SECONDS
     output_dir = Path(arguments.output_dir)
     for channel in channels:
-        signed_manifest(arguments, key, expected, number, channel, len(artifact), digest, output_dir, issued, LINUX)
-        stem = f"{LINUX.publish_stem}-{channel}.manifest.json"
+        signed_manifest(arguments, key, expected, number, channel, len(artifact), digest, output_dir, issued, flavor)
+        stem = f"{flavor.publish_stem}-{channel}.manifest.json"
         verify_offer((output_dir / stem).read_bytes(), (output_dir / f"{stem}.sig").read_bytes(),
-                     expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS, flavor=LINUX)
+                     expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS, flavor=flavor)
     if arguments.preview and tarball.resolve() != (output_dir / name).resolve():
         shutil.copyfile(tarball, output_dir / name)
     print(f"{name}: {len(artifact)} bytes, sha256 {digest}")
@@ -986,6 +1025,13 @@ LINUX_SLOTS = (
     Slot("linux-preview", "preview", f"{LINUX_SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json", None,
          LINUX, dev_builds=True),
 )
+# The AppImage's manifests: another directory below the Linux one, the same layout. The AppImage the client replaces is the
+# file build_appimage.py made.
+APPIMAGE_SLOTS = (
+    Slot("appimage-stable", "stable", f"{APPIMAGE_SITE_DIRECTORY}/maicord-stable.manifest.json", None, APPIMAGE),
+    Slot("appimage-preview", "preview", f"{APPIMAGE_SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json", None,
+         APPIMAGE, dev_builds=True),
+)
 
 
 def read_offer(site: Path, slot: Slot, public: bytes, now: int | None = None) -> dict:
@@ -1016,7 +1062,7 @@ def command_channels(arguments) -> None:
     Without it the Linux files on the site are left as they are.
     """
     site = Path(arguments.site)
-    slots = SLOTS + LINUX_SLOTS if arguments.linux else SLOTS
+    slots = SLOTS + LINUX_SLOTS + APPIMAGE_SLOTS if arguments.linux else SLOTS
     expected = cng_p256.parse_public_point(arguments.public_key)
     now = int(time.time())
     changed = []
@@ -1032,7 +1078,7 @@ def command_channels(arguments) -> None:
         source = Path(arguments.publish)
         offers = []
         # The Windows files of the channels, and with --linux the Linux ones.
-        for flavor in (WINDOWS, LINUX) if arguments.linux else (WINDOWS,):
+        for flavor in (WINDOWS, LINUX, APPIMAGE) if arguments.linux else (WINDOWS,):
             for channel in CHANNELS:
                 document = source / f"{flavor.publish_stem}-{channel}.manifest.json"
                 if not document.exists():
@@ -1145,7 +1191,7 @@ def command_verify(arguments) -> None:
     fields = verify_offer(Path(arguments.manifest).read_bytes(), Path(arguments.signature).read_bytes(), public,
                           Path(arguments.artifact).read_bytes() if arguments.artifact else None,
                           now=int(time.time()) if arguments.check_time else None,
-                          flavor=LINUX if arguments.linux else WINDOWS)
+                          flavor=APPIMAGE if arguments.appimage else LINUX if arguments.linux else WINDOWS)
     print(json.dumps(fields, indent=2))
     if arguments.changelog:
         changelog = Path(arguments.changelog)
@@ -1249,7 +1295,11 @@ def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tu
               f"New install: download `MaiCord-{version.semver}-windows-x64.zip`, extract it anywhere and run "
               "`MaiCord.exe`. Existing installs update themselves from Settings > Updates.",
               "",
-              f"`SHA256SUMS.txt` lists every asset's checksum, and `{verify}` checks its build provenance.",
+              f"Linux: see the README's Install section (one-line installer, AppImage, tarball, apt/dnf/pacman repositories); "
+              f"`maicord-{version.semver}-linux-SHA256SUMS.txt` lists the Linux files' checksums. The AppImage and the tarball "
+              "install update themselves from Settings > Updates.",
+              "",
+              f"`SHA256SUMS.txt` lists the Windows assets' checksums, and `{verify}` checks any asset's build provenance.",
               "",
               "MaiCord is an unofficial client. It is not affiliated with or endorsed by Discord, and using "
               "third-party clients may violate Discord's Terms of Service.", ""]
@@ -1308,13 +1358,16 @@ def main(argv: list[str] | None = None) -> int:
     key_options(command)
     command.set_defaults(run=command_release)
 
-    command = sub.add_parser("linux", help="sign the Linux tarball's manifests: a release's, or HEAD's master build (--preview)")
+    command = sub.add_parser("linux", help="sign the Linux package's manifests (the tarball's, or the AppImage's with --appimage): a "
+                                           "release's, or HEAD's master build (--preview)")
     which = command.add_mutually_exclusive_group(required=True)
     which.add_argument("--tag", help="a stable release: the stable and preview manifests")
     which.add_argument("--preview", action="store_true", help="HEAD's master build: the preview manifest, tarball beside it")
     command.add_argument("--repository", default=".", help="with --preview: the checkout whose HEAD names the build")
     command.add_argument("--expect-version", help="with --preview: the version the tarball was built as")
-    command.add_argument("--tarball", required=True, help="maicord-X.Y.Z-linux-x86_64.tar.gz (packaging/build_tarball.py)")
+    command.add_argument("--tarball", required=True, help="the package: maicord-X.Y.Z-linux-x86_64.tar.gz (packaging/build_tarball.py), "
+                         "or with --appimage MaiCord-X.Y.Z-x86_64.AppImage (packaging/appimage/build_appimage.py)")
+    command.add_argument("--appimage", action="store_true", help="the package is an AppImage: its own manifests")
     command.add_argument("--output-dir", required=True)
     command.add_argument("--public-key", help="expected public point (hex); signing fails on mismatch")
     command.add_argument("--issued", type=int, help=argparse.SUPPRESS)
@@ -1360,6 +1413,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--changelog", help="a changelog (with .sig beside it) that must match the manifest")
     command.add_argument("--check-time", action="store_true")
     command.add_argument("--linux", action="store_true", help="a manifest of the Linux package (linux-x64, a tarball)")
+    command.add_argument("--appimage", action="store_true", help="a manifest of the AppImage (linux-x64-appimage)")
     command.set_defaults(run=command_verify)
 
     command = sub.add_parser("portable", help="build the portable first-install ZIP")

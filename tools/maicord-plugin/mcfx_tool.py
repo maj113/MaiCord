@@ -21,6 +21,7 @@ texels; interface 3) beside the HLSL.
 
 Compiling uses fxc.exe when the Windows SDK has it (MAICORD_FXC_EXECUTABLE, the SDK's bin, PATH; the catalog's CI
 uses it, so its bytes are the catalog's), else the in-box d3dcompiler_47.dll through ctypes, so no SDK is needed.
+Both are Windows only: on Linux the DXBC comes from a package a Windows host built (`--dxbc-from`).
 The cost class (light, medium, heavy) is measured on WARP by the catalog's CI; here the static counts show whether
 an effect is likely to be refused.
 
@@ -828,6 +829,7 @@ A MaiCord background effect. `{slug}.hlsl` is the whole effect.
 
 ```
 maicord-plugin effect build      compile it, lint it, write build\\{slug}.mcfx and {slug}.effect
+                                 (Windows; on Linux add --dxbc-from <the Windows .mcfx> and --glsl yes)
 maicord-plugin effect preview    copy the .mcfx into MaiCord's Developer Mode folder (--watch rebuilds on save)
 ```
 
@@ -979,7 +981,8 @@ def add_commands(effect_parser, common) -> None:
 
     def compiler(p):
         p.add_argument("--compiler", choices=("auto", "fxc", "d3dcompiler"), default="auto",
-                       help="auto: fxc.exe when the Windows SDK has it, else the in-box d3dcompiler_47.dll")
+                       help="auto: fxc.exe when the Windows SDK has it, else the in-box d3dcompiler_47.dll "
+                            "(Windows only; on Linux use --dxbc-from)")
         p.add_argument("--glsl", choices=("auto", "yes", "no"), default="auto",
                        help="the GLSL section of interface 4 (Linux clients): auto adds it when the pinned toolchain "
                             "is there (MAICORD_GLSL_TOOLCHAIN, or Linux in a MaiCord checkout), yes requires it, "
@@ -1002,7 +1005,8 @@ def add_commands(effect_parser, common) -> None:
     p = commands.add_parser("preview", help="build and copy the .mcfx into the Developer Mode folder")
     common(p)
     compiler(p)
-    p.add_argument("--dev-folder", help="default: MAICORD_EFFECT_DEV or %%LOCALAPPDATA%%\\MaiCord\\effects\\dev")
+    p.add_argument("--dev-folder", help="default: MAICORD_EFFECT_DEV or %%LOCALAPPDATA%%\\MaiCord\\effects\\dev "
+                                        "($XDG_DATA_HOME/maicord/effects/dev on Linux)")
     p.add_argument("--watch", action="store_true", help="rebuild and copy whenever the HLSL changes")
     p.add_argument("--rounds", type=int, help=argparse.SUPPRESS)
     simulated = p.add_argument_group("simulated inputs", "what every effect reads for @uses clock and appearance, "

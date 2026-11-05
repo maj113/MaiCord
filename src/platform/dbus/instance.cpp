@@ -47,18 +47,14 @@ struct Instance {
 
 Instance g;
 
+// The interface only: object_handle_standard (bus.cpp) adds the node and the standard interfaces.
 const char kApplicationIntrospection[] =
-    "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" "
-    "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n"
-    "<node>\n"
-    " <interface name=\"org.freedesktop.Application\">\n"
-    "  <method name=\"Activate\"><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>\n"
-    "  <method name=\"Open\"><arg type=\"as\" name=\"uris\" direction=\"in\"/><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>\n"
-    "  <method name=\"ActivateAction\"><arg type=\"s\" name=\"action_name\" direction=\"in\"/><arg type=\"av\" name=\"parameter\" direction=\"in\"/>"
-    "<arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>\n"
-    " </interface>\n"
-    " <interface name=\"org.freedesktop.DBus.Introspectable\"/>\n"
-    "</node>\n";
+    "<interface name=\"org.freedesktop.Application\">"
+    "<method name=\"Activate\"><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
+    "<method name=\"Open\"><arg type=\"as\" name=\"uris\" direction=\"in\"/><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
+    "<method name=\"ActivateAction\"><arg type=\"s\" name=\"action_name\" direction=\"in\"/><arg type=\"av\" name=\"parameter\" direction=\"in\"/>"
+    "<arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
+    "</interface>";
 
 u32 text_length(const char* text) noexcept {
     u32 length = 0;

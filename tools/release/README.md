@@ -33,6 +33,10 @@ any Windows machine with Python 3.10 or newer will do.
   the package. At most 64 MiB packed and 192 MiB unpacked. Checked by
   `src/app/update/linux/package.cpp`; `validate_linux_tarball` and `validate_linux_elf` in
   `maicord_release.py` mirror it.
+- **AppImage package**: `MaiCord-<X.Y.Z>-x86_64.AppImage`, the glibc image of
+  `packaging/appimage/build_appimage.py` byte for byte (at most 64 MiB). The client stages it whole beside
+  `$APPIMAGE` after checking the type 2 runtime's identification (`\x7fELF`, `AI\x02` at byte 8);
+  `validate_appimage` also checks the SquashFS behind the runtime's ELF. The install swaps one file, not a tree.
 - **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
   fields `format` (the update protocol, 2), `product`, `arch`, `channel`,
   `version`, `issued`, `expires`, `bytes`, `sha256` and `artifact`; at most 4096
@@ -75,6 +79,9 @@ release. GitHub Pages serves the site of the `update-channels` branch:
 | `updates/p2/linux/maicord-stable.manifest.json[.sig]` | the Linux client's stable channel (its package is the release tarball) |
 | `updates/p2/linux/preview/maicord-preview.manifest.json[.sig]` | the Linux preview feed |
 | `updates/p2/linux/preview/maicord-<X.Y.Z>-dev.<N>-linux-x86_64.tar.gz` | its current master build and the one before it |
+| `updates/p2/linux/appimage/maicord-stable.manifest.json[.sig]` | the glibc AppImage's stable channel (its package is the release's `MaiCord-<X.Y.Z>-x86_64.AppImage`) |
+| `updates/p2/linux/appimage/preview/maicord-preview.manifest.json[.sig]` | the AppImage's preview feed |
+| `updates/p2/linux/appimage/preview/MaiCord-<X.Y.Z>-dev.<N>-x86_64.AppImage` | its current master build and the one before it |
 
 A stable package downloads from its release,
 `https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-p2-<number>.zip`;
@@ -134,6 +141,12 @@ not involved.
   tarball needs no copy on the site (it is a release asset). The changelogs are the
   Windows client's files, which describe versions, so a master build's one document
   serves both; the Linux client shows an older cached one while its feed lags.
+  **The AppImage** has a flavor of its own on the same feed (`maicord_release.py linux --appimage`, `arch`
+  `linux-x64-appimage`, `artifact` `MaiCord-<X.Y.Z>-x86_64.AppImage` as `packaging/appimage/build_appimage.py` names it),
+  signed with the same key and laid out below `updates/p2/linux/appimage/` the way the tarball's are: the `publish` job
+  signs it from the published glibc AppImage, the `preview` job from the `linux` job's dev AppImage, and
+  `update_channels.ps1 -Linux` installs both, with the dev AppImages beside the preview manifest (retired like the
+  tarballs). A reader rejects the other flavor's manifest on `arch` and `artifact`. The musl AppImage is not in the feed.
 - The branch is the only state and holds a single commit: each update replaces
   it, so retired packages leave no history. Writers in different concurrency
   groups lease the push on the commit they read and retry from the new tip.

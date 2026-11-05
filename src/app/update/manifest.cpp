@@ -38,7 +38,14 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = json_value_to_u64(value, &number) && number == kUpdateProtocol;
         break;
     case product: valid = string(value, &text) && utf8_equal(text, utf8_literal("MaiCord")); break;
+#if defined(_WIN32)
     case arch: valid = string(value, &text) && utf8_equal(text, kUpdateManifestArchitecture); break;
+#else
+    case arch:
+        valid = string(value, &text) && (g_update_flavor == UpdateFlavor::appimage ? utf8_equal(text, utf8_literal("linux-x64-appimage"))
+                                                                                  : utf8_equal(text, kUpdateManifestArchitecture));
+        break;
+#endif
     case channel:
         valid = string(value, &text);
         if (valid && utf8_equal(text, utf8_literal("stable"))) parsed.candidate.channel = UpdateChannel::stable;

@@ -15,12 +15,21 @@ review and the client small and fast.
 
 ## Building and testing
 
-Follow [Building from source](README.md#building-from-source). In short:
+Follow [Building from source](README.md#building-from-source). In short, on Windows:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1         # client only
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   # client + whole test suite
 ```
+
+and on Linux (or WSL):
+
+```sh
+tools/build_linux.sh          # client only
+tools/build_linux.sh --test   # client + the Linux test suite
+```
+
+### Windows
 
 - A local build numbers itself from git as CI numbers master builds (see
   [tools/release/README.md](tools/release/README.md#client-configuration)), so
@@ -90,8 +99,8 @@ names it; a unit goes on that list only for a measurement, instructions and best
 more than 2% slower, whose method and numbers the file records), links with the machine outliner, `--icf=all` and `--gc-sections`,
 packs its relative relocations as RELR under the Android tags (no glibc knows them, so `src/core/linux/start.cpp` applies them) and is
 linked `--strip-all`. `tools/build_linux.sh --symbols --keep` keeps the symbol table for `llvm-nm -S --size-sort`;
-`tools/linux_memory_report.py PID` splits a running client's resident memory by mapping (at the login screen the program is about 7 MB;
-the rest is Mesa's). The GLES backend returns freed driver memory after it builds a shader (`heap_trim()`).
+`tools/linux_memory_report.py PID` splits a running client's resident memory by mapping (at the login screen the client is about 165 MB resident; in one run under WSL2 with Mesa's d3d12 driver the program's image was 5.4 MB and its heap 7.5 MB,
+and the rest was the GPU driver's). The GLES backend returns freed driver memory after it builds a shader (`heap_trim()`).
 `tools/audit_linux_reachability.sh` links the client without LTO and lists the code no path from `_start` reaches, by source file, to
 find a feature that a stub or an `#if` cut off on Linux. Report a size change in either client.
 
@@ -134,7 +143,8 @@ commit, not whole executables, since LTO moves code). The enumerators of `GpuFor
 (`src/gpu/gles`, tests `tests/gpu`; see its README). Shaders stay HLSL: `tools/build_gles_shader_pack.py` turns the packed shaders of
 `cmake/generated_sources.cmake` into a deflate-packed GLSL ES 3.10 pack with DXC and SPIRV-Cross, pinned in
 `tools/linux_shader_toolchain.json` and built or fetched into `~/.cache/maicord-toolchain` (`MAICORD_TOOLCHAIN_CACHE`) by
-`tools/fetch_linux_shader_toolchain.py`. A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under
+`tools/fetch_linux_shader_toolchain.py` (a build offline from a distribution's packages names its own DXC and SPIRV-Cross instead: the
+CMake variables `MAICORD_DXC` and `MAICORD_SPIRV_CROSS_PREFIX`, see `packaging/README.md`). A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under
 `tests/gpu/golden` from Direct3D 11 with `tools/update_gpu_goldens.py`, and a change to a shader needs `tools/deflate_cache.txt` to carry the
 new pack's stream (`MAICORD_UPDATE_DEFLATE_CACHE=1 python3 tools/build_gles_shader_pack.py`; CI is strict); the Linux renders must match
 the goldens within the tolerances of the
@@ -211,11 +221,12 @@ installed `-dev` headers; a new `dlopen`ed function needs its table entry and no
 changes with `actionlint` and `zizmor`; keep actions pinned by SHA, permissions minimal and concurrency as it is.
 
 **Packaging** lives in `packaging/` (its README is the reference, with the layout and the steps only the owner can take): the release
-tarball (`build_tarball.py`), the AppImage, the one-line installer, nfpm `.deb`/`.rpm`, signed apt/dnf repositories, a PPA, COPR/OBS,
+tarball (`build_tarball.py`), the AppImage, the one-line installer, nfpm `.deb`/`.rpm`/Arch package, signed apt/dnf/pacman repositories, a PPA, COPR/OBS,
 AUR, Alpine, Void, Gentoo, Flatpak and a Nix flake. `bash packaging/check.sh` (needs squashfs-tools, zsync, openssl, desktop-file-utils,
 appstream; nfpm optional through `packaging/nfpm/install_nfpm.sh`) is the gate without a client. Shipped binaries are built without
-`--test`. The `linux` job of `release.yml` attaches the tarball to the draft release when the repository variable `MAICORD_LINUX_RELEASES`
-is `true`. Only the tarball install carries `.maicord-portable` and so may self-update.
+`--test`. The `linux` job of `release.yml` attaches the tarballs (glibc and musl), the AppImages, the `.deb`, `.rpm` and Arch package, `install.sh` and the checksums to the draft release when the repository variable `MAICORD_LINUX_RELEASES`
+is `true`. Only the tarball install (which carries `.maicord-portable`) and the glibc AppImage (`$APPIMAGE`, in a writable directory; it has
+manifests of its own, `maicord_release.py linux --appimage`) may self-update.
 
 ### The toolchain release
 
@@ -297,7 +308,7 @@ files instead of re-sorting the lists.
   `fetch_page`; use the sitemap/navigation for complete page and section coverage.
 - **Freestanding C++23.** Don't use the STL, the CRT, exceptions or RTTI. Use
   the types in `include/maicord/core`. New Win32 imports need a reason. Every
-  build runs the PE audits in `tools/audit_pe.ps1`.
+  Windows build runs the PE audits in `tools/audit_pe.ps1`, every Linux build the ELF audit in `tools/audit_elf.py`.
 - **No SDK or compiler headers.** Targets (maiopus included) compile with
   `-nostdinc`, so `<Windows.h>`, the C library and the compiler's intrinsic
   headers are not found. Declare the SDK functions, types and constants you use
@@ -320,7 +331,7 @@ files instead of re-sorting the lists.
   is the default (`hidden` rather than `visible = true`, a minus-one count)
   instead of initialising it; `T x;` leaves members unset.
 - Format with the repository `.clang-format` and match the file you are editing.
-- Mention any EXE/DLL size change in the PR description, and back performance
+- Mention any EXE, DLL or Linux image size change in the PR description, and back performance
   changes with before/after numbers from [`tools/perf`](tools/perf/README.md).
 - UI colors, radii and spacing come from theme tokens;
   `tools/check_theme_literals.py` (part of the suite) rejects new literals.
@@ -375,7 +386,8 @@ files instead of re-sorting the lists.
 - Keep each PR to one topic and use imperative commit subjects, for example
   `ui: fix member list scroll clamp`. Labels are added from the changed paths.
 - CI must pass. It builds the Release client, runs the PE audits and runs the
-  whole test suite on Windows.
+  whole test suite on Windows, and builds the Linux client, audits it, runs the Linux suite and the portable
+  tests in the distribution containers.
 - Describe what you checked by hand. Include screenshots for UI changes, with
   personal data and server content redacted.
 - Don't edit `.github/workflows/release.yml` and the signing tools in the same

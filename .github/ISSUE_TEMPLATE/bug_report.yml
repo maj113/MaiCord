@@ -29,6 +29,7 @@ body:
         - Themes
         - Updates and installation
         - Text, fonts and input
+        - System integration (tray, notifications, links, portals, audio devices)
         - Other
     validations:
       required: true
@@ -46,21 +47,42 @@ body:
     id: version
     attributes:
       label: MaiCord version
-      description: Release tag (e.g. v0.1.0) or commit SHA for source builds.
+      description: Release tag (e.g. v0.6.7) or commit SHA for source builds. Settings > Updates shows it, and `MaiCord --version` prints it on Linux.
     validations:
       required: true
   - type: input
-    id: windows
+    id: system
     attributes:
-      label: Windows version
-      placeholder: Windows 11 24H2 (26100.xxxx)
+      label: Windows version, or Linux distribution and kernel
+      placeholder: Windows 11 24H2 (26100.xxxx), or Fedora 43, kernel 6.17
     validations:
       required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install MaiCord?
+      options:
+        - Windows zip
+        - Linux one-line installer
+        - Linux AppImage
+        - Linux tarball
+        - Linux package from the apt, dnf or pacman repository (.deb, .rpm, .pkg.tar.zst)
+        - Nix
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Linux desktop and compositor
+      description: Skip on Windows.
+      placeholder: KDE Plasma 6 (KWin, Wayland), GNOME 49 (Mutter), sway 1.11
   - type: input
     id: gpu
     attributes:
-      label: GPU and display scaling
-      placeholder: NVIDIA RTX 3060, 150% scaling, two monitors
+      label: GPU, driver and display scaling
+      placeholder: NVIDIA RTX 3060, 150% scaling, two monitors; or AMD RX 7800 XT, Mesa 25.2, 125% scaling
   - type: checkboxes
     id: regression
     attributes:
@@ -71,7 +93,7 @@ body:
     id: log
     attributes:
       label: Relevant log lines
-      description: From `%LOCALAPPDATA%\MaiCord\logs\maicord.log`, around the time of the problem. The log holds no tokens, but check it for names you'd rather not share.
+      description: From `%LOCALAPPDATA%\MaiCord\logs\maicord.log` on Windows or `~/.local/state/maicord/logs/maicord.log` (`$XDG_STATE_HOME/maicord/logs`) on Linux, around the time of the problem. The log holds no tokens, but check it for names you'd rather not share.
       render: text
   - type: textarea
     id: extra

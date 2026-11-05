@@ -179,10 +179,10 @@ jobs:
 
   # The Linux assets (packaging/README.md) go onto the same draft as the Windows ones, and the release is published only if
   # they built too: the tarballs (glibc, and the musl retarget of the same program), the AppImage with its zsync file, the
-  # .deb and .rpm, the one-line installer and their checksums. Off until the repository variable MAICORD_LINUX_RELEASES is
+  # .deb, .rpm and Arch package, the one-line installer and their checksums. Off until the repository variable MAICORD_LINUX_RELEASES is
   # 'true'; when it is off this job is skipped and the Windows release is unchanged. When it is on, the publish job also
-  # signs the tarball's own manifests (maicord_release.py linux) and puts them on the update channels
-  # (update_channels.ps1 -Linux), and the client built here is told that they exist, so the tarball install may update
+  # signs the tarball's and the AppImage's own manifests (maicord_release.py linux [--appimage]) and puts them on the update
+  # channels (update_channels.ps1 -Linux), and the client built here is told that they exist, so those installs may update
   # itself from them. Everything shipped comes from the build without --test (the tests' build has test-only switches).
   linux:
     name: Linux packages
@@ -258,7 +258,7 @@ jobs:
         run: |
           set -eu
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends squashfs-tools zsync rpm desktop-file-utils appstream
+          sudo apt-get install -y -qq --no-install-recommends squashfs-tools zsync rpm desktop-file-utils appstream zstd
           sh packaging/nfpm/install_nfpm.sh "$RUNNER_TEMP/tools"
 
       - name: Package
@@ -354,9 +354,9 @@ jobs:
           python -B tools/release/maicord_release.py changelogs --tag $env:TAG --github $env:GH_REPO `
             --output-dir $published --repository . --public-key $env:PUBLIC_KEY
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          # The Linux tarball is on the published release, so its manifests (the Linux entry of the channels) are signed
-          # here, from the published bytes, with the key the Windows ones use. A release that has none leaves the Linux
-          # channels where they are.
+          # The Linux tarball and the AppImage are on the published release, so their manifests (the Linux entries of the
+          # channels) are signed here, from the published bytes, with the key the Windows ones use. A release that has none
+          # leaves those channels where they are.
           if ($env:MAICORD_LINUX_RELEASES -eq 'true') {
             $assets = gh release view $env:TAG --json assets --jq '.assets[].name'
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -370,6 +370,19 @@ jobs:
               if ($LASTEXITCODE) { exit $LASTEXITCODE }
             } else {
               Write-Host "::warning::$env:TAG has no Linux tarball; the Linux channels stay as they are."
+            }
+            # The AppImage updates from manifests of its own (arch linux-x64-appimage, signed with the same key): the glibc
+            # AppImage, not the musl one, which updates through AppImageUpdate.
+            $appimage = $assets | Where-Object { $_ -like 'MaiCord-*-x86_64.AppImage' } | Select-Object -First 1
+            if ($appimage) {
+              $image = Join-Path $env:RUNNER_TEMP 'appimage-published'
+              gh release download $env:TAG --dir $image --pattern "$appimage*"
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+              python -B tools/release/maicord_release.py linux --appimage --tag $env:TAG --tarball (Join-Path $image $appimage) `
+                --output-dir $published --public-key $env:PUBLIC_KEY
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            } else {
+              Write-Host "::warning::$env:TAG has no AppImage; its update channels stay as they are."
             }
           }
           ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish $published `
@@ -398,9 +411,9 @@ jobs:
           echo "::error::A required job (static analysis or the Linux tarball) failed; the $TAG draft was discarded."
           exit 1
 
-  # The signed apt and dnf repositories of the release's .deb and .rpm (packaging/repo), added to the Pages site of the
-  # update-channels branch beside the update channels. Off until the repository variable MAICORD_LINUX_REPOSITORY is 'true'
-  # and the MAICORD_REPO_SIGNING_KEY secret (the armored secret key of the repository, packaging/README.md) is set.
+  # The signed apt, dnf and pacman repositories of the release's .deb, .rpm and Arch package (packaging/repo), added to the Pages
+  # site of the update-channels branch beside the update channels. Off until the repository variable MAICORD_LINUX_REPOSITORY is
+  # 'true' and the MAICORD_REPO_SIGNING_KEY secret (the armored secret key of the repository, packaging/README.md) is set.
   repository:
     name: Linux package repositories
     needs: [publish, linux]
@@ -423,12 +436,14 @@ jobs:
       - name: Install the repository tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends apt-utils createrepo-c gnupg
+          sudo apt-get install -y -qq --no-install-recommends apt-utils createrepo-c gnupg zstd
 
       - name: Download the packages of the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$TAG" --dir "$RUNNER_TEMP/packages" --pattern 'maicord_*_amd64.deb' --pattern 'maicord-*.x86_64.rpm'
+        run: >-
+          gh release download "$TAG" --dir "$RUNNER_TEMP/packages"
+          --pattern 'maicord_*_amd64.deb' --pattern 'maicord-*.x86_64.rpm' --pattern 'maicord-*-x86_64.pkg.tar.zst'
 
       - name: Add them to the site
         id: site

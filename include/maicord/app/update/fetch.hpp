@@ -88,6 +88,9 @@ enum class UpdateAsset : u8 { manifest, signature, package, changelog, changelog
 //   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/preview/maicord-preview.manifest.json[.sig]
 //   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/maicord-<X.Y.Z>-linux-x86_64.tar.gz
 //   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/preview/maicord-<X.Y.Z>-dev.<N>-linux-x86_64.tar.gz
+// The AppImage (g_update_flavor) reads the same layout one directory down, linux/appimage/, and MaiCord-<X.Y.Z>[-dev.<N>]-x86_64.AppImage:
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/linux/appimage/preview/maicord-preview.manifest.json[.sig]
+//   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-<X.Y.Z>-x86_64.AppImage
 bool update_asset_location(Utf8View repository, UpdateChannel, UpdateAsset, u64 version, UpdateLocation*) noexcept;
 // Location header: absolute https on an allowed host, or origin-relative on
 // the current host. github.com and the release-asset hosts redirect among

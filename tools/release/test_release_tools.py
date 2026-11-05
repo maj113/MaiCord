@@ -635,6 +635,194 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(self.channels(site, "--linux"), 1)
         self.assertEqual(self.linux_preview_build(repository, self.root / "wrong", "--expect-version", "9.9.9-dev.1"), 1)
 
+    # ---- the AppImage's manifests, a flavor of their own on the Linux feed
+
+    def appimage_package(self, version: int = 1002003999, runtime: bytes | None = None, image: bytes = b"hsqs") -> tuple[str, bytes]:
+        """An AppImage in the layout the client checks (never run): the type 2 runtime's ELF header, whose section header
+        table ends the runtime, then the SquashFS."""
+        header = bytearray(4096)
+        header[0:4] = b"\x7fELF"
+        header[4], header[5], header[8:11] = 2, 1, b"AI\x02"
+        struct.pack_into("<Q", header, 0x28, 4096 - 64)
+        struct.pack_into("<HH", header, 0x3A, 64, 1)
+        return release.appimage_artifact_name(version), (runtime or bytes(header)) + image + b"\0" * 4096
+
+    def appimage_release(self, out: Path, tag: str = "v1.2.3", *extra: str) -> int:
+        name, package = self.appimage_package(release.parse_tag(tag).number)
+        path = self.root / "appimages" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(package)
+        return self.run_cli("linux", "--appimage", "--tag", tag, "--tarball", str(path), "--output-dir", str(out),
+                            "--key-file", str(self.key_file), *extra)
+
+    def appimage_site_fields(self, site: Path, slot: str) -> dict:
+        document = site / next(entry.manifest for entry in release.APPIMAGE_SLOTS if entry.name == slot)
+        return release.verify_offer(document.read_bytes(), Path(f"{document}.sig").read_bytes(), self.key.public_point,
+                                    flavor=release.APPIMAGE)
+
+    def test_appimage_names_manifest_and_package_checks(self):
+        self.assertEqual(release.appimage_artifact_name(1002003999), "MaiCord-1.2.3-x86_64.AppImage")
+        self.assertEqual(release.appimage_artifact_name(1002003005), "MaiCord-1.2.3-dev.5-x86_64.AppImage")
+        for bad in (1002003000, 1000000000999):
+            with self.assertRaises(release.ReleaseError):
+                release.appimage_artifact_name(bad)
+        self.assertEqual(release.appimage_package_number("MaiCord-1.2.3-x86_64.AppImage"), 1002003999)
+        self.assertEqual(release.appimage_package_number("MaiCord-1.2.3-dev.5-x86_64.AppImage"), 1002003005)
+        self.assertIsNone(release.appimage_package_number("MaiCord-1.2.3-x86_64-musl.AppImage"))
+        self.assertIsNone(release.appimage_package_number("maicord-1.2.3-linux-x86_64.tar.gz"))
+        digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        document = release.render_manifest(6, "stable", 90, 200, 4096, digest, release.appimage_artifact_name(6), release.APPIMAGE)
+        self.assertEqual(document, CLIENT_FIXTURE_DOCUMENT.replace(b'"x64"', b'"linux-x64-appimage"').replace(
+            b"MaiCord-x64-p2-6.zip", b"MaiCord-0.0.0-dev.6-x86_64.AppImage"))
+        self.assertEqual(release.parse_manifest(document, release.APPIMAGE)["arch"], "linux-x64-appimage")
+        # Each reader takes only its own manifest, though all are signed with the same key.
+        for other in (None, release.LINUX):
+            with self.assertRaises(release.ReleaseError):
+                release.parse_manifest(document, other) if other else release.parse_manifest(document)
+        tarball_document = release.render_manifest(6, "stable", 90, 200, 4096, digest, release.linux_artifact_name(6), release.LINUX)
+        with self.assertRaises(release.ReleaseError):
+            release.parse_manifest(tarball_document, release.APPIMAGE)
+        # The package: the runtime's identification and a SquashFS where the runtime's ELF ends.
+        name, package = self.appimage_package()
+        release.validate_appimage(package, name)
+        broken = bytearray(package)
+        broken[9] = ord("X")
+        for label, bad in (("not a type 2 runtime", bytes(broken)), ("no SquashFS", self.appimage_package(image=b"nope")[1]),
+                           ("truncated", package[:2000]), ("an ELF without the AppImage marks", fake_elf()),
+                           ("a tarball", self.linux_package()[1])):
+            with self.assertRaises(release.ReleaseError, msg=label):
+                release.validate_appimage(bad, name)
+        with self.assertRaises(release.ReleaseError):
+            release.validate_appimage(package, "MaiCord-1.2.3-x86_64.zip")
+
+    def test_appimage_release_signs_and_verifies_each_channel(self):
+        out = self.root / "dist"
+        public = self.key.public_point.hex()
+        self.assertEqual(self.appimage_release(out, "v1.2.3", "--public-key", public), 0)
+        name = release.appimage_artifact_name(1002003999)
+        package = (self.root / "appimages" / name).read_bytes()
+        for channel in ("stable", "preview"):
+            stem = f"maicord-appimage-{channel}.manifest.json"
+            document, signature = (out / stem).read_bytes(), (out / f"{stem}.sig").read_bytes()
+            fields = release.verify_offer(document, signature, self.key.public_point, package, flavor=release.APPIMAGE)
+            self.assertEqual((fields["channel"], fields["version"], fields["artifact"], fields["arch"]),
+                             (channel, 1002003999, name, "linux-x64-appimage"))
+            self.assertEqual(self.run_cli("verify", "--manifest", str(out / stem), "--signature", str(out / f"{stem}.sig"),
+                                          "--public-key", public, "--artifact", str(self.root / "appimages" / name),
+                                          "--appimage"), 0)
+            # Neither the tarball's reader nor the Windows one takes it.
+            for other in (release.LINUX, release.WINDOWS):
+                with self.assertRaises(release.ReleaseError):
+                    release.verify_offer(document, signature, self.key.public_point, flavor=other)
+        # A file not named for the tag, a tarball under the AppImage's name, one the sidecar disowns and the wrong key.
+        wrong = self.root / "appimages" / release.appimage_artifact_name(1002004999)
+        wrong.write_bytes(package)
+        self.assertEqual(self.run_cli("linux", "--appimage", "--tag", "v1.2.3", "--tarball", str(wrong), "--output-dir",
+                                      str(self.root / "bad"), "--key-file", str(self.key_file)), 1)
+        self.assertEqual(self.run_cli("linux", "--tag", "v1.2.3", "--tarball", str(self.root / "appimages" / name),
+                                      "--output-dir", str(self.root / "bad"), "--key-file", str(self.key_file)), 1)
+        sidecar = self.root / "appimages" / f"{name}.sha256"
+        sidecar.write_text("0" * 64 + f"  {name}\n", encoding="ascii")
+        self.assertEqual(self.appimage_release(self.root / "bad", "v1.2.3"), 1)
+        sidecar.write_text(hashlib.sha256(package).hexdigest() + f"  {name}\n", encoding="ascii")
+        self.assertEqual(self.appimage_release(self.root / "bad", "v1.2.3", "--public-key", self.other.public_point.hex()), 1)
+        (self.root / "appimages" / name).write_bytes(self.linux_package()[1])
+        self.assertEqual(self.run_cli("linux", "--appimage", "--tag", "v1.2.3", "--tarball", str(self.root / "appimages" / name),
+                                      "--output-dir", str(self.root / "bad"), "--key-file", str(self.key_file)), 1)
+        self.assertFalse((self.root / "bad").exists())
+
+    def test_channels_publish_the_appimage_manifests_beside_the_linux_ones(self):
+        stable, linux, image = self.root / "stable", self.root / "linux", self.root / "image"
+        self.release_to("v1.2.0", stable)
+        self.assertEqual(self.linux_release(linux, "v1.2.0"), 0)
+        self.assertEqual(self.appimage_release(image, "v1.2.0"), 0)
+        both = self.root / "both"
+        both.mkdir()
+        for directory in (stable, linux, image):
+            for path in directory.iterdir():
+                shutil.copyfile(path, both / path.name)
+        site = self.root / "site"
+        linux_directory = site / "updates" / "p2" / "linux"
+        self.assertEqual(self.channels(site, "--publish", str(both)), 0)
+        self.assertFalse(linux_directory.exists())
+        self.assertEqual(self.channels(site, "--publish", str(both), "--linux"), 0)
+        self.assertEqual(sorted(path.name for path in linux_directory.iterdir()),
+                         ["appimage", "maicord-stable.manifest.json", "maicord-stable.manifest.json.sig", "preview"])
+        self.assertEqual(sorted(path.name for path in (linux_directory / "appimage").iterdir()),
+                         ["maicord-stable.manifest.json", "maicord-stable.manifest.json.sig", "preview"])
+        self.assertEqual({slot.name: self.appimage_site_fields(site, slot.name)["version"] for slot in release.APPIMAGE_SLOTS},
+                         {"appimage-stable": 1002000999, "appimage-preview": 1002000999})
+        # The tarball's feed is its own: its manifests still say linux-x64.
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["arch"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": "linux-x64", "linux-preview": "linux-x64"})
+        # A newer release moves both of its channels and never back.
+        newer, older = self.root / "newer", self.root / "older"
+        self.assertEqual(self.appimage_release(newer, "v1.3.0"), 0)
+        self.assertEqual(self.appimage_release(older, "v1.1.0"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(newer), "--linux"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(older), "--linux"), 0)
+        self.assertEqual({slot.name: self.appimage_site_fields(site, slot.name)["version"] for slot in release.APPIMAGE_SLOTS},
+                         {"appimage-stable": 1003000999, "appimage-preview": 1003000999})
+        self.assertEqual({slot.name: self.linux_site_fields(site, slot.name)["version"] for slot in release.LINUX_SLOTS},
+                         {"linux-stable": 1002000999, "linux-preview": 1002000999})
+        # The tarball's manifest at the AppImage's name, and the reverse, are refused outright.
+        for source, target in (("linux", "appimage"), ("appimage", "linux")):
+            swapped = self.root / f"swapped-{source}"
+            swapped.mkdir()
+            for suffix in (".manifest.json", ".manifest.json.sig"):
+                shutil.copyfile((linux if source == "linux" else image) / f"maicord-{source}-stable{suffix}",
+                                swapped / f"maicord-{target}-stable{suffix}")
+            self.assertEqual(self.channels(site, "--publish", str(swapped), "--linux"), 1)
+        # Expiring AppImage manifests are re-signed with the rest when the flag is given.
+        short = self.root / "short"
+        self.assertEqual(self.appimage_release(short, "v2.0.0", "--validity-days", "10"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(short), "--linux"), 0)
+        old = self.appimage_site_fields(site, "appimage-stable")
+        self.assertEqual(self.channels(site, "--refresh-within-days", "30", "--linux"), 0)
+        new = self.appimage_site_fields(site, "appimage-stable")
+        self.assertGreater(new["expires"], old["expires"])
+
+    def test_channels_serve_appimage_master_builds_on_the_appimage_preview_feed_only(self):
+        repository = self.git_repository()
+        site = self.root / "site"
+        feed = site / "updates" / "p2" / "linux" / "appimage" / "preview"
+        stable_out = self.root / "stable"
+        self.release_to("v1.2.0", stable_out)
+        self.assertEqual(self.appimage_release(stable_out, "v1.2.0"), 0)
+        self.assertEqual(self.channels(site, "--publish", str(stable_out), "--linux"), 0)
+        builds = []
+        for index in range(3):
+            out = self.root / f"dev{index}"
+            identity = release.build_identity(repository, "HEAD")
+            name, package = self.appimage_package(identity.number)
+            path = self.root / "appimages" / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(package)
+            self.assertEqual(self.run_cli("linux", "--appimage", "--preview", "--tarball", str(path), "--output-dir", str(out),
+                                          "--repository", str(repository), "--key-file", str(self.key_file)), 0)
+            builds.append(out)
+            self.assertEqual(self.channels(site, "--publish", str(out), "--linux"), 0)
+            self.commit(repository, f"Change number {index}")
+        versions = {slot.name: self.appimage_site_fields(site, slot.name)["version"] for slot in release.APPIMAGE_SLOTS}
+        self.assertEqual(versions, {"appimage-stable": 1002000999, "appimage-preview": 1002001005})
+        # The current AppImage and the one before it stay; older ones go. The tarball feed keeps to its own files.
+        self.assertEqual(sorted(path.name for path in feed.glob("*.AppImage")),
+                         ["MaiCord-1.2.1-dev.4-x86_64.AppImage", "MaiCord-1.2.1-dev.5-x86_64.AppImage"])
+        self.assertFalse((site / "updates" / "p2" / "linux" / "preview").exists())
+        fields = self.appimage_site_fields(site, "appimage-preview")
+        self.assertEqual(hashlib.sha256((feed / fields["artifact"]).read_bytes()).hexdigest(), fields["sha256"])
+        # A dev manifest on the stable channel, and one without its package, are refused.
+        bad = self.root / "bad"
+        bad.mkdir()
+        for name in ("maicord-appimage-preview.manifest.json", "maicord-appimage-preview.manifest.json.sig"):
+            (bad / name.replace("preview", "stable")).write_bytes((builds[2] / name).read_bytes())
+        self.assertEqual(self.channels(site, "--publish", str(bad), "--linux"), 1)
+        lonely = self.root / "lonely"
+        lonely.mkdir()
+        for name in ("maicord-appimage-preview.manifest.json", "maicord-appimage-preview.manifest.json.sig"):
+            (lonely / name).write_bytes((builds[2] / name).read_bytes())
+        self.assertEqual(self.channels(site, "--publish", str(lonely), "--linux"), 1)
+
     def release_to(self, tag: str, out: Path, *extra: str) -> None:
         self.assertEqual(self.run_cli("release", "--tag", tag, "--binaries", str(self.binaries), "--output-dir", str(out),
                                       "--key-file", str(self.key_file), *extra), 0)

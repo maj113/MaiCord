@@ -14,13 +14,38 @@ AppStream metadata. Everything that ships is built **without `--test`** (a test 
 | any distribution, one file | download `MaiCord-<version>-x86_64.AppImage` from the [latest release](https://github.com/maj113/MaiCord/releases/latest), `chmod +x`, run it; `./MaiCord-….AppImage --integrate` adds the menu entry and the `discord://` handler |
 | Debian, Ubuntu, Mint | `sudo curl -fsSLo /etc/apt/sources.list.d/maicord.sources https://maj113.github.io/MaiCord/repo/maicord.sources && sudo apt update && sudo apt install maicord` |
 | Fedora, openSUSE, RHEL-likes | `sudo curl -fsSLo /etc/yum.repos.d/maicord.repo https://maj113.github.io/MaiCord/repo/maicord.repo && sudo dnf install maicord` (openSUSE: `zypper addrepo` the same file) |
-| Arch | `yay -S maicord-bin` (or `maicord`, the source build) |
+| Arch, Manjaro, EndeavourOS | add the signed pacman repository (the steps below), then `sudo pacman -Syu maicord` |
 | NixOS, Nix | `nix run 'github:maj113/MaiCord?dir=packaging/nix'` |
 | Alpine, Void (musl) | the `-musl` tarball or AppImage of the release; `alpine/APKBUILD` and `void/maicord-bin/template` build packages of it |
 
+**Arch: the pacman repository.** The AUR is closed to new accounts, so Arch users get a self-hosted, signed repository (the package is
+the release's `maicord-<version>-1-x86_64.pkg.tar.zst`). Import and locally sign the repository key, add the section, install:
+
+```sh
+curl -fsSL https://maj113.github.io/MaiCord/repo/maicord.asc | sudo pacman-key --add -
+sudo pacman-key --lsign-key 27EFAD9C252F3E39887CA28EACB877AA84964FC8
+printf '\n[maicord]\nSigLevel = Required\nServer = https://maj113.github.io/MaiCord/repo/arch/$arch\n' | sudo tee -a /etc/pacman.conf >/dev/null
+sudo pacman -Syu maicord
+```
+
+Or edit `/etc/pacman.conf` yourself and append:
+
+```ini
+[maicord]
+SigLevel = Required
+Server = https://maj113.github.io/MaiCord/repo/arch/$arch
+```
+
+`--lsign-key` takes the fingerprint, so only the key with that fingerprint is trusted, whatever else `maicord.asc` holds (`pacman-key
+--recv-keys 27EFAD9C252F3E39887CA28EACB877AA84964FC8` fetches it from a keyserver instead of the site, once the key is on one).
+`SigLevel = Required` makes pacman refuse a package or a database that is unsigned or not signed by that key; the database is
+signed too, so the stricter line works, and `Required DatabaseOptional` would only loosen it. The last three versions stay in the
+repository (`sudo pacman -U https://maj113.github.io/MaiCord/repo/arch/x86_64/maicord-<version>-1-x86_64.pkg.tar.zst` to go back).
+
 All of these need kernel 6.1 or newer, Wayland, and the system libraries listed under *What the program opens*. The installer,
-the AppImage and the tarball need no package manager; the others are updated by it. The repository and AUR rows work once
-the owner has done the steps in *Owner checklist* below.
+the AppImage and the tarball need no package manager; the others are updated by it. The repository rows work once the owner has
+done the steps in *Owner checklist* below (the Arch repository with the next release); the AUR packages wait for the AUR to
+accept new accounts again.
 
 ## What is here
 
@@ -30,11 +55,11 @@ the owner has done the steps in *Owner checklist* below.
 | `tarball/install.sh`, `uninstall.sh` | per-user install under `~/.local`, copied into the tarball |
 | `online/install.sh.in`, `render_installer.py`, `test_installer.py` | the one-line installer (the release job renders it with the update key) and its test |
 | `appimage/` | `build_appimage.py`, `AppRun`, `runtime.json` (the pinned type 2 runtime and the zsync update information) |
-| `nfpm/` | `.deb` and `.rpm` from the tarball (`nfpm.yaml`, `build.sh`, `install_nfpm.sh` pins nfpm) |
-| `repo/` | `build_repo.py` makes the signed apt and dnf/zypper repositories, `publish_site.sh` puts them on the Pages site |
+| `nfpm/` | `.deb`, `.rpm` and Arch `.pkg.tar.zst` from the tarball (`nfpm.yaml`, `build.sh`, `install_nfpm.sh` pins nfpm) |
+| `repo/` | `build_repo.py` makes the signed apt, dnf/zypper and pacman repositories, `publish_site.sh` puts them on the Pages site, `test_pacman_repo.sh` tests the pacman one in an `archlinux` container |
 | `debian/` | the `debian/` directory and `build_source.sh` for a Launchpad PPA (source package around the release tarball) |
 | `rpm/` | `maicord.spec` for COPR and the openSUSE Build Service, `_service` (OBS download), `.copr/Makefile` |
-| `aur/maicord-bin`, `aur/maicord` | the Arch User Repository packages: the tarball, and a source build with Arch's LLVM 23 |
+| `aur/maicord-bin`, `aur/maicord` | the Arch User Repository packages: the tarball, and a source build with Arch's LLVM 23 (kept for when the AUR accepts new accounts again; not published) |
 | `alpine/APKBUILD`, `void/maicord-bin/template`, `gentoo/*.ebuild` | musl and source-distribution packages of the tarball (untested where a note says so) |
 | `flatpak/`, `nix/` | the Flatpak manifest (not for Flathub, see below) and the Nix flake |
 | `metainfo/` | the AppStream template (`@RELEASES@` is filled per version) |
@@ -56,7 +81,7 @@ uninstall; `uninstall.sh --purge` removes it too.
 
 **The self-updating channel marker.** `.maicord-portable` is a file next to the executable whose first line is
 `maicord-portable 1`. Only the tarball install has it: the package managers' files are theirs, and an AppImage is a read-only
-mount. The updater (`application_update_build_config()`, `src/app/update/entry.cpp`) enables itself only when the marker is in the
+mount (its own gate, `$APPIMAGE`, is under "The AppImage"). The updater (`application_update_build_config()`, `src/app/update/entry.cpp`) enables itself only when the marker is in the
 directory of the real executable (`readlink /proc/self/exe`), that directory is writable, the process is not musl and the build was
 told the release channels carry the tarball (`MAICORD_LINUX_UPDATES_PUBLISHED`, from the `MAICORD_LINUX_RELEASES` variable at
 configure time; `update_portable_gate`, `src/app/update/linux/portable.cpp`). `maicord_release.py linux` signs, with the Windows
@@ -85,14 +110,23 @@ information into the runtime's `.upd_info` section, the bytes `appimagetool` wri
   (not the mount, which changes with every launch): `desktop_appimage_path` in `src/platform/desktop/linux/integration.cpp`
   (it counts only when the running program is inside `$APPDIR`, so a MaiCord started from another AppImage's shell is not
   mistaken). AppImageLauncher, Gear Lever and Dolphin integrate AppImages themselves from the same desktop entry.
-* **Updates: AppImageUpdate, not the in-app updater.** The runtime carries
+* **Updates: in the app, or AppImageUpdate.** The glibc AppImage updates itself like the tarball install, from manifests of
+  its own: `maicord_release.py linux --appimage` signs, with the same key, a stable and a preview manifest (`arch`
+  `linux-x64-appimage`, `artifact` `MaiCord-<X.Y.Z>-x86_64.AppImage`) into `updates/p2/linux/appimage/` (a development build's AppImage
+  sits beside the preview manifest; a stable one is the release's asset). The updater turns on only when `$APPIMAGE` names a regular
+  file in a directory this user can write, the program runs from that AppImage's mount (`desktop_appimage_path`), the process is
+  not musl and the build was told the channels carry the packages (`update_appimage_install` in `update_portable_gate`,
+  `src/app/update/linux/portable.cpp`); an AppImage in an unwritable directory shows the updater's "can't update" state, so
+  does a build without the channels. It downloads through the same pipeline (signature, freshness, rollback floor, SHA-256),
+  checks the runtime's identification (`AI\x02` at byte 8) and stages the file as `<APPIMAGE>.update` (mode 0755) beside the
+  AppImage; at exit the AppImage moves to `<APPIMAGE>.old` and the stage takes its path (`update_swap` in `stage.cpp`, one item; the
+  old file is deleted at the next start), and the program `execve`s `$APPIMAGE`, not `/proc/self/exe`. The file keeps its name, so
+  a launcher's entry stays valid, and the version in the name goes stale. The musl AppImage is not in the feed: it keeps the
+  update information below. The runtime carries
   `gh-releases-zsync|maj113|MaiCord|latest|MaiCord-*-x86_64.AppImage.zsync` (a development build carries none), so
   `appimageupdatetool`, Gear Lever, AppManager and AppImageLauncher update the file in place with a zsync delta from the release's
-  `.zsync`. The in-app updater stays off for an AppImage (no marker beside the mount): replacing the file would need a second
-  manifest flavor (`maicord_release.py`, the channel slots, the site layout) and a second package reader and swap in a client
-  that is at its 6.5 MB limit (the Linux client was 3 KB under it when this was decided), for an update path the AppImage tools already provide. The cost: a zsync download is
-  checked against GitHub's HTTPS and SHA-1 from the `.zsync`, not against MaiCord's own signing key as the tarball's updates
-  are; the release's `SHA256SUMS` and build provenance attestation cover the file for anyone who checks.
+  `.zsync`; that download is checked against GitHub's HTTPS and SHA-1 from the `.zsync`, not against MaiCord's own signing key as
+  the in-app updates are; the release's `SHA256SUMS` and build provenance attestation cover the file for anyone who checks.
 * **Start-up.** The FUSE mount and `AppRun` (a shell script that `exec`s the program) add about 6 ms to a launch (a stand-in that exits
   at once: 1.3 ms directly, 7.5 ms through the AppImage, on a busy machine); nothing after. `APPIMAGE_EXTRACT_AND_RUN=1` also writes the
   whole image to `$TMPDIR` on every launch, which costs more (the program is 6.5 MB).
@@ -120,23 +154,47 @@ and its `.sha256`, or use the AppImage or a package. Both routes are in the READ
 All of them install the tarball's contents and leave the marker out; `depends` are what the program cannot start without (the C
 library, OpenSSL, the Wayland client libraries, xkbcommon, EGL and GLESv2), everything it `dlopen`s is recommended or suggested.
 
-* **`.deb` and `.rpm` (`nfpm/`).** `build.sh <tarball> <dir>` runs the pinned [nfpm](https://nfpm.goreleaser.com/). The rpm's
+* **`.deb`, `.rpm` and Arch package (`nfpm/`).** `build.sh <tarball> <dir>` runs the pinned [nfpm](https://nfpm.goreleaser.com/). The rpm's
   dependencies are library capabilities (`libssl.so.3()(64bit)`, `libEGL.so.1()(64bit)`, ...), which resolve on Fedora, openSUSE
-  and the like; the package owns its directories.
-* **Signed repositories (`repo/`).** `build_repo.py` writes `repo/apt` (pool, `dists/stable`, `InRelease`, `Release.gpg`) and `repo/rpm`
-  (`createrepo_c`, `repomd.xml.asc`, each rpm signed with `rpmsign`, `gpgcheck=1 repo_gpgcheck=1`), plus `maicord.gpg`/`.asc`,
-  the deb822 `maicord.sources` (the key inline) and `maicord.repo`. The newest three versions stay. The secret key is the armored
-  key in the `MAICORD_REPO_SIGNING_KEY` secret (`MAICORD_REPO_SIGNING_PASSPHRASE` if it has one). `publish_site.sh` checks out the
-  `update-channels` branch, runs the generator and pushes one parentless commit (leased, retried), like `update_channels.ps1`;
-  the `repository` job of `release.yml` runs it after the release is published (variable `MAICORD_LINUX_REPOSITORY` = `true`).
-  Tested with a throwaway key in containers: `apt install` on Ubuntu 24.04, 22.04 and Debian 12 (a changed pool file and an unknown
-  key are refused), `dnf install` on Fedora and `zypper` on Tumbleweed, removal leaves nothing.
+  and the like; the package owns its directories. The Arch package, `maicord-<version>-1-x86_64.pkg.tar.zst` from nfpm's `archlinux`
+  packager, has the same files and the `depends` and `optdepends` (with their descriptions) of the AUR `maicord-bin`; being the
+  package called `maicord`, it needs no `provides` or `conflicts` (`maicord-bin` conflicts with it). Three nfpm quirks are worked
+  around: it writes a `tree`'s directories to `.MTREE` with the Go directory flag in the mode (20000000755), which `pacman -Qkk`
+  reports, so `nfpm.yaml` names `fonts/` and `licenses/` and globs their files; it stamps `.MTREE` and the tar headers from two
+  clock readings that can differ by a second ("Modification time mismatch" for the link), so `build.sh` runs it with
+  `SOURCE_DATE_EPOCH` set to the tarball's time (the package is then reproducible); and it has no `pkgdesc` of its own, so
+  `pacman -Si` shows the long description on one line.
+* **Signed repositories (`repo/`).** `build_repo.py` writes `repo/apt` (pool, `dists/stable`, `InRelease`, `Release.gpg`), `repo/rpm`
+  (`createrepo_c`, `repomd.xml.asc`, each rpm signed with `rpmsign`, `gpgcheck=1 repo_gpgcheck=1`) and `repo/arch/x86_64` (below), plus
+  `maicord.gpg`/`.asc`, the deb822 `maicord.sources` (the key inline) and `maicord.repo`. The newest three versions stay. The secret key
+  is the armored key in the `MAICORD_REPO_SIGNING_KEY` secret (`MAICORD_REPO_SIGNING_PASSPHRASE` if it has one). `publish_site.sh`
+  checks out the `update-channels` branch, runs the generator and pushes one parentless commit (leased, retried), like
+  `update_channels.ps1`; the `repository` job of `release.yml` runs it after the release is published (variable
+  `MAICORD_LINUX_REPOSITORY` = `true`). Tested with a throwaway key in containers: `apt install` on Ubuntu 24.04, 22.04 and Debian 12
+  (a changed pool file and an unknown key are refused), `dnf install` on Fedora and `zypper` on Tumbleweed, removal leaves nothing.
+* **Pacman repository (`repo/arch/x86_64`).** Arch's AUR is closed to new accounts (and has been frozen for pushes), so the
+  release carries its own pacman repository, with the user steps under *Installing*. `build_repo.py` copies the package in, signs
+  it (a detached binary `.sig` with the repository key), keeps the newest three versions with their signatures, and writes the
+  database `maicord.db.tar.gz` and the files database `maicord.files.tar.gz` itself, in `repo-add`'s format and with no Arch system
+  (the release job runs on Ubuntu): a gzip tar of `maicord-<version>/desc` (`%FILENAME%`, `%NAME%`, `%BASE%`, `%VERSION%`, `%DESC%`,
+  `%CSIZE%`, `%ISIZE%`, `%SHA256SUM%`, `%PGPSIG%` (the package signature in base64), `%URL%`, `%LICENSE%`, `%ARCH%`, `%BUILDDATE%`,
+  `%PACKAGER%`, `%DEPENDS%`, `%OPTDEPENDS%`, ... in that order) and, in the files database, `files` (`%FILES%`, the package's
+  members but the dot files), signed as `maicord.db.tar.gz.sig` and `maicord.files.tar.gz.sig`. Like `repo-add`, the database lists
+  the newest version only (the older packages stay as files for `pacman -U`). pacman fetches `maicord.db`, `maicord.db.sig` and, for
+  `pacman -F`, the `.files` pair; `repo-add` makes those symlinks, GitHub Pages has none, so they are copies of the `.tar.gz`
+  files. Tested with `test_pacman_repo.sh` against a throwaway key, a local HTTP server and the `archlinux` image (`SigLevel =
+  Required`): `pacman -Syu maicord` with the key imported and locally signed, `maicord --version` of the stand-in program,
+  `pacman -Qkk` clean, `pacman -F usr/bin/maicord`, the upgrade to the next version, `pacman -Rn` leaving nothing; a package with
+  one changed byte, a database with appended bytes, a database signed by another key and a database without its `.sig` are each
+  refused and leave nothing installed; and the `desc` and `files` entries and the member lists are identical to what `repo-add
+  --include-sigs` writes from the same package and signature.
 * **PPA (`debian/`).** `build_source.sh --tarball … --series noble --maintainer 'Name <address>'` makes the source package (orig
   tarball = the release tarball, `debian/` installs its contents; no compiler is needed, which is why it works on a builder without
   LLVM 23). Tested: `dpkg-source -x`, `dpkg-buildpackage -b` and install in `ubuntu:24.04`.
 * **COPR and OBS (`rpm/`).** `maicord.spec` installs the tarball for Fedora and openSUSE (one spec); `rpm/.copr/Makefile` is the COPR
   "make srpm" step and `_service` the OBS download. Tested: `rpmbuild -bb`, install and removal on Fedora and Tumbleweed.
-* **AUR (`aur/`).** `maicord-bin` takes the tarball (Arch's rule: prebuilt means `-bin`, [AUR submission
+* **AUR (`aur/`), deferred.** Account registration is closed, so nothing is published there; the directory stays for when it opens
+  (owner checklist). `maicord-bin` takes the tarball (Arch's rule: prebuilt means `-bin`, [AUR submission
   guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)); tested with `makepkg`, `namcap`, `pacman -U` and `-R` in
   `archlinux`. `maicord` builds from source with Arch's own clang, lld and llvm (23.1.x:
   [llvm](https://archlinux.org/packages/extra/x86_64/llvm/), [clang](https://archlinux.org/packages/extra/x86_64/clang)): DXC and
@@ -147,8 +205,47 @@ library, OpenSSL, the Wayland client libraries, xkbcommon, EGL and GLESv2), ever
   (`net-im/maicord-bin` in the GURU overlay). They are set up for a personal repository: all three distributions build official packages
   from source, and none has LLVM 23 and DXC.
 * **Flatpak (`flatpak/`).** For a self-hosted repository or a `.flatpak` bundle, not Flathub (below).
-* **Nix (`nix/`).** The flake: the source build with `llvmPackages_23` and the pinned shader toolchain made offline, and `-bin`. `buildTests`
-  defaults to `false`; only `build-check` (a test image, never shipped) sets it.
+* **Nix (`nix/`) and nixpkgs.** `nix/package.nix` is the recipe that nixpkgs' `pkgs/by-name/ma/maicord/package.nix` is made from (the
+  two differ only in where `src` and `version` come from (arguments here, `fetchFromGitHub` there) and in `maintainers`) and
+  `nix/gpu-tests.nix` is its `passthru.tests.gpu`; the flake adds `-bin` and a `gpu-tests` output. Both build with `llvmPackages_23`
+  and translate the shaders with nixpkgs' own `directx-shader-compiler` and `spirv-cross` (below). Keep the two copies in step:
+  `diff packaging/nix/package.nix <nixpkgs>/pkgs/by-name/ma/maicord/package.nix` shows only those lines.
+
+### Building from source in a distribution
+
+`tools/build_linux.sh` is the project's own entry (it refuses any LLVM major but 23 and expects the pinned downloads); a
+distribution that builds offline from its own packages calls CMake directly, which is all the Nix recipe does:
+
+```
+cmake -S SRC -B BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_AR=llvm-ar -DCMAKE_RANLIB=llvm-ranlib \
+    -DMAICORD_DXC=/path/to/dxc -DMAICORD_SPIRV_CROSS_PREFIX=/prefix/of/spirv-cross
+cmake --build BUILD
+```
+
+* **Compiler.** clang and ld.lld 23, as the contract is written for (`-nostdinc`, MaiCord's own headers, its own `_start`): the
+  plain compilers, not a distribution wrapper that adds libc paths, hardening flags and a program interpreter at link time.
+  `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` is for a clang that cannot link a hosted program on its own.
+* **BUILD is outside SRC** (`generate_unicode_emoji_catalog.py` refuses to write into the source tree).
+* **Shader tools.** `MAICORD_DXC` (the `dxc` executable) and `MAICORD_SPIRV_CROSS_PREFIX` (an install with
+  `include/spirv_cross/spirv_glsl.hpp`, `lib/libspirv-cross-glsl.a` and `-core.a`) are set together and replace the pins of
+  `tools/linux_shader_toolchain.json`: nothing is fetched, and only `mc_shadertool` is compiled, against that SPIRV-Cross, with
+  the hosted C++ compiler named by `$CXX` (not the freestanding clang) into `$MAICORD_TOOLCHAIN_CACHE` (a writable directory;
+  the default is under `$HOME`). With nixpkgs' DXC 1.10.2605.37 and SPIRV-Cross 1.4.363.0 (the pinned SPIRV-Cross version) the GLSL
+  pack is the pinned toolchain's, byte for byte (the `tools/deflate_cache.txt` stream is found), and the GPU tests of `tests/gpu`
+  (`sync`, `clear_readback`, `shader_pack`, `ui_quads`, `glyphs`, `media`, `effects`, `bitmap_glyph`) pass on Mesa's llvmpipe in a
+  sandbox. Another version that emits other GLSL still works (the pack is deflated with zlib instead, and a warning says so); run
+  the GPU tests with it.
+* **Version and updater.** Set `MAICORD_UPDATE_VERSION=X.Y.Z` in the environment of the configure step (there is no git checkout to
+  number the build from; `MaiCord --version` prints it), and leave `MAICORD_LINUX_RELEASES` unset: the build then never enables the
+  self-updater, which in any case needs the `.maicord-portable` marker only the tarball has.
+* **Install** `MaiCord` with `fonts/` and `licenses/` beside it (the program reads them next to its real executable, so a `bin/`
+  link to `lib/<name>/MaiCord` works and a copy of the program elsewhere does not), `BUILD/packaging/{applications,icons}` into
+  `share/` (target `maicord_desktop_entry`, part of `all`) and the metainfo from `metainfo/*.in` with `@RELEASES@` replaced by a
+  `<releases>` element or nothing. Never install the marker. Run `tools/audit_elf.py --no-test-hooks BUILD/MaiCord` before the
+  distribution patches the interpreter or adds a run path (the audit forbids RUNPATH); the image is linked stripped already.
+* **Run-time libraries** are all `dlopen`ed by soname (below); a distribution that sets no loader search path itself can name
+  directories in `MAICORD_LIBRARY_PATH`, or give the image a RUNPATH after the audit, as the Nix recipe does.
 
 ### What the program opens
 
@@ -160,56 +257,67 @@ hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the porta
 | Channel | Builds from source? | Who acts | Effort | Here |
 | --- | --- | --- | --- | --- |
 | GitHub release assets, `install.sh`, AppImage | no (the release job builds with LLVM 23) | automation (`release.yml`) | done | yes |
-| apt and dnf repository on Pages | no (`.deb`/`.rpm` of the release) | automation; owner makes the GPG key once | done | `repo/` |
-| AUR `maicord-bin`, `maicord` | `-bin` no; `maicord` yes (Arch has LLVM 23.1) | owner: AUR account and SSH key, push per release (a bot such as `KSXGitHub/github-actions-deploy-aur` can, with the key as a secret) | small | `aur/` |
+| apt, dnf and pacman repositories on Pages | no (`.deb`/`.rpm`/`.pkg.tar.zst` of the release) | automation; owner makes the GPG key once | done | `repo/` |
+| AUR `maicord-bin`, `maicord` | `-bin` no; `maicord` yes (Arch has LLVM 23.1) | owner: AUR account and SSH key, push per release (a bot such as `KSXGitHub/github-actions-deploy-aur` can, with the key as a secret); deferred, registration is closed and the pacman repository serves Arch meanwhile | small | `aur/` |
 | Arch `extra` | yes | a Package Maintainer must adopt it, normally once the AUR package is popular ([moving packages from the AUR](https://wiki.archlinux.org/title/Package_Maintainer_guidelines)) | not in our hands | - |
 | Launchpad PPA | no: a PPA builder takes build-dependencies from the Ubuntu archive and PPAs ([building a source package](https://ubuntu.com/docs/launchpad/user/reference/packaging/ppas/building-a-source-package)) and has no LLVM 23 or DXC, so the source package wraps the tarball | owner: Launchpad account, key, `debsign` + `dput` per series and release | medium | `debian/` |
 | Debian, Ubuntu archives | needs a sponsor or a Debian Developer, free-software build from source (LLVM 23, DXC, SPIRV-Cross are not packaged) | not realistic now | - | - |
 | Fedora COPR | `-bin` as the spec is (COPR builds have no network unless enabled; the SRPM step downloads the tarball) | owner: COPR account and project, webhook or manual build per release | small | `rpm/` |
 | openSUSE Build Service | `-bin`; OBS builds `.rpm` for openSUSE, Fedora and others from one spec, and `.deb` from a `debian/` ([OBS Debian builds](https://en.opensuse.org/openSUSE:Build_Service_Debian_builds)); `download_url` service fetches the tarball | owner: OBS account and project | small | `rpm/` |
-| nixpkgs | yes: `nix/package.nix` is the start, with nixpkgs' own `directx-shader-compiler` and `spirv-cross` | owner (a person): the [Automation/AI policy](https://github.com/NixOS/nixpkgs/blob/master/CONTRIBUTING.md) requires a responsible person who reviews the change and an `Assisted-by:` trailer on any commit made with AI tools; check the GPU golden tests with nixpkgs' shader tools | medium | `nix/` |
+| nixpkgs | yes: `nix/package.nix` is the recipe, with nixpkgs' own `directx-shader-compiler` and `spirv-cross`, a `--version` check and `passthru.tests.gpu` (the GPU golden tests on llvmpipe) | owner (a person): the [Automation/AI policy](https://github.com/NixOS/nixpkgs/blob/master/CONTRIBUTING.md) requires a responsible person who reviews the change and an `Assisted-by:` trailer, naming the tool and the primary model, on any commit made with AI tools; `hash` after tagging (`nix-update maicord --version v0.6.7` or `nix-prefetch-github`) | medium | `nix/` |
 | Flathub | must build from source with no network and the manifest must be written and submitted by a person (the owner's rule: none is written here) | owner only | large | `flatpak/` is for a self-hosted repo |
 | Snap Store | `-bin` from the tarball in a strict snap (`wayland`, `opengl`, `audio-playback`, `audio-record`, `network`, `desktop`, `password-manager-service` plugs; libraries from `core24` and `stage-packages`; the GPU driver from the graphics content snap) | owner: Snap Store account, name registration, review for the plugs that need approval | medium and ongoing; not done: a second sandbox to keep working (fonts, tray, Secret Service, VA-API, io_uring under snapd's seccomp) for few users | - |
 | Homebrew on Linux | no | not planned | - | - |
 | Gentoo GURU | `-bin` (an ebuild with `QA_PREBUILT`) | owner or a GURU contributor | small | `gentoo/` |
 | Alpine `testing`, Void | upstream wants source builds; musl tarball in a personal repository | owner | small | `alpine/`, `void/` |
 
-Only the first two rows need no human after the one-time setup. The rows marked as the owner's need an account on that service.
+Only the first two rows need no human after the one-time setup (the repositories row also needs the signing key). The rows marked as the owner's need an account on that service.
 
 ## Releases
 
 `release.yml`'s `linux` job (gated by the repository variable `MAICORD_LINUX_RELEASES` = `true`; off, the Windows release is exactly what
 it was) builds with the tests, then the shipping client in its own directory without them, and packages: the glibc and musl
-tarballs, the two AppImages with their `.zsync`, the `.deb` and `.rpm`, `install.sh` and a `SHA256SUMS` file; `check_artifacts.sh`
+tarballs, the two AppImages with their `.zsync`, the `.deb`, `.rpm` and Arch package, `install.sh` and a `SHA256SUMS` file; `check_artifacts.sh`
 checks them, the provenance of the sums is attested, and everything goes onto the draft; the release is published only if the job
 succeeded. `publish` signs the glibc tarball's manifests onto the update channels. With `MAICORD_LINUX_REPOSITORY` = `true` and the
-signing secret, the `repository` job adds the `.deb` and `.rpm` to the signed repositories and `pages` deploys them.
+signing secret, the `repository` job downloads the three packages from the published release, adds them to the signed apt, dnf and
+pacman repositories and `pages` deploys them.
 
 ## Verification
 
 `packaging/check.sh` (python3, desktop-file-utils, appstream, squashfs-tools, zsync, openssl; nfpm for the packages) builds the
 stand-in tarballs (`build_tarball.py --stub`), checks reproducibility and the desktop and metadata files, installs and uninstalls the
 tarball under a private home, builds and runs the AppImage unpacked and mounted, integrates and unintegrates it, runs
-`online/test_installer.py` and, with nfpm, builds the packages and runs `check_artifacts.sh`. Distribution installs were tested
+`online/test_installer.py` and, with nfpm, builds the packages and runs `check_artifacts.sh` (the Arch package: member list,
+`.PKGINFO`, `.MTREE`, version). `repo/test_pacman_repo.sh` (podman, nfpm) is the pacman repository's end-to-end test and is run by hand
+when `repo/build_repo.py` or `nfpm/` changes. Distribution installs were tested
 in podman containers (see the channel notes above). The installed client is checked on headless sway
 (`tools/test_client_wayland.sh --binary MaiCord-….AppImage`).
 
 ## Owner checklist (only the owner can do these)
 
-1. **Variables and secrets** (repository settings): `MAICORD_LINUX_RELEASES=true` when the client is ready to ship; for the repositories,
+1. **Variables and secrets** (repository settings): `MAICORD_LINUX_RELEASES=true` when the client is ready to ship; for the repositories
+   (apt, dnf and pacman),
    `MAICORD_LINUX_REPOSITORY=true`, and in the `release` environment the secret `MAICORD_REPO_SIGNING_KEY` (and
    `MAICORD_REPO_SIGNING_PASSPHRASE` if the key has one): `gpg --quick-generate-key "MaiCord Packages <https://github.com/maj113/MaiCord/issues>" ed25519 sign 5y`,
-   `gpg --armor --export-secret-keys <id>`, keep an offline backup. Pages must already serve the `update-channels` branch.
+   `gpg --armor --export-secret-keys <id>`, keep an offline backup. Pages must already serve the `update-channels` branch. The key
+   in use is `27EFAD9C252F3E39887CA28EACB877AA84964FC8`; the pacman steps under *Installing* name that fingerprint, so a new key
+   means changing them.
 2. **First release**: tag, let the job run, install each artifact once on a real desktop (the AppImage and the one-line installer on at
-   least Ubuntu and Fedora, and WSLg), then check `https://maj113.github.io/MaiCord/repo/` serves `maicord.sources` and `maicord.repo`.
+   least Ubuntu and Fedora, and WSLg), then check `https://maj113.github.io/MaiCord/repo/` serves `maicord.sources` and `maicord.repo`,
+   and that `https://maj113.github.io/MaiCord/repo/arch/x86_64/maicord.db` and `maicord.db.sig` download; then follow the Arch steps
+   on an Arch machine (the pacman repository is live with the next release; nothing is on the site before it).
 3. **Screenshots**: `metainfo/…metainfo.xml.in` has a placeholder entry and a `TODO(owner)` comment; AppStream and Flathub need real
    16:9 screenshots of at least 1248x702, redacted, at a tag-pinned URL. Review the OARS rating.
-4. **AUR**: an account, the SSH key, then `git clone ssh://aur@aur.archlinux.org/maicord-bin.git` (and `maicord`), copy the directory's
+4. **AUR** (deferred until registration reopens; the pacman repository serves Arch users meanwhile): an account, the SSH key, then
+   `git clone ssh://aur@aur.archlinux.org/maicord-bin.git` (and `maicord`), copy the directory's
    `PKGBUILD` and `.SRCINFO`, push. Per release: `pkgver`, `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`.
 5. **COPR / OBS** (optional): create the project, point it at `packaging/rpm` (see `rpm/.copr/Makefile` and `_service`), bump `Version` and
    `%changelog` per release. **PPA** (optional): `debsign` and `dput` the output of `debian/build_source.sh` per Ubuntu series.
-6. **nixpkgs**: a pull request adding `pkgs/by-name/ma/maicord/package.nix` from `nix/package.nix`, written and reviewed by you, with the
-   `Assisted-by:` trailer if a tool helped.
+6. **nixpkgs**: a pull request adding `maj113` to `maintainers/maintainer-list.nix` and `pkgs/by-name/ma/maicord/package.nix` (with
+   `gpu-tests.nix`) from `nix/package.nix`, written and reviewed by you, with the `Assisted-by:` trailer on each commit a tool helped
+   with; fill `hash` once `v<version>` is tagged. nixpkgs reviewers may ask for upstream users first (see `pkgs/README.md`, "Quick
+   Start to Adding a Package").
 7. **Flathub**: write and submit the manifest yourself (requirements: build from source with no network; no AI-generated manifest; a verifiable
    `io.github.maj113` id; real screenshots). If MaiCord ships its own Flatpak repository first, a Flathub submission by someone else is refused
    ("conflicting submissions").

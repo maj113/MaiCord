@@ -1,6 +1,7 @@
 #include "updates.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/state.hpp"
@@ -300,8 +301,9 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
     switch (v.state) {
     case State::disabled:
         icon = UiIcon::info;
-        title.add("Updates aren't configured for this build");
-        meta.add("MaiCord "); add_build(meta, v.own_version, own_commit(v)); meta.add(". Download new versions manually.");
+        title.add(MAICORD_OS_TEXT("Updates aren't configured for this build", "This install doesn't update itself"));
+        meta.add("MaiCord "); add_build(meta, v.own_version, own_commit(v));
+        meta.add(MAICORD_OS_TEXT(". Download new versions manually.", ". Update it with your package manager or download a new release."));
         control->enabled = false;
         break;
     case State::idle:

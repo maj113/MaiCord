@@ -13,7 +13,8 @@ descriptor first.
 - `plugin.hpp` is the C++23 authoring layer: one `.cpp` file of declarations
   becomes the descriptor at compile time. No STL, CRT, exceptions or RTTI.
 - `background.hlsli` is the interface of background effects, which are shaders
-  and not plugins; see `samples/effects/README.md`.
+  and not plugins; see `samples/effects/README.md` (a Linux client runs the
+  GLSL of an interface 4 package).
 - `samples/plugins/` has working plugins: `clear-urls` (hooks),
   `translate` (network, buttons, cards, a command, state), `show-me-your-name`
   (user decorations), `reverse-image-search` (a submenu) and `silent-toggle`
@@ -67,7 +68,7 @@ The commands:
 | `check [file]` | Runs those checks again, offline: no entry point, no TLS, one export, sections (Linux: no `DT_NEEDED`, imports, initializers or non-relative relocations), descriptor strings, limits, hooks and commands in code |
 | `dev [--watch]` | Builds if the file is stale, then copies it atomically into the dev folder. `--watch` rebuilds when a source changes |
 | `pack` | Checks, then writes `dist\<slug>\` (`plugin.cpp`, `catalog.json`, `details.md`) for a pull request to the catalog; see "Publishing" |
-| `effect new / build / preview` | The same for background effects; `effect preview --time HH:MM --date MM-DD --day-seconds N --appearance dark\|light` stands in for the clock and appearance inputs (`--real-inputs` stops it) |
+| `effect new / build / preview` | The same for background effects (the HLSL compiles on Windows; on Linux add `--dxbc-from` a Windows build, see `samples/effects/README.md`); `effect preview --time HH:MM --date MM-DD --day-seconds N --appearance dark\|light` stands in for the clock and appearance inputs (`--real-inputs` stops it) |
 
 Useful options: `--dir` (project folder), `--sdk` (a folder with
 `include\maicord\sdk`), `--llvm-bin` (a folder with `clang-cl.exe` and
@@ -240,10 +241,10 @@ changes the user makes.
 | `Slider` | `i32` | number | `.min .max .step` |
 | `Choice` | `u32` index | index | `.items = {"A", "B"}` |
 | `Text` | `Str` | `"text"` or `{}` | `.hint .max_bytes` |
-| `Secret` | `Str` | `{}` | `.hint .max_bytes`; stored sealed (DPAPI), shown masked |
+| `Secret` | `Str` | `{}` | `.hint .max_bytes`; stored sealed (DPAPI on Windows; on Linux under a master key held by the Secret Service, or in a 0600 file when there is none), shown masked |
 | `TextList` | `StrList` | `{"a", "b"}` or `{}` | `.hint .max_bytes` |
 | `Colour` | `u32` `0xRRGGBB` | colour | |
-| `Keybind` | `u32` `MC_KEY(vk, MC_KEY_CTRL...)` | key or 0 | fires `KEYBIND` |
+| `Keybind` | `u32` `MC_KEY(vk, MC_KEY_CTRL...)` | key or 0 | fires `KEYBIND`; `vk` is a Windows virtual-key code on both systems |
 | `Channel` | `u64` channel id | `{}` | |
 | `UserList` | `IdList` | `{}` | `.contains(id)` |
 | `Header` | (nothing) | omitted | a section label |
@@ -560,7 +561,7 @@ Helpers: `Text<N>` (fixed-capacity text), `Str`, `StrList`, `IdList`,
 ## Developing
 
 - **Hot reload.** With Developer Mode on, MaiCord watches the dev folder.
-  When a DLL there changes (it waits 300 ms after the last write), it copies
+  When a DLL (a `.so` on Linux) there changes (it waits 300 ms after the last write), it copies
   it into its own `plugins` folder (so your build is never locked), turns the
   running plugin off (`stop` runs), unloads it, loads the new build and turns
   it on. Nothing is asked when the rebuild asks for no permission or host the
@@ -663,4 +664,5 @@ changes its CI rebuilds every listed plugin.
 | 3 | after 0.6.1 | `MC_MODAL_READ_ONLY` and `MC_MODAL_INFO`; no new entries, and an older host refuses the flags |
 
 A plugin that needs nothing newer sets `.api_level` to the lowest level that
-has what it uses, so it stays installable on older MaiCord.
+has what it uses, so it stays installable on older MaiCord. MaiCord on Linux
+(0.6.7 and later) supports every level the header describes.

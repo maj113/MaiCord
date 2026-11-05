@@ -50,6 +50,7 @@ and user-verification flows, `ACTION_TIMEOUT` pacing, platform authenticators) i
 
 ## Launch line
 
-`src/app/linux/entry.cpp` turns `argv` into the one command line `desktop_launch_parse` reads (`launch_line.hpp`, tested by
+`src/app/linux/entry.cpp` answers `--version` first (the build's number on standard output, exit 0; it needs no display and no
+io_uring), and turns every other `argv` into the one command line `desktop_launch_parse` reads (`launch_line.hpp`, tested by
 `maicord_linux_launch_line`): `--startup`, `--url -- <link>`, a bare `discord://` argument and single-instance forwarding are the
 Windows startup's.

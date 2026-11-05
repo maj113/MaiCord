@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Adds a release's .deb and .rpm to the signed apt and dnf repositories on the Pages site (the update-channels branch).
+# Adds a release's .deb, .rpm and Arch package to the signed apt, dnf and pacman repositories on the Pages site (the
+# update-channels branch).
 #
 #   packaging/repo/publish_site.sh PACKAGES-DIRECTORY SITE-DIRECTORY COMMIT-MESSAGE
 #
@@ -28,7 +29,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 deb="$(find "$packages" -maxdepth 1 -name 'maicord_*_amd64.deb' | sort -V | tail -n 1)"
 rpm="$(find "$packages" -maxdepth 1 -name 'maicord-*.x86_64.rpm' | sort -V | tail -n 1)"
-if [ -z "$deb" ] || [ -z "$rpm" ]; then echo "No .deb or .rpm in $packages" >&2; exit 1; fi
+pacman_package="$(find "$packages" -maxdepth 1 -name 'maicord-*-x86_64.pkg.tar.zst' | sort -V | tail -n 1)"
+if [ -z "$deb" ] || [ -z "$rpm" ] || [ -z "$pacman_package" ]; then echo "No .deb, .rpm or .pkg.tar.zst in $packages" >&2; exit 1; fi
 
 export GIT_AUTHOR_NAME='github-actions[bot]' GIT_COMMITTER_NAME='github-actions[bot]'
 export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' GIT_COMMITTER_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
@@ -51,7 +53,7 @@ for attempt in 1 2 3; do
         git -C "$site" checkout --quiet -B "$branch" FETCH_HEAD
         base="$(git -C "$site" rev-parse HEAD)"
     fi
-    python3 -B "$here/build_repo.py" --site "$site/repo" --base-url "$base_url" --deb "$deb" --rpm "$rpm"
+    python3 -B "$here/build_repo.py" --site "$site/repo" --base-url "$base_url" --deb "$deb" --rpm "$rpm" --pacman "$pacman_package"
     git -C "$site" add --all repo
     if [ -z "$(git -C "$site" status --porcelain -- repo)" ]; then
         changed=false

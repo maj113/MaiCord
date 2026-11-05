@@ -539,6 +539,230 @@ void preview_replay(Stand* s) noexcept {
           "linux preview replay: the stable channel refuses a signed development build");
 }
 
+// The AppImage as an install: the file the runtime started ($APPIMAGE) is what the update replaces, beside its own
+// manifests (architecture linux-x64-appimage, the linux/appimage directory) and package (MaiCord-<version>-x86_64.AppImage).
+// The fixture is any file the reader takes for an AppImage: the runtime's ELF identification and bytes that tell versions apart.
+constexpr u32 kAppImageBytes = 6000;
+void appimage_bytes(u8* data, u8 seed) noexcept {
+    for (u32 i = 0; i < kAppImageBytes; ++i) data[i] = static_cast<u8>(seed * 31 + i * 7);
+    data[0] = 0x7f; data[1] = 'E'; data[2] = 'L'; data[3] = 'F'; data[4] = 2; data[5] = 1;
+    data[8] = 'A'; data[9] = 'I'; data[10] = 2;
+}
+void appimage_replay(Stand* s) noexcept {
+    const Utf8View repository = utf8_literal("owner/repo");
+    struct Restore { ~Restore() noexcept { g_update_flavor = UpdateFlavor::tarball; } } restore;
+    g_update_flavor = UpdateFlavor::appimage;
+
+    // Names and places on the feed: the manifests in the appimage directory, a stable package the release's asset, a
+    // development build beside the preview manifest; the changelogs are the ones every client reads.
+    char name[64];
+    check(update_artifact_name(1002003999, {name, 64}) == 29 && bytes_equal(name, "MaiCord-1.2.3-x86_64.AppImage", 29) &&
+              update_artifact_name(1002003005, {name, 64}) == 35 && bytes_equal(name, "MaiCord-1.2.3-dev.5-x86_64.AppImage", 35) &&
+              !update_artifact_name(1002003000, {name, 64}),
+          "linux appimage: the AppImage is named for the version, as build_appimage.py names it");
+    UpdateLocation at{};
+    const auto same = [&](const char* host, const char* target) noexcept {
+        return update_location_host(at).bytes == c_string_length(host) && bytes_equal(update_location_host(at).data, host, c_string_length(host)) &&
+               at.target_bytes == c_string_length(target) && bytes_equal(at.target, target, at.target_bytes);
+    };
+    check(update_asset_location(repository, UpdateChannel::stable, UpdateAsset::manifest, 0, &at) &&
+              same("owner.github.io", "/repo/updates/p2/linux/appimage/maicord-stable.manifest.json") &&
+              update_asset_location(repository, UpdateChannel::preview, UpdateAsset::signature, 0, &at) &&
+              same("owner.github.io", "/repo/updates/p2/linux/appimage/preview/maicord-preview.manifest.json.sig") &&
+              update_asset_location(repository, UpdateChannel::stable, UpdateAsset::package, 1002003999, &at) &&
+              same("github.com", "/owner/repo/releases/download/v1.2.3/MaiCord-1.2.3-x86_64.AppImage") &&
+              update_asset_location(repository, UpdateChannel::preview, UpdateAsset::package, 1002003005, &at) &&
+              same("owner.github.io", "/repo/updates/p2/linux/appimage/preview/MaiCord-1.2.3-dev.5-x86_64.AppImage") &&
+              update_asset_location(repository, UpdateChannel::preview, UpdateAsset::changelog, 0, &at) &&
+              same("owner.github.io", "/repo/updates/p2/preview/maicord-preview.changelog.json"),
+          "linux appimage: the AppImage's manifests have a directory of their own, and the changelogs are shared");
+    g_update_flavor = UpdateFlavor::tarball;
+    check(update_asset_location(repository, UpdateChannel::stable, UpdateAsset::manifest, 0, &at) &&
+              same("owner.github.io", "/repo/updates/p2/linux/maicord-stable.manifest.json"),
+          "linux appimage: the tarball install keeps reading the linux directory");
+    g_update_flavor = UpdateFlavor::appimage;
+
+    // The install: a regular file in a directory of its own, as $APPIMAGE names it.
+    wchar_t directory[560], image[600], base[560];
+    join(directory, s->site.root, L"appimage"); join(base, s->site.root, L"appimage-updates");
+    join(image, directory, L"MaiCord-0.0.1-x86_64.AppImage");
+    static u8 old_bytes[kAppImageBytes];
+    appimage_bytes(old_bytes, 1);
+    UpdatePaths paths{};
+    const bool laid = dir_create(directory) && make_file(image, old_bytes, kAppImageBytes, 0755) &&
+                      update_paths_build({base, length(base)}, {image, length(image)}, &paths);
+    check(laid && paths.staged_count == paths.executable_count + 7 && paths.replaced[paths.executable_count] == L'.' &&
+              paths.acceptance_count >= 23 &&
+              bytes_equal(paths.acceptance + paths.acceptance_count - 23, L"acceptance-appimage.bin", 23 * sizeof(wchar_t)),
+          "linux appimage: the stage and the replaced file sit beside the AppImage, with an acceptance record of their own");
+    if (!laid) return;
+    const auto installed_is_old = [&]() noexcept { return holds(image, old_bytes, kAppImageBytes) && mode_of(image) == 0755; };
+
+    // The gate: a regular AppImage file in a directory this user can write, in a build whose channels carry it.
+    {
+        const auto gated = [&](bool published, const wchar_t* path, bool* appimage) noexcept {
+            UpdateServiceConfig gate{};
+            update_service_config(repository, {s->publisher.key_hex, 130}, kInstalled, &gate);
+            update_portable_gate(&gate, published, {}, {path, path ? length(path) : 0});
+            *appimage = g_update_flavor == UpdateFlavor::appimage;
+            return gate.configured;
+        };
+        bool flavor = false;
+        wchar_t missing[640];
+        join(missing, directory, L"gone.AppImage");
+        const bool allowed = gated(true, image, &flavor);
+        const bool allowed_flavor = flavor;
+        const bool unpublished = gated(false, image, &flavor);
+        const bool is_directory = gated(true, directory, &flavor);
+        const bool is_missing = gated(true, missing, &flavor);
+        const bool no_appimage = gated(true, nullptr, &flavor);
+        const bool no_appimage_flavor = flavor;
+        // A directory this user cannot write cannot take a stage (root can write anywhere, so it is not tried as root).
+        wchar_t probe[640];
+        join(probe, directory, L"probe");
+        set_mode(directory, 0555);
+        const bool root = make_file(probe, "x", 1);
+        if (root) file_remove(probe);
+        const bool read_only = !root && gated(true, image, &flavor);
+        set_mode(directory, 0755);
+        check(allowed && allowed_flavor && !unpublished && !is_directory && !is_missing && !no_appimage && !no_appimage_flavor && !read_only,
+              "linux appimage: only a regular AppImage file in a writable directory updates itself, from a build whose channels carry it");
+        g_update_flavor = UpdateFlavor::appimage;
+    }
+
+    const u64 v2 = update_version_number(0, 0, 2, 0), v4 = update_version_number(0, 0, 5, 3);
+    static Package pkg2, dev, tarball_package;
+    static Manifest m2, mdev, foreign;
+    static Release release;
+    static Tar tar;
+    appimage_bytes(pkg2.data, 2); pkg2.count = kAppImageBytes;
+    appimage_bytes(dev.data, 4); dev.count = kAppImageBytes;
+    release.name(2); elf_image(release.image, 2);
+    tar.count = 0; good_members(&tar, release); tar.end(); gzip(tar, &tarball_package);
+    char artifact[kUpdateArtifactNameCapacity + 1]{};
+    const auto make = [&](Manifest* m, u64 version, Package* package, const char* arch, const char* channel = "stable") noexcept {
+        artifact[update_artifact_name(version, {artifact, kUpdateArtifactNameCapacity})] = 0;
+        manifest_text(m, version, package->count, package->digest, arch, artifact, channel);
+        return sign(s->publisher, s->publisher.key, m->view(), m->signature);
+    };
+    const bool built = digest_of(s->publisher, &pkg2) && digest_of(s->publisher, &dev) && digest_of(s->publisher, &tarball_package) &&
+                       make(&m2, v2, &pkg2, "linux-x64-appimage") && make(&mdev, v4, &dev, "linux-x64-appimage", "preview");
+    check(built, "linux appimage: AppImages signed with the publisher key"); if (!built) return;
+    const auto start = [&](UpdateServiceConfig* config) noexcept {
+        update_service_release(&s->service);
+        return update_service_config(repository, {s->publisher.key_hex, 130}, kInstalled, config) &&
+               update_service_initialize(&s->service, *config, paths) == UpdateServiceError::none;
+    };
+    UpdateServiceConfig config{};
+    check(start(&config), "linux appimage: the service for the AppImage install"); if (!s->service.initialized) return;
+
+    // Another flavor's manifest, validly signed, is refused: the architecture is a signed field.
+    {
+        make(&foreign, v2, &pkg2, "linux-x64");
+        serve_release(s, foreign, pkg2.data, pkg2.count, v2);
+        auto r = run_check(s);
+        check(r.error == UpdateServiceError::manifest && !s->fake.routes[2].hits && !s->service.staged.file && installed_is_old(),
+              "linux appimage: a tarball manifest (linux-x64), validly signed, is refused by the AppImage updater");
+        // And the AppImage's manifest by a tarball install: served at the tarball feed's places, read by that flavor.
+        g_update_flavor = UpdateFlavor::tarball;
+        UpdatePaths tarball_paths = s->site.paths;
+        update_service_release(&s->service);
+        UpdateServiceConfig tarball_config{};
+        char tarball_name[kUpdateArtifactNameCapacity + 1]{};
+        tarball_name[update_artifact_name(v2, {tarball_name, kUpdateArtifactNameCapacity})] = 0;
+        manifest_text(&foreign, v2, pkg2.count, pkg2.digest, "linux-x64-appimage", tarball_name);
+        const bool signed_foreign = sign(s->publisher, s->publisher.key, foreign.view(), foreign.signature);
+        serve_release(s, foreign, pkg2.data, pkg2.count, v2);
+        r = update_service_config(repository, {s->publisher.key_hex, 130}, kInstalled, &tarball_config) &&
+                    update_service_initialize(&s->service, tarball_config, tarball_paths) == UpdateServiceError::none
+                ? run_check(s) : UpdateCheckResult{};
+        check(signed_foreign && r.error == UpdateServiceError::manifest && !s->fake.routes[2].hits && !s->service.staged.file,
+              "linux appimage: the AppImage's manifest (linux-x64-appimage) is refused by a tarball install");
+        g_update_flavor = UpdateFlavor::appimage;
+        check(start(&config), "linux appimage: the service for the AppImage install again");
+    }
+
+    // The good AppImage is staged beside the file the runtime started, which stays as it was.
+    serve_release(s, m2, pkg2.data, pkg2.count, v2);
+    g_line_count = 0;
+    auto r = run_check(s);
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == v2 && s->service.staged.file && holds(paths.staged, pkg2.data, kAppImageBytes) &&
+              mode_of(paths.staged) == 0755 && installed_is_old() && present(paths.acceptance) && s->fake.routes[3].hits == 1 && !s->fake.wrong_host &&
+              logged("ready version=2999"),
+          "linux appimage: a verified AppImage is staged (mode 0755) beside the file the runtime started, which stays as it was");
+    if (!s->service.staged.file) return;
+
+    // A swap that cannot move the AppImage aside changes nothing: the directory cannot be written, so the rename fails.
+    {
+        wchar_t probe[640];
+        join(probe, directory, L"probe");
+        set_mode(directory, 0555);
+        const bool root = make_file(probe, "x", 1);
+        if (root) file_remove(probe);
+        if (!root) {
+            const auto failed = update_swap(paths);
+            set_mode(directory, 0755);
+            check(failed.error == UpdateSwapError::replace && failed.native_error && installed_is_old() && !present(paths.replaced) &&
+                      holds(paths.staged, pkg2.data, kAppImageBytes),
+                  "linux appimage: a swap that fails leaves the AppImage and the stage as they were");
+        } else set_mode(directory, 0755);
+    }
+
+    // The swap: the new AppImage at the path, the old one beside it, and the relaunch command on the same path.
+    g_line_count = 0;
+    const auto swap = update_service_swap(&s->service);
+    check(swap.ok() && !s->service.staged.file && holds(image, pkg2.data, kAppImageBytes) && mode_of(image) == 0755 && !present(paths.staged) &&
+              !present(paths.download) && holds(paths.replaced, old_bytes, kAppImageBytes) && logged("swap version=2999 error=0"),
+          "linux appimage: installing swaps the verified AppImage in and keeps the one it replaced for a rollback");
+    ProcessCommand relaunch{};
+    u32 native = 0;
+    char expected[640];
+    check(path_to_utf8(image, expected, sizeof(expected)) && process_command(paths.executable, &relaunch, &native) &&
+              bytes_equal(relaunch.path, expected, c_string_length(expected) + 1) && length(paths.executable) == length(image),
+          "linux appimage: the relaunch command is the $APPIMAGE path, which now holds the new version");
+    check(update_service_swap(&s->service).error == UpdateSwapError::nothing_staged && holds(image, pkg2.data, kAppImageBytes),
+          "linux appimage: a second swap finds nothing verified to move");
+    update_paths_cleanup(paths);
+    check(!present(paths.replaced) && holds(image, pkg2.data, kAppImageBytes), "linux appimage: the next start deletes the replaced AppImage");
+
+    // A package that is no AppImage fails at the stage and leaves the install and the directory as they were.
+    {
+        update_service_release(&s->service);
+        UpdateServiceConfig now{};
+        const bool started = update_service_config(repository, {s->publisher.key_hex, 130}, v2, &now) &&
+                             update_service_initialize(&s->service, now, paths) == UpdateServiceError::none;
+        static Manifest odd;
+        static Package plain;
+        appimage_bytes(plain.data, 5); plain.data[9] = 'X'; plain.count = kAppImageBytes;
+        constexpr u64 v3 = update_version_number(0, 0, 3, 0), v4_release = update_version_number(0, 0, 4, 0);
+        const bool plain_ok = started && digest_of(s->publisher, &plain) && make(&odd, v3, &plain, "linux-x64-appimage");
+        serve_release(s, odd, plain.data, plain.count, v3);
+        r = plain_ok ? run_check(s) : UpdateCheckResult{};
+        check(plain_ok && r.outcome == UpdateCheckOutcome::failed && r.error == UpdateServiceError::install && !s->service.staged.file &&
+                  !present(paths.staged) && holds(image, pkg2.data, kAppImageBytes),
+              "linux appimage: a file without the AppImage runtime's identification fails the package");
+        const bool gz_ok = make(&odd, v4_release, &tarball_package, "linux-x64-appimage");
+        serve_release(s, odd, tarball_package.data, tarball_package.count, v4_release);
+        r = gz_ok ? run_check(s) : UpdateCheckResult{};
+        check(gz_ok && r.outcome == UpdateCheckOutcome::failed && r.error == UpdateServiceError::install && !s->service.staged.file &&
+                  !present(paths.staged) && holds(image, pkg2.data, kAppImageBytes),
+              "linux appimage: the tarball is no AppImage, even under an AppImage's name and manifest");
+    }
+
+    // The preview feed: a development build, beside the preview manifest.
+    {
+        update_service_release(&s->service);
+        UpdateServiceConfig current{};
+        serve_release(s, mdev, dev.data, dev.count, v4, UpdateChannel::preview);
+        const bool ready = update_service_config(repository, {s->publisher.key_hex, 130}, v2, &current) &&
+                           update_service_initialize(&s->service, current, paths) == UpdateServiceError::none;
+        r = ready ? run_check(s, 100, UpdateChannel::preview) : UpdateCheckResult{};
+        check(r.outcome == UpdateCheckOutcome::ready && r.version == v4 && s->fake.routes[2].hits == 1 && !s->fake.wrong_host &&
+                  holds(paths.staged, dev.data, kAppImageBytes) && holds(image, pkg2.data, kAppImageBytes),
+              "linux appimage: the preview channel stages a development build from the AppImage feed");
+    }
+}
+
 } // namespace
 
 // ------------------------------------------------------------------------------------------------ the package reader
@@ -905,10 +1129,10 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
     // 9. Which installs may update themselves: the tarball install only, and only when the channels carry the tarball.
     {
         UpdateServiceConfig gate = s->config;
-        update_portable_gate(&gate, true, {site.executable, length(site.executable)});
+        update_portable_gate(&gate, true, {site.executable, length(site.executable)}, {});
         const bool allowed = gate.configured;
         gate = s->config;
-        update_portable_gate(&gate, false, {site.executable, length(site.executable)});
+        update_portable_gate(&gate, false, {site.executable, length(site.executable)}, {});
         const bool unpublished = gate.configured;
         // A directory this user cannot write cannot take a stage (root can write anywhere, so it is not tried as root).
         wchar_t probe[600];
@@ -917,16 +1141,16 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
         const bool root = make_file(probe, "x", 1);
         if (root) file_remove(probe);
         gate = s->config;
-        update_portable_gate(&gate, true, {site.executable, length(site.executable)});
+        update_portable_gate(&gate, true, {site.executable, length(site.executable)}, {});
         const bool read_only = !root && gate.configured;
         set_mode(site.install, 0755);
         file_remove(site.marker);
         gate = s->config;
-        update_portable_gate(&gate, true, {site.executable, length(site.executable)});
+        update_portable_gate(&gate, true, {site.executable, length(site.executable)}, {});
         const bool unmarked = gate.configured;
         UpdateServiceConfig off{};
         update_service_config({}, {}, kInstalled, &off);
-        update_portable_gate(&off, true, {site.executable, length(site.executable)});
+        update_portable_gate(&off, true, {site.executable, length(site.executable)}, {});
         check(allowed && !unpublished && !read_only && !unmarked && !off.configured,
               "linux update replay: only the marked tarball install in a writable directory updates itself, and only once the channels carry the tarball");
     }
@@ -936,6 +1160,9 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
 
     // 11. The preview feed: a development build of the same layout, from the Pages site.
     preview_replay(s);
+
+    // 12. The AppImage: its own feed, stage, swap and gate.
+    appimage_replay(s);
 }
 
 } // namespace maicord

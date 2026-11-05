@@ -19,9 +19,14 @@ body:
     id: version
     attributes:
       label: MaiCord version
-      placeholder: v0.6.6
+      placeholder: v0.6.7
     validations:
       required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows or Linux
+      description: Only when the difference is on one system; on Linux add the distribution and desktop.
   - type: checkboxes
     id: checks
     attributes:

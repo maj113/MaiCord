@@ -1,9 +1,10 @@
-# .deb and .rpm of MaiCord with nfpm (https://nfpm.goreleaser.com/), from the unpacked release tarball. The paths in
-# contents are relative to the unpacked tarball, so nfpm runs inside it (packaging/nfpm/build.sh does):
+# .deb, .rpm and Arch Linux package of MaiCord with nfpm (https://nfpm.goreleaser.com/), from the unpacked release tarball.
+# The paths in contents are relative to the unpacked tarball, so nfpm runs inside it (packaging/nfpm/build.sh does):
 #
 #   tar xzf maicord-X.Y.Z-linux-x86_64.tar.gz && cd maicord-X.Y.Z-linux-x86_64
 #   VERSION=X.Y.Z nfpm package -f /path/to/packaging/nfpm/nfpm.yaml -p deb -t out/
 #   VERSION=X.Y.Z nfpm package -f /path/to/packaging/nfpm/nfpm.yaml -p rpm -t out/
+#   VERSION=X.Y.Z nfpm package -f /path/to/packaging/nfpm/nfpm.yaml -p archlinux -t out/
 #
 # The program goes to /usr/lib/maicord with its fonts and license notices (it finds them next to its own executable),
 # /usr/bin/maicord links to it, and the desktop entry, icons and AppStream metadata go to /usr/share. The tarball's
@@ -38,12 +39,21 @@ contents:
     type: dir
     file_info:
       mode: 0755
-  - src: fonts
-    dst: /usr/lib/maicord/fonts
-    type: tree
-  - src: licenses
-    dst: /usr/lib/maicord/licenses
-    type: tree
+  # The directories are named and the files globbed, not a `tree`: nfpm's archlinux packager writes a tree's directories to
+  # .MTREE with the Go directory flag in the mode (20000000755), which `pacman -Qkk` reports as a permissions mismatch.
+  # fonts/ and licenses/ hold files only.
+  - dst: /usr/lib/maicord/fonts
+    type: dir
+    file_info:
+      mode: 0755
+  - src: fonts/*
+    dst: /usr/lib/maicord/fonts/
+  - dst: /usr/lib/maicord/licenses
+    type: dir
+    file_info:
+      mode: 0755
+  - src: licenses/*
+    dst: /usr/lib/maicord/licenses/
   - src: share/applications/io.github.maj113.MaiCord.desktop
     dst: /usr/share/applications/io.github.maj113.MaiCord.desktop
   - src: share/metainfo/io.github.maj113.MaiCord.metainfo.xml
@@ -67,6 +77,9 @@ contents:
     dst: /usr/share/licenses/maicord/LICENSE
     type: license
     packager: rpm
+  - src: LICENSE
+    dst: /usr/share/licenses/maicord/LICENSE
+    packager: archlinux
 
 overrides:
   deb:
@@ -117,6 +130,31 @@ overrides:
       - enchant2
       - speech-dispatcher
       - libfido2
+  archlinux:
+    depends:
+      - glibc
+      - openssl
+      - wayland
+      - libxkbcommon
+      - libglvnd
+      - hicolor-icon-theme
+    suggests:
+      - 'mesa: OpenGL ES drivers for the GPU (llvmpipe without one); your GPU vendor''s driver works too'
+      - 'libpulse: voice, notification and media audio (PulseAudio, or PipeWire with pipewire-pulse)'
+      - 'speech-dispatcher: text-to-speech for "Speak message"'
+      - 'libfido2: security keys for two-factor sign-in (and the udev rules for hidraw access)'
+      - 'fontconfig: system fonts and the fallback for scripts the bundled fonts lack'
+      - 'noto-fonts-emoji: colour emoji'
+      - 'noto-fonts-cjk: Chinese, Japanese and Korean text'
+      - 'hunspell: spell checking'
+      - 'hunspell-en_us: English dictionary for spell checking (any Hunspell dictionary of your language)'
+      - 'enchant: spell checking through Enchant when Hunspell is not installed'
+      - 'xdg-desktop-portal: file chooser, settings and global shortcut portals'
+      - 'gnome-keyring: Secret Service to keep the sign-in key (KeePassXC and KWallet work too)'
+
+archlinux:
+  pkgbase: maicord
+  packager: maj113 <https://github.com/maj113/MaiCord/issues>
 
 deb:
   compression: xz

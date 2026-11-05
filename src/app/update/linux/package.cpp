@@ -40,7 +40,6 @@ struct Entry {
 struct Layout {
     Entry entries[kUpdatePackageMaximumFiles];
     u32 count;
-    bool has_program;
 };
 
 struct Failure {
@@ -258,7 +257,6 @@ bool walk(const u8* tar, u64 bytes, Utf8View top, Layout* out) noexcept {
             if (out->entries[i].place == place && out->entries[i].name_bytes == leaf_bytes && bytes_equal(out->entries[i].name, leaf, leaf_bytes))
                 return false;
         if (out->count == kUpdatePackageMaximumFiles) return false;
-        out->has_program = out->has_program || place == program;
         out->entries[out->count++] = {place, leaf, leaf_bytes, data, static_cast<u32>(size)};
     }
     return false;
@@ -299,6 +297,11 @@ bool elf_image(const u8* data, u64 bytes) noexcept {
     return loads && entry_executable;
 }
 
+// An AppImage starts with the runtime, an ELF file whose identification bytes 8 to 10 are "AI" and the type 2 (the AppImage
+// specification); the SquashFS behind it is the runtime's to mount, and the signed digest already vouches for every byte.
+bool appimage_header(const u8* data, u64 bytes) noexcept {
+    return bytes > 64 && le32(data) == 0x464c457f && (le32(data + 8) & 0xffffff) == 0x024941;
+}
 // ---------------------------------------------------------------------------------------------------- the stage
 
 struct Wide {
@@ -313,6 +316,14 @@ bool join(Wide* out, ConstSlice<wchar_t> base, const u8* leaf, u32 leaf_bytes) n
     for (u32 i = 0; i < leaf_bytes; ++i) out->text[base.count + 1 + i] = leaf[i];
     out->count = base.count + 1 + leaf_bytes;
     out->text[out->count] = 0;
+    return true;
+}
+// A copy of the whole path, terminated.
+bool whole(Wide* out, ConstSlice<wchar_t> path) noexcept {
+    if (path.count >= kPathCharacters) return false;
+    copy_bytes(out->text, path.data, path.count * sizeof(wchar_t));
+    out->count = path.count;
+    out->text[path.count] = 0;
     return true;
 }
 bool set_mode(const wchar_t* path, u32 mode) noexcept {
@@ -371,28 +382,40 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
     if (!packed.allocate(source->bytes)) { failure.fail(UpdatePackageError::read, ERROR_NOT_ENOUGH_MEMORY); return failure.result; }
     if (!read_hashed(source->file, source->bytes, packed.data, package_hash, &failure)) return failure.result;
     if (!bytes_equal(package_hash, manifest.artifact_sha256, 32)) { failure.fail(UpdatePackageError::digest); return failure.result; }
-    // A gzip stream ends with the CRC-32 and the length of what it holds; the package is one member, so the tar's
-    // size is announced before anything is unpacked.
-    const u64 tar_bytes = le32(packed.data + source->bytes - 4);
-    Inflater inflater;
-    if (tar_bytes < 2 * kTarBlock || tar_bytes > kUpdatePackageMaximumTarBytes || !inflater.workspace || !tar.allocate(tar_bytes)) {
-        failure.fail(UpdatePackageError::archive);
-        return failure.result;
-    }
-    const auto inflated = gzip_inflate({packed.data, static_cast<u32>(source->bytes)}, {tar.data, static_cast<u32>(tar_bytes)},
-                                       inflater.workspace);
-    if (!inflated.ok() || inflated.output_bytes != tar_bytes || inflated.input_bytes != source->bytes) {
-        failure.fail(UpdatePackageError::archive, static_cast<DWORD>(inflated.error));
-        return failure.result;
-    }
-    packed.release();
-
-    // 2. The layout and the program's image, before anything is written.
+    const bool image = g_update_flavor == UpdateFlavor::appimage;
     Layout layout{};
-    if (!walk(tar.data, tar_bytes, top, &layout) || !layout.has_program) { failure.fail(UpdatePackageError::archive); return failure.result; }
+    if (image) {
+        // An AppImage is the program: the package's bytes are what is staged, as one file.
+        layout.entries[0] = {program, reinterpret_cast<const u8*>(kUpdatePackageExecutable.data), kUpdatePackageExecutable.bytes, packed.data,
+                             static_cast<u32>(source->bytes)};
+        layout.count = 1;
+    } else {
+        // A gzip stream ends with the CRC-32 and the length of what it holds; the package is one member, so the tar's
+        // size is announced before anything is unpacked.
+        const u64 tar_bytes = le32(packed.data + source->bytes - 4);
+        Inflater inflater;
+        if (tar_bytes < 2 * kTarBlock || tar_bytes > kUpdatePackageMaximumTarBytes || !inflater.workspace || !tar.allocate(tar_bytes)) {
+            failure.fail(UpdatePackageError::archive);
+            return failure.result;
+        }
+        const auto inflated = gzip_inflate({packed.data, static_cast<u32>(source->bytes)}, {tar.data, static_cast<u32>(tar_bytes)},
+                                           inflater.workspace);
+        if (!inflated.ok() || inflated.output_bytes != tar_bytes || inflated.input_bytes != source->bytes) {
+            failure.fail(UpdatePackageError::archive, static_cast<DWORD>(inflated.error));
+            return failure.result;
+        }
+        packed.release();
+        // 2. The layout, before anything is written.
+        if (!walk(tar.data, tar_bytes, top, &layout)) { failure.fail(UpdatePackageError::archive); return failure.result; }
+    }
+    // The program, and its image.
     const Entry* program_entry = nullptr;
     for (u32 i = 0; i < layout.count; ++i) if (layout.entries[i].place == program) program_entry = &layout.entries[i];
-    if (!elf_image(program_entry->data, program_entry->bytes)) { failure.fail(UpdatePackageError::elf); return failure.result; }
+    if (!program_entry) { failure.fail(UpdatePackageError::archive); return failure.result; }
+    if (!(image ? appimage_header(program_entry->data, program_entry->bytes) : elf_image(program_entry->data, program_entry->bytes))) {
+        failure.fail(UpdatePackageError::elf);
+        return failure.result;
+    }
     UpdatePackage candidate{};
     {
         HashStream hash = nullptr;
@@ -405,11 +428,9 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
 
     // 3. The stage directory and its files; the program is written last and kept open through the sealed descriptor.
     Stage stage{};
-    copy_bytes(stage.root.text, destination.data, destination.count * sizeof(wchar_t));
-    stage.root.count = destination.count;
-    stage.root.text[destination.count] = 0;
-    if (!dir_create(stage.root.text)) { failure.fail(UpdatePackageError::create, thread_last_error()); return failure.result; }
-    for (u32 p = fonts; p < place_count; ++p) {
+    whole(&stage.root, destination);
+    for (u32 p = fonts; !image && p < place_count; ++p) {
+        if (p == fonts && !dir_create(stage.root.text)) { failure.fail(UpdatePackageError::create, thread_last_error()); return failure.result; }
         bool used = false;
         for (u32 i = 0; i < layout.count; ++i) used = used || layout.entries[i].place == p;
         if (used && (!join(&stage.places[p], destination, reinterpret_cast<const u8*>(kPlaceNames[p].data), kPlaceNames[p].bytes) ||
@@ -422,8 +443,13 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
             const Entry& entry = layout.entries[i];
             const bool is_program = entry.place == program;
             if (is_program != (pass == 1)) continue;
-            const ConstSlice<wchar_t> parent = is_program ? destination : ConstSlice<wchar_t>{stage.places[entry.place].text, stage.places[entry.place].count};
-            if (!join(&path, parent, entry.name, entry.name_bytes)) return stage.abandon(UpdatePackageError::create, ERROR_FILENAME_EXCED_RANGE);
+            if (image) {
+                // The stage is the one file, named by the destination.
+                path = stage.root;
+            } else {
+                const ConstSlice<wchar_t> parent = is_program ? destination : ConstSlice<wchar_t>{stage.places[entry.place].text, stage.places[entry.place].count};
+                if (!join(&path, parent, entry.name, entry.name_bytes)) return stage.abandon(UpdatePackageError::create, ERROR_FILENAME_EXCED_RANGE);
+            }
             stage.writer = file_open(path.text, {is_program ? FileAccess::read_write : FileAccess::write, FileCreate::create_new, kFileShareRead,
                                                  kFileNoFollow | kFileDeletable});
             if (stage.writer == INVALID_HANDLE_VALUE) { stage.writer = nullptr; return stage.abandon(UpdatePackageError::create, thread_last_error()); }
@@ -450,7 +476,7 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
             if (!bytes_equal(digest, candidate.sha256, 32)) return stage.abandon(UpdatePackageError::digest);
         }
     }
-    for (u32 p = program; p < place_count; ++p)
+    for (u32 p = program; !image && p < place_count; ++p)
         if ((p == program || stage.places[p].count) && !set_mode(p == program ? stage.root.text : stage.places[p].text, kDirectoryMode))
             return stage.abandon(UpdatePackageError::create, thread_last_error());
     candidate.file = stage.sealed;
@@ -474,8 +500,9 @@ UpdatePackageResult update_package_release(UpdatePackage* package, bool discard)
 
 bool update_package_intact(const UpdatePackage& package, ConstSlice<wchar_t> stage) noexcept {
     Wide path{};
+    const bool image = g_update_flavor == UpdateFlavor::appimage;
     if (!file_owner(package.file) || !stage.data || !stage.count ||
-        !join(&path, stage, reinterpret_cast<const u8*>(kUpdatePackageExecutable.data), kUpdatePackageExecutable.bytes)) {
+        !(image ? whole(&path, stage) : join(&path, stage, reinterpret_cast<const u8*>(kUpdatePackageExecutable.data), kUpdatePackageExecutable.bytes))) {
         set_thread_last_error(ERROR_INVALID_PARAMETER);
         return false;
     }

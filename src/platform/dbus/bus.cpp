@@ -189,9 +189,25 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.UnknownMethod", "no introspection data");
             return true;
         }
+        // The object's own interfaces, in a node with the standard ones this file answers: Properties where the object
+        // has any, and Introspectable.
+        char text[3072];
+        u32 used = 0;
+        const char* const parts[] = {"<node>", object.introspection,
+                                     object.property_count ? "<interface name=\"org.freedesktop.DBus.Properties\"/>" : "",
+                                     "<interface name=\"org.freedesktop.DBus.Introspectable\"/></node>"};
+        for (const char* part : parts) {
+            const u32 length = text_length(part);
+            if (length > sizeof(text) - used) {
+                connection_reply_error(c, call, "org.freedesktop.DBus.Error.Failed", "introspection too long");
+                return true;
+            }
+            copy_bytes(text + used, part, length);
+            used += length;
+        }
         Builder body;
         builder_init(&body);
-        builder_string(&body, object.introspection);
+        builder_string(&body, text, used);
         connection_reply(c, call, &body);
         builder_release(&body);
         return true;

@@ -19,8 +19,16 @@ consent a plugin needs.
 
 ## Quick start
 
-You need Windows 10 or 11 x64 and Python 3.9 or newer; no Windows SDK (the tool uses `fxc.exe` when the SDK has it,
-and the in-box `d3dcompiler_47.dll` when it doesn't).
+You need Python 3.9 or newer, and a different set of tools on each system:
+
+- **Windows 10 or 11 x64:** nothing else. The tool compiles the HLSL to `ps_5_0` with `fxc.exe` when the Windows SDK
+  has it and with the in-box `d3dcompiler_47.dll` when it doesn't, so no Windows SDK or Visual Studio is needed.
+- **Linux x86-64:** there is no HLSL compiler for DXBC, so the tool cannot compile an effect by itself. Build the
+  package on Windows, then add the GLSL the Linux client runs with
+  `maicord-plugin effect build --glsl yes --dxbc-from <the Windows .mcfx>` (`effect preview` takes the same options).
+- **The GLSL section** (either system) needs MaiCord's shader toolchain, a directory with `dxc` and `mc_shadertool`
+  named by `MAICORD_GLSL_TOOLCHAIN`, or Linux inside a MaiCord checkout, which fetches and builds it. See the
+  **Linux** paragraph below.
 
 ```powershell
 maicord-plugin effect new "Soft Rain"     # soft-rain\soft-rain.hlsl, soft-rain.effect, README.md
@@ -32,7 +40,7 @@ maicord-plugin effect preview --watch     # copy it into MaiCord, again on every
 In MaiCord turn on Developer Mode (Settings > Advanced), pick the effect in Settings > Appearance > Background effect
 (Settings > Effects > Developer lists what the dev folder holds), and edit the `.hlsl`. Each save compiles in the tool
 (a compile error prints there, with file, line and column), copies the `.mcfx` into
-`%LOCALAPPDATA%\MaiCord\effects\dev` (or the folder in `%MAICORD_EFFECT_DEV%`), and MaiCord scans the folder again
+`%LOCALAPPDATA%\MaiCord\effects\dev` (`$XDG_DATA_HOME/maicord/effects/dev` on Linux, or the folder in `%MAICORD_EFFECT_DEV%`), and MaiCord scans the folder again
 about a third of a second later: the effect keeps its place as the background and the values of its knobs.
 
 ## How an effect draws
@@ -145,17 +153,18 @@ An effect can follow the local clock and the light or dark appearance, opting in
 | `mc_ambient.day` | 0..1 from local midnight (0.5 is noon) | the local clock, read at each whole minute |
 | `mc_ambient.year` | 0..1 from 1 January 00:00 | the local date and time (leap years count 366 days) |
 | `mc_ambient.month` | 1..12, a whole number | the local month |
-| `mc_ambient.dark` | 1 dark, 0 light | MaiCord's theme base and Windows' app mode: **dark wins** |
+| `mc_ambient.dark` | 1 dark, 0 light | MaiCord's theme base and the system's app mode (Windows' app mode; the desktop's color scheme on Linux): **dark wins** |
 
 **Dark wins.** The appearance is dark when MaiCord's theme is (Dark, AMOLED, or a custom theme on a dark base) or
-when Windows' app mode is (`AppsUseLightTheme` is 0; MaiCord reads it again when Windows announces
-`ImmersiveColorSet`), and light only when both are light. The effect sits under the theme's text: a light picture
+when the system's app mode is (on Windows `AppsUseLightTheme` is 0, read again when Windows announces
+`ImmersiveColorSet`; on Linux the desktop's color-scheme preference from the settings portal), and light only when
+both are light. The effect sits under the theme's text: a light picture
 under a dark theme would break its contrast, while a light theme's plates keep text readable over a night picture.
-So switching Windows to dark turns a light-themed MaiCord's effect to night, and switching MaiCord to Light turns it
-to day while Windows is light. `mc.dark` stays what it was: the theme alone, 0 or 1, no gliding.
+So switching the system to dark turns a light-themed MaiCord's effect to night, and switching MaiCord to Light turns it
+to day while the system is light. `mc.dark` stays what it was: the theme alone, 0 or 1, no gliding.
 
 A theme that changes with the time of day (its `variants`) decides alone: it turns light by day and dark at night,
-and the appearance follows its base whatever Windows says, so an effect shows its day under the light phases. The
+and the appearance follows its base whatever the system says, so an effect shows its day under the light phases. The
 base changes with the theme's own 1.5 s glide, beside this one.
 
 **A theme following your knobs.** Such a theme can name knobs of the effect it asks for (its `background.effect`)
@@ -214,7 +223,9 @@ to the DXBC, one file for both systems), and the catalog serves that file to the
 `index-3.json` and the older indexes keep the DXBC package of the same version for Windows. The catalog's build makes
 the interface 4 package from the one you submit (scripts/build_universal.py in MaiCord-plugins), so a submission is
 still one HLSL file. `maicord-plugin effect build` adds the section itself when the shader toolchain is there (see
-`--glsl`); without it the package runs on Windows only, and a Linux client reports that it has no payload for it.
+`--glsl`); without it the package runs on Windows only, and a Linux client reports that it has no payload for it. A
+package built without the section still loads on Windows, so an effect tested only there needs this step before it
+shows on Linux.
 
 **Previewing.** `maicord-plugin effect preview` can stand in for both inputs while you work, for every effect, in
 Developer Mode:
@@ -233,7 +244,7 @@ The options merge into `simulate-inputs.txt` in the dev folder (`time=HH:MM`, `d
 
 Most effects are light on a dark background: stars, glows, rain. On a light theme that light vanishes (white stars
 on a white page), so MaiCord adapts every effect that does not declare `@uses appearance`, when the appearance is
-light (MaiCord's theme and Windows both light: [dark wins](#time-of-day-and-appearance)):
+light (MaiCord's theme and the system both light: [dark wins](#time-of-day-and-appearance)):
 
 - The effect draws for the theme's dark twin: each `mc_role` colour has its luma flipped and `mc.dark` reads 1.
 - MaiCord flips the picture's luma back as it composites it (no extra pass). The flip is BT.709 luma
@@ -315,7 +326,7 @@ runs exactly as it did. As with interface 2, the catalog lists such an effect on
 3. lints each shader's disassembly: only constant buffer `b0`, textures `t0` to `t4` (`t10` under interface 3) and
    samplers `s0` to `s2`, no unordered-access or 3D resources, at most 4,096 instructions and 64 texture reads;
 4. packs the container (manifest `"interface": 3` for a graph or its textures, 2 when the effect uses `clock` or
-   `appearance`, else 1) and writes `build\<slug>.mcfx`.
+   `appearance`, else 1; 4 when it adds the GLSL section for Linux, see **Linux** above) and writes `build\<slug>.mcfx`.
 
 It prints the instruction and texture-read counts and a guess ("likely light"). The real **cost class** (light,
 medium, heavy) is measured in the catalog's CI by rendering 300 frames on WARP, the in-box software rasterizer; an effect
@@ -328,12 +339,13 @@ Without `fxc`, errors print as `soft-rain.hlsl(23,19-28): error X3004: undeclare
 MaiCord loads effects from `.mcfx` packages: a container with a manifest (name, authors, license, knobs, inputs,
 blend, requested resolution and frame rate, and a graph's targets and passes), the `ps_5_0` bytecode (at most 64
 KiB; a graph's other shaders follow in a SHADERS section, each a whole container of at most 64 KiB), up to four
-textures, the source and a preview. `include/maicord/app/packages/mcfx.hpp` describes the layout, and the client never
-runs a package on the CPU: it checks the container and the manifest, then asks D3D11 to build the shaders.
+textures, the source and a preview (interface 4 adds a GLSL section for Linux). `include/maicord/app/packages/mcfx.hpp`
+describes the layout, and the client never runs a package on the CPU: it checks the container and the manifest, then
+asks D3D11 (Windows) or the OpenGL ES driver (Linux, with the GLSL) to build the shaders.
 
 You can also drop a `.mcfx` onto Settings > Effects > Install from link or file; it appears behind a "not reviewed"
 card with a live preview and never updates by itself. Packages from the catalog live in
-`%LOCALAPPDATA%\MaiCord\effects`.
+`%LOCALAPPDATA%\MaiCord\effects` (`$XDG_DATA_HOME/maicord/effects` on Linux).
 
 ## Porting from Shadertoy
 

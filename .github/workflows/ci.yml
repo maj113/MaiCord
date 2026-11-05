@@ -205,7 +205,7 @@ jobs:
   # are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. The
   # portable subset of the built tests goes to the distros job as a one-day artifact of this run. Neither job gates the preview
   # channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also packages a master build's
-  # tarball (the Linux preview feed, signed by the preview job); nothing else is published from here.
+  # tarball and AppImage (the Linux preview feed, signed by the preview job); nothing else is published from here.
   linux:
     name: Linux (x86-64 build, tests, ELF audit)
     runs-on: ubuntu-24.04
@@ -292,9 +292,9 @@ jobs:
           python3 tools/linux_portable_tests.py --build "$HOME/mc-build" --output "$RUNNER_TEMP/portable"
           echo "name=linux-portable-${GITHUB_SHA::8}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
-      # The master build's tarball (packaging/README.md) for the Linux preview feed: only for a push to master of the
-      # repository that publishes, and only while the Linux channels are published. The client in it is built without the
-      # tests' switches, in a directory of its own.
+      # The master build's tarball and AppImage (packaging/README.md) for the Linux preview feed: only for a push to master of
+      # the repository that publishes, and only while the Linux channels are published. The client in them is built without
+      # the tests' switches, in a directory of its own.
       - name: Package the preview tarball
         id: preview
         if: >-
@@ -310,6 +310,7 @@ jobs:
           set -eu
           bash tools/build_linux.sh
           python3 -B packaging/build_tarball.py --binary "$MAICORD_LINUX_BUILD/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
+          python3 -B packaging/appimage/build_appimage.py --tarball "$RUNNER_TEMP/linux-preview/maicord-$VERSION-linux-x86_64.tar.gz" --output-dir "$RUNNER_TEMP/linux-preview"
           ls -l "$RUNNER_TEMP/linux-preview"
           echo "name=MaiCord-linux-x64-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
@@ -447,6 +448,12 @@ jobs:
           $tarball = Get-ChildItem "$env:RUNNER_TEMP\linux" -Filter 'maicord-*-linux-x86_64.tar.gz' | Select-Object -First 1
           if (!$tarball) { throw 'The Linux job published no tarball.' }
           python -B tools/release/maicord_release.py linux --preview --tarball $tarball.FullName `
+            --output-dir "$env:RUNNER_TEMP\preview" --repository . --expect-version $env:VERSION --public-key $env:PUBLIC_KEY
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # The master build's AppImage (the glibc one) has its own manifest on the Linux preview feed.
+          $appimage = Get-ChildItem "$env:RUNNER_TEMP\linux" -Filter 'MaiCord-*-x86_64.AppImage' | Select-Object -First 1
+          if (!$appimage) { throw 'The Linux job published no AppImage.' }
+          python -B tools/release/maicord_release.py linux --appimage --preview --tarball $appimage.FullName `
             --output-dir "$env:RUNNER_TEMP\preview" --repository . --expect-version $env:VERSION --public-key $env:PUBLIC_KEY
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem "$env:RUNNER_TEMP\preview" | Format-Table Name, Length -AutoSize
