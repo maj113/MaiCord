@@ -1,8 +1,11 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/platform/window/window.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
 
 struct ITaskbarList3;
+#endif
 
 namespace maicord {
 
@@ -24,18 +27,23 @@ struct TaskbarAttentionInput {
 };
 struct TaskbarAttentionState {
     u64 flashed_serial;
+#if !defined(_WIN32)
+    u32 mentions; // the count the launcher entry shows
+#endif
     u8 badge;
     bool flashing, badge_applied;
 };
 struct TaskbarAttentionPlan {
     u8 badge;
     bool set_badge, start_flash, stop_flash;
+    u32 mentions; // the count behind the badge: the docks of Linux show it as it is
 };
 // Pure transition: the host applies the plan, then the state already reflects it.
 TaskbarAttentionPlan taskbar_attention_plan(TaskbarAttentionState*, const TaskbarAttentionInput&) noexcept;
 // Straight-alpha BGRA, top-down, extent x extent: a red disc with white text.
 bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noexcept;
 
+#if defined(_WIN32)
 // Win32 executor: ITaskbarList3 overlay plus FlashWindowEx. Waits for the
 // TaskbarButtonCreated message before touching the overlay; the taskbar
 // object is activated when the first badge is shown.
@@ -47,10 +55,17 @@ struct TaskbarAttention {
     bool button_ready, com_initialized, list_attempted;
     TaskbarAttentionState state;
 };
-bool taskbar_attention_initialize(TaskbarAttention*) noexcept;
 // Returns true when message is the TaskbarButtonCreated notification.
 bool taskbar_attention_window_message(TaskbarAttention*, UINT message) noexcept;
-void taskbar_attention_apply(TaskbarAttention*, HWND, const TaskbarAttentionPlan&, u32 dpi) noexcept;
-void taskbar_attention_release(TaskbarAttention*, HWND) noexcept;
+#else
+// Linux executor: the launcher entry (platform/dbus/launcher_entry.hpp) for the dock's count and urgent flag, and the
+// compositor's attention request for flashing.
+struct TaskbarAttention {
+    TaskbarAttentionState state;
+};
+#endif
+bool taskbar_attention_initialize(TaskbarAttention*) noexcept;
+void taskbar_attention_apply(TaskbarAttention*, Window, const TaskbarAttentionPlan&, u32 dpi) noexcept;
+void taskbar_attention_release(TaskbarAttention*, Window) noexcept;
 
 } // namespace maicord

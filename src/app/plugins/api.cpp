@@ -5,7 +5,7 @@
 #include "maicord/app/plugins/text.hpp"
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/core/utf.hpp"
 
 // mc_api level 1. Every function recovers its binding from the context, which is the
@@ -162,21 +162,12 @@ mc_status MC_CALL api_clock(mc_ctx* ctx, uint64_t* unix_ms) noexcept {
     *unix_ms = clock_unix_milliseconds();
     return MC_OK;
 }
-// The local time at the instant, as a FILETIME, minus the instant (FILETIME: 100 ns since 1601).
+// The local time at the instant minus the instant: the zone's offset east of UTC, daylight saving included.
 mc_status MC_CALL api_local_offset(mc_ctx* ctx, int64_t unix_seconds, int32_t* seconds_east) noexcept {
     if (!active(ctx)) return MC_E_INACTIVE;
-    constexpr i64 kFrom1601 = 11'644'473'600, kYear9999 = 253'402'300'799;
-    if (!seconds_east || unix_seconds < -kFrom1601 || unix_seconds > kYear9999) return MC_E_INVALID;
-    const u64 ticks = static_cast<u64>(unix_seconds + kFrom1601) * 10'000'000u;
-    const FILETIME utc_file{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
-    SYSTEMTIME utc, local;
-    FILETIME local_file;
-    if (!FileTimeToSystemTime(&utc_file, &utc) || !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local) ||
-        !SystemTimeToFileTime(&local, &local_file))
-        return MC_E_INVALID;
-    const u64 local_ticks = (static_cast<u64>(local_file.dwHighDateTime) << 32) | local_file.dwLowDateTime;
-    *seconds_east = static_cast<i32>((static_cast<i64>(local_ticks) - static_cast<i64>(ticks)) / 10'000'000);
-    return MC_OK;
+    if (!seconds_east) return MC_E_INVALID;
+    CalendarTime local;
+    return local_time_from_unix(unix_seconds, &local, seconds_east) ? MC_OK : MC_E_INVALID;
 }
 
 } // namespace

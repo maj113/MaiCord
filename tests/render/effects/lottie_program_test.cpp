@@ -234,16 +234,38 @@ bool similar(const char* name, const FrameDigest& expected_frame, const MaskDige
     for (u32 i = 0; i < actual_frame.masks; ++i)
         if (actual[i].area >= kMinimumArea)
             actual_index[actual_count++] = i;
-    if (expected_count != actual_count) {
-        print_frame(name, actual_frame.frame, "the number of painted shapes differs");
-        test_write_metric("    reference: ", expected_count);
-        test_write_metric("    here:      ", actual_count);
-        return false;
-    }
+    // A shape a hair above the compiler's area threshold on one side may be a hair below it on the other: a shape that
+    // is small and has no partner is skipped; any other without one is a difference.
+    constexpr double kBorder = 4e-5;
+    const auto close = [](const MaskDigest& a, const MaskDigest& b) noexcept {
+        for (u32 c = 0; c < 4; ++c) {
+            const float d = a.bounds[c] - b.bounds[c];
+            if (d > .004f || d < -.004f)
+                return false;
+        }
+        return true;
+    };
     bool ok = true;
-    for (u32 k = 0; k < expected_count; ++k) {
-        const MaskDigest& a = expected[expected_index[k]];
-        const MaskDigest& b = actual[actual_index[k]];
+    u32 i = 0, j = 0;
+    while (i < expected_count || j < actual_count) {
+        const MaskDigest* first = i < expected_count ? &expected[expected_index[i]] : nullptr;
+        const MaskDigest* second = j < actual_count ? &actual[actual_index[j]] : nullptr;
+        if (!(first && second && close(*first, *second))) {
+            if (first && first->area < kBorder) {
+                ++i;
+                continue;
+            }
+            if (second && second->area < kBorder) {
+                ++j;
+                continue;
+            }
+            print_frame(name, actual_frame.frame, "the painted shapes differ");
+            test_write_metric("    reference shapes: ", expected_count);
+            test_write_metric("    here:             ", actual_count);
+            return false;
+        }
+        const MaskDigest& a = *first;
+        const MaskDigest& b = *second;
         ++tally->masks;
         const double length = a.length > b.length ? a.length : b.length;
         // Direct2D flattens combinations to .1 of 512 units and widens strokes to the same; areas move by that along
@@ -265,13 +287,15 @@ bool similar(const char* name, const FrameDigest& expected_frame, const MaskDige
         tally->worst_over = over > tally->worst_over ? over : tally->worst_over;
         if (difference > slack || worst > 48 || over > 6) {
             print_frame(name, actual_frame.frame, "a shape differs");
-            test_write_metric("    shape: ", k);
+            test_write_metric("    shape: ", i);
             test_write_metric("    area difference x1e9: ", static_cast<u64>(difference * 1e9));
             test_write_metric("    allowed x1e9:         ", static_cast<u64>(slack * 1e9));
             test_write_metric("    worst cell level: ", worst);
             test_write_metric("    cells over 12 levels: ", over);
             ok = false;
         }
+        ++i;
+        ++j;
     }
     return ok;
 }

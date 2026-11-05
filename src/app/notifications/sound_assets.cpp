@@ -3,7 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "maicord/core/resource.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
@@ -13,11 +13,8 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
     const u32 index=id-1;
     if(bank->failed_mask&(1u<<index)) return false;
     if(!bank->pcm[index]) {
-        const HMODULE module=bank->module?bank->module:GetModuleHandleW(nullptr);
-        HRSRC resource=FindResourceW(module,MAKEINTRESOURCEW(kNotificationMessageAlertResource+index),RT_RCDATA);
-        const u32 count=resource?SizeofResource(module,resource):0;
-        HGLOBAL loaded=resource?LoadResource(module,resource):nullptr;
-        const auto* data=loaded?static_cast<const u8*>(LockResource(loaded)):nullptr;
+        const ConstSlice<u8> resource=program_resource(bank->module,kNotificationMessageAlertResource+index);
+        const u8* data=resource.data;const u32 count=resource.count;
         const u32 rate=data&&count>=16?byte_load_le32(data+12):0;
         if(!data || count<=16 || count>2*1024*1024 || !bytes_equal(data,"MCSP",4) || data[4]!=1 ||
             data[5]>2 || data[6]>2 || data[7]!=2 ||

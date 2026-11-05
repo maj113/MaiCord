@@ -32,6 +32,7 @@ enum class PluginLoadError : u8 {
     permissions,  // the plugin needs permissions that were not approved
     release,      // FreeLibrary failed; the image stays owned for a retry
     digest,       // the file is not the SHA-256 the caller expects
+    unsupported,  // this platform loads no native plugins
 };
 
 // Which descriptor rule failed.

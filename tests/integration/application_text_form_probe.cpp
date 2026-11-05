@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "probe_present.hpp"
 #include "../support/secure_edit_queries.hpp"
 #include "reaction_intent_ui_adapter.hpp"

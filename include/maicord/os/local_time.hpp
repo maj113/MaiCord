@@ -23,8 +23,9 @@ namespace maicord {
 i32 local_utc_offset(i64 unix_seconds, bool* daylight = nullptr) noexcept;
 
 // The local reading at a UTC instant (SystemTimeToTzSpecificLocalTime); *utc_offset, when given, is the offset used.
-// False for an instant outside the years 1 to 9999. On Windows this one function forwards to the Win32 calls (the
-// readers of local dates share it with Linux); the rest of this header has no Windows side.
+// False for an instant outside the years 1 to 9999. On Windows these three (this one, local_time_to_unix and
+// local_time_now) forward to the Win32 calls, as the readers of local dates share them with Linux; the rest of this
+// header has no Windows side.
 #if defined(_WIN32)
 inline bool local_time_from_unix(i64 unix_seconds, CalendarTime* output, i32* utc_offset = nullptr) noexcept {
     constexpr i64 kFrom1601 = 11'644'473'600, kYear9999 = 253'402'300'799;
@@ -50,10 +51,27 @@ bool local_time_from_unix(i64 unix_seconds, CalendarTime* output, i32* utc_offse
 
 // The UTC instant of a local reading (TzSpecificLocalTimeToSystemTime): the first of two when the clocks went back,
 // the offset before the change for a reading that never happened. False for an invalid reading.
+#if defined(_WIN32)
+inline bool local_time_to_unix(const CalendarTime& local, i64* unix_seconds) noexcept {
+    SYSTEMTIME utc;
+    FILETIME utc_file;
+    if (!TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc) || !SystemTimeToFileTime(&utc, &utc_file))
+        return false;
+    const u64 ticks = (static_cast<u64>(utc_file.dwHighDateTime) << 32) | utc_file.dwLowDateTime;
+    *unix_seconds = static_cast<i64>(ticks / 10'000'000u) - 11'644'473'600;
+    return true;
+}
+
+// The current local time (GetLocalTime).
+inline void local_time_now(CalendarTime* output) noexcept {
+    GetLocalTime(output);
+}
+#else
 bool local_time_to_unix(const CalendarTime& local, i64* unix_seconds) noexcept;
 
 // The current local time (GetLocalTime).
 void local_time_now(CalendarTime* output) noexcept;
+#endif
 
 // The IANA identifier of the zone ("Europe/Berlin") into output with its NUL, zero when the zone has none (a rule in
 // $TZ, a file outside any zoneinfo directory, UTC by default) or it does not fit.

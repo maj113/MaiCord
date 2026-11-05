@@ -11,6 +11,7 @@
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/linux/error.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/path.hpp"
@@ -183,7 +184,13 @@ inline HANDLE CreateFileW(LPCWSTR path, DWORD access, DWORD, LPSECURITY_ATTRIBUT
     return maicord::test_compat::handle_from_descriptor(fd);
 }
 
+// A waitable (os/wait.hpp: the token carries flag bits above the descriptor) closes as one; anything else is a
+// descriptor of CreateFileW.
 inline BOOL CloseHandle(HANDLE handle) noexcept {
+    if ((reinterpret_cast<maicord::u64>(handle) >> 32) != 0 && handle != INVALID_HANDLE_VALUE) {
+        maicord::waitable_close(handle);
+        return TRUE;
+    }
     return maicord::test_compat::usable(handle) && !maicord::syscall_failed(maicord::sys_close(maicord::test_compat::descriptor(handle)));
 }
 
@@ -403,5 +410,7 @@ inline BOOL QueryPerformanceCounter(LARGE_INTEGER* counter) noexcept {
 
 // The process and memory queries of the font tests (descriptor count, VirtualQuery, hard links).
 #include "linux_test_process.hpp"
+// The kernel calls of the application and UI fixtures (page blocks, exit, tick, ids).
+#include "linux_test_app.hpp"
 
 #endif

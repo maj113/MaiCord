@@ -7,9 +7,10 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/os/text.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -42,14 +43,12 @@ LinkTrustStore* current_store() noexcept {
 
 void launch(const Utf8View& url) noexcept {
     wchar_t wide[2048];
-    const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data, static_cast<int>(url.bytes),
-                                          wide, static_cast<int>(sizeof(wide) / sizeof(wide[0]) - 1));
-    if (units <= 0)
+    const u32 units = utf8_to_utf16(url.data, url.bytes, wide, sizeof(wide) / sizeof(wide[0]) - 1, true);
+    if (units == 0)
         return;
     wide[units] = 0;
     // The official client shows nothing when the browser refuses a link; neither do we.
-    const HINSTANCE opened = ShellExecuteW(win32_hwnd(g_app.window), L"open", wide, nullptr, nullptr, SW_SHOWNORMAL);
-    if (reinterpret_cast<INT_PTR>(opened) <= 32)
+    if (!desktop_open_target(g_app.window, wide))
         log_write(LogLevel::warning, "links", "link_launch_failed");
 }
 

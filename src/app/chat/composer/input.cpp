@@ -22,7 +22,6 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/plugins/slots.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/ui/media/picker.hpp"
 

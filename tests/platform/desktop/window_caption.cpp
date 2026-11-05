@@ -5,6 +5,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/desktop/window_frame.hpp"
+#include "maicord/platform/window/frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
@@ -147,25 +148,45 @@ HitFixture fixture(u32 dpi) noexcept {
     return f;
 }
 
+u32 hit_code(FrameHit hit) noexcept {
+    switch (hit) {
+    case FrameHit::caption: return HTCAPTION;
+    case FrameHit::system_menu: return HTSYSMENU;
+    case FrameHit::minimize: return HTMINBUTTON;
+    case FrameHit::maximize: return HTMAXBUTTON;
+    case FrameHit::close: return HTCLOSE;
+    case FrameHit::left: return HTLEFT;
+    case FrameHit::right: return HTRIGHT;
+    case FrameHit::top: return HTTOP;
+    case FrameHit::bottom: return HTBOTTOM;
+    case FrameHit::top_left: return HTTOPLEFT;
+    case FrameHit::top_right: return HTTOPRIGHT;
+    case FrameHit::bottom_left: return HTBOTTOMLEFT;
+    case FrameHit::bottom_right: return HTBOTTOMRIGHT;
+    case FrameHit::nowhere: return HTNOWHERE;
+    default: return HTCLIENT;
+    }
+}
+
 u32 hit(const HitFixture& f, i32 x, i32 y, bool maximized) noexcept {
-    WindowFramePart part = WindowFramePart::client;
+    FrameHit part = FrameHit::client;
     if (x >= 0 && y >= 0 && x < f.width && y < f.caption) {
         switch (ui_caption_bar_native(ui_caption_bar_part(f.layout, static_cast<float>(x) / f.scale,
                                                           static_cast<float>(y) / f.scale))) {
         case UiCaptionNative::caption:
-            part = WindowFramePart::caption;
+            part = FrameHit::caption;
             break;
         case UiCaptionNative::system_menu:
-            part = WindowFramePart::system_menu;
+            part = FrameHit::system_menu;
             break;
         case UiCaptionNative::maximize:
-            part = WindowFramePart::maximize;
+            part = FrameHit::maximize;
             break;
         default:
             break;
         }
     }
-    return window_frame_hit(x, y, f.width, f.height, f.border, maximized, part);
+    return hit_code(window_frame_hit(x, y, f.width, f.height, f.border, maximized, part));
 }
 
 void hit_testing() noexcept {

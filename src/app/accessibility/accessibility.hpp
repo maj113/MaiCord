@@ -4,9 +4,11 @@
 
 namespace maicord::app_detail {
 
+#if defined(_WIN32)
 // Deferred UI Automation actions run from this posted message, never inside
 // a UI Automation call.
 inline constexpr UINT kApplicationAccessibilityMessage = kWindowMessageApp + 0x3A;
+#endif
 
 // WM_GETOBJECT (UI Automation root) and the deferred action message.
 bool application_accessibility_window_message(UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;

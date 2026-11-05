@@ -67,10 +67,11 @@ struct TextInputRequest {
     bool sensitive;  // a password or secret: hidden text, no learning, no surrounding text
     i32 x, y, width, height;  // the caret's rectangle in client pixels
 };
-bool window_wayland_text_input_available(Window window) noexcept;
+// The window is named by its surface (window_surface_native), as the text store holds it.
+bool window_wayland_text_input_available(NativeWindow window) noexcept;
 // Enables or updates text input for the focused field; applied at once, or when the window gets text focus.
-bool window_wayland_text_input_enable(Window window, const TextInputRequest& request) noexcept;
-void window_wayland_text_input_disable(Window window) noexcept;
+bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept;
+void window_wayland_text_input_disable(NativeWindow window) noexcept;
 
 // The primary selection (select-to-copy, middle-click to paste). Reading and writing are the clipboard's: a bounded read,
 // and a write that needs a recent input event.

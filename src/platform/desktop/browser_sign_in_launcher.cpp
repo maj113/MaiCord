@@ -1,6 +1,6 @@
 #include "maicord/platform/desktop/browser_sign_in_launcher.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord {
 namespace {
@@ -14,7 +14,7 @@ bool matches(const SecureBuffer* url, u32 offset, const char* literal, u32 bytes
     return true;
 }
 // The validated URL is ASCII; widen it into locked storage for the shell.
-bool open_validated(HWND window, const SecureBuffer* url) noexcept {
+bool open_validated(Window window, const SecureBuffer* url) noexcept {
     SecureBuffer wide{};
     if (!secure_buffer_initialize(&wide, (url->bytes + 1) * sizeof(wchar_t)).ok())
         return false;
@@ -22,14 +22,13 @@ bool open_validated(HWND window, const SecureBuffer* url) noexcept {
     for (u32 i = 0; i < url->bytes; ++i)
         characters[i] = static_cast<wchar_t>(url->data[i]);
     characters[url->bytes] = 0;
-    const auto opened = reinterpret_cast<usize>(
-        ShellExecuteW(window, L"open", characters, nullptr, nullptr, SW_SHOWNORMAL));
+    const bool opened = desktop_open_target(window, characters);
     secure_buffer_release(&wide);
-    return opened > 32;
+    return opened;
 }
 } // namespace
 
-bool browser_sign_in_launch(HWND window, const SecureBuffer* url) noexcept {
+bool browser_sign_in_launch(Window window, const SecureBuffer* url) noexcept {
     static constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";
     static constexpr char middle[] = "%26key%3D";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
@@ -77,7 +76,7 @@ bool captcha_bridge_url_valid(const SecureBuffer* url) noexcept {
     return true;
 }
 
-bool captcha_bridge_launch(HWND window, const SecureBuffer* url) noexcept {
+bool captcha_bridge_launch(Window window, const SecureBuffer* url) noexcept {
     return captcha_bridge_url_valid(url) && open_validated(window, url);
 }
 } // namespace maicord

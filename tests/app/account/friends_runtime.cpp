@@ -15,7 +15,6 @@
 #include "../../support/application_action_captcha_stubs.hpp"
 #include "../../support/test_output.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/window_fixture.hpp"
 
@@ -59,31 +58,21 @@ void check(bool valid, const char* label) noexcept {
 }
 enum SyntheticModifiers : u8 { synthetic_control = 1, synthetic_shift = 2, synthetic_alt = 4 };
 bool synthetic_input(UiInputKind kind, u32 code, bool repeated, u8 modifiers = 0) noexcept {
-    // The fixture supplies a key message directly, without a Windows input
-    // message. Its modifiers must belong to that message rather than whatever
-    // the interactive desktop happened to publish to this thread's key table.
-    BYTE original[256]{}, keys[256]{};
-    const bool saved = GetKeyboardState(original) != FALSE;
-    check(saved, "friends fixture: thread keyboard state is saved before synthetic input");
-    if (!saved) return false;
+    // The fixture supplies a key message directly. Its modifiers must belong to that message: the headless window's
+    // key table holds exactly those, and nothing else, for the call.
     const bool control = (modifiers & synthetic_control) != 0;
     const bool shift = (modifiers & synthetic_shift) != 0;
     const bool alt = (modifiers & synthetic_alt) != 0;
-    if (control) keys[key::ctrl] = keys[key::left_ctrl] = 0x80;
-    if (shift) keys[key::shift] = keys[key::left_shift] = 0x80;
-    if (alt) keys[key::alt] = keys[key::left_alt] = 0x80;
-    const bool applied = SetKeyboardState(keys) != FALSE &&
-        ((GetKeyState(key::ctrl) & 0x8000) != 0) == control &&
-        ((GetKeyState(key::shift) & 0x8000) != 0) == shift &&
-        ((GetKeyState(key::alt) & 0x8000) != 0) == alt;
-    check(applied, "friends fixture: synthetic message owns exact thread-local modifiers");
+    null_window_release_keys();
+    if (control) window_test::hold(key::ctrl);
+    if (shift) window_test::hold(key::shift);
+    if (alt) window_test::hold(key::alt);
+    const bool applied = window_key_down(nullptr, key::ctrl) == control && window_key_down(nullptr, key::shift) == shift &&
+        window_key_down(nullptr, key::alt) == alt;
+    check(applied, "friends fixture: synthetic message owns exact modifiers");
     const bool handled = applied && application_friends_input(kind, code, repeated);
-    BYTE restored_keys[256]{};
-    bool restored = SetKeyboardState(original) != FALSE && GetKeyboardState(restored_keys) != FALSE;
-    for (u32 i = 0; restored && i < sizeof(original); ++i)
-        restored = restored_keys[i] == original[i];
-    check(restored, "friends fixture: original thread keyboard state is restored after synthetic input");
-    return handled && restored;
+    null_window_release_keys();
+    return handled;
 }
 UiFriendsScene* main_scene() noexcept { return const_cast<UiFriendsScene*>(g_app.renderer.friends_scene); }
 UiFriendsScene* scene() noexcept { return const_cast<UiFriendsScene*>(application_friends_requests_active()?
@@ -294,12 +283,11 @@ void search_runtime_fixture() noexcept {
     check(action(UiFriendsAction::more,101)&&g_app.popup_scene.active&&g_app.popup_owner_kind==PopupOwnerKind::friends&&
         !text_input_ready(visible_target),"friends search: real More popup owns routing and excludes search input");dismiss_popup();
     check(action(UiFriendsAction::search),"friends search: explicit focus restores target after popup dismissal");
-    HWND window=CreateWindowExW(0,L"STATIC",L"MaiCord Friends search capture fixture",WS_POPUP,400,200,1280,700,
-        nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-    check(window!=nullptr,"friends search: owns an invisible native mouse-capture fixture");
+    const Window window = window_test::open();
+    check(window!=nullptr,"friends search: owns a headless mouse-capture fixture");
     const auto retained=application_friends_search_target();void* history=all->history;
     if (window) {
-        g_app.window = win32_window(window);
+        g_app.window = window;
         const auto pointer_tab = [&](UiFriendsTab value, bool second_press) noexcept {
             const auto* current = scene();
             if (!current)
@@ -314,10 +302,10 @@ void search_runtime_fixture() noexcept {
                 const auto hit = ui_friends_scene_hit_test(*current, x, y);
                 if (hit.action != UiFriendsAction::select_tab || hit.tab != value)
                     continue;
-                const auto point = MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
-                return application_friends_window_event(second_press ? window_test::pointer_double(window_test::x_of(point), window_test::y_of(point)) : window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
+                const float px = static_cast<float>(static_cast<i16>(x)), py = static_cast<float>(static_cast<i16>(y));
+                return application_friends_window_event(second_press ? window_test::pointer_double(px, py) : window_test::pointer_down(px, py)) &&
                        window_pointer_captured(g_app.window) &&
-                       application_friends_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !window_pointer_captured(g_app.window);
+                       application_friends_window_event(window_test::pointer_up(px, py, PointerButton::left)) && !window_pointer_captured(g_app.window);
             }
             return false;
         };
@@ -325,18 +313,18 @@ void search_runtime_fixture() noexcept {
             pointer_tab(UiFriendsTab::online, false) && scene()->tab == UiFriendsTab::online &&
                 pointer_tab(UiFriendsTab::all, true) && scene()->tab == UiFriendsTab::all,
             "friends host: native rapid tab presses activate both releases without swallowing second down");
-        g_app.window = win32_window(window);
+        g_app.window = window;
         const auto field = ui_friends_scene_search_geometry(*scene()).field;
-        const auto location = MAKELPARAM(static_cast<short>((field.left + field.right) * .5f),
-                                         static_cast<short>((field.top + field.bottom) * .5f));
-        check(application_friends_window_event(window_test::pointer_down(window_test::x_of(location), window_test::y_of(location)))&&window_pointer_captured(g_app.window)&&
+        const float location_x = static_cast<float>(static_cast<i16>((field.left + field.right) * .5f)),
+                    location_y = static_cast<float>(static_cast<i16>((field.top + field.bottom) * .5f));
+        check(application_friends_window_event(window_test::pointer_down(location_x, location_y))&&window_pointer_captured(g_app.window)&&
             application_friends_window_event(window_test::pointer_move(0, 0, window_test::button_bit(PointerButton::left))),
             "friends search: captured selection drag continues outside center viewport");
         application_friends_hide();
         check(!window_pointer_captured(g_app.window)&&!text_input_ready(retained)&&
             !application_friends_window_event(window_test::pointer_move(0, 0, window_test::button_bit(PointerButton::left))),
             "friends search: hide releases owned mouse capture and invalidates drag and input target");
-        g_app.window=nullptr;DestroyWindow(window);
+        g_app.window=nullptr;window_test::close();
     } else
         application_friends_hide();
     check(application_friends_show()&&all==application_friends_search_model()&&all->history==history&&

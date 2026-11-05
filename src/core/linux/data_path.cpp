@@ -209,4 +209,28 @@ u32 executable_path(wchar_t* output, u32 capacity) noexcept {
     return path_from_utf8(text, output, capacity);
 }
 
+u32 environment_variable(const wchar_t* name, wchar_t* output, u32 capacity) noexcept {
+    char variable[kRootCapacity];
+    if (!name || !output || capacity == 0 || path_to_utf8(name, variable, sizeof(variable)) == 0) {
+        return 0;
+    }
+    const char* value = environment_get(variable);
+    if (!value || !*value) {
+        return 0;
+    }
+    u32 bytes = 0;
+    while (value[bytes]) {
+        ++bytes;
+    }
+    const u32 length = path_from_utf8(value, output, capacity);
+    if (length == 0) {
+        return bytes + 1 > capacity ? bytes + 1 : capacity;
+    }
+    return length;
+}
+
+u32 local_data_root(wchar_t* output, u32 capacity) noexcept {
+    return xdg_root(Root::data, output, capacity);
+}
+
 } // namespace maicord

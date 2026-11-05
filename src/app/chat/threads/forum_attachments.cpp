@@ -8,7 +8,6 @@
 #include "maicord/core/time.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
-#include "maicord/sys/shell.hpp"
 namespace maicord::app_detail {
 namespace {
 ApplicationForumAttachments* forum_attachments{};

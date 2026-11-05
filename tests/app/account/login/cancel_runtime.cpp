@@ -1142,8 +1142,8 @@ bool application_login_position_edit(LoginControl, i32, i32, bool) noexcept { re
 
 namespace maicord {
 // The CAPTCHA bridge never launches in this harness (no challenge is bridged).
-bool captcha_bridge_launch(HWND, const SecureBuffer*) noexcept { return false; }
-bool browser_sign_in_launch(HWND, const SecureBuffer* url) noexcept {
+bool captcha_bridge_launch(Window, const SecureBuffer*) noexcept { return false; }
+bool browser_sign_in_launch(Window, const SecureBuffer* url) noexcept {
     auto& audit = login_cancel_test::audit;
     ++audit.browser_launches;
     login_cancel_test::check(url && url->locked && url->bytes && !app_detail::g_app.login.browser_launch_epoch,
@@ -1156,7 +1156,7 @@ AccountPathsResult account_paths_resolve(AccountPaths* paths) noexcept {
     *paths = {}; paths->profile[0] = L'p'; return {};
 }
 AccountPathsResult account_paths_ensure_directories(const AccountPaths&) noexcept { return {}; }
-WindowsWebAuthnResult windows_webauthn_authenticate(HWND, const WebAuthnMfaRequestOptions&, SecureBuffer* output) noexcept {
+WindowsWebAuthnResult windows_webauthn_authenticate(Window, const WebAuthnMfaRequestOptions&, SecureBuffer* output) noexcept {
     using namespace app_detail;
     auto& audit = login_cancel_test::audit;
     ++audit.provider_calls;

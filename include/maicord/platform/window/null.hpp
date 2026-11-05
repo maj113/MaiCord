@@ -32,6 +32,16 @@ struct NullWindowProbe {
     u32 fatal_messages;   // window_fatal_message calls
     u32 title_bytes;
     char title[128];      // the last window_set_title, truncated
+    // window_wayland_text_input_*: the input method the text store talks to.
+    bool text_input_available;  // set with null_window_set_text_input_available; what the call reports
+    bool text_input_enabled;
+    u32 text_input_enables, text_input_disables;
+    u32 text_surrounding_bytes;
+    char text_surrounding[256];  // the surrounding text of the last request, truncated
+    u32 text_cursor_byte, text_anchor_byte;
+    u8 text_purpose;             // the TextInputPurpose
+    bool text_sensitive;
+    i32 text_x, text_y, text_width, text_height;
 };
 const NullWindowProbe& null_window_probe() noexcept;
 
@@ -46,8 +56,12 @@ void null_window_release_keys() noexcept;
 void null_window_set_pointer(float x_px, float y_px) noexcept;
 void null_window_set_metrics(const WindowMetrics& metrics) noexcept;
 void null_window_set_layout_types_text(bool types_text) noexcept;
+// Whether the window has a text input protocol at all (the Wayland compositor's text-input-v3).
+void null_window_set_text_input_available(bool available) noexcept;
 
 // Gives window_focus the outcome a real window would: whether it can take the keyboard focus at all.
 void null_window_set_focus_allowed(bool allowed) noexcept;
+// The keyboard focus moves to or away from the window by something else (the user, a dialog).
+void null_window_set_focus(bool focused) noexcept;
 
 } // namespace maicord

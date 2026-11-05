@@ -78,6 +78,38 @@
 
 namespace maicord::app_detail {
 namespace {
+// The sink is the only place window state changes are observed: position changes carry every
+// show/hide/minimize/restore/resize; activation, focus and scale have their own events. It runs first, before any
+// handler reads the flags.
+void observe_window_state(const WindowEvent& event) noexcept {
+    switch (event.type) {
+    case EventType::key_down:
+    case EventType::key_up:
+    case EventType::character:
+    case EventType::pointer_move:
+    case EventType::pointer_down:
+    case EventType::pointer_up:
+    case EventType::wheel:
+        application_effects_note_input();
+        break;
+    case EventType::state_changed:
+        // Creation-time events see a window not yet handed back to the application.
+        if (g_app.window)
+            application_window_observe_position(g_app.window);
+        break;
+    case EventType::activation_changed:
+        g_window_state.foreground = event.focus.gained;
+        break;
+    case EventType::focus_changed:
+        g_window_state.keyboard_focus = event.focus.gained;
+        break;
+    case EventType::scale_changed:
+        g_window_state.dpi = input_dpi(event);
+        break;
+    default:
+        break;
+    }
+}
 void update_keyboard_focus_visible(const WindowEvent& event) noexcept {
     const bool shift_f10 = input_key_down(event) && event.key.key == key::f10 && application_shift_down();
     const bool visible = keyboard_focus_after_event(g_app.keyboard_focus_visible, event, shift_f10);
@@ -90,11 +122,22 @@ void update_keyboard_focus_visible(const WindowEvent& event) noexcept {
 // procedure on Windows).
 bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
     const EventType type = event.type;
-    // The backend sized the client before Windows commits the HWND's new origin: prepare the composition surface
-    // for it, so a left-edge drag never shows the old width at the new origin.
+    // A query: where a pixel of the frame the app draws lies.
+    if (type == EventType::hit_test) {
+        answer->value = static_cast<i32>(application_caption_hit(event.pointer.x, event.pointer.y));
+        return true;
+    }
+    if (application_video_discard_character(event))
+        return true;
+    // The bar's own items, and the bar's follow-up of scale and size changes, before content coordinates apply.
+    if (application_caption_event(event))
+        return true;
+    // The backend sized the client before the window's new origin is committed: prepare the composition surface for
+    // it, so a left-edge drag never shows the old width at the new origin. The content is what lies below the bar.
     if (type == EventType::resize && (event.flags & ev_provisional)) {
-        if (g_app.renderer_ready)
-            application_resize_surface(event.resize.width_px, event.resize.height_px);
+        const u32 caption = g_app.renderer.caption_height;
+        if (g_app.renderer_ready && event.resize.height_px > caption)
+            application_resize_surface(event.resize.width_px, event.resize.height_px - caption);
         return true;
     }
     if (type == EventType::activation_changed)
@@ -341,7 +384,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         }
         break;
     case EventType::size_limits:
-        application_minimum_window_frame(static_cast<HWND>(event.window), &answer->width_px, &answer->height_px);
+        application_minimum_client_size(&answer->width_px, &answer->height_px);
         return true;
     case EventType::resize_begin:
         application_begin_window_resize();
@@ -351,7 +394,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             application_resize_client();
         return true;
     case EventType::resize_end:
-        application_end_window_resize(static_cast<HWND>(event.window));
+        application_end_window_resize();
         return true;
     case EventType::scale_changed:
         popup_scene_close(&g_app.popup_scene);
@@ -582,6 +625,10 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         secure_edit_cancel_composition(&g_app.login.password);
         secure_edit_cancel_composition(&g_app.login.mfa);
         return true;
+    case EventType::ime_preedit:
+    case EventType::ime_commit:
+    case EventType::ime_delete_surrounding:
+        return secure_text_store_ime_event(event);
     case EventType::context_menu: {
         if (!g_app.renderer_ready)
             break;
@@ -638,6 +685,7 @@ bool application_input_blocked() noexcept {
 }
 
 void application_window_event(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
+    observe_window_state(event);
     result->handled = chain(event, result);
 }
 

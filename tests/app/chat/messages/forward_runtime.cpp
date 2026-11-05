@@ -16,7 +16,6 @@
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::forward_runtime_test {
@@ -49,11 +48,13 @@ void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
-    BYTE clean[256]{};
-    clean[key::ctrl] = control ? 0x80 : 0;
-    clean[key::shift] = shift ? 0x80 : 0;
-    clean[key::alt] = alt ? 0x80 : 0;
-    check(SetKeyboardState(clean) != FALSE, "Forward runtime keyboard state");
+    null_window_release_keys();
+    if (control) window_test::hold(key::ctrl);
+    if (shift) window_test::hold(key::shift);
+    if (alt) window_test::hold(key::alt);
+    check(window_key_down(nullptr, key::ctrl) == control && window_key_down(nullptr, key::shift) == shift &&
+              window_key_down(nullptr, key::alt) == alt,
+          "Forward runtime keyboard state");
 }
 bool channel(u64 id, Utf8View name) noexcept {
     auto& state = g_app.account_ui->chat_state;
@@ -85,17 +86,14 @@ bool edit(Utf8View value) noexcept {
 }
 #include "../../../support/application_scoped_shortcut_test.inc"
 void run() noexcept {
-    BYTE saved[256]{};
-    const bool keyboard_saved = GetKeyboardState(saved) != FALSE;
+    g_app.window = window_test::open();
     modifiers();
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Forward isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Forward runtime hidden window and scoped account");
     if (!g_app.window || !g_app.account_ui)
         return;
-    SetFocus(win32_hwnd(g_app.window));
+    window_focus(g_app.window);
     g_window_state.keyboard_focus = true;
     g_app.renderer_ready = true;
     g_app.renderer.dpi = 96;
@@ -272,8 +270,8 @@ void run() noexcept {
     check(q->controller.committed && ui.message_composer_controller.request_count == 1,
           "Forward runtime new explicit forward after completion receives its own request");
     const auto cancel_bounds = q->scene.cancel_rectangle;
-    const LPARAM cancel_point =
-        MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
+    const i64 cancel_point =
+        window_test::pack(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
     application_message_forward_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point)));
     application_message_forward_window_event(window_test::pointer_up(window_test::x_of(cancel_point), window_test::y_of(cancel_point), PointerButton::left));
@@ -284,7 +282,7 @@ void run() noexcept {
     key(key::enter);
     key(key::enter, true);
     const auto hit = q->scene.panel;
-    const LPARAM point = MAKELPARAM(static_cast<i16>(hit.left + 5), static_cast<i16>(hit.top + 5));
+    const i64 point = window_test::pack(static_cast<i16>(hit.left + 5), static_cast<i16>(hit.top + 5));
     application_message_forward_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     application_message_forward_close();
     check(application_message_forward_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) &&
@@ -349,13 +347,11 @@ void run() noexcept {
     // scoped_shortcut_routing() runs in the Quick switcher runtime against the
     // same production router; this file keeps only the Forward modal case.
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_window_state.keyboard_focus = false;
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    if (keyboard_saved)
-        check(SetKeyboardState(saved) != FALSE, "Forward runtime keyboard state restores");
 }
 } // namespace maicord::forward_runtime_test
 namespace maicord { namespace navigation_runtime_test = forward_runtime_test; }

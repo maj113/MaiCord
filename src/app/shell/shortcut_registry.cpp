@@ -6,7 +6,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 

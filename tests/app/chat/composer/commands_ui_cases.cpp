@@ -3,7 +3,6 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../../src/app/chat/messages/feedback.hpp"
 #include "maicord/app/chat/messages/send_response.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"

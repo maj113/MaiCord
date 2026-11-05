@@ -1,35 +1,35 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
 
 // The main window's show state, activation, keyboard focus, DPI and client
-// size, kept by the window procedure from the messages that change them
-// (WM_WINDOWPOSCHANGED, WM_ACTIVATE, WM_SETFOCUS, WM_KILLFOCUS, WM_DPICHANGED)
-// so decisions read a flag instead of querying the window system.
+// size, kept by the sink from the events that change them (state_changed,
+// activation_changed, focus_changed, scale_changed) so decisions read a flag
+// instead of querying the window system.
 struct ApplicationWindowState {
     bool minimized;
     bool visible;
     bool foreground;
     bool keyboard_focus;
-    // Zero until first queried; then the value of the last WM_DPICHANGED.
+    // Zero until first queried; then the value of the last scale_changed.
     u32 dpi;
-    LONG client_width;
-    LONG client_height;
+    i32 client_width;
+    i32 client_height;
 };
 inline ApplicationWindowState g_window_state{};
 
 // Reads the show state and client size a position change (show, hide,
 // minimize, restore, resize) left.
-inline void application_window_observe_position(HWND window) noexcept {
-    g_window_state.minimized = IsIconic(window) != FALSE;
-    g_window_state.visible = IsWindowVisible(window) != FALSE;
-    RECT client{};
-    GetClientRect(window, &client);
-    g_window_state.client_width = client.right;
-    g_window_state.client_height = client.bottom;
+inline void application_window_observe_position(Window window) noexcept {
+    const u32 state = window_state(window);
+    g_window_state.minimized = (state & state_minimized) != 0;
+    g_window_state.visible = (state & state_visible) != 0;
+    const WindowMetrics client = window_metrics(window);
+    g_window_state.client_width = static_cast<i32>(client.width_px);
+    g_window_state.client_height = static_cast<i32>(client.height_px);
 }
 
 inline bool application_window_minimized() noexcept {
@@ -56,9 +56,9 @@ inline bool application_window_focused() noexcept {
     return g_window_state.foreground && application_window_shown();
 }
 // The window's DPI; zero while the system cannot tell.
-inline u32 application_window_dpi(HWND window) noexcept {
+inline u32 application_window_dpi(Window window) noexcept {
     if (!g_window_state.dpi && window)
-        g_window_state.dpi = GetDpiForWindow(window);
+        g_window_state.dpi = window_metrics(window).dpi;
     return g_window_state.dpi;
 }
 

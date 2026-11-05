@@ -20,7 +20,6 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "../../account/account_access.hpp"
-#include "maicord/sys/shell.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

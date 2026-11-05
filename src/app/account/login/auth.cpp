@@ -402,7 +402,7 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
         return false;
     }
     const WindowsWebAuthnResult asserted =
-        windows_webauthn_authenticate(win32_hwnd(g_app.window), request, &credential);
+        windows_webauthn_authenticate(g_app.window, request, &credential);
     secure_clear_bytes(&request, sizeof(request));
     if (application_account_logout_locked() || application_login_auth_cooldown_active() ||
         host.login_instance != owner || host.module != module ||

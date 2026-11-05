@@ -167,7 +167,7 @@ u32 read_file(const wchar_t* path, const Slice<u8>& buffer) noexcept {
 
 bool folder_path(wchar_t (&folder)[512], bool developer) noexcept {
     if (developer) {
-        const u32 length = GetEnvironmentVariableW(L"MAICORD_EFFECT_DEV", folder, 480);
+        const u32 length = environment_variable(L"MAICORD_EFFECT_DEV", folder, 480);
         if (length && length < 480)
             return true;
         return data_path(folder, 480, L"effects\\dev").ok();
@@ -823,9 +823,10 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
     g.selected = true;
     glide_knobs(identity, package, spec.knobs);
     if ((package.uses & effect_use_pointer) && settings.pointer_allowed && g_app.window) {
-        POINT cursor{};
-        if (GetCursorPos(&cursor) && ScreenToClient(win32_hwnd(g_app.window), &cursor))
-            d3d11_effect_set_pointer(&g_app.renderer.effect, static_cast<float>(cursor.x), static_cast<float>(cursor.y));
+        float x = 0, y = 0;
+        if (window_pointer_position(g_app.window, &x, &y))
+            d3d11_effect_set_pointer(&g_app.renderer.effect, static_cast<float>(static_cast<i32>(x)),
+                                     static_cast<float>(static_cast<i32>(y)));
     }
     // Textures are decoded only when the renderer has to build the shader again.
     const auto& owner = g_app.renderer.effect;

@@ -3,6 +3,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/sys/webauthn.hpp"
 
 namespace maicord {
@@ -40,8 +41,9 @@ bool valid_pointer(const void* pointer, u32 bytes) noexcept {
 } // namespace
 
 WindowsWebAuthnResult windows_webauthn_authenticate(
-    HWND owner, const WebAuthnMfaRequestOptions& request,
+    Window window, const WebAuthnMfaRequestOptions& request,
     SecureBuffer* serialized_credential) noexcept {
+    const HWND owner = win32_hwnd(window);
     if (!owner || !IsWindow(owner) || !serialized_credential ||
         !serialized_credential->data || !serialized_credential->locked ||
         serialized_credential->capacity == 0 || request.challenge_bytes == 0 ||

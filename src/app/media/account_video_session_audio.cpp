@@ -1,4 +1,6 @@
 #include "account_video_session_internal.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/containers/mp4_fragment_audio.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
@@ -89,7 +91,7 @@ bool& requested_play(AccountVideoSession& s) noexcept {
 namespace account_video_session_detail {
 
 bool thread(const AccountVideoSession& s) noexcept {
-    return s.initialized && s.thread_id == GetCurrentThreadId();
+    return s.initialized && s.thread_id == current_thread_id();
 }
 
 } // namespace account_video_session_detail
@@ -155,10 +157,10 @@ u32 delay(i64 duration) noexcept {
     return static_cast<u32>(minimum(ms, u64{INFINITE - 1}));
 }
 bool qpc(u64* now) noexcept {
-    Win32LargeInteger value{};
-    if (!QueryPerformanceCounter(value.native()) || value.QuadPart < 0)
+    const i64 value = clock_now();
+    if (value < 0)
         return false;
-    *now = static_cast<u64>(value.QuadPart);
+    *now = static_cast<u64>(value);
     return true;
 }
 bool data_pending(const AccountVideoSession& s) noexcept {
@@ -1151,8 +1153,8 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
             return result(AccountVideoError::timestamp);
         duration = maximum(duration, window.duration_100ns);
     }
-    Win32LargeInteger frequency{};
-    if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
+    const i64 frequency = clock_initialize().frequency;
+    if (frequency <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
     reset_value(s);
@@ -1165,8 +1167,8 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     s->status.has_audio = error == Mp4DemuxError::none;
     s->status.live = movie.live;
     s->status.playback_epoch = s->playback_epoch = 1;
-    s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
-    s->thread_id = GetCurrentThreadId();
+    s->qpc_frequency = static_cast<u64>(frequency);
+    s->thread_id = current_thread_id();
     s->initialized = true;
     return result(AccountVideoError::none, 0, true, true);
 }
@@ -1180,8 +1182,8 @@ AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoS
     Mp4AudioSampleWindow window{};
     if (!mp4_audio_sample_window(audio->timeline, 0, &window) || window.duration_100ns <= 0)
         return result(AccountVideoError::timestamp);
-    Win32LargeInteger frequency{};
-    if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
+    const i64 frequency = clock_initialize().frequency;
+    if (frequency <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
     reset_value(s);
@@ -1192,8 +1194,8 @@ AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoS
     s->status.has_audio = true;
     s->status.playback_epoch = s->playback_epoch = 1;
     s->video_eof = true;
-    s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
-    s->thread_id = GetCurrentThreadId();
+    s->qpc_frequency = static_cast<u64>(frequency);
+    s->thread_id = current_thread_id();
     s->initialized = true;
     return result(AccountVideoError::none, 0, true, true);
 }
@@ -1218,8 +1220,8 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     case MediaAttachmentFormat::m4a: kind = AccountPlaybackKind::mp4; break;
     default: return result(AccountVideoError::invalid_input);
     }
-    Win32LargeInteger frequency{};
-    if (kind == AccountPlaybackKind::mp4 && (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0))
+    const i64 frequency = clock_initialize().frequency;
+    if (kind == AccountPlaybackKind::mp4 && frequency <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
     reset_value(s);
@@ -1234,9 +1236,9 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     if (kind == AccountPlaybackKind::mp4) {
         // No picture decoder: the AAC workspace and its sample window drive playback.
         copy_value(&s->audio_metadata, metadata->m4a);
-        s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
+        s->qpc_frequency = static_cast<u64>(frequency);
     }
-    s->thread_id = GetCurrentThreadId();
+    s->thread_id = current_thread_id();
     s->initialized = true;
     return result(AccountVideoError::none, 0, true, true);
 }

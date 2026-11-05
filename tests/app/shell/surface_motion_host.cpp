@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "../../support/application_downloads_inactive.hpp"
 #include "../../support/application_inbox_inactive.hpp"
 #include "shell/state.hpp"
@@ -31,7 +32,7 @@ void retire_all() noexcept {
 // position messages; this fixture window has none, so it reports them itself.
 void show(HWND window, int command) noexcept {
     ShowWindow(window, command);
-    application_window_observe_position(window);
+    application_window_observe_position(win32_window(window));
 }
 
 void background_host(HWND window) noexcept {

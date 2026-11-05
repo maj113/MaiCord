@@ -45,3 +45,11 @@ foreach(maicord_wayland_case IN ITEMS maicord_wayland_window_lifecycle maicord_w
             ENVIRONMENT "MAICORD_WAYLAND_SYNC_DIR=$ENV{MAICORD_WAYLAND_SYNC_DIR}/${maicord_wayland_name}")
     endif()
 endforeach()
+
+# The input-method text store (text-input-v3 events applied to the bound edit) against the headless window's request
+# log; the Windows store takes composition from TSF, so this test is Linux only.
+maicord_test(MaiCordImeStoreTests ENTRY maicord_ime_store_entry
+    SOURCES tests/ui/text/ime_store.cpp
+    LIBS maicord_core maicord_window_null maicord_ui maicord_ui_secure_text maicord_text_system
+    TIMEOUT 10
+    TEST maicord_ime_store)

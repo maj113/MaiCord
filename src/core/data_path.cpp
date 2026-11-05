@@ -141,4 +141,12 @@ u32 executable_path(wchar_t* output, u32 capacity) noexcept {
     return count < capacity ? count : 0;
 }
 
+u32 environment_variable(const wchar_t* name, wchar_t* output, u32 capacity) noexcept {
+    return GetEnvironmentVariableW(name, output, capacity);
+}
+
+u32 local_data_root(wchar_t* output, u32 capacity) noexcept {
+    return GetEnvironmentVariableW(L"LOCALAPPDATA", output, capacity);
+}
+
 } // namespace maicord

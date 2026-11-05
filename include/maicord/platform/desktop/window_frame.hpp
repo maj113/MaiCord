@@ -21,16 +21,6 @@ enum WindowFrameEdge : u8 {
 // and the taskbar can still be revealed.
 inline constexpr i32 kWindowFrameAutohideReserve = 2;
 
-enum class WindowFramePart : u8 {
-    client,
-    caption,
-    // The app icon: the window menu.
-    system_menu,
-    minimize,
-    maximize,
-    close,
-};
-
 // Resize border thickness (SM_CXFRAME + SM_CXPADDEDBORDER) at a DPI.
 i32 window_frame_border(u32 dpi) noexcept;
 
@@ -40,11 +30,5 @@ i32 window_frame_border(u32 dpi) noexcept;
 RECT window_frame_client(const RECT& window, i32 border, bool maximized, const RECT& work_area,
                          u8 autohide_edges) noexcept;
 
-// WM_NCHITTEST for a point relative to the client origin. `part` is the
-// caption element under it (client below the caption). A restored window
-// resizes from the native side and bottom borders outside the client and
-// from a top band of `border` pixels inside it; a maximized one does not.
-u32 window_frame_hit(i32 x, i32 y, i32 client_width, i32 client_height, i32 border, bool maximized,
-                     WindowFramePart part) noexcept;
 
 } // namespace maicord

@@ -248,7 +248,7 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     for (auto* decoder : detached) gpu_stream_decoder_destroy(decoder);
     if (device) gpu_release(device);
     // Every decode thread has joined: nothing signals the event any more.
-    if (decoders->frame_event) CloseHandle(decoders->frame_event);
+    if (decoders->frame_event) waitable_close(decoders->frame_event);
     decoders->frame_event = nullptr;
 }
 

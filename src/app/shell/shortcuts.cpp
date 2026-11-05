@@ -27,7 +27,6 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/global_keys.hpp"
 #include "maicord/ui/media/picker.hpp"

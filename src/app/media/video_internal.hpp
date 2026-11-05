@@ -1,6 +1,7 @@
 #pragma once
 // Shared by video.cpp and its parts (video_*.cpp); private to them.
 #include "downloads.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "video.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
@@ -90,15 +91,15 @@ struct ApplicationVideo {
     bool collection_continue{true};
     UiVideoControl collection_focus{};
     UiPoint pointer{-kMaximumUiCoordinate, -kMaximumUiCoordinate};
-    static void* operator new(usize, void* storage) noexcept {
+    static void* operator new(decltype(sizeof(0)), void* storage) noexcept {
         return storage;
     }
     static void operator delete(void*, void*) noexcept {
     }
     // MSVC emits a scalar deleting destructor even for this placement-only owner.
     // Its valid cleanup is explicit destruction followed by VirtualFree.
-    static void operator delete(void*, usize) noexcept {
-        __fastfail(FAST_FAIL_INVALID_ARG);
+    static void operator delete(void*, decltype(sizeof(0))) noexcept {
+        fail_fast_invalid_argument();
     }
     explicit ApplicationVideo(InlineAudioSceneSelection selected_scene) noexcept : ui(selected_scene) {
         source.audio = true;

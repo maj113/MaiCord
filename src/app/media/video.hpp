@@ -26,7 +26,10 @@ bool application_video_pump(bool* repaint) noexcept;
 bool application_video_synchronize() noexcept;
 u64 application_video_next_wake() noexcept;
 bool application_video_pointer(const WindowEvent& event) noexcept;
-bool application_video_key(UINT key, bool shift, bool repeat) noexcept;
+bool application_video_key(u32 key, bool shift, bool repeat) noexcept;
+// The character of a key the player took as a shortcut is not text: true for the character event that follows it
+// (and clears the mark at the next key release).
+bool application_video_discard_character(const WindowEvent& event) noexcept;
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                       UiTooltipTarget* target) noexcept;
 void application_video_cancel_pointer() noexcept;

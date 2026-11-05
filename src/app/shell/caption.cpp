@@ -1,6 +1,7 @@
 #include "caption.hpp"
 #include "content_point.hpp"
 #include "cursor.hpp"
+#include "window_events.hpp"
 #include "window_state.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
@@ -14,13 +15,10 @@
 #include "../settings/catalog.hpp"
 
 #include "maicord/core/time.hpp"
-#include "maicord/core/win32_error.hpp"
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/frame.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/platform/desktop/window_frame.hpp"
+#include "maicord/platform/window/window.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
-#include "maicord/sys/shell.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "../account/account_ui_runtime.hpp"
 
@@ -34,8 +32,6 @@ struct CaptionState {
     bool hidden;
     bool active;
     bool maximized;
-    // A TME_NONCLIENT leave request is outstanding.
-    bool tracking;
     // The app icon's pixel size on the renderer, zero until decoded.
     u32 icon_extent;
     // Visible frame pixels beside the client beyond those above it; stale
@@ -52,130 +48,66 @@ struct CaptionState {
 
 inline constexpr u64 kCaptionTooltipSweepMs = 400;
 
-using GetWindowAttribute = HRESULT(WINAPI*)(HWND, DWORD, void*, DWORD);
-GetWindowAttribute g_get_window_attribute;
-bool g_get_window_attribute_resolved;
-
-// The DWM border of a restored window lies outside the client at the sides
-// but over the client's top row; none while maximized.
-void measure_side_frame(HWND window) noexcept {
-    if (!g_get_window_attribute_resolved) {
-        g_get_window_attribute_resolved = true;
-        if (const HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
-            g_get_window_attribute =
-                reinterpret_cast<GetWindowAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute"));
-    }
-    constexpr DWORD kExtendedFrameBounds = 9;
-    RECT visible{};
-    POINT origin{};
-    if (!g_get_window_attribute || !application_window_shown() || !ClientToScreen(window, &origin) ||
-        FAILED(g_get_window_attribute(window, kExtendedFrameBounds, &visible, sizeof(visible))))
+// The DWM border of a restored window lies outside the client at the sides but over the client's top row; none while
+// maximized.
+void measure_side_frame() noexcept {
+    u32 pixels = 0;
+    if (!window_frame_inset(g_app.window, &pixels))
         return;
     g_caption.side_frame_stale = false;
-    const LONG side = minimum(origin.x - visible.left, visible.right - origin.x - g_window_state.client_width);
-    const LONG frame = side - (origin.y - visible.top);
-    const u32 pixels = frame > 0 && frame < 8 ? static_cast<u32>(frame) : 0;
     if (pixels != g_caption.side_frame) {
         g_caption.side_frame = pixels;
         application_request_frame();
     }
 }
 
-u32 window_dpi(HWND window) noexcept {
-    const u32 dpi = application_window_dpi(window);
+u32 window_dpi() noexcept {
+    const u32 dpi = application_window_dpi(g_app.window);
     return dpi ? dpi : 96;
 }
 
 u32 caption_pixels(u32 dpi) noexcept {
     if (!g_caption.enabled || g_caption.hidden)
         return 0;
-    return static_cast<u32>(ui_caption_bar_height(application_theme()) * static_cast<float>(dpi) / 96.0f +
-                            .5f);
+    return static_cast<u32>(ui_caption_bar_height(application_theme()) * static_cast<float>(dpi) / 96.0f + .5f);
 }
 
 float to_dips(i32 pixels, u32 dpi) noexcept {
     return static_cast<float>(pixels) * 96.0f / static_cast<float>(dpi);
 }
 
-UiCaptionBarLayout layout_for(LONG client_width, u32 dpi) noexcept {
+UiCaptionBarLayout layout_for(i32 client_width, u32 dpi) noexcept {
     return ui_caption_bar_layout(application_theme(), to_dips(client_width, dpi),
                                  application_caption_state(),
                                  to_dips(static_cast<i32>(g_app.renderer.caption_height), dpi),
                                  static_cast<float>(dpi) / 96.0f);
 }
 
-WindowFramePart frame_part(UiCaptionPart part) noexcept {
+// What the platform does with a press on a part: only the caption, the window menu and (where the system's snap
+// layouts want it) the maximize button are frame; the rest of the bar is client.
+FrameHit frame_part(UiCaptionPart part) noexcept {
     switch (ui_caption_bar_native(part)) {
     case UiCaptionNative::caption:
-        return WindowFramePart::caption;
+        return FrameHit::caption;
     case UiCaptionNative::system_menu:
-        return WindowFramePart::system_menu;
+        return FrameHit::system_menu;
     case UiCaptionNative::maximize:
-        return WindowFramePart::maximize;
+        return window_caps().native_caption_buttons ? FrameHit::maximize : FrameHit::client;
     default:
-        return WindowFramePart::client;
+        return FrameHit::client;
     }
 }
 
-UiCaptionPart button_part(WPARAM hit) noexcept {
+UiCaptionPart button_part(FrameHit hit) noexcept {
     switch (hit) {
-    case HTMINBUTTON:
+    case FrameHit::minimize:
         return UiCaptionPart::minimize;
-    case HTMAXBUTTON:
+    case FrameHit::maximize:
         return UiCaptionPart::maximize;
-    case HTCLOSE:
+    case FrameHit::close:
         return UiCaptionPart::close;
     default:
         return UiCaptionPart::none;
-    }
-}
-
-LRESULT hit_test(HWND window, LPARAM lparam) noexcept {
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (!ScreenToClient(window, &point))
-        return HTNOWHERE;
-    const u32 dpi = window_dpi(window);
-    const LONG width = g_window_state.client_width;
-    const auto caption = static_cast<LONG>(g_app.renderer.caption_height);
-    UiCaptionPart part = UiCaptionPart::none;
-    if (point.y >= 0 && point.y < caption && point.x >= 0 && point.x < width)
-        part = ui_caption_bar_part(layout_for(width, dpi), to_dips(point.x, dpi), to_dips(point.y, dpi));
-    return window_frame_hit(point.x, point.y, width, g_window_state.client_height, window_frame_border(dpi),
-                            g_caption.maximized, frame_part(part));
-}
-
-// Monitor edges with an auto-hide appbar (the taskbar).
-u8 autohide_edges(const RECT& monitor) noexcept {
-    u8 edges = 0;
-    static constexpr UINT kEdges[]{ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM};
-    for (u32 i = 0; i < 4; ++i) {
-        APPBARDATA bar{};
-        bar.cbSize = sizeof(bar);
-        bar.uEdge = kEdges[i];
-        bar.rc = monitor;
-        if (SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &bar))
-            edges = static_cast<u8>(edges | (1u << i));
-    }
-    return edges;
-}
-
-void calculate_client(HWND window, RECT* rectangle) noexcept {
-    const bool maximized = IsZoomed(window) != FALSE;
-    RECT work{};
-    u8 edges = 0;
-    if (maximized) {
-        MONITORINFO monitor{};
-        monitor.cbSize = sizeof(monitor);
-        if (GetMonitorInfoW(MonitorFromRect(rectangle, MONITOR_DEFAULTTONEAREST), &monitor)) {
-            work = monitor.rcWork;
-            edges = autohide_edges(monitor.rcMonitor);
-        }
-    }
-    *rectangle =
-        window_frame_client(*rectangle, window_frame_border(window_dpi(window)), maximized, work, edges);
-    if (g_caption.maximized != maximized) {
-        g_caption.maximized = maximized;
-        application_request_frame();
     }
 }
 
@@ -205,24 +137,6 @@ void set_hover(UiCaptionPart hovered, UiCaptionPart pressed) noexcept {
     application_request_frame();
 }
 
-void track_leave(HWND window) noexcept {
-    if (g_caption.tracking)
-        return;
-    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE | TME_NONCLIENT, window,
-                             0};
-    g_caption.tracking = TrackMouseEvent(&tracking) != FALSE;
-}
-
-RECT screen_rect(HWND window, const UiRect& rectangle, u32 dpi) noexcept {
-    const float scale = static_cast<float>(dpi) / 96.0f;
-    POINT origin{};
-    ClientToScreen(window, &origin);
-    return {origin.x + static_cast<LONG>(rectangle.left * scale + .5f),
-            origin.y + static_cast<LONG>(rectangle.top * scale + .5f),
-            origin.x + static_cast<LONG>(rectangle.right * scale + .5f),
-            origin.y + static_cast<LONG>(rectangle.bottom * scale + .5f)};
-}
-
 // The icon at the bar's DPI, decoded once per size.
 void synchronize_icon(u32 dpi) noexcept {
     // A new device (after a reset) holds no icon texture.
@@ -241,28 +155,30 @@ void synchronize_icon(u32 dpi) noexcept {
         g_caption.icon_extent = extent;
 }
 
+// The bar's own items: client area, but the bar consumes their input before content coordinates apply. The window
+// buttons are among them wherever the platform does not draw them as frame.
 bool bar_item(UiCaptionPart part) noexcept {
     return part == UiCaptionPart::update || part == UiCaptionPart::settings || part == UiCaptionPart::minimize ||
-           part == UiCaptionPart::close;
+           part == UiCaptionPart::close ||
+           (part == UiCaptionPart::maximize && !window_caps().native_caption_buttons);
 }
 
 // The bar part under a client point, none below the bar.
-UiCaptionPart client_part(HWND window, LPARAM lparam) noexcept {
-    const i32 x = static_cast<short>(LOWORD(lparam)), y = static_cast<short>(HIWORD(lparam));
+UiCaptionPart client_part(const WindowEvent& event) noexcept {
+    const i32 x = static_cast<i32>(event.pointer.x), y = static_cast<i32>(event.pointer.y);
     if (y < 0 || y >= static_cast<i32>(g_app.renderer.caption_height))
         return UiCaptionPart::none;
-    const u32 dpi = window_dpi(window);
+    const u32 dpi = window_dpi();
     return ui_caption_bar_part(layout_for(g_window_state.client_width, dpi), to_dips(x, dpi), to_dips(y, dpi));
 }
 
-// Pointer input over the bar's own items (update badge, Settings): they are
-// client area, so the bar consumes these before content coordinates apply.
-bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
-    switch (message) {
-    case WM_MOUSEMOVE: {
+// Pointer input over the bar's own items (update badge, Settings, the window buttons the platform leaves to the bar).
+bool item_pointer(const WindowEvent& event) noexcept {
+    switch (event.type) {
+    case EventType::pointer_move: {
         // Another owner's captured drag keeps its moves, even over the bar.
-        const bool foreign = GetCapture() == window && !bar_item(g_caption.pressed);
-        const UiCaptionPart part = foreign ? UiCaptionPart::none : client_part(window, lparam);
+        const bool foreign = window_pointer_captured(g_app.window) && !bar_item(g_caption.pressed);
+        const UiCaptionPart part = foreign ? UiCaptionPart::none : client_part(event);
         if (bar_item(part))
             set_hover(part, g_caption.pressed);
         else if (bar_item(g_caption.hovered))
@@ -270,50 +186,43 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
         // A press dragged off its item keeps the pointer until release.
         return bar_item(part) || bar_item(g_caption.pressed);
     }
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK: {
-        const UiCaptionPart part = client_part(window, lparam);
-        if (!bar_item(part))
-            return false;
-        SetCapture(window);
-        set_hover(part, part);
-        return true;
-    }
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_RBUTTONDBLCLK:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
+    case EventType::pointer_down: {
+        if (event.button == static_cast<u8>(PointerButton::left)) {
+            const UiCaptionPart part = client_part(event);
+            if (!bar_item(part))
+                return false;
+            window_capture_pointer(g_app.window);
+            set_hover(part, part);
+            return true;
+        }
         // The bar's items take no other buttons; content never sees them.
-        return bar_item(client_part(window, lparam));
-    case WM_LBUTTONUP: {
+        return event.button <= static_cast<u8>(PointerButton::middle) && bar_item(client_part(event));
+    }
+    case EventType::pointer_up: {
+        if (event.button != static_cast<u8>(PointerButton::left))
+            return event.button <= static_cast<u8>(PointerButton::middle) && bar_item(client_part(event));
         const UiCaptionPart pressed = g_caption.pressed;
         if (!bar_item(pressed))
             return false;
-        const UiCaptionPart part = client_part(window, lparam);
+        const UiCaptionPart part = client_part(event);
         set_hover(bar_item(part) ? part : UiCaptionPart::none, UiCaptionPart::none);
-        if (GetCapture() == window)
-            ReleaseCapture();
+        window_release_capture(g_app.window);
         if (part == pressed)
             application_caption_command(part);
         return true;
     }
-    case WM_MOUSELEAVE:
+    case EventType::pointer_leave:
         if (bar_item(g_caption.hovered))
             set_hover(UiCaptionPart::none, g_caption.pressed);
         return false;
-    case WM_CAPTURECHANGED:
+    case EventType::capture_lost:
         if (bar_item(g_caption.pressed))
             set_hover(g_caption.hovered, UiCaptionPart::none);
         return false;
-    case WM_SETCURSOR:
-        if (LOWORD(lparam) == HTCLIENT) {
-            POINT point{};
-            if (application_cursor_client(&point) &&
-                point.y < static_cast<LONG>(g_app.renderer.caption_height)) {
-                application_set_cursor(UiCursor::arrow);
-                return true;
-            }
+    case EventType::cursor_query:
+        if (input_has_position(event) && event.pointer.y < static_cast<float>(g_app.renderer.caption_height)) {
+            application_set_cursor(UiCursor::arrow);
+            return true;
         }
         return false;
     default:
@@ -354,19 +263,12 @@ u32 application_caption_height() noexcept {
     return g_app.renderer.caption_height;
 }
 
-SIZE application_caption_window_size(HWND window, u32 dpi, LONG content_width,
-                                     LONG content_height) noexcept {
-    if (!g_caption.enabled || g_caption.hidden) {
-        RECT frame{0, 0, content_width, content_height};
-        const auto style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
-        const auto extended = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
-        // The main HWND is created without a menu and never attaches one.
-        if (!AdjustWindowRectExForDpi(&frame, style, FALSE, extended, dpi))
-            return {content_width, content_height};
-        return {frame.right - frame.left, frame.bottom - frame.top};
-    }
-    const i32 border = window_frame_border(dpi);
-    return {content_width + 2 * border, content_height + static_cast<LONG>(caption_pixels(dpi)) + border};
+u32 application_caption_pixels(u32 dpi) noexcept {
+    return caption_pixels(dpi);
+}
+
+bool application_caption_hidden() noexcept {
+    return g_caption.hidden;
 }
 
 u64 application_caption_tooltip_wake() noexcept {
@@ -387,13 +289,13 @@ UiCaptionBarState application_caption_state() noexcept {
             application_update_badge(updates),
             g_app.login.visible,
             application_update_progress(updates),
-            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi(win32_hwnd(g_app.window))),
+            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
             tooltip ? g_caption.hovered : UiCaptionPart::none};
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {
     const u32 dpi = maximum(g_app.renderer.dpi, 1u);
-    UiCaptionBarLayout layout = layout_for(static_cast<LONG>(g_app.renderer.width), dpi);
+    UiCaptionBarLayout layout = layout_for(static_cast<i32>(g_app.renderer.width), dpi);
     // Content coordinates: the caption sits above the content origin.
     const float top = -layout.height;
     const auto lift = [&](UiRect* r) noexcept { *r = {r->left, r->top + top, r->right, r->bottom + top}; };
@@ -408,14 +310,13 @@ UiCaptionBarLayout application_caption_layout() noexcept {
 }
 
 bool application_caption_command(UiCaptionPart part) noexcept {
-    const HWND window = win32_hwnd(g_app.window);
-    if (!window)
+    if (!g_app.window)
         return false;
-    WPARAM command = 0;
     switch (part) {
     case UiCaptionPart::icon:
         // As Alt+Space: the window menu at the caption.
-        return PostMessageW(window, WM_SYSCOMMAND, SC_KEYMENU, key::space) != FALSE;
+        window_show_system_menu(g_app.window, 0, static_cast<float>(g_app.renderer.caption_height));
+        return true;
     case UiCaptionPart::update:
         if (application_updates_restart())
             return true;
@@ -424,158 +325,118 @@ bool application_caption_command(UiCaptionPart part) noexcept {
     case UiCaptionPart::settings:
         return application_settings_open();
     case UiCaptionPart::minimize:
-        command = SC_MINIMIZE;
-        break;
+        window_minimize(g_app.window);
+        return true;
     case UiCaptionPart::maximize:
-        command = g_caption.maximized ? SC_RESTORE : SC_MAXIMIZE;
-        break;
+        window_toggle_maximize(g_app.window);
+        return true;
     case UiCaptionPart::close:
-        command = SC_CLOSE;
-        break;
+        window_request_close(g_app.window);
+        return true;
     default:
         return false;
     }
-    SendMessageW(window, WM_SYSCOMMAND, command, 0);
-    return true;
 }
 
 void application_caption_set_hidden(bool hidden) noexcept {
     if (!g_caption.enabled || g_caption.hidden == hidden)
         return;
     g_caption.hidden = hidden;
-    renderer_set_caption_height(&g_app.renderer, caption_pixels(window_dpi(win32_hwnd(g_app.window))));
+    renderer_set_caption_height(&g_app.renderer, caption_pixels(window_dpi()));
 }
 
 void application_caption_synchronize() noexcept {
     if (!g_caption.enabled || !g_app.window)
         return;
-    const u32 height = caption_pixels(window_dpi(win32_hwnd(g_app.window)));
+    const u32 dpi = window_dpi();
+    const u32 height = caption_pixels(dpi);
     if (height != g_app.renderer.caption_height) {
         // A theme changed the band: the content below it resizes.
         renderer_set_caption_height(&g_app.renderer, height);
         application_resize_client();
     }
     if (g_caption.side_frame_stale)
-        measure_side_frame(win32_hwnd(g_app.window));
+        measure_side_frame();
     if (height && renderer_set_caption(&g_app.renderer, application_caption_state(), caption_title()))
-        synchronize_icon(window_dpi(win32_hwnd(g_app.window)));
+        synchronize_icon(dpi);
 }
 
-bool application_caption_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
-                                        LRESULT* result) noexcept {
+bool application_caption_event(const WindowEvent& event) noexcept {
     if (!g_caption.enabled)
         return false;
-    if (g_app.renderer.caption_height && item_pointer(window, message, lparam)) {
-        *result = message == WM_SETCURSOR ? TRUE : 0;
-        return true;
-    }
-    switch (message) {
-    case WM_NCCALCSIZE: {
-        if (g_caption.hidden || !(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION))
-            return false;
-        // Both forms begin with the proposed window rectangle; the creation-time
-        // FALSE form applies the frame without a later SWP_FRAMECHANGED.
-        RECT* rectangle = wparam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]
-                                 : reinterpret_cast<RECT*>(lparam);
-        calculate_client(window, rectangle);
-        // Prepare the composition surface before Windows commits the new
-        // origin, as for the system frame (left-edge drags).
-        const u32 caption = g_app.renderer.caption_height;
-        if (wparam && g_app.renderer_ready && rectangle->right > rectangle->left &&
-            rectangle->bottom - rectangle->top > static_cast<LONG>(caption))
-            application_resize_surface(static_cast<u32>(rectangle->right - rectangle->left),
-                                       static_cast<u32>(rectangle->bottom - rectangle->top) - caption);
-        *result = 0;
-        return true;
-    }
-    case WM_NCHITTEST:
-        if (!g_app.renderer.caption_height)
-            return false;
-        *result = hit_test(window, lparam);
-        return true;
-    case WM_NCACTIVATE:
-        if (g_caption.active != (wparam != FALSE)) {
-            g_caption.active = wparam != FALSE;
-            application_request_frame();
-        }
-        // -1: the system frame has no caption of its own to repaint.
-        *result = DefWindowProcW(window, message, wparam, g_app.renderer.caption_height ? -1 : lparam);
-        return true;
-    case WM_DPICHANGED:
-        renderer_set_caption_height(&g_app.renderer, caption_pixels(HIWORD(wparam)));
-        return false;
-    case WM_SIZE:
-        // DWM publishes the new frame bounds after the move completes.
+    // The platform publishes the new frame bounds after the move completes.
+    if (event.type == EventType::resize && !(event.flags & ev_provisional))
         g_caption.side_frame_stale = true;
+    // The bar's height follows the scale of the monitor the window is on.
+    else if (event.type == EventType::scale_changed)
+        renderer_set_caption_height(&g_app.renderer, caption_pixels(input_dpi(event)));
+    return g_app.renderer.caption_height && item_pointer(event);
+}
+
+FrameHit application_caption_hit(float x, float y) noexcept {
+    const i32 px = static_cast<i32>(x), py = static_cast<i32>(y);
+    const u32 dpi = window_dpi();
+    const i32 width = g_window_state.client_width;
+    const auto caption = static_cast<i32>(g_app.renderer.caption_height);
+    UiCaptionPart part = UiCaptionPart::none;
+    if (py >= 0 && py < caption && px >= 0 && px < width)
+        part = ui_caption_bar_part(layout_for(width, dpi), to_dips(px, dpi), to_dips(py, dpi));
+    return window_frame_hit(px, py, width, g_window_state.client_height,
+                            static_cast<i32>(window_resize_border(g_app.window, dpi)), g_caption.maximized,
+                            frame_part(part));
+}
+
+void application_caption_maximized(bool maximized) noexcept {
+    if (g_caption.maximized != maximized) {
+        g_caption.maximized = maximized;
+        application_request_frame();
+    }
+}
+
+void application_caption_active(bool active) noexcept {
+    if (g_caption.active != active) {
+        g_caption.active = active;
+        application_request_frame();
+    }
+}
+
+void application_caption_hover(FrameHit part) noexcept {
+    set_hover(button_part(part), g_caption.pressed);
+}
+
+void application_caption_leave() noexcept {
+    set_hover(UiCaptionPart::none, UiCaptionPart::none);
+}
+
+void application_caption_press(FrameHit part) noexcept {
+    const UiCaptionPart pressed = button_part(part);
+    set_hover(pressed, pressed);
+}
+
+bool application_caption_release(FrameHit hit) noexcept {
+    const UiCaptionPart part = button_part(hit);
+    const UiCaptionPart pressed = g_caption.pressed;
+    if (pressed == UiCaptionPart::none && part == UiCaptionPart::none)
         return false;
-    case WM_NCMOUSEMOVE: {
-        const UiCaptionPart part = button_part(wparam);
-        set_hover(part, g_caption.pressed);
-        if (part == UiCaptionPart::none)
-            return false;
-        track_leave(window);
-        *result = 0;
-        return true;
-    }
-    case WM_NCMOUSEHOVER:
-        // No system tooltip over the maximize button; the bar shows its own.
-        if (button_part(wparam) == UiCaptionPart::none)
-            return false;
-        *result = 0;
-        return true;
-    case WM_NCMOUSELEAVE:
-        g_caption.tracking = false;
-        set_hover(UiCaptionPart::none, UiCaptionPart::none);
+    set_hover(part, UiCaptionPart::none);
+    if (part != UiCaptionPart::none && part == pressed)
+        application_caption_command(part);
+    return true;
+}
+
+bool application_caption_bar_rects(FrameBarRects* rectangles) noexcept {
+    if (!g_app.renderer.caption_height)
         return false;
-    case WM_NCLBUTTONDOWN:
-    case WM_NCLBUTTONDBLCLK: {
-        const UiCaptionPart part = button_part(wparam);
-        if (part == UiCaptionPart::none)
-            return false;
-        // The system's own button tracking would run a modal loop for a
-        // caption it does not draw.
-        track_leave(window);
-        set_hover(part, part);
-        *result = 0;
-        return true;
-    }
-    case WM_NCLBUTTONUP: {
-        const UiCaptionPart part = button_part(wparam);
-        const UiCaptionPart pressed = g_caption.pressed;
-        if (pressed == UiCaptionPart::none && part == UiCaptionPart::none)
-            return false;
-        set_hover(part, UiCaptionPart::none);
-        if (part != UiCaptionPart::none && part == pressed)
-            application_caption_command(part);
-        *result = 0;
-        return true;
-    }
-    case WM_CONTEXTMENU:
-        // A right click on the caption opens the window menu, as on a system caption.
-        if (lparam == -1 || hit_test(window, lparam) == HTCLIENT)
-            return false;
-        *result = DefWindowProcW(window, message, wparam, lparam);
-        return true;
-    case WM_GETTITLEBARINFOEX: {
-        *result = DefWindowProcW(window, message, wparam, lparam);
-        auto* info = reinterpret_cast<TITLEBARINFOEX*>(lparam);
-        if (!info || info->cbSize < sizeof(TITLEBARINFOEX) || !g_app.renderer.caption_height)
-            return true;
-        // Windows anchors the snap layouts flyout to the maximize rectangle.
-        const u32 dpi = window_dpi(window);
-        const UiCaptionBarLayout layout = layout_for(g_window_state.client_width, dpi);
-        info->rcTitleBar = screen_rect(window, {0, 0, layout.width, layout.height}, dpi);
-        info->rgrect[0] = info->rcTitleBar;
-        static constexpr u32 kSlots[kUiCaptionButtonCount]{2, 3, 5};
-        for (u32 i = 0; i < kUiCaptionButtonCount; ++i) {
-            info->rgrect[kSlots[i]] = screen_rect(window, layout.buttons[i], dpi);
-            info->rgstate[kSlots[i]] = 0;
-        }
-        return true;
-    }
-    default:
-        return false;
-    }
+    const u32 dpi = window_dpi();
+    const UiCaptionBarLayout layout = layout_for(g_window_state.client_width, dpi);
+    const float scale = static_cast<float>(dpi) / 96.0f;
+    const auto pixel = [scale](float value) noexcept { return static_cast<i32>(value * scale + .5f); };
+    rectangles->bar_right = pixel(layout.width);
+    rectangles->bar_bottom = pixel(layout.height);
+    for (u32 i = 0; i < kUiCaptionButtonCount; ++i)
+        rectangles->button[i][0] = pixel(layout.buttons[i].left), rectangles->button[i][1] = pixel(layout.buttons[i].top),
+        rectangles->button[i][2] = pixel(layout.buttons[i].right), rectangles->button[i][3] = pixel(layout.buttons[i].bottom);
+    return true;
 }
 
 } // namespace maicord::app_detail

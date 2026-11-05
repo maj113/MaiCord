@@ -1526,7 +1526,7 @@ bool secure_text_store_composing(const SecureTextStore& store) noexcept {
     return value && value->composition.active;
 }
 
-bool secure_text_store_ime_event(SecureTextStore*, const WindowEvent&) noexcept {
+bool secure_text_store_ime_event(const WindowEvent&) noexcept {
     // TSF delivers the composition through the store's own interfaces; there is no event to apply.
     return false;
 }

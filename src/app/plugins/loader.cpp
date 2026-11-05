@@ -7,9 +7,12 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/crypto.hpp"
+#endif
 
 namespace maicord {
+#if defined(_WIN32) // The PE loader; elsewhere the stubs at the end report that plugins cannot be loaded.
 namespace {
 
 // PE32+ header offsets (little endian). The headers are read as bytes: a loader
@@ -450,6 +453,7 @@ bool file_digest_equals(HANDLE file, u64 bytes, const u8* expected) noexcept {
 }
 
 } // namespace
+#endif
 
 // Unbound, or a key that cannot be typing: with Ctrl or Alt, or a function key.
 bool plugin_keybind_valid(u32 key) noexcept {
@@ -458,6 +462,7 @@ bool plugin_keybind_valid(u32 key) noexcept {
                     ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || (vk >= 0x70 && vk <= 0x87)));
 }
 
+#if defined(_WIN32)
 PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept {
     if (!file || !output) return failure(PluginLoadError::invalid_argument);
     if (file_bytes < 64) return failure(PluginLoadError::not_pe);
@@ -552,6 +557,7 @@ PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* outpu
     output->executable_count = executable;
     return success();
 }
+#endif
 
 u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
     u64 implied = d.network_count ? MC_PERM_NETWORK : 0;
@@ -578,6 +584,7 @@ u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
     return implied;
 }
 
+#if defined(_WIN32)
 PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, const mc_descriptor* d,
                                          PluginInfo* info, u64* permissions) noexcept {
     const Image image{base, pe.image_bytes, &pe};
@@ -727,4 +734,28 @@ PluginLoadResult plugin_image_unload(PluginImage* image) noexcept {
     return success();
 }
 
+#else
+namespace {
+PluginLoadResult unsupported() noexcept {
+    return {PluginLoadError::unsupported, PluginDescriptorProblem::none, 0, 0};
+}
+} // namespace
+
+PluginLoadResult plugin_pe_check(HANDLE, u64, PluginImage*) noexcept {
+    return unsupported();
+}
+PluginLoadResult plugin_directory_open(PluginDirectory*, ConstSlice<wchar_t>) noexcept {
+    return unsupported();
+}
+PluginLoadResult plugin_directory_close(PluginDirectory*) noexcept {
+    return {};
+}
+PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>&, u64,
+                                   const u8*) noexcept {
+    return unsupported();
+}
+PluginLoadResult plugin_image_unload(PluginImage*) noexcept {
+    return {};
+}
+#endif
 } // namespace maicord

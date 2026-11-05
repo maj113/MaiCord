@@ -50,6 +50,23 @@ inline void close() noexcept {
     g_window = {};
 }
 
+// Holds a modifier key (the generic code and its left variant, as a keyboard reports it) in the key table.
+inline void hold(Key key_code) noexcept {
+    null_window_set_key(key_code, true);
+    if (key_code == key::ctrl)
+        null_window_set_key(key::left_ctrl, true);
+    else if (key_code == key::shift)
+        null_window_set_key(key::left_shift, true);
+    else if (key_code == key::alt)
+        null_window_set_key(key::left_alt, true);
+}
+
+// A client point packed into one value (two signed words), for tests that still keep their positions that way.
+inline i64 pack(float x, float y) noexcept {
+    return static_cast<i64>(static_cast<u32>(static_cast<u16>(static_cast<i16>(x))) |
+                            (static_cast<u32>(static_cast<u16>(static_cast<i16>(y))) << 16));
+}
+
 // The signed words of a packed client lparam, for tests that still compute their positions that way.
 inline float x_of(i64 packed) noexcept {
     return static_cast<float>(static_cast<i16>(static_cast<u16>(static_cast<u64>(packed) & 0xFFFF)));

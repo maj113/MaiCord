@@ -3,6 +3,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/window/global_keys.hpp"
+#include "maicord/platform/window/wayland.hpp"
 #include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
@@ -74,6 +75,10 @@ void null_window_reset() noexcept {
     g = {};
 }
 
+void null_window_set_text_input_available(bool available) noexcept {
+    g.probe.text_input_available = available;
+}
+
 void null_window_set_key(Key key, bool down) noexcept {
     set_bit(g.keys_down, key, down);
 }
@@ -105,6 +110,10 @@ void null_window_set_focus_allowed(bool allowed) noexcept {
     g.focus_denied = !allowed;
 }
 
+void null_window_set_focus(bool focused) noexcept {
+    g.probe.focused = focused;
+}
+
 const WindowCaps& window_caps() noexcept {
     return kCaps;
 }
@@ -128,6 +137,39 @@ void window_destroy(Window) noexcept {
 
 NativeWindow window_surface_native(Window window) noexcept {
     return window;
+}
+
+// The text input protocol, as a request log: the tests of the text store read what it asked for.
+bool window_wayland_text_input_available(NativeWindow window) noexcept {
+    return window && g.probe.text_input_available;
+}
+
+bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept {
+    if (!window_wayland_text_input_available(window))
+        return false;
+    NullWindowProbe& probe = g.probe;
+    probe.text_input_enabled = true;
+    ++probe.text_input_enables;
+    probe.text_surrounding_bytes = request.surrounding.bytes;
+    const u32 kept = request.surrounding.bytes < sizeof(probe.text_surrounding) ? request.surrounding.bytes
+                                                                               : sizeof(probe.text_surrounding);
+    copy_bytes(probe.text_surrounding, request.surrounding.data, kept);
+    probe.text_cursor_byte = request.cursor_byte;
+    probe.text_anchor_byte = request.anchor_byte;
+    probe.text_purpose = static_cast<u8>(request.purpose);
+    probe.text_sensitive = request.sensitive;
+    probe.text_x = request.x;
+    probe.text_y = request.y;
+    probe.text_width = request.width;
+    probe.text_height = request.height;
+    return true;
+}
+
+void window_wayland_text_input_disable(NativeWindow window) noexcept {
+    if (!window_wayland_text_input_available(window))
+        return;
+    g.probe.text_input_enabled = false;
+    ++g.probe.text_input_disables;
 }
 
 void window_show(Window, ShowMode mode) noexcept {
@@ -266,6 +308,20 @@ bool global_key_down(Key key_code) noexcept {
 
 WindowMetrics window_metrics(Window) noexcept {
     return g.metrics;
+}
+
+u32 window_state(Window) noexcept {
+    return (g.probe.shown ? static_cast<u32>(state_visible) : 0u) | (g.probe.fullscreen ? static_cast<u32>(state_fullscreen) : 0u);
+}
+
+// The Windows frame's border at 96 DPI, scaled.
+u32 window_resize_border(Window, u32 dpi) noexcept {
+    return (8 * dpi + 48) / 96;
+}
+
+bool window_frame_inset(Window, u32* pixels) noexcept {
+    *pixels = 0;
+    return true;
 }
 
 void window_frame_callback_request(Window) noexcept {}

@@ -64,6 +64,14 @@ void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept;
 void window_request_attention(Window window, Attention attention) noexcept;
 void window_set_drop_target(Window window, bool accept_files) noexcept;
 void window_invalidate(Window window) noexcept;
+// The StateFlag bits of the window now: minimized, visible, maximized, fullscreen, ...
+u32 window_state(Window window) noexcept;
+// The thickness in pixels, at `dpi`, of the border a window the app draws the frame of can be resized from: the
+// system's on Windows (outside the client at the sides and bottom, a band inside its top), a fixed band elsewhere.
+u32 window_resize_border(Window window, u32 dpi) noexcept;
+// The visible frame pixels beside the client beyond those above it: the shadow border of a restored Windows window,
+// zero where the app draws the whole frame. False while it cannot be measured (hidden or minimized window).
+bool window_frame_inset(Window window, u32* pixels) noexcept;
 
 // Input.
 void window_set_cursor(Window window, UiCursor cursor) noexcept;

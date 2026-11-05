@@ -1,4 +1,5 @@
 #include "maicord/app/settings/client_theme_storage.hpp"
+#include "maicord/os/text.hpp"
 #include "maicord/ui/theme/background_color_math.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -178,8 +179,7 @@ ClientThemeStorageResult export_document(const wchar_t* directory, const ClientT
     if (!path_length(directory, &length))
         return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
     wchar_t leaf[kClientThemeCatalogFileUnits];
-    int converted = document.name_bytes ? MultiByteToWideChar(CP_UTF8, 0, document.name, static_cast<int>(document.name_bytes),
-                                                              leaf, kClientThemeCatalogFileUnits - 8)
+    int converted = document.name_bytes ? utf8_to_utf16(document.name, static_cast<int>(document.name_bytes), leaf, kClientThemeCatalogFileUnits - 8, false)
                                         : 0;
     u32 units = converted > 0 ? static_cast<u32>(converted) : 0;
     for (u32 i = 0; i < units; ++i) {
@@ -544,9 +544,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
             entry.name_bytes = document.name_bytes;
             if (bytes_equal(document.name, defaults.name, defaults.name_bytes + 1)) {
                 // Unnamed documents are listed by their file name without ".json".
-                const int converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, entry.file,
-                                                          static_cast<int>(entry.file_units - 5), entry.name,
-                                                          kClientThemeNameMaximumBytes, nullptr, nullptr);
+                const int converted = utf16_to_utf8(entry.file, static_cast<int>(entry.file_units - 5), entry.name, kClientThemeNameMaximumBytes, true);
                 if (converted > 0) {
                     entry.name_bytes = static_cast<u32>(converted);
                     entry.name[entry.name_bytes] = 0;

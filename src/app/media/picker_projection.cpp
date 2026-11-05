@@ -1,4 +1,6 @@
 #include "picker_internal.hpp"
+#include "maicord/core/heap.hpp"
+#include "maicord/core/memory.hpp"
 #include "../chat/composer/reply_draft.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../chat/composer/composer.hpp"
@@ -70,7 +72,7 @@ void sticker_list_remove(u64 guild_id) noexcept {
         if (store.lists[i].guild_id == guild_id) {
             store.bytes -= store.lists[i].bytes;
             if (store.lists[i].json)
-                HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+                heap_free(store.lists[i].json);
             store.lists[i] = store.lists[--store.count];
             ++store.revision;
             return;
@@ -87,10 +89,10 @@ bool sticker_list_put(u64 guild_id, const Utf8View& json) noexcept {
     const bool empty = json.bytes == 2 && json.data[0] == '[' && json.data[1] == ']';
     char* copy = nullptr;
     if (!empty) {
-        copy = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, json.bytes));
+        copy = static_cast<char*>(heap_allocate(json.bytes));
         if (!copy)
             return false;
-        CopyMemory(copy, json.data, json.bytes);
+        copy_bytes(copy, json.data, json.bytes);
     }
     const u32 bytes = copy ? json.bytes : 0;
     store.lists[store.count++] = {guild_id, copy, bytes};
@@ -102,7 +104,7 @@ void sticker_store_clear() noexcept {
     auto& store = g_sticker_store;
     for (u32 i = 0; i < store.count; ++i)
         if (store.lists[i].json)
-            HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+            heap_free(store.lists[i].json);
     store.count = store.bytes = 0;
     ++store.revision;
 }

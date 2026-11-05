@@ -30,13 +30,13 @@
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 #include "../chat/messages/history_decode.hpp"
 
 namespace maicord::app_detail {
 namespace {
+constexpr int kWheelNotch = 120; // The wheel's delta for one notch (WHEEL_DELTA).
 template <u32 N> void assign(ProfileString<N>* to, Utf8View from) noexcept {
     to->bytes = static_cast<u16>(minimum(N, from.bytes));
     copy_bytes(to->data, from.data, to->bytes);
@@ -1044,7 +1044,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         application_profile_refresh_message();
     } else if (key == key::down || key == key::up) {
         queue_profile_scroll(false,
-                             key == key::down ? -WHEEL_DELTA : WHEEL_DELTA);
+                             key == key::down ? -kWheelNotch : kWheelNotch);
         repaint(true);
     }
     return true;

@@ -429,7 +429,12 @@ void application_video_viewer_activity() noexcept {
         ui_video_scene_activity(&video->ui.video, clock_monotonic_milliseconds()))
         application_request_frame();
 }
-bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
+namespace {
+// The next character event belongs to a key the player took as a shortcut.
+bool g_discard_character = false;
+} // namespace
+
+bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
     if (content_surface_covers_video())
         return false;
     auto* video = g_app.video;
@@ -527,14 +532,22 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
         return false;
     }
     ui_video_scene_activity(&scene, now);
-    if (printable) {
-        // TranslateMessage already queued this key's character; it is not text.
-        MSG character{};
-        PeekMessageW(&character, win32_hwnd(g_app.window), WM_CHAR, WM_CHAR, PM_REMOVE);
-    }
+    // The system already queued (or will queue) this key's character; it is not text.
+    if (printable)
+        g_discard_character = true;
     result.handled = true;
     dispatch_video_event(*video, result);
     return true;
+}
+
+bool application_video_discard_character(const WindowEvent& event) noexcept {
+    if (event.type == EventType::key_up)
+        g_discard_character = false;
+    else if (event.type == EventType::character && g_discard_character) {
+        g_discard_character = false;
+        return true;
+    }
+    return false;
 }
 
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,

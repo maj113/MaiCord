@@ -126,7 +126,7 @@ void polygon(Spec& s, const float* xy, u32 count, bool closed) noexcept {
 enum Shape : u32 {
     shape_circle, shape_ellipse, shape_rounded, shape_rect, shape_blob_a, shape_blob_b, shape_star, shape_eight,
     shape_c, shape_ring, shape_wave, shape_loop, shape_square, shape_sharp, shape_reversal, shape_small_circle,
-    shape_count
+    shape_hook, shape_dup, shape_count
 };
 
 // What the generic code needs of a primitive: either one of the factory's own or a path.
@@ -205,6 +205,26 @@ void shape(u32 id, Primitive* out) noexcept {
         polygon(s, xy, 3, false);
         break;
     }
+    case shape_hook: {
+        // Four smooth vertices of a lens whose ends are hairpins: the handles at the tips are tiny beside the ones
+        // that sweep the lens, so the curve turns about a hundred and fifty degrees within a pixel of a vertex.
+        const float v[4][2]{{380, 280}, {256, 232}, {132, 280}, {256, 233}};
+        const float in[4][2]{{-20, -30}, {60, .6f}, {-2, 3.5f}, {-60, -.6f}};
+        const float out[4][2]{{2, 3}, {-60, -.6f}, {20, -35}, {60, .6f}};
+        s.begin(v[0][0], v[0][1]);
+        for (u32 i = 0; i < 4; ++i) {
+            const u32 n = (i + 1) % 4;
+            s.curve(v[i][0] + out[i][0], v[i][1] + out[i][1], v[n][0] + in[n][0], v[n][1] + in[n][1], v[n][0], v[n][1]);
+        }
+        s.end(true);
+        break;
+    }
+    case shape_dup: {
+        // An open path out and back whose turn is a zero-length segment: its two vertices coincide.
+        s.begin(100, 100).curve(100, 100, 300, 100, 300, 100).curve(300, 100, 300, 100, 300, 100)
+            .curve(300, 100, 100, 100, 100, 100).end(false);
+        break;
+    }
     case shape_reversal: {
         const float xy[]{100, 100, 400, 100, 100, 100};
         polygon(s, xy, 3, false);
@@ -256,7 +276,9 @@ constexpr Stroke kStrokes[] = {
     {shape_wave, 8, 2, 4},         {shape_wave, 8, 80, 4},       {shape_star, 0, 20, 4},      {shape_star, 8, 20, 4},
     {shape_star, 4, 60, 4},        {shape_blob_a, 8, 6, 4},      {shape_blob_a, 8, 40, 4},    {shape_blob_a, 8, 160, 4},
     {shape_eight, 8, 30, 4},       {shape_loop, 8, 20, 4},       {shape_square, 7, 10, 4},    {shape_reversal, 8, 30, 4},
-    {shape_reversal, 4, 30, 4},    {shape_reversal, 3, 30, 4},   {shape_ring, 8, 14, 4},      {shape_small_circle, 8, 10, 4}};
+    {shape_reversal, 4, 30, 4},    {shape_reversal, 3, 30, 4},   {shape_ring, 8, 14, 4},      {shape_small_circle, 8, 10, 4},
+    {shape_hook, 0, 20, 4},        {shape_hook, 0, 20, 10},      {shape_hook, 1, 20, 4},      {shape_dup, 0, 24, 4},
+    {shape_dup, 0, 24, 10},        {shape_dup, 8, 24, 4}};
 constexpr u32 kStrokeCount = sizeof(kStrokes) / sizeof(kStrokes[0]);
 
 constexpr u32 kCaseCount = shape_count + kComboCount * 4 + kStrokeCount;

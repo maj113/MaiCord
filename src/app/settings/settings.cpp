@@ -27,7 +27,7 @@
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord::app_detail {
 namespace settings_detail {
@@ -331,7 +331,7 @@ void application_media_auth_poll() noexcept {
             auto* text = reinterpret_cast<wchar_t*>(wide.data);
             for (u32 i = 0; i < url.bytes; ++i) text[i] = static_cast<wchar_t>(url.data[i]);
             text[url.bytes] = 0;
-            opened = reinterpret_cast<usize>(ShellExecuteW(win32_hwnd(g_app.window), L"open", text, nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+            opened = desktop_open_target(g_app.window, text);
         }
         secure_buffer_release(&wide); secure_buffer_release(&url);
         account.launched = true;

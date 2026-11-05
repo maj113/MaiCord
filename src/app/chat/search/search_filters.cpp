@@ -5,7 +5,7 @@
 #include "maicord/ui/chat/search/query.hpp"
 #include "maicord/model/user/friend_search.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
@@ -579,30 +579,29 @@ bool resolve_channel(void* opaque, Utf8View name, u64* id) noexcept {
 bool local_date(void*, Utf8View date, u64* first, u64* last) noexcept {
     if (date.bytes != 10 || !first || !last)
         return false;
-    SYSTEMTIME local{};
+    CalendarTime local{};
     for (u32 i = 0; i < 4; ++i)
-        local.wYear = static_cast<WORD>(local.wYear * 10 + date.data[i] - '0');
-    local.wMonth = static_cast<WORD>((date.data[5] - '0') * 10 + date.data[6] - '0');
-    local.wDay = static_cast<WORD>((date.data[8] - '0') * 10 + date.data[9] - '0');
-    SYSTEMTIME utc{}, next{}, utc_next{};
-    FILETIME local_file{}, utc_file{}, utc_next_file{};
-    if (!SystemTimeToFileTime(&local, &local_file) ||
-        !TzSpecificLocalTimeToSystemTimeEx(nullptr, &local, &utc) || !SystemTimeToFileTime(&utc, &utc_file))
+        local.wYear = static_cast<u16>(local.wYear * 10 + date.data[i] - '0');
+    local.wMonth = static_cast<u16>((date.data[5] - '0') * 10 + date.data[6] - '0');
+    local.wDay = static_cast<u16>((date.data[8] - '0') * 10 + date.data[9] - '0');
+    // The day's first instant, and the next day's: the next day is found at local noon, which a daylight shift
+    // never moves across midnight.
+    i64 start_seconds = 0, noon_seconds = 0, end_seconds = 0;
+    if (!local_time_to_unix(local, &start_seconds))
         return false;
-    u64 ticks = (static_cast<u64>(local_file.dwHighDateTime) << 32) | local_file.dwLowDateTime;
-    ticks += 864000000000ull;
-    local_file = {static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
-    if (!FileTimeToSystemTime(&local_file, &next) ||
-        !TzSpecificLocalTimeToSystemTimeEx(nullptr, &next, &utc_next) ||
-        !SystemTimeToFileTime(&utc_next, &utc_next_file))
+    local.wHour = 12;
+    CalendarTime next{};
+    if (!local_time_to_unix(local, &noon_seconds) || !local_time_from_unix(noon_seconds + 86'400, &next))
         return false;
-    const u64 start = (static_cast<u64>(utc_file.dwHighDateTime) << 32) | utc_file.dwLowDateTime,
-              end = (static_cast<u64>(utc_next_file.dwHighDateTime) << 32) | utc_next_file.dwLowDateTime;
-    constexpr u64 snowflake_epoch_ticks = 130645440000000000ull;
-    if (end <= snowflake_epoch_ticks)
+    next.wHour = next.wMinute = next.wSecond = next.wMilliseconds = 0;
+    if (!local_time_to_unix(next, &end_seconds))
         return false;
-    *first = start > snowflake_epoch_ticks ? (start - snowflake_epoch_ticks) / 10000 : 0;
-    *last = (end - snowflake_epoch_ticks) / 10000;
+    constexpr i64 snowflake_epoch_ms = 1'420'070'400'000;
+    const i64 start = start_seconds * 1000, end = end_seconds * 1000;
+    if (end <= snowflake_epoch_ms)
+        return false;
+    *first = start > snowflake_epoch_ms ? static_cast<u64>(start - snowflake_epoch_ms) : 0;
+    *last = static_cast<u64>(end - snowflake_epoch_ms);
     return *last > *first;
 }
 void recent_load(ApplicationSearch& s) noexcept {

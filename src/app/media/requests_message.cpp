@@ -1,8 +1,10 @@
 #include "requests_internal.hpp"
+#include "maicord/os/text.hpp"
 #include "../shell/load_trace.hpp"
 #include "../shell/log_fields.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
@@ -900,7 +902,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     if (!resident.ok() || resident.width > kMaximumExtent || resident.height > kMaximumExtent)
         return {};
     wchar_t path[MAX_PATH]{};
-    const DWORD base = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
+    const u32 base = local_data_root(path, MAX_PATH);
     if (!base || base >= MAX_PATH - 96)
         return {};
     PathBuilder builder{path, base};
@@ -948,9 +950,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     // file:///C:/... with forward slashes; toasts reject '?', '#' and backslashes.
     static constexpr char prefix[] = "file:///";
     copy_bytes(storage.data, prefix, sizeof(prefix) - 1);
-    const int converted = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(builder.used),
-                                              storage.data + sizeof(prefix) - 1,
-                                              static_cast<int>(storage.count - (sizeof(prefix) - 1)), nullptr, nullptr);
+    const int converted = utf16_to_utf8(path, static_cast<int>(builder.used), storage.data + sizeof(prefix) - 1, static_cast<int>(storage.count - (sizeof(prefix) - 1)), false);
     if (converted <= 0)
         return {};
     const u32 bytes = static_cast<u32>(converted) + sizeof(prefix) - 1;

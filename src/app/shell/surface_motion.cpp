@@ -3,7 +3,6 @@
 #include "../media/downloads.hpp"
 #include "surface_motion.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 #if !defined(MAICORD_SURFACE_MOTION_CONTROLLER_TEST)
 #include "state.hpp"

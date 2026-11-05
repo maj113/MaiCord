@@ -218,6 +218,25 @@ pipeline fixtures (`maicord_update_pipeline`), the download owner (`maicord_http
 fixtures (`maicord_transport`); a test written for both systems states what it asserts about sharing under
 `#if defined(_WIN32)` because Linux sharing is advisory.
 
+The application proper (`src/app` outside `shell/` and `windows/`, and `src/ui`) is `maicord_app_client` and `maicord_ui`
+on Linux (`cmake/linux_app_client.cmake` globs `src/app`, so a new unit is built there by default; the UI Automation
+server is replaced by `src/app/accessibility/linux`). Shared application code reaches the system only through the seams:
+`os/process.hpp` (`process_launch_detached`), `os/text.hpp` (`utf16_to_utf8`, `utf8_to_utf16`), `os/thread.hpp`
+(`thread_waitable` lets a wait set hold a thread; `thread_com_enter` brackets COM use), `os/local_time.hpp`,
+`core/data_path.hpp` (`environment_variable`, `local_data_root`, `executable_path`), `core/module.hpp` (`module_image`),
+`core/resource.hpp` (`program_resource`), `core/virtual_memory.hpp` (`system_memory_low`) and
+`platform/desktop/shell_open.hpp` (`desktop_open_target`, `desktop_reveal_file`, `desktop_alert_beep`); where a window is
+passed it is a `Window`, never an `HWND`. A part that only Windows has keeps its `#if defined(_WIN32)` in the file with
+the Linux alternative next to it: the tray and single instance (`notifications/desktop.cpp`, over
+`platform/dbus/tray.hpp` and `instance.hpp`), the taskbar badge (`taskbar_attention.cpp`, the launcher entry), toasts
+(`platform/desktop/linux/notifications.cpp`), startup and protocol registration (`platform/desktop/linux/integration.cpp`:
+an XDG autostart file, a scheme handler desktop file and the default in `mimeapps.list`), WebAuthn (unavailable), the
+plugin loader (`PluginLoadError::unsupported`) and game detection (`/proc/*/comm`). The application and UI fixtures that
+need no Win32 window are registered in `cmake/linux_app_ui_tests.cmake` under their Windows names, over
+`maicord_window_null`; the few Win32 calls they make are shimmed for tests only in `tests/support/linux_test_app.hpp`.
+A fixture that calls other Windows API directly (BCrypt, Winsock, GDI, UI Automation, the registry, a real window) is
+not registered on Linux, and the clipboard-bound ones wait for a clipboard in the headless backend.
+
 ### The toolchain release
 
 Local builds and CI (`.github/actions/setup-toolchain/action.yml`, used by
@@ -346,17 +365,21 @@ files instead of re-sorting the lists.
   cursor and context-menu events reach handlers in content pixels (the dispatcher takes the caption's rows off the
   client point once, `window_dispatch.cpp`); `app/shell/window_events.hpp` has the predicates handlers use
   (`input_press`, `input_release`, `input_double`, `input_pointer_step`, `input_side_button`, ...) and `input.hpp`
-  the DIP conversions. What stays Windows-only (state observer, caption frame, UI Automation, tray and single
-  instance) is a hook in `window_runtime.cpp` (`Win32Hooks`), not a case in the dispatcher. Handler tests build
+  the DIP conversions. What stays Windows-only (UI Automation, tray and single instance) is a hook of
+  `src/app/windows/platform_window.cpp` (`Win32Hooks`; the non-client frame forwards to the portable caption controller
+  through `Win32CaptionOps`), not a case in the dispatcher; the window state observer is the dispatcher's own. Handler
+  tests build
   events with `tests/support/window_fixture.hpp` (`window_test::pointer_down(x, y)`, `key_down`, `wheel`, ...) and
   drive them against the headless backend (`window_test::open()`), which keeps capture, focus, key state and the
   cursor shape in memory and reports a lost capture synchronously, as Windows does
   (`tests/platform/window/win32_behaviour.cpp` captures that behaviour on a real window). A test that uses the
   headless backend lists `maicord_window_null` before `maicord_platform` in its `LIBS`, sets modifiers with
-  `null_window_set_key` and reads the cursor with `null_window_probe()` (the settings and store runtimes do). Tests of
-  the Windows backend itself (`win32_*`) create real windows; so do the UI probes that need a swap chain, and the
-  older handler tests that still open a hidden `STATIC` window and set the thread's keyboard state (the Windows
-  backend reads it); they read capture and focus through the service (`window_pointer_captured`, `window_focus`).
+  `null_window_set_key` (`window_test::hold`, `null_window_release_keys`) and reads the cursor, focus, close requests
+  and fatal messages with `null_window_probe()`; the handler runtimes (friends, forward, search, picker, video, ...)
+  all do. Tests of the Windows backend itself (`win32_*`) create real windows; so do the UI probes that need a swap
+  chain and the few handler tests that need real window state (attachments, pane resize, content navigation, the
+  resize runtime, surface motion host); they read capture and focus through the service (`window_pointer_captured`,
+  `window_focus`).
 - Add or update tests in `tests/<module>/<folder>/`, mirroring the code under
   test, for every behavior change, and register them in
   `cmake/test_registry.cmake` (see [Build files](#build-files)). Helpers shared

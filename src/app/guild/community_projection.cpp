@@ -1,9 +1,10 @@
 #include "community_internal.hpp"
+#include "maicord/os/text.hpp"
 #include "../chat/messages/history.hpp"
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/os/date_format.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
@@ -769,39 +770,29 @@ bool repaint() noexcept {
 } // namespace community_detail
 namespace {
 
-constexpr u64 kWindowsToUnixSeconds = 11'644'473'600ull;
-u64 filetime_seconds(const FILETIME& time) noexcept {
-    return ((static_cast<u64>(time.dwHighDateTime) << 32) | time.dwLowDateTime) / 10'000'000ull;
-}
-FILETIME seconds_filetime(u64 seconds) noexcept {
-    const u64 ticks = seconds * 10'000'000ull;
-    return {static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
-}
-// Local midnight of today plus `day` days, as a local (wall-clock) FILETIME second count.
-u64 local_day_seconds(u32 day) noexcept {
-    SYSTEMTIME now{};
-    GetLocalTime(&now);
-    now.wHour = now.wMinute = now.wSecond = now.wMilliseconds = 0;
-    FILETIME file{};
-    SystemTimeToFileTime(&now, &file);
-    return filetime_seconds(file) + day * 86'400ull;
-}
-u64 local_to_unix(u64 local_seconds) noexcept {
-    const FILETIME local_file = seconds_filetime(local_seconds);
-    SYSTEMTIME local{}, utc{};
-    FILETIME utc_file{};
-    if (!FileTimeToSystemTime(&local_file, &local) || !TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc) ||
-        !SystemTimeToFileTime(&utc, &utc_file))
-        return 0;
-    const u64 seconds = filetime_seconds(utc_file);
-    return seconds > kWindowsToUnixSeconds ? seconds - kWindowsToUnixSeconds : 0;
+// Local midnight of today plus `day` days as a calendar reading. The days are added at local noon, which a daylight
+// shift never moves across midnight.
+CalendarTime local_day(u32 day) noexcept {
+    CalendarTime now{};
+    local_time_now(&now);
+    now.wHour = 12;
+    now.wMinute = now.wSecond = now.wMilliseconds = 0;
+    CalendarTime result = now;
+    i64 unix = 0;
+    if (local_time_to_unix(now, &unix))
+        local_time_from_unix(unix + static_cast<i64>(day) * 86'400, &result);
+    result.wHour = result.wMinute = result.wSecond = result.wMilliseconds = 0;
+    return result;
 }
 u64 create_start_unix() noexcept {
-    return local_to_unix(local_day_seconds(owner->day) + owner->time_slot * 1'800ull);
+    CalendarTime start = local_day(owner->day);
+    start.wHour = static_cast<u16>(owner->time_slot / 2);
+    start.wMinute = static_cast<u16>(owner->time_slot % 2 * 30);
+    i64 unix = 0;
+    return local_time_to_unix(start, &unix) && unix > 0 ? static_cast<u64>(unix) : 0;
 }
 u32 wide_label(const wchar_t* wide, int units, char* out, u32 capacity) noexcept {
-    const int written = units > 1 ? WideCharToMultiByte(CP_UTF8, 0, wide, units - 1, out, static_cast<int>(capacity),
-                                                        nullptr, nullptr)
+    const int written = units > 1 ? utf16_to_utf8(wide, units - 1, out, capacity, false)
                                   : 0;
     return written > 0 ? static_cast<u32>(written) : 0;
 }
@@ -812,9 +803,7 @@ namespace community_detail {
 void build_calendar() noexcept {
     auto& p = *owner;
     for (u32 d = 0; d < kDayChoices; ++d) {
-        const FILETIME file = seconds_filetime(local_day_seconds(d));
-        SYSTEMTIME day{};
-        FileTimeToSystemTime(&file, &day);
+        const CalendarTime day = local_day(d);
         u32 bytes = 0;
         if (d < 2) {
             const Utf8View text = d ? utf8_literal("Tomorrow") : utf8_literal("Today");
@@ -828,19 +817,19 @@ void build_calendar() noexcept {
         p.day_views[d] = {p.day_labels[d], bytes};
     }
     for (u32 t = 0; t < kTimeChoices; ++t) {
-        SYSTEMTIME time{};
+        CalendarTime time{};
         time.wYear = 2026;
         time.wMonth = 1;
         time.wDay = 1;
-        time.wHour = static_cast<WORD>(t / 2);
-        time.wMinute = static_cast<WORD>(t % 2 * 30);
+        time.wHour = static_cast<u16>(t / 2);
+        time.wMinute = static_cast<u16>(t % 2 * 30);
         wchar_t wide[24]{};
         const int units = format_time(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, wide, 24);
         p.time_views[t] = {p.time_labels[t], wide_label(wide, units, p.time_labels[t], sizeof(p.time_labels[t]))};
     }
     // The next half hour, an hour ahead, as the official client's default.
-    SYSTEMTIME now{};
-    GetLocalTime(&now);
+    CalendarTime now{};
+    local_time_now(&now);
     const u32 slot = (now.wHour * 60u + now.wMinute + 89u) / 30u;
     p.day = slot >= kTimeChoices ? 1 : 0;
     p.time_slot = slot % kTimeChoices;

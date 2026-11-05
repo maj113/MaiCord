@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "thread_membership_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"

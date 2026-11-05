@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "forum_post_ui_adapter.hpp"
 #include "../support/secure_text_store_access.hpp"
 #include "forum_media_ui_adapter.hpp"

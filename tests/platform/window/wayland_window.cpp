@@ -1369,7 +1369,7 @@ bool g_ime_text_matches(const u16* units, u32 count, const u16* expected, u32 ex
 
 void test_text_input() noexcept {
     inject::Helper& helper = *g_helper;
-    if (!helper.ime_manager || !window_wayland_text_input_available(g_window)) {
+    if (!helper.ime_manager || !window_wayland_text_input_available(window_surface_native(g_window))) {
         test_write_line("SKIP text input: no zwp_input_method_manager_v2 for the helper to play an IME, or no text-input-v3");
         return;
     }
@@ -1382,7 +1382,7 @@ void test_text_input() noexcept {
     request.y = 20;
     request.width = 2;
     request.height = 18;
-    check(window_wayland_text_input_enable(g_window, request), "text input enabled");
+    check(window_wayland_text_input_enable(window_surface_native(g_window), request), "text input enabled");
     check(inject::helper_wait([&] { return helper.ime_active != 0 && helper.ime_done_count >= 1; }, 3000),
           "the input method is activated");
     check(helper.ime_surrounding_bytes == 6 && helper.ime_cursor == 6 && helper.ime_anchor == 6 &&
@@ -1413,17 +1413,17 @@ void test_text_input() noexcept {
     const u32 deleted = expect("a deletion arrives", EventType::ime_delete_surrounding, [](const Record&) { return true; });
     check(deleted != kNone && g_log[deleted].event.ime.delete_before == 3 && g_log[deleted].event.ime.delete_after == 0,
           "three bytes before the caret are three UTF-16 units");
-    window_wayland_text_input_disable(g_window);
+    window_wayland_text_input_disable(window_surface_native(g_window));
     check(inject::helper_wait([&] { return helper.ime_active == 0; }, 3000), "disabling deactivates the input method");
 
     // A password field: hidden text, no surrounding text.
     request.sensitive = true;
     request.purpose = TextInputPurpose::password;
-    check(window_wayland_text_input_enable(g_window, request), "text input enabled for a password");
+    check(window_wayland_text_input_enable(window_surface_native(g_window), request), "text input enabled for a password");
     check(inject::helper_wait([&] { return helper.ime_active != 0 && helper.ime_hint != 0; }, 3000) && (helper.ime_hint & 0xC0) == 0xC0 &&
               helper.ime_purpose == zwp_text_input_v3_content_purpose_password && helper.ime_surrounding_bytes == 0,
           "a password is hidden and sensitive, with nothing around the caret");
-    window_wayland_text_input_disable(g_window);
+    window_wayland_text_input_disable(window_surface_native(g_window));
     check(inject::helper_wait([&] { return helper.ime_active == 0; }, 3000), "and deactivates again");
 }
 

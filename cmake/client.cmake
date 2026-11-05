@@ -35,7 +35,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/effects/effects.cpp src/app/packages/packages.cpp
     src/app/plugins/compose.cpp src/app/plugins/menus.cpp src/app/plugins/ui_host.cpp
     src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
-    src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/window_dispatch.cpp
+    src/app/shell/window.cpp src/app/windows/platform_window.cpp src/app/shell/window_dispatch.cpp
     src/app/shell/input_routing.cpp
     src/app/shell/caption.cpp src/app/shell/app_icon.cpp
     src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
@@ -111,7 +111,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/chat/messages/interaction.cpp src/app/chat/messages/interaction_popups.cpp src/app/account/user_actions.cpp
     src/app/chat/report.cpp src/app/shell/scheduler.cpp src/app/shell/shutdown_metrics.cpp
     src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp
-    src/app/shell/pane_resize.cpp src/app/shell/main.cpp $<TARGET_OBJECTS:maicord_runtime>
+    src/app/shell/pane_resize.cpp src/app/shell/main.cpp src/app/windows/entry.cpp $<TARGET_OBJECTS:maicord_runtime>
     src/app/accessibility/accessibility.cpp src/app/accessibility/accessibility_describe.cpp
     src/app/accessibility/accessibility_actions.cpp src/app/update/updates.cpp src/app/update/entry.cpp
     src/app/plugins/catalog_worker.cpp src/app/plugins/catalog_service.cpp src/app/plugins/catalog_app.cpp
@@ -144,8 +144,8 @@ if(MAICORD_STARTUP_PROBE)
     set_property(TARGET MaiCord PROPERTY MAICORD_STARTUP_PROBE ON)
     # Only these sources use the probe. Restoring a normal client after the
     # measurement must not recompile unrelated application sources.
-    set_property(SOURCE src/app/shell/main.cpp src/app/shell/window.cpp
-        src/app/shell/frame_presentation.cpp src/app/shell/shutdown_metrics.cpp
+    set_property(SOURCE src/app/shell/main.cpp src/app/shell/window.cpp src/app/windows/platform_window.cpp
+        src/app/windows/entry.cpp src/app/shell/frame_presentation.cpp src/app/shell/shutdown_metrics.cpp
         APPEND PROPERTY COMPILE_DEFINITIONS
         "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
 endif()
@@ -524,12 +524,17 @@ maicord_compact_sources(
         src/app/gateway/client_session.cpp)
 # Core and platform code with no byte loop: path building, per-frame DXVA submission and MP4
 # decoder plumbing, speech, datagram and TLS stream control around the OS calls, the random
-# source and the window frame; Gateway connection events, voice session descriptions, request
+# source and the window backend (message translation and procedure, services, the non-client frame, settings and
+# icons: the per-message work is a few compares and stores, and -Oz also drops the jump tables of the message
+# switches); Gateway connection events, voice session descriptions, request
 # bodies (JSON strings, the writer) and the P-256 signature framing, all once per session or
 # per user action (the decoders that run per event stay /O2).
 maicord_compact_sources(
     SOURCES
-        src/core/data_path.cpp src/platform/crypto/random.cpp src/platform/desktop/window_frame.cpp
+        src/core/data_path.cpp src/platform/crypto/random.cpp src/platform/window/win32/caption_frame.cpp
+        src/platform/window/win32/translate.cpp src/platform/window/win32/window_proc.cpp src/platform/window/win32/window.cpp
+        src/platform/window/win32/pump.cpp src/platform/window/win32/settings.cpp src/platform/window/win32/icon.cpp
+        src/platform/window/win32/create_icon.cpp src/platform/window/win32/drop.cpp src/platform/window/win32/keys.cpp
         src/platform/audio/speech.cpp src/platform/net/datagram.cpp src/platform/net/tls_stream.cpp
         src/platform/decode/aac_decoder.cpp src/platform/decode/av1_dxva_parameters.cpp
         src/platform/decode/av1_gpu_stream.cpp src/platform/decode/gpu_stream_decoder.cpp

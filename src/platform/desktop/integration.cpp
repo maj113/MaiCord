@@ -1,19 +1,26 @@
 #include "maicord/platform/desktop/integration.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
 #include <stddef.h>
+#if defined(_WIN32)
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/registry.hpp"
+#include "maicord/platform/window/win32.hpp"
+#endif
 
 namespace maicord {
+#if defined(_WIN32)
 static_assert(kDesktopShowHide == SW_HIDE && kDesktopShowMinimizedNoActive == SW_SHOWMINNOACTIVE &&
               kDesktopShowDefault == SW_SHOWDEFAULT && kDesktopActivateInactive == WA_INACTIVE);
+#endif
 namespace {
+#if defined(_WIN32)
 constexpr u32 kRegistryText = 2048;
+#endif
 constexpr wchar_t kStartupArgument[] = L"--startup";
 constexpr wchar_t kUrlArgument[] = L"--url";
 
@@ -45,6 +52,7 @@ bool prefix_folded(ConstSlice<wchar_t> text, u32 at, const wchar_t* literal) noe
     return true;
 }
 
+#if defined(_WIN32)
 // Appends wide text; false once the capacity (including the NUL) is exceeded.
 struct WideBuilder {
     wchar_t* data;
@@ -153,6 +161,7 @@ struct PublishedWindow {
     u64 window;
 };
 static_assert(offsetof(ForwardPayload, url) == kForwardHeaderBytes);
+#endif
 
 bool decimal_id(ConstSlice<wchar_t> text, u32 first, u32 last, u64* value) noexcept {
     if (first >= last || last - first > 20)
@@ -349,6 +358,7 @@ bool desktop_link_parse(ConstSlice<wchar_t> url, DesktopLinkTarget* target) noex
     return false;
 }
 
+#if defined(_WIN32)
 DesktopRegistryScope desktop_registry_user_scope() noexcept {
     return {HKEY_CURRENT_USER,
             L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -550,7 +560,8 @@ bool desktop_instance_receive(const COPYDATASTRUCT* data, DesktopForwardMessage*
     return true;
 }
 
-void desktop_window_reveal(HWND window) noexcept {
+void desktop_window_reveal(Window owner) noexcept {
+    const HWND window = win32_hwnd(owner);
     if (!window)
         return;
     if (IsIconic(window))
@@ -559,5 +570,14 @@ void desktop_window_reveal(HWND window) noexcept {
         ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
 }
+
+#else
+void desktop_window_reveal(Window window) noexcept {
+    if (!window)
+        return;
+    window_show(window, ShowMode::show);
+    window_request_attention(window, Attention::flash);
+}
+#endif
 
 } // namespace maicord

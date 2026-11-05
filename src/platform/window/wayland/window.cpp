@@ -836,6 +836,21 @@ WindowMetrics window_metrics(Window window) noexcept {
     return metrics;
 }
 
+u32 window_state(Window window) noexcept {
+    return is_window(window) ? g.window.state_bits : 0;
+}
+
+// The band of the resize border the app's frame draws: 8 logical pixels, as the Windows frame has at 96 DPI.
+u32 window_resize_border(Window, u32 dpi) noexcept {
+    return (8 * dpi + 48) / 96;
+}
+
+// The app draws the whole frame: no shadow border beside the client.
+bool window_frame_inset(Window window, u32* pixels) noexcept {
+    *pixels = 0;
+    return is_window(window);
+}
+
 void window_frame_callback_request(Window window) noexcept {
     if (!is_window(window) || g.window.frame_callback)
         return;

@@ -86,10 +86,11 @@ bool secure_text_store_attached(const SecureTextStore& store) noexcept;
 // text service that sees keys first (WindowCaps::key_prefilter: TSF) consumes any; the Windows store reads the
 // system message in event.native, the others return false.
 bool secure_text_store_filter_key(SecureTextStore* store, const WindowEvent& event) noexcept;
-// An input method's transaction (ime_preedit, ime_commit, ime_delete_surrounding): applied to the bound target and
-// shown through secure_text_store_composition like a TSF composition. True when the store took the event. Only the
-// stores of platforms whose input method talks through events take any; the Windows store never does.
-bool secure_text_store_ime_event(SecureTextStore* store, const WindowEvent& event) noexcept;
+// An input method's transaction (ime_preedit, ime_commit, ime_delete_surrounding): applied to the store that holds the
+// window's text input (the bound, attached, focused one) and shown through secure_text_store_composition like a TSF
+// composition; that store's `changed` callback runs. True when a store took the event. Only platforms whose input
+// method talks through events have one; the Windows store never takes any.
+bool secure_text_store_ime_event(const WindowEvent& event) noexcept;
 
 // Binding a different windowless field rebuilds the TSF context. This ends any
 // prior composition and makes the new ITfInputScope value current.

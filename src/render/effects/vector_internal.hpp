@@ -66,10 +66,34 @@ inline bool cubic_flat(const double (&c)[8], double tolerance) noexcept {
     return .75 * worst <= tolerance;
 }
 
+// Whether a cubic's tangent turns by no more than the angle whose cosine is `min_cosine` between its two ends (a value
+// of -1 or less allows any turn).
+inline bool cubic_turn_ok(const double (&c)[8], double min_cosine) noexcept {
+    if (min_cosine <= -1)
+        return true;
+    // The start tangent is the first handle that is not on its end point, the end tangent likewise from the other side.
+    double sx = 0, sy = 0, ex = 0, ey = 0;
+    for (u32 k = 1; k <= 3; ++k)
+        if (absolute(c[k * 2] - c[0]) + absolute(c[k * 2 + 1] - c[1]) > 1e-12) {
+            sx = c[k * 2] - c[0];
+            sy = c[k * 2 + 1] - c[1];
+            break;
+        }
+    for (u32 k = 3; k-- > 0;)
+        if (absolute(c[6] - c[k * 2]) + absolute(c[7] - c[k * 2 + 1]) > 1e-12) {
+            ex = c[6] - c[k * 2];
+            ey = c[7] - c[k * 2 + 1];
+            break;
+        }
+    const double lengths = root(sx * sx + sy * sy) * root(ex * ex + ey * ey);
+    return !(lengths > 1e-24) || sx * ex + sy * ey >= min_cosine * lengths;
+}
+
 // Calls vertex(t, x, y) at the end of each piece a cubic is cut into, in order, the last at t = 1 and the cubic's own end
 // point. Pieces are halves of halves, so every t is a short binary fraction and exact in a float. A straight cubic,
-// whatever its handles, is one piece.
-template <typename Vertex> void flatten_cubic(const double (&curve)[8], double tolerance, Vertex&& vertex) noexcept {
+// whatever its handles, is one piece. With a `min_cosine` above -1, no piece turns by more (see cubic_turn_ok).
+template <typename Vertex>
+void flatten_cubic(const double (&curve)[8], double tolerance, Vertex&& vertex, double min_cosine = -2) noexcept {
     struct Piece {
         double c[8];
         double t0, t1;
@@ -83,7 +107,7 @@ template <typename Vertex> void flatten_cubic(const double (&curve)[8], double t
     stack[0].depth = 0;
     while (top) {
         const Piece piece = stack[--top];
-        if (piece.depth >= 16 || top + 2 >= 48 || cubic_flat(piece.c, tolerance)) {
+        if (piece.depth >= 16 || top + 2 >= 48 || (cubic_flat(piece.c, tolerance) && cubic_turn_ok(piece.c, min_cosine))) {
             vertex(static_cast<float>(piece.t1), piece.c[6], piece.c[7]);
             continue;
         }

@@ -1,6 +1,7 @@
 // Exercise the publicly exposed shipping navigator, including its real Core
 // selection and channel authority. Surrounding presentation/history are thin
 // deterministic boundaries; no cloned navigation helper is used.
+#include "maicord/platform/window/win32.hpp"
 #include "../../../src/app/shell/content_input.cpp"
 #include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"

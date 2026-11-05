@@ -4,7 +4,6 @@
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
@@ -20,8 +19,6 @@ u32 failures{}, navigations{};
 u64 navigated_channel{}, navigated_message{};
 ApplicationTextFormRequest confirmation{};
 u8 form_marker{};
-BYTE saved_keyboard[256]{};
-bool keyboard_saved{};
 MessageRecord records[4]{};
 u32 order[4]{};
 u8 text[4096]{};
@@ -46,8 +43,8 @@ bool response(u64 ticket, u16 status, Utf8View body = {}) noexcept {
     value.status_code = status;
     return application_pinned_messages_response(value, body);
 }
-LPARAM point(UiRect bounds) noexcept {
-    return MAKELPARAM(static_cast<short>((bounds.left + bounds.right) * .5f),
+i64 point(UiRect bounds) noexcept {
+    return window_test::pack(static_cast<short>((bounds.left + bounds.right) * .5f),
                       static_cast<short>((bounds.top + bounds.bottom) * .5f));
 }
 bool header_click() noexcept {
@@ -91,12 +88,7 @@ void permit(bool read = true, bool pin = true) noexcept {
     layout(static_cast<float>(g_app.renderer.width), static_cast<float>(g_app.renderer.height));
 }
 bool initialize() noexcept {
-    BYTE clean_keyboard[256]{};
-    keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    if (!keyboard_saved || !SetKeyboardState(clean_keyboard)) return false;
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord pins runtime fixture", WS_POPUP,
-                                   -16000, -16000, 1280, 720, nullptr, nullptr,
-                                   GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_app.window || !g_app.account_ui) return false;
@@ -143,7 +135,7 @@ bool initialize() noexcept {
 void release() noexcept {
     application_pinned_messages_release();
     ui_scene_release(&g_app.shell_scene);
-    if (win32_hwnd(g_app.window)) DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     if (g_app.account_ui) {
         application_history_decode_storage_release(*g_app.account_ui);
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
@@ -152,7 +144,6 @@ void release() noexcept {
     g_app.account_ui = nullptr;
     g_app.account.instance = nullptr;
     g_app.text_form = nullptr;
-    if (keyboard_saved) SetKeyboardState(saved_keyboard);
 }
 constexpr auto page_body = utf8_literal(
     R"({"items":[{"pinned_at":"2026-10-05T12:34:56.123456Z","message":{"id":"300","channel_id":"70","author":{"id":"3","username":"Original author"},"content":"Copied original pin","timestamp":"2026-10-05T12:00:00Z","type":0}}],"has_more":false})");

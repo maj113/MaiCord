@@ -661,8 +661,7 @@ void media_admission_tests() noexcept {
     scene = {};
 }
 void run() noexcept {
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Save isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Downloads fixture creates hidden native owner");
@@ -850,8 +849,8 @@ void run() noexcept {
     picker_ready = true;
     application_downloads_pump();
     auto cancel_bounds = q->scene.primary_rectangles[0];
-    const LPARAM cancel_point =
-        MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
+    const i64 cancel_point =
+        window_test::pack(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
     application_downloads_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point)));
     const auto pressed_widget = q->scene.widgets.captured;
@@ -872,8 +871,8 @@ void run() noexcept {
     picker_ready = true;
     application_downloads_pump();
     cancel_bounds = q->scene.primary_rectangles[0];
-    const LPARAM resized_point =
-        MAKELPARAM(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
+    const i64 resized_point =
+        window_test::pack(static_cast<i16>((cancel_bounds.left + cancel_bounds.right) * .5f),
                    static_cast<i16>((cancel_bounds.top + cancel_bounds.bottom) * .5f));
     application_downloads_window_event(window_test::pointer_down(window_test::x_of(resized_point), window_test::y_of(resized_point)));
     fixture_viewport.right = 1000;
@@ -892,7 +891,7 @@ void run() noexcept {
     application_downloads_pump();
     picker_ready = true;
     application_downloads_pump();
-    const LPARAM backdrop = MAKELPARAM(10, 10);
+    const i64 backdrop = window_test::pack(10, 10);
     application_downloads_window_event(window_test::pointer_down(window_test::x_of(backdrop), window_test::y_of(backdrop)));
     application_downloads_window_event(window_test::pointer_up(window_test::x_of(backdrop), window_test::y_of(backdrop), PointerButton::left));
     check(!q->active && q->jobs[0].admitted && !q->jobs[0].cancel_requested,
@@ -1156,7 +1155,7 @@ void run() noexcept {
         count += j.occupied;
     check(count == 8 && !q->jobs[7].admitted, "Downloads queue is bounded to eight owned receipts");
     const auto panel = q->scene.panel;
-    const LPARAM point = MAKELPARAM(static_cast<i16>(panel.left + 2), static_cast<i16>(panel.top + 2));
+    const i64 point = window_test::pack(static_cast<i16>(panel.left + 2), static_cast<i16>(panel.top + 2));
     application_downloads_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     application_downloads_close();
     check(application_downloads_window_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !window_pointer_captured(g_app.window),
@@ -1172,7 +1171,7 @@ void run() noexcept {
     media_admission_tests();
     ui_search_scene_release(&search_scene);
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

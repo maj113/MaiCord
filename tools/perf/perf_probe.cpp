@@ -6,6 +6,7 @@
 // output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe_internal.hpp"
 #include "maicord/platform/window/win32.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/app/account/account_paths.hpp"
 #include "../../src/app/chat/channel_session.hpp"
 #include "../../src/app/shell/content_input.hpp"

@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "settings/emoji_preferences.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/model_store_fixtures.hpp"
@@ -1294,7 +1295,7 @@ bool composer_ui_probe() noexcept {
     } cleanup{window};
     probe_window::show(window);
     SetFocus(window);
-    application_window_observe_position(window);
+    application_window_observe_position(win32_window(window));
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(GetFocus() == window, 100, "focus") ||
         !require(renderer_initialize(&g_app.renderer, probe_window_surface(window)), 100, "renderer_initialize") ||

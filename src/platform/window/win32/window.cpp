@@ -6,6 +6,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/core/cursor.hpp"
@@ -254,6 +255,49 @@ WindowMetrics window_metrics(Window window) noexcept {
     GetClientRect(hwnd, &client);
     const u32 dpi = GetDpiForWindow(hwnd);
     return {static_cast<u32>(client.right), static_cast<u32>(client.bottom), dpi * 120 / 96, dpi};
+}
+
+u32 window_state(Window window) noexcept {
+    const HWND hwnd = win32_hwnd(window);
+    u32 state = 0;
+    if (IsIconic(hwnd))
+        state |= state_minimized;
+    if (IsWindowVisible(hwnd))
+        state |= state_visible;
+    if (IsZoomed(hwnd))
+        state |= state_maximized;
+    if (g_fullscreen.on)
+        state |= state_fullscreen;
+    return state;
+}
+
+// SM_CXFRAME + SM_CXPADDEDBORDER.
+u32 window_resize_border(Window, u32 dpi) noexcept {
+    return static_cast<u32>(GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi));
+}
+
+// The DWM border of a restored window lies outside the client at the sides but over the client's top row; none while
+// maximized.
+bool window_frame_inset(Window window, u32* pixels) noexcept {
+    using GetWindowAttribute = HRESULT(WINAPI*)(HWND, DWORD, void*, DWORD);
+    static GetWindowAttribute get_attribute;
+    static bool resolved;
+    if (!resolved) {
+        resolved = true;
+        if (const HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
+            get_attribute = reinterpret_cast<GetWindowAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute"));
+    }
+    constexpr DWORD kExtendedFrameBounds = 9;
+    const HWND hwnd = win32_hwnd(window);
+    RECT visible{}, client{};
+    POINT origin{};
+    if (!get_attribute || !IsWindowVisible(hwnd) || IsIconic(hwnd) || !GetClientRect(hwnd, &client) ||
+        !ClientToScreen(hwnd, &origin) || FAILED(get_attribute(hwnd, kExtendedFrameBounds, &visible, sizeof(visible))))
+        return false;
+    const LONG side = minimum(origin.x - visible.left, visible.right - origin.x - client.right);
+    const LONG frame = side - (origin.y - visible.top);
+    *pixels = frame > 0 && frame < 8 ? static_cast<u32>(frame) : 0;
+    return true;
 }
 
 void window_frame_callback_request(Window) noexcept {}

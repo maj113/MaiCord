@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "probe_account_ui.hpp"
@@ -1370,7 +1371,7 @@ bool scoped_read_ui_probe() noexcept {
     } cleanup{window, SUCCEEDED(apartment)};
     probe_window::show(window);
     SetFocus(window);
-    application_window_observe_position(window);
+    application_window_observe_position(win32_window(window));
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!SCOPED_READ_REQUIRE(SUCCEEDED(apartment) &&
                                  renderer_initialize(&g_app.renderer, probe_window_surface(window)),

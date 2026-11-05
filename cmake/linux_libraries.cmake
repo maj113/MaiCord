@@ -10,19 +10,20 @@ maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/linux/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
     src/core/utf.cpp src/core/byte_range.cpp src/core/linux/log.cpp src/core/linux/path.cpp
-    src/core/linux/shared_library.cpp
+    src/core/linux/shared_library.cpp src/core/linux/resource.cpp
     # The Linux bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits, threads, files
     # and directories, ordinal compares, the local time zone and date formatting (the TZif reader is pure).
     src/os/linux/pages.cpp src/os/linux/srwlock.cpp src/os/linux/wait.cpp src/os/linux/thread.cpp
     src/os/linux/file.cpp src/os/linux/directory.cpp src/os/linux/ordinal.cpp src/os/linux/local_time.cpp
-    src/os/linux/date_format.cpp src/platform/time/tzif.cpp)
+    src/os/linux/date_format.cpp src/os/linux/process.cpp src/os/linux/text.cpp src/platform/time/tzif.cpp)
+set_source_files_properties(src/core/linux/resource.cpp PROPERTIES COMPILE_OPTIONS "-Wno-c23-extensions")
 
-# What the desktop shell asks the system for: the time zone identifier and the spell checker (Hunspell or Enchant
-# through dlopen; spell_checker.cpp holds the language choice the two systems share).
+# What the desktop shell asks the system for: the time zone identifier, the spell checker (Hunspell or Enchant
+# through dlopen; spell_checker.cpp holds the language choice the two systems share) and opening a link or a file.
 maicord_library(maicord_desktop_system
     src/platform/desktop/linux/timezone.cpp src/platform/desktop/spell_checker.cpp
-    src/platform/desktop/linux/spell_checker.cpp
-    LIBS maicord_core)
+    src/platform/desktop/linux/spell_checker.cpp src/platform/desktop/linux/shell_open.cpp
+    LIBS maicord_core maicord_dbus)
 
 maicord_library(maicord_compression
     src/media/compression/deflate.cpp src/media/compression/zstd.cpp src/media/compression/inflated_block.cpp
@@ -288,5 +289,5 @@ include(cmake/linux_app_libraries.cmake)
 # Live video decode (src/platform/decode): the software tier over libdav1d and libopenh264, VA-API, and the stream
 # decoder that drives them.
 include(cmake/linux_video.cmake)
-
-include(cmake/linux_probe.cmake) # TEMPORARY discovery
+# The rest of the application (src/app outside the shell) and the secure text field.
+include(cmake/linux_app_client.cmake)

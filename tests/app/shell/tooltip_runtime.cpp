@@ -11,7 +11,6 @@
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/window_fixture.hpp"
 
@@ -39,8 +38,7 @@ bool failed_measure(void*, const UiTextMeasureRequest&, UiTextMeasureValue*) noe
     return false;
 }
 void run() noexcept {
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord tooltip fixture", WS_POPUP, 0, 0, 1000, 700,
-                                   nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "tooltip runtime: bounded hidden native host initializes");
@@ -91,8 +89,8 @@ void run() noexcept {
               !g_app.renderer.tooltip_scene->visible && !application_tooltip_next_wake(),
           "tooltip runtime: retired typed video target immediately removes its borrowed hint");
     application_tooltip_release();
-    const LPARAM point =
-        MAKELPARAM(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
+    const i64 point =
+        window_test::pack(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
                    static_cast<short>((node->rectangle.top + node->rectangle.bottom) * .5f));
     application_tooltip_input(window_test::pointer_move(window_test::x_of(point), window_test::y_of(point)));
     const u64 deadline = application_tooltip_next_wake();
@@ -107,7 +105,7 @@ void run() noexcept {
     check(application_tooltip_synchronize(deadline - 1) && !g_app.renderer.tooltip_scene->visible &&
               application_tooltip_synchronize(deadline) &&
               ui_tooltip_visible(*g_app.renderer.tooltip_scene) && !application_tooltip_next_wake() &&
-              !GetCapture(),
+              !window_pointer_captured(g_app.window),
           "tooltip runtime: delayed actual label appears without capture and leaves no idle wake");
     const u32 builds = text_builds;
     check(application_tooltip_synchronize(deadline + 1) && text_builds == builds && g_app.tooltip == owner,
@@ -275,7 +273,7 @@ void run() noexcept {
     UiRect star_rect{};
     check(ui_media_picker_scene_favorite(favorite_scene, 0, &star_rect),
           "tooltip Favorites: hover exposes exact clipped action subregion");
-    const auto star_point = MAKELPARAM(static_cast<short>((star_rect.left + star_rect.right) * .5f),
+    const auto star_point = window_test::pack(static_cast<short>((star_rect.left + star_rect.right) * .5f),
                                        static_cast<short>((star_rect.top + star_rect.bottom) * .5f));
     const auto hint = [&](Utf8View expected) noexcept {
         ui_media_picker_scene_hover(&favorite_scene, (star_rect.left + star_rect.right) * .5f,
@@ -565,7 +563,7 @@ void run() noexcept {
     application_tooltip_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_app.window = nullptr;
 }
 } // namespace maicord::tooltip_runtime_test

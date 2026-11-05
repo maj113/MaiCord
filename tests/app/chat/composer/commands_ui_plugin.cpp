@@ -5,7 +5,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"

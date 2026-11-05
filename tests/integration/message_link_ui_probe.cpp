@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/window_fixture.hpp"
 #include "probe_account_ui.hpp"

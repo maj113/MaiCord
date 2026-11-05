@@ -20,7 +20,6 @@
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
 
@@ -423,7 +422,7 @@ bool handle_scroll_wheel(const WindowEvent& event) noexcept {
         const auto strip = message_composer_scene_attachment_view(g_app.message_composer_scene, false);
         if (strip.tiles.count && ui_rect_contains(strip.strip, point.x, point.y)) {
             if (message_composer_scene_attachment_scroll(&g_app.message_composer_scene,
-                                                         -static_cast<float>(delta) / WHEEL_DELTA * 96.f) &&
+                                                         -static_cast<float>(delta) / 120.0f * 96.f) &&
                 !refresh_account_frame(true))
                 log_write(LogLevel::error, "ui", "attachment_strip_scroll_refresh_failed");
             return true;

@@ -1,6 +1,9 @@
 #pragma once
 
+#include "maicord/core/base.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_records.hpp"
+#endif
 
 // Microsoft UI Automation server for one window, over UiAccessTree snapshots.
 //
@@ -49,6 +52,7 @@ enum class UiaNotificationProcessing : u8 {
 
 struct UiaRuntime;
 
+#if defined(_WIN32)
 struct UiaProviderHost {
     HWND window;
     UiaHostCallbacks callbacks;
@@ -87,5 +91,13 @@ bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotification
                                  UiaNotificationProcessing processing, Utf8View text, Utf8View activity) noexcept;
 // Disconnects every element; later calls on retained elements fail cleanly.
 void uia_host_shutdown(UiaProviderHost* host) noexcept;
+#else
+// Linux has no UI Automation host: the application's accessibility state keeps this one, which holds only what the
+// shared snapshot code (src/app/accessibility/accessibility_describe.cpp) writes; an AT-SPI bridge can grow it.
+struct UiaProviderHost {
+    // Client pixels above the snapshot's DIP origin (a custom window caption).
+    i32 content_offset_y;
+};
+#endif
 
 } // namespace maicord

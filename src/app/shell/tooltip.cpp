@@ -32,7 +32,6 @@
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/media/core/asset.hpp"

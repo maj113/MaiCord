@@ -28,7 +28,6 @@
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::quick_switcher_runtime_test {
@@ -65,11 +64,13 @@ void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
-    BYTE clean[256]{};
-    clean[key::ctrl] = control ? 0x80 : 0;
-    clean[key::shift] = shift ? 0x80 : 0;
-    clean[key::alt] = alt ? 0x80 : 0;
-    check(SetKeyboardState(clean) != FALSE, "Quick runtime: controlled native modifiers");
+    null_window_release_keys();
+    if (control) window_test::hold(key::ctrl);
+    if (shift) window_test::hold(key::shift);
+    if (alt) window_test::hold(key::alt);
+    check(window_key_down(nullptr, key::ctrl) == control && window_key_down(nullptr, key::shift) == shift &&
+              window_key_down(nullptr, key::alt) == alt,
+          "Quick runtime: controlled modifiers");
 }
 bool channel(u64 id, Utf8View name, u8 type = 0, u64 guild = 10) noexcept {
     auto& state = g_app.account_ui->chat_state;
@@ -179,17 +180,14 @@ void picker() noexcept {
           "Picker: a full group does not open the picker");
 }
 void run() noexcept {
-    BYTE saved[256]{};
-    const bool saved_keyboard = GetKeyboardState(saved) != FALSE;
+    g_app.window = window_test::open();
     modifiers();
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Quick isolated fixture", WS_POPUP, 0, 0, 1200, 900,
-                                   nullptr, nullptr, nullptr, nullptr));
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "Quick runtime: hidden host and scoped account fixture");
     if (!g_app.window || !g_app.account_ui)
         return;
-    SetFocus(win32_hwnd(g_app.window));
+    window_focus(g_app.window);
     g_window_state.keyboard_focus = true;
     g_app.renderer_ready = true;
     g_app.renderer.dpi = 96;
@@ -431,13 +429,11 @@ void run() noexcept {
     settings = false;
     scoped_shortcut_routing();
     message_composer_release(&g_app.message_composer);
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_window_state.keyboard_focus = false;
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    if (saved_keyboard)
-        check(SetKeyboardState(saved) != FALSE, "Quick runtime: keyboard state restores");
 }
 } // namespace maicord::quick_switcher_runtime_test
 

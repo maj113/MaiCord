@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "reply_draft_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "shell/state.hpp"

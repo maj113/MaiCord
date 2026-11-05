@@ -339,18 +339,19 @@ bool initialize_scene(SceneFixture& fixture,
            message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok();
 }
 
-// The pointer events the test's old window messages stand for.
-WindowEvent pointer_event(UINT message, LPARAM position) noexcept {
+// The pointer gestures the test drives (a leave reads as a move of the held button).
+constexpr u32 kPointerMove = 0, kPointerDown = 1, kPointerUp = 2, kPointerLeave = 3;
+WindowEvent pointer_event(u32 message, i64 position) noexcept {
     const float x = window_test::x_of(position), y = window_test::y_of(position);
-    return message == WM_LBUTTONDOWN ? window_test::pointer_down(x, y)
-           : message == WM_LBUTTONUP ? window_test::pointer_up(x, y)
-                                     : window_test::pointer_move(x, y, window_test::button_bit(PointerButton::left));
+    return message == kPointerDown ? window_test::pointer_down(x, y)
+           : message == kPointerUp ? window_test::pointer_up(x, y)
+                                   : window_test::pointer_move(x, y, window_test::button_bit(PointerButton::left));
 }
-VideoPointer video_kind(UINT message) noexcept {
-    return message == WM_LBUTTONDOWN ? VideoPointer::down : message == WM_LBUTTONUP ? VideoPointer::up : VideoPointer::move;
+VideoPointer video_kind(u32 message) noexcept {
+    return message == kPointerDown ? VideoPointer::down : message == kPointerUp ? VideoPointer::up : VideoPointer::move;
 }
-LPARAM point(UiRect bounds) noexcept {
-    return MAKELPARAM(static_cast<short>((bounds.left + bounds.right) * .5f),
+i64 point(UiRect bounds) noexcept {
+    return window_test::pack(static_cast<short>((bounds.left + bounds.right) * .5f),
                       static_cast<short>((bounds.top + bounds.bottom) * .5f));
 }
 bool pump() noexcept {
@@ -359,10 +360,9 @@ bool pump() noexcept {
 }
 void retry_range_commands(bool expanded) noexcept {
     constexpr u32 ranges[]{1, 4};
-    const auto pointer = [&](UINT message, UiRect bounds) noexcept {
-        const LPARAM position = point(bounds);
-        const UiPoint viewer_position{static_cast<float>(static_cast<i16>(LOWORD(position))),
-                                      static_cast<float>(static_cast<i16>(HIWORD(position)))};
+    const auto pointer = [&](u32 message, UiRect bounds) noexcept {
+        const i64 position = point(bounds);
+        const UiPoint viewer_position{window_test::x_of(position), window_test::y_of(position)};
         return expanded ? application_video_viewer_pointer(video_kind(message), viewer_position)
                         : application_video_pointer(pointer_event(message, position));
     };
@@ -373,7 +373,7 @@ void retry_range_commands(bool expanded) noexcept {
             return;
         }
         if (index == 4) {
-            pointer(WM_MOUSEMOVE, scene->projection.controls[3].bounds);
+            pointer(kPointerMove, scene->projection.controls[3].bounds);
             pump();
         }
         const auto bounds = scene->projection.controls[index].bounds;
@@ -381,17 +381,17 @@ void retry_range_commands(bool expanded) noexcept {
             const auto commands = account.commands;
             const auto before = account.status.playback;
             account.reject_controls = 1;
-            bool valid = pointer(WM_LBUTTONDOWN, bounds) && GetCapture() == win32_hwnd(g_app.window) &&
+            bool valid = pointer(kPointerDown, bounds) && window_pointer_captured(g_app.window) &&
                          !account.reject_controls && account.commands == commands &&
                          account.status.playback.position_100ns == before.position_100ns &&
                          account.status.playback.applied_volume == before.applied_volume;
             valid = pump() && valid;
             if (!release_only) {
-                valid = pointer(WM_MOUSEMOVE, bounds) && valid;
+                valid = pointer(kPointerMove, bounds) && valid;
                 valid = pump() && valid;
             }
-            valid = pointer(WM_LBUTTONUP, bounds) && valid;
-            check(valid && GetCapture() != win32_hwnd(g_app.window) && account.commands == commands + 1,
+            valid = pointer(kPointerUp, bounds) && valid;
+            check(valid && !window_pointer_captured(g_app.window) && account.commands == commands + 1,
                   "range retry: inline/expanded seek and volume retry rejected commands on unchanged move/release without duplicating accepted commands");
             account.reject_controls = 0;
         }
@@ -423,7 +423,7 @@ void release() noexcept {
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
     if (g_app.window) {
-        DestroyWindow(win32_hwnd(g_app.window));
+        window_test::close();
         g_window_state.keyboard_focus = false;
     }
     g_app.window = nullptr;
@@ -737,8 +737,8 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
         const auto before = downloads;
         if (download) {
             const auto bounds = download->bounds;
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) &&
-                      application_video_pointer(pointer_event(WM_LBUTTONUP, point(bounds))) && downloads == before + 1 &&
+            check(application_video_pointer(pointer_event(kPointerDown, point(bounds))) &&
+                      application_video_pointer(pointer_event(kPointerUp, point(bounds))) && downloads == before + 1 &&
                       download_message == 1 && download_attachment == 71 && download_snapshot,
                   "audio Search runtime: player Download preserves publication ticket and forwarded "
                   "attachment identity");
@@ -784,7 +784,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         const auto widget =
             row ? message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, 0)
                 : ui_widget_invalid_handle();
-        SetFocus(win32_hwnd(g_app.window));
+        window_focus(g_app.window);
         g_window_state.keyboard_focus = true;
         g_app.context_focus = &g_app.message_scene.widgets;
         const bool focused = ui_widget_manager_focus(&g_app.message_scene.widgets, widget);
@@ -842,7 +842,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
                   "reselection");
         }
         g_app.keyboard_focus_visible = true;
-        SetFocus(win32_hwnd(g_app.window));
+        window_focus(g_app.window);
         g_window_state.keyboard_focus = true;
         check(pump() && application_video_key(key::space, false, false) && pump() &&
                   account.status.playback.paused,
@@ -856,17 +856,17 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         if (seek) {
             const auto bounds = seek->bounds;
             const auto identity = account.status.playback.identity;
-            const LPARAM later = MAKELPARAM(static_cast<short>(bounds.left + ui_rect_width(bounds) * .75f),
+            const i64 later = window_test::pack(static_cast<short>(bounds.left + ui_rect_width(bounds) * .75f),
                                             static_cast<short>((bounds.top + bounds.bottom) * .5f));
-            const bool down = application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds)));
+            const bool down = application_video_pointer(pointer_event(kPointerDown, point(bounds)));
             account.status.playback.seeking = account.status.playback.buffering = true;
             const auto commands_before_drag = account.commands;
-            check(down && GetCapture() == win32_hwnd(g_app.window) && pump() && g_app.renderer.audio_scene &&
+            check(down && window_pointer_captured(g_app.window) && pump() && g_app.renderer.audio_scene &&
                       g_app.renderer.audio_scene->capture == UiAudioControl::seek &&
                       !g_app.renderer.audio_scene->projection.playback.loading &&
-                      application_video_pointer(pointer_event(WM_MOUSEMOVE, later)) &&
-                      application_video_pointer(pointer_event(WM_LBUTTONUP, later)) && pump() &&
-                      GetCapture() != win32_hwnd(g_app.window) && account.commands == commands_before_drag + 2 &&
+                      application_video_pointer(pointer_event(kPointerMove, later)) &&
+                      application_video_pointer(pointer_event(kPointerUp, later)) && pump() &&
+                      !window_pointer_captured(g_app.window) && account.commands == commands_before_drag + 2 &&
                       account_video_identity_equal(identity, account.status.playback.identity) &&
                       account.status.playback.position_100ns > account.status.playback.duration_100ns / 2 &&
                       account.status.playback.position_100ns < account.status.playback.duration_100ns,
@@ -879,14 +879,14 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
             ui_audio_controls_find(g_app.renderer.audio_scene->projection, UiAudioControl::volume);
         if (volume) {
             const auto bounds = volume->bounds;
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) &&
-                      GetCapture() == win32_hwnd(g_app.window) &&
-                      application_video_pointer(pointer_event(WM_LBUTTONUP, point(bounds))) &&
-                      GetCapture() != win32_hwnd(g_app.window) && pump() && account.status.playback.applied_volume > 0,
+            check(application_video_pointer(pointer_event(kPointerDown, point(bounds))) &&
+                      window_pointer_captured(g_app.window) &&
+                      application_video_pointer(pointer_event(kPointerUp, point(bounds))) &&
+                      !window_pointer_captured(g_app.window) && pump() && account.status.playback.applied_volume > 0,
                   "audio runtime: actual native volume range capture releases and submits bounded volume");
-            const bool captured = application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds)));
+            const bool captured = application_video_pointer(pointer_event(kPointerDown, point(bounds)));
             account.status.playback.volume_valid = false;
-            check(captured && pump() && GetCapture() != win32_hwnd(g_app.window) &&
+            check(captured && pump() && !window_pointer_captured(g_app.window) &&
                       g_app.renderer.audio_scene->capture == UiAudioControl::none,
                   "audio runtime: observed volume capability withdrawal cancels its actual native range "
                   "capture");
@@ -898,21 +898,21 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         const auto before_download = downloads;
         if (download) {
             const auto bounds = download->bounds;
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) &&
-                      application_video_pointer(pointer_event(WM_LBUTTONUP, point(bounds))) &&
+            check(application_video_pointer(pointer_event(kPointerDown, point(bounds))) &&
+                      application_video_pointer(pointer_event(kPointerUp, point(bounds))) &&
                       downloads == before_download + 1 && download_message == 1 &&
                       download_attachment == (scope ? 71u : 70u) && download_snapshot == (scope != 0),
                   "audio runtime: Download keeps exact outer message, attachment and forwarded scope");
         }
         seek = ui_audio_controls_find(g_app.renderer.audio_scene->projection, UiAudioControl::seek);
         if (seek)
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(seek->bounds))) &&
-                      GetCapture() == win32_hwnd(g_app.window),
+            check(application_video_pointer(pointer_event(kPointerDown, point(seek->bounds))) &&
+                      window_pointer_captured(g_app.window),
                   "audio runtime: real seek capture exists before terminal error");
         account.status.playback.error = AccountVideoError::decoder;
         account.status.playback.seeking = true;
         check(pump() && g_app.renderer.audio_scene->projection.playback.error &&
-                  GetCapture() != win32_hwnd(g_app.window) &&
+                  !window_pointer_captured(g_app.window) &&
                   g_app.renderer.audio_scene->capture == UiAudioControl::none,
               "audio runtime: observed decoder failure publishes error instead of fabricated playback");
         const auto* retry =
@@ -923,8 +923,8 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
             const auto retired = account.status;
             const auto before_stop = account.commands;
             deferred_stop = true;
-            const bool requested = application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) &&
-                                   application_video_pointer(pointer_event(WM_LBUTTONUP, point(bounds)));
+            const bool requested = application_video_pointer(pointer_event(kPointerDown, point(bounds))) &&
+                                   application_video_pointer(pointer_event(kPointerUp, point(bounds)));
             GpuVideoFrame late{};
             account.queued_frame = {retired.key, retired.playback.identity, &late};
             account.frame_pending = true;
@@ -999,8 +999,8 @@ void run_audio() noexcept {
 void run() noexcept {
     // Hidden HWND and fake callbacks exercise shipping AppVideo input/pump.
     // No account DLL, socket, media request, decoder or GPU resource is opened.
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord video focus fixture", WS_POPUP, -16000, -16000,
-                                   640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
+    null_window_set_metrics({640, 480, 120, 96});
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui, "video focus runtime: bounded hidden native host initializes");
@@ -1053,14 +1053,14 @@ void run() noexcept {
         release();
         return;
     }
-    const LPARAM preview_point = MAKELPARAM(static_cast<short>(node->rectangle.left + 160),
+    const i64 preview_point = window_test::pack(static_cast<short>(node->rectangle.left + 160),
                                             static_cast<short>(node->rectangle.top + 40));
     fixture.rich_record[0].attachments[0].flags |= kGatewayMediaExplicitFlag;
     check(message_scene_set_media_policy(&g_app.message_scene, {nullptr, query_media, 1}),
           "video policy fixture binds the actual native scene query");
     media_filter = MessageExplicitFilter::block;
     UiCursor guarded_cursor{};
-    check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && !g_app.video && !account.selections &&
+    check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && !g_app.video && !account.selections &&
               !account.network_requests &&
               !application_video_cursor({static_cast<float>(static_cast<i16>(LOWORD(preview_point))),
                                          static_cast<float>(static_cast<i16>(HIWORD(preview_point)))},
@@ -1068,21 +1068,21 @@ void run() noexcept {
           "blocked inline video consumes activation without selection, network request or hand cursor");
     media_filter = MessageExplicitFilter::blur;
     media_reveal_allowed = false;
-    check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && !g_app.video && confirmations == 1 &&
+    check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && !g_app.video && confirmations == 1 &&
               !g_app.message_scene.media_reveals.count,
           "age gated video activation requests confirmation without selecting or revealing");
     media_reveal_allowed = true;
-    check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && !g_app.video &&
+    check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && !g_app.video &&
               media_refreshes == 1 &&
               message_media_revealed(g_app.message_scene.media_reveals,
                                      message_media_reveal_key(1, MessageMediaSource::attachment, 0)),
           "inline video first activation reveals only and leaves decoder selection for the next gesture");
-    check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && pump() && account.selections == 1 &&
-              GetFocus() == win32_hwnd(g_app.window) && g_app.renderer.video_scene &&
+    check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && pump() && account.selections == 1 &&
+              null_window_probe().focused && g_app.renderer.video_scene &&
               !g_app.renderer.video_scene->keyboard_focus &&
               g_app.renderer.video_scene->controls_transition.value == 0 && !application_video_next_wake(),
           "video focus runtime: real mouse selection off-hover does not pin controls or an idle wake");
-    g_window_state.keyboard_focus = GetFocus() == win32_hwnd(g_app.window); // The window procedure's WM_SETFOCUS.
+    g_window_state.keyboard_focus = null_window_probe().focused; // The window procedure's WM_SETFOCUS.
     fixture.rich_record[0].attachments[0].flags &= ~kGatewayMediaExplicitFlag;
     media_filter = MessageExplicitFilter::show;
     if (!g_app.renderer.video_scene) {
@@ -1090,8 +1090,8 @@ void run() noexcept {
         return;
     }
     terminal_buffering();
-    application_video_pointer(pointer_event(WM_MOUSEMOVE, preview_point));
-    check(g_app.renderer.video_scene->preview_hovered && !application_video_pointer(pointer_event(WM_MOUSELEAVE, 0)) &&
+    application_video_pointer(pointer_event(kPointerMove, preview_point));
+    check(g_app.renderer.video_scene->preview_hovered && !application_video_pointer(pointer_event(kPointerLeave, 0)) &&
               !g_app.renderer.video_scene->preview_hovered,
           "video focus runtime: production mouse leave observes and clears preview hover without consuming "
           "input");
@@ -1138,7 +1138,7 @@ void run() noexcept {
     g_app.context_focus = &g_app.message_scene.widgets;
     g_app.keyboard_focus_visible = false;
     check(
-        application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && pump() && !g_app.context_focus &&
+        application_video_pointer(pointer_event(kPointerDown, preview_point)) && pump() && !g_app.context_focus &&
             !g_app.message_composer.focused,
         "video focus runtime: existing preview click reacquires native focus and clears competing owners");
     g_app.context_focus = &g_app.message_scene.widgets;
@@ -1146,21 +1146,21 @@ void run() noexcept {
     check(!application_video_key(key::space, false, false) && pump() && dormant() &&
               account.commands == before_context,
           "video focus runtime: competing widget context blocks a stale keyboard command");
-    application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point));
+    application_video_pointer(pointer_event(kPointerDown, preview_point));
     pump();
     g_app.keyboard_focus_visible = true;
     application_video_key(key::tab, false, false);
     pump();
-    SetFocus(nullptr);
+    null_window_set_focus(false);
     g_window_state.keyboard_focus = false;
     application_video_blur(); // Exact API called by the real premodal WM_KILLFOCUS hook.
-    SetFocus(win32_hwnd(g_app.window));
+    window_focus(g_app.window);
     g_window_state.keyboard_focus = true;
     check(
         !application_video_key(key::space, false, false) && pump() && dormant(),
         "video focus runtime: blur survives native focus restoration without reviving keyboard ownership");
     g_app.keyboard_focus_visible = false;
-    application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point));
+    application_video_pointer(pointer_event(kPointerDown, preview_point));
     pump();
     if (!g_app.renderer.video_scene) {
         check(false, "video focus runtime: existing preview remains admitted before native capture");
@@ -1168,15 +1168,15 @@ void run() noexcept {
         return;
     }
     const auto seek_point = point(g_app.renderer.video_scene->projection.controls[1].bounds);
-    check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, seek_point)) && GetCapture() == win32_hwnd(g_app.window),
+    check(application_video_pointer(pointer_event(kPointerDown, seek_point)) && window_pointer_captured(g_app.window),
           "video focus runtime: actual range press owns native capture");
-    application_video_pointer(pointer_event(WM_MOUSELEAVE, 0));
+    application_video_pointer(pointer_event(kPointerLeave, 0));
     check(pump() && g_app.renderer.video_scene &&
               g_app.renderer.video_scene->capture == UiVideoControl::seek &&
-              g_app.renderer.video_scene->controls_transition.value == 1 && GetCapture() == win32_hwnd(g_app.window),
+              g_app.renderer.video_scene->controls_transition.value == 1 && window_pointer_captured(g_app.window),
           "video focus runtime: mouse leave preserves captured seek and its visible controls");
     settings = true;
-    check(pump() && !g_app.renderer.video_scene && GetCapture() != win32_hwnd(g_app.window) &&
+    check(pump() && !g_app.renderer.video_scene && !window_pointer_captured(g_app.window) &&
               !application_video_next_wake(),
           "video focus runtime: opaque Settings retires capture, focus and the video deadline");
     settings = false;
@@ -1197,9 +1197,9 @@ void run() noexcept {
               g_app.renderer.video_scene->clip.right == search_scene.panel.left &&
               ui_rect_has_area(g_app.renderer.video_scene->clip),
           "video focus runtime: search clips video controls to their actual visible area");
-    const LPARAM covered_point = MAKELPARAM(static_cast<short>(original_clip.right - 2),
+    const i64 covered_point = window_test::pack(static_cast<short>(original_clip.right - 2),
                                             static_cast<short>(original_clip.bottom - 2));
-    check(!application_video_pointer(pointer_event(WM_LBUTTONDOWN, covered_point)) && account.selections == 1,
+    check(!application_video_pointer(pointer_event(kPointerDown, covered_point)) && account.selections == 1,
           "video focus runtime: occluded preview cannot acquire input or reopen its source");
     search_scene.panel.left = original_clip.left;
     check(pump() && !g_app.renderer.video_scene && !application_video_next_wake(),
@@ -1233,20 +1233,20 @@ void run() noexcept {
                                           {dock_right - 800, 0, dock_right, 480}) &&
               !pins.overlay,
           "video pins runtime: real authoritative docked panel geometry initializes");
-    application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point));
+    application_video_pointer(pointer_event(kPointerDown, preview_point));
     pump();
     const auto full_seek = g_app.renderer.video_scene->projection.controls[1].bounds;
-    application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(full_seek)));
-    check(GetCapture() == win32_hwnd(g_app.window), "video pins runtime: source range capture precedes dock occlusion");
+    application_video_pointer(pointer_event(kPointerDown, point(full_seek)));
+    check(window_pointer_captured(g_app.window), "video pins runtime: source range capture precedes dock occlusion");
     g_app.renderer.pinned_messages_scene = &pins;
     const u32 before_pins = account.commands;
     check(pump() && g_app.renderer.video_scene &&
               g_app.renderer.video_scene->clip.right == pins.panel.left &&
-              g_app.renderer.video_scene->capture == UiVideoControl::none && GetCapture() != win32_hwnd(g_app.window) &&
+              g_app.renderer.video_scene->capture == UiVideoControl::none && !window_pointer_captured(g_app.window) &&
               account.status.playback.playing && account.commands == before_pins,
           "video pins runtime: partial dock clips the playing source and retires captured geometry without "
           "pausing its visible portion");
-    check(!application_video_pointer(pointer_event(WM_LBUTTONDOWN, covered_point)) && account.selections == 1,
+    check(!application_video_pointer(pointer_event(kPointerDown, covered_point)) && account.selections == 1,
           "video pins runtime: pinned-covered preview cannot reopen source or acquire controls");
     ++pins_source.revision;
     check(pump() && g_app.renderer.video_scene &&
@@ -1258,12 +1258,12 @@ void run() noexcept {
           "video pins runtime: actual compact viewport publishes modal overlay ownership");
     const u32 before_overlay = account.commands;
     check(
-        pump() && !g_app.renderer.video_scene && GetCapture() != win32_hwnd(g_app.window) &&
+        pump() && !g_app.renderer.video_scene && !window_pointer_captured(g_app.window) &&
             account.status.playback.paused && !account.status.playback.playing &&
             account.commands == before_overlay + 1 && !application_video_next_wake(),
         "video pins runtime: modal pins pause fully hidden audio and retire controls capture and deadline");
     check(pump() && account.commands == before_overlay + 1 &&
-              !application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)),
+              !application_video_pointer(pointer_event(kPointerDown, preview_point)),
           "video pins runtime: stable full occlusion emits one pause and rejects hidden source input");
     g_app.renderer.pinned_messages_scene = nullptr;
     check(pump() && dormant() && account.status.playback.paused,
@@ -1293,18 +1293,18 @@ void run() noexcept {
         ui_quick_switcher_scene_update(&quick, &quick_source, &quick_content, {0, 0, 640, 480});
     check(quick_ready, "video quick runtime: real current modal source initializes");
     if (quick_ready) {
-        application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point));
+        application_video_pointer(pointer_event(kPointerDown, preview_point));
         pump();
         const auto quick_seek = g_app.renderer.video_scene->projection.controls[1].bounds;
-        application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(quick_seek)));
-        check(GetCapture() == win32_hwnd(g_app.window) && account.status.playback.playing,
+        application_video_pointer(pointer_event(kPointerDown, point(quick_seek)));
+        check(window_pointer_captured(g_app.window) && account.status.playback.playing,
               "video quick runtime: captured playing source precedes modal opening");
         g_app.renderer.quick_switcher_scene = &quick;
         const u32 before_quick = account.commands, selected_before_quick = account.selections;
-        check(pump() && !g_app.renderer.video_scene && GetCapture() != win32_hwnd(g_app.window) &&
+        check(pump() && !g_app.renderer.video_scene && !window_pointer_captured(g_app.window) &&
                   account.status.playback.paused && account.commands == before_quick + 1 &&
                   !application_video_next_wake() &&
-                  !application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) &&
+                  !application_video_pointer(pointer_event(kPointerDown, preview_point)) &&
                   !application_video_key(key::space, false, false),
               "video quick runtime: authoritative modal pauses audio retires capture and blocks controls");
         bool idle = true;
@@ -1316,7 +1316,7 @@ void run() noexcept {
         quick_current = false;
         check(pump() && !g_app.renderer.video_scene && account.status.playback.paused &&
                   account.commands == before_quick + 1 && !application_video_next_wake() &&
-                  !application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)),
+                  !application_video_pointer(pointer_event(kPointerDown, preview_point)),
               "video quick runtime: stale query authority retains active modal audio and input occlusion");
         quick.active = false;
         check(pump() && dormant() && account.status.playback.paused,
@@ -1329,12 +1329,12 @@ void run() noexcept {
         // The app must respect active panel ownership even before its next
         // current query projection; no browser renderer is mocked here.
         browser.active = true;
-        check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && pump() &&
+        check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && pump() &&
                   g_app.renderer.video_scene && account.status.playback.playing,
               "video browser runtime: selected source resumes explicitly before panel coverage");
         if (g_app.renderer.video_scene) {
-            application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(g_app.renderer.video_scene->projection.controls[1].bounds)));
-            check(GetCapture() == win32_hwnd(g_app.window),
+            application_video_pointer(pointer_event(kPointerDown, point(g_app.renderer.video_scene->projection.controls[1].bounds)));
+            check(window_pointer_captured(g_app.window),
                   "video browser runtime: source owns seek capture before panel opens");
         }
         const u32 commands = account.commands, selections = account.selections;
@@ -1344,9 +1344,9 @@ void run() noexcept {
         account.frame_pending = true;
         g_app.preferences.reduced_motion = false;
         g_app.renderer.thread_browser_scene = &browser;
-        check(!application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) &&
+        check(!application_video_pointer(pointer_event(kPointerDown, preview_point)) &&
                   !application_video_key(key::space, false, false) && !application_video_next_wake() &&
-                  pump() && !g_app.renderer.video_scene && GetCapture() != win32_hwnd(g_app.window) &&
+                  pump() && !g_app.renderer.video_scene && !window_pointer_captured(g_app.window) &&
                   account.status.playback.paused && !account.status.playback.playing &&
                   account.commands == commands + 1 && account.gpu_publications == uploads &&
                   account.frame_acknowledgements == acknowledged + 1 && !account.frame_pending,
@@ -1360,21 +1360,21 @@ void run() noexcept {
         check(idle && pump() && account.commands == commands + 1 && account.selections == selections &&
                   account.network_requests == requests && account.gpu_publications == uploads &&
                   text_publications == text && !application_video_next_wake() &&
-                  !application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)),
+                  !application_video_pointer(pointer_event(kPointerDown, preview_point)),
               "video browser runtime: 8 unchanged and retired-publication frames retain occlusion without "
               "commands selection uploads text or wakes");
         browser.active = false;
         g_app.preferences.reduced_motion = true;
         check(pump() && dormant() && account.status.playback.paused && account.commands == commands + 1 &&
                   !application_video_key(key::space, false, false) &&
-                  application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && pump() &&
+                  application_video_pointer(pointer_event(kPointerDown, preview_point)) && pump() &&
                   account.status.playback.playing && account.selections == selections,
               "video browser runtime: dismissal restores geometry with paused playback and explicit "
               "same-session resume");
         g_app.renderer.thread_browser_scene = nullptr;
 
         application_video_close();
-        check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && g_app.video,
+        check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && g_app.video,
               "video browser runtime: explicit preview request exists before first decoder selection");
         const u32 pending_selections = account.selections, pending_commands = account.commands;
         const u32 pending_requests = account.network_requests;
@@ -1413,7 +1413,7 @@ void run() noexcept {
                                      replacement_event)
                     .ok() &&
                 message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok() &&
-                application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && stop_pending && g_app.video,
+                application_video_pointer(pointer_event(kPointerDown, preview_point)) && stop_pending && g_app.video,
             "video browser runtime: replacement request owns an accepted asynchronous prior decoder stop");
         const u32 replacement_selections = account.selections, replacement_commands = account.commands;
         const u32 replacement_acks = account.frame_acknowledgements;
@@ -1448,7 +1448,7 @@ void run() noexcept {
         check(pump() && !g_app.video && !account.status.playback.playing &&
                   account.selections == replacement_selections && !application_video_next_wake(),
               "video browser runtime: browser dismissal never resumes a retired pending source");
-        check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && g_app.video,
+        check(application_video_pointer(pointer_event(kPointerDown, preview_point)) && g_app.video,
               "video browser runtime: pending owner exists before account authority switches");
         account.queued_frame = {retiring_decoder.key, retiring_decoder.playback.identity, &queued_gpu};
         account.frame_pending = true;
@@ -1487,10 +1487,10 @@ void run() noexcept {
               "video snapshot runtime: same-index embed namespaces preserve outer message revision without "
               "collision");
         if (child_node) {
-            const auto click = MAKELPARAM(static_cast<short>(child_node->rectangle.left + 160),
+            const auto click = window_test::pack(static_cast<short>(child_node->rectangle.left + 160),
                                           static_cast<short>(child_node->rectangle.top + 40));
             const u32 before_select = account.selections;
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, click)) && pump() &&
+            check(application_video_pointer(pointer_event(kPointerDown, click)) && pump() &&
                       account.selections == before_select + 1 && account.status.key.id == 71 &&
                       account.status.playback.identity.message_id == 1 && g_app.renderer.video_scene &&
                       account.status.playback.playing,
@@ -1577,7 +1577,7 @@ void run() noexcept {
             check(pump() && account.network_requests == requests,
                   "provider runtime: idle poster never resolves a stream");
             selection_busy = true;
-            check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) && pump() &&
+            check(application_video_pointer(pointer_event(kPointerDown, point(bounds))) && pump() &&
                   account.network_requests == requests + 1 && account.last_request.options.progressive == 1 &&
                   utf8_equal(account.last_request.signed_url, provider_url),
                   "provider runtime: explicit poster click requests native resolution");
@@ -1664,15 +1664,15 @@ void run() noexcept {
                     if (control.id == UiVideoControl::mute && control.enabled && !control.hidden)
                         mute_bounds = control.bounds;
             check(ui_rect_has_area(mute_bounds) &&
-                  application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(mute_bounds))) &&
-                  application_video_pointer(pointer_event(WM_LBUTTONUP, point(mute_bounds))) && pump() &&
+                  application_video_pointer(pointer_event(kPointerDown, point(mute_bounds))) &&
+                  application_video_pointer(pointer_event(kPointerUp, point(mute_bounds))) && pump() &&
                   account.status.playback.muted && account.commands == commands + 1,
                   "provider runtime: an admitted audio track enables the clickable sound control");
             if (collection_selection) {
                 scene = g_app.renderer.video_scene;
                 check(scene && scene->projection.playback.collection_count == 3 && utf8_equal({scene->track_title, scene->track_title_bytes}, utf8_literal("First song")), "YTM card projects its current queue title");
                 const auto next = point(scene->projection.controls[8].bounds);
-                check(application_video_pointer(pointer_event(WM_LBUTTONDOWN, next)) && application_video_pointer(pointer_event(WM_LBUTTONUP, next)) && pump() && pump() && pump() && account.status.collection_track == 2 && utf8_equal({g_app.renderer.video_scene->track_title, g_app.renderer.video_scene->track_title_bytes}, utf8_literal("Second song")), "YTM card switches track and replaces current title through the native queue");
+                check(application_video_pointer(pointer_event(kPointerDown, next)) && application_video_pointer(pointer_event(kPointerUp, next)) && pump() && pump() && pump() && account.status.collection_track == 2 && utf8_equal({g_app.renderer.video_scene->track_title, g_app.renderer.video_scene->track_title_bytes}, utf8_literal("Second song")), "YTM card switches track and replaces current title through the native queue");
                 account.queued_frame = {account.status.key, account.status.playback.identity, &provider_frame, 2, 1, 2};
                 account.frame_pending = true; provider_upload = true;
                 check(pump() && !account.frame_pending, "YTM next track publishes its own frame before expansion");
@@ -1795,15 +1795,15 @@ void run() noexcept {
                 if (!g_app.renderer.video_scene) return false;
                 for (const auto& control : g_app.renderer.video_scene->projection.controls) if (control.id == id) {
                     const auto where = point(control.bounds);
-                    application_video_pointer(pointer_event(WM_MOUSEMOVE, where));
-                    return application_video_pointer(pointer_event(WM_LBUTTONDOWN, where)) && application_video_pointer(pointer_event(WM_LBUTTONUP, where));
+                    application_video_pointer(pointer_event(kPointerMove, where));
+                    return application_video_pointer(pointer_event(kPointerDown, where)) && application_video_pointer(pointer_event(kPointerUp, where));
                 }
                 return false;
             };
             fail_collection_track = preview == 8;
             selection_busy = true;
             check(pump() && account.network_requests == requests &&
-                  application_video_pointer(pointer_event(WM_LBUTTONDOWN, point(bounds))) && pump() &&
+                  application_video_pointer(pointer_event(kPointerDown, point(bounds))) && pump() &&
                   account.network_requests == requests + 1 && account.last_request.image_type == audio_type(preview_format) &&
                   !account.last_request.video_device && account.last_request.options.progressive == (preview >= 3) &&
                   !account.last_request.proxy_width && !account.last_request.proxy_height &&
@@ -1884,7 +1884,7 @@ void run() noexcept {
     check(refresh_scene, "video refresh runtime: actual unsigned source fixture initializes");
     if (refresh_scene) {
         check(
-            application_video_pointer(pointer_event(WM_LBUTTONDOWN, preview_point)) && pump() &&
+            application_video_pointer(pointer_event(kPointerDown, preview_point)) && pump() &&
                 g_app.renderer.video_scene && g_app.renderer.video_scene->projection.playback.buffering &&
                 !g_app.renderer.video_scene->projection.playback.error &&
                 media_url_resolution_state(g_app.media_urls, expired_source) == MediaUrlState::queued,

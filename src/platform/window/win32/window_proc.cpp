@@ -17,6 +17,9 @@ struct Backend {
     WindowSink sink;
     void* context;
     Win32Hooks hooks;
+    // The application's caption controller; the frame glue runs only with one.
+    Win32CaptionOps caption;
+    bool has_caption;
     HWND window;
     // A TME_LEAVE request is outstanding; WM_MOUSELEAVE spends it.
     bool leave_armed;
@@ -45,6 +48,23 @@ void arm_pointer_leave(HWND window) noexcept {
     g.leave_armed = TrackMouseEvent(&tracking) != FALSE;
 }
 
+// The system frame follows the dark scheme (DWMWA_USE_IMMERSIVE_DARK_MODE, with its pre-20H1 number as the fallback).
+void enable_dark_frame(HWND window) noexcept {
+    using SetWindowAttribute = HRESULT(WINAPI*)(HWND, DWORD, const void*, DWORD);
+    const HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!dwm)
+        return;
+    const auto set_attribute = reinterpret_cast<SetWindowAttribute>(GetProcAddress(dwm, "DwmSetWindowAttribute"));
+    if (!set_attribute)
+        return;
+    constexpr DWORD kImmersiveDarkModeCurrent = 20;
+    constexpr DWORD kImmersiveDarkModeBefore20H1 = 19;
+    const BOOL enabled = TRUE;
+    // The module stays mapped: window_frame_inset measures the frame through it too.
+    if (FAILED(set_attribute(window, kImmersiveDarkModeCurrent, &enabled, sizeof(enabled))))
+        set_attribute(window, kImmersiveDarkModeBefore20H1, &enabled, sizeof(enabled));
+}
+
 } // namespace
 
 namespace win32_detail {
@@ -66,6 +86,10 @@ bool dispatch_cursor(HWND window, float* x, float* y) noexcept {
     *x = g.cursor_x;
     *y = g.cursor_y;
     return true;
+}
+
+const Win32CaptionOps* caption_ops() noexcept {
+    return g.has_caption ? &g.caption : nullptr;
 }
 
 bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept {
@@ -96,11 +120,9 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         win32_cursor_handles_reset();
         win32_settings_reset();
     }
-    if (modeled && g.hooks.observe)
-        g.hooks.observe(g.hooks.context, event);
     LRESULT result = 0;
     // The frame the application draws owns the rows above the content and the non-client messages.
-    if (g.hooks.frame && g.hooks.frame(g.hooks.context, window, message, wparam, lparam, &result))
+    if (g.has_caption && caption_frame_message(g.caption, window, message, wparam, lparam, &result))
         return result;
     // UI Automation, tray icon callbacks, Explorer restarts and launches forwarded by a second instance.
     if (g.hooks.shell && g.hooks.shell(g.hooks.context, window, message, wparam, lparam, &result))
@@ -150,8 +172,11 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         if (answer.handled) {
             auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
             if (limits) {
-                limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(answer.width_px));
-                limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(answer.height_px));
+                // The sink answers the smallest client; the track size is the window around it.
+                u32 width = 0, height = 0;
+                frame_outer_size(caption_ops(), window, answer.width_px, answer.height_px, &width, &height);
+                limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(width));
+                limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(height));
             }
         }
         return 0;
@@ -193,6 +218,10 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     g.context = context;
     if (options.hooks)
         g.hooks = *options.hooks;
+    if (options.caption) {
+        g.caption = *options.caption;
+        g.has_caption = true;
+    }
     const HINSTANCE instance = GetModuleHandleW(nullptr);
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
@@ -228,6 +257,8 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     }
     g.window = window;
     win32_detail::set_main_window(window);
+    if (options.dark_frame)
+        enable_dark_frame(window);
     *out = win32_window(window);
     return true;
 }

@@ -7,6 +7,7 @@
 #include "../account/profile_editor.hpp"
 #include "../chat/report.hpp"
 #include "accessibility.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "../account/application_account_logout.hpp"
 #include "../account/account_presentation.hpp"
 #include "../guild/channel_overview.hpp"

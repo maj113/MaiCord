@@ -7,7 +7,6 @@
 #include "maicord/platform/window/clipboard.hpp"
 #include "../../support/test_output.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::channel_overview_runtime_test {
 using namespace app_detail;
@@ -108,12 +107,7 @@ void permit(bool value = true) noexcept {
     channel.actions = channel_action_view | (value ? channel_action_manage_channel : 0);
 }
 void run() noexcept {
-    BYTE saved[256]{}, clean[256]{};
-    const bool keyboard_saved = GetKeyboardState(saved) != FALSE;
-    check(keyboard_saved && SetKeyboardState(clean),
-          "Overview runtime: controlled native keyboard modifiers");
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Overview isolated hidden fixture", WS_POPUP, 0, 0, 1200,
-                                   900, nullptr, nullptr, nullptr, nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.window && g_app.account_ui,
@@ -263,7 +257,7 @@ void run() noexcept {
     const UiSettingsTarget nsfw_target{UiSettingsTargetKind::control, page_key, 4};
     check(ui_settings_scene_control_geometry(owner->scene, nsfw_target, &nsfw),
           "Overview runtime: age-restricted field has genuine native clipped value hit geometry");
-    const LPARAM point = MAKELPARAM(static_cast<i16>((nsfw.field.left + nsfw.field.right) * .5f),
+    const i64 point = window_test::pack(static_cast<i16>((nsfw.field.left + nsfw.field.right) * .5f),
                                     static_cast<i16>((nsfw.field.top + nsfw.field.bottom) * .5f));
     const bool before = owner->controller.draft.nsfw;
     application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
@@ -288,9 +282,9 @@ void run() noexcept {
     const bool dialog = application_channel_overview_synchronize() && !owner->scene.layout.compact &&
                         owner->scene.layout.modal.left > owner->scene.viewport.left + 8 &&
                         (modal.left != owner->scene.layout.modal.left || modal.right != owner->scene.layout.modal.right);
-    const LPARAM scrim = MAKELPARAM(static_cast<i16>(owner->scene.viewport.left + 4),
+    const i64 scrim = window_test::pack(static_cast<i16>(owner->scene.viewport.left + 4),
                                     static_cast<i16>((owner->scene.layout.modal.top + owner->scene.layout.modal.bottom) * .5f));
-    const LPARAM inside = MAKELPARAM(static_cast<i16>((owner->scene.layout.modal.left + owner->scene.layout.modal.right) * .5f),
+    const i64 inside = window_test::pack(static_cast<i16>((owner->scene.layout.modal.left + owner->scene.layout.modal.right) * .5f),
                                      static_cast<i16>(owner->scene.layout.modal.top + 8));
     application_channel_overview_window_event(window_test::pointer_down(window_test::x_of(scrim), window_test::y_of(scrim)));
     application_channel_overview_window_event(window_test::pointer_up(window_test::x_of(inside), window_test::y_of(inside), PointerButton::left));
@@ -408,12 +402,10 @@ void run() noexcept {
     check(!owner && !g_app.renderer.settings_scene &&
               !application_channel_overview_next_wake() && !application_channel_overview_caret_wake(),
           "Overview runtime: release removes owner scene binding and all deadlines");
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    if (keyboard_saved)
-        check(SetKeyboardState(saved) != FALSE, "Overview runtime: native keyboard state restores");
 }
 } // namespace maicord::channel_overview_runtime_test
 

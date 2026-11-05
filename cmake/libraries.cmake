@@ -145,6 +145,7 @@ maicord_library(maicord_window_win32 src/platform/window/win32/keys.cpp src/plat
     src/platform/window/win32/translate.cpp src/platform/window/win32/window_proc.cpp
     src/platform/window/win32/icon.cpp src/platform/window/win32/create_icon.cpp src/platform/window/win32/settings.cpp
     src/platform/window/win32/drop.cpp src/platform/window/win32/main_window.cpp src/platform/window/win32/pump.cpp
+    src/platform/window/win32/caption_frame.cpp
     LIBS maicord_core maicord_window_post user32 advapi32 shell32)
 # The headless backend (src/platform/window/null) behind the same service, for tests: list it before maicord_platform in
 # LIBS so its definitions win over maicord_window_win32's, which an archive member only provides when still undefined.
@@ -164,7 +165,6 @@ maicord_library(maicord_platform
     src/platform/desktop/notification_identity.cpp src/platform/desktop/taskbar_attention.cpp
     src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/desktop/spell_checker.cpp
     src/platform/audio/speech.cpp src/platform/audio/voice_audio_output.cpp src/platform/audio/voice_audio_capture.cpp
-    src/platform/desktop/window_frame.cpp
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/net/file_persistence.cpp

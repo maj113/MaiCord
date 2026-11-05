@@ -1,5 +1,7 @@
 #pragma once
+#include "maicord/platform/window/win32.hpp"
 #include "../../../src/app/shell/window_resize.hpp"
+#include "maicord/platform/window/null.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::settings_runtime_test {
@@ -13,7 +15,11 @@ inline LRESULT CALLBACK resize_window_proc(HWND window, UINT message, WPARAM wpa
             return 0;
         }
         if (message == WM_EXITSIZEMOVE) {
-            application_end_window_resize(window);
+            // The headless backend answers window_metrics from what it was told: tell it this window's client.
+            RECT client{};
+            GetClientRect(window, &client);
+            null_window_set_metrics({static_cast<u32>(client.right), static_cast<u32>(client.bottom), 120, 96});
+            application_end_window_resize();
             return 0;
         }
         if (message == WM_SIZE && wparam != SIZE_MINIMIZED) {

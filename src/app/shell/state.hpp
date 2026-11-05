@@ -51,9 +51,6 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
 #include "maicord/core/win32_types.hpp"
-#if defined(_WIN32)
-#include "maicord/platform/window/win32.hpp"
-#endif
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
 
 namespace maicord::app_detail {

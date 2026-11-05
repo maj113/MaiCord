@@ -122,7 +122,7 @@ bool application_browser_auth_pump(bool* handled) noexcept {
                              epoch == login.application_auth_epoch &&
                              host.module == module && host.login_instance == instance && login.visible &&
                              login.status != LoginStatus::cancelling;
-        const bool opened = copied && current && browser_sign_in_launch(win32_hwnd(g_app.window), &url);
+        const bool opened = copied && current && browser_sign_in_launch(g_app.window, &url);
         secure_buffer_release(&url);
         if (application_account_logout_locked() || epoch != login.application_auth_epoch ||
             host.module != module || host.login_instance != instance || !login.visible ||

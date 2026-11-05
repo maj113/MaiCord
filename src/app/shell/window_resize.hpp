@@ -3,24 +3,20 @@
 #include "frame_presentation.hpp"
 #include "../settings/settings.hpp"
 #include "state.hpp"
-#include "maicord/core/win32_records.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 inline void application_begin_window_resize() noexcept {
     animation_visual_runtime_suspend(&g_app.animations, application_now_us());
     renderer_set_live_resize(&g_app.renderer, true);
 }
-inline void application_end_window_resize(HWND window) noexcept {
+inline void application_end_window_resize() noexcept {
     if (g_app.renderer_ready) {
         // The renderer's height is the content below the window caption.
-        Win32Rect client{};
-        const auto caption = static_cast<LONG>(g_app.renderer.caption_height);
-        if (!GetClientRect(window, client.native()) ||
-            !renderer_finish_resize(&g_app.renderer,
-                                    static_cast<u32>(maximum<LONG>(1, client.right - client.left)),
-                                    static_cast<u32>(
-                                        maximum<LONG>(1, client.bottom - client.top - caption)))) {
+        const WindowMetrics client = window_metrics(g_app.window);
+        const auto caption = static_cast<i32>(g_app.renderer.caption_height);
+        if (!client.width_px || !client.height_px ||
+            !renderer_finish_resize(&g_app.renderer, maximum<u32>(1, client.width_px),
+                                    static_cast<u32>(maximum<i32>(1, static_cast<i32>(client.height_px) - caption)))) {
             renderer_set_live_resize(&g_app.renderer, false);
             application_record_presentation_failure("resize_finish_rejected");
         }

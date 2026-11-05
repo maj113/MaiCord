@@ -14,7 +14,7 @@
 #include "keybinds_settings.hpp"
 #include "../notifications/desktop.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord::app_detail {
 namespace settings_detail {
@@ -353,9 +353,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         application_notifications_setup(&g_app);
         return settled(*settings, true);
     case SettingBinding::windows_notification_settings: {
-        const HINSTANCE opened =
-            ShellExecuteW(win32_hwnd(g_app.window), L"open", L"ms-settings:notifications", nullptr, nullptr, SW_SHOWNORMAL);
-        settings->notifications_settings_failed = reinterpret_cast<usize>(opened) <= 32;
+        settings->notifications_settings_failed = !desktop_open_notification_settings(g_app.window);
         return settled(*settings, true);
     }
     case SettingBinding::preferences_retry:

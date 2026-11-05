@@ -54,10 +54,22 @@ has the same rules in more detail.
   `WindowEvent`s into one sink, `window_*` calls out, key state through `window_key_down`/`window_modifiers`
   (a null `Window` reads the global state), the global push-to-talk keys through `global_key_down`. Windows implements it
   in `src/platform/window/win32` (`maicord_window_win32`: `keys.cpp`, `window.cpp`, `translate.cpp`,
-  `window_proc.cpp`; an `HWND` is the `Window` itself, `win32_hwnd`/`win32_window` in `win32.hpp` convert for the
-  Windows-only code), Linux in `src/platform/window/wayland`, and the tests in `src/platform/window/null`
+  `window_proc.cpp`, `pump.cpp` for `window_wait`/`window_pump`, `caption_frame.cpp` for the non-client glue,
+  `clipboard.cpp`, `drop.cpp`, `settings.cpp`, `icon.cpp`; an `HWND` is the `Window` itself, `win32_hwnd`/`win32_window`
+  in `win32.hpp` convert for the Windows-only code), Linux in `src/platform/window/wayland`, and the tests in
+  `src/platform/window/null`
   (`maicord_window_null`, listed before `maicord_platform` so its definitions win; `tests/support/window_fixture.hpp`
-  builds events and opens it). Handlers under test take events, never messages; see CONTRIBUTING.md.
+  builds events and opens it). Handlers under test take events, never messages; see CONTRIBUTING.md. The shell
+  (`src/app/shell`) holds no window Win32: the Windows-only application glue (the window's hooks and caption forwarders,
+  `maicord_entry`) is `src/app/windows`, and the caption controller (`shell/caption.cpp`) works on events and the
+  portable frame geometry (`platform/window/frame.hpp`, `window_frame_hit`) that both backends use. Text input goes
+  through `SecureTextStore` (`ui/text/secure_text_store.hpp`): on Windows TSF (`src/ui/text/secure_text_store.cpp`,
+  keys filtered in `WindowPumpHooks::key_prefilter`), on Linux `src/ui/text/linux/secure_text_store.cpp`, which tells
+  the Wayland text-input-v3 backend about the focused field (`window_wayland_text_input_enable`: text around the caret
+  without the preedit, caret rectangle) and applies `ime_preedit`/`ime_commit`/`ime_delete_surrounding` events, routed
+  by the dispatcher through `secure_text_store_ime_event`, to the bound `TextInputTarget` as a composition the widgets
+  read through `secure_text_store_composition`. `maicord_ime_store` tests it on Linux against the headless window's
+  text input log (`null_window_set_text_input_available`, `NullWindowProbe::text_*`).
   The desktop services (`src/platform/dbus`, `include/maicord/platform/dbus`) are an in-house D-Bus client, no libdbus or
   sd-bus: the wire format (`wire.hpp`, little endian, the whole type system, `UNIX_FD` over SCM_RIGHTS), the bus
   connection (`connection.hpp`: EXTERNAL authentication, calls with timeouts, `AddMatch` signals, exported methods; one
@@ -260,6 +272,26 @@ has the same rules in more detail.
   `application_update_build_config()`); every package-manager install leaves it out. The `linux` job of `release.yml` is
   off until `MAICORD_LINUX_RELEASES` is `true`. Flathub needs a hand-written source-build manifest (its policy refuses
   AI-generated manifests and AI-opened submissions): do not write or submit one.
+- The application (`src/app`, `src/ui`) builds for both systems. Not on Linux: `src/app/shell` (the window layer's),
+  `src/app/windows` (the Win32 entry and window procedure) and the UI Automation server (`accessibility.cpp`,
+  `accessibility_actions.cpp`; `src/app/accessibility/linux` stands in, the snapshots are shared).
+  `cmake/linux_app_client.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and
+  must use the seams: `os/process.hpp` (`process_launch_detached`), `os/text.hpp` (`utf16_to_utf8`, `utf8_to_utf16`),
+  `os/thread.hpp` (`thread_waitable` for a wait set that holds a thread, `thread_com_enter`), `os/local_time.hpp` (local
+  dates), `core/data_path.hpp` (`environment_variable`, `local_data_root`, `executable_path`), `core/module.hpp`
+  (`module_image`), `core/resource.hpp` (`program_resource`: RCDATA on Windows, `#embed` data on Linux),
+  `core/virtual_memory.hpp` (`system_memory_low`), `platform/desktop/shell_open.hpp` (`desktop_open_target`,
+  `desktop_reveal_file`, `desktop_alert_beep`) and a `Window` wherever a window is passed (`desktop_window_reveal`,
+  `browser_sign_in_launch`, `taskbar_attention_apply`, `native_file_picker_start`), never an `HWND`. A Windows-only part
+  keeps `#if defined(_WIN32)` in its file with the Linux alternative beside it: `notifications/desktop.cpp` (the tray
+  over the StatusNotifierItem and the single instance over `org.freedesktop.Application`),
+  `platform/desktop/taskbar_attention.cpp` (the launcher entry), `platform/desktop/linux/notifications.cpp` (toasts over
+  D-Bus), `platform/desktop/linux/integration.cpp` (the startup entry is an XDG autostart file, the scheme handler a
+  desktop file plus the default in `mimeapps.list`), `platform/desktop/linux/webauthn.cpp` (unavailable), the plugin
+  loader (`PluginLoadError::unsupported`) and game detection (`/proc/*/comm`). The application and UI fixtures that need
+  no Win32 window run on Linux from `cmake/linux_app_ui_tests.cmake` over `maicord_window_null`, with the Win32 calls
+  they make shimmed for tests only in `tests/support/linux_test_app.hpp`; a fixture that calls other Windows API
+  directly stays Windows-only and is listed there.
 
 ## Code rules
 

@@ -12,7 +12,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

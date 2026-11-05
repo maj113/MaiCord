@@ -8,7 +8,6 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
-#include "maicord/sys/shell.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

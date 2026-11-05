@@ -53,8 +53,6 @@ u32 choice_member_order[4];
 PrivateChannelStore choice_private_store;
 PrivateChannelRecord choice_private_records[1];
 u64 choice_private_recipients[2];
-BYTE saved_keyboard[256];
-bool keyboard_saved;
 MessageRecord records[2];
 u32 message_order[2];
 u8 message_text[128];
@@ -112,11 +110,11 @@ RestClientSubmitResult WINAPI acknowledge(void*, u64, u64, ConstSlice<u8>, u64) 
 }
 
 bool modifiers(bool control, bool shift, bool alt) noexcept {
-    BYTE keyboard[256]{};
-    keyboard[key::ctrl] = keyboard[key::left_ctrl] = control ? 0x80 : 0;
-    keyboard[key::shift] = keyboard[key::left_shift] = shift ? 0x80 : 0;
-    keyboard[key::alt] = keyboard[key::left_alt] = alt ? 0x80 : 0;
-    return SetKeyboardState(keyboard) != FALSE;
+    null_window_release_keys();
+    if (control) window_test::hold(key::ctrl);
+    if (shift) window_test::hold(key::shift);
+    if (alt) window_test::hold(key::alt);
+    return true;
 }
 
 bool open(bool shift) noexcept {
@@ -147,8 +145,8 @@ bool query(Utf8View text) noexcept {
     return open(true) && type(text) && key(key::enter);
 }
 
-LPARAM point(UiRect bounds) noexcept {
-    return MAKELPARAM(static_cast<short>((bounds.left + bounds.right) * .5f),
+i64 point(UiRect bounds) noexcept {
+    return window_test::pack(static_cast<short>((bounds.left + bounds.right) * .5f),
                       static_cast<short>((bounds.top + bounds.bottom) * .5f));
 }
 
@@ -197,12 +195,10 @@ bool response(u64 request_id, u16 status, Utf8View body, u64 retry_at,
 }
 
 bool initialize() noexcept {
-    keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord search runtime fixture", WS_POPUP, -16000,
-                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!keyboard_saved || !g_app.window || !g_app.account_ui || !modifiers()) {
+    if (!g_app.window || !g_app.account_ui || !modifiers()) {
         return false;
     }
     auto& ui = *g_app.account_ui;
@@ -271,7 +267,7 @@ bool initialize() noexcept {
     g_app.plugin_account_scope_serial = 1;
     g_app.account.api.message_search = submit;
     g_app.account.api.message_ack = acknowledge;
-    SetFocus(win32_hwnd(g_app.window));
+    window_focus(g_app.window);
     g_window_state.keyboard_focus = true;
     return application_search_synchronize();
 }
@@ -279,11 +275,9 @@ bool initialize() noexcept {
 void release() noexcept {
     application_search_release();
     ui_scene_release(&g_app.shell_scene);
-    if (GetCapture() == win32_hwnd(g_app.window)) {
-        ReleaseCapture();
-    }
+    window_release_capture(g_app.window);
     if (g_app.window) {
-        DestroyWindow(win32_hwnd(g_app.window));
+        window_test::close();
         g_window_state.keyboard_focus = false;
     }
     if (g_app.account_ui) {
@@ -294,9 +288,6 @@ void release() noexcept {
     g_app.account_ui = nullptr;
     g_app.account.instance = nullptr;
     g_app.context_focus = nullptr;
-    if (keyboard_saved) {
-        SetKeyboardState(saved_keyboard);
-    }
 }
 usize bank_committed(const app_detail::SearchBank* b) noexcept {
     return b ? committed(b) + b->content_storage.arena.committed + b->rich_storage.arena.committed +
@@ -543,16 +534,16 @@ void run() noexcept {
     const auto edit_bounds = application_search_edit_bounds();
     hit_position = 0;
     check(application_search_window_event(window_test::pointer_down(window_test::x_of(point(edit_bounds)), window_test::y_of(point(edit_bounds)))) &&
-              GetCapture() == win32_hwnd(g_app.window) && g_app.search->dragging,
+              window_pointer_captured(g_app.window) && g_app.search->dragging,
           "search runtime: edit press owns actual native selection capture");
     settings = true;
     check(
         application_search_synchronize() && !application_search_input(UiInputKind::character, 'x', false) &&
             !application_search_edit_focused() && !g_app.search->focused && !g_app.search->dragging &&
-            !g_app.search->captured && GetCapture() != win32_hwnd(g_app.window),
+            !g_app.search->captured && !window_pointer_captured(g_app.window),
         "search runtime: modal front retires native capture and keyboard ownership before blocking input");
     application_search_window_event(window_test::capture_lost());
-    ReleaseCapture();
+    window_release_capture(g_app.window);
     settings = false;
     application_search_window_event(window_test::focus_changed(false));
     check(!g_app.search->dragging && !application_search_edit_focused() &&

@@ -65,8 +65,10 @@ void application_taskbar_attention_tick(u64 now_ms) noexcept {
         return;
     if (!g_owner.initialized) {
         taskbar_attention_initialize(&g_owner.native);
+#if defined(_WIN32)
         // The button may predate registration of TaskbarButtonCreated.
         g_owner.native.button_ready = application_window_visible();
+#endif
         g_owner.initialized = true;
     }
     // Counters cover most changes; a slow periodic recount catches the rest.
@@ -80,7 +82,7 @@ void application_taskbar_attention_tick(u64 now_ms) noexcept {
                                       g_app.preferences.unread_badge, g_app.preferences.taskbar_flash, focused()};
     const auto plan = taskbar_attention_plan(&g_owner.native.state, input);
     if (plan.set_badge || plan.start_flash || plan.stop_flash)
-        taskbar_attention_apply(&g_owner.native, win32_hwnd(g_app.window), plan, g_app.renderer.dpi);
+        taskbar_attention_apply(&g_owner.native, g_app.window, plan, g_app.renderer.dpi);
 }
 
 void application_taskbar_attention_notify() noexcept {
@@ -88,9 +90,11 @@ void application_taskbar_attention_notify() noexcept {
         ++g_owner.notify_serial;
 }
 
+#if defined(_WIN32)
 bool application_taskbar_attention_window_message(UINT message) noexcept {
     return g_owner.initialized && taskbar_attention_window_message(&g_owner.native, message);
 }
+#endif
 
 void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept {
     if (mentions)
@@ -101,7 +105,7 @@ void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept 
 
 void application_taskbar_attention_release() noexcept {
     if (g_owner.initialized)
-        taskbar_attention_release(&g_owner.native, win32_hwnd(g_app.window));
+        taskbar_attention_release(&g_owner.native, g_app.window);
     reset_value(&g_owner);
 }
 

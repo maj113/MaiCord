@@ -176,6 +176,12 @@ void thread_close(Thread* thread) noexcept {
     release_record(thread);
 }
 
+// The record's own manual-reset event, set by thread_main just before it publishes the end: it lives until the
+// record is released, so a waiter holds it exactly as long as it holds the Thread.
+Waitable thread_waitable(Thread* thread) noexcept {
+    return thread->done;
+}
+
 void thread_cancel_synchronous_io(Thread*) noexcept {}
 
 bool thread_com_enter() noexcept {

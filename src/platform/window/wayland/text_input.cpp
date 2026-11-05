@@ -278,15 +278,15 @@ namespace maicord {
 
 using namespace wayland;
 
-bool window_wayland_text_input_available(Window window) noexcept {
-    return window == reinterpret_cast<Window>(&g.window) && g.window_exists && g.text.input != nullptr;
+bool window_wayland_text_input_available(NativeWindow window) noexcept {
+    return window && window == g.window.surface && g.window_exists && g.text.input != nullptr;
 }
 
-bool window_wayland_text_input_enable(Window window, const TextInputRequest& request) noexcept {
+bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept {
     return window_wayland_text_input_available(window) && text_input_enable(request);
 }
 
-void window_wayland_text_input_disable(Window window) noexcept {
+void window_wayland_text_input_disable(NativeWindow window) noexcept {
     if (window_wayland_text_input_available(window))
         text_input_disable();
 }

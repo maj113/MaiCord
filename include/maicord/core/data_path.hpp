@@ -73,4 +73,11 @@ bool directory_ensure(const wchar_t* path, u32* native_error = nullptr) noexcept
 // terminator, or 0 when it fails or does not fit in capacity.
 u32 executable_path(wchar_t* output, u32 capacity) noexcept;
 
+// GetEnvironmentVariableW: the value of the variable `name` in output, its length excluding the terminator; 0 when it
+// is unset or empty, and a value of at least `capacity` (the size it needs) when it does not fit.
+u32 environment_variable(const wchar_t* name, wchar_t* output, u32 capacity) noexcept;
+// The per-user root the data directory is made under (%LOCALAPPDATA%; $XDG_DATA_HOME or $HOME/.local/share): what
+// data_path_build takes as its root. Same result convention as environment_variable.
+u32 local_data_root(wchar_t* output, u32 capacity) noexcept;
+
 } // namespace maicord

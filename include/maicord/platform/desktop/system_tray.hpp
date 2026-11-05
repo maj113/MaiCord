@@ -1,6 +1,8 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
+#endif
 
 namespace maicord {
 
@@ -62,6 +64,7 @@ inline constexpr u32 kTrayIconMaximumExtent = 64;
 bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent,
                       Slice<u32> pixels) noexcept;
 
+#if defined(_WIN32)
 // Win32 executor around Shell_NotifyIconW (NOTIFYICON_VERSION_4).
 struct SystemTray {
     HWND window;
@@ -83,5 +86,6 @@ u32 system_tray_menu(SystemTray*, const TrayMenuItem* items, u32 count) noexcept
 void system_tray_release(SystemTray*) noexcept;
 // Window/taskbar icon in MaiCord's mark (callers DestroyIcon it).
 HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette&, u32 extent) noexcept;
+#endif
 
 } // namespace maicord

@@ -1,7 +1,9 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-
+#include "maicord/platform/window/window.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
+#endif
 
 namespace maicord {
 
@@ -41,10 +43,12 @@ bool desktop_link_parse(ConstSlice<wchar_t> url, DesktopLinkTarget* target) noex
 // Registry locations. The user scope is HKCU's Run key, its Task Manager
 // approval key and Software\Classes; tests pass a private key instead.
 struct DesktopRegistryScope {
+#if defined(_WIN32)
     HKEY root;
     const wchar_t* run_key;
     const wchar_t* approved_key;
     const wchar_t* classes_key;
+#endif
     const wchar_t* value_name;
     const wchar_t* protocol;
     const wchar_t* title; // "URL:<title> Protocol", the class's display name
@@ -66,6 +70,7 @@ bool desktop_startup_set(const DesktopRegistryScope&, ConstSlice<wchar_t> execut
 DesktopRegistration desktop_protocol_query(const DesktopRegistryScope&, ConstSlice<wchar_t> executable) noexcept;
 bool desktop_protocol_set(const DesktopRegistryScope&, ConstSlice<wchar_t> executable, bool enable) noexcept;
 
+#if defined(_WIN32)
 // Single instance. The first process owns a named mutex; a later ordinary
 // launch hands its URL (or an empty "show" request) to the first window by
 // WM_COPYDATA and exits.
@@ -91,8 +96,10 @@ DesktopForwardResult desktop_instance_forward(const wchar_t* name, const Desktop
 bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wchar_t* out, u32 capacity) noexcept;
 // Validates a received WM_COPYDATA payload.
 bool desktop_instance_receive(const COPYDATASTRUCT* data, DesktopForwardMessage* message) noexcept;
-// Brings a hidden, minimized or background window to the front.
-void desktop_window_reveal(HWND window) noexcept;
+#endif
+// Brings a hidden, minimized or background window to the front. Wayland lets a client ask, not take: Linux shows the
+// window and requests the compositor's attention (xdg-activation) for it.
+void desktop_window_reveal(Window window) noexcept;
 
 // Close button policy: hide to the notification area unless the user (or an
 // update restart) asked to quit, the preference is off or no icon exists.
@@ -114,6 +121,7 @@ constexpr int desktop_initial_show(bool startup_launch, bool start_minimized, bo
            : minimize_to_tray                  ? kDesktopShowHide
                                                : kDesktopShowMinimizedNoActive;
 }
+#if defined(_WIN32)
 // Whether a WM_ACTIVATE may run activation work that makes a cross-apartment
 // COM call (the Windows notification setting). The taskbar restores a
 // minimized window by activating it while still minimized, then posting
@@ -125,5 +133,6 @@ constexpr bool desktop_activation_refresh_allowed(WPARAM activation) noexcept {
     return static_cast<WORD>(activation & 0xffff) != kDesktopActivateInactive &&
            static_cast<WORD>((activation >> 16) & 0xffff) == 0;
 }
+#endif
 
 } // namespace maicord

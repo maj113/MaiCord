@@ -16,7 +16,6 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
-#include "maicord/sys/shell.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"

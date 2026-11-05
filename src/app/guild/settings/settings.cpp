@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "maicord/os/text.hpp"
 #include "../../media/file_over_limit.hpp"
 #include "../../account/application_account_module.hpp"
 #include "../../account/account_presentation.hpp"
@@ -542,8 +543,7 @@ void clear_status() noexcept {
 // The picked file's name as UTF-8, for the expression name forms.
 void set_upload_filename(ConstSlice<wchar_t> filename) noexcept {
     auto& p = *owner;
-    const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
-                                          p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
+    const int units = utf16_to_utf8(filename.data, static_cast<int>(filename.count), p.upload_filename, sizeof(p.upload_filename), false);
     p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
 }
 

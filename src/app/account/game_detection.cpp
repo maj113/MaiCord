@@ -8,8 +8,11 @@
 #include "maicord/core/packed_reader.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/process_info.hpp"
+#endif
+#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -50,6 +53,7 @@ bool running(ConstSlice<Utf8View> processes, Utf8View executable) noexcept {
             return true;
     return false;
 }
+#if defined(_WIN32)
 struct WindowOwners {
     DWORD pids[512];
     u32 count;
@@ -67,6 +71,7 @@ BOOL CALLBACK collect_window(HWND window, LPARAM opaque) {
         owners.pids[owners.count++] = pid;
     return TRUE;
 }
+#endif
 } // namespace
 
 ConstSlice<DetectableGame> game_detection_builtin() noexcept {
@@ -135,6 +140,7 @@ GameDetectionMatch game_detection_match(const RegisteredGames& custom, ConstSlic
                 return {builtin[i].name, builtin[i].application_id, i, false, true};
     return {};
 }
+#if defined(_WIN32)
 u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool windowed_only) noexcept {
     if (!storage.data || !names.data)
         return 0;
@@ -181,6 +187,62 @@ u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool win
     CloseHandle(snapshot);
     return count;
 }
+#else
+u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool windowed_only) noexcept {
+    // No client learns which processes own windows on Wayland, so "windowed" lists every process of the user. The
+    // name is the process's comm: the program name the kernel keeps (Wine and Proton processes carry the .exe name).
+    (void)windowed_only;
+    if (!storage.data || !names.data)
+        return 0;
+    DirIter directory{};
+    if (!dir_open(&directory, L"/proc"))
+        return 0;
+    const u32 self = process_id();
+    u32 count = 0, used = 0;
+    DirEntry entry{};
+    while (count < names.count && dir_next(&directory, &entry)) {
+        u32 pid = 0;
+        bool numeric = entry.name[0] != 0;
+        for (u32 i = 0; entry.name[i] && numeric; ++i) {
+            numeric = entry.name[i] >= L'0' && entry.name[i] <= L'9';
+            pid = pid * 10 + static_cast<u32>(entry.name[i] - L'0');
+        }
+        if (!numeric || pid == self)
+            continue;
+        wchar_t path[48] = L"/proc/";
+        u32 length = 6;
+        for (u32 i = 0; entry.name[i] && length < 30; ++i)
+            path[length++] = entry.name[i];
+        for (const wchar_t c : L"/comm")
+            path[length++] = c;
+        const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing,
+                                                 kFileShareRead | kFileShareWrite, kFileSequential});
+        if (file == INVALID_HANDLE_VALUE)
+            continue;
+        char text[64];
+        u32 read = 0;
+        const bool got = file_read(file, text, sizeof(text), &read);
+        file_close(file);
+        while (got && read && (text[read - 1] == '\n' || text[read - 1] == '\r'))
+            --read;
+        char normalized[kRegisteredGameExecutableBytes];
+        u8 bytes = 0;
+        if (!got || !read || !game_detection_normalize({text, read}, normalized, &bytes) ||
+            bytes > storage.count - used)
+            continue;
+        bool duplicate = false;
+        for (u32 i = 0; i < count && !duplicate; ++i)
+            duplicate = utf8_equal(names[i], {normalized, bytes});
+        if (duplicate)
+            continue;
+        copy_bytes(storage.data + used, normalized, bytes);
+        names[count++] = {storage.data + used, bytes};
+        used += bytes;
+    }
+    dir_close(&directory);
+    return count;
+}
+#endif
 u32 registered_games_encode(const RegisteredGames& games, Slice<u8> output) noexcept {
     if (!output.data || games.count > kRegisteredGameMaximum)
         return 0;

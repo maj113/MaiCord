@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/platform/desktop/integration.hpp"
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "maicord/ui/settings/scene.hpp"
@@ -40,8 +41,10 @@ int application_desktop_initial_show() noexcept;
 void application_desktop_window_created() noexcept;
 // Frame tick: tray state and pending link navigation.
 void application_desktop_tick(u64 now_ms) noexcept;
+#if defined(_WIN32)
 // Tray callbacks, TaskbarCreated and forwarded launches.
 bool application_desktop_window_message(UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
+#endif
 // WM_CLOSE: true when the window was hidden to the tray instead of closing.
 bool application_desktop_close_to_tray() noexcept;
 // Tray Quit and update restarts close for real.
@@ -56,7 +59,7 @@ bool application_desktop_open_link(const ConstSlice<wchar_t>& url) noexcept;
 inline ConstSlice<wchar_t> application_desktop_registration_executable(wchar_t* buffer, u32 capacity) noexcept {
     if (!buffer || !capacity)
         return {};
-    const u32 count = GetModuleFileNameW(nullptr, buffer, capacity);
+    const u32 count = executable_path(buffer, capacity);
     if (!count || count >= capacity)
         return {};
     return {buffer, count};

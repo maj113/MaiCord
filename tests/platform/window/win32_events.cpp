@@ -223,7 +223,7 @@ void translations(HWND window) noexcept {
 
 constexpr u32 kLogCapacity = 64;
 struct Seen {
-    char what;  // 'o' observe, 'f' frame, 's' shell, 'k' sink
+    char what;  // 's' shell, 'k' sink
     EventType type;
     UINT message;
 };
@@ -232,26 +232,13 @@ u32 g_seen_count;
 WindowEvent g_last_sink_event;
 float g_cursor_x, g_cursor_y;
 bool g_cursor_from_sink;
-bool g_veto_close, g_blocked, g_frame_takes_user, g_sink_handles;
+bool g_veto_close, g_blocked, g_sink_handles;
 WindowEventResult g_answer;
 Window g_window;
 
 void note(char what, EventType type, UINT message) noexcept {
     if (g_seen_count < kLogCapacity)
         g_seen[g_seen_count++] = {what, type, message};
-}
-
-void observe(void*, const WindowEvent& event) noexcept {
-    note('o', event.type, 0u);
-}
-
-bool frame(void*, HWND, UINT message, WPARAM, LPARAM, LRESULT* result) noexcept {
-    note('f', EventType::none, message);
-    if (g_frame_takes_user && message == WM_USER + 7) {
-        *result = 42;
-        return true;
-    }
-    return false;
 }
 
 bool shell(void*, HWND, UINT message, WPARAM, LPARAM, LRESULT* result) noexcept {
@@ -293,7 +280,7 @@ bool order_is(const char* expected, u32 count) noexcept {
 }
 
 void procedure() noexcept {
-    const Win32Hooks hooks{nullptr, observe, frame, shell, blocked};
+    const Win32Hooks hooks{nullptr, shell, blocked};
     const char* reason = "";
     Window window{};
     check(win32_window_create({utf8_literal("MaiCord window events"), {}, 400, 300, false}, {0, &hooks}, sink, nullptr,
@@ -304,26 +291,20 @@ void procedure() noexcept {
     g_window = window;
     const HWND hwnd = win32_hwnd(window);
     g_seen_count = 0;
-    g_blocked = g_frame_takes_user = g_veto_close = g_sink_handles = false;
+    g_blocked = g_veto_close = g_sink_handles = false;
     g_answer = {};
     const auto reset = [] { g_seen_count = 0; };
 
-    // Order: observe, frame, shell, sink; an unmodeled message skips observe and the sink.
+    // Order: shell, sink; an unmodeled message skips the sink.
     LRESULT answer = SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(3, 4));
-    check(order_is("ofsk", 4) && g_seen[0].type == EventType::pointer_down && g_seen[3].type == EventType::pointer_down &&
-              answer == 0,
-          "proc: a modeled message runs observe, the frame hook, the shell hook and the sink, then the default");
+    check(order_is("sk", 2) && g_seen[1].type == EventType::pointer_down && answer == 0,
+          "proc: a modeled message runs the shell hook and the sink, then the default");
     reset();
     answer = SendMessageW(hwnd, WM_USER + 1, 0, 0);
-    check(order_is("fs", 2) && answer == 0, "proc: an unmodeled message skips observe and the sink");
-    reset();
-    g_frame_takes_user = true;
-    answer = SendMessageW(hwnd, WM_USER + 7, 0, 0);
-    check(order_is("f", 1) && answer == 42, "proc: a frame hook that takes a message ends the dispatch with its result");
+    check(order_is("s", 1) && answer == 0, "proc: an unmodeled message skips the sink");
     reset();
     answer = SendMessageW(hwnd, WM_USER + 8, 0, 0);
-    check(order_is("fs", 2) && answer == 43, "proc: the shell hook comes second and likewise ends it");
-    g_frame_takes_user = false;
+    check(order_is("s", 1) && answer == 43, "proc: a shell hook that takes a message ends the dispatch with its result");
 
     // The sink's answer: handled is 0 (TRUE for a cursor query), unhandled falls to the default procedure.
     reset();
@@ -350,7 +331,7 @@ void procedure() noexcept {
     g_blocked = true;
     reset();
     answer = SendMessageW(hwnd, WM_IME_COMPOSITION, 0, 0);
-    check(answer == 0 && order_is("fs", 2), "proc: a blocked IME message is swallowed (0)");
+    check(answer == 0 && order_is("s", 1), "proc: a blocked IME message is swallowed (0)");
     answer = SendMessageW(hwnd, WM_COMMAND, 0, 0);
     check(answer == 0, "proc: a blocked command is swallowed");
     g_blocked = false;
@@ -363,14 +344,14 @@ void procedure() noexcept {
           "proc: window_pointer_position answers with the query's own point during cursor_query");
     reset();
     SendMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd), MAKELPARAM(HTCAPTION, WM_MOUSEMOVE));
-    check(order_is("fs", 2), "proc: a frame cursor never reaches the sink");
+    check(order_is("s", 1), "proc: a frame cursor never reaches the sink");
 
     // Capture: the notification is the system's, delivered while window_release_capture runs.
     window_capture_pointer(window);
     check(window_pointer_captured(window), "proc: the window holds the capture it took");
     reset();
     window_release_capture(window);
-    check(!window_pointer_captured(window) && order_is("ofsk", 4) && g_seen[3].type == EventType::capture_lost,
+    check(!window_pointer_captured(window) && order_is("sk", 2) && g_seen[1].type == EventType::capture_lost,
           "proc: releasing the capture reaches the sink as capture_lost before the call returns");
 
     // Size limits: the sink's answer raises the minimum track size.
@@ -382,8 +363,12 @@ void procedure() noexcept {
     g_answer.height_px = 480;
     reset();
     answer = SendMessageW(hwnd, WM_GETMINMAXINFO, 0, reinterpret_cast<LPARAM>(&limits));
-    check(answer == 0 && limits.ptMinTrackSize.x == 640 && limits.ptMinTrackSize.y == 5000,
-          "proc: size_limits raises each minimum to the larger of the system's and the sink's");
+    // The sink answers the smallest client: the track size is the window around it.
+    RECT outer{0, 0, 640, 480};
+    AdjustWindowRectExForDpi(&outer, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE,
+                             static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)), GetDpiForWindow(hwnd));
+    check(answer == 0 && limits.ptMinTrackSize.x == outer.right - outer.left && limits.ptMinTrackSize.y == 5000,
+          "proc: size_limits raises each minimum to the larger of the system's and the window around the sink's client");
     g_answer = {};
 
     // DPI change: the sink first, then the window moves to the suggested rectangle.

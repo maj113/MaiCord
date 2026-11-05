@@ -1,5 +1,7 @@
 #include "accessibility_internal.hpp"
 #include "accessibility.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/core/time.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../account/friends.hpp"

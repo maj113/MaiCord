@@ -1,4 +1,5 @@
 #include "store_host.hpp"
+#include "maicord/os/text.hpp"
 #include "store_preview.hpp"
 #include "store_source.hpp"
 #include "../account/account_presentation.hpp"
@@ -21,7 +22,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
@@ -242,10 +243,10 @@ void start_pick(u8 purpose) noexcept {
 void open_folder_command() noexcept {
     const Utf8View folder = application_catalog_dev_folder(page().kind == CatalogKind::plugin ? 0 : 1);
     wchar_t path[MAX_PATH];
-    const int n = folder.bytes ? MultiByteToWideChar(CP_UTF8, 0, folder.data, static_cast<int>(folder.bytes), path, MAX_PATH - 1) : 0;
+    const int n = folder.bytes ? utf8_to_utf16(folder.data, static_cast<int>(folder.bytes), path, MAX_PATH - 1, false) : 0;
     if (n > 0) {
         path[n] = 0;
-        ShellExecuteW(nullptr, L"open", path, nullptr, nullptr, 1);
+        desktop_open_target(nullptr, path);
     }
 }
 

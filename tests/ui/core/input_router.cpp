@@ -1,6 +1,5 @@
 #include "maicord/app/shell/input_layers.hpp"
 #include "maicord/model/chat/message_composer.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord {

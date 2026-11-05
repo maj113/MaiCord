@@ -5,7 +5,6 @@
 #include "../media/downloads.hpp"
 #include "../chat/search/content.hpp"
 #include "../chat/inbox.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/account_host.hpp"
 #include "maicord/app/media/animation_visual_runtime.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
@@ -57,6 +56,7 @@
 #include "../chat/read_state.hpp"
 #include "ui_runtime.hpp"
 #include "window.hpp"
+#include "run.hpp"
 #include "window_runtime.hpp"
 #include "window_state.hpp"
 #include "../notifications/notifications.hpp"
@@ -82,13 +82,8 @@
 #include "../voice/voice.hpp"
 #include "../voice/application_voice_message.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #if defined(MAICORD_PERF_PROBE)
 #include "../../../tools/perf/perf_probe.hpp"
-#endif
-#if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
-#include "../../../tools/perf/probe_window.hpp"
 #endif
 // Isolated probe builds never touch desktop integration, notifications,
 // updates or another running instance.
@@ -195,7 +190,7 @@ failed:
     return false;
 }
 
-int application_run() noexcept {
+int run_application() noexcept {
     g_app.clock = clock_initialize();
     g_app.process_start = clock_now();
     MAICORD_PERF_MARK("application_run");
@@ -306,16 +301,14 @@ int application_run() noexcept {
     application_account_attach_if_present();
     MAICORD_PERF_MARK("account_attach");
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
-    // Shown without activation at the bottom of the z-order: the probe never
-    // takes keyboard focus or covers another window.
-    probe_window::show(win32_hwnd(g_app.window));
+    application_platform_window_show(ShowMode::show);
 #else
     // Start minimized hides a startup-entry launch in the tray.
     {
         const int show = application_desktop_initial_show();
-        window_show(g_app.window, show == kDesktopShowHide                ? ShowMode::hide
-                                  : show == kDesktopShowMinimizedNoActive ? ShowMode::minimize_no_activate
-                                                                          : ShowMode::show_default);
+        application_platform_window_show(show == kDesktopShowHide                ? ShowMode::hide
+                                         : show == kDesktopShowMinimizedNoActive ? ShowMode::minimize_no_activate
+                                                                                 : ShowMode::show_default);
     }
 #endif
     application_trace_load_stage("window_shown");
@@ -777,29 +770,8 @@ int application_run() noexcept {
 
 } // namespace
 
-} // namespace maicord
-
-extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
-#if defined(MAICORD_STARTUP_PROBE)
-    if (!maicord::app_detail::application_startup_probe_initialize())
-        ExitProcess(126);
-#endif
-#if defined(MAICORD_PERF_PROBE)
-    maicord::perf::startup_trace_initialize();
-    if (!maicord::perf::probe_initialize())
-        ExitProcess(125);
-#endif
-#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
-    const wchar_t* line = GetCommandLineW();
-    maicord::u32 characters = 0;
-    while (line[characters])
-        ++characters;
-    const maicord::ConstSlice<wchar_t> command{line, characters};
-    // A second launch hands its discord:// link to the running client.
-    if (maicord::app_detail::application_desktop_forward_existing(command))
-        ExitProcess(0);
-    maicord::app_detail::application_desktop_prepare(command);
-#endif
-    const int result = maicord::application_run();
-    ExitProcess(static_cast<UINT>(result));
+int application_run() noexcept {
+    return run_application();
 }
+
+} // namespace maicord

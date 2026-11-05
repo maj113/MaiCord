@@ -1,4 +1,5 @@
 #include "catalog_service.hpp"
+#include "maicord/os/text.hpp"
 #include "catalog_worker.hpp"
 #include "dev_console.hpp"
 #include "dev_watch.hpp"
@@ -712,7 +713,7 @@ bool sideload_file(const wchar_t* path, u32 characters, u32 file) noexcept {
 // A dev folder: the environment variable's folder, else <base>\<relative> (whose parent is made first); created
 // when it is missing. path receives it.
 bool dev_folder_path(const wchar_t* variable, const wchar_t* parent, const wchar_t* relative, wchar_t (&path)[600], u32* length) noexcept {
-    *length = GetEnvironmentVariableW(variable, path, 480);
+    *length = environment_variable(variable, path, 480);
     if (!*length || *length >= 480) {
         wchar_t above[600];
         if (!catalog_path(base(), parent, above) || !directory_ensure(g->base) || !directory_ensure(above)) return false;
@@ -722,7 +723,7 @@ bool dev_folder_path(const wchar_t* variable, const wchar_t* parent, const wchar
 }
 
 u32 dev_utf8(const wchar_t* path, u32 length, char (&text)[1440]) noexcept {
-    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(length), text, static_cast<int>(sizeof(text)), nullptr, nullptr);
+    const int bytes = utf16_to_utf8(path, static_cast<int>(length), text, static_cast<int>(sizeof(text)), false);
     return bytes > 0 ? static_cast<u32>(bytes) : 0;
 }
 

@@ -5,7 +5,7 @@
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "../../../support/window_fixture.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 namespace maicord::thread_browser_test { u64 now = 1000; }
@@ -163,8 +163,7 @@ bool action(UiThreadBrowserAction action) noexcept {
     return false;
 }
 bool initialize() noexcept {
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Thread browser fixture", WS_POPUP, -16000, -16000,
-        1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_app.window || !g_app.account_ui) return false;
     auto& state = g_app.account_ui->chat_state;
@@ -384,18 +383,14 @@ void run() noexcept {
     check(!application_thread_browser_search({long_name, sizeof(long_name)}) && browser_owner->error &&
         utf8_equal(browser_owner->view.status, utf8_literal("Thread names can be up to 100 characters.")),
         "browser: an over-long header query explains the limit in the panel");
-    BYTE keyboard[256]{}, saved_keyboard[256]{};
-    const bool keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    keyboard[key::ctrl] = keyboard[key::left_ctrl] = 0x80;
+    null_window_release_keys();
+    window_test::hold(key::ctrl);
     g_app.context_focus = &browser_owner->scene.widgets;
-    const bool search_shortcut_passes = SetKeyboardState(keyboard) &&
-        !application_thread_browser_input(UiInputKind::key_down, 'F', false);
-    keyboard[key::ctrl] = keyboard[key::left_ctrl] = 0;
-    SetKeyboardState(keyboard);
-    check(keyboard_saved && search_shortcut_passes && application_thread_browser_input(UiInputKind::key_down, key::tab, false) &&
+    const bool search_shortcut_passes = !application_thread_browser_input(UiInputKind::key_down, 'F', false);
+    null_window_release_keys();
+    check(search_shortcut_passes && application_thread_browser_input(UiInputKind::key_down, key::tab, false) &&
         application_thread_browser_input(UiInputKind::character, 'f', false) && application_thread_browser_active(),
         "browser: the search shortcut passes to the header search bar while panel keys stay in the panel");
-    if (keyboard_saved) SetKeyboardState(saved_keyboard);
     g_app.context_focus = nullptr;
     check(action(UiThreadBrowserAction::archived) && application_thread_browser_submit(30, now), "browser: Gateway precedence fixture");
     ChannelInput update{1000, 7, 70, utf8_literal("New Gateway name"), 0, 0, 11};
@@ -665,7 +660,7 @@ void run() noexcept {
     application_thread_browser_release();
     check(!browser_owner && !g_app.renderer.thread_browser_scene, "browser: idle release frees owner and both bounded banks");
     ui_scene_release(&g_app.shell_scene);
-    DestroyWindow(win32_hwnd(g_app.window)); g_app.window = nullptr;
+    window_test::close(); g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr;
 }
 }

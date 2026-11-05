@@ -2,6 +2,7 @@
 // Copy Link writes the full invite URL through the clipboard sink (never the
 // user's clipboard) and confirms it with a toast. Synthetic invite codes only.
 #include "../../../../src/app/guild/settings/invites.cpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/platform/window/win32_clipboard.hpp"
 #include "../../../support/test_output.hpp"
 

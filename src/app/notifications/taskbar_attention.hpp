@@ -9,8 +9,10 @@ namespace maicord::app_detail {
 void application_taskbar_attention_tick(u64 now_ms) noexcept;
 // A message notification passed policy; flashes on the next tick if unfocused.
 void application_taskbar_attention_notify() noexcept;
+#if defined(_WIN32)
 // Returns true for TaskbarButtonCreated.
 bool application_taskbar_attention_window_message(UINT message) noexcept;
+#endif
 void application_taskbar_attention_release() noexcept;
 // Last counted mentions (plus friend requests) and unread state; the tray reuses them.
 void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept;

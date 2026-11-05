@@ -34,7 +34,6 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/core/log.hpp"
 #include "../account/account_ui_runtime.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
 

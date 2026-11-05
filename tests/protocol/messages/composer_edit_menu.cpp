@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "../../../src/app/chat/composer/edit_menu.hpp"
 #include "../../../src/app/shell/state.hpp"
 #include "maicord/core/memory.hpp"

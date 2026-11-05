@@ -104,6 +104,20 @@ __forceinline bool pages_release(void* base, usize bytes) noexcept {
 #endif
 }
 
+// Whether the system is short of physical memory: Windows' low-memory resource notification (created at first use and
+// kept), MemAvailable of /proc/meminfo under 3 percent of MemTotal or a quarter of a gibibyte on Linux.
+#if defined(_WIN32)
+__forceinline bool system_memory_low() noexcept {
+    static HANDLE notification;
+    if (!notification)
+        notification = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    BOOL low = FALSE;
+    return notification && QueryMemoryResourceNotification(notification, &low) && low;
+}
+#else
+bool system_memory_low() noexcept;
+#endif
+
 // Zeroed pages, reserved and committed in one call; null when the system refuses.
 __forceinline void* pages_allocate(usize bytes) noexcept {
 #if defined(_WIN32)

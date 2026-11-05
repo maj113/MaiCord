@@ -2,7 +2,7 @@
 
 #include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/protocol/auth/webauthn_mfa.hpp"
-#include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/window.hpp"
 
 namespace maicord {
 
@@ -34,7 +34,7 @@ struct WindowsWebAuthnResult {
 // still using Windows Hello, security keys, and hybrid authenticators exposed
 // by the installed OS.
 WindowsWebAuthnResult windows_webauthn_authenticate(
-    HWND owner, const WebAuthnMfaRequestOptions& request,
+    Window owner, const WebAuthnMfaRequestOptions& request,
     SecureBuffer* serialized_credential) noexcept;
 
 } // namespace maicord

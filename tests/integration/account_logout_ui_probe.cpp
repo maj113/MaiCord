@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/ui_scene_fixtures.hpp"
@@ -1079,7 +1080,7 @@ bool account_logout_ui_probe() noexcept {
     } cleanup{window, SUCCEEDED(apartment)};
     probe_window::show(window);
     SetFocus(window);
-    application_window_observe_position(window);
+    application_window_observe_position(win32_window(window));
     g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(SUCCEEDED(apartment) && fixture->stop_entered && fixture->stop_allowed &&
                      initialize_paths() &&

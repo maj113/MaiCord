@@ -58,7 +58,6 @@
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

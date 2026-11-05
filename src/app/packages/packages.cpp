@@ -15,7 +15,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/sys/shell.hpp"
 #include "maicord/ui/theme/background_color_math.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

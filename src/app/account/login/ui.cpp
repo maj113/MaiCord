@@ -12,7 +12,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 

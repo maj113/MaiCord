@@ -59,7 +59,6 @@
 
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

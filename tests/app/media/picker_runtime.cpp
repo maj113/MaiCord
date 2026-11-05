@@ -138,8 +138,6 @@ bool same_categories(const PickerCategories& a, const PickerCategories& b) noexc
 ApplicationGifFavoritesView favorites;
 ApplicationGifFavoriteState favorite_state;
 GifFavoriteRecord saved_gifs[2];
-BYTE saved_keyboard[256];
-bool keyboard_saved;
 char draft[256];
 MessageRecord records[16];
 u32 order[16], heights[16];
@@ -236,7 +234,7 @@ UiMediaPickerTarget target(u32 index) noexcept {
 }
 bool capture_edit() noexcept {
     const auto& field = g_app.media_picker->scene.field;
-    const auto point = MAKELPARAM(static_cast<short>((field.left + field.right) * .5f),
+    const auto point = window_test::pack(static_cast<short>((field.left + field.right) * .5f),
                                   static_cast<short>((field.top + field.bottom) * .5f));
     return application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
            g_app.media_picker->captured && window_pointer_captured(g_app.window);
@@ -245,19 +243,16 @@ bool capture_body_thumb() noexcept {
     const auto scrollbar = ui_media_picker_scene_scrollbar(g_app.media_picker->scene);
     if (!scrollbar.visible)
         return false;
-    const auto point = MAKELPARAM(static_cast<short>((scrollbar.thumb.left + scrollbar.thumb.right) * .5f),
+    const auto point = window_test::pack(static_cast<short>((scrollbar.thumb.left + scrollbar.thumb.right) * .5f),
                                   static_cast<short>((scrollbar.thumb.top + scrollbar.thumb.bottom) * .5f));
     return application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
            g_app.media_picker->scrollbar_dragging && window_pointer_captured(g_app.window);
 }
 bool initialize() noexcept {
-    keyboard_saved = GetKeyboardState(saved_keyboard) != FALSE;
-    BYTE keyboard[256]{};
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"MaiCord picker runtime fixture", WS_POPUP, -16000,
-                                   -16000, 1280, 720, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr));
+    g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!keyboard_saved || !SetKeyboardState(keyboard) || !g_app.window || !g_app.account_ui)
+    if (!g_app.window || !g_app.account_ui)
         return false;
     auto& ui = *g_app.account_ui;
     if (!chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 2},
@@ -316,15 +311,13 @@ void release() noexcept {
     if (window_pointer_captured(g_app.window))
         window_release_capture(g_app.window);
     if (g_app.window)
-        DestroyWindow(win32_hwnd(g_app.window));
+        window_test::close();
     if (g_app.account_ui)
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.window = nullptr;
     g_app.account_ui = nullptr;
     g_app.account.instance = nullptr;
     g_app.context_focus = nullptr;
-    if (keyboard_saved)
-        SetKeyboardState(saved_keyboard);
 }
 GatewayClientEvent sticker_update(u64 guild_id, Utf8View body) noexcept {
     GatewayClientEvent event{};
@@ -511,7 +504,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     auto& ui = *g_app.account_ui;
     const UiRect anchor{320, 560, 1280, 610};
     const auto pointer = [](float x, float y) noexcept {
-        return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+        return window_test::pack(static_cast<short>(x), static_cast<short>(y));
     };
     check(p.active && !p.inline_mode && application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) &&
               !p.inline_mode && p.kind == UiMediaPickerKind::gif,
@@ -812,7 +805,7 @@ void run() noexcept {
     }
     auto& p = *g_app.media_picker;
     const auto pointer = [](float x, float y) noexcept {
-        return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+        return window_test::pack(static_cast<short>(x), static_cast<short>(y));
     };
     const float initial_width = ui_rect_width(p.scene.panel), fixed_edge = p.scene.panel.right;
     const float resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
@@ -1368,21 +1361,17 @@ void run() noexcept {
                   UiScrollDispatch::handled && p.scene.scroll_dips == 0,
           "common picker: shared wheel line gives symmetric detents and high-resolution deltas");
     focus(p, true);
-    u8 keyboard[256]{}, shifted_keyboard[256]{};
-    const bool keyboard_ready = GetKeyboardState(keyboard) != FALSE;
-    CopyMemory(shifted_keyboard, keyboard, sizeof(keyboard));
-    shifted_keyboard[key::shift] = 0x80;
-    check(keyboard_ready && SetKeyboardState(shifted_keyboard) &&
-              application_media_picker_input(UiInputKind::key_down, key::tab, false) && !p.focused &&
+    window_test::hold(key::shift);
+    check(application_media_picker_input(UiInputKind::key_down, key::tab, false) && !p.focused &&
               focused_target(p).action == UiMediaPickerAction::tab &&
               focused_target(p).tab == UiMediaPickerKind::emoji,
           "common picker: Shift+Tab returns from the single search edit to the shared tab strip");
-    SetKeyboardState(keyboard);
+    null_window_release_keys();
     application_media_picker_input(UiInputKind::key_up, key::tab, false);
     const auto category_bar = ui_media_picker_scene_scrollbar(p.scene, true);
     if (category_bar.visible) {
         const auto point =
-            MAKELPARAM(static_cast<short>(category_bar.thumb.right - 1),
+            window_test::pack(static_cast<short>(category_bar.thumb.right - 1),
                        static_cast<short>((category_bar.thumb.top + category_bar.thumb.bottom) * .5f));
         const float prior = p.scene.rail_scroll_dips;
         check(application_media_picker_window_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point))) &&
@@ -1394,7 +1383,7 @@ void run() noexcept {
     const auto scrollbar = ui_media_picker_scene_scrollbar(p.scene);
     if (scrollbar.visible) {
         const auto point = [](float x, float y) noexcept {
-            return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+            return window_test::pack(static_cast<short>(x), static_cast<short>(y));
         };
         const float x = (scrollbar.thumb.left + scrollbar.thumb.right) * .5f;
         const float y = (scrollbar.thumb.top + scrollbar.thumb.bottom) * .5f;
@@ -1478,16 +1467,18 @@ void run() noexcept {
               p.emoji.storage.base && !p.edit.bytes && p.scene.scroll_dips == saved_emoji_scroll,
           "common picker: arena retirement preserves per-tab query and scroll across reopen");
     application_media_picker_close();
-    const auto route_pointer = [](UINT message, LPARAM point) noexcept {
+    // Gestures of the left button: press, release, second press of a quick pair.
+    enum : u32 { kDown, kUp, kDouble };
+    const auto route_pointer = [](u32 message, i64 point) noexcept {
         const float x = window_test::x_of(point), y = window_test::y_of(point);
-        const WindowEvent event = message == WM_LBUTTONDBLCLK ? window_test::pointer_double(x, y)
-                                  : message == WM_LBUTTONDOWN ? window_test::pointer_down(x, y)
-                                  : message == WM_LBUTTONUP ? window_test::pointer_up(x, y)
+        const WindowEvent event = message == kDouble ? window_test::pointer_double(x, y)
+                                  : message == kDown ? window_test::pointer_down(x, y)
+                                  : message == kUp ? window_test::pointer_up(x, y)
                                                             : window_test::pointer_move(x, y);
         return application_media_picker_window_event(event) || application_button_pointer(event);
     };
     const auto center = [](UiRect rectangle) noexcept {
-        return MAKELPARAM(static_cast<short>((rectangle.left + rectangle.right) * .5f),
+        return window_test::pack(static_cast<short>((rectangle.left + rectangle.right) * .5f),
                           static_cast<short>((rectangle.top + rectangle.bottom) * .5f));
     };
     const auto* member_node =
@@ -1497,15 +1488,15 @@ void run() noexcept {
         const auto member_point = center(member_node->rectangle);
         const auto before_member = member_activations;
         const bool initial_visibility = g_app.member_pane_visible;
-        check(route_pointer(WM_LBUTTONDOWN, member_point) &&
+        check(route_pointer(kDown, member_point) &&
                   g_app.button_pointer_owner == &g_app.shell_scene.widgets &&
-                  window_pointer_captured(g_app.window) && route_pointer(WM_LBUTTONUP, member_point) &&
+                  window_pointer_captured(g_app.window) && route_pointer(kUp, member_point) &&
                   member_activations == before_member + 1 &&
                   g_app.member_pane_visible != initial_visibility,
               "button host: owned HWND member press/release activates exactly once");
-        check(route_pointer(WM_LBUTTONDBLCLK, member_point) &&
+        check(route_pointer(kDouble, member_point) &&
                   g_app.button_pointer_owner == &g_app.shell_scene.widgets &&
-                  route_pointer(WM_LBUTTONUP, member_point) && member_activations == before_member + 2 &&
+                  route_pointer(kUp, member_point) && member_activations == before_member + 2 &&
                   g_app.member_pane_visible == initial_visibility && !g_app.button_pointer_owner &&
                   !window_pointer_captured(g_app.window),
               "button host: native double-click second press/release toggles once without a delay");
@@ -1519,32 +1510,28 @@ void run() noexcept {
         const auto gif_point = center(gif_node->rectangle);
         const auto sticker_point = center(sticker_node->rectangle);
         const auto before_launcher = launcher_activations;
-        check(route_pointer(WM_LBUTTONDOWN, gif_point) && route_pointer(WM_LBUTTONUP, gif_point) &&
+        check(route_pointer(kDown, gif_point) && route_pointer(kUp, gif_point) &&
                   p.active && p.kind == UiMediaPickerKind::gif &&
                   launcher_activations == before_launcher + 1,
               "button host: actual launcher press/release opens GIF once");
-        check(route_pointer(WM_LBUTTONDOWN, gif_point) && p.active &&
-                  route_pointer(WM_LBUTTONUP, gif_point) && !p.active &&
+        check(route_pointer(kDown, gif_point) && p.active &&
+                  route_pointer(kUp, gif_point) && !p.active &&
                   launcher_activations == before_launcher + 2,
               "button host: same launcher preserves current owner on press then closes on release");
-        check(route_pointer(WM_LBUTTONDOWN, gif_point) && route_pointer(WM_LBUTTONUP, gif_point) &&
+        check(route_pointer(kDown, gif_point) && route_pointer(kUp, gif_point) &&
                   p.active && p.kind == UiMediaPickerKind::gif &&
-                  route_pointer(WM_LBUTTONDOWN, sticker_point) && p.active &&
-                  p.kind == UiMediaPickerKind::gif && route_pointer(WM_LBUTTONUP, sticker_point) &&
+                  route_pointer(kDown, sticker_point) && p.active &&
+                  p.kind == UiMediaPickerKind::gif && route_pointer(kUp, sticker_point) &&
                   p.active && p.kind == UiMediaPickerKind::sticker &&
                   launcher_activations == before_launcher + 4,
               "button host: other launcher changes tab on one release without dismiss/reopen");
-        const auto outside = MAKELPARAM(4, 4);
+        const auto outside = window_test::pack(4, 4);
         check(!application_media_picker_window_event(window_test::pointer_down(window_test::x_of(outside), window_test::y_of(outside))) && !p.active &&
                   launcher_activations == before_launcher + 4,
               "button host: ordinary outside press still dismisses without activating a launcher");
     }
     // The official reaction popout is the same emoji picker without the
     // GIF/Sticker/Emoji selector, beside the Add Reaction button.
-    u8 react_keyboard[256]{}, shift_keyboard[256]{};
-    GetKeyboardState(react_keyboard);
-    CopyMemory(shift_keyboard, react_keyboard, sizeof(react_keyboard));
-    shift_keyboard[key::shift] = 0x80;
     check(message_store_upsert(&g_app.message_view.store,
                                {9100, 70, 5, 2000, 0, utf8_literal("React to this"), 0})
               .ok(),
@@ -1604,9 +1591,9 @@ void run() noexcept {
     query({});
     reaction_calls = 0;
     reaction_next = ApplicationMessageReactionEnqueueResult::accepted;
-    SetKeyboardState(shift_keyboard);
+    window_test::hold(key::shift);
     const bool kept = activate(p, target(0)) && activate(p, target(1));
-    SetKeyboardState(react_keyboard);
+    null_window_release_keys();
     check(kept && p.active && reaction_calls == 2 && reaction_messages[0] == 9100 &&
               reaction_messages[1] == 9100 && !utf8_equal(reaction_names[0], reaction_names[1]) &&
               utf8_equal(p.status, utf8_literal("Shift-click to add more reactions")) && !p.reaction_error,

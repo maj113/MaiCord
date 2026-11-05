@@ -1,4 +1,5 @@
 #include "downloads_internal.hpp"
+#include "maicord/os/text.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "policy.hpp"
 #include "../account/account_menu.hpp"
@@ -16,7 +17,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/app/media/account_media.hpp"
 
@@ -758,8 +759,7 @@ bool chosen_risky(ConstSlice<wchar_t> path) noexcept {
     start = maximum(start, path.count > 128 ? path.count - 128 : 0u);
     char tail[513]{};
     const int bytes =
-        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data + start,
-                            static_cast<int>(path.count - start), tail, sizeof(tail) - 1, nullptr, nullptr);
+        utf16_to_utf8(path.data + start, static_cast<int>(path.count - start), tail, sizeof(tail) - 1, true);
     return bytes <= 0 || attachment_download_risk_extension({tail, static_cast<u32>(bytes)});
 }
 
@@ -798,9 +798,7 @@ void picker_complete(ApplicationDownloads& q) noexcept {
                         if (j.path[n] == L'\\' || j.path[n] == L'/')
                             basename = n + 1;
                     char name[2048]{};
-                    const int name_bytes = WideCharToMultiByte(
-                        CP_UTF8, WC_ERR_INVALID_CHARS, j.path + basename,
-                        static_cast<int>(units - basename), name, sizeof(name), nullptr, nullptr);
+                    const int name_bytes = utf16_to_utf8(j.path + basename, static_cast<int>(units - basename), name, sizeof(name), true);
                     if (name_bytes > 0) {
                         const auto safe = attachment_download_safe_filename(
                             {name, static_cast<u32>(name_bytes)}, {j.chosen_name, sizeof(j.chosen_name)});
@@ -877,11 +875,7 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
         retire_job(*j);
         changed(q);
     } else if (target.action == UiDownloadAction::reveal && j->phase == JobPhase::saved && j->path) {
-        PIDLIST_ABSOLUTE item = ILCreateFromPathW(j->path);
-        if (item) {
-            SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
-            ILFree(item);
-        }
+        desktop_reveal_file(j->path);
     }
     application_downloads_synchronize();
 }

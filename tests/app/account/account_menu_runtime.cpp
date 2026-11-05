@@ -11,7 +11,7 @@
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "../../support/window_fixture.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client.hpp"
 
@@ -33,25 +33,19 @@ u32 copied_bytes;
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
+// The headless window's key table, with the modifiers the test wants held and no other key.
 struct KeyboardFixture {
-    BYTE saved[256]{};
-    bool captured;
-    KeyboardFixture() noexcept : captured(GetKeyboardState(saved) != FALSE) {
-        check(captured, "account menu runtime: synthetic keyboard fixture saves thread state");
+    KeyboardFixture() noexcept {
+        window_test::open();
     }
     bool apply(bool control = false) noexcept {
-        BYTE keys[256]{};
-        BYTE observed[256]{};
+        null_window_release_keys();
         if (control)
-            keys[key::ctrl] = keys[key::left_ctrl] = 0x80;
-        return captured && SetKeyboardState(keys) && GetKeyboardState(observed) &&
-               bytes_equal(keys, observed, sizeof(keys));
+            window_test::hold(key::ctrl);
+        return window_key_down(nullptr, key::ctrl) == control;
     }
     ~KeyboardFixture() noexcept {
-        BYTE observed[256]{};
-        check(!captured || (SetKeyboardState(saved) && GetKeyboardState(observed) &&
-                            bytes_equal(saved, observed, sizeof(saved))),
-              "account menu runtime: synthetic keyboard fixture restores exact thread state");
+        window_test::close();
     }
 };
 void run() noexcept {
@@ -93,7 +87,7 @@ void run() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, footer);
-    check(keyboard.apply(true) && (GetKeyState(key::ctrl) & 0x8000) &&
+    check(keyboard.apply(true) && window_key_down(nullptr, key::ctrl) &&
               !application_account_menu_key(key::enter) && !g_app.popup_scene.active,
           "account menu runtime: explicit Ctrl guard never opens a footer menu");
     check(keyboard.apply() && application_account_menu_key(key::enter) && g_app.popup_scene.active &&

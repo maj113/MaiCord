@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "../../../../src/app/chat/composer/attachments_state.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"
 #include "../../../../src/app/shell/state.hpp"

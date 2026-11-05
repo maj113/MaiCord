@@ -1,4 +1,5 @@
 #include "profile_editor_internal.hpp"
+#include "maicord/os/text.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../shell/overlay_input.hpp"
 #include "maicord/core/hash.hpp"
@@ -942,8 +943,8 @@ void describe(Picked& picked) noexcept {
             end = i - 1;
             break;
         }
-    const int bytes = WideCharToMultiByte(CP_UTF8, 0, picked.path + start, static_cast<int>(end - start),
-                                          picked.description, sizeof(picked.description), nullptr, nullptr);
+    const int bytes = utf16_to_utf8(picked.path + start, static_cast<int>(end - start),
+                                    picked.description, sizeof(picked.description), false);
     picked.description_bytes = bytes > 0 ? static_cast<u32>(bytes) : 0;
     if (!utf8_validate({picked.description, picked.description_bytes}).valid)
         picked.description_bytes = 0;

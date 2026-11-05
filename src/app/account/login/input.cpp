@@ -9,7 +9,7 @@
 #include "maicord/platform/window/clipboard.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord::app_detail {
 
@@ -237,7 +237,7 @@ bool application_login_handle_character(u32 character) noexcept {
     const SecureEditResult result = secure_edit_insert_utf16(edit, static_cast<u16>(character));
     if (replaced_all && result == SecureEditResult::changed) edit->password = false;
     if (result == SecureEditResult::capacity) {
-        MessageBeep(MB_OK);
+        desktop_alert_beep();
         return true;
     }
     if (result == SecureEditResult::changed && edit == &g_app.login.mfa)

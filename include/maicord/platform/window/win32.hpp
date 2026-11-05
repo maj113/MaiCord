@@ -3,6 +3,7 @@
 // The Windows side of the window service: what code that must name an HWND uses. A Window is the HWND itself, so
 // the conversions are free. Portable code never includes this header.
 #include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/frame.hpp"
 #include "maicord/platform/window/window.hpp"
 
 namespace maicord {
@@ -27,25 +28,43 @@ void win32_settings_reset() noexcept;
 // destroys the icon. Null for an invalid image.
 HICON win32_create_icon(ConstSlice<u32> pixels, u32 extent) noexcept;
 
+// What the application's caption controller answers to the frame glue (caption_frame.cpp), which owns the system
+// side of a client area that extends over the system caption: WM_NCCALCSIZE, WM_NCHITTEST, the non-client mouse
+// messages of the maximize button, WM_NCACTIVATE, the window menu and the snap layouts flyout. Client pixels are
+// relative to the client origin; the glue converts to and from screen coordinates.
+struct Win32CaptionOps {
+    void* context;
+    u32 (*height)(void* context) noexcept;                    // rows of the bar above the content; zero without one
+    bool (*hidden)(void* context) noexcept;                   // fullscreen: the system frame again
+    FrameHit (*hit)(void* context, float x, float y) noexcept;  // the frame part under a client pixel
+    void (*maximized)(void* context, bool maximized) noexcept;
+    void (*active)(void* context, bool active) noexcept;      // the frame's activation (WM_NCACTIVATE)
+    // The non-client button (FrameHit::maximize) under the pointer: pointer over a part (FrameHit::client: none),
+    // gone from the frame, pressed, released on a part. release returns whether it ended a press of the controller's.
+    void (*hover)(void* context, FrameHit part) noexcept;
+    void (*leave)(void* context) noexcept;
+    void (*press)(void* context, FrameHit part) noexcept;
+    bool (*release)(void* context, FrameHit part) noexcept;
+    bool (*title_bar)(void* context, FrameBarRects* rectangles) noexcept;  // false without a bar
+};
+
 // What the Windows build of the application keeps for itself in the window procedure, beside the sink every
-// backend has: the frame it draws, UI Automation, the shell integration. Each hook that returns true has handled
-// the raw message and `*result` is its LRESULT. The hooks run in this order, ahead of the sink:
-//   observe       every modeled message, first: state the window procedure keeps for the application.
-//   frame         the caption bar and the non-client messages (WM_NC*, the bar's own pointer items).
+// backend has: UI Automation and the shell integration. Each hook that returns true has handled the raw message and
+// `*result` is its LRESULT. The hooks run ahead of the sink, after the caption frame glue:
 //   shell         UI Automation (WM_GETOBJECT and its deferred actions), tray icon callbacks, a second launch.
 // `input_blocked` tells whether a modal owns all input: a message of the input classes the sink does not model
 // (IME, clipboard commands) is then swallowed instead of reaching the default procedure.
 struct Win32Hooks {
     void* context;
-    void (*observe)(void* context, const WindowEvent& event) noexcept;
-    bool (*frame)(void* context, HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
     bool (*shell)(void* context, HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
     bool (*input_blocked)(void* context) noexcept;
 };
 
 struct Win32WindowOptions {
-    u32 extra_extended_style;  // WS_EX_* bits added to the application's own (probe windows)
-    const Win32Hooks* hooks;   // copied; may be null
+    u32 extra_extended_style;          // WS_EX_* bits added to the application's own (probe windows)
+    const Win32Hooks* hooks;           // copied; may be null
+    const Win32CaptionOps* caption;    // copied; null: the system frame, client coordinates from the window's corner
+    bool dark_frame;                   // the system frame follows the dark scheme
 };
 
 // Registers the window class and creates the main window with the window procedure of this backend, which

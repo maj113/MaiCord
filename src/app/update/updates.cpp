@@ -12,7 +12,8 @@
 #include "maicord/ui/widgets/icon.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_process_launch.hpp"
+#include "maicord/os/process.hpp"
+#include "maicord/os/thread.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord::app_detail {
@@ -31,7 +32,8 @@ struct Worker {
     UpdateServiceConfig config;
     UpdatePaths paths;
     SrwLock lock;
-    HANDLE thread, wake, stop, notify;
+    Thread* thread;
+    Waitable wake, stop, notify;
     ApplicationUpdatesView view; // guarded by lock
     u64 revision;                // guarded by lock
     u64 progress_at_ms;
@@ -70,7 +72,7 @@ void publish(Worker* w, void (*change)(Worker*, void*), void* context) noexcept 
     const bool changed = w->revision == 0 || quit != w->quit || !bytes_equal(&before, &w->view, sizeof(before));
     if (changed) ++w->revision;
     ReleaseSRWLockExclusive(w->lock.native());
-    if (changed) SetEvent(w->notify);
+    if (changed) event_set(w->notify);
 }
 void set_state(Worker* w, State state, UpdateServiceError error = UpdateServiceError::none) noexcept {
     struct C { State s; UpdateServiceError e; } c{state, error};
@@ -192,7 +194,7 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
 UpdateCheckInterval current_interval(Worker* w) noexcept {
     return *static_cast<const volatile UpdateCheckInterval*>(&w->view.interval); // one byte: the lock added nothing
 }
-DWORD WINAPI worker_main(void* parameter) noexcept {
+u32 worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);
     auto& schedule = w->schedule;
     schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
@@ -201,8 +203,8 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         const u64 now = now_unix();
         const DWORD timeout = update_schedule_due(schedule, now) ? 0
             : static_cast<DWORD>(minimum<u64>(schedule.next_unix - now, 3600) * 1000);
-        HANDLE handles[]{w->stop, w->wake};
-        const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, timeout);
+        Waitable handles[]{w->stop, w->wake};
+        const DWORD waited = wait_any(handles, 2, timeout);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
         AcquireSRWLockExclusive(w->lock.native());
         const bool check = w->check_requested, quit = w->quit;
@@ -636,14 +638,14 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
         .field("interval", static_cast<u8>(w->view.interval)).write();
     if (located) update_paths_cleanup(w->paths);
     if (!config.configured || !located) return true;
-    w->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    w->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    w->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    w->wake = event_create(false, false);
+    w->stop = event_create(true, false);
+    w->notify = event_create(false, false);
     if (w->wake && w->stop && w->notify && update_service_initialize(&w->service, config, w->paths) == UpdateServiceError::none &&
         update_https_initialize(&w->https)) {
         w->service.changelog = &w->download;
         w->service.observer = {w, verified};
-        w->thread = CreateThread(nullptr, 256 * 1024, worker_main, w, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
     }
     if (!w->thread) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; g_view = w->view; }
     return w->thread != nullptr;
@@ -660,12 +662,12 @@ void application_updates_release(bool normal_exit) noexcept {
         copy_bytes(g_relaunch, w->paths.executable, (g_relaunch_count + 1) * sizeof(wchar_t));
     }
     if (w->thread) {
-        SetEvent(w->stop);
+        event_set(w->stop);
         update_https_cancel(&w->https);
         // Staging in flight finishes first: never swap from or free storage
         // the worker may still touch.
-        if (WaitForSingleObject(w->thread, 3000) != WAIT_OBJECT_0) return;
-        CloseHandle(w->thread);
+        if (!thread_wait(w->thread, 3000)) return;
+        thread_close(w->thread);
     }
     // Restart to update: the executable this process verified replaces the
     // running one, so the relaunch starts the new version. Any other exit
@@ -673,22 +675,14 @@ void application_updates_release(bool normal_exit) noexcept {
     if (plan.install) update_service_swap(&w->service);
     update_service_release(&w->service);
     update_https_release(&w->https);
-    const HANDLE events[]{w->wake, w->stop, w->notify};
-    for (HANDLE h : events) if (h) CloseHandle(h);
+    const Waitable events[]{w->wake, w->stop, w->notify};
+    for (Waitable h : events) if (h) waitable_close(h);
     pages_release(w);
 }
 void application_updates_relaunch() noexcept {
     if (!g_relaunch_count) return;
-    wchar_t command[kUpdatePathCapacity + 2];
-    const u32 count = g_relaunch_count;
-    command[0] = L'"';
-    copy_bytes(command + 1, g_relaunch, count * sizeof(wchar_t));
-    command[count + 1] = L'"'; command[count + 2] = 0;
-    STARTUPINFOW startup{}; startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    const bool started = CreateProcessW(g_relaunch, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process) != FALSE;
-    const DWORD native = started ? 0 : GetLastError();
-    if (started) { CloseHandle(process.hThread); CloseHandle(process.hProcess); }
+    u32 native = 0;
+    const bool started = process_launch_detached(g_relaunch, &native);
     UpdateLog("relaunch").field("started", started).field("native", native).write(started ? LogLevel::info : LogLevel::warning);
 }
 void application_updates_ready() noexcept {
@@ -698,7 +692,7 @@ void application_updates_ready() noexcept {
     AcquireSRWLockExclusive(w->lock.native());
     w->ready_requested = true;
     ReleaseSRWLockExclusive(w->lock.native());
-    SetEvent(w->wake);
+    event_set(w->wake);
 }
 HANDLE application_updates_notification() noexcept { return g_worker ? g_worker->notify : nullptr; }
 bool application_updates_poll() noexcept {
@@ -820,7 +814,7 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
         } else accepted = false;
     }
     ReleaseSRWLockExclusive(w->lock.native());
-    if (accepted) { SetEvent(w->wake); SetEvent(w->notify); }
+    if (accepted) { event_set(w->wake); event_set(w->notify); }
     return accepted;
 }
 

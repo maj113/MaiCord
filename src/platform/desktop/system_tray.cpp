@@ -1,15 +1,21 @@
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/desktop/taskbar_attention.hpp"
+#if defined(_WIN32)
 #include "maicord/platform/window/win32.hpp"
+#endif
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/shell/brand_mark.hpp"
 
+#if defined(_WIN32)
 #include "maicord/sys/shell.hpp"
+#endif
 
 namespace maicord {
 namespace {
+#if defined(_WIN32)
 constexpr UINT kTrayId = 1;
+#endif
 // The count badge's side at the largest extent; smaller extents give smaller sides.
 constexpr u32 kBadgeSideMaximum = static_cast<u32>(kTrayIconMaximumExtent * .62f + .5f);
 
@@ -99,10 +105,12 @@ void stroke(Slice<u32> pixels, u32 extent, float ax, float ay, float bx, float b
         }
 }
 
+#if defined(_WIN32)
 bool palette_equal(const TrayIconPalette& a, const TrayIconPalette& b) noexcept {
     return a.brand == b.brand && a.brand_shade == b.brand_shade && a.success == b.success && a.danger == b.danger &&
            a.glyph == b.glyph;
 }
+#endif
 u32 append(wchar_t* text, u32 at, u32 capacity, const wchar_t* value) noexcept {
     while (*value && at + 1 < capacity)
         text[at++] = *value++;
@@ -227,6 +235,7 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
     return true;
 }
 
+#if defined(_WIN32)
 HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent) noexcept {
     static_assert(kTrayIconMaximumExtent == kTaskbarBadgeMaximumExtent);
     ScratchPages<u32[kTrayIconMaximumExtent * kTrayIconMaximumExtent]> pixels;
@@ -345,5 +354,7 @@ void system_tray_release(SystemTray* tray) noexcept {
         DestroyIcon(static_cast<HICON>(tray->icon));
     reset_value(tray);
 }
+
+#endif
 
 } // namespace maicord

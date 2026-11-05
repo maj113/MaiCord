@@ -3,7 +3,7 @@
 #include "../../shell/state.hpp"
 #include "maicord/core/time.hpp"
 
-#include "maicord/sys/shell.hpp"
+#include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/app/account/login/account_action_captcha.hpp"
 
 namespace maicord::app_detail {
@@ -60,10 +60,9 @@ bool open_url(const SecureBuffer& url) noexcept {
         wide[i] = static_cast<wchar_t>(url.data[i]);
     }
     wide[url.bytes] = 0;
-    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(win32_hwnd(g_app.window), L"open", wide, nullptr, nullptr,
-                                                                SW_SHOWNORMAL));
+    const bool opened = desktop_open_target(g_app.window, wide);
     SecureZeroMemory(wide, sizeof(wide));
-    return result > 32;
+    return opened;
 }
 } // namespace
 

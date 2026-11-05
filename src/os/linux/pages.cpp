@@ -134,4 +134,34 @@ void* pages_range_base(const void* address) noexcept {
     return found;
 }
 
+bool system_memory_low() noexcept {
+    const long file = sys_open("/proc/meminfo", kOpenReadOnly);
+    if (syscall_failed(file))
+        return false;
+    char text[1024];
+    const long got = sys_read(static_cast<int>(file), text, sizeof(text) - 1);
+    sys_close(static_cast<int>(file));
+    if (syscall_failed(got) || got <= 0)
+        return false;
+    text[got] = 0;
+    const auto field = [&](const char* name) noexcept -> u64 {
+        for (long at = 0; at < got; ++at) {
+            long match = 0;
+            while (name[match] && text[at + match] == name[match])
+                ++match;
+            if (name[match] || (at != 0 && text[at - 1] != '\n'))
+                continue;
+            u64 value = 0;
+            for (long digit = at + match; digit < got && text[digit] != '\n'; ++digit)
+                if (text[digit] >= '0' && text[digit] <= '9')
+                    value = value * 10 + static_cast<u64>(text[digit] - '0');
+            return value; // kibibytes
+        }
+        return 0;
+    };
+    const u64 total = field("MemTotal:");
+    const u64 available = field("MemAvailable:");
+    return total != 0 && (available < total / 33 || available < 256 * 1024);
+}
+
 } // namespace maicord

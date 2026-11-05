@@ -4,7 +4,6 @@
 #include "../effects/effects.hpp"
 #include "../settings/settings.hpp"
 #include "../settings/theme_editor.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/theme/background_animation.hpp"
 
 namespace maicord::app_detail {

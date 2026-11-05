@@ -5,7 +5,6 @@
 #include "state.hpp"
 #include "window_state.hpp"
 #include "window_events.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/ui/core/geometry.hpp"

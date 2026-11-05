@@ -1,29 +1,30 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_types.hpp"
+#include "maicord/platform/window/event.hpp"
+#include "maicord/platform/window/frame.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 
 namespace maicord::app_detail {
 
-// The main window draws its own caption: WM_NCCALCSIZE extends the client over
-// the system caption and keeps the DWM side and bottom frame. The renderer's
-// content starts application_caption_height() pixels below the client origin.
-// Every offset below is zero until application_caption_enable, so other windows
-// and test fixtures that share the window procedure keep client coordinates.
+// The caption controller of the main window: the bar the app draws over the rows above the content (the frame of a
+// window whose client area extends over the system caption). It knows the bar's hover, press and tooltip, its
+// layout and its commands, and answers the frame questions of the platform: where a pixel lies (a hit_test event, or
+// the Windows frame glue through application_caption_hit and the calls below). The renderer's content starts
+// application_caption_height() pixels below the client origin. Every offset is zero until
+// application_caption_enable, so other windows and test fixtures keep client coordinates.
 
-// Before CreateWindowExW: the creation-time WM_NCCALCSIZE already applies it.
+// Before the window exists: the creation-time frame messages already apply it.
 void application_caption_enable() noexcept;
-// Frame messages (WM_NCCALCSIZE, WM_NCHITTEST, the caption buttons, the
-// window menu and activation). Runs before every other route.
-bool application_caption_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
-                                        LRESULT* result) noexcept;
+// Every window event, first: pointer input over the bar's own items (update badge, Settings, the window buttons the
+// platform does not draw as frame), the scale and size changes the bar follows. True when the bar took the event.
+bool application_caption_event(const WindowEvent& event) noexcept;
 // Pixels between the client origin and the content.
 u32 application_caption_height() noexcept;
-// Pointer coordinate conversions: content_point.hpp.
-// Outer window size for a content size at a DPI (minimum track size).
-SIZE application_caption_window_size(HWND window, u32 dpi, LONG content_width,
-                                     LONG content_height) noexcept;
+// The bar's height at a DPI, zero without a shown bar.
+u32 application_caption_pixels(u32 dpi) noexcept;
+// Whether fullscreen hides the bar.
+bool application_caption_hidden() noexcept;
 // Per frame: follows theme and DPI changes of the height and publishes the
 // caption state and title to the renderer.
 void application_caption_synchronize() noexcept;
@@ -37,5 +38,18 @@ UiCaptionBarState application_caption_state() noexcept;
 u64 application_caption_tooltip_wake() noexcept;
 // Caption buttons in content DIPs (negative rows), for accessibility.
 UiCaptionBarLayout application_caption_layout() noexcept;
+
+// The frame questions a platform asks (client pixels): where a pixel lies, and the frame state it reports.
+FrameHit application_caption_hit(float x, float y) noexcept;
+void application_caption_maximized(bool maximized) noexcept;
+void application_caption_active(bool active) noexcept;
+// A window button the platform tracks as frame (Windows' maximize button): the pointer over a part (FrameHit::client:
+// none), gone from the frame, a part pressed, a part released (true when that ended a press of the bar's).
+void application_caption_hover(FrameHit part) noexcept;
+void application_caption_leave() noexcept;
+void application_caption_press(FrameHit part) noexcept;
+bool application_caption_release(FrameHit part) noexcept;
+// The bar in client pixels, for a platform that tells the system where the buttons are; false without a bar.
+bool application_caption_bar_rects(FrameBarRects* rectangles) noexcept;
 
 } // namespace maicord::app_detail

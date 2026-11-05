@@ -152,6 +152,38 @@ void test_helpers() noexcept {
     check(current_thread_id() != 0, "thread id");
 }
 
+u32 enter_and_leave(void*) noexcept {
+    const bool entered = thread_com_enter();
+    if (entered)
+        thread_com_leave();
+    return entered ? 1 : 0;
+}
+
+// thread_waitable is signaled by the thread's end, so a wait set can hold a thread beside events; the COM and
+// synchronous-I/O hooks are inert where they have nothing to do.
+void test_thread_waitable() noexcept {
+    Blocked blocked{event_create(true, false), nullptr, 0};
+    Thread* thread = thread_start(block_until_released, &blocked, 64 * 1024, nullptr);
+    check(thread != nullptr && thread_waitable(thread) != nullptr, "thread_waitable of a running thread");
+    if (thread == nullptr) {
+        waitable_close(blocked.release);
+        return;
+    }
+    check(wait_one(thread_waitable(thread), 20) == WAIT_TIMEOUT, "thread_waitable is not signaled while it runs");
+    thread_cancel_synchronous_io(thread);
+    event_set(blocked.release);
+    check(wait_one(thread_waitable(thread), kLimit) == WAIT_OBJECT_0, "thread_waitable is signaled when it ends");
+    u32 code = 0;
+    check(thread_exit_code(thread, &code) && code == 42, "thread_waitable does not disturb the exit code");
+    thread_close(thread);
+    waitable_close(blocked.release);
+    Thread* com = thread_start(enter_and_leave, nullptr, 64 * 1024, nullptr);
+    check(com != nullptr && thread_wait(com, kLimit) && thread_exit_code(com, &code) && code == 1,
+          "thread_com_enter and thread_com_leave");
+    if (com != nullptr)
+        thread_close(com);
+}
+
 } // namespace
 } // namespace maicord
 
@@ -163,5 +195,6 @@ MAICORD_TEST_ENTRY(maicord_os_thread_entry) {
     test_wait_all();
     test_many_threads();
     test_helpers();
+    test_thread_waitable();
     test_exit(g_failures, "os_thread");
 }

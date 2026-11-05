@@ -275,7 +275,7 @@ bool seed_timeline(UiPoint* inside) noexcept {
 void run() noexcept {
     check_media_context();
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    g_app.window = win32_window(CreateWindowExW(0, L"STATIC", L"Search image fixture", WS_POPUP, 0, 0, 1200, 900, nullptr, nullptr, nullptr, nullptr));
+    g_app.window = window_test::open();
     check(g_app.account_ui && g_app.window, "Search viewer fixture owns a hidden native account window");
     if (!g_app.account_ui || !g_app.window) return;
     g_app.account.instance = &account_marker; g_app.account.status.profile_id = 4; g_app.plugin_account_scope_serial = 7;
@@ -456,7 +456,7 @@ void run() noexcept {
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
         "Search viewer source-retirement fixture opens");
     const UiRect save = ui_image_viewer_button(g_app.image_viewer.scene, 4);
-    const LPARAM point = MAKELPARAM(static_cast<i16>((save.left + save.right) * .5f), static_cast<i16>((save.top + save.bottom) * .5f));
+    const i64 point = window_test::pack(static_cast<i16>((save.left + save.right) * .5f), static_cast<i16>((save.top + save.bottom) * .5f));
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(point), window_test::y_of(point)));
     ++publication;
     check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && !window_pointer_captured(g_app.window) &&
@@ -511,7 +511,7 @@ void run() noexcept {
     const UiRect picture = g_app.image_viewer.scene.image;
     const i16 px = static_cast<i16>((picture.left + picture.right) * .5f),
               py = static_cast<i16>((picture.top + picture.bottom) * .5f);
-    const LPARAM on_image = MAKELPARAM(px, py);
+    const i64 on_image = window_test::pack(px, py);
     check(zoom.lens.zoom == 2 && zoom.lens.size == 200 && !zoom.lens.active,
           "Viewer lens starts hidden with the stored zoom and size");
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
@@ -628,18 +628,17 @@ void run() noexcept {
     }
     // The chat lens starts only over a picture that is the topmost thing under the pointer.
     {
-        BYTE saved_keys[256]{}, ctrl_keys[256]{};
-        const bool keys_saved = GetKeyboardState(saved_keys) != FALSE;
-        ctrl_keys[key::ctrl] = ctrl_keys[key::left_ctrl] = 0x80;
+        null_window_release_keys();
+        window_test::hold(key::ctrl);
         UiPoint over{};
         auto& chat_zoom = g_app.image_zoom;
         g_app.preferences.image_zoom = true;
         g_app.renderer.zoom_lens = &chat_zoom.lens;
         application_image_zoom_configure();
-        check(keys_saved && SetKeyboardState(ctrl_keys) && application_control_down() && seed_timeline(&over) &&
+        check(application_control_down() && seed_timeline(&over) &&
                   !g_app.image_viewer.scene.active,
               "Chat lens: a held Ctrl and a message picture fixture are ready");
-        const LPARAM at = MAKELPARAM(static_cast<i16>(over.x), static_cast<i16>(over.y));
+        const i64 at = window_test::pack(static_cast<i16>(over.x), static_cast<i16>(over.y));
         application_image_zoom_message(window_test::focus_changed(true));
         settings_open = true;
         application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
@@ -678,14 +677,14 @@ void run() noexcept {
         application_image_zoom_message(window_test::pointer_move(window_test::x_of(at), window_test::y_of(at)));
         check(chat_zoom.lens.active, "Chat lens: the uncovered picture starts it again");
         application_image_zoom_end();
-        check(!keys_saved || SetKeyboardState(saved_keys) != FALSE, "Chat lens: the thread keyboard state is restored");
+        null_window_release_keys();
         g_app.renderer.zoom_lens = nullptr;
         chat_zoom.ctrl = false;
     }
     hosted_video_key = {};
     ui_search_scene_release(&search_scene);
     g_app.renderer.search_scene = nullptr;
-    DestroyWindow(win32_hwnd(g_app.window));
+    window_test::close();
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr; g_app.account.instance = nullptr;
 }

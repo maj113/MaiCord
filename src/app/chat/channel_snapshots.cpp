@@ -1,4 +1,5 @@
 #include "channel_snapshots.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "channel_authority.hpp"
@@ -18,7 +19,6 @@ namespace {
 
 MessageSnapshotCache g_snapshots;
 ChannelPrefetch g_prefetch;
-HANDLE g_low_memory;
 // A dispatch for the still-loaded channel arrived after selection moved away;
 // the live window missed it, so it must not be retained.
 bool g_active_missed;
@@ -30,10 +30,7 @@ MessageSnapshotCache& snapshots() noexcept {
 }
 
 bool memory_low() noexcept {
-    if (!g_low_memory)
-        g_low_memory = CreateMemoryResourceNotification(LowMemoryResourceNotification);
-    BOOL low = FALSE;
-    return g_low_memory && QueryMemoryResourceNotification(g_low_memory, &low) && low;
+    return system_memory_low();
 }
 
 bool keep_readable(void*, u64 channel_id) noexcept {

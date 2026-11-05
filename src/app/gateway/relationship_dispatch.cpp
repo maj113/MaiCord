@@ -221,7 +221,7 @@ bool wait_for_space(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, 
 bool cancel_requested(GatewayClientMailbox* mailbox, HANDLE cancel) noexcept {
     const u32 tick = static_cast<u32>(clock_monotonic_milliseconds());
     if (mailbox->cancel_checked_tick == tick) return false;
-    if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return true;
+    if (wait_one(cancel, 0) != WAIT_TIMEOUT) return true;
     mailbox->cancel_checked_tick = tick;
     return false;
 }

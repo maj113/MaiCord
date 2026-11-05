@@ -3,8 +3,8 @@
 
 // Boolean combination and area of nonzero-filled outlines.
 //
-// The outlines are flattened (every cubic into the fewest uniform parameter steps that stay within the tolerance of
-// the curve) and snapped to an integer grid fine enough that float inputs keep their identity, so equal points are
+// The outlines are flattened (every cubic is cut where it would leave the tolerance of a chord, see flatten_cubic) and
+// snapped to an integer grid fine enough that float inputs keep their identity, so equal points are
 // equal and every predicate is exact. All the edges are then split at every point where two of them touch or cross
 // (repeated until nothing is left to split, since a crossing rounded onto the grid can meet a third edge), equal
 // edges merged, and a sweep over the plane, sheared so that no edge is vertical, gives each edge the winding number of

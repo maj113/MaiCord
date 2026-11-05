@@ -1,3 +1,4 @@
+#include "maicord/platform/window/win32.hpp"
 #include "account_pump_internal.hpp"
 #include "../../support/application_downloads_inactive.hpp"
 #include "../../support/model_store_fixtures.hpp"

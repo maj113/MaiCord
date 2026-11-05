@@ -6,7 +6,7 @@ namespace maicord {
 
 __forceinline bool process_launch_detached(const wchar_t* executable, u32* native_error) noexcept {
     u32 count = 0;
-    while (executable[count] && count <= kProcessLaunchMaximumPathCharacters)
+    while (executable && executable[count] && count <= kProcessLaunchMaximumPathCharacters)
         ++count;
     if (count == 0 || count > kProcessLaunchMaximumPathCharacters) {
         if (native_error)

@@ -6,6 +6,10 @@
 # Library sets most src/app fixtures link.
 set(maicord_app_test_libs maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui)
 set(maicord_app_ui_test_libs ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime maicord_text)
+# The app libraries for tests that drive handlers against the headless window (src/platform/window/null): it is listed
+# before maicord_platform so its window service wins over the Windows backend.
+set(maicord_headless_test_libs maicord_core maicord_window_null maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui)
+set(maicord_headless_ui_test_libs ${maicord_headless_test_libs} maicord_ui_input maicord_message_runtime maicord_text)
 # Link inputs of each shared test executable: all its members' libraries and
 # include directories, in link order (see maicord_test_bundle).
 maicord_test_bundle(MaiCordAppUnitTests
@@ -549,7 +553,7 @@ maicord_test(MaiCordFriendsRuntimeTests ENTRY maicord_friends_runtime_entry
     SOURCES tests/app/account/friends_runtime.cpp src/app/shell/state.cpp
         src/app/account/friends_search.cpp src/app/account/friends_storage.cpp src/app/account/account_relationships.cpp
         src/core/log.cpp
-    LIBS maicord_core maicord_protocol maicord_model maicord_app_core maicord_ui kernel32 user32
+    LIBS maicord_core maicord_window_null maicord_protocol maicord_model maicord_app_core maicord_ui kernel32 user32
     INCLUDES src/app
     TEST maicord_friends_runtime)
 maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
@@ -678,7 +682,7 @@ maicord_test(MaiCordChannelOverviewRuntimeTests ENTRY maicord_application_channe
     SOURCES tests/app/guild/channel_overview_runtime.cpp src/app/settings/layer.cpp
         src/app/settings/modal.cpp
         src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32 shell32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_channel_overview_runtime)
 maicord_test(MaiCordChannelOverviewAccountTests ENTRY maicord_channel_overview_account_entry
@@ -776,13 +780,13 @@ maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry SOUR
 maicord_test(MaiCordTooltipRuntimeTests ENTRY maicord_tooltip_runtime_entry
     SOURCES tests/app/shell/tooltip_runtime.cpp src/app/shell/tooltip.cpp src/app/shell/state.cpp
         tests/app/chat/messages/reaction_tooltip_runtime.cpp tests/app/media/emoji_tooltip_runtime.cpp src/core/log.cpp
-    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
+    LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_tooltip_runtime)
 maicord_test(MaiCordAccountMenuRuntimeTests ENTRY maicord_account_menu_runtime_entry
     SOURCES tests/app/account/account_menu_runtime.cpp src/app/account/account_menu.cpp
         src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
+    LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_account_menu_runtime)
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
@@ -813,7 +817,7 @@ maicord_test(MaiCordAccountThreadBrowserTests ENTRY maicord_account_thread_brows
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_thread_browser)
 maicord_test(MaiCordApplicationThreadBrowserTests ENTRY maicord_application_thread_browser_entry
     SOURCES tests/app/chat/threads/browser.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_application_thread_browser)
 maicord_test(MaiCordApplicationPollTests ENTRY maicord_application_poll_entry SOURCES tests/app/chat/polls/poll.cpp
@@ -852,7 +856,7 @@ maicord_test(MaiCordAccountForumPostTests ENTRY maicord_account_forum_post_test_
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_forum_post)
 maicord_test(MaiCordApplicationForumAttachmentsTests ENTRY maicord_application_forum_attachments_entry
     SOURCES tests/app/chat/threads/forum_attachments.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32 shell32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 20
     TEST maicord_application_forum_post --forum-post
@@ -899,7 +903,7 @@ maicord_test(MaiCordSelfStatusRuntimeTests ENTRY maicord_self_status_runtime_ent
 maicord_test(MaiCordSearchRuntimeTests ENTRY maicord_application_search_runtime_entry
     SOURCES tests/app/chat/search/search_runtime.cpp tests/app/chat/search/search_runtime_filters.cpp
         tests/app/chat/search/search_runtime_stubs.cpp src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_search_runtime)
 maicord_test(MaiCordSearchContentRuntimeTests ENTRY maicord_application_search_content_runtime_entry
@@ -916,24 +920,24 @@ maicord_test(MaiCordSearchNavigationRuntimeTests ENTRY maicord_application_searc
 maicord_test(MaiCordImageViewerRuntimeTests ENTRY maicord_application_image_viewer_runtime_entry
     SOURCES tests/app/media/image_viewer_runtime.cpp src/app/media/image_zoom.cpp src/app/shell/state.cpp
         src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} maicord_render_core kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} maicord_render_core kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_image_viewer_runtime)
 maicord_test(MaiCordQuickSwitcherRuntimeTests ENTRY maicord_application_quick_switcher_runtime_entry
     SOURCES tests/app/shell/quick_switcher_runtime.cpp src/app/shell/quick_switcher.cpp
         src/app/shell/input_routing.cpp src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_quick_switcher_runtime)
 maicord_test(MaiCordMessageForwardRuntimeTests ENTRY maicord_application_message_forward_runtime_entry
     SOURCES tests/app/chat/messages/forward_runtime.cpp src/app/shell/input_routing.cpp
         src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_message_forward_runtime)
 maicord_test(MaiCordDownloadsRuntimeTests ENTRY maicord_application_downloads_runtime_entry
     SOURCES tests/app/media/downloads_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32 shell32 ole32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32 ole32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_downloads_runtime)
 # Account restart schedule: backoff with jitter, attempt cap, user stops, banner states and wakes.
@@ -955,13 +959,13 @@ maicord_test(MaiCordTlsStreamTailTests ENTRY maicord_tls_stream_tail_entry
     TIMEOUT 15 TEST maicord_tls_stream_tail)
 maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_messages_runtime_entry
     SOURCES tests/app/chat/messages/pinned_messages_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
-    LIBS ${maicord_app_ui_test_libs} kernel32 user32
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_pinned_messages_runtime)
 maicord_test(MaiCordMediaPickerRuntimeTests ENTRY maicord_application_media_picker_runtime_entry
     SOURCES tests/app/media/picker_runtime.cpp src/app/shell/state.cpp
         src/core/log.cpp
-    LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime kernel32 user32
+    LIBS ${maicord_headless_test_libs} maicord_ui_input maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_media_picker_runtime)
 maicord_test(MaiCordGifFavoritesRuntimeTests ENTRY maicord_application_gif_favorites_runtime_entry
@@ -975,7 +979,7 @@ maicord_test(MaiCordVideoFocusRuntimeTests ENTRY maicord_video_focus_runtime_ent
         src/app/media/video.cpp src/app/media/video_sources.cpp
         src/app/media/video_input.cpp src/app/shell/state.cpp
         src/core/log.cpp
-    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
+    LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_video_focus_runtime)
 maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_entry
@@ -1371,6 +1375,11 @@ maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wai
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_wait)
 maicord_test(MaiCordOsThreadTests ENTRY maicord_os_thread_entry SOURCES tests/os/thread.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_thread)
+# UTF-16/UTF-8 conversion (include/maicord/os/text.hpp) and starting another program (include/maicord/os/process.hpp).
+maicord_test(MaiCordOsTextTests ENTRY maicord_os_text_entry SOURCES tests/os/text.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_text)
+maicord_test(MaiCordOsProcessTests ENTRY maicord_os_process_entry SOURCES tests/os/process.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_process)
 # Files, directories and mappings (include/maicord/os/file.hpp); file_snapshot_read comes from maicord_platform.
 maicord_test(MaiCordOsFileTests ENTRY maicord_os_file_entry SOURCES tests/os/file.cpp
     LIBS maicord_core kernel32 maicord_platform TIMEOUT 10 TEST maicord_os_file)

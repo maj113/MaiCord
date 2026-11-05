@@ -9,7 +9,6 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 bool application_button_pointer(const WindowEvent& input) noexcept {

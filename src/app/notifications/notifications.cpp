@@ -2,6 +2,7 @@
 #include "../shell/window_state.hpp"
 #include "desktop.hpp"
 #include "notifications.hpp"
+#include "maicord/core/module.hpp"
 #include "../shell/state.hpp"
 #include "../account/friends.hpp"
 #include "../shell/content_input.hpp"
@@ -24,7 +25,6 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../shell/log_fields.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/app/gateway/client.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
@@ -340,7 +340,7 @@ ApplicationNotifications* ensure(Application* a) noexcept {
     }
     n->audio_epoch=1; n->audio_preference=a->preferences.message_sounds_enabled;
     n->current_pack=a->preferences.soundpack;
-    n->sound_assets.module=GetModuleHandleW(nullptr);
+    n->sound_assets.module=module_image();
     // VirtualAlloc zeroes storage; it does not run default member initializers.
     notification_sound_assets_volume(&n->sound_assets,a->preferences.output_volume);
     const NotificationAudioConfig audio_config{notification_sound_asset_resolve,&n->sound_assets,
@@ -779,7 +779,7 @@ void application_notifications_drain(Application* a) noexcept {
     if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) {
         log_write(LogLevel::info,"notifications","activation_channel_unavailable"); return;
     }
-    if(a->window) { window_show(a->window,ShowMode::restore); SetForegroundWindow(win32_hwnd(a->window)); }
+    if(a->window) { window_show(a->window,ShowMode::restore); desktop_window_reveal(a->window); }
     if(!application_navigate_known_message(request.channel_id,request.message_id))
         log_write(LogLevel::warning,"notifications","activation_navigation_failed");
 }

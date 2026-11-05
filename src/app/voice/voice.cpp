@@ -20,7 +20,6 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
 #include "../account/account_ui_runtime.hpp"
