@@ -437,7 +437,11 @@ MessageMarkdownResult finish(Parser* parser) noexcept {
                           : run < parser->ansi_run_count ? parser->ansi_runs[run].begin
                                                           : parser->output_bytes;
         u32 end = offset + 1;
-        while (end < limit && (parser->styles[end] | base_style) == style) {
+        // Each bullet item is its own span: the renderer draws a bullet at the start of a span, so items sharing
+        // flags must not merge across their line breaks.
+        const bool bulleted = (style & text_style_list_bullet) != 0;
+        while (end < limit && (parser->styles[end] | base_style) == style &&
+               !(bulleted && parser->output[end - 1] == '\n')) {
             ++end;
         }
         if (style != 0 || base_size != 0) {

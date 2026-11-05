@@ -1083,7 +1083,12 @@ HRESULT capture_range_decorations(IDWriteTextLayout* layout, ConstSlice<Resolved
             if (begins_line && !list_bullet_emitted && metric.width > 0.0f &&
                 (style.flags & text_style_list_bullet) != 0) {
                 const u32 depth = (style.flags & kTextStyleListDepthMask) >> kTextStyleListDepthShift;
-                const float center_x = metric.left + 5.0f + static_cast<float>(depth) * 8.0f;
+                float size = 0.0f;
+                if (FAILED(layout->GetFontSize(style.range.startPosition, &size))) {
+                    return E_FAIL;
+                }
+                // .75 space (a space is about .27 em) into the marker, two spaces further per nested level.
+                const float center_x = metric.left + (size * 0.27f) * (static_cast<float>(2 * depth) + 0.75f);
                 const float center_y = metric.top + metric.height * 0.5f;
                 if (!append_layout_decoration(output,
                                               TextDecoration{center_x - 2.0f, center_y - 2.0f,

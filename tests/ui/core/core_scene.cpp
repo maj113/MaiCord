@@ -3491,6 +3491,43 @@ void test_text_shaping() noexcept {
     }
     expect(result.ok() && split_list_bullets == 1, "text_shape_list_bullet_once_across_style_partitions");
 
+    // Chat lists: every unordered item (any marker or depth, after a paragraph) gets its own bullet at the
+    // item's line, none for ordered items.
+    {
+        struct ListCase {
+            Utf8View source;
+            u32 bullets;
+        };
+        const ListCase list_cases[] = {
+            {utf8_literal("- hi\n- hi\n- hi"), 3},
+            {utf8_literal("* a\n* b\n* c\n* d"), 4},
+            {utf8_literal("1. one\n2. two\n3. three"), 0},
+            {utf8_literal("- a\n  - b\n  - c\n- d"), 4},
+            {utf8_literal("intro\n- one\n- **two**\n- three `x`\nafter"), 3},
+            {utf8_literal("- one\n1. two\n- three"), 2},
+        };
+        for (const ListCase& item : list_cases) {
+            char list_text[256]{};
+            u32 list_bytes[256]{};
+            TextStyleSpan list_styles[64]{};
+            const MessageMarkdownResult parsed =
+                message_markdown_parse(item.source, Slice<char>{list_text, 256}, Slice<u32>{list_bytes, 256},
+                                       Slice<TextStyleSpan>{list_styles, 64});
+            result = text_shape_utf8(&system, parsed.text, ConstSlice<TextStyleSpan>{list_styles, parsed.span_count},
+                                     300.0f, 400.0f, Slice<wchar_t>{utf16, 256}, &shaped);
+            u32 bullets = 0;
+            float previous_top = -1.0f;
+            bool ordered = parsed.ok() && result.ok();
+            for (u32 index = 0; index < shaped.decoration_count; ++index) {
+                if (shaped.decorations[index].kind != TextDecorationKind::list_bullet) continue;
+                ++bullets;
+                ordered = ordered && shaped.decorations[index].top > previous_top;
+                previous_top = shaped.decorations[index].top;
+            }
+            expect(ordered && bullets == item.bullets, "text_shape_list_bullet_per_item");
+        }
+    }
+
     constexpr TextStyleSpan overlap_spans[] = {
         {0, 4, text_style_bold},
         {3, 2, text_style_italic},

@@ -278,7 +278,9 @@ bool native_styled_decorations(const NativeTextContext& owner,const NativeParagr
         if(!decoration_range(owner,layout,tab_stop,s.first_unit,s.end_unit,[&](const NativeParagraphLine& l,float left,float width) noexcept {
             if(!(l.height>0))return true;
             if(ansi_background&&width>0&&!append(ansi_background_decoration(left,l.top,left+width,l.top+l.height,s.flags,ansi_background)))return false;
-            if(begins_line&&!bullet&&width>0&&(s.flags&text_style_list_bullet)){const float x=left+5+static_cast<float>((s.flags&kTextStyleListDepthMask)>>kTextStyleListDepthShift)*8;const float y=l.top+l.height*.5f;
+            // The bullet's centre is .75 space (a space is about .27 em) into the marker ahead of the item's text, which leaves
+            // a gap before the text; each nested level moves it two spaces right.
+            if(begins_line&&!bullet&&width>0&&(s.flags&text_style_list_bullet)){const u32 depth=(s.flags&kTextStyleListDepthMask)>>kTextStyleListDepthShift;const float x=decoration_add(left,decoration_mul(decoration_mul(s.em,.27f),static_cast<float>(2*depth)+.75f));const float y=l.top+l.height*.5f;
                 if(!append({x-2,y-2,x+2,y+2,s.flags,TextDecorationKind::list_bullet,0,0,0}))return false;bullet=true;}
             return (s.flags&text_style_code_block)||!(s.flags&background_flags)||!(width>0)||append({left-2,l.top-1,left+width+2,l.top+l.height+1,s.flags,TextDecorationKind::background,0,0,0});
         },&boundaries,drawn,omission,omissions))return false;

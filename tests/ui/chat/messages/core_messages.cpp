@@ -144,6 +144,16 @@ void test_message_markdown() noexcept {
                (styles[19] & text_style_list) != 0 && (styles[19] & text_style_list_bullet) == 0,
            "message_markdown_unordered_nested_and_ordered_lists");
 
+    // Items with equal flags must not merge into one span: the renderer draws one bullet per span start.
+    result = parse(utf8_literal("- hi\n- hi\n- hi"));
+    expect(markdown_text_equal(result, utf8_literal("  hi\n  hi\n  hi")) && result.list_items == 3 &&
+               result.span_count == 3 && spans[0].byte_offset == 0 && spans[0].byte_count == 5 &&
+               spans[1].byte_offset == 5 && spans[1].byte_count == 5 && spans[2].byte_offset == 10 &&
+               spans[2].byte_count == 4 &&
+               spans[0].flags == spans[1].flags && spans[1].flags == spans[2].flags &&
+               (spans[2].flags & text_style_list_bullet) != 0,
+           "message_markdown_each_bullet_item_is_its_own_span");
+
     u32 limited_styles[32]{};
     const CodeHighlightResult limited = code_highlight(
         utf8_literal("int value = 42; // comment"), CodeLanguage::cpp, Slice<u32>{limited_styles, 32}, 2);
