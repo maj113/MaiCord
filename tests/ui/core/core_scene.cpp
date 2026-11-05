@@ -1959,6 +1959,60 @@ void test_member_list_scene() noexcept {
                "member_nameplate_child_hover_matches_row_hover");
         expect(stale_ok && media_asset_key_equal(idle.key, stale.key),
                "member_nameplate_stale_hover_uses_static_media");
+        // Avatar decorations: a still at the drawn pixel size at rest (an animated preset is returned at its
+        // native 288 px whatever size says), the animation only under the pointer, its still kept behind it.
+        {
+            UserAppearance ornament{};
+            ornament.user_id = hit.user_id;
+            ornament.fields = appearance_decoration;
+            constexpr auto asset = utf8_literal("a_0123456789abcdef0123456789abcdef");
+            copy_bytes(ornament.decoration.data, asset.data, asset.bytes);
+            ornament.decoration.bytes = static_cast<u16>(asset.bytes);
+            const bool decorated = user_appearance_upsert(&users.appearance, ornament);
+            const auto drawn_size = [](const ProfileMedia& media) noexcept {
+                const Utf8View url = media.url.view();
+                u32 size = 0;
+                for (u32 i = 0; i + 5 < url.bytes; ++i)
+                    if (url.data[i] == 's' && url.data[i + 1] == 'i' && url.data[i + 2] == 'z' &&
+                        url.data[i + 3] == 'e' && url.data[i + 4] == '=')
+                        for (u32 j = i + 5; j < url.bytes && url.data[j] >= '0' && url.data[j] <= '9'; ++j)
+                            size = size * 10 + static_cast<u32>(url.data[j] - '0');
+                return size;
+            };
+            const auto ends_with = [](const ProfileMedia& media, Utf8View tail) noexcept {
+                const Utf8View url = media.url.view();
+                return url.bytes >= tail.bytes &&
+                       utf8_equal({url.data + url.bytes - tail.bytes, tail.bytes}, tail);
+            };
+            const bool saved_motion_off = scene.system_animation_off;
+            scene.system_animation_off = false;
+            scene.widgets.hovered = ui_widget_invalid_handle();
+            ProfileMedia rest{}, rest_still{}, under{}, under_still{}, high_dpi{};
+            const bool rest_ok = decorated && member_media_resolve(scene, index, MemberMedia::decoration, &rest);
+            const bool rest_has_no_still =
+                !member_media_resolve(scene, index, MemberMedia::decoration_still, &rest_still);
+            scene.widgets.hovered = scene.rows[index].widget;
+            const bool under_ok = decorated && member_media_resolve(scene, index, MemberMedia::decoration, &under);
+            const bool still_ok = member_media_resolve(scene, index, MemberMedia::decoration_still, &under_still);
+            scene.widgets.hovered = ui_widget_invalid_handle();
+            scene.media_dpi = 192;
+            const bool dpi_ok = member_media_resolve(scene, index, MemberMedia::decoration, &high_dpi);
+            scene.media_dpi = 96;
+            scene.system_animation_off = saved_motion_off;
+            const float width = ui_rect_width(rest.rectangle);
+            const u32 at_rest = drawn_size(rest);
+            expect(rest_ok && rest_has_no_still && ends_with(rest, utf8_literal("&passthrough=false")) &&
+                       !(rest.key.flags & media_asset_flag_animated) && at_rest >= width && at_rest < 2 * width &&
+                       at_rest < 288,
+                   "member_decoration_at_rest_is_a_still_at_the_drawn_size_not_the_native_288");
+            expect(under_ok && still_ok && ends_with(under, utf8_literal("&passthrough=true")) &&
+                       (under.key.flags & media_asset_flag_animated) && ends_with(under_still, utf8_literal("&passthrough=false")) &&
+                       media_asset_key_equal(under_still.key, rest.key),
+                   "member_decoration_animates_under_the_pointer_and_keeps_its_still_key");
+            expect(dpi_ok && drawn_size(high_dpi) >= 2 * width && drawn_size(high_dpi) > at_rest &&
+                       !media_asset_key_equal(high_dpi.key, rest.key),
+                   "member_decoration_size_follows_the_display_dpi_with_its_own_key");
+        }
         scene.widgets.hovered = old_hover;
         user_appearance_release(&users.appearance);
     }

@@ -56,6 +56,16 @@ bool asset(const Utf8View& value) noexcept {
 bool animated_hash(const Utf8View& hash) noexcept {
     return hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
 }
+// The smallest CDN `size` covering `dips` at `dpi`: powers of two from 16 and the other documented
+// sizes between (Userdoccers, CDN parameters), so an ornament takes the pixels it is drawn at.
+u32 cdn_display_size(float dips, u32 dpi) noexcept {
+    const u32 pixels = static_cast<u32>(dips * static_cast<float>(dpi ? dpi : 96u) / 96.f + .999f);
+    static constexpr u16 sizes[] = {16, 20, 22, 24, 28, 32, 40, 44, 48, 56, 60, 64, 80, 96, 100, 128, 160};
+    for (const u16 size : sizes)
+        if (size >= pixels)
+            return size;
+    return sizes[sizeof(sizes) / sizeof(sizes[0]) - 1];
+}
 // The key of an image fetched from `url`.
 MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat format, bool animated) noexcept {
     auto key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0, MediaEmbedResource::image,
@@ -342,18 +352,19 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     auto format = MediaAttachmentFormat::webp;
     bool animated = false;
     Utf8View hash{};
+    // Compare against this row's widgets directly instead of searching all
+    // materialized rows for the hovered widget.
+    const u32 hovered = widget_bits(s.widgets.hovered);
+    const bool row_hovered = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
+                              widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&
+                             ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
     if (layer == MemberMedia::nameplate || layer == MemberMedia::nameplate_still) {
         const auto* a = guild && (guild->fields & appearance_nameplate) ? guild : global;
         if (!a || !a->nameplate_sku)
             return false;
         append(&url, utf8_literal("media/v1/collectibles-shop/"));
         id(&url, a->nameplate_sku);
-        // Compare against this row's widgets directly instead of searching all
-        // materialized rows for the hovered widget.
-        const u32 hovered = widget_bits(s.widgets.hovered);
-        animated = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
-                    widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&
-                   ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
+        animated = row_hovered;
         // The still behind a hovered row's animation: drawn while the animated variant is not
         // resident (so the nameplate never blinks out on hover) and kept pinned with it.
         if (layer == MemberMedia::nameplate_still) {
@@ -377,17 +388,26 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         format = MediaAttachmentFormat::png;
         const auto badge = member_list_badge_resolve(s, index);
         result.rectangle = ui_badge_geometry(badge, s.widgets).icon;
-    } else if (layer == MemberMedia::decoration) {
+    } else if (layer == MemberMedia::decoration || layer == MemberMedia::decoration_still) {
         const auto* a = guild && (guild->fields & appearance_decoration) ? guild : global;
         if (!a || !asset(a->decoration.view()))
             return false;
-        append(&url, utf8_literal("avatar-decoration-presets/"));
-        append(&url, a->decoration.view());
-        append(&url, utf8_literal(".png?size=96&passthrough=true"));
-        format = MediaAttachmentFormat::png;
-        animated = animated_hash(a->decoration.view());
+        // Like the nameplate: a still at the drawn size at rest, the animation only under the pointer
+        // (the CDN returns an animated preset at its native 288 px whatever `size` says).
+        animated = animated_hash(a->decoration.view()) && row_hovered;
+        if (layer == MemberMedia::decoration_still) {
+            if (!animated)
+                return false;
+            animated = false;
+        }
         result.rectangle = {avatar->rectangle.left - 4, avatar->rectangle.top - 4,
                             avatar->rectangle.right + 4, avatar->rectangle.bottom + 4};
+        append(&url, utf8_literal("avatar-decoration-presets/"));
+        append(&url, a->decoration.view());
+        append(&url, utf8_literal(".png?size="));
+        id(&url, cdn_display_size(ui_rect_width(result.rectangle), s.media_dpi));
+        append(&url, animated ? utf8_literal("&passthrough=true") : utf8_literal("&passthrough=false"));
+        format = MediaAttachmentFormat::png;
     } else {
         // Only a per-guild avatar needs its own URL identity. Plain avatars use
         // the shared user-avatar key (member_plain_avatar_resolve), so the

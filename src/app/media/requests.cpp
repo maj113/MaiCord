@@ -403,11 +403,11 @@ u32 ApplicationMediaPump::yield_decorative_media(const MediaAssetKey& key) noexc
     if (!application.member_list_scene.active || upload_atlas(key) != application.renderer.media_atlas)
         return 0;
     static constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::nameplate_still,
-                                             MemberMedia::decoration};
-    MediaAssetKey decorative[192];
+                                             MemberMedia::decoration, MemberMedia::decoration_still};
+    MediaAssetKey decorative[256];
     u32 count = 0;
     const auto& members = application.member_list_scene;
-    for (u32 i = 0; i < members.count && count + 3 <= 192; ++i)
+    for (u32 i = 0; i < members.count && count + 4 <= 256; ++i)
         for (const MemberMedia layer : layers) {
             MemberMediaPlacement placed{};
             if (member_media_place(members, i, layer, &placed))

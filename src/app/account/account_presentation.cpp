@@ -402,6 +402,7 @@ bool synchronize_shell_widget_scenes() noexcept {
             g_app.account_ui ? &g_app.account_ui->text_measure_cache : nullptr;
         g_app.member_list_scene.media_cache =
             g_app.account_ui ? &g_app.account_ui->member_media_cache : nullptr;
+        g_app.member_list_scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
         const u32 member_rebuilds = g_app.member_list_scene.rebuilds;
         UiRect member_viewport = !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{};
         UiPluginSlotNode member_header;

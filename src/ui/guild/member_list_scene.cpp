@@ -517,6 +517,7 @@ u64 member_media_stamp(const MemberListScene& s) noexcept {
     h = hash64_mix(h, s.users->activities.revision);
     h = hash64_mix(h, s.members ? s.members->revision : 0);
     h = hash64_mix(h, s.measure ? s.measure->generation : 0);
+    h = hash64_mix(h, s.media_dpi); // The requested ornament size follows it.
     return h | 1;
 }
 

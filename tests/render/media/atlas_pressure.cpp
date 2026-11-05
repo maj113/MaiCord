@@ -1,4 +1,5 @@
 #include "maicord/app/media/message_media_controller.hpp"
+#include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/app/media/capacity_deferral.hpp"
 #include "../../support/message_media_controller_fixture.hpp"
 #include "maicord/render/media/animation_frame_cache_gpu.hpp"
@@ -354,6 +355,51 @@ void test_capacity_deferral(void (*check)(bool, const char*) noexcept) noexcept 
     check(early && due && asked == 9, "capacity_deferral_minimum_backoff_bounds_a_wrong_prediction");
 }
 
+// The reporter's card: Scully_Dog's profile over a member list of nameplates and animated decorations. The
+// ornaments were fetched at the CDN's native 288 px (an animated preset ignores `size`) though drawn at about
+// 56 px, so 16 visible decorations held three 290 px shelves and, with the card's banner, avatar and
+// 450x880 effect layers, the visible set needed 2,223 of the 2,048 px: the banner and the effect never
+// loaded. Requested at the drawn size (a still at rest, the animation only under the pointer) the same set
+// needs 1,735 px and fits without evicting anything visible.
+void test_profile_card_over_member_list(void (*check)(bool, const char*) noexcept) noexcept {
+    static SessionAtlas session;
+    struct Outcome {
+        bool ready;
+        u32 refused;
+        u32 evicted;
+        u32 shelves;
+    };
+    const auto open_card = [&](u16 decoration) noexcept {
+        Outcome outcome{session.ready(app_detail::kMediaAtlasExtent), 0, 0, 0};
+        session.fill(16, decoration, decoration, &outcome.ready); // member decorations
+        session.fill(16, 64, 64, &outcome.ready);                 // member avatars
+        session.fill(12, 448, 84, &outcome.ready);                // nameplates
+        media_atlas_begin_visibility(&session.atlas);
+        for (u64 id = 1; outcome.ready && id <= session.serial; ++id)
+            outcome.ready = media_atlas_find(&session.atlas, profile_image_key(id)).ok();
+        const u32 evicted_before = session.atlas.allocations.evicted_entries;
+        struct Picture {
+            u16 width, height;
+            u32 count;
+        };
+        // The card: banner, avatar, decoration, then the effect's layers.
+        static constexpr Picture card[] = {{600, 211, 1}, {256, 256, 1}, {128, 128, 1}, {450, 880, 4}};
+        for (const Picture& picture : card)
+            for (u32 i = 0; i < picture.count; ++i)
+                outcome.refused += !media_atlas_allocate(&session.atlas, profile_image_key(100'000 + ++session.serial),
+                                                         picture.width, picture.height)
+                                        .ok();
+        outcome.evicted = session.atlas.allocations.evicted_entries - evicted_before;
+        outcome.shelves = session.atlas.allocations.next_y;
+        return outcome;
+    };
+    const Outcome native = open_card(288);
+    const Outcome display = open_card(56);
+    check(native.ready && native.refused == 4 && native.shelves == 1'341 && display.ready && display.refused == 0 &&
+              display.evicted == 0 && display.shelves == 1'735 && display.shelves <= app_detail::kMediaAtlasExtent,
+          "atlas_profile_card_over_member_list_fits_once_ornaments_are_requested_at_display_size");
+}
+
 void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     MediaAtlas atlas{};
     MediaAtlasEntry entries[16]{};
@@ -466,5 +512,6 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     test_decorative_yield(check);
     test_atlas_compaction(check);
     test_capacity_deferral(check);
+    test_profile_card_over_member_list(check);
 }
 }

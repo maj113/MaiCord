@@ -1341,10 +1341,15 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         if (user)
                             find_user_avatar(*renderer, *user, &allocation);
                     }
-                    if (!allocation.ok() && layer == static_cast<u32>(MemberMedia::nameplate)) {
-                        // A hovered row's animated nameplate still loading keeps its still.
+                    if (!allocation.ok() && (layer == static_cast<u32>(MemberMedia::nameplate) ||
+                                             layer == static_cast<u32>(MemberMedia::decoration))) {
+                        // A hovered row's animated ornament still loading keeps its still.
                         MemberMediaPlacement still{};
-                        if (member_media_place(member_scene, index, MemberMedia::nameplate_still, &still))
+                        if (member_media_place(member_scene, index,
+                                               layer == static_cast<u32>(MemberMedia::nameplate)
+                                                   ? MemberMedia::nameplate_still
+                                                   : MemberMedia::decoration_still,
+                                               &still))
                             allocation = media_atlas_find(renderer->media_atlas, still.key);
                     }
                 } else if (layer == static_cast<u32>(MemberMedia::avatar)) {

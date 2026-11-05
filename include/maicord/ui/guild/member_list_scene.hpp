@@ -89,6 +89,8 @@ struct MemberListScene {
     bool active;
     // Windows' client-area animation setting reported off, published by the app with its cached copy.
     bool system_animation_off;
+    // The display's DPI, for the pixel size ornaments are requested at (0: 96).
+    u16 media_dpi;
     void (*viewport_changed)(void*) noexcept;
     void* viewport_context;
 };
