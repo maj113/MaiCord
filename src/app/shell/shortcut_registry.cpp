@@ -3,6 +3,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
@@ -148,8 +149,8 @@ Utf8View named_key(u8 key) noexcept {
     case key::alt: return utf8_literal("Alt");
     case key::left_alt: return utf8_literal("Left Alt");
     case key::right_alt: return utf8_literal("Right Alt");
-    case key::left_super: return utf8_literal("Left Windows");
-    case key::right_super: return utf8_literal("Right Windows");
+    case key::left_super: return MAICORD_OS_TEXT("Left Windows", "Left Super");
+    case key::right_super: return MAICORD_OS_TEXT("Right Windows", "Right Super");
     case key::lbutton: return utf8_literal("Left mouse");
     case key::rbutton: return utf8_literal("Right mouse");
     case key::mbutton: return utf8_literal("Middle mouse");
@@ -410,7 +411,8 @@ Utf8View custom_keybind_error_text(CustomKeybindError error) noexcept {
     case CustomKeybindError::needs_modifier:
         return utf8_literal("Add Ctrl or Alt, or use a function key, so typing doesn't trigger it.");
     case CustomKeybindError::reserved: return utf8_literal("A built-in shortcut already uses those keys.");
-    case CustomKeybindError::system: return utf8_literal("Typing or Windows already uses those keys.");
+    case CustomKeybindError::system: return MAICORD_OS_TEXT("Typing or Windows already uses those keys.",
+                                                            "Typing or your desktop already uses those keys.");
     case CustomKeybindError::duplicate: return utf8_literal("Another keybind already uses those keys.");
     case CustomKeybindError::full: return utf8_literal("You've reached the keybind limit.");
     default: return {};

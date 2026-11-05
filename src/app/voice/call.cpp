@@ -401,9 +401,9 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     };
     callbacks.release = +[](void*, VideoStreamFrame* frame) noexcept {
         if (frame) {
-            com_release(frame->gpu.chroma);
-            com_release(frame->gpu.luma);
-            com_release(frame->gpu.texture);
+            gpu_release(frame->gpu.chroma);
+            gpu_release(frame->gpu.luma);
+            gpu_release(frame->gpu.texture);
         }
     };
     callbacks.wanted = +[](void*, u64 user_id, bool wanted) noexcept {

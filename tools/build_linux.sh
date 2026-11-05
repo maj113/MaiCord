@@ -5,6 +5,7 @@
 #   tools/build_linux.sh --test                also build and run every registered test with ctest
 #   tools/build_linux.sh --test a b            only the ctest cases named a and b
 #   tools/build_linux.sh --test --keep         keep objects, ninja state and compile_commands.json (incremental)
+#   tools/build_linux.sh --symbols             keep the symbol table in MaiCord (nm, bloaty, profilers); it ships stripped
 #   tools/build_linux.sh --check               configure and build only; no audit, no tests
 #   tools/build_linux.sh --sync | --in-place   copy the repository to ext4 first / build the checkout where it is
 #   tools/build_linux.sh --timeout-scale N     multiply every test timeout by N (slow hosted runners)
@@ -25,7 +26,9 @@
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
 #             cmake/build_contract_linux.cmake is the contract; cmake/linux_libraries.cmake and
-#             cmake/linux_tests.cmake list what builds.
+#             cmake/linux_tests.cmake list what builds. Size is the Windows client's: cmake/size_policy.cmake (-Oz and
+#             helper folding per source), the machine outliner, --icf=all, --gc-sections, packed relocations, and the
+#             client is linked stripped (--symbols keeps its symbol table for nm and profilers).
 #   Image     A dynamic PIE with its own _start (src/core/linux/start.cpp): no CRT, raw syscalls, DT_NEEDED
 #             libc.so.6 libdl.so.2 libpthread.so.0 as generated stubs (tools/generate_libc_stubs.py) that pin
 #             GLIBC_2.2.5 and GLIBC_2.17; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).
@@ -55,6 +58,7 @@ llvm_major="${MAICORD_LLVM_MAJOR:-23}"
 run_tests=0
 keep=0
 check_only=0
+symbols=OFF
 test_names=()
 
 while [ "$#" -gt 0 ]; do
@@ -72,6 +76,7 @@ while [ "$#" -gt 0 ]; do
             done
             ;;
         --keep) keep=1; shift ;;
+        --symbols) symbols=ON; shift ;;
         --check) check_only=1; shift ;;
         --jobs) jobs="$2"; shift 2 ;;
         --sync) sync_mode=sync; shift ;;
@@ -168,6 +173,7 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DMAICORD_BUILD_TESTS="$([ "$run_tests" = 1 ] && echo ON || echo OFF)" \
     -DMAICORD_TEST_TIMEOUT_SCALE="$timeout_scale" \
+    -DMAICORD_KEEP_SYMBOLS="$symbols" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS="$([ "$keep" = 1 ] && echo ON || echo OFF)"
 
 started="$(date +%s%N)"

@@ -59,6 +59,7 @@ export MAICORD_DBUS_REAL=1
 cat > "$out/sway.conf" <<EOF
 output * resolution 1280x720
 default_border none
+xwayland disable
 bar {
     position top
     height 32

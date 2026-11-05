@@ -245,6 +245,8 @@ void test_stat_and_identity() noexcept {
     check(file_snapshot_read(other, &other_snapshot, &error) &&
               !file_identity_equal(snapshot.identity, other_snapshot.identity),
           "snapshot identity differs between files");
+    check(snapshot.identity.reserved == 0 && snapshot.identity.index != 0 && snapshot.identity.last_write != 0,
+          "a snapshot's reserved field is zero (the theme import refuses an identity that holds anything there)");
     file_close(file);
     file_close(same);
     file_close(other);

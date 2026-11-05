@@ -30,6 +30,31 @@ maicord_test(MaiCordOsProcessTests ENTRY maicord_os_process_entry SOURCES tests/
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_os_process)
 maicord_test(MaiCordLinuxResourceTests ENTRY maicord_linux_resource_entry SOURCES tests/core/linux_resource.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 10 TEST maicord_linux_resource)
+# The files seam's path policy (include/maicord/os/path.hpp) and the shared code that asks it, on a Linux profile.
+maicord_test(MaiCordPathPolicyTests ENTRY maicord_path_policy_entry SOURCES tests/os/path_policy.cpp
+    LIBS ${maicord_linux_app_test_libs} TIMEOUT 20 TEST maicord_path_policy)
+# The settings catalog's Linux wording (no row names Windows) and the rows this system leaves out.
+maicord_test(MaiCordLinuxCatalogTextTests ENTRY maicord_linux_catalog_text_entry
+    SOURCES tests/app/settings/linux_catalog_text.cpp
+    LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+    TIMEOUT 10 TEST maicord_linux_catalog_text)
+# Push to talk through the GlobalShortcuts portal while a call is open (src/app/voice/push_to_talk_binding.cpp).
+maicord_test(MaiCordPushToTalkBindingTests ENTRY maicord_push_to_talk_binding_entry
+    SOURCES tests/app/voice/push_to_talk_binding.cpp
+    LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+    TIMEOUT 10 TEST maicord_push_to_talk_binding)
+# The termination signals as a loop event (src/app/linux/shutdown_signal.cpp), and the minimum window size that follows
+# the layout (src/app/shell/window.cpp: sign-in, main layout, panes).
+maicord_test(MaiCordLinuxQuitSignalTests ENTRY maicord_linux_quit_signal_entry
+    SOURCES tests/app/shell/linux_quit_signal.cpp src/app/linux/shutdown_signal.cpp
+    LIBS maicord_core INCLUDES src/app
+    TIMEOUT 10 TEST maicord_linux_quit_signal)
+maicord_test(MaiCordLinuxWindowMinimumTests ENTRY maicord_linux_window_minimum_entry
+    SOURCES tests/app/shell/linux_window_minimum.cpp src/app/shell/state.cpp src/app/shell/window.cpp
+    LIBS maicord_core maicord_window_null maicord_protocol maicord_model maicord_app_client maicord_ui
+        ${maicord_linux_app_test_libs}
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_linux_window_minimum)
 # Startup and protocol registration write under XDG_CONFIG_HOME and XDG_DATA_HOME: scratch directories.
 maicord_test(MaiCordLinuxIntegrationTests ENTRY maicord_linux_integration_entry
     SOURCES tests/platform/desktop/linux_integration.cpp

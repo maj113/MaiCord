@@ -21,6 +21,7 @@ maicord_linux_data_path_home
 maicord_linux_data_path_relative_xdg
 maicord_linux_cache_state_xdg
 maicord_linux_cache_state_home
+maicord_linux_quit_signal
 # crypto and TLS (OpenSSL through dlopen; s_server of the container's openssl for the TLS cases)
 maicord_crypto
 maicord_secure_buffer

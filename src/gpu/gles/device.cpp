@@ -460,6 +460,10 @@ void gpu_device_prestart(GpuDevicePrestartContinuation continuation) {
     }
 }
 
+void gpu_device_prestart_wait() {
+    gles::claim_context();
+}
+
 void gpu_device_prestart_finish() {
     using namespace gles;
     if (!g_prestart.ready)
@@ -492,6 +496,7 @@ void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {
     }
     gles::unload_libraries(&d);
     clear_bytes(&d, static_cast<u32>(sizeof(d)));
+    gles::g_prestarted_device = false;
     if (out_device)
         *out_device = nullptr;
     if (out_context)

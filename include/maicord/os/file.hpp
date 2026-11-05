@@ -4,6 +4,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/os/path.hpp"
 #include "maicord/os/wait.hpp"
 
 // Files, directories and file mappings (D17): open, read, write, atomic replace, identity, enumeration,
@@ -22,7 +23,8 @@
 // On Windows a FileHandle is the HANDLE and every function is an inline forwarder to the Win32 call
 // (maicord/os/windows/file.inl), so a call site compiles to the same imports. On Linux it is a tagged
 // pointer-sized token over a file descriptor (nullptr = none, INVALID_HANDLE_VALUE = failed open); the bodies are
-// in src/os/linux/file.cpp and directory.cpp.
+// in src/os/linux/file.cpp and directory.cpp. maicord/os/path.hpp is the path policy that goes with them: which
+// paths are absolute (a drive or UNC root on Windows, '/' on Linux) and where a path's last component starts.
 
 namespace maicord {
 

@@ -163,8 +163,8 @@ has the same rules in more detail.
   `src/gpu/gles/video_planes.cpp`) and falls to the software tier (`src/platform/decode/software`, `libdav1d.so.7`/`.6`
   for AV1 and `libopenh264.so.7`/`.6`/`.8` for H.264, 8-bit 4:2:0, CPU planes uploaded as textures) when the probe lists
   no hardware codec or the hardware gives up on a stream (the profile, an AV1 stream with film grain, three failed
-  pictures in a row). There is no software HEVC, and software H.264 refuses a stream that has B slices (OpenH264 returns
-  pictures in decode order). `video_capability.hpp` turns the probes into what the client advertises to Discord: on
+  pictures in a row). There is no software HEVC, and the live software tier refuses a stream that has B slices
+  (OpenH264 returns pictures in decode order there). `video_capability.hpp` turns the probes into what the client advertises to Discord: on
   Linux only codecs that can be decoded, hardware ones first, H.264 offered only when some tier decodes it; Windows is
   unchanged. Environment: `MAICORD_VAAPI=off`, `MAICORD_VAAPI_LIBRARY`, `MAICORD_VAAPI_DRM_LIBRARY`,
   `MAICORD_VAAPI_DEVICE` (a render node), `MAICORD_DAV1D_LIBRARY`, `MAICORD_OPENH264_LIBRARY`. `python
@@ -173,9 +173,25 @@ has the same rules in more detail.
   run by the build) writes `tests/fixtures/video` and the slice-header oracle. The tests: `maicord_video_software`
   (exact against libavcodec), `maicord_video_stream_software` (decode, plane import and the GLES conversion, read back
   against a CPU reference), `maicord_vaapi_parameters` (every VA parameter against the DXVA builders' output and the
-  libavcodec oracle), `maicord_video_hardware_tier` (tier choice, the fallback and a VA session against a recording
-  libva) and `maicord_video_capability`. No test decodes through a real VA-API driver (WSL has no `/dev/dri`): decode on
-  Intel, AMD and NVIDIA, the dma-buf export and import and the sync between VA and GL stay to be validated on hardware.
+  libavcodec oracle), `maicord_video_hardware_tier` (tier choice, the fallback, a VA session against a recording libva and
+  the VA submission of movie samples) and `maicord_video_capability`. No test decodes through a real VA-API driver (WSL
+  has no `/dev/dri`): decode on Intel, AMD and NVIDIA, the dma-buf export and import and the sync between VA and GL stay
+  to be validated on hardware.
+  Attachment and embed movies (MP4 and MOV, plain and fragmented; the media worker and `account_video_session` are the
+  Windows code) play through the Linux `mp4_decoder.hpp` (`src/platform/decode/linux/mp4_decoder.cpp`): the Windows
+  container rules (reads, seeks to the IDR, loop, edit lists, progressive sources) over `h264_file_decoder.cpp` and
+  `hevc_file_decoder.cpp`, which are the Windows `h264_gpu_decoder.cpp` and `hevc_gpu_decoder.cpp` with the DXVA decoder
+  replaced by VA-API (`vaapi/va_file.cpp` builds a movie sample's buffers) and, for H.264 only, by libopenh264 when the
+  driver has no profile for the stream or its first picture does not decode, export and import (the tier is chosen when
+  the decoder is created). A movie decodes in presentation order on both tiers; libopenh264 is the reorderer on the
+  software tier (`software_decoder_create(codec, true)`), and decodes some CABAC B pictures a few blocks off the
+  standard's (39 to 47 dB against libavcodec on the fixtures), so only the live path refuses B slices. HEVC movies need a
+  VA-API driver with HEVC Main: without one they are an unsupported backend. AAC is the in-house decoder. The tests
+  (`tools/generate_mp4_fixtures.py` writes `tests/fixtures/mp4`): `maicord_mp4_decoder_linux` (pictures with their times,
+  loop, seek, selected reads, the fragment cursor, the AAC track against libavcodec), `maicord_account_video_playback`
+  (the player's session paced by the clock: play, seek, replay), `maicord_local_video_preview` (the composer's local
+  attachment poster) and the opt-in `maicord_video_playback_audio` (a movie's AAC track into a sound server, run by
+  `tools/test_pulse_audio.sh`).
   Files and sockets are neutral seams too: `include/maicord/os/file.hpp` (open, read, write, atomic replace, identity,
   enumeration, directory watch, mmap; errors in `thread_last_error()`, Windows inline forwarders, Linux bodies in
   `src/os/linux`) and `include/maicord/platform/net` (`NetworkAddress` and `network_last_error()` instead of `sockaddr`
@@ -308,6 +324,38 @@ has the same rules in more detail.
   compositor; screenshot, idle CPU, wakeups, RSS, binary size) and `tools/client_flow.py` (clicks over
   `tools/wayland_pointer.py`, typing, scale and window commands, screenshots) run it with a private empty profile;
   `GALLIUM_DRIVER=d3d12` selects WSL's GPU, and WSLg's Weston has no screencopy (nested sway is the screenshot path).
+  Shared code asks the files seam's path policy (`include/maicord/os/path.hpp`) whether a path is absolute (`path_root`: a
+  drive or UNC root on Windows, `/` on Linux), where its last component starts (`path_leaf_start`) and whether a Linux name
+  may hold its characters (`path_plain`), never a drive-letter test of its own (`maicord_path_policy` runs on both systems).
+  Text that names the system goes through `MAICORD_OS_TEXT("Windows ...", "your desktop ...")` (`core/os_text.hpp`) and, for
+  the settings catalog, the Linux table in `catalog.cpp`; a row with nothing behind it on Linux is
+  `settings_binding_unavailable` (the Windows notification page, the voice processing switch).
+  `maicord_linux_catalog_text` and `tools/check_linux_ui_text.py` fail when shown text names Windows on Linux. SIGTERM,
+  SIGINT and SIGHUP are blocked at the entry and read from a `signalfd` (`src/app/linux/shutdown_signal.cpp`): the main loop
+  answers them like Quit, so the normal exit saves what a close saves (`maicord_linux_quit_signal`;
+  `tools/test_client_wayland.sh --terminate TERM` checks it on the real client). Wayland keeps only the last
+  `xdg_toplevel.set_min_size`, so the loop calls `application_window_refresh_minimum_size()` every turn (the sign-in form and
+  the main layout differ; `maicord_linux_window_minimum`). `tools/audit_linux_reachability.sh` links a copy without LTO with
+  `--no-gc-sections -Map` and with `--print-gc-sections` and lists the code no path from `_start` reaches, by source file.
+  Push to talk beyond the focused window is the GlobalShortcuts portal (`app/voice/push_to_talk_binding.cpp`, bound while a
+  call is open in push-to-talk mode; `maicord_push_to_talk_binding`), and the portal's interface and monospace fonts reach the
+  text system through `application_platform_desktop_fonts()` (`src/app/linux/desktop_fonts.cpp`) before the first text.
+  What the last audit left unreachable on purpose: the accessibility server (`src/ui/accessibility`, AT-SPI is not written),
+  the PE plugin loader, the updater's swap (until the channels carry the tarball), speech and WebAuthn (no Linux engine), the
+  Windows notification settings page and the voice processing switch (`settings_binding_unavailable`); the rest is test-only code.
+  The Linux client is held to the Windows client's size (6.47 MB stripped against `MaiCord.exe`'s 6.49 MB; report a
+  change in either). The one list of size-compiled sources is `cmake/size_policy.cmake` (Windows and Linux paths side by
+  side; `client.cmake` and `linux_client.cmake` include it): `-Oz -moutline` per source, `-finline-functions` (`/Ob2`) for
+  those that fold, against the contract's `-mno-outline`, `-finline-hint-functions` (`/Ob1`) and the link-time
+  `-enable-machine-outliner`; a new `src/app` unit is size-compiled on Linux by default (the Gateway dispatch, media, voice
+  and frame-loop units Windows keeps at `/O2` are excluded by name there). Images link `--icf=all --gc-sections`, pack
+  their relative relocations as RELR under the Android tags (no glibc knows them, so no loader applies them and
+  `src/core/linux/start.cpp` does, on every glibc from 2.17; glibc's own `DT_RELR` would need 2.36 and a version
+  dependency) and `MaiCord` is linked `--strip-all` (`build_linux.sh --symbols` keeps the table for `llvm-nm -S --size-sort`).
+  `tools/linux_memory_report.py PID` splits a running client's resident memory by mapping: at the login screen the program
+  is about 7 MB (its image, arenas, buffers) and the rest is Mesa (llvmpipe's LLVM alone is 60 MB; an EGL context with
+  one compute shader and one draw is already 110 MB), which the client cannot shrink but does not leave dirty: the GLES
+  backend calls `heap_trim()` (`malloc_trim`) after it builds a shader, taking back the compiler's freed blocks (12 MB).
 
 ## Code rules
 

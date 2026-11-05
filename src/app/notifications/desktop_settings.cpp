@@ -1,4 +1,5 @@
 #include "desktop.hpp"
+#include "maicord/core/os_text.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
@@ -39,7 +40,8 @@ bool application_desktop_settings_project(SettingBinding binding, UiSettingsCont
         observe(false);
         control->checked = g_registered.startup == DesktopRegistration::ours;
         if (g_registered.startup_failed)
-            control->description = utf8_literal("Windows didn't save this change. Try again.");
+            control->description = MAICORD_OS_TEXT("Windows didn't save this change. Try again.",
+                                                   "Couldn't save this change. Try again.");
         return true;
     case SettingBinding::start_minimized:
         observe(false);
@@ -55,7 +57,8 @@ bool application_desktop_settings_project(SettingBinding binding, UiSettingsCont
         observe(false);
         control->checked = g_registered.protocol == DesktopRegistration::ours;
         if (g_registered.protocol_failed)
-            control->description = utf8_literal("Windows didn't save this change. Try again.");
+            control->description = MAICORD_OS_TEXT("Windows didn't save this change. Try again.",
+                                                   "Couldn't save this change. Try again.");
         else if (g_registered.protocol == DesktopRegistration::other)
             control->description = utf8_literal("Another app opens discord:// links. Turn this on to use MaiCord.");
         return true;

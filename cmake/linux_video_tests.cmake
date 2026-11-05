@@ -56,3 +56,46 @@ maicord_test(MaiCordVideoHardwareTierTests ENTRY maicord_video_hardware_tier_ent
     LIBS maicord_video_decode maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core
     INCLUDES src
     TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_hardware_tier)
+
+# The movie decoder of attachments (mp4_decoder.hpp) with the software tier forced: movies from
+# tools/generate_mp4_fixtures.py against libavformat's and libavcodec's pictures and PCM. The AAC decoder is the
+# Linux one (maicord_aac_decoder).
+maicord_test(MaiCordMp4DecoderLinuxTests ENTRY maicord_mp4_decoder_linux_entry
+    SOURCES tests/platform/decode/mp4_decoder_linux.cpp
+    LIBS maicord_video_decode maicord_aac_decoder maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles
+        maicord_video_software maicord_compression maicord_media_codec maicord_core
+    INCLUDES src
+    TIMEOUT 30 ENV MAICORD_VAAPI=off TEST maicord_mp4_decoder_linux)
+set_tests_properties(maicord_mp4_decoder_linux PROPERTIES SKIP_RETURN_CODE 77)
+
+# The media player's session (src/app/media/account_video_session*.cpp, the Windows code) over that decoder: a movie
+# played by the clock, seeked and replayed, every picture converted and compared. --audio (the opt-in
+# maicord_video_playback_audio, against a sound server: tools/test_pulse_audio.sh) plays the AAC track into a server.
+maicord_test(MaiCordAccountVideoPlaybackTests ENTRY maicord_account_video_playback_entry
+    SOURCES tests/app/media/account_video_playback_linux.cpp src/app/media/account_video_session.cpp
+        src/app/media/account_video_session_audio.cpp tests/platform/audio/window_post_stub.cpp
+    LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video maicord_gpu_gles_shaders
+        maicord_gpu_gles maicord_video_software maicord_media_core maicord_media_codec maicord_compression maicord_core
+    INCLUDES src src/app
+    TIMEOUT 60 ENV MAICORD_VAAPI=off TEST maicord_account_video_playback)
+set_tests_properties(maicord_account_video_playback PROPERTIES SKIP_RETURN_CODE 77)
+# The same binary with --audio: the AAC track of a movie through the session's PCM transport into a sound server.
+# Opt-in like maicord_pulse_loopback (tools/test_pulse_audio.sh configures MAICORD_PULSE_INTEGRATION and picks the
+# server and loads the null sink maicord_test_playback that the audio goes to).
+add_test(NAME maicord_video_playback_audio COMMAND MaiCordAccountVideoPlaybackTests --audio)
+set_tests_properties(maicord_video_playback_audio PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77 LABELS integration
+    RESOURCE_LOCK pulse_server ENVIRONMENT "MAICORD_VAAPI=off;PULSE_SINK=maicord_test_playback")
+if(NOT "$ENV{MAICORD_PULSE_INTEGRATION}")
+    set_tests_properties(maicord_video_playback_audio PROPERTIES DISABLED TRUE)
+endif()
+
+# The composer's local video attachment preview (account_media_decode_local_video_preview, the worker lane's code) on the
+# movie decoder: a file streamed through the exact-read callback into the lane's sparse source, its first picture
+# published as a GPU frame and converted. Linked as the client is, over the null window backend.
+maicord_test(MaiCordLocalVideoPreviewTests ENTRY maicord_local_video_preview_entry
+    SOURCES tests/app/media/local_video_preview_linux.cpp tests/platform/audio/window_post_stub.cpp
+    LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video maicord_gpu_gles_shaders
+        maicord_gpu_gles maicord_video_software ${maicord_linux_app_test_libs}
+    INCLUDES src src/app
+    TIMEOUT 60 ENV MAICORD_VAAPI=off TEST maicord_local_video_preview)
+set_tests_properties(maicord_local_video_preview PROPERTIES SKIP_RETURN_CODE 77)

@@ -1,3 +1,4 @@
+#include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "gpu/gles/internal.hpp"
@@ -297,6 +298,10 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
         log_u64(LogLevel::error, "gpu", "egl_error", static_cast<u32>(d.egl.eglGetError()));
         s.needs_full = true;
         return kGpuFail;
+    }
+    if (d.trim_pending) {
+        d.trim_pending = false;
+        heap_trim();
     }
     gles::poll_fences();
     return check_error("present");

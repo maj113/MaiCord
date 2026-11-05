@@ -73,11 +73,11 @@ if [ "$compositor" != current ]; then
     cat > "$config" <<EOF
 output * resolution ${width}x${height} scale $scale
 default_border none
+xwayland disable
 default_floating_border none
 focus_follows_mouse no
 for_window [app_id="maicord"] floating enable, resize set 640 400, move absolute position 100 100
 EOF
-    known="$(ls "$runtime" | grep '^wayland-[0-9]*$' | sort | tr '\n' ' ')"
     if [ "$compositor" = headless ]; then
         export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
     else
@@ -85,20 +85,22 @@ EOF
     fi
     export WLR_RENDERER=pixman
     unset DISPLAY
-    sway -c "$config" > "$out/sway.log" 2>&1 &
+    # -d: sway names its Wayland display in the log (other compositors may be starting in the same runtime directory, and a
+    # stale socket of an earlier run may have the next name, so the directory cannot tell); its IPC socket is named after
+    # its pid.
+    sway -d -c "$config" > "$out/sway.log" 2>&1 &
     sway_pid=$!
     display=""
     for _ in $(seq 1 100); do
-        for socket in $(ls "$runtime" | grep '^wayland-[0-9]*$'); do
-            case " $known " in *" $socket "*) ;; *) display="$socket" ;; esac
-        done
-        [ -n "$display" ] && [ -n "$(ls "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)" ] && break
+        display="$(sed -n "s/.*Running compositor on wayland display '\\(.*\\)'.*/\\1/p" "$out/sway.log" | tail -n 1)"
+        [ -n "$display" ] && [ -S "$runtime/sway-ipc.$(id -u).$sway_pid.sock" ] && break
+        display=""
         sleep 0.1
     done
     [ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
     sleep 0.5
     export WAYLAND_DISPLAY="$display"
-    export SWAYSOCK="$runtime/$(ls -t "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)"
+    export SWAYSOCK="$runtime/sway-ipc.$(id -u).$sway_pid.sock"
     echo "sway ($compositor) on $display, scale $scale"
 else
     echo "the running compositor: $WAYLAND_DISPLAY"

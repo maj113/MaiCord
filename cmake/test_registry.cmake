@@ -1383,6 +1383,12 @@ maicord_test(MaiCordOsProcessTests ENTRY maicord_os_process_entry SOURCES tests/
 # Files, directories and mappings (include/maicord/os/file.hpp); file_snapshot_read comes from maicord_platform.
 maicord_test(MaiCordOsFileTests ENTRY maicord_os_file_entry SOURCES tests/os/file.cpp
     LIBS maicord_core kernel32 maicord_platform TIMEOUT 10 TEST maicord_os_file)
+# The files seam's path policy (include/maicord/os/path.hpp) and the shared code that asks it (acceptance record,
+# attachment name, theme storage and import); one source for both systems.
+maicord_test(MaiCordPathPolicyTests ENTRY maicord_path_policy_entry SOURCES tests/os/path_policy.cpp
+    LIBS maicord_message_runtime maicord_client_preferences maicord_app_core maicord_ui maicord_platform maicord_core
+        maicord_text maicord_render_core maicord_model kernel32 user32 bcrypt crypt32 ws2_32 maicord_sspicli ole32 ntdll
+    TIMEOUT 20 TEST maicord_path_policy)
 maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 # The inline TEB/PEB reads in core/win32_process.hpp against the public APIs, on two threads.

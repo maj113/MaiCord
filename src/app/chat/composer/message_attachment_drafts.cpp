@@ -1,5 +1,6 @@
 #include "maicord/app/chat/composer/message_attachment_drafts.hpp"
 #include "maicord/os/text.hpp"
+#include "maicord/os/path.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
@@ -65,8 +66,7 @@ u32 message_attachment_drafts_channel(const MessageAttachmentDraftStore* store, 
     return count;
 }
 u32 message_attachment_file_name(const MessageAttachmentFile& file, Slice<char> output) noexcept {
-    u32 first = file.path.count;
-    while (first && file.path[first - 1] != L'\\') --first;
+    const u32 first = path_leaf_start(file.path);
     const auto filename = file.content.context ? file.filename : ConstSlice<wchar_t>{file.path.data + first, file.path.count - first};
     const int bytes = filename.data && filename.count ? utf16_to_utf8(filename.data, static_cast<int>(filename.count), output.data, static_cast<int>(output.count), true) : 0;
     return bytes > 0 ? static_cast<u32>(bytes) : 0;

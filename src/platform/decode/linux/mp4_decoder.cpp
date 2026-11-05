@@ -1,63 +1,183 @@
-// platform/decode/mp4_decoder.hpp on Linux: no MP4 file decoder yet. The Windows one drives DXVA through
-// h264_gpu_decoder.cpp; the Linux video stack (VA-API and the software tier, platform/decode/linux) decodes live
-// streams only. Every initialization fails, so the application treats an attachment video the way it treats one the
-// system cannot decode (a failed media request, never a crash), and the rest of the interface answers for a decoder
-// that never became ready.
+// platform/decode/mp4_decoder.hpp on Linux: the attachment decoder the media player drives (the Windows one is
+// src/platform/decode/mp4_decoder.cpp). The same container-level read, seek and loop rules over h264_file_decoder.cpp
+// (VA-API, or libopenh264 when the machine has no H.264 decoder for the stream) and hevc_file_decoder.cpp (VA-API); the
+// player above (account_video_session) and the media worker are the Windows code.
+#include "maicord/core/byte_range.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/media/containers/hevc_mp4_demux.hpp"
+#include "maicord/platform/decode/hevc_gpu_decoder.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
 
 namespace maicord {
 
-bool mp4_decoder_initialize(Mp4Decoder*, ConstSlice<u8>, u16, u16, GpuDevice*, Mp4SourceAvailability) noexcept {
-    return false;
+bool mp4_decoder_initialize_fragmented(Mp4Decoder* decoder, Mp4FragmentSource* source, GpuDevice* device) noexcept {
+    if (!decoder || decoder->ready || decoder->native.state || !source || !device)
+        return false;
+    const bool ready = h264_gpu_decoder_initialize_fragmented(&decoder->native, source, device, nullptr);
+    if (ready) {
+        decoder->ready = decoder->fragmented = true;
+        decoder->hevc = false;
+        decoder->gpu = nullptr;
+    }
+    return ready;
 }
 
-bool mp4_decoder_initialize_fragmented(Mp4Decoder*, Mp4FragmentSource*, GpuDevice*) noexcept {
-    return false;
+bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 requested_width, u16 requested_height,
+                            GpuDevice* video_device, Mp4SourceAvailability availability) noexcept {
+    if (!decoder)
+        return false;
+    mp4_decoder_release(decoder);
+    // Bound an unreadable oversize source before walking any box metadata.
+    if (encoded.count >
+        (availability.available ? kMediaMaximumProgressiveVideoBytes : kMp4DemuxMaximumEncodedBytes)) {
+        decoder->native.status = E_INVALIDARG;
+        decoder->native.parse_error = H264Error::unsupported;
+        decoder->native.demux_error = Mp4DemuxError::unsupported;
+        return false;
+    }
+    decoder->hevc = hevc_container_present(encoded);
+    if (!video_device || !encoded.data || !encoded.count || ((requested_width == 0) != (requested_height == 0)) ||
+        requested_width > kMp4DecodeMaximumDimension || requested_height > kMp4DecodeMaximumDimension)
+        return false;
+    decoder->ready = decoder->hevc
+                         ? hevc_gpu_decoder_initialize(&decoder->native, encoded, video_device, nullptr, availability)
+                         : h264_gpu_decoder_initialize(&decoder->native, encoded, video_device, nullptr, availability);
+    return decoder->ready;
 }
 
-ConstSlice<u8> mp4_decoder_source(const Mp4Decoder&) noexcept {
-    return {};
+ConstSlice<u8> mp4_decoder_source(const Mp4Decoder& decoder) noexcept {
+    return decoder.ready ? (decoder.hevc ? hevc_gpu_decoder_source(decoder.native) : h264_gpu_decoder_source(decoder.native))
+                         : ConstSlice<u8>{};
 }
 
-H264GpuMovie mp4_decoder_movie(const Mp4Decoder&) noexcept {
-    return {};
+H264GpuMovie mp4_decoder_movie(const Mp4Decoder& decoder) noexcept {
+    return decoder.ready ? (decoder.hevc ? hevc_gpu_decoder_movie(decoder.native) : h264_gpu_decoder_movie(decoder.native))
+                         : H264GpuMovie{};
 }
 
-bool mp4_decoder_busy(const Mp4Decoder&) noexcept {
-    return false;
+bool mp4_decoder_busy(const Mp4Decoder& decoder) noexcept {
+    return h264_gpu_decoder_busy(decoder.native);
 }
 
-bool mp4_decoder_wait(Mp4Decoder*, u32) noexcept {
+bool mp4_decoder_wait(Mp4Decoder* decoder, u32 timeout_ms) noexcept {
+    return decoder && (decoder->hevc ? hevc_gpu_decoder_wait(&decoder->native, timeout_ms)
+                                     : h264_gpu_decoder_wait(&decoder->native, timeout_ms));
+}
+
+bool mp4_decoder_acknowledge_frame(Mp4Decoder* decoder) noexcept {
+    if (!decoder || !decoder->ready ||
+        !(decoder->hevc ? hevc_gpu_decoder_acknowledge_frame(&decoder->native)
+                        : h264_gpu_decoder_acknowledge_frame(&decoder->native)))
+        return false;
+    decoder->gpu = nullptr;
     return true;
 }
 
-bool mp4_decoder_acknowledge_frame(Mp4Decoder*) noexcept {
-    return false;
+Mp4DemuxError mp4_decoder_seek(Mp4Decoder* decoder, i64 target, Mp4SeekPoint* point) noexcept {
+    if (!decoder || !decoder->ready || !point)
+        return Mp4DemuxError::invalid_input;
+    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point), sizeof(*point)};
+    if (!byte_range_valid(output) ||
+        byte_ranges_overlap(output, {reinterpret_cast<const u8*>(decoder), sizeof(*decoder)}))
+        return Mp4DemuxError::invalid_input;
+    const auto result = decoder->hevc ? hevc_gpu_decoder_seek(&decoder->native, target, point)
+                                      : h264_gpu_decoder_seek(&decoder->native, target, point);
+    if (result == Mp4DemuxError::none)
+        decoder->gpu = nullptr;
+    return result;
 }
 
-Mp4DemuxError mp4_decoder_seek(Mp4Decoder*, i64, Mp4SeekPoint*) noexcept {
-    return Mp4DemuxError::invalid_input;
+bool mp4_decoder_seek_start(Mp4Decoder* decoder) noexcept {
+    if (!decoder || !decoder->ready ||
+        !(decoder->hevc ? hevc_gpu_decoder_seek_start(&decoder->native) : h264_gpu_decoder_seek_start(&decoder->native)))
+        return false;
+    decoder->gpu = nullptr;
+    return true;
 }
 
-bool mp4_decoder_seek_start(Mp4Decoder*) noexcept {
-    return false;
-}
-
-Mp4DecodedFrame mp4_decoder_read_selected(Mp4Decoder*) noexcept {
+Mp4DecodedFrame mp4_decoder_read_selected(Mp4Decoder* decoder) noexcept {
     Mp4DecodedFrame frame{};
-    frame.error = Mp4DecodeError::runtime;
+    frame.error = Mp4DecodeError::invalid_input;
+    if (!decoder || !decoder->ready || decoder->gpu)
+        return frame;
+    frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native, 4) : h264_gpu_decoder_read(&decoder->native, 4);
+    if (frame.ok())
+        decoder->gpu = frame.gpu;
     return frame;
 }
 
-Mp4DecodedFrame mp4_decoder_read(Mp4Decoder*, bool) noexcept {
+Mp4DecodedFrame mp4_decoder_read(Mp4Decoder* decoder, bool loop_at_end) noexcept {
     Mp4DecodedFrame frame{};
-    frame.error = Mp4DecodeError::runtime;
+    frame.error = Mp4DecodeError::invalid_input;
+    if (!decoder || !decoder->ready)
+        return frame;
+    // Generic reads retain their existing implicit lease handoff. Selected playback uses read_selected and its
+    // explicit renderer acknowledgement.
+    if (decoder->fragmented && decoder->gpu && !mp4_decoder_acknowledge_frame(decoder))
+        return frame;
+    const auto movie = mp4_decoder_movie(*decoder);
+    u32 remaining = decoder->fragmented ? 64u : movie.samples;
+    bool rewound = false;
+    for (;;) {
+        if (!remaining) {
+            frame.error = decoder->fragmented ? Mp4DecodeError::needs_service : Mp4DecodeError::end_of_stream;
+        } else {
+            frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native)
+                                  : h264_gpu_decoder_read(&decoder->native, decoder->fragmented ? 4u : 0u);
+        }
+        if (frame.ok()) {
+            --remaining;
+            const u64 source = frame.source_duration_us ? frame.source_duration_us : frame.duration_us;
+            const auto interval = mp4_frame_interval(frame.presentation_time_us, source, movie.duration_us, movie.edited);
+            if (interval.visibility == Mp4FrameVisibility::before) {
+                if (decoder->fragmented)
+                    h264_gpu_decoder_acknowledge_frame(&decoder->native);
+                continue;
+            }
+            if (interval.visibility == Mp4FrameVisibility::visible) {
+                frame.source_duration_us = source;
+                frame.duration_us = interval.visible_duration_us;
+                decoder->gpu = frame.gpu;
+                return frame;
+            }
+            frame.error = interval.visibility == Mp4FrameVisibility::after ? Mp4DecodeError::end_of_stream
+                                                                           : Mp4DecodeError::stream;
+        }
+        if (frame.error == Mp4DecodeError::end_of_stream && loop_at_end && !rewound &&
+            (movie.samples || decoder->fragmented) &&
+            (decoder->hevc ? hevc_gpu_decoder_seek_start(&decoder->native) : h264_gpu_decoder_rewind(&decoder->native))) {
+            rewound = true;
+            remaining = decoder->fragmented ? 64u : movie.samples;
+            continue;
+        }
+        if (decoder->fragmented && frame.error == Mp4DecodeError::end_of_stream && loop_at_end && !rewound &&
+            decoder->native.demux_error != Mp4DemuxError::none)
+            frame.error = decoder->native.demux_error == Mp4DemuxError::data_pending ? Mp4DecodeError::data_pending
+                                                                                     : Mp4DecodeError::stream;
+        break;
+    }
+    if (frame.error != Mp4DecodeError::end_of_stream && frame.error != Mp4DecodeError::data_pending &&
+        frame.error != Mp4DecodeError::needs_service) {
+        const i32 status = decoder->native.status;
+        const H264Error parse_error = decoder->native.parse_error;
+        const Mp4DemuxError demux_error = decoder->native.demux_error;
+        mp4_decoder_release(decoder);
+        decoder->native.status = status;
+        decoder->native.parse_error = parse_error;
+        decoder->native.demux_error = demux_error;
+    }
     return frame;
 }
 
 void mp4_decoder_release(Mp4Decoder* decoder) noexcept {
-    if (decoder)
-        *decoder = {};
+    if (!decoder)
+        return;
+    if (decoder->hevc)
+        hevc_gpu_decoder_release(&decoder->native);
+    else
+        h264_gpu_decoder_release(&decoder->native);
+    reset_value(decoder);
 }
 
 } // namespace maicord

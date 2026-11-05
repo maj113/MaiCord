@@ -131,6 +131,7 @@ struct SoftwareDecoder {
     u8* planes[3];
     bool ready; // info holds a picture software_decoder_pop has not taken
     bool has_b_slices;
+    bool reordering; // the caller orders the pictures: B slices are allowed
     // The colour description of the active SPS (matrix 2: unspecified).
     u8 matrix;
     bool full_range;
@@ -233,6 +234,7 @@ bool av1_pop(SoftwareDecoder* d, SoftwarePicture* out) noexcept {
     out->matrix = p.sequence ? static_cast<u8>(p.sequence->matrix) : 2;
     out->full_range = p.sequence && p.sequence->color_range;
     out->sar_width = out->sar_height = 1;
+    out->timestamp = 0;
     return true;
 }
 
@@ -264,28 +266,8 @@ void h264_inspect(SoftwareDecoder* d, ConstSlice<u8> unit) noexcept {
     }
 }
 
-SoftwareStatus h264_push(SoftwareDecoder* d, ConstSlice<u8> unit) noexcept {
-    h264_inspect(d, unit);
-    // libopenh264 shows pictures in decoding order: a stream that reorders (B pictures) would be shown out of order.
-    if (d->has_b_slices)
-        return SoftwareStatus::unsupported;
-    d->ready = false;
-    clear_bytes(&d->info, sizeof(d->info));
-    d->planes[0] = d->planes[1] = d->planes[2] = nullptr;
-    IsvcDecoder* decoder = d->h264;
-    const i32 state = (*decoder)->DecodeFrameNoDelay(decoder, unit.data, static_cast<i32>(unit.count), d->planes, &d->info);
-    if (state & (kDsInvalidArgument | kDsOutOfMemory))
-        return SoftwareStatus::failed;
-    // A picture with a lost reference or a concealed error is not shown: the stream waits for a keyframe.
-    if (state & (kDsRefLost | kDsBitstreamError | kDsDepLayerLost | kDsNoParamSets | kDsDataErrorConcealed))
-        return SoftwareStatus::lost;
-    if (d->info.buffer_status != 1) {
-        // Main and High streams keep the newest picture in the reordering buffer until the next unit; without B
-        // pictures nothing can precede it, so it is shown now.
-        clear_bytes(&d->info, sizeof(d->info));
-        d->planes[0] = d->planes[1] = d->planes[2] = nullptr;
-        (*decoder)->FlushFrame(decoder, d->planes, &d->info);
-    }
+// Takes the picture libopenh264 left in d->info, if it left one.
+SoftwareStatus h264_take_picture(SoftwareDecoder* d) noexcept {
     if (d->info.buffer_status == 1) {
         if (d->info.format != kVideoFormatI420 || d->info.width <= 0 || d->info.height <= 0 ||
             !gpu_video_frame_visible_valid(static_cast<u32>(d->info.width), static_cast<u32>(d->info.height)))
@@ -293,6 +275,37 @@ SoftwareStatus h264_push(SoftwareDecoder* d, ConstSlice<u8> unit) noexcept {
         d->ready = true;
     }
     return SoftwareStatus::ok;
+}
+
+SoftwareStatus h264_push(SoftwareDecoder* d, ConstSlice<u8> unit, u64 timestamp) noexcept {
+    h264_inspect(d, unit);
+    // libopenh264 shows pictures in decoding order: a stream that reorders (B pictures) would be shown out of order.
+    if (d->has_b_slices && !d->reordering)
+        return SoftwareStatus::unsupported;
+    d->ready = false;
+    clear_bytes(&d->info, sizeof(d->info));
+    d->info.in_timestamp = timestamp;
+    d->planes[0] = d->planes[1] = d->planes[2] = nullptr;
+    IsvcDecoder* decoder = d->h264;
+    // A movie lets libopenh264 reorder (DecodeFrame2 holds a picture back until the stream's reordering allows it
+    // out); a live stream wants each unit's picture now (DecodeFrameNoDelay).
+    const i32 state = d->reordering
+                          ? (*decoder)->DecodeFrame2(decoder, unit.data, static_cast<i32>(unit.count), d->planes, &d->info)
+                          : (*decoder)->DecodeFrameNoDelay(decoder, unit.data, static_cast<i32>(unit.count), d->planes,
+                                                           &d->info);
+    if (state & (kDsInvalidArgument | kDsOutOfMemory))
+        return SoftwareStatus::failed;
+    // A picture with a lost reference or a concealed error is not shown: the stream waits for a keyframe.
+    if (state & (kDsRefLost | kDsBitstreamError | kDsDepLayerLost | kDsNoParamSets | kDsDataErrorConcealed))
+        return SoftwareStatus::lost;
+    if (d->info.buffer_status != 1 && !d->reordering) {
+        // Main and High streams keep the newest picture in the reordering buffer until the next unit; without B
+        // pictures nothing can precede it, so it is shown now.
+        clear_bytes(&d->info, sizeof(d->info));
+        d->planes[0] = d->planes[1] = d->planes[2] = nullptr;
+        (*decoder)->FlushFrame(decoder, d->planes, &d->info);
+    }
+    return h264_take_picture(d);
 }
 
 bool h264_pop(SoftwareDecoder* d, SoftwarePicture* out) noexcept {
@@ -311,7 +324,42 @@ bool h264_pop(SoftwareDecoder* d, SoftwarePicture* out) noexcept {
     out->full_range = d->full_range;
     out->sar_width = d->sar_width;
     out->sar_height = d->sar_height;
+    out->timestamp = d->info.out_timestamp;
     return planes[0] && planes[1] && planes[2];
+}
+
+// The next picture libopenh264 still holds: the one of the last unit (it shows a unit's picture when the next unit
+// arrives, or when it is asked to decode nothing), then the ones its reorder buffer keeps.
+bool h264_drain(SoftwareDecoder* d, SoftwarePicture* out) noexcept {
+    IsvcDecoder* decoder = d->h264;
+    for (u32 attempt = 0; attempt < 2; ++attempt) {
+        d->ready = false;
+        clear_bytes(&d->info, sizeof(d->info));
+        d->planes[0] = d->planes[1] = d->planes[2] = nullptr;
+        if (attempt == 0)
+            (*decoder)->DecodeFrame2(decoder, nullptr, 0, d->planes, &d->info);
+        else
+            (*decoder)->FlushFrame(decoder, d->planes, &d->info);
+        if (d->info.buffer_status == 1)
+            return h264_take_picture(d) == SoftwareStatus::ok && h264_pop(d, out);
+    }
+    return false;
+}
+
+i32 h264_initialize(SoftwareDecoder* d) noexcept {
+    SDecodingParam parameters{};
+    parameters.target_dq_layer = 255;
+    parameters.error_concealment = kErrorConcealmentDisable;
+    parameters.video_property_size = 8; // sizeof(SVideoProperty)
+    parameters.bitstream_type = kBitstreamAvc;
+    return (*d->h264)->Initialize(d->h264, &parameters);
+}
+
+// A reordering decoder's pictures held back belong to the position being left, and flushing them out of
+// libopenh264 one by one leaks its picture buffers (the next streams fail to find one): the decoder starts afresh.
+bool h264_reopen(SoftwareDecoder* d) noexcept {
+    (*d->h264)->Uninitialize(d->h264);
+    return h264_initialize(d) == 0;
 }
 
 } // namespace
@@ -327,13 +375,14 @@ bool software_codec_available(GpuStreamCodec codec) noexcept {
     }
 }
 
-SoftwareDecoder* software_decoder_create(GpuStreamCodec codec) noexcept {
+SoftwareDecoder* software_decoder_create(GpuStreamCodec codec, bool reordering) noexcept {
     if (!software_codec_available(codec))
         return nullptr;
     auto* d = commit_pages<SoftwareDecoder>();
     if (!d)
         return nullptr;
     d->codec = codec;
+    d->reordering = reordering;
     d->matrix = 2;
     d->sar_width = d->sar_height = 1;
     if (codec == GpuStreamCodec::av1) {
@@ -359,12 +408,7 @@ SoftwareDecoder* software_decoder_create(GpuStreamCodec codec) noexcept {
         pages_release(d, sizeof(SoftwareDecoder));
         return nullptr;
     }
-    SDecodingParam parameters{};
-    parameters.target_dq_layer = 255;
-    parameters.error_concealment = kErrorConcealmentDisable;
-    parameters.video_property_size = 8; // sizeof(SVideoProperty)
-    parameters.bitstream_type = kBitstreamAvc;
-    if ((*d->h264)->Initialize(d->h264, &parameters) != 0) {
+    if (h264_initialize(d) != 0) {
         api.WelsDestroyDecoder(d->h264);
         pages_release(d, sizeof(SoftwareDecoder));
         return nullptr;
@@ -386,16 +430,22 @@ void software_decoder_destroy(SoftwareDecoder* d) noexcept {
     pages_release(d, sizeof(SoftwareDecoder));
 }
 
-SoftwareStatus software_decoder_push(SoftwareDecoder* d, ConstSlice<u8> unit) noexcept {
+SoftwareStatus software_decoder_push(SoftwareDecoder* d, ConstSlice<u8> unit, u64 timestamp) noexcept {
     if (!d || !unit.data || !unit.count || unit.count > 0x7fffffffu)
         return SoftwareStatus::failed;
-    return d->codec == GpuStreamCodec::av1 ? av1_push(d, unit) : h264_push(d, unit);
+    return d->codec == GpuStreamCodec::av1 ? av1_push(d, unit) : h264_push(d, unit, timestamp);
 }
 
 bool software_decoder_pop(SoftwareDecoder* d, SoftwarePicture* picture) noexcept {
     if (!d || !picture)
         return false;
     return d->codec == GpuStreamCodec::av1 ? av1_pop(d, picture) : h264_pop(d, picture);
+}
+
+bool software_decoder_drain(SoftwareDecoder* d, SoftwarePicture* picture) noexcept {
+    if (!d || !picture || !d->reordering || !d->h264)
+        return false;
+    return h264_drain(d, picture);
 }
 
 void software_decoder_reset(SoftwareDecoder* d) noexcept {
@@ -405,6 +455,9 @@ void software_decoder_reset(SoftwareDecoder* d) noexcept {
         av1_clear(d);
         dav1d()->dav1d_flush(d->av1);
     }
+    // A reordering decoder holds pictures back: whatever it still has belongs to the position left.
+    if (d->h264 && d->reordering)
+        h264_reopen(d);
     d->ready = false;
 }
 

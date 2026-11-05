@@ -174,6 +174,11 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
                          UiSettingsControlPresentation* presentation) noexcept {
     const auto& node = settings_catalog().panels[panel].nodes[index];
     const auto binding = binding_of(node);
+#if !defined(_WIN32)
+    // A row this system has no backing for is left out, and so is its search hit (settings_binding_unavailable).
+    if (settings_binding_unavailable(binding))
+        return false;
+#endif
     const auto custom = application_custom_theme_view();
     const bool theme_idle = !custom.busy && !custom.previewing;
     *control = {settings_control_id(panel, index), node.label(), node.description(), node.kind, true, false,
@@ -275,10 +280,12 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
     case SettingBinding::notification_setup:
         control->description = application_notifications_status(&g_app);
         return true;
+#if defined(_WIN32)
     case SettingBinding::windows_notification_settings:
         if (settings.notifications_settings_failed)
             control->description = utf8_literal("Windows notification settings couldn't open. Try again.");
         return true;
+#endif
     case SettingBinding::preferences_retry:
         control->description = g_app.preferences_save_pending ? utf8_literal("Saving…") : node.description();
         control->enabled = !g_app.preferences_save_pending;

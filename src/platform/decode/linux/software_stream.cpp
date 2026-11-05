@@ -35,9 +35,10 @@ void lose(GpuStream* stream) noexcept {
     software_decoder_reset(state.decoder);
 }
 
-// Interleaves a picture into the planes of slot and publishes them.
-void copy_picture(GpuStream* stream, u32 slot_index, const SoftwarePicture& picture) noexcept {
-    StreamSurface& slot = stream->surfaces.slot[slot_index];
+} // namespace
+
+// Interleaves a picture into the planes of slot and publishes them; the bytes written.
+u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& picture) noexcept {
     for (u32 y = 0; y < picture.height; ++y)
         copy_bytes(slot.luma_pixels + usize{y} * slot.luma_pitch, picture.plane[0] + usize{y} * picture.stride[0],
                    picture.width);
@@ -53,7 +54,13 @@ void copy_picture(GpuStream* stream, u32 slot_index, const SoftwarePicture& pict
     }
     gpu_video_plane_publish(slot.luma_texture);
     gpu_video_plane_publish(slot.chroma_texture);
-    stream->stats.uploaded_bytes += u64{picture.width} * picture.height + u64{chroma_width} * chroma_height * 2;
+    return u64{picture.width} * picture.height + u64{chroma_width} * chroma_height * 2;
+}
+
+namespace {
+
+void copy_picture(GpuStream* stream, u32 slot_index, const SoftwarePicture& picture) noexcept {
+    stream->stats.uploaded_bytes += stream_copy_picture(stream->surfaces.slot[slot_index], picture);
 }
 
 // The next slot that is neither presented nor held.

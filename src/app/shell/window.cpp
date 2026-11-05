@@ -44,6 +44,16 @@ void application_minimum_client_size(u32* width, u32* height) noexcept {
               application_caption_pixels(dpi);
 }
 
+#if !defined(_WIN32)
+void application_window_refresh_minimum_size() noexcept {
+    if (!g_app.window)
+        return;
+    u32 width = 0, height = 0;
+    application_minimum_client_size(&width, &height);
+    window_set_min_size(g_app.window, width, height);
+}
+#endif
+
 bool application_create_main_window() noexcept {
     application_caption_enable();
     Window created{};
@@ -53,6 +63,7 @@ bool application_create_main_window() noexcept {
         return false;
     }
     g_app.window = created;
+    application_platform_desktop_fonts();
     // Creation-time messages saw only a partly built window: take the state it ended with.
     application_window_observe_position(created);
     g_window_state.dpi = window_metrics(created).dpi;

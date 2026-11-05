@@ -33,4 +33,13 @@ __forceinline void heap_free(void* block) noexcept {
 #endif
 }
 
+// Hands the heap's free memory back to the system. Mesa's shader compiler and the LLVM under llvmpipe leave tens of
+// megabytes of freed blocks in the C library's arenas after a compile; Linux only (Windows' heap returns pages
+// itself), so the Windows call is nothing.
+__forceinline void heap_trim() noexcept {
+#if !defined(_WIN32)
+    malloc_trim(0);
+#endif
+}
+
 } // namespace maicord

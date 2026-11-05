@@ -263,7 +263,14 @@ void run() noexcept {
     check(g_renderer.width == kWidth && g_renderer.height == kHeight, "the renderer takes the surface size");
     test_bootstrap_title();
     test_caption();
+    // The buffers the settings page and the text effects make on first use: shutdown releases them through the GPU seam.
+    // It once released them as COM objects, which crashed every Linux run that had opened Settings when it closed.
+    const GpuBufferDesc lazy{64, GpuUsage::dynamic, gpu_bind_vertex, false};
+    check(gpu_ok(gpu_buffer_create(g_renderer.graphics.device, lazy, nullptr, &g_renderer.settings_backdrop_quad)) &&
+              gpu_ok(gpu_buffer_create(g_renderer.graphics.device, lazy, nullptr, &g_renderer.text_effect_buffer)),
+          "the lazily made buffers are created");
     renderer_shutdown(&g_renderer);
+    check(!g_renderer.settings_backdrop_quad && !g_renderer.text_effect_buffer, "shutdown releases the lazily made buffers");
 }
 
 } // namespace

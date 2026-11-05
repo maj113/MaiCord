@@ -7,6 +7,7 @@
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/path.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/crypto.hpp"
 #endif
@@ -314,8 +315,7 @@ bool path_component_valid(ConstSlice<wchar_t> part) noexcept {
 }
 // A drive-rooted path whose every component is an ordinary name, at most kPluginPathMaximumAncestors deep.
 bool directory_valid(ConstSlice<wchar_t> path) noexcept {
-    if (!path.data || path.count < 3 || path.count >= kPluginPathCapacity || ascii_lower(path[0]) < L'a' ||
-        ascii_lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\')
+    if (!path.data || path.count < 3 || path.count >= kPluginPathCapacity || path_root(path) != PathRoot::drive)
         return false;
     u32 start = 3, ancestors = 1;
     for (u32 i = 3; i <= path.count; ++i)

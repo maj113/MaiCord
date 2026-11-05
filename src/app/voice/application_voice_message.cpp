@@ -10,6 +10,7 @@
 #include "../chat/threads/actions.hpp"
 
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/app/voice/voice_message.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -95,7 +96,8 @@ Utf8View notice_text(VoiceMessageNotice notice) noexcept {
     case VoiceMessageNotice::microphone:
         return utf8_literal("Failed to start recording. Check your microphone.");
     case VoiceMessageNotice::microphone_access:
-        return utf8_literal("Microphone access is blocked. Allow it in Windows privacy settings.");
+        return MAICORD_OS_TEXT("Microphone access is blocked. Allow it in Windows privacy settings.",
+                               "Microphone access is blocked. Allow it in your desktop's privacy settings.");
     case VoiceMessageNotice::upload:
         return utf8_literal("Upload failed. Press Enter to retry.");
     case VoiceMessageNotice::failed_start:

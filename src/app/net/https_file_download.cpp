@@ -13,6 +13,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/os/path.hpp"
 
 namespace maicord {
 namespace {
@@ -285,15 +286,13 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     // Reserve room for a unique sibling filename; never accept a relative,
     // device namespace or alternate-data-stream destination.
     if (!path.data || path.count < 3 || path.count > kHttpsFileDownloadMaximumPathUnits - 64) return false;
+    // The files seam's policy: a drive or UNC path on Windows, a rooted one on Linux.
+    const PathRoot root = path_root(path, kPathRootUnc);
+    if (root == PathRoot::none || (root == PathRoot::unc && path.count <= 5)) return false;
 #if defined(_WIN32)
-    const bool drive_path = ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')) && path[1] == L':' && path[2] == L'\\';
-    const bool unc_path = path.count > 5 && path[0] == L'\\' && path[1] == L'\\' && path[2] != L'?' && path[2] != L'.';
-    if (!drive_path && !unc_path) return false;
     for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] < 32 || (path[i] == L':' && i != 1)) return false;
 #else
-    // Rooted, with no backslash (the file seam would read it as a separator).
-    if (path[0] != L'/') return false;
-    for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] < 32 || path[i] == L'\\') return false;
+    if (!path_plain(path)) return false; // the NUL, controls and the backslash the file seam would read as a separator
 #endif
     return path[path.count - 1] != L'\\' && path[path.count - 1] != L'/';
 }

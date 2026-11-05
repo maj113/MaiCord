@@ -161,6 +161,11 @@ enum class SettingBackend : u8 {
     keybinds // Custom keybinds and the shortcut registry (application_keybinds_settings).
 };
 SettingBackend settings_binding_backend(SettingBinding) noexcept;
+#if !defined(_WIN32)
+// A binding this system has nothing behind: the Windows notification settings page, and the voice processing switch
+// (the audio server owns echo cancellation and noise suppression on Linux). Its row is not shown and not searched.
+bool settings_binding_unavailable(SettingBinding) noexcept;
+#endif
 
 enum class SettingsPanel : u8 {
     notifications,

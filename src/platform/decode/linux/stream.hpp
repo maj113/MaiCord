@@ -123,6 +123,10 @@ void stream_request_keyframe(GpuStream* stream, bool unsupported) noexcept;
 void stream_surfaces_release(GpuStream* stream) noexcept;
 // CPU-backed slots (the software tier): `count` pictures of coded_width x coded_height (both even).
 bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u32 coded_height) noexcept;
+// Copies a decoded software picture into the CPU planes of slot and publishes them; the bytes written. The slot is at
+// least as large as the picture (both planes, chroma interleaved).
+struct SoftwarePicture;
+u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& picture) noexcept;
 // Makes the decoder in stream->session and the surfaces forget everything: the tier called release.
 void stream_clear_geometry(GpuStream* stream) noexcept;
 

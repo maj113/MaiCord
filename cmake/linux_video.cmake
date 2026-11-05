@@ -13,17 +13,19 @@ maicord_library(maicord_video_software
 # builder shares, and so that the tests can compare both builders' output.
 maicord_library(maicord_video_vaapi
     src/platform/decode/vaapi/va.cpp src/platform/decode/vaapi/va_h264.cpp src/platform/decode/vaapi/va_hevc.cpp
-    src/platform/decode/vaapi/va_av1.cpp src/platform/decode/vaapi/va_stream.cpp
+    src/platform/decode/vaapi/va_av1.cpp src/platform/decode/vaapi/va_stream.cpp src/platform/decode/vaapi/va_file.cpp
     src/platform/decode/av1_dxva_parameters.cpp src/media/video/h264_slice_detail.cpp
     src/media/video/hevc_slice_detail.cpp
     LIBS maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
 
-# The live stream decoder (the Linux gpu_stream_decoder.hpp) over the software tier, and the GLES conversion of the
-# pictures it publishes (the planes of maicord/gpu/video_planes.hpp). mp4_decoder.cpp is the attachment decoder's
-# interface answering "unavailable": no MP4 file decoder exists on Linux yet.
+# The live stream decoder (the Linux gpu_stream_decoder.hpp) over both tiers, and the movie decoder of attachments
+# (mp4_decoder.hpp: mp4_decoder.cpp over h264_file_decoder.cpp and hevc_file_decoder.cpp, the Linux h264_gpu_decoder.hpp
+# and hevc_gpu_decoder.hpp). h264_gpu_configuration.cpp is the Windows decoder's container-neutral first-picture check.
 maicord_library(maicord_video_decode
     src/platform/decode/linux/gpu_stream_decoder.cpp src/platform/decode/linux/software_stream.cpp
-    src/platform/decode/linux/mp4_decoder.cpp
+    src/platform/decode/linux/mp4_decoder.cpp src/platform/decode/linux/h264_file_decoder.cpp
+    src/platform/decode/linux/hevc_file_decoder.cpp
+    src/platform/decode/h264_gpu_configuration.cpp
     LIBS maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
 maicord_library(maicord_gpu_gles_video src/gpu/gles/video_frame.cpp
     LIBS maicord_gpu_gles_shaders maicord_gpu_gles maicord_core INCLUDES src)

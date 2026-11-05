@@ -237,6 +237,9 @@ struct GpuDevice {
     GlesSlab<GpuFence, 8> fences;
     GlesProgram programs[kGlesProgramCacheSize];
     u32 program_count;
+    // A shader or program was built since the last present: the driver's compiler (llvmpipe's LLVM, Mesa's NIR) left
+    // freed memory in the C library's heap, which the present hands back (heap_trim).
+    bool trim_pending;
 };
 
 // What one present changed: the whole frame, or the bounding box of its dirty rectangles.

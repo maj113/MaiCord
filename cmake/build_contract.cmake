@@ -50,6 +50,8 @@ set(MAICORD_WHOLE_PROGRAM_OPTION -flto)
 # every function nooutline and the size option's -moutline lifts it again.
 set(MAICORD_NO_OUTLINE_OPTION /clang:-mno-outline)
 set(MAICORD_SIZE_OPTION /clang:-Oz /clang:-moutline)
+# The size-compiled sources that fold well take /Ob2 over the contract's /Ob1 (cmake/size_policy.cmake).
+set(MAICORD_FOLD_OPTION /Ob2)
 
 # One policy owns every final PE's freestanding, mitigation, dead-code and
 # link contract.

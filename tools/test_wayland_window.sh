@@ -80,11 +80,11 @@ if [ "$compositor" != current ]; then
     cat > "$config" <<EOF
 output * resolution ${width}x${height} scale $scale
 default_border none
+xwayland disable
 default_floating_border none
 focus_follows_mouse no
 for_window [app_id="maicord"] floating enable, resize set 640 400, move absolute position 100 100
 EOF
-    known="$(ls "$runtime" | grep '^wayland-[0-9]*$' | sort | tr '\n' ' ')"
     if [ "$compositor" = headless ]; then
         export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
     else
@@ -92,20 +92,22 @@ EOF
     fi
     export WLR_RENDERER=pixman
     unset DISPLAY
-    sway -c "$config" > "$out/sway.log" 2>&1 &
+    # -d: sway names its Wayland display in the log (other compositors may be starting in the same runtime directory, and a
+    # stale socket of an earlier run may have the next name, so the directory cannot tell); its IPC socket is named after
+    # its pid.
+    sway -d -c "$config" > "$out/sway.log" 2>&1 &
     sway_pid=$!
     display=""
     for _ in $(seq 1 100); do
-        for socket in $(ls "$runtime" | grep '^wayland-[0-9]*$'); do
-            case " $known " in *" $socket "*) ;; *) display="$socket" ;; esac
-        done
-        [ -n "$display" ] && [ -n "$(ls "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)" ] && break
+        display="$(sed -n "s/.*Running compositor on wayland display '\\(.*\\)'.*/\\1/p" "$out/sway.log" | tail -n 1)"
+        [ -n "$display" ] && [ -S "$runtime/sway-ipc.$(id -u).$sway_pid.sock" ] && break
+        display=""
         sleep 0.1
     done
     [ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
     sleep 0.5
     export WAYLAND_DISPLAY="$display"
-    export SWAYSOCK="$runtime/$(ls -t "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)"
+    export SWAYSOCK="$runtime/sway-ipc.$(id -u).$sway_pid.sock"
     echo "sway ($compositor) on $display, scale $scale"
 else
     echo "the running compositor: $WAYLAND_DISPLAY"
@@ -115,6 +117,12 @@ fi
 # The input test injects its own pointer and keys (virtual-pointer and virtual-keyboard on a second connection); what it
 # cannot know is where the compositor put its window, so the script reads that from sway and writes it. Screenshots
 # are the script's, because only it can reach grim.
+#
+# The drivers start with the compositor, before the build that precedes the tests (build_linux.sh builds, then runs
+# ctest), so a driver waits for its test's first file for as long as a build can take: with a shorter wait the drivers
+# gave up while the build still ran, took no screenshot and wrote no answer, and the input and EGL tests then waited
+# for them until their own deadlines. A test that is skipped never writes its file; the script ends its drivers.
+driver_wait="${MAICORD_DRIVER_WAIT:-1800}"
 
 wait_for() {  # file timeout-seconds
     for _ in $(seq 1 $(( $2 * 10 ))); do
@@ -149,7 +157,7 @@ shot() { grim "$out/$1.png" 2> "$out/grim.log" || echo "grim failed: $(cat "$out
 
 # The EGL test draws green; the pixel in the middle of its window, from the screenshot, is the answer (`pixel`).
 drive_egl() {
-    wait_for "$sync/egl/ready" 30 || return
+    wait_for "$sync/egl/ready" "$driver_wait" || return
     sleep 0.6
     shot "$compositor-egl"
     geometry="$(window_geometry)" || { echo "no maicord window in sway's tree" >&2; return; }
@@ -165,7 +173,7 @@ EOF
 }
 
 drive_lifecycle() {
-    wait_for "$sync/lifecycle/ready" 30 || return
+    wait_for "$sync/lifecycle/ready" "$driver_wait" || return
     sleep 0.6
     shot "$compositor-lifecycle"
     touch "$sync/lifecycle/injected"
@@ -188,14 +196,14 @@ print(walk(json.load(sys.stdin)) or 0)'
 
 # The input test asks (a file `idle-on`, then `idle-off`) and gets the answer in `<name>.result`.
 drive_idle() {
-    wait_for "$sync/input/idle-on" 120 || return
+    wait_for "$sync/input/idle-on" "$driver_wait" || return
     idle_state > "$sync/input/idle-on.tmp" && mv "$sync/input/idle-on.tmp" "$sync/input/idle-on.result"
     wait_for "$sync/input/idle-off" 60 || return
     idle_state > "$sync/input/idle-off.tmp" && mv "$sync/input/idle-off.tmp" "$sync/input/idle-off.result"
 }
 
 drive_input() {
-    wait_for "$sync/input/ready" 60 || return
+    wait_for "$sync/input/ready" "$driver_wait" || return
     sleep 0.6
     shot "$compositor-window"
     geometry="$(window_geometry)" || { echo "no maicord window in sway's tree" >&2; return; }

@@ -166,6 +166,90 @@ void reordering(const VideoFixture& f) noexcept {
     software_decoder_destroy(decoder);
 }
 
+u64 g_timestamps[kMaximumPictures];
+
+bool store_picture(const VideoFixture& f, const SoftwarePicture& picture, u32* pictures) noexcept {
+    if (picture.width != f.width || picture.height != f.height || *pictures >= kMaximumPictures)
+        return false;
+    g_timestamps[*pictures] = picture.timestamp;
+    copy_picture(picture, g_output + usize{*pictures} * kMaximumPictureBytes);
+    ++*pictures;
+    return true;
+}
+
+// The pictures shown while decoding are in presentation order; the drained ones (from `before_drain`) are the remaining
+// pictures of the reference in either order (the caller orders those by its own times).
+bool movie_pictures_match(const VideoFixture& f, u32 pictures, u32 before_drain) noexcept {
+    const u32 picture_bytes = f.width * f.height * 3 / 2;
+    u32 in_order = 0, tail_found = 0, claimed = 0;
+    for (u32 i = 0; i < pictures && i < f.picture_count; ++i) {
+        const u8* got = g_output + usize{i} * kMaximumPictureBytes;
+        if (i < before_drain) {
+            in_order += bytes_equal(got, f.pictures + usize{i} * picture_bytes, picture_bytes);
+            continue;
+        }
+        for (u32 j = before_drain; j < f.picture_count; ++j)
+            if (!(claimed & (1u << j)) && bytes_equal(got, f.pictures + usize{j} * picture_bytes, picture_bytes)) {
+                claimed |= 1u << j;
+                ++tail_found;
+                break;
+            }
+    }
+    return in_order == before_drain && tail_found == pictures - before_drain;
+}
+
+// A movie's decoder (`reordering`): B pictures are decoded, libopenh264 shows the pictures in presentation order, the
+// last ones only when the decoder is drained, and every picture carries the timestamp of the unit it was decoded from.
+void movie_order(const VideoFixture& f, bool expect_reordered) noexcept {
+    if (!software_codec_available(GpuStreamCodec::h264))
+        return;
+    SoftwareDecoder* decoder = software_decoder_create(GpuStreamCodec::h264, true);
+    check(decoder != nullptr, "movie decoder: created");
+    if (!decoder)
+        return;
+    u32 pictures = 0;
+    bool clean = true;
+    for (u32 i = 0; i < f.packet_count; ++i) {
+        clean = clean && software_decoder_push(decoder, {f.packet[i], f.packet_bytes[i]}, 100 + i) == SoftwareStatus::ok;
+        SoftwarePicture picture{};
+        while (software_decoder_pop(decoder, &picture))
+            clean = store_picture(f, picture, &pictures) && clean;
+    }
+    SoftwarePicture picture{};
+    const u32 before_drain = pictures;
+    while (software_decoder_drain(decoder, &picture))
+        clean = store_picture(f, picture, &pictures) && clean;
+    test_write_text(f.name);
+    metric(": movie pictures ", pictures);
+    metric("  held until the drain ", pictures - before_drain);
+    check(clean && pictures == f.picture_count, "movie decoder: every picture of a stream with B pictures, drained at the end");
+    check(movie_pictures_match(f, pictures, before_drain),
+          "movie decoder: pictures in presentation order equal the reference, the drained ones are the last ones");
+    bool inverted = false;
+    bool unit_known = true;
+    for (u32 i = 0; i < pictures; ++i) {
+        unit_known = unit_known && g_timestamps[i] >= 100 && g_timestamps[i] < 100 + f.packet_count;
+        inverted = inverted || (i && g_timestamps[i] < g_timestamps[i - 1]);
+    }
+    check(unit_known && inverted == expect_reordered, "movie decoder: pictures carry the timestamp of their unit");
+    // A reset forgets what is held back: the movie again from its start decodes the same.
+    software_decoder_push(decoder, {f.packet[0], f.packet_bytes[0]}, 1);
+    software_decoder_reset(decoder);
+    pictures = 0;
+    clean = true;
+    for (u32 i = 0; i < f.packet_count; ++i) {
+        clean = clean && software_decoder_push(decoder, {f.packet[i], f.packet_bytes[i]}, 100 + i) == SoftwareStatus::ok;
+        while (software_decoder_pop(decoder, &picture))
+            clean = store_picture(f, picture, &pictures) && clean;
+    }
+    const u32 before_second_drain = pictures;
+    while (software_decoder_drain(decoder, &picture))
+        clean = store_picture(f, picture, &pictures) && clean;
+    check(clean && pictures == f.picture_count && movie_pictures_match(f, pictures, before_second_drain),
+          "movie decoder: the movie again after a reset decodes exactly");
+    software_decoder_destroy(decoder);
+}
+
 void resynchronize(const VideoFixture& f) noexcept {
     const GpuStreamCodec codec = codec_of(f);
     if (!software_codec_available(codec))
@@ -236,6 +320,10 @@ MAICORD_TEST_ENTRY(maicord_video_software_entry) {
         for (const VideoFixture* fixture : software)
             conformance(*fixture);
         reordering(f.h264_main);
+        movie_order(f.h264_baseline, false);
+        movie_order(f.h264_weighted, false);
+        movie_order(f.h264_main, true);
+        movie_order(f.h264_high, false);
         resynchronize(f.h264_baseline);
         resynchronize(f.av1_basic);
         check(!software_codec_available(GpuStreamCodec::h265), "software decoder: HEVC has no software tier");

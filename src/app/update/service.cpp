@@ -2,9 +2,11 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/update/log.hpp"
 #include "maicord/app/net/file_persistence.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/core/data_path.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/path.hpp"
 #include "maicord/os/file.hpp"
 
 namespace maicord {
@@ -41,16 +43,14 @@ bool suffixed(wchar_t* out, const ConstSlice<wchar_t>& path, const wchar_t* suff
 // slash or later colon on Windows, "/..." with no backslash elsewhere.
 bool drive_path(ConstSlice<wchar_t> path) noexcept {
 #if defined(_WIN32)
-    if (!path.data || path.count < 4 || path.count >= kUpdatePathCapacity || path[1] != L':' || path[2] != L'\\' ||
-        path[path.count - 1] == L'\\' || !((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')))
+    if (!path.data || path.count < 4 || path.count >= kUpdatePathCapacity || path_root(path) != PathRoot::drive ||
+        path[path.count - 1] == L'\\')
         return false;
     for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] == L'/' || path[i] < 32 || (i > 1 && path[i] == L':')) return false;
     return true;
 #else
-    if (!path.data || path.count < 2 || path.count >= kUpdatePathCapacity || path[0] != L'/' || path[path.count - 1] == L'/')
-        return false;
-    for (u32 i = 0; i < path.count; ++i) if (path[i] < 32 || path[i] == L'\\') return false;
-    return true;
+    return path.data && path.count >= 2 && path.count < kUpdatePathCapacity && path_root(path) == PathRoot::rooted &&
+           path[path.count - 1] != L'/' && path_plain(path);
 #endif
 }
 bool exists(const wchar_t* path) noexcept { FileStat stat{}; return file_path_stat(path, &stat); }
@@ -250,7 +250,8 @@ void update_paths_cleanup(const UpdatePaths& paths) noexcept {
 Utf8View update_service_error_text(UpdateServiceError e) noexcept {
     switch (e) {
     case SE::none: return {};
-    case SE::configuration: return utf8_literal("Updates aren't configured for this build.");
+    case SE::configuration: return MAICORD_OS_TEXT("Updates aren't configured for this build.",
+                                                   "Updates aren't set up for this install. Use your package manager.");
     case SE::transport: return utf8_literal("Couldn't reach GitHub. Check your connection.");
     case SE::rate_limited: return utf8_literal("GitHub is limiting requests. MaiCord will try again later.");
     case SE::not_found: return utf8_literal("No update is published for this channel yet.");

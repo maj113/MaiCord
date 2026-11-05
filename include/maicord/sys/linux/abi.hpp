@@ -67,6 +67,16 @@ inline constexpr int kEventfdCloseOnExec = 0x80000;
 inline constexpr int kTimerfdNonBlock = 0x800;
 inline constexpr int kTimerfdCloseOnExec = 0x80000;
 
+// <linux/signal.h>, <linux/signalfd.h>: signals are numbered from 1; a set is one bit per signal (the kernel's
+// sigset_t of 8 bytes), and a signalfd read returns whole records of 128 bytes of which the first is the number.
+inline constexpr int kSignalHangup = 1;
+inline constexpr int kSignalInterrupt = 2;
+inline constexpr int kSignalTerminate = 15;
+inline constexpr int kSignalBlock = 0;
+inline constexpr int kSignalfdNonBlock = 0x800;
+inline constexpr int kSignalfdCloseOnExec = 0x80000;
+inline constexpr u32 kSignalfdRecordBytes = 128;
+
 // <linux/prctl.h>
 inline constexpr int kPrctlSetTimerSlack = 29;
 

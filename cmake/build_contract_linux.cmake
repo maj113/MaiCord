@@ -36,8 +36,15 @@ set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "")
 
 # Whole-program optimization: full LTO in every shipping object, linked by ld.lld.
 set(MAICORD_WHOLE_PROGRAM_OPTION -flto)
-set(MAICORD_NO_OUTLINE_OPTION)
-set(MAICORD_SIZE_OPTION -Oz)
+# Machine outlining (enabled at link time below) trades call overhead for size and slows speed-compiled code, so only
+# sources compiled for size are outlined: the contract's -mno-outline marks every function nooutline and the size
+# option's -moutline lifts it again (the Windows contract's policy, cmake/build_contract.cmake).
+set(MAICORD_NO_OUTLINE_OPTION -mno-outline)
+set(MAICORD_SIZE_OPTION -Oz -moutline)
+# The size-compiled sources that fold well take -finline-functions over the contract's -finline-hint-functions
+# (cmake/size_policy.cmake): the contract's hint-only inlining marks every function not declared inline noinline,
+# so the helpers of a -Oz source stay calls even where inlining them is smaller.
+set(MAICORD_FOLD_OPTION -finline-functions)
 
 # The libc stubs: libc.so.6, libdl.so.2 and libpthread.so.0 carrying the pinned symbol versions.
 set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")
@@ -63,6 +70,9 @@ target_link_options(maicord_link_contract INTERFACE
     LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
     LINKER:--build-id=none
     LINKER:--gc-sections LINKER:--icf=all
+    # Relative relocations packed as RELR under the Android tags, which no glibc knows: src/core/linux/start.cpp
+    # applies them itself, so one image runs on every glibc from 2.17 (DT_RELR needs 2.36 and a version dependency).
+    LINKER:--pack-dyn-relocs=relr LINKER:--use-android-relr-tags
     LINKER:--no-undefined
     # libdl and libpthread are separate libraries before glibc 2.34 and empty stubs after it; link them either way.
     LINKER:--no-as-needed
@@ -82,7 +92,7 @@ target_compile_options(maicord_compile_contract INTERFACE
     # Freestanding by construction (the headers are MaiCord's own, nothing is hosted), but not -ffreestanding: it
     # implies -fno-builtin, which would turn every memcpy of a constant size into a call. Only the string-length
     # builtins are off, as on Windows: LLVM must not turn string-length loops into strlen/wcslen calls.
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen;-fno-math-errno>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen;-fno-math-errno;${MAICORD_NO_OUTLINE_OPTION}>"
     "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti;-fno-threadsafe-statics>"
     # MaiCord's shared code is written for MSVC dialect: __declspec, __forceinline, __unaligned, __int64 and
     # volatile with acquire/release semantics, and wchar_t holds UTF-16 code units as on Windows.
@@ -94,7 +104,7 @@ target_compile_options(maicord_compile_contract INTERFACE
     # The x86-64 baseline of the Windows build: /arch:AVX and -maes (the carry-less multiply the JSON scanner
     # uses is part of the same baseline there; clang needs it named).
     "$<$<COMPILE_LANGUAGE:CXX>:-mavx;-maes;-mpclmul>"
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>" "$<$<COMPILE_LANGUAGE:CXX>:-finline-hint-functions>"
     # MAICORD_NO_WHOLE_PROGRAM: no LTO, for code kept outside it in an image that links with it.
     $<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
     # The house warning set (clang-cl /W4 /WX), with the exceptions of the Windows contract: declarations that
@@ -108,6 +118,9 @@ option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" O
 if(NOT MAICORD_UNWIND_TABLES)
     target_compile_options(maicord_compile_contract INTERFACE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-asynchronous-unwind-tables;-fno-unwind-tables>")
+    # The machine outliner (see MAICORD_SIZE_OPTION) emits no unwind data for the functions it creates, so stack
+    # walkers get none.
+    target_link_options(maicord_link_contract INTERFACE LINKER:--mllvm=-enable-machine-outliner)
 endif()
 
 # The compiler support every image links: the memory functions and the process entry.

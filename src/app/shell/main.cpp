@@ -367,6 +367,7 @@ int run_application() noexcept {
         push_handle(application_catalog_dev_notification(0));
         push_handle(application_catalog_dev_notification(1));
         push_handle(application_packages_notification());
+        push_handle(application_platform_quit_signal());
         const u32 video_handle_index = wait_handle_count;
         if (!application_account_logout_blocked())
             push_handle(application_call_video_notification());
@@ -438,6 +439,11 @@ int run_application() noexcept {
                                  frame_handle_index != 0xFFFFFFFFu && wait_ready(waited, frame_handle_index),
                                  waited.window_input, waited.ready_mask != 0);
 #endif
+        // SIGTERM, SIGINT or SIGHUP (Linux): leave the way Quit does, so the normal exit below saves what a close saves.
+        if (application_platform_quit_requested() && g_app.window) {
+            application_desktop_request_quit();
+            window_request_close(g_app.window);
+        }
         u64 restart_now_ms = clock_monotonic_milliseconds();
         application_preferences_poll();
         application_media_auth_poll();
@@ -700,6 +706,8 @@ int run_application() noexcept {
             break;
         }
         MAICORD_PERF_MARK("loop_before_present");
+        // The login form and the main layout have different minimums: the compositor gets the current one with the frame.
+        application_window_refresh_minimum_size();
         application_present_pending_frame();
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon

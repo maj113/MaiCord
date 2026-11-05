@@ -151,6 +151,9 @@ void gpu_device_set_native_display(void* native_display);
 // free-threaded). Main thread only; a second call is ignored.
 using GpuDevicePrestartContinuation = void (*)(GpuDevice* device, GpuContext* context) noexcept;
 void gpu_device_prestart(GpuDevicePrestartContinuation continuation);
+// Waits for the worker and its continuation without releasing anything: what the continuation made can still be
+// released on this thread (a GL object does not outlive a device that gpu_device_prestart_finish destroys).
+void gpu_device_prestart_wait();
 // Waits for the worker and its continuation; releases a device nobody adopted.
 void gpu_device_prestart_finish();
 // True when the device came from the prestart worker.

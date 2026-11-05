@@ -230,6 +230,7 @@ u32 graphics_program(GpuContext* context, u32 variant) noexcept {
     gl.glAttachShader(program, vertex->name);
     gl.glAttachShader(program, pixel_name);
     gl.glLinkProgram(program);
+    d.trim_pending = true;
     gl::Int linked = 0;
     gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
     if (linked) {

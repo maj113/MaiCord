@@ -29,6 +29,11 @@ struct NullWindowProbe {
     u32 invalidations;    // window_invalidate calls
     u32 attention_requests;
     u32 minimizes, maximize_toggles;
+    u32 min_width, min_height;  // the last window_set_min_size
+    u32 min_size_calls;         // window_set_min_size calls
+    // window_wayland_global_shortcut*: the portal binding of the push-to-talk key.
+    u8 shortcut_key;            // the key of the last bind; zero after a clear
+    u32 shortcut_binds, shortcut_clears;
     u32 fatal_messages;   // window_fatal_message calls
     u32 title_bytes;
     char title[128];      // the last window_set_title, truncated

@@ -59,7 +59,7 @@ class Flow:
         config = os.path.join(self.out, "sway.conf")
         with open(config, "w") as handle:
             handle.write(f"output * resolution {int(1280 * scale)}x{int(800 * scale)} scale {scale}\n"
-                         "default_border none\ndefault_floating_border none\nfocus_follows_mouse no\n")
+                         "default_border none\ndefault_floating_border none\nfocus_follows_mouse no\nxwayland disable\n")
         env = dict(self.env, WLR_RENDERER="pixman")
         if self.options.compositor == "headless":
             env.update(WLR_BACKENDS="headless", WLR_LIBINPUT_NO_DEVICES="1")

@@ -134,7 +134,11 @@ void application_dev_load_error_text(const PluginLoadResult& load, DevText* text
     case PluginLoadError::tls: w.add("The DLL uses thread-local storage."); break;
     case PluginLoadError::sections: w.add("The DLL's sections are malformed, or writable and executable."); break;
     case PluginLoadError::exports: w.add("The DLL must export only maicord_plugin_v6, as data."); break;
+#if defined(_WIN32)
     case PluginLoadError::load: w.add("Windows couldn't load the DLL (does it import anything?)."); break;
+#else
+    case PluginLoadError::unsupported: w.add("This system can't load native plugins."); break;
+#endif
     case PluginLoadError::descriptor: {
         w.add("The descriptor is invalid: ");
         const u32 problem = static_cast<u32>(load.problem);

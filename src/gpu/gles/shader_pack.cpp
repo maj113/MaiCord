@@ -101,6 +101,7 @@ GpuStatus compile_text(GpuDevice* device, gl::Enum type, const char* text, u32 l
     const gl::Int bytes = static_cast<gl::Int>(length);
     gl.glShaderSource(*name, 1, &text, &bytes);
     gl.glCompileShader(*name);
+    device->trim_pending = true;
     gl::Int compiled = 0;
     gl.glGetShaderiv(*name, gl::kCompileStatus, &compiled);
     if (compiled)
@@ -275,6 +276,7 @@ GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* sha
         const gl::Int bytes = static_cast<gl::Int>(length);
         gl.glShaderSource(object, 1, &text, &bytes);
         gl.glCompileShader(object);
+        device->trim_pending = true;
         gl::Int compiled = 0;
         gl.glGetShaderiv(object, gl::kCompileStatus, &compiled);
         if (!compiled) {

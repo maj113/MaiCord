@@ -2,6 +2,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/os/file.hpp"
+#include "maicord/os/path.hpp"
 
 namespace maicord {
 namespace {
@@ -17,9 +18,7 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
 #if defined(_WIN32)
     for (u32 index = 0; index < path.count; ++index)
         if (path[index] == L'/') return false;
-    const wchar_t drive = path[0] >= L'A' && path[0] <= L'Z' ?
-        static_cast<wchar_t>(path[0] + L'a' - L'A') : path[0];
-    if (path.count > 3 && drive >= L'a' && drive <= L'z' && path[1] == L':' && path[2] == L'\\') {
+    if (path.count > 3 && path_root(path) == PathRoot::drive) {
         for (u32 index = 3; index < path.count; ++index) if (path[index] == L':') return false;
         return true;
     }
@@ -34,9 +33,7 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     for (u32 index = 2; index < path.count; ++index) if (path[index] == L':') return false;
     return true;
 #else
-    for (u32 index = 0; index < path.count; ++index)
-        if (path[index] == L'\\') return false;
-    return path.count > 1 && path[0] == L'/';
+    return path.count > 1 && path_root(path) == PathRoot::rooted && path_plain(path);
 #endif
 }
 struct Temporary {

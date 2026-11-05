@@ -19,6 +19,7 @@
 #include "../shell/log_fields.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
+#include "maicord/app/voice/push_to_talk_binding.hpp"
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
@@ -226,6 +227,7 @@ void application_voice_pump() noexcept {
     } else if (!(s && in_call(*s)) && !voice.monitor)
         reset_value(&voice.status);
     refresh_view();
+    voice_push_to_talk_binding_update(s && in_call(*s), voice.preferences.audio.mode, voice.preferences.audio.push_to_talk_key);
     application_voice_channels_pump();
     application_voice_settings_tick();
     if (voice.save_pending && !window_key_down(nullptr, key::lbutton)) {

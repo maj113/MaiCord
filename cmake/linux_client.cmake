@@ -12,6 +12,7 @@ file(GLOB MAICORD_SHELL_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
 
 maicord_program(MaiCord ENTRY maicord_entry
     SOURCES ${MAICORD_SHELL_SOURCES} src/app/linux/entry.cpp src/app/linux/platform_window.cpp
+        src/app/linux/shutdown_signal.cpp src/app/linux/desktop_fonts.cpp
     LIBS maicord_compile_contract
         maicord_app_client maicord_ui_secure_text maicord_ui maicord_text_system maicord_text_catalog
         maicord_font_system maicord_font maicord_font_color maicord_theme maicord_unicode
@@ -23,6 +24,14 @@ maicord_program(MaiCord ENTRY maicord_entry
         maicord_crypto maicord_net maicord_core
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
 target_compile_options(MaiCord PRIVATE -Wno-c23-extensions)
+
+# The shipped image has no symbol or string table, as /DEBUG:NONE leaves MaiCord.exe with none: the release job and every
+# package take MaiCord as the build leaves it. MAICORD_KEEP_SYMBOLS (build_linux.sh --symbols) keeps them for nm, bloaty
+# and profilers.
+option(MAICORD_KEEP_SYMBOLS "Keep the symbol table in the Linux client (size and memory analysis)" OFF)
+if(NOT MAICORD_KEEP_SYMBOLS)
+    target_link_options(MaiCord PRIVATE LINKER:--strip-all)
+endif()
 
 # Runtime assets next to the executable, as on Windows: the bundled fonts the renderer reads from fonts/ and the licenses.
 file(GLOB maicord_runtime_font_files CONFIGURE_DEPENDS
@@ -61,3 +70,12 @@ add_custom_command(TARGET MaiCord POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/MaiCord-sounds.txt"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/Lucide-ISC.txt"
         "$<TARGET_FILE_DIR:MaiCord>/licenses")
+
+# The text the client shows names no Windows feature (tools/check_linux_ui_text.py reads the image; the settings catalog,
+# which is stored deflated, is checked by maicord_linux_catalog_text).
+add_test(NAME maicord_linux_client_text
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_linux_ui_text.py" "$<TARGET_FILE:MaiCord>")
+set_tests_properties(maicord_linux_client_text PROPERTIES TIMEOUT 30)
+
+# Cold code compiled for size, as the Windows client's (shared list: cmake/size_policy.cmake).
+include(cmake/size_policy.cmake)

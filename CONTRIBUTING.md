@@ -58,6 +58,14 @@ and its runtime assets (`--keep` / `-KeepIntermediates` keeps it all). Its heade
 and the Windows branch stays byte-for-byte the code it was. Shared code uses the portable wrappers in
 `include/maicord/core` (`intrinsics.hpp`, `virtual_memory.hpp`, `interlocked.hpp`) instead of MSVC intrinsics.
 
+The Linux client is held to the Windows client's size: it follows `cmake/size_policy.cmake` (a new `src/app` unit is
+size-compiled by default there; keep one at `-O2` only for a measured reason, in that file), links with the machine
+outliner, `--icf=all` and `--gc-sections`, packs its relative relocations (`src/core/linux/start.cpp` applies them) and ships
+stripped. `tools/build_linux.sh --symbols --keep` keeps the symbol table for `llvm-nm -S --size-sort`;
+`tools/linux_memory_report.py PID` breaks a running client's resident memory down by mapping (the program image and
+its own pages against the GL driver stack, which is Mesa's, not ours). The GLES backend hands freed driver memory back to
+the system after it builds a shader (`heap_trim()` in `include/maicord/core/heap.hpp`).
+
 The Win32 value vocabulary stays in shared code (`Interlocked*`, SRW locks, `LONG`/`DWORD`/`HANDLE`, `WAIT_*`,
 `ERROR_*`, `SecureZeroMemory`): the `win32_*.hpp` headers give Linux its twins from `include/maicord/os/linux`.
 Operations that mean different things on the two systems have neutral names in `include/maicord/os`: events,
@@ -212,8 +220,9 @@ The updater, the HTTP/REST and CDN transport and the Gateway client are compiled
 updater's sealed stage; `file_set_last_write` sets a modification time for the fixtures that need a changed file),
 their events, threads and clocks through `os/wait.hpp`, `os/thread.hpp` and `core/time.hpp`, and a worker's entry is
 `u32 f(void*)`, never `DWORD WINAPI`. A path that policy checks (an update artifact or acceptance record, a download
-target) is a drive or UNC path on Windows and a rooted one with no backslash on Linux. The suite runs the updater
-pipeline fixtures (`maicord_update_pipeline`), the download owner (`maicord_https_file_download`) and the transport
+target) is a drive or UNC path on Windows and a rooted one with no backslash on Linux; a caller asks
+`include/maicord/os/path.hpp` (`path_root`, `path_leaf_start`, `path_plain`) instead of testing a drive letter. The suite
+runs the updater pipeline fixtures (`maicord_update_pipeline`), the download owner (`maicord_https_file_download`) and the transport
 fixtures (`maicord_transport`); a test written for both systems states what it asserts about sharing under
 `#if defined(_WIN32)` because Linux sharing is advisory.
 
@@ -249,6 +258,23 @@ is the long-lived virtual pointer it uses). WSLg's Weston has no screencopy, so 
 The updater is off on Linux, whatever the build's publisher: the channels carry the Windows package only. When they carry
 the tarball, `application_update_build_config()` enables it for the install that has the `.maicord-portable` marker next
 to its real executable (`update_portable_install`, `maicord_update_pipeline`) and for no other.
+Text that names the operating system is chosen per system: `MAICORD_OS_TEXT("Windows didn't save this change.", "Couldn't
+save this change.")` (`include/maicord/core/os_text.hpp`) compiles one wording, and the settings catalog keeps its Windows
+data (`catalog_data.inc`, packed) with a Linux table applied once in `catalog.cpp`; a row Linux has nothing behind is listed
+in `settings_binding_unavailable`. `maicord_linux_catalog_text` and `tools/check_linux_ui_text.py` (on the built image) fail
+when shown text names Windows on Linux. The Linux entry blocks SIGTERM, SIGINT and SIGHUP before any thread exists and reads
+them from a `signalfd` the main loop waits on (`src/app/linux/shutdown_signal.cpp`); the loop quits as the Quit command does
+and the normal exit saves (`maicord_linux_quit_signal`; `tools/test_client_wayland.sh --terminate TERM|INT` on the client).
+Because the compositor knows only the last `xdg_toplevel.set_min_size`, the loop sends the layout's minimum every turn
+(`application_window_refresh_minimum_size`; `maicord_linux_window_minimum`). `tools/audit_linux_reachability.sh` is the dead
+code audit: the client built without LTO and linked twice (`--no-gc-sections -Map`, `--print-gc-sections`), the code no path
+from the entry reaches listed by source file, to find a feature that a stub or an `#if` cut off on Linux.
+`tools/test_wayland_window.sh`'s drivers wait for the build before the tests (`MAICORD_DRIVER_WAIT`, default 1800 s) and find
+their sway by its log and pid, not by the newest socket.
+GPU handles are released with `gpu_release`, never `com_release` (a handle is a COM object on Windows only): the renderer
+once released two buffers as COM objects, which crashed every Linux run that had opened Settings when the window closed
+(`tests/render/scenes.cpp` creates both buffers and shuts down; `python3 tools/client_flow.py wait:4 click:1139,16 wait:1.5
+close` is the same run on the client, and its exit status must be 0).
 
 ### The toolchain release
 
@@ -281,7 +307,8 @@ to the tag and the `.sha256` value.
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
 | `generated_sources.cmake` | Packed UI data (including the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`), shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
-| `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` (the only code the machine outliner touches) |
+| `client.cmake` | `MaiCord.exe` with the account module, updater identity and runtime assets |
+| `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches) and the ones that also fold helpers (`/Ob2`, `-finline-functions`); one list names Windows and Linux files side by side |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
 | `perf_probe.cmake`, `benchmarks.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools |

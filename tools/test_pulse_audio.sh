@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs the audio integration test (tests/platform/audio/pulse_loopback.cpp) against a real PulseAudio server.
+# Runs the audio integration tests against a real PulseAudio server: tests/platform/audio/pulse_loopback.cpp and, with it,
+# maicord_video_playback_audio (tests/app/media/account_video_playback_linux.cpp --audio: a movie's AAC track through
+# the media player's session into the server's default sink).
 #
 #   tools/test_pulse_audio.sh                    pick a server (below), build and run through ctest
 #   tools/test_pulse_audio.sh --binary PATH      pick a server, run an already built MaiCordPulseLoopbackTests
@@ -27,7 +29,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --binary) binary="$2"; shift 2 ;;
         --private) private=1; shift ;;
-        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -68,12 +70,17 @@ fi
 
 export PULSE_SINK=maicord_test_sink
 export MAICORD_PULSE_INTEGRATION=1
+# The movie playback test (maicord_video_playback_audio) plays into a null sink of its own that this script loads (its
+# cleanup unloads every maicord_test_* module), so a server with speakers never plays it.
+if command -v pactl >/dev/null; then
+    pactl load-module module-null-sink sink_name=maicord_test_playback >/dev/null || echo "Could not load the playback sink." >&2
+fi
 
 if [ -n "$binary" ]; then
     "$binary"
     status=$?
 else
-    "$repository/tools/build_linux.sh" --keep --test maicord_pulse_loopback
+    "$repository/tools/build_linux.sh" --keep --test maicord_pulse_loopback maicord_video_playback_audio
     status=$?
 fi
 [ "$status" = 77 ] && { echo "Skipped."; status=0; }

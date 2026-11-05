@@ -722,8 +722,10 @@ bool file_snapshot_read(HANDLE file, FileSnapshot* output, u32* native_error) no
         }
         return false;
     }
-    // The volume is the device's minor number and `reserved` its major, so the identity keeps its size.
-    *output = {{statx.inode, filetime_value(statx.modify), statx.device_minor, statx.device_major}, statx.size};
+    // The volume is the kernel's 32-bit device number (major in the top twelve bits, minor in the low twenty), and
+    // `reserved` stays zero as on Windows: callers read a nonzero one as an identity that was never filled in.
+    *output = {{statx.inode, filetime_value(statx.modify), (statx.device_major << 20) | (statx.device_minor & 0xFFFFF), 0},
+               statx.size};
     return true;
 }
 

@@ -2,6 +2,7 @@
 #include "../shell/window_state.hpp"
 #include "desktop.hpp"
 #include "notifications.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/core/module.hpp"
 #include "../shell/state.hpp"
 #include "../account/friends.hpp"
@@ -394,7 +395,8 @@ void scope_admission_failed(ApplicationNotifications& n,u64 guild) noexcept {
 }
 void transport_error(ApplicationNotifications& n,DesktopNotificationResult result) noexcept {
     if(result.ok()) return;
-    n.status=utf8_literal("Windows could not deliver desktop notifications. Check notification settings.");
+    n.status=MAICORD_OS_TEXT("Windows could not deliver desktop notifications. Check notification settings.",
+                             "Your desktop could not deliver notifications. Check notification settings.");
     log_u64(LogLevel::warning,"notifications","native_error",result.native_error);
 }
 void retention_close(ApplicationNotifications& n,DesktopNotificationActivation target) noexcept {
@@ -503,10 +505,14 @@ void application_notifications_settings_refresh(Application* a) noexcept {
     // Windows.UI.Notifications.NotificationSetting.
     switch(n->os_setting) {
     case 0: n->status=utf8_literal("Notifications are on."); break;
-    case 1: n->status=utf8_literal("MaiCord's notifications are turned off in Windows. Turn them on in Windows notification settings."); break;
-    case 2: n->status=utf8_literal("All notifications are turned off in Windows. Turn them on in Windows notification settings."); break;
-    case 3: n->status=utf8_literal("Your organization has turned off notifications on this PC."); break;
-    default: n->status=utf8_literal("Windows is blocking notifications from MaiCord."); break;
+    case 1: n->status=MAICORD_OS_TEXT("MaiCord's notifications are turned off in Windows. Turn them on in Windows notification settings.",
+                                      "No notification service is running on your desktop. Start one to get notifications."); break;
+    case 2: n->status=MAICORD_OS_TEXT("All notifications are turned off in Windows. Turn them on in Windows notification settings.",
+                                      "Notifications are turned off on your desktop."); break;
+    case 3: n->status=MAICORD_OS_TEXT("Your organization has turned off notifications on this PC.",
+                                      "Your organization has turned off notifications on this computer."); break;
+    default: n->status=MAICORD_OS_TEXT("Windows is blocking notifications from MaiCord.",
+                                       "Your desktop is blocking notifications from MaiCord."); break;
     }
 }
 bool application_notifications_setup(Application* a) noexcept {
@@ -531,7 +537,8 @@ bool application_notifications_setup(Application* a) noexcept {
         case NotificationIdentityError::rollback:
             n->status=utf8_literal("Notification setup didn't finish. Try again."); break;
         default:
-            n->status=utf8_literal("Windows didn't accept MaiCord's notification registration. Try again."); break;
+            n->status=MAICORD_OS_TEXT("Windows didn't accept MaiCord's notification registration. Try again.",
+                                      "Your desktop didn't accept MaiCord's notification registration. Try again."); break;
         }
         const u64 failed[] = {static_cast<u32>(checked.error), checked.native_error, checked.registry_created};
         log_u64_fields(LogLevel::warning,"notifications","identity_error\0identity_native_error\0identity_registry_created",failed);

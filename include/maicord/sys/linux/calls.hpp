@@ -287,6 +287,21 @@ inline long sys_eventfd(u32 initial, int flags) noexcept {
     return syscall2(kSysEventfd2, static_cast<long>(initial), flags);
 }
 
+// rt_sigprocmask on the calling thread: `set` and `previous` are 64-bit signal sets (one bit per signal number - 1).
+inline long sys_sigprocmask(int how, const u64* set, u64* previous) noexcept {
+    return syscall4(kSysRtSigprocmask, how, reinterpret_cast<long>(set), reinterpret_cast<long>(previous), 8);
+}
+
+// signalfd4: a new descriptor (fd -1) that reads the signals of `mask`.
+inline long sys_signalfd(int fd, const u64* mask, int flags) noexcept {
+    return syscall4(kSysSignalfd4, fd, reinterpret_cast<long>(mask), 8, flags);
+}
+
+// kill(2): sends `signal` to the process `pid`.
+inline long sys_kill(int pid, int signal) noexcept {
+    return syscall2(kSysKill, pid, signal);
+}
+
 inline long sys_timerfd_create(int clock, int flags) noexcept {
     return syscall2(kSysTimerfdCreate, clock, flags);
 }

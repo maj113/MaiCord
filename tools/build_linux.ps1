@@ -11,6 +11,8 @@ param(
     [switch]$KeepIntermediates,
     # Configure and build only: no audit and no tests.
     [switch]$Check,
+    # Keep the symbol table in the Linux client (nm, bloaty, profilers); it ships stripped.
+    [switch]$Symbols,
     # The WSL distribution with clang and lld 23 (default: $env:MAICORD_WSL_DISTRO, else Ubuntu-Preview) and its user
     # (default: $env:MAICORD_WSL_USER, else the distribution's default user).
     [string]$Distro = $(if ($env:MAICORD_WSL_DISTRO) { $env:MAICORD_WSL_DISTRO } else { 'Ubuntu-Preview' }),
@@ -32,5 +34,6 @@ $arguments = @()
 if ($Test) { $arguments += '--test'; $arguments += $TestNames }
 if ($KeepIntermediates) { $arguments += '--keep' }
 if ($Check) { $arguments += '--check' }
+if ($Symbols) { $arguments += '--symbols' }
 & wsl.exe @wsl -- bash -lc "bash '$script' $($arguments -join ' ')"
 if ($LASTEXITCODE) { throw "build_linux.sh failed ($LASTEXITCODE)." }

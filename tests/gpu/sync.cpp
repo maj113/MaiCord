@@ -150,6 +150,26 @@ void test_fence(GpuDevice* device, GpuContext* context) noexcept {
     gpu_release(signaller);
 }
 
+// A prestart nobody adopts (the window could not be made, so the renderer never started): the worker's objects are
+// released before the device that finish destroys, which used to call a GL function of a device already gone.
+void test_prestart_cancel() noexcept {
+    g_worker_ran = 0;
+    g_worker_texture = nullptr;
+    g_worker_view = nullptr;
+    gpu_device_prestart(worker_continuation);
+    gpu_device_prestart_wait();
+    check(g_worker_ran == 1 && g_worker_texture && g_worker_view, "the worker's objects exist after the wait");
+    gpu_release(g_worker_view);
+    gpu_release(g_worker_texture);
+    gpu_device_prestart_finish();
+    GpuDevice* device = nullptr;
+    GpuContext* context = nullptr;
+    check(gpu_ok(gpu_device_create(&device, &context)) && !gpu_device_prestarted(device),
+          "a device is made again after a prestart nobody adopted");
+    if (device)
+        gpu_device_destroy(&device, &context);
+}
+
 void run() noexcept {
     const char* prestart_setting = environment_get("MAICORD_TEST_PRESTART");
     const bool prestart = !(prestart_setting && prestart_setting[0] == '0');
@@ -181,6 +201,8 @@ void run() noexcept {
     test_timer(device, context);
     test_fence(device, context);
     gpu_device_destroy(&device, &context);
+    if (prestart)
+        test_prestart_cancel();
 }
 
 } // namespace

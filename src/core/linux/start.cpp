@@ -3,6 +3,12 @@
 // so libc functions (dlopen, pthread_create, clock_gettime) work although __libc_start_main never runs. _start reads
 // the initial stack (argc, argv, envp, auxv), records it and calls the image's entry, which ends the process with
 // exit_group. Static constructors do not run, as on Windows without the CRT.
+//
+// The image's relative relocations are packed as RELR (ld.lld --pack-dyn-relocs=relr --use-android-relr-tags: a few
+// hundred bytes where the RELA table was 70 KB). ld.so leaves them alone: glibc's own DT_RELR needs a loader of 2.36
+// or later and a symbol-version dependency that older loaders (2.35 of Ubuntu 22.04, 2.34 of Red Hat 9, 2.31 of
+// Debian 11) cannot satisfy, while the Android tags are unknown to every glibc and so ignored. maicord_start applies
+// them first of all, before anything reads a pointer from the image's data.
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 
@@ -12,6 +18,97 @@ extern "C" [[noreturn]] void maicord_program_entry() noexcept;
 namespace maicord {
 namespace {
 ProcessStartup g_startup{0, nullptr, nullptr, nullptr, 4096};
+
+constexpr u64 kAuxProgramHeaders = 3, kAuxProgramHeaderSize = 4, kAuxProgramHeaderCount = 5;
+constexpr u32 kProgramHeaderSelf = 6, kProgramHeaderDynamic = 2, kProgramHeaderRelro = 0x6474E552;
+// DT_ANDROID_RELR and DT_ANDROID_RELRSZ.
+constexpr i64 kDynamicRelr = 0x6FFFE000, kDynamicRelrSize = 0x6FFFE001;
+
+struct ProgramHeader {
+    u32 type, flags;
+    u64 offset, address, physical, file_size, memory_size, alignment;
+};
+struct DynamicEntry {
+    i64 tag;
+    u64 value;
+};
+
+// Applies the packed relative relocations. The program headers are the kernel's (AT_PHDR); their PT_PHDR entry gives
+// the link-time address, hence the load bias. The RELRO range is read-only by now (ld.so protected it after its own
+// relocation pass, which did not include these): it is opened for the pass and closed again. Anything unexpected
+// ends the process, since an unrelocated image cannot run.
+void apply_packed_relocations() noexcept {
+    const u64 headers = auxiliary_value(kAuxProgramHeaders);
+    const u64 entry_size = auxiliary_value(kAuxProgramHeaderSize);
+    const u64 count = auxiliary_value(kAuxProgramHeaderCount);
+    if (headers == 0 || entry_size < sizeof(ProgramHeader)) {
+        return;
+    }
+    u64 bias = 0;
+    bool known = false;
+    const ProgramHeader* dynamic = nullptr;
+    const ProgramHeader* relro = nullptr;
+    for (u64 index = 0; index < count; ++index) {
+        const auto* header = reinterpret_cast<const ProgramHeader*>(headers + index * entry_size);
+        if (header->type == kProgramHeaderSelf) {
+            bias = headers - header->address;
+            known = true;
+        } else if (header->type == kProgramHeaderDynamic) {
+            dynamic = header;
+        } else if (header->type == kProgramHeaderRelro) {
+            relro = header;
+        }
+    }
+    if (!known || !dynamic) {
+        return;
+    }
+    u64 relr = 0, relr_bytes = 0;
+    for (const auto* entry = reinterpret_cast<const DynamicEntry*>(bias + dynamic->address); entry->tag != 0; ++entry) {
+        if (entry->tag == kDynamicRelr) {
+            relr = entry->value;
+        } else if (entry->tag == kDynamicRelrSize) {
+            relr_bytes = entry->value;
+        }
+    }
+    if (relr == 0 || relr_bytes == 0) {
+        return; // no relative relocations at all
+    }
+    const u64 page_mask = ~(g_startup.page_size - 1);
+    void* protected_start = nullptr;
+    usize protected_bytes = 0;
+    if (relro && relro->memory_size != 0) {
+        const u64 start = (bias + relro->address) & page_mask;
+        const u64 end = (bias + relro->address + relro->memory_size) & page_mask;
+        if (end > start) {
+            protected_start = reinterpret_cast<void*>(start);
+            protected_bytes = static_cast<usize>(end - start);
+            if (syscall_failed(sys_mprotect(protected_start, protected_bytes, kProtectRead | kProtectWrite))) {
+                sys_exit_group(127);
+            }
+        }
+    }
+    // An even entry is the address of a word to relocate; an odd one is a bitmap of the 63 words after the last.
+    u64* where = nullptr;
+    const u64* words = reinterpret_cast<const u64*>(bias + relr);
+    for (u64 index = 0; index < relr_bytes / sizeof(u64); ++index) {
+        const u64 word = words[index];
+        if ((word & 1) == 0) {
+            where = reinterpret_cast<u64*>(bias + word);
+            *where++ += bias;
+        } else {
+            u64 bits = word >> 1;
+            for (u64 at = 0; bits != 0; ++at, bits >>= 1) {
+                if (bits & 1) {
+                    where[at] += bias;
+                }
+            }
+            where += 63;
+        }
+    }
+    if (protected_start && syscall_failed(sys_mprotect(protected_start, protected_bytes, kProtectRead))) {
+        sys_exit_group(127);
+    }
+}
 } // namespace
 
 const ProcessStartup& process_startup() noexcept {
@@ -67,6 +164,7 @@ extern "C" [[noreturn, gnu::used]] void maicord_start(maicord::usize* stack) noe
     if (page_size != 0) {
         g_startup.page_size = page_size;
     }
+    apply_packed_relocations();
     maicord_program_entry();
     sys_exit_group(0);
 }

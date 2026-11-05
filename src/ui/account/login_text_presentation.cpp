@@ -1,5 +1,6 @@
 #include "maicord/ui/account/login_text_presentation.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
+#include "maicord/core/os_text.hpp"
 
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/style.hpp"
@@ -337,7 +338,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     const Utf8View login_value = login.bytes != 0 ? login
                                  : recovery       ? utf8_literal("Account email or phone")
                                                   : utf8_literal("Email, phone number or reset link");
-    const Utf8View password_value = webauthn              ? utf8_literal("Windows Hello or security key")
+    const Utf8View password_value = webauthn              ? MAICORD_OS_TEXT("Windows Hello or security key", "Security key")
                                     : password.bytes != 0 ? password
                                     : selected_mfa == login_mfa_capability_sms ? utf8_literal("SMS code")
                                     : selected_mfa == login_mfa_capability_backup
@@ -433,7 +434,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
             ? utf8_literal("Backup codes can only be used once.")
         : view.status == LoginStatus::profile_save_failed ? utf8_literal("Couldn't save your sign-in.")
         : view.status == LoginStatus::webauthn_required
-            ? utf8_literal("Complete verification in the Windows security prompt.")
+            ? MAICORD_OS_TEXT("Complete verification in the Windows security prompt.",
+                              "Complete verification with your security key.")
         : view.status == LoginStatus::webauthn_failed
             ? utf8_literal("Security-key verification failed or was cancelled. Try again.")
             : Utf8View{};

@@ -52,7 +52,7 @@ add_subdirectory(third_party/opus)
 foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
     target_include_directories(${maiopus_target} PRIVATE include include/maicord/sys/libc)
     target_compile_options(${maiopus_target} PRIVATE -nostdinc -fPIE -fvisibility=hidden -fno-stack-protector
-        -fcf-protection=none -ffp-contract=off)
+        -fcf-protection=none -ffp-contract=off ${MAICORD_NO_OUTLINE_OPTION})
     if(NOT MAICORD_UNWIND_TABLES)
         target_compile_options(${maiopus_target} PRIVATE -fno-asynchronous-unwind-tables -fno-unwind-tables)
     endif()
@@ -138,6 +138,14 @@ maicord_library(maicord_font
     src/text/opentype/tt_outline.cpp src/text/opentype/colr_variations.cpp src/text/fonts/axes.cpp
     src/text/fonts/store.cpp src/text/fonts/catalog.cpp src/text/fonts/linux/handle_stat.cpp
     LIBS maicord_core maicord_unicode)
+# Compact the shared Indic ordering routine; keep -O2 and LTO.
+set_property(SOURCE src/text/scripts/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
+# Font table opening, outlines and variations (once per font or glyph), the non-Latin script shapers and the Unicode
+# line geometry keep their short loops rolled, as in the Windows build (cmake/libraries.cmake has the measurements).
+get_target_property(maicord_rolled_sources maicord_font SOURCES)
+list(FILTER maicord_rolled_sources INCLUDE REGEX
+    "/(opentype/(sfnt|cff_|tt_|truetype_outline|colr_|cpal|gvar|variation_store|metric_variations|layout_directory|layout_tables|gdef|layout_variations|lookup_selection|nominal_)|scripts/(hebrew|sinhala|tibetan|khmer|myanmar|tamil)|layout/unicode_line_geometry)")
+set_property(SOURCE ${maicord_rolled_sources} APPEND PROPERTY COMPILE_OPTIONS -fno-unroll-loops)
 
 # The system font locator (include/maicord/platform/font): fontconfig through dlopen with a directory scan as the
 # fallback, and the platform's default families.

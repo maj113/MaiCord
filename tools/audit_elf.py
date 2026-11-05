@@ -10,7 +10,9 @@ A MaiCord image is a freestanding dynamic PIE (see cmake/build_contract_linux.cm
     that is ever required;
   * carry no unwind data (.eh_frame, .eh_frame_hdr, .gcc_except_table) and no debug sections;
   * have no text relocations, no RPATH and no RUNPATH, full RELRO (relro and bind-now) and a non-executable stack,
-    and no segment that is writable and executable.
+    and no segment that is writable and executable;
+  * pack its relative relocations under the Android RELR tags if at all, never DT_RELR (src/core/linux/start.cpp
+    applies them; glibc 2.36 would refuse DT_RELR without a version dependency that older glibc cannot satisfy).
 
     audit_elf.py IMAGE... [--needed NAME...] [--maximum-initialized-data-bytes N]
 
@@ -29,7 +31,7 @@ ALLOWED_IMPORTS = {
     "pthread_create", "pthread_join", "pthread_detach", "pthread_attr_init", "pthread_attr_setstacksize",
     "pthread_attr_destroy",
     "clock_gettime",
-    "malloc", "calloc", "free",
+    "malloc", "calloc", "free", "malloc_trim",
     "getaddrinfo", "freeaddrinfo",
 }
 MAXIMUM_GLIBC = (2, 17)
@@ -42,6 +44,7 @@ SHF_WRITE, SHF_ALLOC = 1, 2
 DT_NEEDED, DT_RPATH, DT_RUNPATH, DT_TEXTREL, DT_FLAGS, DT_FLAGS_1 = 1, 15, 29, 22, 30, 0x6FFFFFFB
 DT_STRTAB, DT_SYMTAB, DT_VERSYM, DT_VERNEED, DT_VERNEEDNUM = 5, 6, 0x6FFFFFF0, 0x6FFFFFFE, 0x6FFFFFFF
 DF_TEXTREL, DF_BIND_NOW, DF_1_NOW = 4, 8, 1
+DT_RELR = 36
 
 
 class AuditError(Exception):
@@ -121,6 +124,9 @@ def audit(path, needed, maximum_data):
     check(actual == sorted(needed), "needed libraries are %s, expected %s" % (actual, sorted(needed)))
     check(DT_RPATH not in tags and DT_RUNPATH not in tags, "the image has an RPATH or RUNPATH")
     check(DT_TEXTREL not in tags and not tags.get(DT_FLAGS, 0) & DF_TEXTREL, "the image has text relocations")
+    # Packed relative relocations use the Android tags: glibc 2.36 refuses DT_RELR without a version dependency that
+    # older glibc cannot satisfy, and a loader that does not know the tags leaves the work to src/core/linux/start.cpp.
+    check(DT_RELR not in tags, "the image has DT_RELR (link with --pack-dyn-relocs=relr --use-android-relr-tags)")
     check(tags.get(DT_FLAGS, 0) & DF_BIND_NOW or tags.get(DT_FLAGS_1, 0) & DF_1_NOW, "the image is not linked -z now")
     kinds = {kind for kind, _, _, _, _, _, _, _ in image.programs}
     check(PT_GNU_RELRO in kinds, "the image has no RELRO segment")
@@ -152,7 +158,9 @@ def audit(path, needed, maximum_data):
             _, flags, index, name, next_aux = struct.unpack_from("<IHHII", data, aux)
             version = c_string(data, strings + name)
             versions[index] = (library, version)
-            check(version.startswith("GLIBC_"), "%s requires %s from %s" % (path, version, library))
+            check(version.startswith("GLIBC_") and not version.startswith("GLIBC_ABI_"),
+                  "%s requires %s from %s (only the pinned GLIBC_x.y nodes: a GLIBC_ABI_* dependency, DT_RELR's, "
+                  "stops the image on an older glibc)" % (path, version, library))
             check(glibc_version(version) <= MAXIMUM_GLIBC, "%s requires %s from %s, above GLIBC_%d.%d" % (
                 path, version, library, MAXIMUM_GLIBC[0], MAXIMUM_GLIBC[1]))
             aux += next_aux

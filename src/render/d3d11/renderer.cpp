@@ -91,11 +91,14 @@ void prestart_objects(GpuDevice* device, GpuContext* context) noexcept {
 }
 
 void release_prestarted_pipeline() noexcept {
-    gpu_device_prestart_finish();
+    // The objects go before the device does: finish releases a device nobody adopted, and a GL object dies with its
+    // device, so releasing it afterwards would call into a device that is gone.
+    gpu_device_prestart_wait();
     d3d11_draw_pipeline_release(&g_prestarted_pipeline);
     g_prestarted_pipeline_device = nullptr;
     glyph_atlas_gpu_release(&g_prestarted_glyph_atlas);
     g_prestarted_glyph_atlas_device = nullptr;
+    gpu_device_prestart_finish();
 }
 
 // Joins the prestart worker and lends its glyph atlas to the text resources
@@ -762,9 +765,9 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     d3d11_renderer_shell_segment_release(&renderer->shell_segment);
     d3d11_renderer_layout_release(renderer);
     text_edit_layout_release(&renderer->composer_layout);
-    com_release(renderer->text_effect_buffer);
+    gpu_release(renderer->text_effect_buffer);
     renderer_release_settings_backdrop(renderer);
-    com_release(renderer->settings_backdrop_quad);
+    gpu_release(renderer->settings_backdrop_quad);
     for (auto& handle : renderer->native_text_faces)
         handle = 0;
     text_edit_layout_release(&renderer->popup_edit_layout);
@@ -865,8 +868,8 @@ bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     d3d11_background_fx_release(&renderer->background_fx);
     d3d11_renderer_caption_release_device(renderer);
     renderer_release_settings_backdrop(renderer);
-    com_release(renderer->settings_backdrop_quad);
-    com_release(renderer->text_effect_buffer);
+    gpu_release(renderer->settings_backdrop_quad);
+    gpu_release(renderer->text_effect_buffer);
     renderer->text_effect_uploaded_count = 0;
     renderer_release_media_surfaces(renderer);
     icon_atlas_release(&renderer->icon_atlas);

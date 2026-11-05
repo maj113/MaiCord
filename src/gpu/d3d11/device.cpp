@@ -191,6 +191,12 @@ void gpu_device_prestart(GpuDevicePrestartContinuation continuation) {
     }
 }
 
+void gpu_device_prestart_wait() {
+    if (g_prestart.thread) {
+        WaitForSingleObject(g_prestart.thread, INFINITE);
+    }
+}
+
 void gpu_device_prestart_finish() {
     if (!g_prestart.thread) {
         return;

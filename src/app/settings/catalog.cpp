@@ -176,6 +176,63 @@ void build_navigation(UiSettingsNavEntry* out, const u8* steps, u32 count) noexc
         }
     }
 }
+
+#if !defined(_WIN32)
+// The Linux wording of what catalog_data.inc says in Windows terms. The data file and its shipped stream stay the
+// Windows text (the Windows image and tests/app/settings/catalog_pack.cpp read them as they are); the Linux build
+// replaces these fields once after inflating. An empty field keeps the data's.
+struct LinuxText {
+    Utf8View key, label, description, keywords;
+};
+constexpr LinuxText kLinuxNodeText[]{
+    {utf8_literal("notifications.setup"), {}, {}, utf8_literal("permission enable notification service desktop")},
+    {utf8_literal("notifications.taskbar_flash"), utf8_literal("Enable App Icon Flashing"),
+     utf8_literal("Flashes the app's icon in your dock or panel when you have new notifications."),
+     utf8_literal("dock launcher panel icon flash attention blink urgent")},
+    {utf8_literal("notifications.unread_badge"), {}, {}, utf8_literal("dock launcher icon overlay badge count dot")},
+    {utf8_literal("language.time_format"), {}, utf8_literal("Auto follows your system locale."), {}},
+    // A footnote's text is its label.
+    {utf8_literal("updates.assets"),
+     utf8_literal("Updates replace MaiCord. Fonts and licenses come with a fresh download from the releases page."), {},
+     {}},
+};
+constexpr LinuxText kLinuxPanelText[]{
+    {utf8_literal("system"), {}, utf8_literal("Startup, the tray and how links open on your desktop."),
+     utf8_literal("startup autostart tray links protocol")},
+};
+void apply_linux_text() noexcept {
+    for (const LinuxText& text : kLinuxNodeText) {
+        for (auto& node : g.nodes) {
+            if (!utf8_equal(node.key(), text.key))
+                continue;
+            if (text.label.bytes) {
+                node.label_data = text.label.data;
+                node.label_bytes = static_cast<u8>(text.label.bytes);
+            }
+            if (text.description.bytes) {
+                node.description_data = text.description.data;
+                node.description_bytes = static_cast<u8>(text.description.bytes);
+            }
+            if (text.keywords.bytes) {
+                node.keywords_data = text.keywords.data;
+                node.keywords_bytes = static_cast<u8>(text.keywords.bytes);
+            }
+            break;
+        }
+    }
+    for (const LinuxText& text : kLinuxPanelText) {
+        for (auto& panel : g.panels) {
+            if (!utf8_equal(panel.key, text.key))
+                continue;
+            if (text.description.bytes)
+                panel.summary = text.description;
+            if (text.keywords.bytes)
+                panel.keywords = text.keywords;
+            break;
+        }
+    }
+}
+#endif
 // Runs once on the inflated bytes, before any thread sees them.
 void publish(const u8* data) noexcept {
     PackedReader in{data};
@@ -227,6 +284,9 @@ void publish(const u8* data) noexcept {
             node.choice_data = label_set(set);
         }
     }
+#if !defined(_WIN32)
+    apply_linux_text();
+#endif
     g.schema = {{g.sections, kSettingsCatalogSections}, {g.panels, kSettingsCatalogPanels}};
     build_navigation(g.navigation, kNavigation, kNavigationCount);
     build_navigation(g.signed_out_navigation, kSignedOutNavigation, kSignedOutNavigationCount);
@@ -392,6 +452,12 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
         return SettingBackend::action;
     }
 }
+
+#if !defined(_WIN32)
+bool settings_binding_unavailable(SettingBinding binding) noexcept {
+    return binding == SettingBinding::windows_notification_settings || binding == SettingBinding::voice_processing;
+}
+#endif
 
 const UiSettingsSchema& settings_catalog() noexcept {
     ready();

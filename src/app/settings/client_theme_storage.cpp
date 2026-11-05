@@ -12,6 +12,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
+#include "maicord/os/path.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/os/wait.hpp"
 #include "maicord/core/heap.hpp"
@@ -35,18 +36,17 @@ ClientThemeStorageResult document_failure(ClientThemeDocumentResult result) noex
 bool path_valid(ConstSlice<wchar_t> path) noexcept {
     if (!path.data || !path.count || path.count >= kClientThemeIoMaximumPathUnits - 4)
         return false;
-    const bool drive = path.count >= 3 &&
-                       ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')) &&
-                       path[1] == L':' && (path[2] == L'\\' || path[2] == L'/');
-    const bool unc =
-        path.count >= 5 && path[0] == L'\\' && path[1] == L'\\' && path[2] != L'?' && path[2] != L'.';
-    if (!drive && !unc)
+    if (path_root(path, kPathRootSlash | kPathRootUnc) == PathRoot::none)
         return false;
+#if defined(_WIN32)
     for (u32 i = 0; i < path.count; ++i)
         if (path[i] < 32 || path[i] == L'"' || path[i] == L'<' || path[i] == L'>' || path[i] == L'|' ||
             path[i] == L'*' || path[i] == L'?' || (path[i] == L':' && i != 1))
             return false;
     return true;
+#else
+    return path_plain(path);
+#endif
 }
 bool path_length(const wchar_t* path, u32* length) noexcept {
     *length = wide_length(path, kClientThemeIoMaximumPathUnits);
@@ -143,7 +143,7 @@ ClientThemeStorageResult install_file(const wchar_t* directory, u32 length, cons
         return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
     wchar_t target[kClientThemeIoMaximumPathUnits];
     copy_bytes(target, directory, length * sizeof(wchar_t));
-    target[length] = L'\\';
+    target[length] = kPathSeparator;
     copy_bytes(target + length + 1, leaf, leaf_units * sizeof(wchar_t));
     target[units] = 0;
     u32 native = 0;
@@ -455,7 +455,7 @@ bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalo
         entry.file_units >= kClientThemeCatalogFileUnits || length + 1 + entry.file_units >= output.count)
         return false;
     copy_bytes(output.data, directory, length * sizeof(wchar_t));
-    output.data[length] = L'\\';
+    output.data[length] = kPathSeparator;
     copy_bytes(output.data + length + 1, entry.file, entry.file_units * sizeof(wchar_t));
     *units = length + 1 + entry.file_units;
     output.data[*units] = 0;

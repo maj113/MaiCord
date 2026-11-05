@@ -3,6 +3,7 @@
 
 #include "maicord/app/chat/composer/message_draft_session.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/os/path.hpp"
 
 #if defined(MAICORD_STARTUP_PROBE)
 #include "../notifications/desktop.hpp"
@@ -44,9 +45,7 @@ bool startup_probe_profile_marked() noexcept {
         return false;
     wchar_t local[1024]{};
     const DWORD count = GetEnvironmentVariableW(L"LOCALAPPDATA", local, 1000);
-    if (!count || count >= 1000 ||
-        !((count >= 3 && local[1] == L':' && (local[2] == L'\\' || local[2] == L'/')) ||
-          (count >= 2 && local[0] == L'\\' && local[1] == L'\\')))
+    if (!count || count >= 1000 || path_root({local, count}, kPathRootSlash | kPathRootUnc) == PathRoot::none)
         return false;
     static constexpr wchar_t marker[] = L"\\.maicord-test-profile";
     for (u32 i = 0; i < sizeof(marker) / sizeof(marker[0]); ++i)

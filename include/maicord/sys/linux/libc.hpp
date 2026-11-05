@@ -23,10 +23,11 @@ int pthread_attr_init(void* attribute);
 int pthread_attr_setstacksize(void* attribute, unsigned long bytes);
 int pthread_attr_destroy(void* attribute);
 
-// <stdlib.h> (libc.so.6, GLIBC_2.2.5): the process heap, behind maicord/core/heap.hpp.
+// <stdlib.h> and <malloc.h> (libc.so.6, GLIBC_2.2.5): the process heap, behind maicord/core/heap.hpp.
 void* malloc(unsigned long bytes);
 void* calloc(unsigned long count, unsigned long bytes);
 void free(void* block);
+int malloc_trim(unsigned long pad);
 
 // <netdb.h> (libc.so.6, GLIBC_2.2.5): name resolution. It blocks, so the network layer calls it on a pool thread.
 int getaddrinfo(const char* node, const char* service, const maicord::AddrInfo* hints, maicord::AddrInfo** result);

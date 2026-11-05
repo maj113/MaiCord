@@ -5,6 +5,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
+#include "maicord/os/path.hpp"
 
 namespace maicord {
 namespace {
@@ -31,7 +32,7 @@ bool acceptance_record_path_valid(const ConstSlice<wchar_t>& path) noexcept {
 #if defined(_WIN32)
     if (!path.data || path.count < 4 || path.count > kAcceptanceRecordMaximumPathCharacters - 5 ||
         !byte_range_valid({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) ||
-        ascii_lower(path[0]) < L'a' || ascii_lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\') return false;
+        path_root(path) != PathRoot::drive) return false;
     u32 component = 3;
     for (u32 i = 3; i <= path.count; ++i) {
         if (i == path.count || path[i] == L'\\') {
@@ -46,7 +47,7 @@ bool acceptance_record_path_valid(const ConstSlice<wchar_t>& path) noexcept {
     // A rooted path of plain components: no empty, "." or ".." ones, no backslash, no control character.
     if (!path.data || path.count < 2 || path.count > kAcceptanceRecordMaximumPathCharacters - 5 ||
         !byte_range_valid({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) ||
-        path[0] != L'/') return false;
+        path_root(path) != PathRoot::rooted) return false;
     u32 component = 1;
     for (u32 i = 1; i <= path.count; ++i) {
         if (i == path.count || path[i] == L'/') {

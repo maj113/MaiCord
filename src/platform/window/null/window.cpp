@@ -172,6 +172,21 @@ void window_wayland_text_input_disable(NativeWindow window) noexcept {
     ++g.probe.text_input_disables;
 }
 
+bool window_wayland_global_shortcut(Key key, u8, const char*) noexcept {
+    g.probe.shortcut_key = static_cast<u8>(key);
+    ++g.probe.shortcut_binds;
+    return true;
+}
+
+bool window_wayland_global_shortcut_ready() noexcept {
+    return g.probe.shortcut_key != 0;
+}
+
+void window_wayland_global_shortcut_clear() noexcept {
+    g.probe.shortcut_key = 0;
+    ++g.probe.shortcut_clears;
+}
+
 void window_show(Window, ShowMode mode) noexcept {
     g.probe.shown = mode != ShowMode::hide && mode != ShowMode::minimize_no_activate;
 }
@@ -210,7 +225,11 @@ void window_begin_move(Window) noexcept {}
 
 void window_begin_resize(Window, FrameHit) noexcept {}
 
-void window_set_min_size(Window, u32, u32) noexcept {}
+void window_set_min_size(Window, u32 width_px, u32 height_px) noexcept {
+    g.probe.min_width = width_px;
+    g.probe.min_height = height_px;
+    ++g.probe.min_size_calls;
+}
 
 void window_request_attention(Window, Attention) noexcept {
     ++g.probe.attention_requests;

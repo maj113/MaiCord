@@ -11,12 +11,15 @@
 #   tools/test_client_wayland.sh --settle 3 --idle 10  seconds before the first screenshot, and the idle measurement window
 #   tools/test_client_wayland.sh --out DIR             logs and screenshots (default ~/mc-client-qa)
 #   tools/test_client_wayland.sh --keep                leave the client running when the script ends (sway stays up with it)
+#   tools/test_client_wayland.sh --terminate TERM|INT|HUP  end the run with that signal and check for a clean exit (status 0, normal_exit logged)
 #
 # The profile (data, state, cache and config directories) is private to the run and starts empty: the client shows the
 # signed-out screens and never meets an account. grim is the capture on sway; WSLg's Weston has no screencopy.
 #
 # Reported: first_present (from the log), the window's size in sway's tree, CPU time over the idle window, voluntary context
-# switches per second summed over every thread (the wakeups), VmRSS and VmHWM, and the executable's size. Exit status:
+# switches per second summed over every thread (the wakeups), VmRSS and VmHWM, the anonymous, file and private-dirty
+# parts of it (smaps_rollup; with --keep, tools/linux_memory_report.py PID splits the running client by mapping) and the
+# executable's size. Exit status:
 # nonzero when the client exits early, writes an error line to its log, or the screenshot shows only one colour.
 #
 # Needs sway, swaymsg, grim and python3 with PIL (apt install sway grim python3-pil).
@@ -31,6 +34,7 @@ idle=10
 gallium=""
 out="${MAICORD_CLIENT_QA_OUT:-$HOME/mc-client-qa}"
 keep=0
+terminate=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -42,11 +46,13 @@ while [ "$#" -gt 0 ]; do
         --gallium) gallium="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
         --keep) keep=1; shift ;;
-        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+        --terminate) terminate="$2"; shift 2 ;;
+        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 case "$compositor" in headless|nested|current) ;; *) echo "Unknown compositor: $compositor" >&2; exit 2 ;; esac
+case "$terminate" in ""|TERM|INT|HUP) ;; *) echo "Unknown signal: $terminate (TERM, INT or HUP)" >&2; exit 2 ;; esac
 [ -x "$binary" ] || { echo "No client at $binary (tools/build_linux.sh --keep builds it)" >&2; exit 1; }
 
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -80,6 +86,7 @@ if [ "$compositor" != current ]; then
     cat > "$out/sway.conf" <<EOF
 output * resolution ${width}x${height} scale $scale
 default_border none
+xwayland disable
 default_floating_border none
 focus_follows_mouse no
 EOF
@@ -166,8 +173,33 @@ walk(json.load(sys.stdin))'
     awk -v a="$ticks_a" -v b="$ticks_b" -v s="$idle" -v h="$hertz" 'BEGIN { printf "idle cpu: %.2f%% (%d ticks in %d s)\n", (b - a) / h / s * 100, b - a, s }'
     awk -v a="$switches_a" -v b="$switches_b" -v s="$idle" 'BEGIN { printf "idle wakeups: %.1f per second (%d context switches in %d s)\n", (b - a) / s, b - a, s }'
     grep -E '^(VmRSS|VmHWM)' "/proc/$client_pid/status" | tr -s ' \t' ' ' | sed 's/^/memory: /'
+    grep -E '^(Pss_Anon|Pss_File|Private_Dirty):' "/proc/$client_pid/smaps_rollup" 2>/dev/null | tr -s ' \t' ' ' | sed 's/^/memory: /'
     printf 'binary: %d bytes\n' "$(stat -c %s "$binary")"
     kill -0 "$client_pid" 2>/dev/null || { echo "the client exited while idle" >&2; status=1; }
+fi
+
+# --terminate: the signal ends the run through the event loop (src/app/linux/shutdown_signal.cpp), so the client saves what
+# a close saves and leaves with status 0; its log ends with the normal exit.
+if [ -n "$terminate" ] && [ "$status" = 0 ]; then
+    kill "-$terminate" "$client_pid"
+    exited=0
+    for _ in $(seq 1 100); do
+        kill -0 "$client_pid" 2>/dev/null || { exited=1; break; }
+        sleep 0.1
+    done
+    if [ "$exited" = 1 ]; then
+        wait "$client_pid"; code=$?
+        client_pid=""
+        if [ "$code" = 0 ] && grep -q '\[shutdown\] normal_exit' "$log" 2>/dev/null; then
+            echo "SIG$terminate: the client left cleanly (status 0, normal_exit logged)"
+        else
+            echo "SIG$terminate: the client left with status $code, or without a normal_exit in its log" >&2
+            status=1
+        fi
+    else
+        echo "SIG$terminate: the client is still running after 10 s" >&2
+        status=1
+    fi
 fi
 
 if [ -f "$log" ]; then
