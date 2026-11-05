@@ -14,6 +14,7 @@ pkgbase = maicord-bin
 	optdepends = mesa: OpenGL ES drivers for the GPU (llvmpipe without one); your GPU vendor's driver works too
 	optdepends = libpulse: voice, notification and media audio (PulseAudio, or PipeWire with pipewire-pulse)
 	optdepends = speech-dispatcher: text-to-speech for "Speak message"
+	optdepends = libfido2: security keys for two-factor sign-in (and the udev rules for hidraw access)
 	optdepends = fontconfig: system fonts and the fallback for scripts the bundled fonts lack
 	optdepends = noto-fonts-emoji: colour emoji
 	optdepends = noto-fonts-cjk: Chinese, Japanese and Korean text

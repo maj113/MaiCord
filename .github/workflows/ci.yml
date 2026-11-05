@@ -263,12 +263,13 @@ jobs:
           key: maicord-shader-toolchain-${{ steps.shader-key.outputs.compiler }}-${{ hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py') }}
 
       # The declarations the Linux build resolves with dlsym against the installed headers (libssl-dev, libpulse-dev,
-      # libspeechd-dev).
+      # libspeechd-dev, libfido2-dev).
       - name: dlopen ABI checks
         run: |
           python3 tools/check_openssl_abi.py --compiler /usr/lib/llvm-23/bin/clang
           python3 tools/check_pulse_abi.py --compiler /usr/lib/llvm-23/bin/clang
           python3 tools/check_speechd_abi.py --compiler /usr/lib/llvm-23/bin/clang
+          python3 tools/check_fido2_abi.py --compiler /usr/lib/llvm-23/bin/clang
 
       # The tarball around a stand-in program (packaging/README.md): reproducible, valid desktop entry and AppStream
       # metadata, install and uninstall under a private home.

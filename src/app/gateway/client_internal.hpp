@@ -272,6 +272,15 @@ struct GatewayUserRuntime {
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> browser_version;
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_sdk_version;
     GatewayUserTextStorage<kGatewayUserLaunchIdBytes> launch_signature;
+#if !defined(_WIN32)
+    // The Linux desktop client's host properties (GatewayUserProperties::linux_desktop and the four texts after it): an
+    // identify without them is the Windows object, which needs an os_sdk_version the Linux client has none of.
+    bool linux_desktop;
+    GatewayUserTextStorage<kGatewayUserMaximumHostBytes> window_manager;
+    GatewayUserTextStorage<kGatewayUserMaximumHostBytes> distro;
+    GatewayUserTextStorage<kGatewayUserMaximumRuntimeBytes> runtime_environment;
+    GatewayUserTextStorage<kGatewayUserMaximumRuntimeBytes> display_server;
+#endif
     u32 client_build_number;
     u32 native_build_number;
     ClientSessionMetadata* session_metadata;

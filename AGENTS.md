@@ -122,7 +122,8 @@ has the same rules in more detail.
   `--orca` also runs Orca (on a private Xvfb, speech-dispatcher's dummy module) and reads what it spoke from its debug log.
   The Linux GPU backend (`src/gpu/gles`) is OpenGL ES 3.1 over EGL; EGL, GLES and libwayland-egl are opened with `dlopen`
   (`libEGL.so.1`, `libGLESv2.so.2`, `libwayland-egl.so.1`); the shaders are the HLSL of `src/render/shaders` translated by
-  `tools/build_gles_shader_pack.py` (DXC and SPIRV-Cross pinned in `tools/linux_shader_toolchain.json`, built into
+  `tools/build_gles_shader_pack.py` (one solid zlib stream of every shader, inflated from its start up to the wanted one by
+  `src/gpu/gles/shader_pack.cpp`; DXC and SPIRV-Cross pinned in `tools/linux_shader_toolchain.json`, built into
   `~/.cache/maicord-toolchain`). The normal Linux suite renders the ui quads, glyph (compute rasterization, atlas and effect
   materials) and media (PNG, VP8 and JPEG decode compute with read-modify-write blends, media shaders) scenes through the GPU
   API and compares them with PNGs captured from Direct3D 11 (`tests/gpu/golden`, renewed by
@@ -166,6 +167,24 @@ has the same rules in more detail.
   its Effects page (Appearance > Browse effects) lists, downloads and installs from the catalog (`application_catalog_browse`
   restores the catalog itself when the account session has not), and an installed effect runs in its knob page's live
   preview. The Themes page is signed-in only (`page_allowed`).
+  `tools/test_discord_wayland.sh` signs the client in against `tools/fake_discord_server.py` (REST and the ETF/zstd user
+  gateway over TLS in the same kind of namespace; `--root` for the plugin loader's directory ownership check, `--dbus` for the
+  mock notification daemon and a swaybar tray, `--site` for the catalog): the chat, a media channel, settings, the stores,
+  a catalog plugin's install and a Developer Mode sideload (`MAICORD_PLUGIN_DEV`), a mention's badge and desktop notification
+  and the tray were driven this way. The Gateway client keeps the identify's properties in `GatewayUserRuntime`
+  (`client_storage.cpp`): the Linux host fields (`linux_desktop`, window manager, distro, runtime environment, display server)
+  live there too, or the identify is the Windows object, needs an `os_sdk_version` and no session ever starts
+  (`maicord_client_identity` round-trips it). `tools/test_signin_wayland.sh --binary <client>` is the sign-in regression run
+  (without and with `--bar`, a swaybar reserving the top 23 output pixels: the window sits lower and shorter, clicks use output
+  pixels). A signed-in window that headless sway (wlroots 0.17) scans out directly stays unrepainted in grim until some input
+  makes the output repaint (the client's frame is right: read the default framebuffer back to see), so `client_flow.py`'s
+  `shot:` re-applies the output scale first; never judge a screenshot from a bare `grim`.
+  Voice runs the same way: `tools/test_voice_wayland.sh --binary <client>` joins the fake guild's stage (`--audio`: a private
+  PulseAudio server with a null sink and `qa_voice_signal.py` as the microphone) and checks the voice gateway handshake, the
+  UDP discovery, a capture and a playback stream on the sound server, Opus packets that decrypt at the server (AES-256-GCM)
+  and the echo the server sends back as another participant (its tile's speaking outline). The stage is deliberate: a voice
+  channel demands DAVE and the client refuses the downgrade (`dave_downgrade_refused`), while a stage allows transport-only
+  media; a DAVE group would need an MLS server in the fake.
   Native plugins on Linux are freestanding shared objects (`src/app/plugins/loader.cpp`: the `#else` half is the ELF loader, the
   `_WIN32` half the PE one, the descriptor rules are shared). `plugin_directory_open` pins every ancestor with
   `O_PATH|O_DIRECTORY|O_NOFOLLOW` (owned by root or the user, not writable by others unless sticky; the plugins directory the
@@ -176,7 +195,9 @@ has the same rules in more detail.
   one exported symbol, `maicord_plugin_v6`, as data, only `R_X86_64_RELATIVE` relocations) and `dlopen`s `/proc/self/fd/N` of the
   copy with `RTLD_NOW|RTLD_LOCAL`: what was hashed and checked is what runs. The copy stays open while the plugin is loaded
   (`PluginImage::sealed_token`), because glibc returns an already loaded module for a repeated name. `maicord_plugin_loader_elf`
-  is the policy test (a fixture per defect, symlinks, modes, a renamed pin), `maicord_plugin_binding|network|pipeline|ui|surfaces`
+  is the policy test (a fixture per defect, symlinks, modes, a renamed pin), `maicord_plugin_abi` the samples' image shape
+  (read from the file's section headers, apart from the loader's dynamic-section walk), descriptors and entry points,
+  `maicord_plugin_binding|network|pipeline|ui|surfaces` and `maicord_command_ui` (a plugin's slash commands in the composer)
   run the Windows runtime tests over `.so` builds (`cmake/linux_plugin_tests.cmake`; `maicord_plugin()` in
   `cmake/test_support.cmake` is the one build recipe; the built plugins are in `plugins/` of the build directory),
   `maicord_plugin_compile_*` the SDK's diagnostics. `MC_CALL` is empty (System V) and `MC_EXPORT` a default-visibility attribute
@@ -389,27 +410,45 @@ has the same rules in more detail.
   as the Windows toast escapes its XML, so a message with a link or an image tag in it stays text; the mock daemon of
   `tools/test_dbus.sh` logs every call, and `maicord_dbus_services`, `_plain` and `maicord_linux_notifications_mock` check
   it), `platform/desktop/linux/integration.cpp` (the startup entry is an XDG autostart file, the scheme handler a
-  desktop file plus the default in `mimeapps.list`), `platform/desktop/linux/webauthn.cpp` (unavailable: see below), the plugin
+  desktop file plus the default in `mimeapps.list`), `platform/desktop/linux/fido2.cpp` and `webauthn_ceremony.cpp` (security
+  keys through libfido2: see below), the plugin
   loader (`PluginLoadError`: the ELF loader below) and game detection (`/proc/*/comm`). The application and UI fixtures that need
   no Win32 window run on Linux from `cmake/linux_app_ui_tests.cmake` over `maicord_window_null`, with the Win32 calls
   they make shimmed for tests only in `tests/support/linux_test_app.hpp`; a fixture that calls other Windows API
   directly stays Windows-only and is listed there.
-  WebAuthn on Linux: `windows_webauthn_authenticate` answers unavailable and `kWebAuthnAvailable` (`platform/desktop/webauthn.hpp`)
-  is false, so `begin_webauthn` presents `webauthn_failed` at once ("Security keys aren't supported on Linux yet. Use another
-  method."; `maicord_linux_webauthn_text`) and the sign-in chooses another second factor first when the account has one.
-  libfido2 (`libfido2.so.1` through `dlopen`: `fido_dev_info_manifest`, `fido_dev_open`, `fido_assert_*`, `fido_dev_get_assert`)
-  was evaluated for the assertion and not bound: the ceremony here is one blocking call inside the OS's modal prompt, and
-  `application_login_run_webauthn` is written for that (Back stays up through the nested message loop, the state is checked
-  again after it); `fido_dev_get_assert` blocks on a touch with no prompt of its own, so Linux needs a worker thread, a
-  completion wake, the function split into a begin and a finish half, a cancel from Back (`fido_dev_cancel`) and an on-screen
-  prompt, all in Windows-compiled sign-in code; a key with a PIN or user verification needs a PIN field the sign-in screen has
-  not got; USB keys need the hidraw udev rules (`libfido2`'s, `libu2f-udev`) the user's system may lack; and there is nothing
-  to test against (libfido2 has no software authenticator, the WSL kernel has no `/dev/uhid` or `hidraw` to attach a virtual
-  one to, its custom I/O hook would take a CTAP2 emulator written for the purpose, and no hardware key was at hand). The
-  request mapping is the shared `webauthn_mfa_*` code, which a binding would reuse unchanged:
-  `webauthn_mfa_write_client_data` for the data to hash, `fido_assert_set_clientdata_hash`, `fido_assert_set_rp`,
-  `fido_assert_allow_cred` per credential, `fido_assert_set_uv` from the user verification, and the credential id, raw
-  authenticator data, signature and user handle of `fido_assert_*` into `webauthn_mfa_write_assertion`.
+  WebAuthn on Linux is the security-key ceremony of `platform/desktop/linux/{fido2,webauthn_ceremony}.cpp` over libfido2
+  (`libfido2.so.1`, `dlopen`ed with the table of `include/maicord/platform/desktop/fido2/abi.hpp`, checked against the
+  installed headers by `tools/check_fido2_abi.py`; `MAICORD_FIDO2_LIBRARY` names another file; the library is optional:
+  without it `webauthn_platform_available()` is false and the sign-in says so at once, choosing another second factor first
+  when the account has one). `application_login_run_webauthn` is split in `auth.cpp` into `webauthn_begin` (the guards, the
+  decoded challenge, the credential buffer, the captured screen) and `webauthn_finish` (the screen checked again, the
+  credential to the server): on Windows the call between them is the same blocking `windows_webauthn_authenticate` (the
+  object code of `auth.cpp` is byte-identical to before the split), on Linux it is `webauthn_ceremony_start` and the end of
+  the ceremony arrives as a wake. The ceremony is one worker thread (`webauthn_ceremony.cpp`, a static `Ceremony`) that
+  hashes the client data (SHA-256 of `webauthn_mfa_write_client_data`), then `fido2::run`: lists the keys through
+  `fido_dev_info_manifest` (hidraw; it looks again every 250 ms while none is plugged in, until the request's timeout, 120 s
+  when it has none), opens each and calls `fido_dev_get_assert` with the request's relying party, the client data hash,
+  every allowed credential and user verification as asked (required: true, discouraged: false, preferred: left to the key).
+  The key's answers are the outcomes of `fido2::Outcome`: a PIN (`FIDO_ERR_PIN_REQUIRED`, or one refused:
+  `FIDO_ERR_PIN_INVALID`, with the attempts `fido_dev_get_retry_count` reports) is asked through the hook, which posts a wake
+  with `b = kWebAuthnWakePin` and waits for `webauthn_ceremony_submit_pin`; `FIDO_ERR_ACTION_TIMEOUT` repeats until the
+  deadline; no credential on any key is `not_registered`; keys that cannot be opened (the udev rules for hidraw, from
+  `libfido2` or `libu2f-udev`) are `cannot_open`. The credential id, authenticator data (`fido_assert_authdata_ptr`, its CBOR
+  byte-string header stripped: libfido2 1.3 or later), signature and user handle go into `webauthn_mfa_write_assertion`
+  (attachment `cross-platform`), the same JSON the Windows path produces. The wakes use the existing `wake_begin_webauthn`
+  cause (`b` 0 begin, 1 PIN, 2 done) into `application_login_webauthn_progress`, so no `WakeCause` was added. Screens
+  (`LoginSecurityKey`, Linux-only, with `LoginRuntime::security_key` and `security_key_pin`): the wait for the touch is the
+  `submitting` screen ("Touch your security key."; Back and Esc work through `invalidate_auth()`, which cancels the ceremony
+  with `fido_dev_cancel`, as does a switch of method or account); the PIN is typed in the existing MFA code field on the
+  `mfa_required` screen, masked, labelled "SECURITY KEY PIN", sent with "Verify" at four characters or more (a wrong one
+  asks again, with the attempts left); each failure keeps its words (`login_text_presentation.cpp`). A late answer from a
+  screen that is gone is joined and dropped, as on Windows. Tests: `maicord_linux_fido2` (a fake libfido2 table: the
+  request as the library sees it, success, PIN required, wrong PIN, blocked PIN, no device, no credential, never touched,
+  cannot open, cancel while waiting, through `fido2::run` and the worker-thread ceremony), `maicord_linux_fido2_no_library`,
+  `maicord_linux_webauthn_flow` (the sign-in over a fake ceremony on the headless window: every screen, the PIN field, each
+  failure, cancel) and `maicord_linux_webauthn_text`. Not validated on hardware: libfido2 has no software authenticator, the
+  WSL kernel has no `/dev/uhid` or `hidraw`, and no key was at hand, so a real key's behaviour (hidraw access, PIN and
+  user-verification flows, `ACTION_TIMEOUT` pacing, platform-attached authenticators) is pending a test with one.
   The client is the `MaiCord` target (`cmake/linux_client.cmake`): the shell (`src/app/shell`) compiled on Linux with
   `src/app/linux/entry.cpp` (`argv` as the one command line `desktop_launch_parse` reads, via
   `platform/desktop/launch_line.hpp`: `--startup`, `--url -- <link>`, a bare `discord://` argument and single-instance
@@ -445,14 +484,18 @@ has the same rules in more detail.
   text system through `application_platform_desktop_fonts()` (`src/app/linux/desktop_fonts.cpp`) before the first text.
   What the last audit left unreachable on purpose:
   the PE plugin loader (the ELF loader of `src/app/plugins/loader.cpp` is the Linux client's), the updater's swap (until the
-  channels carry the tarball), WebAuthn (no Linux engine), the
+  channels carry the tarball), the
   Windows notification settings page and the voice processing switch (`settings_binding_unavailable`); the rest is test-only code.
-  The Linux client is held to the Windows client's size (6.47 MB stripped against `MaiCord.exe`'s 6.49 MB; report a
+  The Linux client is held to the Windows client's size cap (6,500,000 bytes stripped; `MaiCord.exe` is 6.49 MB; report a
   change in either). The one list of size-compiled sources is `cmake/size_policy.cmake` (Windows and Linux paths side by
   side; `client.cmake` and `linux_client.cmake` include it): `-Oz -moutline` per source, `-finline-functions` (`/Ob2`) for
   those that fold, against the contract's `-mno-outline`, `-finline-hint-functions` (`/Ob1`) and the link-time
   `-enable-machine-outliner`; a new `src/app` unit is size-compiled on Linux by default (the Gateway dispatch, media, voice
-  and frame-loop units Windows keeps at `/O2` are excluded by name there). Images link `--icf=all --gc-sections`, pack
+  and frame-loop units Windows keeps at `/O2` are excluded by name there), and on Linux only every other `src` unit still
+  at `-O2` compiles `-Os` (`maicord_source_options` at the end of that file) except the hot code its list names, which was
+  measured at both levels (`perf stat` instructions and best-of-five wall time of the Windows benchmarks built for Linux): a
+  change that makes a measured path more than 2% slower does not go in. The shapers also drop loop unrolling and
+  vectorization, and five CELT units of Opus drop unrolling (`third_party/opus/CMakeLists.txt`). Images link `--icf=all --gc-sections`, pack
   their relative relocations as RELR under the Android tags (no glibc knows them, so no loader applies them and
   `src/core/linux/start.cpp` does, on every glibc from 2.17; glibc's own `DT_RELR` would need 2.36 and a version
   dependency) and `MaiCord` is linked `--strip-all` (`build_linux.sh --symbols` keeps the table for `llvm-nm -S --size-sort`).

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the Linux client against a local copy of the plugin catalog over real TLS and drives it on headless sway.
 #
-#   tools/test_catalog_wayland.sh --binary PATH --site DIR [--out DIR] [--host NAME] [--prefix PATH] [--expect TEXT]... STEP...
+#   tools/test_catalog_wayland.sh --binary PATH --site DIR [--out DIR] [--host NAME] [--prefix PATH] [--expect TEXT]...
+#                                 [--client-arg ARG]... STEP...
 #
 # The client reads the catalog at https://<owner>.github.io/<repo>/ with the key compiled into it, so the run
 #   * builds a certificate for NAME (default maj113.github.io, the official owner) that the client trusts through
@@ -26,6 +27,7 @@ out="${MAICORD_CLIENT_QA_OUT:-$HOME/mc-catalog-qa}"
 host="maj113.github.io"
 prefix="/MaiCord-plugins"
 steps=()
+client_args=()
 expect="${MAICORD_CATALOG_EXPECT:-}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -35,9 +37,16 @@ while [ "$#" -gt 0 ]; do
         --host) host="$2"; shift 2 ;;
         --prefix) prefix="$2"; shift 2 ;;
         --expect) expect+="$2"$'\n'; shift 2 ;;
+        --client-arg) client_args+=("$2"); shift 2 ;;
         -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) steps+=("$1"); shift ;;
     esac
+done
+reexec_args=()
+flow_args=()
+for value in "${client_args[@]}"; do # a value may look like an option (--url), so it is passed as --client-arg=VALUE
+    reexec_args+=(--client-arg "$value")
+    flow_args+=("--client-arg=$value")
 done
 [ -x "$binary" ] || { echo "No client at $binary" >&2; exit 1; }
 [ -f "$site/index-4.json" ] || [ -f "$site/index-3.json" ] || { echo "No catalog site at '$site' (--site)" >&2; exit 1; }
@@ -53,7 +62,7 @@ if [ -z "${MAICORD_CATALOG_NAMESPACE:-}" ]; then
     printf '127.0.0.1 localhost %s\n' "$host" > "$out/catalog-hosts"
     exec unshare -Urnm env MAICORD_CATALOG_NAMESPACE=1 MAICORD_CATALOG_EXPECT="$expect" "$0" --binary "$binary" --site "$site" \
         --out "$out" --host "$host" \
-        --prefix "$prefix" "${steps[@]}"
+        --prefix "$prefix" "${reexec_args[@]}" "${steps[@]}"
 fi
 
 # Inside the namespace: loopback, the private hosts file, the server.
@@ -67,7 +76,7 @@ trap 'kill "$server" 2>/dev/null' EXIT
 for _ in $(seq 50); do grep -q ready "$out/catalog-server.log" 2>/dev/null && break; sleep 0.1; done
 grep -q ready "$out/catalog-server.log" || { cat "$out/catalog-server.log" >&2; exit 1; }
 export SSL_CERT_FILE="$out/catalog-cert.pem"
-python3 -B "$here/client_flow.py" --binary "$binary" --out "$out" "${steps[@]}"
+python3 -B "$here/client_flow.py" --binary "$binary" --out "$out" "${flow_args[@]}" "${steps[@]}"
 status=$?
 echo "catalog requests:"; sort "$out/catalog-requests.log" | uniq -c | head -40
 while IFS= read -r wanted; do

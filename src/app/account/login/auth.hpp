@@ -43,6 +43,12 @@ u64 application_login_reset_deadline() noexcept;
 bool application_login_tick_reset(u64 now_ms) noexcept;
 bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexcept;
 bool application_login_run_webauthn(u64 posted_epoch = 0) noexcept;
+#if !defined(_WIN32)
+// The security-key ceremony's wakes on Linux (platform/desktop/webauthn.hpp): the key wants a PIN, or the ceremony ended.
+bool application_login_webauthn_progress(u64 token, u64 kind) noexcept;
+// Cancels and joins a ceremony in flight (the sign-in screen goes away, the application exits).
+void application_login_webauthn_release() noexcept;
+#endif
 bool application_login_submit_mfa() noexcept;
 bool application_login_pump() noexcept;
 bool application_login_begin_remote_auth() noexcept;

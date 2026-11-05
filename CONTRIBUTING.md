@@ -58,9 +58,12 @@ and its runtime assets (`--keep` / `-KeepIntermediates` keeps it all). Its heade
 and the Windows branch stays byte-for-byte the code it was. Shared code uses the portable wrappers in
 `include/maicord/core` (`intrinsics.hpp`, `virtual_memory.hpp`, `interlocked.hpp`) instead of MSVC intrinsics.
 
-The Linux client is held to the Windows client's size: it follows `cmake/size_policy.cmake` (a new `src/app` unit is
-size-compiled by default there; keep one at `-O2` only for a measured reason, in that file), links with the machine
-outliner, `--icf=all` and `--gc-sections`, packs its relative relocations (`src/core/linux/start.cpp` applies them) and ships
+The Linux client is held to the Windows client's size (6,500,000 bytes stripped) without slowing hot paths: it follows
+`cmake/size_policy.cmake` (a new `src/app` unit is size-compiled by default there, and any other new `src` unit compiles `-Os`
+instead of `-O2` unless that file's list of hot code names it; a unit goes on that list only for a measurement, instructions
+and best-of-five wall time at both levels, that shows `-Os` more than 2% slower, whose method and numbers the file records),
+links with the machine outliner, `--icf=all` and `--gc-sections`, packs its relative relocations (`src/core/linux/start.cpp`
+applies them) and ships
 stripped. `tools/build_linux.sh --symbols --keep` keeps the symbol table for `llvm-nm -S --size-sort`;
 `tools/linux_memory_report.py PID` breaks a running client's resident memory down by mapping (the program image and
 its own pages against the GL driver stack, which is Mesa's, not ours). The GLES backend hands freed driver memory back to
@@ -122,6 +125,25 @@ To see the client's store against a local catalog, build the client with the tes
 (`MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=<hex> tools/build_linux.sh`, in a fresh build directory), build a site with the catalog
 scripts and a throwaway key, and run `tools/test_catalog_wayland.sh --binary <client> --site <site> --expect index-4.json
 --expect .mcfx wait:2 click:1139,16 ...` (the steps are `tools/client_flow.py`'s).
+Signed-in screens need no account either: `tools/test_discord_wayland.sh --binary <client> [--site <site>] [--root] [--dbus]
+STEP...` runs the client on headless sway against `tools/fake_discord_server.py`, a fake Discord (REST, and the user
+gateway in ETF with one zstd frame per message, over TLS in a private network namespace) that serves one account, a guild
+with two channels, messages with markdown, emoji, reactions, an embed, a picture, an MP4 and a file, and, with
+`MAICORD_FAKE_MENTION_AFTER=N`, a message that mentions the account. Sign in with any e-mail and password (type and
+`key:Return` steps). `--site` serves a catalog site on the catalog host too, so the Plugins and Themes stores, a plugin's
+consent dialog and its install work (`--root` makes the namespace with sudo so the plugin loader's ownership check on the
+directories above the plugins folder sees real root; `MAICORD_PLUGIN_DEV=<dir>` names a dev folder for Developer Mode);
+`--dbus` starts a private session bus with the desktop mocks of `tests/platform/dbus/mock_services.py` and a swaybar that
+hosts the tray, and prints the notifications and portal calls the client made (`desktop-calls.txt`). The fake server
+answers only what the client reads (an unknown request is 404 and logged), and its READY must stay faithful to what the
+client's decoders require: the user's settings proto and the guild's `user_guild_settings` entry, for instance, decide
+whether a mention may raise a desktop notification. `tools/test_signin_wayland.sh --binary <client>` is the regression run
+for the sign-in and the first paint after it (without and with `--bar`, a swaybar that reserves the top 23 pixels, so the
+window is lower and shorter and clicks use output pixels); a screenshot step repaints headless sway's output first, since
+it otherwise shows the frame from before the window's last commits when the window covers the output.
+`tools/test_voice_wayland.sh --binary <client>` is the voice run: the fake server also runs the voice gateway and a UDP
+socket, `--audio` gives the client a private PulseAudio server, and the run joins the stage (a voice channel needs DAVE) and
+checks the handshake, a capture and a playback stream, decrypted Opus packets and the echo played back.
 
 The renderer (`src/render`) builds for both systems (`cmake/linux_render.cmake` is the Linux side) and renders the same
 scenes in `tests/render/scenes.cpp`: on an offscreen surface on Linux (`renderer_initialize` with a null window), over a
@@ -186,7 +208,7 @@ through `$DICPATH`.
 Linux CI runs in `.github/workflows/ci.yml` on `ubuntu-24.04`: the `linux` job installs the toolchain with
 `tools/install_linux_toolchain.sh --integration`, builds and tests with `tools/build_linux.sh --test --keep --timeout-scale 3`
 (which audits every image with `tools/audit_elf.py`), checks the `dlopen` tables against the installed headers
-(`tools/check_openssl_abi.py`, `tools/check_pulse_abi.py`, `tools/check_speechd_abi.py`), runs the headless-sway, D-Bus,
+(`tools/check_openssl_abi.py`, `tools/check_pulse_abi.py`, `tools/check_speechd_abi.py`, `tools/check_fido2_abi.py`), runs the headless-sway, D-Bus,
 PulseAudio and speech-dispatcher scripts
 (reported, not failing, until the repository variable `MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`) and packs the
 portable cases; the `distros` job runs those cases in Ubuntu 22.04, Debian 12, Fedora, Arch Linux and NixOS containers
@@ -260,8 +282,9 @@ not registered on Linux, and the clipboard-bound ones wait for a clipboard in th
 objects there (`maicord_plugin()` in `cmake/test_support.cmake` builds them into `plugins/` of the build directory; the loader
 is the ELF half of `src/app/plugins/loader.cpp`): `cmake/linux_plugin_tests.cmake` runs `maicord_plugin_loader_elf` (the
 loader's policy: a fixture per defect, links, modes, a renamed pin) and the plugin runtime tests of the Windows suite
-(`maicord_plugin_binding`, `_network`, `_pipeline`, `_ui`, `_surfaces`) over the same fixtures, plus the SDK's compile
-diagnostics (`maicord_plugin_compile_*`); `tools/maicord-plugin build --target linux` makes the same file from a `plugin.cpp`.
+(`maicord_plugin_abi`, `_binding`, `_network`, `_pipeline`, `_ui`, `_surfaces`, and `maicord_command_ui`) over the same
+fixtures, plus the SDK's compile diagnostics (`maicord_plugin_compile_*`); `tools/maicord-plugin build --target linux`
+makes the same file from a `plugin.cpp`.
 
 The client itself is the `MaiCord` target of `cmake/linux_client.cmake` (the shell, `src/app/shell`, with the Linux entry
 and window glue in `src/app/linux`, over `maicord_window_wayland`; the null backend is the tests'). `src/app/linux/entry.cpp`
@@ -338,7 +361,7 @@ to the tag and the `.sha256` value.
 | `generated_sources.cmake` | Packed UI data (including the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`), shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
 | `client.cmake` | `MaiCord.exe` with the account module, updater identity and runtime assets |
-| `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches) and the ones that also fold helpers (`/Ob2`, `-finline-functions`); one list names Windows and Linux files side by side |
+| `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches), the ones that also fold helpers (`/Ob2`, `-finline-functions`) and, on Linux only, the `-Os` tier for what is left at `-O2` that is not a byte or sample loop; one list names Windows and Linux files side by side |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
 | `perf_probe.cmake`, `benchmarks.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools |

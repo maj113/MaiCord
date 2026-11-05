@@ -2,7 +2,7 @@
 """Drives the Linux client (MaiCord) on sway through a list of steps and takes screenshots along the way.
 
     tools/client_flow.py [--compositor headless|nested] [--scale S] [--binary PATH] [--gallium NAME] [--out DIR]
-                         STEP...
+                         [--client-arg ARG]... [--bar] STEP...
 
 Steps (one command-line argument each):
     wait:SECONDS          sleep
@@ -17,6 +17,7 @@ Steps (one command-line argument each):
     sway:COMMAND          any swaymsg command (output scale, fullscreen, resize, floating, ...)
     tree                  print the client's window rectangle in sway's tree
     metrics               CPU time, voluntary context switches, VmRSS of the client (since the previous metrics step)
+    audio:KINDS           capture and/or playback (comma separated): fail unless the sound server has that stream of the client open
     alive                 fail unless the client still runs
     close                 swaymsg kill on the window, then expect a clean exit (status 0) within five seconds
     log                   print the client's log lines that are not info
@@ -60,6 +61,9 @@ class Flow:
         with open(config, "w") as handle:
             handle.write(f"output * resolution {int(1280 * scale)}x{int(800 * scale)} scale {scale}\n"
                          "default_border none\ndefault_floating_border none\nfocus_follows_mouse no\nxwayland disable\n")
+            if self.options.bar:  # swaybar hosts the StatusNotifier tray: the client's tray icon shows up in it
+                handle.write("bar {\n    swaybar_command swaybar\n    position top\n    tray_output *\n"
+                             "    status_command while sleep 60; do echo MaiCord QA; done\n}\n")
         env = dict(self.env, WLR_RENDERER="pixman")
         if self.options.compositor == "headless":
             env.update(WLR_BACKENDS="headless", WLR_LIBINPUT_NO_DEVICES="1")
@@ -101,7 +105,8 @@ class Flow:
             env["GALLIUM_DRIVER"] = self.options.gallium
         self.state = profile + "/state/maicord/logs/maicord.log"
         log = open(os.path.join(self.out, "client.out"), "w")
-        self.client = subprocess.Popen([self.options.binary], env=env, stdout=log, stderr=subprocess.STDOUT)
+        self.client = subprocess.Popen([self.options.binary, *self.options.client_arg], env=env, stdout=log,
+                                       stderr=subprocess.STDOUT)
         for _ in range(100):
             if self.window():
                 break
@@ -162,6 +167,12 @@ class Flow:
         time.sleep(float(argument))
 
     def step_shot(self, argument):
+        # Headless sway (wlroots 0.17) scans a window that covers the output out directly, and grim then captures the
+        # composited frame from before the client's last commits, until something makes the output repaint (a pointer
+        # move, which is why a screenshot used to show the previous screen). Applying the output's own scale again
+        # repaints it, changes nothing for the client and costs a few milliseconds.
+        subprocess.run(["swaymsg", "output", "*", "scale", f"{self.options.scale:g}"], env=self.env, capture_output=True)
+        time.sleep(0.3)
         path = os.path.join(self.out, argument + ".png")
         result = subprocess.run(["grim", path], env=self.env, capture_output=True, text=True)
         if result.returncode != 0:
@@ -284,6 +295,17 @@ class Flow:
             print(f"VmRSS {now[3]} kB (the next metrics step reports the rates)")
         self.last_metrics = now
 
+    def step_audio(self, argument):
+        """audio:capture,playback - fail unless the PulseAudio server ($PULSE_SERVER) has a recording stream and/or a
+        playback stream of the client open right now."""
+        listing = {"capture": "source-outputs", "playback": "sink-inputs"}
+        for kind in (argument or "capture,playback").split(","):
+            result = subprocess.run(["pactl", "list", "short", listing[kind]], env=self.env, capture_output=True, text=True)
+            streams = [line for line in result.stdout.splitlines() if line.strip()]
+            print(f"audio {kind}: {len(streams)} stream(s)")
+            if result.returncode != 0 or not streams:
+                self.fail(f"no {kind} stream is open on the sound server")
+
     def step_alive(self, _):
         if self.client.poll() is not None:
             self.fail(f"the client exited with status {self.client.returncode}")
@@ -319,6 +341,8 @@ def main():
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--binary", default=os.path.expanduser("~/mc-build/MaiCord"))
     parser.add_argument("--gallium", default="")
+    parser.add_argument("--client-arg", action="append", default=[], help="an argument for the client (repeatable)")
+    parser.add_argument("--bar", action="store_true", help="run swaybar (the tray host) in sway")
     parser.add_argument("--out", default=os.path.expanduser("~/mc-client-flow"))
     parser.add_argument("steps", nargs="*")
     options = parser.parse_args()

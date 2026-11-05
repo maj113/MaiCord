@@ -4,7 +4,8 @@
 # (MaiCord) include it after their own targets exist, so the lists below name Windows files and Linux files side by
 # side: a path no target of the build holds is ignored, and a target that does not exist (the Windows libraries on
 # Linux, the Linux ones on Windows) is skipped. The Windows build's code generation is the one it had before the
-# lists moved here.
+# lists moved here. The Linux client has a third tier at the end of this file: -Os (MAICORD_BALANCED_OPTION) for the
+# sources that are still at -O2 and are not byte or sample loops.
 
 # Cold code is compiled for size: source-level -Oz lands after the contract's
 # /O2 /Ob1 -flto. Parsing, crypto, codecs, compression and text shaping stay
@@ -217,7 +218,7 @@ maicord_compact_sources(
 # decode pumps and video paths, the voice audio, crypto and RTP paths and the frame loop.
 if(MAICORD_LINUX)
     maicord_compact_sources(
-        TARGETS maicord_app_client maicord_app_net maicord_app_update maicord_app_packages
+        TARGETS maicord_app_client maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index
         EXCLUDE
             "/app/gateway/(dispatch(_notifications|_payload)?|guild_admin_dispatch|member_list_dispatch|payload_writer|presence_dispatch|private_dispatch|read_state_dispatch|relationship_dispatch|state_dispatch(_objects|_records)?|state_payload|thread_member_dispatch|user_payload|voice_dispatch)\\.cpp$"
             "/app/media/(account_media_video|account_video_session(_audio)?|cdn_media_pipeline|video(_input|_sources)?)\\.cpp$"
@@ -312,3 +313,72 @@ maicord_fold_helpers(
         "(^|/)src/gpu/(d3d11|gles)/" "(^|/)src/platform/net/(linux/)?socket\\.cpp$" "(^|/)src/media/image/"
     EXCLUDE "(^|/)src/model/(chat|voice)/" "(^|/)src/protocol/(encoding|http)/" "(^|/)src/render/(text|media)/"
         "(^|/)src/text/opentype/")
+# The Linux client's third tier. It carries what the Windows one gets from the operating system (the D-Bus and AT-SPI
+# services, the TLS and crypto wrappers over OpenSSL, the Wayland and EGL backends, the in-house AAC decoder, the Lottie
+# geometry, the ELF plugin loader), and with the lists above it stayed over the Windows client's size cap
+# (6,500,000 bytes). So every source that is still at the contract's -O2 compiles -Os (MAICORD_BALANCED_OPTION) instead,
+# except the hot code below. Every exception was measured: benchmarks/*.cpp built for Linux (with a <Windows.h> shim and
+# drivers for the Gateway replay, the glyph atlas, the UI units and AAC) at -O2 and with the policy, `perf stat`
+# instructions and best-of-five wall time per metric. One binary against itself moves a metric by up to 2%, and unrelated
+# code by up to 5% on a metric of a few nanoseconds, so a path counts when several of its metrics move together.
+# At -Os, text shaping cycles were 5-13% longer, the stores 3-9%, atlas allocation 9-17%, text entry (with the unicode
+# tables) 3-12%, Markdown and code highlighting 3-4%, the history page decode 4-6%, JPEG thumbnails 12-31%, Adam7 PNG 6%,
+# lossless WebP 4-6%, the AAC decoder 20% more instructions, the CELT encode 18%; those stay -O2. What is left at -Os
+# measured within that noise: the Gateway replay (READY, supplemental, 3200 events: zstd, ETF, scan, dispatch), message
+# and event decoding, the event pump, inflate and zstd, the fonts, GIF, and the render, GPU and container code. The text
+# shapers also drop loop unrolling and vectorization (neutral, 5 KB); the same on the stores, text entry or the OpenType
+# tables made them 3-43% slower, and outlining the -Os group made the stores and text entry 3-20% slower, so neither is
+# done there. third_party/opus has its own tiers (third_party/opus/CMakeLists.txt). The Windows build never defines or
+# calls any of this.
+if(MAICORD_LINUX)
+    # maicord_source_options(OPTIONS <option>... [INCLUDE <regex>...] [EXCLUDE <regex>...]): appends the options to
+    # every src/*.cpp that no list above compiled for size or balance, when it matches INCLUDE (any, without it) and not EXCLUDE.
+    function(maicord_source_options)
+        cmake_parse_arguments(ARG "" "" "OPTIONS;INCLUDE;EXCLUDE" ${ARGN})
+        get_property(targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(target IN LISTS targets)
+            get_target_property(type ${target} TYPE)
+            if(type STREQUAL "INTERFACE_LIBRARY")
+                continue()
+            endif()
+            get_target_property(files ${target} SOURCES)
+            foreach(source IN LISTS files)
+                if(NOT source MATCHES "^src/.*\\.cpp$")
+                    continue()
+                endif()
+                get_source_file_property(options "${source}" COMPILE_OPTIONS)
+                if(options MATCHES "${MAICORD_SIZE_OPTION}" OR options MATCHES "${MAICORD_BALANCED_OPTION}")
+                    continue()
+                endif()
+                set(selected TRUE)
+                if(ARG_INCLUDE)
+                    set(selected FALSE)
+                    foreach(pattern IN LISTS ARG_INCLUDE)
+                        if(source MATCHES "${pattern}")
+                            set(selected TRUE)
+                        endif()
+                    endforeach()
+                endif()
+                foreach(pattern IN LISTS ARG_EXCLUDE)
+                    if(source MATCHES "${pattern}")
+                        set(selected FALSE)
+                    endif()
+                endforeach()
+                if(selected)
+                    set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS ${ARG_OPTIONS})
+                endif()
+            endforeach()
+        endforeach()
+    endfunction()
+    maicord_source_options(OPTIONS ${MAICORD_BALANCED_OPTION}
+        EXCLUDE "^src/core/(json_reader|json_scan|utf)\\.cpp$" "^src/core/linux/(runtime|start)\\.cpp$"
+            "^src/os/linux/(thread|wait|srwlock)\\.cpp$" "^src/platform/crypto/"
+            "^src/media/image/(jpeg|webp|lossy_webp|animated_webp|vp8|apng|png\\.cpp|png_common|png_stream)"
+            "^src/media/audio/aac_lc\\.cpp$"
+            "^src/protocol/(encoding|gateway/etf|messages/history|gateway/message_)"
+            "^src/app/voice/(mixer|transmit|playback|receive|jitter_buffer|packet_crypto|udp_media|send)"
+            "^src/text/(shaping|scripts|layout|opentype|unicode)/" "^src/ui/text/" "^src/ui/chat/messages/markdown"
+            "^src/model/" "^src/render/text/glyph_atlas\\.cpp$")
+    maicord_source_options(OPTIONS -fno-unroll-loops -fno-vectorize -fno-slp-vectorize
+        INCLUDE "^src/text/(shaping|scripts|layout)/")
+endif()

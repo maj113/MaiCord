@@ -66,6 +66,11 @@ maicord_audio_no_server
 maicord_audio_no_library
 maicord_speechd
 maicord_speechd_no_library
+# security keys (libfido2 through dlopen, a fake table: no key, no library needed) and the sign-in over a fake ceremony
+maicord_linux_fido2
+maicord_linux_fido2_no_library
+maicord_linux_webauthn_flow
+maicord_linux_webauthn_text
 maicord_dbus_wire
 maicord_atspi_map
 [wayland]

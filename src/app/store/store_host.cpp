@@ -723,8 +723,9 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
                                 {{g->details, g->details_bytes}, {g->changelog, g->changelog_bytes}, g->details_loading});
     m.dev_folder = application_catalog_dev_folder(st.kind == CatalogKind::plugin ? 0 : 1);
     if (!m.dev_folder.bytes)
-        m.dev_folder = st.kind == CatalogKind::plugin ? utf8_literal("%LOCALAPPDATA%\\MaiCord\\plugins\\dev")
-                                                      : utf8_literal("%LOCALAPPDATA%\\MaiCord\\effects\\dev");
+        m.dev_folder = st.kind == CatalogKind::plugin
+                           ? MAICORD_OS_TEXT("%LOCALAPPDATA%\\MaiCord\\plugins\\dev", "~/.local/share/maicord/plugins/dev")
+                           : MAICORD_OS_TEXT("%LOCALAPPDATA%\\MaiCord\\effects\\dev", "~/.local/share/maicord/effects/dev");
     PackageStatus status = application_packages_status();
     StoreLink& l = m.link;
     reset_value(&l);

@@ -91,7 +91,7 @@ All of them install the tarball's contents (or build the same tree) and leave th
 **AUR (`aur/`).** `maicord-bin`: `/usr/lib/maicord` holds the program, fonts and licenses, `/usr/bin/maicord` links to it.
 `depends` are what the program cannot start without (glibc, openssl, wayland, libxkbcommon, libglvnd, hicolor-icon-theme);
 `optdepends` are the libraries it opens with `dlopen` when present (libpulse, fontconfig, hunspell and a dictionary, enchant,
-fonts, portals, a Secret Service, speech-dispatcher for "Speak message") and the Mesa drivers. Per release: bump `pkgver`, `updpkgsums`,
+fonts, portals, a Secret Service, speech-dispatcher for "Speak message", libfido2 for security keys) and the Mesa drivers. Per release: bump `pkgver`, `updpkgsums`,
 `makepkg --printsrcinfo > .SRCINFO`, push to the AUR git repository of `maicord-bin`. Tested in an `archlinux` container
 with `makepkg`, `namcap` and `pacman -U`.
 

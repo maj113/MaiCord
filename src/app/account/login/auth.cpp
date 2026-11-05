@@ -40,6 +40,16 @@ AccountLoginStatus stop_login_owner() noexcept {
 void invalidate_auth() noexcept {
     ++g_app.login.application_auth_epoch;
     g_app.login.webauthn_post_epoch = 0;
+#if !defined(_WIN32)
+    // A security-key ceremony of the screen being left is stopped, and the code field is the code field again.
+    webauthn_ceremony_cancel();
+    g_app.login.security_key = LoginSecurityKey::none;
+    if (g_app.login.security_key_pin) {
+        secure_edit_clear(&g_app.login.mfa);
+        g_app.login.security_key_pin = false;
+    }
+    g_app.login.mfa.password = false;
+#endif
 }
 
 } // namespace auth_detail
@@ -70,6 +80,10 @@ bool present_focus(LoginControl focus) noexcept {
 // Back to code entry, or the WebAuthn retry, after the server turned an MFA attempt down.
 bool present_mfa_retry(LoginStatus code_status) noexcept {
     const bool webauthn = g_app.login.mfa_type == UserAuthMfaType::webauthn;
+#if !defined(_WIN32)
+    if (webauthn)
+        g_app.login.security_key = LoginSecurityKey::failed;
+#endif
     return present(webauthn ? LoginStatus::webauthn_failed : code_status,
                    webauthn ? LoginControl::submit : LoginControl::password);
 }
@@ -85,6 +99,15 @@ bool present_mfa_pending(LoginControl focus) noexcept {
 
 bool webauthn_failed() noexcept {
     g_app.login.webauthn_attempted = false;
+#if !defined(_WIN32)
+    // A failure the ceremony named keeps its words; any other is the general one.
+    LoginSecurityKey& key = g_app.login.security_key;
+    if (key == LoginSecurityKey::none || key == LoginSecurityKey::touch || key == LoginSecurityKey::pin ||
+        key == LoginSecurityKey::pin_wrong)
+        key = LoginSecurityKey::failed;
+    g_app.login.security_key_pin = false;
+    g_app.login.mfa.password = false;
+#endif
     return present(LoginStatus::webauthn_failed);
 }
 
@@ -92,7 +115,8 @@ bool webauthn_failed() noexcept {
 // account has any (the key stays on offer: choosing it says why it cannot be used).
 u8 first_choice_capabilities(u8 capabilities) noexcept {
     constexpr u8 key = static_cast<u8>(login_mfa_capability_webauthn);
-    return !kWebAuthnAvailable && (capabilities & ~key) != 0 ? static_cast<u8>(capabilities & ~key) : capabilities;
+    return !webauthn_platform_available() && (capabilities & ~key) != 0 ? static_cast<u8>(capabilities & ~key)
+                                                                          : capabilities;
 }
 
 } // namespace
@@ -118,6 +142,9 @@ bool back_available() noexcept {
     const auto& login = g_app.login;
     return login_requires_back(login.status, login.remote_status) || login_phone_mode(login.status) ||
            login_recovery_mode(login.status) || login.reset_mode || application_login_auth_cooldown_active() ||
+#if !defined(_WIN32)
+           login.security_key_pin ||
+#endif
            (login.webauthn_attempted && login.status == LoginStatus::submitting);
 }
 
@@ -199,9 +226,12 @@ bool begin_webauthn() noexcept {
         return false;
     if (application_login_auth_cooldown_active())
         return true;
-    if (!kWebAuthnAvailable) {
+    if (!webauthn_platform_available()) {
         // No security-key ceremony on this system: the status says so at once, instead of one that cannot run.
         log_write(LogLevel::info, "auth", "webauthn_unavailable");
+#if !defined(_WIN32)
+        g_app.login.security_key = LoginSecurityKey::unavailable;
+#endif
         return webauthn_failed();
     }
     if (!g_app.account.login_instance || !g_app.account.api.login_copy_webauthn_challenge)
@@ -352,18 +382,40 @@ bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexc
     return type == UserAuthMfaType::sms ? request_sms(allow_resend) : application_refresh_login_view();
 }
 
-bool application_login_run_webauthn(u64 posted_epoch) noexcept {
+namespace {
+
+// What a security-key ceremony captured when it began: the screen it was begun for. The platform may take long (Windows: a
+// modal prompt whose message loop runs the application's handlers; Linux: the worker's own time), so its result counts only
+// while all of this still holds.
+struct WebAuthnFlight {
+    decltype(AccountHost::login_instance) owner;
+    decltype(AccountHost::module) module;
+    decltype(AccountHost::login_status.generation) generation;
+    decltype(AccountHost::login_status.request_id) request_id;
+    decltype(AccountHost::login_status.phase) phase;
+    u64 epoch;
+    UserAuthMfaType method;
+    bool reset;
+    u64 posted_epoch;
+    SecureBuffer credential;
+};
+
+// The ceremony's first half: the checks that start it, the challenge decoded into `request`, the credential buffer, the
+// flight, and the screen showing that a ceremony is in flight (Back stays available). False when that ended the flow, with
+// the answer of the call in *result.
+bool webauthn_begin(u64 posted_epoch, WebAuthnMfaRequestOptions* request, WebAuthnFlight* flight, bool* result) noexcept {
+    *result = true;
     if (application_account_logout_locked())
-        return true;
+        return false;
     if (application_login_auth_cooldown_active())
-        return true;
+        return false;
     AccountHost& host = g_app.account;
     if (!g_app.login.visible || !posted_epoch || posted_epoch != g_app.login.webauthn_post_epoch ||
         posted_epoch != g_app.login.application_auth_epoch || !host.login_instance || host.stop_failed ||
         g_app.login.status != RendererLoginStatus::webauthn_required || !g_app.login.webauthn_attempted ||
         login_requires_back(g_app.login.status, g_app.login.remote_status) ||
         g_app.login.mfa_type != UserAuthMfaType::webauthn) {
-        return true;
+        return false;
     }
     SecureBuffer challenge{};
     SecureBuffer credential{};
@@ -371,73 +423,86 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
         secure_buffer_initialize(&challenge, kUserAuthMaximumWebauthnChallengeBytes);
     if (!secured.ok()) {
         log_u64(LogLevel::error, "auth", "webauthn_challenge_memory_error", secured.native_error);
-        return webauthn_failed();
+        *result = webauthn_failed();
+        return false;
     }
     secured = host.api.login_copy_webauthn_challenge(host.login_instance, &challenge);
     if (!secured.ok()) {
         log_u64(LogLevel::error, "auth", "webauthn_challenge_copy_error", static_cast<u64>(secured.error));
         secure_buffer_release(&challenge);
-        return webauthn_failed();
+        *result = webauthn_failed();
+        return false;
     }
-    WebAuthnMfaRequestOptions request{};
     u32 structurals[kWebAuthnStructuralCapacity]{};
     const WebAuthnMfaResult decoded = webauthn_mfa_decode_request(
         Utf8View{reinterpret_cast<const char*>(challenge.data), challenge.bytes},
-        Slice<u32>{structurals, kWebAuthnStructuralCapacity}, 16, &request);
+        Slice<u32>{structurals, kWebAuthnStructuralCapacity}, 16, request);
     secure_buffer_release(&challenge);
     secure_clear_bytes(structurals, sizeof(structurals));
     if (!decoded.ok()) {
         log_u64(LogLevel::error, "auth", "webauthn_challenge_decode_error",
                 static_cast<u64>(decoded.error));
-        secure_clear_bytes(&request, sizeof(request));
-        return webauthn_failed();
+        secure_clear_bytes(request, sizeof(*request));
+        *result = webauthn_failed();
+        return false;
     }
     secured = secure_buffer_initialize(&credential, kUserAuthMaximumWebauthnCredentialBytes);
     if (!secured.ok()) {
         log_u64(LogLevel::error, "auth", "webauthn_credential_memory_error", secured.native_error);
-        secure_clear_bytes(&request, sizeof(request));
-        return webauthn_failed();
+        secure_clear_bytes(request, sizeof(*request));
+        *result = webauthn_failed();
+        return false;
     }
-    const auto owner = host.login_instance;
-    const auto module = host.module;
-    const auto generation = host.login_status.generation;
-    const auto request_id = host.login_status.request_id;
-    const auto phase = host.login_status.phase;
-    const auto epoch = g_app.login.application_auth_epoch;
-    const auto method = g_app.login.mfa_type;
-    const bool reset = g_app.login.reset_mode;
+    flight->owner = host.login_instance;
+    flight->module = host.module;
+    flight->generation = host.login_status.generation;
+    flight->request_id = host.login_status.request_id;
+    flight->phase = host.login_status.phase;
+    flight->epoch = g_app.login.application_auth_epoch;
+    flight->method = g_app.login.mfa_type;
+    flight->reset = g_app.login.reset_mode;
+    flight->posted_epoch = posted_epoch;
+    flight->credential = credential;
+#if !defined(_WIN32)
+    g_app.login.security_key = LoginSecurityKey::touch;
+#endif
     // Keep Back available during nested native message processing. No module
     // API pointer or challenge view is retained across the platform ceremony.
     if (!present_mfa_pending(LoginControl::back)) {
-        secure_clear_bytes(&request, sizeof(request));
-        secure_buffer_release(&credential);
+        secure_clear_bytes(request, sizeof(*request));
+        secure_buffer_release(&flight->credential);
+        *result = false;
         return false;
     }
-    const WindowsWebAuthnResult asserted =
-        windows_webauthn_authenticate(g_app.window, request, &credential);
-    secure_clear_bytes(&request, sizeof(request));
+    return true;
+}
+
+// The ceremony's second half, with what the platform answered: the result counts only on the screen it began for; then
+// the credential goes to the server, or the failure is shown.
+bool webauthn_finish(WebAuthnFlight& flight, bool asserted_ok, u64 error, u32 native, u32 api_version) noexcept {
+    AccountHost& host = g_app.account;
     if (application_account_logout_locked() || application_login_auth_cooldown_active() ||
-        host.login_instance != owner || host.module != module ||
-        host.stop_failed || host.login_status.generation != generation ||
-        host.login_status.request_id != request_id || host.login_status.phase != phase ||
-        g_app.login.application_auth_epoch != epoch || g_app.login.webauthn_post_epoch != posted_epoch ||
-        !g_app.login.visible || g_app.login.reset_mode != reset || g_app.login.mfa_type != method ||
+        host.login_instance != flight.owner || host.module != flight.module ||
+        host.stop_failed || host.login_status.generation != flight.generation ||
+        host.login_status.request_id != flight.request_id || host.login_status.phase != flight.phase ||
+        g_app.login.application_auth_epoch != flight.epoch || g_app.login.webauthn_post_epoch != flight.posted_epoch ||
+        !g_app.login.visible || g_app.login.reset_mode != flight.reset || g_app.login.mfa_type != flight.method ||
         !g_app.login.webauthn_attempted ||
         g_app.login.status !=
-            (reset ? RendererLoginStatus::reset_mfa_pending : RendererLoginStatus::submitting)) {
-        secure_buffer_release(&credential);
+            (flight.reset ? RendererLoginStatus::reset_mfa_pending : RendererLoginStatus::submitting)) {
+        secure_buffer_release(&flight.credential);
         return true;
     }
-    if (!asserted.ok()) {
-        log_u64(LogLevel::error, "auth", "webauthn_platform_error", static_cast<u64>(asserted.error));
-        log_u64(LogLevel::error, "auth", "webauthn_hresult", static_cast<u32>(asserted.hresult));
-        secure_buffer_release(&credential);
+    if (!asserted_ok) {
+        log_u64(LogLevel::error, "auth", "webauthn_platform_error", error);
+        log_u64(LogLevel::error, "auth", "webauthn_hresult", native);
+        secure_buffer_release(&flight.credential);
         return webauthn_failed();
     }
     host.login_status =
-        host.api.login_submit_mfa(host.login_instance, &credential, UserAuthMfaType::webauthn);
+        host.api.login_submit_mfa(host.login_instance, &flight.credential, UserAuthMfaType::webauthn);
     retain_auth_retry(host.login_status);
-    secure_buffer_release(&credential);
+    secure_buffer_release(&flight.credential);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
         log_u64(LogLevel::error, "auth", "webauthn_submit_error",
                 static_cast<u64>(host.login_status.error));
@@ -446,9 +511,141 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
         g_app.login.webauthn_attempted = false;
         return present(LoginStatus::reset_failed, LoginControl::back);
     }
-    log_u64(LogLevel::info, "auth", "webauthn_api_version", asserted.api_version);
+    log_u64(LogLevel::info, "auth", "webauthn_api_version", api_version);
     return present_mfa_pending(LoginControl::none);
 }
+
+#if !defined(_WIN32)
+// The ceremony of the flight in progress on Linux, between its begin and its finish (platform/desktop/webauthn.hpp).
+WebAuthnFlight g_flight;
+bool g_flight_active;
+
+// The flight's screen is still the one on show, whatever the sign-in status is (the key's PIN is asked on another status).
+bool flight_current() noexcept {
+    const AccountHost& host = g_app.account;
+    const WebAuthnFlight& flight = g_flight;
+    return g_flight_active && !application_account_logout_locked() && !application_login_auth_cooldown_active() &&
+           host.login_instance == flight.owner && host.module == flight.module && !host.stop_failed &&
+           host.login_status.generation == flight.generation && host.login_status.request_id == flight.request_id &&
+           host.login_status.phase == flight.phase && g_app.login.application_auth_epoch == flight.epoch &&
+           g_app.login.webauthn_post_epoch == flight.posted_epoch && g_app.login.visible &&
+           g_app.login.reset_mode == flight.reset && g_app.login.mfa_type == flight.method &&
+           g_app.login.webauthn_attempted;
+}
+
+LoginSecurityKey security_key_state(WebAuthnCeremonyError error) noexcept {
+    switch (error) {
+    case WebAuthnCeremonyError::unavailable: return LoginSecurityKey::unavailable;
+    case WebAuthnCeremonyError::no_device: return LoginSecurityKey::no_key;
+    case WebAuthnCeremonyError::cannot_open: return LoginSecurityKey::cannot_open;
+    case WebAuthnCeremonyError::not_registered: return LoginSecurityKey::not_registered;
+    case WebAuthnCeremonyError::pin_blocked: return LoginSecurityKey::pin_blocked;
+    case WebAuthnCeremonyError::pin_not_set: return LoginSecurityKey::pin_not_set;
+    case WebAuthnCeremonyError::timed_out: return LoginSecurityKey::timed_out;
+    default: return LoginSecurityKey::failed;
+    }
+}
+
+// The code field is the PIN field no more.
+void end_security_key_pin() noexcept {
+    LoginRuntime& login = g_app.login;
+    secure_edit_clear(&login.mfa);
+    login.mfa.password = false;
+    login.security_key_pin = false;
+}
+
+bool submit_security_key_pin() noexcept {
+    LoginRuntime& login = g_app.login;
+    const ConstSlice<u8> pin = secure_buffer_view(login.mfa.storage);
+    if (pin.count < 4)
+        return true;
+    if (!webauthn_ceremony_submit_pin(pin))
+        return true;  // the ceremony ended meanwhile: its wake brings the answer
+    end_security_key_pin();
+    login.security_key = LoginSecurityKey::touch;
+    return present_mfa_pending(LoginControl::back);
+}
+#endif
+
+} // namespace
+
+#if defined(_WIN32)
+bool application_login_run_webauthn(u64 posted_epoch) noexcept {
+    WebAuthnFlight flight{};
+    WebAuthnMfaRequestOptions request{};
+    bool result = true;
+    if (!webauthn_begin(posted_epoch, &request, &flight, &result))
+        return result;
+    const WindowsWebAuthnResult asserted =
+        windows_webauthn_authenticate(g_app.window, request, &flight.credential);
+    secure_clear_bytes(&request, sizeof(request));
+    return webauthn_finish(flight, asserted.ok(), static_cast<u64>(asserted.error), static_cast<u32>(asserted.hresult),
+                           asserted.api_version);
+}
+#else
+bool application_login_run_webauthn(u64 posted_epoch) noexcept {
+    webauthn_ceremony_release();
+    WebAuthnMfaRequestOptions request{};
+    bool result = true;
+    if (!webauthn_begin(posted_epoch, &request, &g_flight, &result))
+        return result;
+    if (!webauthn_ceremony_start(request, Waker{window_surface_native(g_app.window), wake_begin_webauthn},
+                                 posted_epoch)) {
+        secure_clear_bytes(&request, sizeof(request));
+        secure_buffer_release(&g_flight.credential);
+        g_app.login.security_key = webauthn_platform_available() ? LoginSecurityKey::failed : LoginSecurityKey::unavailable;
+        return webauthn_failed();
+    }
+    secure_clear_bytes(&request, sizeof(request));
+    g_flight_active = true;
+    return true;
+}
+
+bool application_login_webauthn_progress(u64 token, u64 kind) noexcept {
+    LoginRuntime& login = g_app.login;
+    if (kind == kWebAuthnWakePin) {
+        if (webauthn_ceremony_state() != WebAuthnCeremonyState::need_pin)
+            return true;
+        // The key's PIN is typed in the code field of the same screen; where the sign-in has no such field (a password reset
+        // in progress) the ceremony ends and its failure is shown.
+        if (!flight_current() || token != g_flight.posted_epoch || login.reset_mode) {
+            webauthn_ceremony_cancel();
+            return true;
+        }
+        const WebAuthnPinPrompt prompt = webauthn_ceremony_pin_prompt();
+        secure_edit_clear(&login.mfa);
+        login.mfa.password = true;
+        login.security_key_pin = true;
+        login.security_key = prompt.wrong ? LoginSecurityKey::pin_wrong : LoginSecurityKey::pin;
+        return present(LoginStatus::mfa_required, LoginControl::password);
+    }
+    if (kind != kWebAuthnWakeDone || webauthn_ceremony_state() != WebAuthnCeremonyState::done)
+        return true;
+    // Joins the worker and takes the credential; what nobody waits for any more (a Back, another account) is dropped.
+    const bool current = flight_current() && token == g_flight.posted_epoch;
+    const WebAuthnCeremonyResult ended = webauthn_ceremony_finish(&g_flight.credential);
+    if (!current) {
+        secure_buffer_release(&g_flight.credential);
+        g_flight_active = false;
+        return true;
+    }
+    g_flight_active = false;
+    // The ceremony may end on the PIN screen: the screen goes back to the one that waits for the key.
+    if (login.security_key_pin) {
+        end_security_key_pin();
+        login.status = g_flight.reset ? RendererLoginStatus::reset_mfa_pending : RendererLoginStatus::submitting;
+    }
+    login.security_key = ended.ok() ? LoginSecurityKey::none : security_key_state(ended.error);
+    return webauthn_finish(g_flight, ended.ok(), static_cast<u64>(ended.error), static_cast<u32>(ended.native), 0);
+}
+
+void application_login_webauthn_release() noexcept {
+    webauthn_ceremony_release();
+    if (g_flight_active)
+        secure_buffer_release(&g_flight.credential);
+    g_flight_active = false;
+}
+#endif
 
 bool application_login_submit_mfa() noexcept {
     if (application_account_logout_locked())
@@ -459,6 +656,10 @@ bool application_login_submit_mfa() noexcept {
     if (!host.login_instance)
         return present_focus(LoginControl::password);
     if (g_app.login.mfa_type == UserAuthMfaType::webauthn) {
+#if !defined(_WIN32)
+        if (g_app.login.security_key_pin)
+            return submit_security_key_pin();
+#endif
         return begin_webauthn();
     }
     if (g_app.login.mfa_type == UserAuthMfaType::sms && g_app.login.sms_sending) {

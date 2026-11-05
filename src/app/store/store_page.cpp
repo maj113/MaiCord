@@ -827,7 +827,9 @@ void build_installed(Ctx& c) noexcept {
         auto& glyph = c.b.leaf(UiStoreKind::icon);
         glyph.icon = static_cast<u8>(UiIcon::folder);
         glyph.ink = static_cast<u8>(UiStoreInk::subtle);
-        c.b.text("Plugin files live in %LOCALAPPDATA%\\MaiCord\\plugins.", UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(MAICORD_OS_TEXT("Plugin files live in %LOCALAPPDATA%\\MaiCord\\plugins.",
+                                 "Plugin files live in ~/.local/share/maicord/plugins."),
+                 UiStoreType::small, UiStoreInk::subtle);
         c.b.button("Open folder", UiStoreButton::link, store_action(StoreAct::open_folder));
         c.b.close();
     }

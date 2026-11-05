@@ -26,6 +26,7 @@
 #   libpulse.so.0                     libpulse0 (pulseaudio for the loopback integration test)
 #   libspeechd.so.2                   libspeechd2, libspeechd-dev for the ABI check (speech-dispatcher, with its dummy module,
 #                                     for tools/test_speechd.sh)
+#   libfido2.so.1                     libfido2-1, libfido2-dev for the ABI check (optional at run time: security keys)
 #   libEGL.so.1 libGLESv2.so.2        libegl1 libgles2 and Mesa's drivers libegl-mesa0 libgl1-mesa-dri (llvmpipe, no GPU)
 #   libwayland-client.so.0 libwayland-egl.so.1 libwayland-cursor.so.0 libxkbcommon.so.0
 #                                     libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
@@ -123,7 +124,7 @@ if [ "$with_tests" = 1 ]; then
     packages=("$libssl" openssl libfontconfig1 fonts-dejavu-core fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji
               fonts-liberation libhunspell-1.7-0 hunspell-en-us hunspell-de-de libenchant-2-2 libpulse0 libegl1 libgles2
               libegl-mesa0 libgl1-mesa-dri libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
-              libssl-dev libpulse-dev libspeechd-dev libspeechd2)
+              libssl-dev libpulse-dev libspeechd-dev libspeechd2 libfido2-dev libfido2-1)
     if [ "$with_integration" = 1 ]; then
         packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher)
     fi

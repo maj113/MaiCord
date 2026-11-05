@@ -343,6 +343,13 @@ void store_user_text(GatewayUserRuntime* user, const UserTextSlot& slot, const U
     *reinterpret_cast<u32*>(storage + slot.bytes) = text.bytes;
 }
 
+#if !defined(_WIN32)
+template <u32 Capacity> void store_host_text(GatewayUserTextStorage<Capacity>* storage, const Utf8View& text) noexcept {
+    storage->bytes = text.bytes < Capacity ? text.bytes : Capacity;
+    copy_bytes(storage->data, text.data, storage->bytes);
+}
+#endif
+
 } // namespace
 namespace client_detail {
 
@@ -357,6 +364,13 @@ GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token
     properties.launch_signature = load_user_text(user, kUserTextSlots[kUserTextViews]);
     properties.client_build_number = user.client_build_number;
     properties.native_build_number = user.native_build_number;
+#if !defined(_WIN32)
+    properties.linux_desktop = user.linux_desktop;
+    properties.window_manager = {user.window_manager.data, user.window_manager.bytes};
+    properties.distro = {user.distro.data, user.distro.bytes};
+    properties.runtime_environment = {user.runtime_environment.data, user.runtime_environment.bytes};
+    properties.display_server = {user.display_server.data, user.display_server.bytes};
+#endif
     if (user.session_metadata) {
         const GatewayUserProperties live =
             client_session_metadata_properties(user.session_metadata, heartbeat_id);
@@ -379,6 +393,13 @@ void store_user_configuration(GatewayUserRuntime* user,
     store_user_text(user, kUserTextSlots[kUserTextViews], properties.launch_signature);
     user->client_build_number = properties.client_build_number;
     user->native_build_number = properties.native_build_number;
+#if !defined(_WIN32)
+    user->linux_desktop = properties.linux_desktop;
+    store_host_text(&user->window_manager, properties.window_manager);
+    store_host_text(&user->distro, properties.distro);
+    store_host_text(&user->runtime_environment, properties.runtime_environment);
+    store_host_text(&user->display_server, properties.display_server);
+#endif
     user->session_metadata = configuration.metadata;
     user->since_ms = configuration.since_ms;
     user->status = configuration.status;

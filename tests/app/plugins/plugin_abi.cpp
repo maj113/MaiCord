@@ -5,7 +5,14 @@
 #include "maicord/sdk/plugin.hpp"
 
 #include "maicord/core/byte_order.hpp"
+#if defined(_WIN32)
 #include "maicord/core/win32_kernel.hpp"
+#else
+#include "maicord/core/shared_library.hpp"
+#include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/path.hpp"
+#include "plugin_fixture.hpp"
+#endif
 #include "../../support/test_output.hpp"
 
 // Frozen layouts (the C fixture asserts every field; these guard the C++ view).
@@ -344,6 +351,7 @@ void ctx_wrappers() noexcept {
 
 // ---- Plugin DLLs ---------------------------------------------------------------
 
+#if defined(_WIN32)
 HMODULE load_sibling(const wchar_t* leaf) noexcept {
     wchar_t path[1024];
     const DWORD count = GetModuleFileNameW(nullptr, path, 1024);
@@ -361,6 +369,33 @@ HMODULE load_sibling(const wchar_t* leaf) noexcept {
         path[at + i] = leaf[i];
     return LoadLibraryExW(path, nullptr, 0);
 }
+#else
+// The samples are built beside the test executable, in plugins/, as "<name>.so"; the tests name them "<name>.dll".
+bool sibling_path(const wchar_t* leaf, wchar_t (&path)[MAX_PATH]) noexcept {
+    wchar_t directory[MAX_PATH], shared_object[MAX_PATH];
+    const u32 length = plugin_fixture::length(leaf);
+    if (length < 5 || length >= MAX_PATH || leaf[length - 4] != L'.' || !plugin_fixture::test_directory(directory))
+        return false;
+    for (u32 i = 0; i + 3 < length; ++i)
+        shared_object[i] = leaf[i];
+    shared_object[length - 3] = L's';
+    shared_object[length - 2] = L'o';
+    shared_object[length - 1] = 0;
+    plugin_fixture::join(path, directory, shared_object);
+    return true;
+}
+HMODULE load_sibling(const wchar_t* leaf) noexcept {
+    wchar_t path[MAX_PATH];
+    char text[1024];
+    SharedLibrary library{};
+    return sibling_path(leaf, path) && path_to_utf8(path, text, sizeof(text)) != 0 &&
+                   shared_library_open(&library, text)
+               ? library.handle
+               : nullptr;
+}
+#endif
+
+#if defined(_WIN32)
 
 // What the host's PE pre-check looks at, read from the mapped image.
 struct PeShape {
@@ -400,15 +435,113 @@ void check_pe(HMODULE module, const char* label) noexcept {
                        shape.functions == 1 && shape.descriptor_export;
     check(valid, label);
 }
+void check_shape(HMODULE module, const wchar_t*, const char* label) noexcept {
+    check_pe(module, label);
+}
+void* module_symbol(HMODULE module, const char* name) noexcept {
+    return reinterpret_cast<void*>(GetProcAddress(module, name));
+}
+void close_module(HMODULE module) noexcept {
+    FreeLibrary(module);
+}
+#else
+// The shared object's shape, read from its section headers and program headers: what the host's ELF check rejects
+// (no entry point, no PT_TLS, no DT_NEEDED, no undefined symbol) and exactly one exported symbol, the descriptor.
+// The loader reads the dynamic section; this reads the sections the linker also wrote, so the two disagree on a
+// malformed file.
+struct ElfShape {
+    bool x86_64;
+    bool entry;
+    u32 needed;
+    u32 tls;
+    u32 undefined;
+    u32 exports;
+    bool descriptor_export;
+};
+constexpr u32 kShtDynamic = 6, kShtDynsym = 11, kPtTls = 7;
+ElfShape elf_shape(const u8* file, u32 size) noexcept {
+    ElfShape shape{};
+    if (size < 64 || file[0] != 0x7F || file[1] != 'E' || file[2] != 'L' || file[3] != 'F')
+        return shape;
+    shape.x86_64 = file[4] == 2 && file[5] == 1 && byte_load_le16(file + 16) == 3 && byte_load_le16(file + 18) == 62;
+    shape.entry = byte_load_le64(file + 24) != 0;
+    const u64 program = byte_load_le64(file + 32), sections = byte_load_le64(file + 40);
+    const u32 program_size = byte_load_le16(file + 54), program_count = byte_load_le16(file + 56);
+    const u32 section_size = byte_load_le16(file + 58), section_count = byte_load_le16(file + 60);
+    if (program_size < 56 || section_size < 64 || program > size || sections > size ||
+        program_count > (size - program) / program_size || section_count > (size - sections) / section_size)
+        return ElfShape{};
+    for (u32 i = 0; i < program_count; ++i)
+        shape.tls += byte_load_le32(file + program + u64{i} * program_size) == kPtTls;
+    for (u32 i = 0; i < section_count; ++i) {
+        const u8* header = file + sections + u64{i} * section_size;
+        const u32 type = byte_load_le32(header + 4), link = byte_load_le32(header + 40);
+        const u64 offset = byte_load_le64(header + 24), bytes = byte_load_le64(header + 32);
+        if ((type != kShtDynamic && type != kShtDynsym) || offset > size || bytes > size - offset)
+            continue;
+        if (type == kShtDynamic) {
+            for (u64 at = 0; at + 16 <= bytes; at += 16)
+                shape.needed += byte_load_le64(file + offset + at) == 1; // DT_NEEDED
+            continue;
+        }
+        if (link >= section_count)
+            return ElfShape{};
+        const u8* names = file + sections + u64{link} * section_size;
+        const u64 names_at = byte_load_le64(names + 24), names_bytes = byte_load_le64(names + 32);
+        if (names_at > size || names_bytes > size - names_at)
+            return ElfShape{};
+        for (u64 at = 24; at + 24 <= bytes; at += 24) { // symbol 0 is the null symbol
+            const u8* symbol = file + offset + at;
+            if (byte_load_le16(symbol + 6) == 0) {
+                ++shape.undefined;
+                continue;
+            }
+            ++shape.exports;
+            const u32 name = byte_load_le32(symbol);
+            const char* text = reinterpret_cast<const char*>(file + names_at + name);
+            shape.descriptor_export = name < names_bytes && names_bytes - name >= sizeof(MC_DESCRIPTOR_EXPORT) &&
+                                      shape.exports == 1 && same(view(text), MC_DESCRIPTOR_EXPORT);
+        }
+    }
+    return shape;
+}
+u8 g_image[64 * 1024];
+void check_shape(HMODULE, const wchar_t* leaf, const char* label) noexcept {
+    wchar_t path[MAX_PATH];
+    char text[1024];
+    u32 size = 0;
+    bool read = sibling_path(leaf, path) && path_to_utf8(path, text, sizeof(text)) != 0;
+    const long file = read ? sys_open(text, kOpenReadOnly) : -1;
+    if (!syscall_failed(file)) {
+        for (long got = 1; got > 0 && size < sizeof(g_image);) {
+            got = sys_read(static_cast<int>(file), g_image + size, sizeof(g_image) - size);
+            if (got > 0)
+                size += static_cast<u32>(got);
+        }
+        sys_close(static_cast<int>(file));
+    }
+    const ElfShape shape = elf_shape(g_image, size);
+    check(size && size < sizeof(g_image) && shape.x86_64 && !shape.entry && shape.needed == 0 && shape.undefined == 0 &&
+              shape.tls == 0 && shape.exports == 1 && shape.descriptor_export,
+          label);
+}
+void* module_symbol(HMODULE module, const char* name) noexcept {
+    return shared_library_symbol(SharedLibrary{module}, name);
+}
+void close_module(HMODULE module) noexcept {
+    SharedLibrary library{module};
+    shared_library_close(&library);
+}
+#endif
 
-// Loads a sample and checks its PE shape; null (and a failed check) when it can't.
+// Loads a sample and checks its image shape; null (and a failed check) when it can't.
 const mc_descriptor* open(const wchar_t* leaf, HMODULE* module, const char* label) noexcept {
     *module = load_sibling(leaf);
     check(*module != nullptr, label);
     if (!*module)
         return nullptr;
-    check_pe(*module, label);
-    const auto* d = reinterpret_cast<const mc_descriptor*>(GetProcAddress(*module, MC_DESCRIPTOR_EXPORT));
+    check_shape(*module, leaf, label);
+    const auto* d = reinterpret_cast<const mc_descriptor*>(module_symbol(*module, MC_DESCRIPTOR_EXPORT));
     check(d && d->size == sizeof(mc_descriptor) && d->abi == MC_ABI && d->api_level == MC_API_LEVEL && !d->flags,
           label);
     return d;
@@ -468,7 +601,7 @@ struct ClearUrlsSettings {
 void clear_urls() noexcept {
     g_host = {};
     HMODULE module = nullptr;
-    const mc_descriptor* d = open(L"clear-urls.dll", &module, "clear-urls: loads as a one-export PE");
+    const mc_descriptor* d = open(L"clear-urls.dll", &module, "clear-urls: loads as a one-export image");
     if (!d)
         return;
     check(d->owner_id == 0x6D63'636C'7572'6C73ull && same(d->name, "Clear URLs") && same(d->version, "1.0.0") &&
@@ -521,7 +654,7 @@ void clear_urls() noexcept {
                   g_host.https ==
               0,
           "clear-urls: no host calls; a completion nobody asked for is ignored");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 // ---- Translate -----------------------------------------------------------------
@@ -550,7 +683,7 @@ void translate() noexcept {
     g_host = {};
     clear_bytes(g_state, sizeof(g_state));
     HMODULE module = nullptr;
-    const mc_descriptor* d = open(L"translate.dll", &module, "translate: loads as a one-export PE");
+    const mc_descriptor* d = open(L"translate.dll", &module, "translate: loads as a one-export image");
     if (!d)
         return;
     const mc_setting_def* s = d->settings;
@@ -646,7 +779,7 @@ void translate() noexcept {
     const Run asked = run(*pre_send, &ctx, "hi");
     check(asked.verdict == MC_DRAFT_CONFIRM && asked.text.size() != 0,
           "translate: outgoing messages ask before they're sent untranslated");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 // ---- Show Me Your Name, Reverse Image Search, Silent Toggle --------------------------
@@ -654,7 +787,7 @@ void translate() noexcept {
 void show_me_your_name() noexcept {
     g_host = {};
     HMODULE module = nullptr;
-    const mc_descriptor* d = open(L"show-me-your-name.dll", &module, "show-me-your-name: loads as a one-export PE");
+    const mc_descriptor* d = open(L"show-me-your-name.dll", &module, "show-me-your-name: loads as a one-export image");
     if (!d)
         return;
     const mc_hook* decorate = hook_of(d, MC_HOOK_DECORATE_USER);
@@ -691,14 +824,14 @@ void show_me_your_name() noexcept {
     out = {};
     decorate->fn.decorate_user(&ctx, &user, &out);
     check(!out.name_prefix.bytes && !out.name_suffix.bytes, "show-me-your-name: member rows follow their setting");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 void reverse_image_search() noexcept {
     g_host = {};
     HMODULE module = nullptr;
     const mc_descriptor* d =
-        open(L"reverse-image-search.dll", &module, "reverse-image-search: loads as a one-export PE");
+        open(L"reverse-image-search.dll", &module, "reverse-image-search: loads as a one-export image");
     if (!d)
         return;
     const mc_menu_def* m = d->menus;
@@ -721,13 +854,13 @@ void reverse_image_search() noexcept {
     check(m[1].select(&ctx, &target) == MC_OK && g_host.opens == 1 &&
               same(g_host.text, "https://lens.google.com/uploadbyurl?url=https%3A%2F%2Fcdn.discordapp.com%2Fa%20b.png"),
           "reverse-image-search: opens the engine with the encoded image URL");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 void silent_toggle() noexcept {
     g_host = {};
     HMODULE module = nullptr;
-    const mc_descriptor* d = open(L"silent-toggle.dll", &module, "silent-toggle: loads as a one-export PE");
+    const mc_descriptor* d = open(L"silent-toggle.dll", &module, "silent-toggle: loads as a one-export image");
     if (!d)
         return;
     const mc_hook* pre_send = hook_of(d, MC_HOOK_PRE_SEND);
@@ -762,7 +895,7 @@ void silent_toggle() noexcept {
     check(d->buttons[0].click(&ctx, &press) == MC_OK && g_host.setting_writes == writes + 1 &&
               g_host.setting_value[0] == 0,
           "silent-toggle: the button switches it");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 // ---- The plain C fixture ----------------------------------------------------------
@@ -770,7 +903,7 @@ void silent_toggle() noexcept {
 void c_fixture() noexcept {
     g_host = {};
     HMODULE module = nullptr;
-    const mc_descriptor* d = open(L"MaiCordPluginAbiCFixture.dll", &module, "C fixture: loads as a one-export PE");
+    const mc_descriptor* d = open(L"MaiCordPluginAbiCFixture.dll", &module, "C fixture: loads as a one-export image");
     if (!d)
         return;
     check(same(d->name, "C fixture") && d->setting_count == 3 && d->settings_bytes == 24 &&
@@ -810,7 +943,7 @@ void c_fixture() noexcept {
     check(d->buttons[0].click(&ctx, &press) == MC_OK && state[3] == 1, "C fixture: the button");
     d->stop(&ctx);
     check(state[1] == 1, "C fixture: stop");
-    FreeLibrary(module);
+    close_module(module);
 }
 
 } // namespace

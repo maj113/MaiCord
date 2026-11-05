@@ -291,6 +291,12 @@ struct LoginRuntime {
     LoginCaptchaStatus captcha_status;
     bool captcha_submitted;
     bool password_revealed;
+#if !defined(_WIN32)
+    // The security-key ceremony the app itself drives on Linux (platform/desktop/webauthn.hpp): what the screen says
+    // about it, and whether the key is waiting for a PIN typed into the code field (the ceremony answers it then).
+    LoginSecurityKey security_key;
+    bool security_key_pin;
+#endif
 };
 
 struct Application {

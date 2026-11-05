@@ -88,6 +88,23 @@ maicord_test(MaiCordLinuxNotificationsTests ENTRY maicord_linux_notifications_en
     TEST maicord_linux_notifications)
 maicord_add_tests(MaiCordLinuxNotificationsTests TIMEOUT 20 TEST maicord_linux_notifications_mock --mock)
 set_tests_properties(maicord_linux_notifications_mock PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK dbus_private_bus)
+# The security-key assertion (src/platform/desktop/linux/fido2.cpp, webauthn_ceremony.cpp) against a fake libfido2: what the
+# library is asked and what comes back, the PIN, no key, no touch, a cancel; and, with no libfido2, an unavailable state.
+maicord_test(MaiCordLinuxFido2Tests ENTRY maicord_linux_fido2_entry
+    SOURCES tests/platform/desktop/linux_fido2.cpp
+    LIBS maicord_app_client maicord_desktop_system maicord_dbus maicord_window_null maicord_core
+    TIMEOUT 30 TEST maicord_linux_fido2)
+maicord_add_tests(MaiCordLinuxFido2Tests TIMEOUT 10 ENV MAICORD_FIDO2_LIBRARY=libmaicord-no-such-fido2.so.1
+    TEST maicord_linux_fido2_no_library --no-library)
+# The sign-in's side of the ceremony (src/app/account/login/auth.cpp) over a fake ceremony: the screens, the PIN field, each
+# failure, a cancel, no libfido2. The fake ceremony replaces webauthn_ceremony.cpp, which stays out of the link.
+maicord_test(MaiCordLinuxWebAuthnFlowTests ENTRY maicord_linux_webauthn_flow_entry
+    SOURCES tests/app/account/login/linux_webauthn_flow.cpp src/app/account/login/browser_auth.cpp
+        src/app/account/login/captcha_auth.cpp src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp
+        src/app/shell/state.cpp src/app/account/account_host.cpp
+    LIBS ${maicord_linux_app_test_libs}
+    INCLUDES src/app
+    TIMEOUT 20 TEST maicord_linux_webauthn_flow)
 
 
 maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry

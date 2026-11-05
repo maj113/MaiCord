@@ -26,9 +26,10 @@
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
 #             cmake/build_contract_linux.cmake is the contract; cmake/linux_libraries.cmake and
-#             cmake/linux_tests.cmake list what builds. Size is the Windows client's: cmake/size_policy.cmake (-Oz and
-#             helper folding per source), the machine outliner, --icf=all, --gc-sections, packed relocations, and the
-#             client is linked stripped (--symbols keeps its symbol table for nm and profilers).
+#             cmake/linux_tests.cmake list what builds. Size is the Windows client's: cmake/size_policy.cmake (-Oz,
+#             -Os for what no measurement shows hot, and helper folding per source), the machine outliner,
+#             --icf=all, --gc-sections, packed relocations, and the client is linked stripped (--symbols keeps its
+#             symbol table for nm and profilers).
 #   Image     A dynamic PIE with its own _start (src/core/linux/start.cpp): no CRT, raw syscalls, DT_NEEDED
 #             libc.so.6 libdl.so.2 libpthread.so.0 as generated stubs (tools/generate_libc_stubs.py) that pin
 #             GLIBC_2.2.5 and GLIBC_2.17; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).

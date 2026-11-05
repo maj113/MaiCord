@@ -171,6 +171,29 @@ bool captcha_status_error(LoginCaptchaStatus status) noexcept {
            status == LoginCaptchaStatus::failed;
 }
 
+#if !defined(_WIN32)
+// What the security key of the sign-in says (Linux: the app prompts for the touch and the PIN, and names what went wrong).
+Utf8View security_key_text(LoginSecurityKey state) noexcept {
+    switch (state) {
+    case LoginSecurityKey::touch: return utf8_literal("Touch your security key.");
+    case LoginSecurityKey::pin: return utf8_literal("Enter your security key's PIN.");
+    case LoginSecurityKey::pin_wrong: return utf8_literal("That PIN didn't work. Try again.");
+    case LoginSecurityKey::no_key: return utf8_literal("No security key found. Plug it in and try again.");
+    case LoginSecurityKey::cannot_open:
+        return utf8_literal("Can't use the security key: no access to it. Check the udev rules for FIDO keys.");
+    case LoginSecurityKey::not_registered: return utf8_literal("This security key isn't registered for your account.");
+    case LoginSecurityKey::pin_blocked: return utf8_literal("The security key's PIN is blocked. Use another method.");
+    case LoginSecurityKey::pin_not_set:
+        return utf8_literal("This verification needs a PIN, and the security key has none. Use another method.");
+    case LoginSecurityKey::timed_out: return utf8_literal("The security key wasn't touched in time. Try again.");
+    case LoginSecurityKey::unavailable:
+        return utf8_literal("Security keys need libfido2, which isn't installed. Use another method.");
+    case LoginSecurityKey::failed: return utf8_literal("Security-key verification failed. Try again.");
+    default: return Utf8View{};
+    }
+}
+#endif
+
 } // namespace
 
 bool login_text_presentation_build(const LoginScene& scene, const LoginView& view, const Theme& theme,
@@ -339,6 +362,11 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                                  : recovery       ? utf8_literal("Account email or phone")
                                                   : utf8_literal("Email, phone number or reset link");
     const Utf8View password_value = webauthn              ? MAICORD_OS_TEXT("Windows Hello or security key", "Security key")
+#if !defined(_WIN32)
+                                    : view.security_key == LoginSecurityKey::pin ||
+                                              view.security_key == LoginSecurityKey::pin_wrong
+                                        ? utf8_literal("Security key PIN")
+#endif
                                     : password.bytes != 0 ? password
                                     : selected_mfa == login_mfa_capability_sms ? utf8_literal("SMS code")
                                     : selected_mfa == login_mfa_capability_backup
@@ -376,6 +404,9 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : captcha                                              ? captcha_status_copy(view.captcha_status)
         : view.status == LoginStatus::signed_out             ? utf8_literal("You've been logged out.")
         : view.status == LoginStatus::signed_out_unconfirmed ? utf8_literal("Logged out of this device.")
+#if !defined(_WIN32)
+        : view.security_key != LoginSecurityKey::none ? security_key_text(view.security_key)
+#endif
         : reset && view.status == LoginStatus::submitting    ? utf8_literal("Signing in…")
         : view.status == LoginStatus::reset_editing
             ? utf8_literal("Enter a new password with at least 8 characters.")
@@ -438,7 +469,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                               "Complete verification with your security key.")
         : view.status == LoginStatus::webauthn_failed
             ? MAICORD_OS_TEXT("Security-key verification failed or was cancelled. Try again.",
-                              "Security keys aren't supported on Linux yet. Use another method.")
+                              "Security-key verification failed. Try again.")
             : Utf8View{};
 
     const bool credential_error = view.auth_rate_limited || view.status == LoginStatus::session_expired ||
@@ -491,6 +522,10 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         (!scene.credential_fields_hidden &&
          !append_command(out, LoginElement::password_label,
                          webauthn ? utf8_literal("PASSKEY OR SECURITY KEY")
+#if !defined(_WIN32)
+                         : view.security_key == LoginSecurityKey::pin || view.security_key == LoginSecurityKey::pin_wrong
+                             ? utf8_literal("SECURITY KEY PIN")
+#endif
                          : mfa    ? utf8_literal("AUTHENTICATION CODE")
                          : reset  ? utf8_literal("NEW PASSWORD")
                                   : utf8_literal("PASSWORD"),

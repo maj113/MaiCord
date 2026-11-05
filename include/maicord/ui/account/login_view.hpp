@@ -106,6 +106,25 @@ enum class LoginAction : u8 { none, submit, remote_auth, mfa, back, recovery, re
 LoginAction login_control_action(LoginControl control, LoginStatus status,
                                  LoginRemoteStatus remote, bool reset_mode = false) noexcept;
 
+#if !defined(_WIN32)
+// What the security key of the sign-in is doing or has said on Linux, where the app (not an OS prompt) asks the user for
+// the touch and the PIN: it picks the screen's wording. Windows shows the system's own prompt.
+enum class LoginSecurityKey : u8 {
+    none,
+    touch,           // status submitting: waiting for a key to be plugged in and touched
+    pin,             // status mfa_required: the key wants its PIN, typed in the code field
+    pin_wrong,       // the same, after a PIN the key refused
+    no_key,          // status webauthn_failed: no key was plugged in
+    cannot_open,     // the keys cannot be opened (no access to their devices)
+    not_registered,  // the key holds no credential of this account
+    pin_blocked,
+    pin_not_set,
+    timed_out,       // the key was not touched in time
+    unavailable,     // libfido2 is not installed
+    failed,
+};
+#endif
+
 struct LoginView {
     Utf8View login;
     Utf8View password_mask;
@@ -136,6 +155,9 @@ struct LoginView {
     bool password_revealed;
     bool auth_rate_limited;
     bool auth_retry_time_unknown;
+#if !defined(_WIN32)
+    LoginSecurityKey security_key;
+#endif
 };
 
 bool login_view_valid(const LoginView& view) noexcept;

@@ -88,6 +88,7 @@ overrides:
       - hunspell-en-us
       - enchant-2
       - speech-dispatcher
+      - libfido2-1
   rpm:
     depends:
       - glibc
@@ -111,6 +112,7 @@ overrides:
       - hunspell-en-US
       - enchant2
       - speech-dispatcher
+      - libfido2
 
 deb:
   compression: xz

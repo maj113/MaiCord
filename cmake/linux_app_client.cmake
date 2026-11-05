@@ -21,7 +21,8 @@ maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
     # protocol registration, the taskbar badge, the notification-area icon's drawing and plans, the sign-in launcher.
     src/platform/desktop/integration.cpp src/platform/desktop/linux/integration.cpp
     src/platform/desktop/taskbar_attention.cpp src/platform/desktop/system_tray.cpp
-    src/platform/desktop/browser_sign_in_launcher.cpp src/platform/desktop/linux/webauthn.cpp
+    src/platform/desktop/browser_sign_in_launcher.cpp src/platform/desktop/linux/fido2.cpp
+    src/platform/desktop/linux/webauthn_ceremony.cpp
     src/platform/desktop/linux/notifications.cpp src/platform/desktop/linux/notification_identity.cpp
     # The file dialog (the FileChooser portal) and the dropped and pasted files it checks.
     src/platform/desktop/linux/file_picker.cpp

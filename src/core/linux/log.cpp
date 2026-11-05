@@ -51,7 +51,7 @@ struct Lock {
 };
 
 struct LogState {
-    int file;
+    int file_plus_one; // the descriptor plus one; 0 without a file, so that the whole state is zero (.bss, not .data)
     Lock lock;
     u64 file_bytes;
     // The flush thread sleeps while `flush_wanted` is 0 and flushes once the delay after it became 1.
@@ -65,7 +65,16 @@ struct LogState {
     char buffer[kBufferBytes];
 };
 
-LogState g_log{-1};
+LogState g_log;
+
+// The log file's descriptor, or -1.
+int log_file() noexcept {
+    return g_log.file_plus_one - 1;
+}
+
+void set_log_file(int descriptor) noexcept {
+    g_log.file_plus_one = descriptor + 1;
+}
 
 // Appends to a line, dropping what does not fit.
 struct LineWriter {
@@ -126,8 +135,8 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
 
 // Caller holds the lock.
 void flush_locked() noexcept {
-    if (g_log.buffered != 0 && g_log.file >= 0) {
-        const long written = sys_write(g_log.file, g_log.buffer, g_log.buffered);
+    if (g_log.buffered != 0 && log_file() >= 0) {
+        const long written = sys_write(log_file(), g_log.buffer, g_log.buffered);
         if (!syscall_failed(written)) {
             g_log.file_bytes += static_cast<u64>(written);
         }
@@ -193,7 +202,7 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
 #if defined(MAICORD_LOG_STDOUT)
     sys_write(1, line, length);
 #endif
-    if (g_log.file >= 0) {
+    if (log_file() >= 0) {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
             g_log.buffered += length;
@@ -231,7 +240,7 @@ i64 file_size(int file) noexcept {
 } // namespace
 
 bool log_open() noexcept {
-    g_log.file = -1;
+    set_log_file(-1);
 
     wchar_t path[kPathCapacity]{};
     const DataPathResult built = state_path(path, kPathCapacity, L"logs/maicord.log", true);
@@ -241,14 +250,14 @@ bool log_open() noexcept {
     u32 path_length = built.length;
     const u32 directory_length = path_length - 12; // without "/maicord.log"
 
-    g_log.file = open_log(path);
+    set_log_file(open_log(path));
     i64 size = 0;
     // Leave room for at least one complete record. A file just below the hard
     // limit would open, reject every line, and never reach the rotation check.
     constexpr u64 rotation_threshold = kLogFileMaximumBytes - kLineCapacity;
-    if (g_log.file >= 0 && (size = file_size(g_log.file)) >= static_cast<i64>(rotation_threshold)) {
-        sys_close(g_log.file);
-        g_log.file = -1;
+    if (log_file() >= 0 && (size = file_size(log_file())) >= static_cast<i64>(rotation_threshold)) {
+        sys_close(log_file());
+        set_log_file(-1);
         wchar_t previous[kPathCapacity]{};
         for (u32 index = 0; index <= directory_length; ++index) {
             previous[index] = path[index];
@@ -270,11 +279,11 @@ bool log_open() noexcept {
                 return false;
             }
         }
-        g_log.file = open_log(path);
+        set_log_file(open_log(path));
     }
-    if (g_log.file >= 0 && (size = file_size(g_log.file)) > 0)
+    if (log_file() >= 0 && (size = file_size(log_file())) > 0)
         g_log.file_bytes = static_cast<u64>(size);
-    return g_log.file >= 0;
+    return log_file() >= 0;
 }
 
 void log_flush() noexcept {
@@ -286,10 +295,10 @@ void log_flush() noexcept {
 void log_close() noexcept {
     g_log.lock.acquire();
     flush_locked();
-    if (g_log.file >= 0) {
-        sys_close(g_log.file);
+    if (log_file() >= 0) {
+        sys_close(log_file());
     }
-    g_log.file = -1;
+    set_log_file(-1);
     g_log.file_bytes = 0;
     const bool thread_started = g_log.flush_thread_started;
     g_log.stopping = true;

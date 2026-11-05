@@ -224,7 +224,7 @@ CatalogError enable(CatalogStateEntry& e) noexcept {
     if (!r) return CatalogError::storage;
     wchar_t leaf[69];
     catalog_plugin_leaf(e.sha256, leaf);
-    const auto enabled = plugin_runtime_enable(&r->runtime, {leaf, 68}, e.approved_permissions, e.host_bits, e.sha256);
+    const auto enabled = plugin_runtime_enable(&r->runtime, {leaf, kCatalogPluginLeafCharacters}, e.approved_permissions, e.host_bits, e.sha256);
     g->last_enable = enabled;
     if (enabled.ok()) return CatalogError::none;
     UpdateLog(kLog, "plugin_enable_failed").hex("owner", e.owner_id).field("error", static_cast<u8>(enabled.error))

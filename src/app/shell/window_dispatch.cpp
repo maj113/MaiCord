@@ -370,6 +370,14 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         break;
     case EventType::wake:
         if (event.wake.cause == wake_begin_webauthn) {
+#if !defined(_WIN32)
+            // The ceremony's worker wakes the loop with b = 1 (the key wants a PIN) or 2 (it ended): the same cause as the begin.
+            if (event.wake.b != 0) {
+                if (!application_login_webauthn_progress(event.wake.a, event.wake.b))
+                    log_write(LogLevel::error, "auth", "webauthn_progress_failed");
+                return true;
+            }
+#endif
             if (!application_login_run_webauthn(event.wake.a)) {
                 log_write(LogLevel::error, "auth", "webauthn_flow_failed");
             }

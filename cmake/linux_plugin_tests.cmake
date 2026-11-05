@@ -57,6 +57,16 @@ maicord_test(MaiCordPluginLoaderElfTests ENTRY maicord_plugin_loader_elf_entry
     DEPENDS ${maicord_runtime_fixtures} ${maicord_plugin_samples} MaiCordPluginAbiCFixture
     TIMEOUT 20 TEST maicord_plugin_loader_elf)
 
+# ABI 6 (maicord_plugin.h, plugin.hpp): the C++ helpers, then each sample and the plain C fixture as shared objects: the
+# shape of the image (no entry point, TLS, needed library or undefined symbol, one export), the descriptor, and the entry
+# points called directly against a recording host (tests/app/plugins/plugin_abi.cpp; the PE half is the Windows one).
+maicord_test(MaiCordPluginAbiTests ENTRY maicord_plugin_abi_tests_entry
+    SOURCES tests/app/plugins/plugin_abi.cpp
+    LIBS ${maicord_plugin_test_libs}
+    INCLUDES src/app tests
+    DEPENDS ${maicord_plugin_samples} MaiCordPluginAbiCFixture
+    TIMEOUT 15 TEST maicord_plugin_abi)
+
 # The plugin runtime (loader, bindings, hook dispatch) against the fixtures, the samples and the C fixture.
 maicord_test(MaiCordPluginBindingTests ENTRY maicord_plugin_binding_tests_entry
     SOURCES tests/app/plugins/plugin_binding.cpp

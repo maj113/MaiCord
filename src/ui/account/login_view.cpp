@@ -40,7 +40,13 @@ bool login_view_valid(const LoginView& view) noexcept {
     const bool mfa_code_ready_valid =
         !view.mfa_code_ready ||
         (mfa_code_status && view.selected_mfa_capability != login_mfa_capability_none &&
+#if !defined(_WIN32)
+         // The security key's PIN is typed in the code field, with the key's own method selected.
+         (view.security_key == LoginSecurityKey::pin || view.security_key == LoginSecurityKey::pin_wrong ||
+          view.selected_mfa_capability != login_mfa_capability_webauthn));
+#else
          view.selected_mfa_capability != login_mfa_capability_webauthn);
+#endif
     const bool reset_valid = !view.reset_mode || (view.login.bytes == 0 && !view.qr_code && view.remote_status == LoginRemoteStatus::idle);
     const bool phone = login_phone_mode(view.status);
     const bool phone_valid = !phone || (!view.reset_mode && !view.login.bytes && !view.remote_user.bytes && !view.qr_code &&

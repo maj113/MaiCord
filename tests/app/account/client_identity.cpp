@@ -2,6 +2,7 @@
 #include "maicord/protocol/gateway/commands.hpp"
 #if !defined(_WIN32)
 #include "maicord/app/account/client_identity_linux.hpp"
+#include "gateway/client_internal.hpp"
 #endif
 
 // The client properties' bytes. The Windows layout is pinned so the Linux layout cannot move it; the Linux fixtures
@@ -136,6 +137,28 @@ void test_exact_object(void (*check)(bool, const char*) noexcept) noexcept {
               utf8_equal(ubuntu.properties.os_arch, utf8_literal("x64")) &&
               ubuntu.properties.os_sdk_version.bytes == 0 && ubuntu.properties.linux_desktop,
           "the user agent is the Linux Electron host's and no SDK version is reported");
+}
+
+// The Gateway client keeps its properties in GatewayUserRuntime: what it stores and loads back must still be the Linux
+// object, or the identify it sends (and the preflight at start) is the Windows one, which needs an os_sdk_version.
+void test_runtime_round_trip(void (*check)(bool, const char*) noexcept) noexcept {
+    static Built host;
+    static GatewayUserRuntime user;
+    build(ubuntu_wayland(), &host);
+    GatewayUserClientConfiguration configuration{};
+    configuration.properties = host.properties;
+    client_detail::store_user_configuration(&user, configuration);
+    char heartbeat_id[kGatewayUserLaunchIdBytes];
+    const GatewayUserIdentify identify = client_detail::user_identify(user, text("token"), heartbeat_id);
+    u8 before[2048], after[2048];
+    const GatewayCommandWriteResult wrote = gateway_write_user_properties(host.properties, {before, sizeof(before)});
+    const GatewayCommandWriteResult loaded = gateway_write_user_properties(identify.properties, {after, sizeof(after)});
+    check(wrote.ok() && loaded.ok() && wrote.bytes == loaded.bytes && bytes_equal(before, after, wrote.bytes) &&
+              identify.properties.linux_desktop,
+          "a Linux property object is the same after the Gateway runtime stores and loads it");
+    u8 command[kGatewayUserMaximumCommandBytes];
+    check(gateway_write_user_identify(identify, {command, sizeof(command)}).ok(),
+          "the identify the Gateway client builds from its stored properties is valid on Linux");
 }
 
 void test_other_hosts(void (*check)(bool, const char*) noexcept) noexcept {
@@ -273,6 +296,7 @@ void test_client_identity(void (*check)(bool, const char*) noexcept) noexcept {
     test_windows_layout(check);
 #if !defined(_WIN32)
     test_exact_object(check);
+    test_runtime_round_trip(check);
     test_other_hosts(check);
     test_running_host(check);
 #endif

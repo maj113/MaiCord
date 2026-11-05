@@ -45,6 +45,11 @@ set(MAICORD_SIZE_OPTION -Oz -moutline)
 # (cmake/size_policy.cmake): the contract's hint-only inlining marks every function not declared inline noinline,
 # so the helpers of a -Oz source stay calls even where inlining them is smaller.
 set(MAICORD_FOLD_OPTION -finline-functions)
+# Between the two: sources the Windows build leaves at -O2 compile -Os on Linux unless a measurement shows them hot
+# (cmake/size_policy.cmake, maicord_source_options): inlining and unrolling are limited and nothing is vectorized, but
+# nothing is outlined either (-moutline stays with the size option: outlining the -Os group slowed the stores and text
+# entry). The Windows contract has no such level.
+set(MAICORD_BALANCED_OPTION -Os)
 
 # The libc stubs: libc.so.6, libdl.so.2 and libpthread.so.0 carrying the pinned symbol versions.
 set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")

@@ -8,10 +8,11 @@ namespace {
 
 using namespace gles;
 
-// One shader of the pack tools/build_gles_shader_pack.py writes: a zlib stream of GLSL ES 3.10 text at `offset`
-// of the packed blob, and `binding_count` manifest rows from `binding_first` of the bindings table.
+// One shader of the pack tools/build_gles_shader_pack.py writes: GLSL ES 3.10 text at `offset` of the pack's inflated
+// text (kGlesShaderPacked is one solid zlib stream of every shader), and `binding_count` manifest rows from
+// `binding_first` of the bindings table.
 struct GlesPackedShader {
-    u32 offset, packed_bytes, raw_bytes, binding_first;
+    u32 offset, raw_bytes, binding_first;
     u16 binding_count;
     u8 stage; // 0 vertex, 1 pixel, 2 compute
     u8 reserved;
@@ -68,6 +69,49 @@ GpuStatus inflate_and_use(const u8* packed, u32 packed_bytes, u32 raw_bytes, Use
     return result;
 }
 
+// The part of the inflated pack that one shader occupies, copied out as the stream goes by.
+struct PackExtract {
+    char* text;
+    u32 begin, end, position;
+};
+
+bool pack_extract(void* context, ConstSlice<u8> bytes) noexcept {
+    auto& extract = *static_cast<PackExtract*>(context);
+    const u32 first = extract.position, last = extract.position + bytes.count;
+    extract.position = last;
+    if (last > extract.begin && first < extract.end) {
+        const u32 from = first > extract.begin ? first : extract.begin, to = last < extract.end ? last : extract.end;
+        copy_bytes(extract.text + (from - extract.begin), bytes.data + (from - first), to - from);
+    }
+    return last < extract.end; // false ends the inflate: the shader is complete
+}
+
+// Inflates the pack from its start through a 128 KiB window and keeps only `entry`'s text (heap scratch: the deflate
+// workspace, the window, the text and its terminator) for `use(text, length)`; the driver copies the source, so
+// nothing stays resident.
+template <typename Use>
+GpuStatus inflate_pack_and_use(const GlesPackedShader& entry, Use use) noexcept {
+    auto* workspace = static_cast<DeflateWorkspace*>(
+        heap_allocate(sizeof(DeflateWorkspace) + kZlibWindowedMinimumBytes + entry.raw_bytes + 1));
+    if (!workspace)
+        return kGpuOutOfMemory;
+    u8* window = reinterpret_cast<u8*>(workspace + 1);
+    char* text = reinterpret_cast<char*>(window + kZlibWindowedMinimumBytes);
+    PackExtract extract{text, entry.offset, entry.offset + entry.raw_bytes, 0};
+    const DeflateInputSpan input{kGlesShaderPacked, sizeof(kGlesShaderPacked)};
+    zlib_inflate_windowed({&input, 1}, {window, kZlibWindowedMinimumBytes}, kGlesShaderPackBytes, pack_extract, &extract,
+                          workspace);
+    GpuStatus result = kGpuFail;
+    if (extract.position >= extract.end) { // stopped by the sink at the shader's end (the checksum is not reached)
+        text[entry.raw_bytes] = 0;
+        result = use(static_cast<const char*>(text), entry.raw_bytes);
+    } else {
+        log_write(LogLevel::error, "gpu", "a packed shader does not inflate");
+    }
+    heap_free(workspace);
+    return result;
+}
+
 // The GLSL of pack entry `index`, which must be of `stage`.
 template <typename Use>
 GpuStatus with_source(u32 index, u8 stage, const GlesPackedShader** out_entry, Use use) noexcept {
@@ -75,7 +119,7 @@ GpuStatus with_source(u32 index, u8 stage, const GlesPackedShader** out_entry, U
     if (entry.stage != stage || entry.raw_bytes == 0 || entry.raw_bytes > kGlesShaderMaximumBytes)
         return kGpuInvalidArgument;
     *out_entry = &entry;
-    return inflate_and_use(kGlesShaderPacked + entry.offset, entry.packed_bytes, entry.raw_bytes, use);
+    return inflate_pack_and_use(entry, use);
 }
 
 void log_info(const gl::Api& gl, bool program, u32 object, const char* what) noexcept {

@@ -244,6 +244,14 @@ bool application_synchronize_login_view() noexcept {
     view.auth_rate_limited = application_login_auth_cooldown_active();
     view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
     view.caps_lock = focused_edit == &application.login.password && window_toggle_state(nullptr, key::caps_lock);
+#if !defined(_WIN32)
+    view.security_key = application.login.security_key;
+    if (application.login.security_key_pin) {
+        // The key's PIN is typed in the code field: the key is the method on offer, and four characters are enough to send.
+        view.selected_mfa_capability = login_mfa_capability_webauthn;
+        view.mfa_code_ready = application.login.mfa.storage.bytes >= 4;
+    }
+#endif
     if (phone) {
         reset_value(&view.login); reset_value(&view.remote_user); view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
         view.mfa_capabilities = view.selected_mfa_capability = view.backup_acknowledgement_seconds = 0;
@@ -289,6 +297,9 @@ bool application_synchronize_login_view() noexcept {
         const bool text_services_allowed = (focused_edit == &application.login.login &&
                                             !application.login.login.password) ||
                                            (focused_edit == &application.login.mfa &&
+#if !defined(_WIN32)
+                                            !application.login.security_key_pin &&
+#endif
                                             (phone || application.login.mfa_type != UserAuthMfaType::backup));
         if (text_services_allowed) {
             synchronized = phone ? secure_text_store_bind_target(&application.login.text_store,
@@ -416,6 +427,9 @@ bool application_initialize_login_ui() noexcept {
 
 void application_release_login_ui() noexcept {
     Application& application = g_app;
+#if !defined(_WIN32)
+    application_login_webauthn_release();
+#endif
     application_login_end_pointer_selection();
     login_scene_release(&application.login_scene);
     if (!application.login.initialized) {
