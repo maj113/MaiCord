@@ -22,7 +22,7 @@ bool interactive(const ProfileScene& s) noexcept {
 bool modal(const ProfileScene& s) noexcept {
     return s.presentation == ProfilePresentation::modal;
 }
-UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u32 flags) noexcept {
+UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u32 flags, UiTextFace face) noexcept {
     if (!text.bytes)
         return {};
     UiTextMeasureValue result{};
@@ -30,11 +30,12 @@ UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u3
     const u64 hash = hash64_bytes(kHash64Seed, text.data, text.bytes);
     if (s->measure && ui_text_measure_cache_measure(
                           s->measure,
-                          {{0x50524f46, hash, 0, static_cast<u16>(flags), 0},
+                          {{0x50524f46, hash, 0, static_cast<u16>(face), static_cast<u16>(flags)},
                            text,
                            flags ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
                            {width, 4096},
-                           !wrap},
+                           !wrap,
+                           face},
                           &result)
                           .ok())
         return result.size;
@@ -45,8 +46,9 @@ UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u3
         return {minimum(width, natural), line};
     return {width, line * (1 + static_cast<u32>(natural / maximum(1.f, width)))};
 }
-float text_width(ProfileScene* s, const Utf8View& text, float limit, u32 flags) noexcept {
-    return minimum(limit, static_cast<float>(static_cast<u32>(measure(s, text, 4096, false, flags).width + .999f)));
+float text_width(ProfileScene* s, const Utf8View& text, float limit, u32 flags, UiTextFace face) noexcept {
+    return minimum(limit,
+                   static_cast<float>(static_cast<u32>(measure(s, text, 4096, false, flags, face).width + .999f)));
 }
 namespace {
 bool biography_revealed(void* context, u32 offset) noexcept {
@@ -735,7 +737,11 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         ui_app_badge(&app, p.user_appearance.public_flags);
         tag = ui_rect_width(ui_badge_widget_layout(s->measure, app, {0, 0, 96, 16}).outer) + 4;
     }
-    const float name_width = maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags));
+    // Measured in the face it is drawn in: a custom name font is wider than the default one.
+    const auto* name_style = appearance(*s, appearance_name);
+    const UiTextFace name_face = name_style ? profile_name_face(name_style->name.font_id) : UiTextFace::normal;
+    const float name_width =
+        maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags, name_face));
     auto* name = add(s, owner, {left, top, left + name_width, top + line}, display,
                      large ? ProfileAction::none : ProfileAction::expand, name_flags);
     s->name_widget = name->widget;

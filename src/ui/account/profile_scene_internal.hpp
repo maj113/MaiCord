@@ -79,8 +79,10 @@ const Storage& labels(const ProfileScene& s) noexcept;
 bool interactive(const ProfileScene& s) noexcept;
 bool modal(const ProfileScene& s) noexcept;
 bool panel(const ProfileScene& s) noexcept;
-UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u32 flags = 0) noexcept;
-float text_width(ProfileScene* s, const Utf8View& text, float limit, u32 flags) noexcept;
+UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u32 flags = 0,
+               UiTextFace face = UiTextFace::normal) noexcept;
+float text_width(ProfileScene* s, const Utf8View& text, float limit, u32 flags,
+                 UiTextFace face = UiTextFace::normal) noexcept;
 ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const Utf8View& label = {},
                  ProfileAction action = ProfileAction::none, u32 flags = 0,
                  ProfileLook look = ProfileLook::plain, ProfileTone tone = ProfileTone::normal,

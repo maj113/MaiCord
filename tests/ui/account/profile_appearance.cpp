@@ -519,6 +519,57 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     // Theme colours need Nitro (premium type 2) outside the editor preview.
     check(!scene.themed && scene.has_banner_color && scene.banner_color == 16711680,
           "profile_theme_colors_need_nitro_but_still_color_the_banner");
+    // Which image the card's banner part requests, whatever mix of sources the profile response carries: the
+    // member banner when set, else the user's (from user_profile or from the user object), static as PNG at
+    // 600 and animated as WebP (or the GIF fallback), with or without theme colours.
+    {
+        static ProfileScene banner_scene;
+        static UserProfile banner_profile;
+        const auto requested = [&](Utf8View json, bool compatibility, ProfileMedia* output) noexcept {
+            banner_scene = {};
+            if (!user_profile_decode(json, {scratch, 4096}, 42, 7, &banner_profile) ||
+                !profile_scene_open(&banner_scene, &banner_profile, nullptr, nullptr, 1, {800, 60, 1000, 104},
+                                    {0, 0, 1000, 800}))
+                return false;
+            banner_scene.banner_compatibility = compatibility;
+            for (u32 i = 0; i < banner_scene.part_count; ++i)
+                if (banner_scene.parts[i].media == ProfileMediaKind::banner)
+                    return profile_media_resolve(banner_scene, i, output) && media_asset_key_valid(output->key) &&
+                           ui_rect_intersects(output->rectangle, output->clip);
+            return false;
+        };
+        ProfileMedia user_png{}, user_object{}, member_png{}, user_gif{}, themed{};
+        const auto png_user = utf8_literal(
+            "https://cdn.discordapp.com/banners/42/0123456789abcdef0123456789abcdef.png?size=600");
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef"}})"),
+                        false, &user_png) &&
+                  utf8_equal(user_png.url.view(), png_user) && !(user_png.key.flags & media_asset_flag_animated),
+              "profile_banner_user_still_requests_png_at_600");
+        // Some responses carry the banner only on the user object.
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u","banner":"0123456789abcdef0123456789abcdef"},"user_profile":{"bio":"x"}})"),
+                        false, &user_object) &&
+                  utf8_equal(user_object.url.view(), png_user) && media_asset_key_equal(user_object.key, user_png.key),
+              "profile_banner_on_the_user_object_is_requested_under_the_same_key");
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef"},"guild_member_profile":{"banner":"fedcba9876543210fedcba9876543210"}})"),
+                        false, &member_png) &&
+                  utf8_equal(member_png.url.view(),
+                             utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/banners/"
+                                          "fedcba9876543210fedcba9876543210.png?size=600")) &&
+                  !media_asset_key_equal(member_png.key, user_png.key),
+              "profile_banner_member_wins_over_the_user_banner_with_its_own_key");
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"a_0123456789abcdef0123456789abcdef"}})"),
+                        true, &user_gif) &&
+                  utf8_equal(user_gif.url.view(),
+                             utf8_literal("https://cdn.discordapp.com/banners/42/"
+                                          "a_0123456789abcdef0123456789abcdef.gif?size=600")) &&
+                  (user_gif.key.flags & media_asset_flag_animated),
+              "profile_banner_animated_falls_back_to_gif");
+        // A Nitro theme (colours, accent) never replaces the picture: the colour only fills behind it.
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef","theme_colors":[1234,5678],"accent_color":9999},"premium_type":2})"),
+                        false, &themed) &&
+                  utf8_equal(themed.url.view(), png_user) && banner_scene.has_banner_color,
+              "profile_banner_with_theme_colors_still_requests_the_picture");
+    }
     // The banner and effect are masked with the card's own painted shape: the
     // whole popout at the theme's radius, whatever radius the theme sets.
     {
@@ -1046,6 +1097,37 @@ void test_profile_popout_layout(Check check) noexcept {
           "profile popout: hover fades the profile effect to .35");
     profile_scene_release(&s);
     user_appearance_release(&users.appearance);
+    {
+        // A styled display name is measured in the face it is drawn in. In the wide face (14 DIPs a character,
+        // against 8 in the default one) the 10 characters of "Scully_Dog" need 140 of the 268 DIPs the card
+        // offers beside the note button, so the name is laid out whole and is not ellipsized.
+        UserProfile named{};
+        named.user_id = 42;
+        set_text(&named.username, utf8_literal("scully"));
+        set_text(&named.display_name, utf8_literal("Scully_Dog"));
+        UserStore styled_users{};
+        UserAppearance style{};
+        style.user_id = 42;
+        style.fields = appearance_name;
+        style.name = {{0x123456, 0xABCDEF, 0, 0}, 14, 7, 2};
+        UiTextMeasureRecord records[16]{};
+        UiTextMeasureCache cache{};
+        const auto backend = [](void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
+            const float advance = request.face == UiTextFace::techno ? 14.f : 8.f;
+            *value = {{minimum(request.constraint.width, request.text.bytes * advance), 22}, 1};
+            return true;
+        };
+        ProfileScene styled{};
+        const bool opened = ui_text_measure_cache_initialize(&cache, {records, 16}, backend, nullptr) &&
+                            user_appearance_upsert(&styled_users.appearance, style) && (styled.measure = &cache) &&
+                            profile_scene_open(&styled, &named, nullptr, &styled_users, 1, {300, 200, 340, 240},
+                                               viewport);
+        const auto* node = ui_widget_manager_layout_node(styled.widgets, styled.name_widget);
+        check(opened && node && ui_rect_width(node->rectangle) == 140.f,
+              "profile popout: a styled display name that fits the card is laid out in full, not ellipsized");
+        profile_scene_release(&styled);
+        user_appearance_release(&styled_users.appearance);
+    }
 }
 // Modal V2 geometry (section 2.1) across window sizes in DIPs.
 void test_profile_modal_layout(Check check) noexcept {
