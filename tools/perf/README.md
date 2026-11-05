@@ -201,3 +201,104 @@ not comparable, and the resize-pacing probe reports a skip. Input is synthetic
 (posted wheel messages, direct calls), never `SendInput`. Hidden probe windows
 (message links, glyph cache) are never shown. Run window-backed probes sparingly:
 once for a baseline and once to confirm a change.
+
+## Chat list benchmark
+
+`tools\benchmark_chat_list.ps1 [-Sizes 100,10000,1000000,10000000] [-Reps 3] [-Seconds 5]` builds `MaiCordChatListBenchmark`
+(`benchmarks/chat_list_benchmark.cpp`, `cmake/benchmarks.cmake`), runs it once per process, size and repetition, and writes
+`results.json` (medians, with the min and max of each field) and `results.md` (BUI's columns) to `%TEMP%\maicord-chat-list-bench`.
+It answers the questions of BUI's `bench_list_gpui` (blenderui-vlist-gpui `examples/bench_list_gpui.rs`, runner `bench/run.mjs`) the
+way that harness asks them. Do not run it with `MaiCord.exe` open, and leave the machine alone while it runs.
+
+**What BUI measures.** One process runs one library at one size and prints one JSON line; a watchdog thread ends it, still printing
+a line that says what failed and how far it got, when its working set grows by more than `--cap-mb` (4096) over the baseline taken
+before anything was built or runs longer than `--limit-seconds` (150). The runner repeats each library and size three times and
+takes, per field, the median (sorted, index `floor((n-1)/2)`) of the runs that finished; a library that fails at one size is
+skipped at the next.
+
+- *Data*: `blenderui_vlist::synth::message(i)` is a pure function of `i`: author `h % 9` where `h = mix(i)`; time
+  `1_700_000_000 + 37 i + mix(i ^ 7) % 30` s (so 8 to 66 s apart); a body of 3 to 12 words (10/16 of the messages), 14 to 43 (5/16) or
+  60 to 199 (1/16) drawn from 24 lowercase words by `x = mix(x + k)`; an image of 120 to 219 px on 1 in 40. A message starts a run
+  (author name, avatar, time) when the author changes or after 300 s, and a day (UTC) starts with a date divider; the first message
+  has both. Up to 1,000,000 messages are an in-memory vector, 10,000,000 a file-backed log that every library reads per row.
+- *Window*: a 740x640 gpui window holding a 700x600 list, 14 px text on a 19 px line, a 32 px avatar column, 10 px padding.
+- *Stages* (continuous frames, which BUI requests itself, so they run at the display's refresh rate): opened at the newest message;
+  300 ms later the list jumps to item n/2; scroll 57 px per frame from there (2 s warm-up, 5 s recorded); a repaint of a fixed
+  position (1 s warm-up, 2.5 s recorded); 40 jumps to the items an xorshift64 generator (seed `0x9E3779B97F4A7C15`, shifts 13/7/17)
+  picks, 30 ms apart.
+- *Metrics*: `setup_ms` builds the library's state for n items (the height index; the `SumTree`; `virtual_list`: measuring every
+  message). `first_frame_ms` is the time from process start to the first painted frame, minus the time the data took to create
+  (it includes a 300 ms wait for BUI's TSC calibration thread, which starts with the process: with small data it is part of the
+  figure). `frame_ms_*`: from the start of the window's `render` to the end of `paint` (a canvas element painted last) on the main
+  thread, so layout, element building and paint into gpui's scene, with GPU submission and the wait for the display left out.
+  `cpu_ms_per_frame`: process CPU cycles of all threads (`QueryProcessCycleTime`, converted with a calibrated TSC rate) over the
+  recorded frames. `main_allocs_per_frame`: calls to the global allocator on the UI thread (alloc and realloc) per frame.
+  `jump_ms`: the dispatch of the jump plus the render-to-paint of the frame that lands. `ram_above_data_mb`: working set after the
+  scroll stage minus the baseline; `peak_above_data_mb` the peak at the end.
+
+**What MaiCord runs.** The real timeline: `message_view_runtime` (message store, variable-height index, timeline), the message scene
+and its layout, `message_text_coordinator_converge` (shaping and wrapping with MaiCord's own text system), the renderer's paint
+stream and glyph pipeline, a swap chain, in a real window sized so the timeline is exactly 700x600 dips (the shell around it is the
+server rail's 64 dips and the title bar's 48; DPI is the system's). The generator is a bit-for-bit port of `synth.rs`; messages
+reach the model as Discord's JSON, with the same ids, authors ("User n"), timestamps and text.
+
+A channel of n messages is not held by the client: the timeline keeps `kMessageViewItemCapacity` (256) messages and the rest is
+history, fetched in pages of `kMessageHistoryRequestLimit` (25). The harness plays the server: `GET .../messages` pages (latest,
+newer than a cursor, around a message) are written from the generator as the API's JSON, decoded by `decode_message_history_page`,
+and applied by `message_timeline_apply_history_page` (which evicts from the far edge); a jump to a message that is not resident
+resets the window with an around page (`message_history_jump_edges` decides what is left to page) and scrolls to it, and scrolling
+near the resident bottom of a window that is not the live edge pages forward, as `scroll_message_view_by` does. So the sizes are
+all reachable, with the same code path for 100 and 10,000,000, and the figures that depend on n are the ones that include a page.
+
+What differs from BUI, deliberately or not:
+
+- *Frame time* spans the scroll tick, layout and shaping (`message_text_coordinator_converge`), the paint stream, the draw submission
+  and the `Present` call, after the frame slot is acquired (`gpu_frame_wait`, as the client's loop does, so the wait for the display
+  is outside the figure); BUI's stops before gpui submits its scene to the GPU. `layout_ms_p50`, `text_ms_p50` and `paint_ms_p50`
+  split it (`paint` includes the submission).
+- *Retained rendering*: MaiCord keeps its paint stream and shaped glyphs between frames and moves them on a scroll; gpui rebuilds
+  everything each frame. The repaint stage drops the retained presentation first, so it does the paint-stream build BUI does (layout
+  and shaped text stay cached: MaiCord's text cache survives between frames by design).
+- *Clamped scrolling*: at the end of the channel BUI keeps repainting the clamped position; there is nothing to draw here (the
+  renderer skips an unchanged frame), so a scroll that reaches the live edge starts over from the middle and that frame is not
+  recorded. At 100 messages BUI's recorded frames are all clamped repaints; MaiCord's are all scrolling.
+- *Paging*: no network between the harness and the model (a real page takes a round trip and happens off the UI thread; its decode
+  and apply happen on it, which this includes, in the frame that applies it).
+- *Images* (1 in 40 messages): BUI draws a grey box; MaiCord has no attachment to show, so the generator's image height is not
+  carried (the text, authors and timing are).
+- *Allocations*: MaiCord has no malloc on Windows; the benchmark's imports of `HeapAlloc`, `HeapReAlloc` and `VirtualAlloc` (which
+  the arenas and `heap_allocate` call directly) are counted on the UI thread. Drivers' allocations are not, as BUI's global
+  allocator does not see its drivers'.
+- *First frame*: includes window creation, the renderer's device and glyph pipeline, the timeline owners and the first page; it does
+  not include BUI's calibration wait (the TSC rate is measured after the first frame here).
+- *Setup* is the creation of the timeline's owners and the scene, independent of n (the data is behind the history pages).
+  *RAM above data*: nothing to subtract (the baseline is the start of `run`).
+
+Run-to-run spread is in `results.json` as `<field>__min` and `<field>__max`.
+
+Fields BUI has no counterpart for: `scroll_full_*` (the scroll stage again with the scroll-only shortcut off, so the message text
+is projected again every frame, as a resize or a new page does; the figure to set beside a library that rebuilds its frame each
+time), `layout_ms_p50`/`text_ms_p50`/`paint_ms_p50` (and the `text` and `paint` tails) splitting the scroll frame, `page_decode_ms_mean`
+and `page_apply_ms_mean` (per history page: `decode_message_history_page`, then the store and index update), `pages`,
+`pages_evicted`, `jump_fetches`, `resident_messages`, `scene_rows`, `text_quads` and `paint_quads` (what was on screen at the end,
+a check that frames are not empty), `view_*_dips` and `dpi`. The time the harness spends writing a page's JSON (it plays the
+server) is left out of every frame time, jump time and the CPU figure.
+
+`tools\benchmark_chat_list.ps1 -Profile -Sizes 1000000 -Seconds 25` runs one process with a sampler: a thread reads the UI thread's
+instruction pointer every 200 us (a spinning core; each sample suspends the thread, so the frame figures of a profiled run are not
+results) and `profile_chat_list.py` resolves the samples against the linker map (`/MAP`, public symbols of the one LTO object; a
+static or inlined helper is charged to the public symbol before it) into the share of busy time per module and per function. The
+one ntdll address holding most samples is the wait for the display and counts as idle.
+
+**Linux.** `tools/build_linux.sh --benchmarks --keep` also builds `MaiCordChatListBenchmark` (`cmake/linux_benchmarks.cmake`: the same
+source, the Wayland window service and the GLES backend, the message runtime's units compiled into the program), and
+`tools/benchmark_chat_list.py --binary <build>/MaiCordChatListBenchmark` runs it with the same medians and columns. It needs a
+Wayland compositor and shows its window there: run it under headless sway (as `tools/test_gpu_surface.sh` starts it; the output
+must be at least 764x648 and the window floating at that size) so no desktop is involved. On WSL the GPU is Mesa's d3d12 driver, as
+the client chooses it; `GALLIUM_DRIVER=llvmpipe` forces software rendering. What differs from Windows: the loop is paced only by
+what the compositor and the swap do (it ran at 800+ frames a second on WSLg's compositor and about 100 under llvmpipe), not by a
+display's refresh, so `fps` is the loop's rate and `paint_ms` includes whatever the GL driver does in the swap; the CPU figure is
+the process's CPU time (`CLOCK_PROCESS_CPUTIME_ID`);
+allocations are the image's `malloc`/`calloc`/`realloc` calls on the UI thread (`--wrap`; the arenas' page mappings are raw
+system calls and are not counted); memory is `VmRSS` and `VmHWM` of `/proc/self/status`; `--profile` is Windows only (use `perf`
+on a `--symbols` build). The benchmark opens the client's log (`XDG_STATE_HOME`), where a renderer or window failure is reported.

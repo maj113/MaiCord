@@ -6,6 +6,7 @@
 #   tools/build_linux.sh --test a b            only the ctest cases named a and b
 #   tools/build_linux.sh --test --keep         keep objects, ninja state and compile_commands.json (incremental)
 #   tools/build_linux.sh --symbols             keep the symbol table in MaiCord (nm, bloaty, profilers); it ships stripped
+#   tools/build_linux.sh --benchmarks          also build the opt-in benchmarks (MaiCordChatListBenchmark) and keep them
 #   tools/build_linux.sh --check               configure and build only; no audit, no tests
 #   tools/build_linux.sh --sync | --in-place   copy the repository to ext4 first / build the checkout where it is
 #   tools/build_linux.sh --timeout-scale N     multiply every test timeout by N (slow hosted runners)
@@ -62,6 +63,7 @@ run_tests=0
 keep=0
 check_only=0
 symbols=OFF
+benchmarks=OFF
 test_names=()
 
 while [ "$#" -gt 0 ]; do
@@ -80,6 +82,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --keep) keep=1; shift ;;
         --symbols) symbols=ON; shift ;;
+        --benchmarks) benchmarks=ON; shift ;;
         --check) check_only=1; shift ;;
         --jobs) jobs="$2"; shift 2 ;;
         --sync) sync_mode=sync; shift ;;
@@ -160,7 +163,7 @@ clean() {
     # Leaves the shipping client and the runtime assets beside it (fonts/, licenses/), as tools/build.ps1 leaves the
     # Windows directory with only the client and its assets; everything else goes.
     if [ "$keep" = 0 ] && [ -d "$build_directory" ]; then
-        find "$build_directory" -mindepth 1 -maxdepth 1 ! -name MaiCord ! -name fonts ! -name licenses -exec rm -rf {} +
+        find "$build_directory" -mindepth 1 -maxdepth 1 ! -name MaiCord ! -name MaiCordChatListBenchmark ! -name fonts ! -name licenses -exec rm -rf {} +
     fi
 }
 trap clean EXIT
@@ -177,6 +180,7 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DMAICORD_BUILD_TESTS="$([ "$run_tests" = 1 ] && echo ON || echo OFF)" \
     -DMAICORD_TEST_TIMEOUT_SCALE="$timeout_scale" \
     -DMAICORD_KEEP_SYMBOLS="$symbols" \
+    -DMAICORD_BUILD_BENCHMARKS="$benchmarks" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS="$([ "$keep" = 1 ] && echo ON || echo OFF)"
 
 started="$(date +%s%N)"
