@@ -16,7 +16,7 @@
 #include "../notifications/desktop.hpp"
 #include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/hash.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
 #include "../shell/content_point.hpp"
@@ -573,22 +573,13 @@ UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, const Ut
         copy_bytes(media.hash, avatar_hash.data, avatar_hash.bytes);
         return media;
     }
-    // "embed/avatars/{n}.png", as the profile card requests it.
-    static constexpr char prefix[] = "embed/avatars/";
-    constexpr u32 prefix_bytes = sizeof(prefix) - 1;
-    const u32 index = discriminator ? discriminator % 5u : static_cast<u32>((user_id >> 22) % 6u);
-    copy_bytes(media.hash, prefix, prefix_bytes);
-    media.hash[prefix_bytes] = static_cast<char>('0' + index);
-    copy_bytes(media.hash + prefix_bytes + 1, ".png", 4);
-    media.hash_bytes = static_cast<u8>(prefix_bytes + 5);
-    char url[64];
-    static constexpr char host[] = "https://cdn.discordapp.com/";
-    copy_bytes(url, host, sizeof(host) - 1);
-    copy_bytes(url + sizeof(host) - 1, media.hash, media.hash_bytes);
-    media.key = media_asset_embed(hash64_bytes(kHash64Seed, url, sizeof(host) - 1 + media.hash_bytes), 1, 0,
-                                  MediaEmbedResource::image, MediaAttachmentFormat::png, false,
-                                  MediaResolutionTier::px512);
-    media.key.kind = MediaAssetKind::profile_image;
+    // "embed/avatars/{n}.png", as the profile card requests it, under the key every list shares.
+    const u32 index = discriminator ? discriminator % 5u : default_avatar_index(user_id);
+    char path[kDefaultAvatarPathBytes];
+    default_avatar_path(index, path);
+    copy_bytes(media.hash, path, kDefaultAvatarPathBytes);
+    media.hash_bytes = static_cast<u8>(kDefaultAvatarPathBytes);
+    media.key = default_avatar_key(index);
     return media;
 }
 

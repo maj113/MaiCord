@@ -403,9 +403,12 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
               voter_avatar.key.variant == users[0].avatar_variant &&
               contained(ui_poll_voters_row_rectangle(scene, 0), voter_avatar.rectangle) &&
               poll_voters_avatar_media_current(scene, voter_avatar.key) &&
-              !poll_voters_avatar_media_resolve(scene, 1, &blank_avatar) &&
+              poll_voters_avatar_media_resolve(scene, 1, &blank_avatar) &&
+              media_asset_key_equal(blank_avatar.key, default_avatar_key(default_avatar_index(1001))) &&
+              !blank_avatar.hash.bytes && poll_voters_avatar_media_current(scene, blank_avatar.key) &&
               !poll_voters_avatar_media_resolve(scene, 99, &blank_avatar),
-          "poll voters: visible rows resolve voter avatars from page hashes; culled rows admit none");
+          "poll voters: visible rows resolve voter avatars from page hashes, default avatars share the CDN default; "
+          "culled rows admit none");
     const auto point = center(ui_poll_voters_row_rectangle(scene, 0));
     const auto down = ui_poll_voters_scene_pointer(&scene, UiPollPointerEvent::down, point);
     const auto up = ui_poll_voters_scene_pointer(&scene, UiPollPointerEvent::up, point);

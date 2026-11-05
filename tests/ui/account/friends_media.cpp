@@ -58,9 +58,12 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
         first.key.id == 1 && (second.key.flags & media_asset_flag_animated) &&
         first.hash.data == user_store_find(users, 1)->avatar_hash && logical.calls == source_calls,
         "friends media: 32-DIP static/animated candidates borrow current hashes and retained rows without source re-resolution");
-    AvatarMedia skipped{};
-    check(!friends_avatar_media_resolve(scene, users, 2, &skipped) && !friends_avatar_media_resolve(scene, users, 3, &skipped),
-        "friends media: default and malformed avatars keep the native placeholder and never request a CDN asset");
+    AvatarMedia fallback{}, skipped{};
+    check(friends_avatar_media_resolve(scene, users, 2, &fallback) &&
+              media_asset_key_equal(fallback.key, default_avatar_key(default_avatar_index(3))) && !fallback.hash.bytes &&
+              friends_avatar_media_current(scene, users, fallback.key) &&
+              !friends_avatar_media_resolve(scene, users, 3, &skipped),
+        "friends media: a user without an avatar shows the shared default avatar, a malformed hash keeps the native placeholder");
 
     MediaAtlas atlas{};MediaAtlasEntry entries[4]{};u32 buckets[8]{};GlyphAtlasEntry allocations[4]{};GlyphAtlasRow rows[1]{};
     AnimationTimeline timeline{};AnimationTimelineEntry animations[8]{};u32 animation_buckets[16]{};

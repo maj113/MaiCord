@@ -4,6 +4,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
@@ -271,12 +272,10 @@ bool ui_quick_switcher_scene_media(const UiQuickSwitcherScene& s, u32 slot, cons
     MediaAssetKey key{};
     Utf8View hash{};
     if ((row.kind == UiQuickSwitcherKind::user || row.kind == UiQuickSwitcherKind::private_channel) &&
-        row.user_id && row.avatar_hash.bytes) {
-        const u32 variant = user_avatar_variant(row.avatar_hash);
-        if (!variant)
+        row.user_id) {
+        if (!avatar_media_key(row.user_id, row.avatar_hash, &key))
             return false;
         hash = row.avatar_hash;
-        key = media_asset_user_avatar(row.user_id, variant, asset_hash_animated(hash));
     } else if (row.kind == UiQuickSwitcherKind::guild && row.guild_id && state) {
         if (!guild_icon_media_key(*state, row.guild_id, &key, &hash))
             return false;

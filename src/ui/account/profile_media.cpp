@@ -11,6 +11,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/guild/member_list.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
@@ -182,12 +183,13 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     const auto display = profile_display(p);
     const bool main_avatar = part.media == ProfileMediaKind::peer_avatar && part.source == 0xFFFF;
     if (part.media == ProfileMediaKind::avatar && !display.avatar.bytes) {
-        // Users without an avatar show the CDN's default (embed) avatar.
+        // Users without an avatar show the CDN's default (embed) avatar under the key every list shares.
+        const u32 index = default_avatar_index(p.user_id);
         append(&url, utf8_literal("embed/avatars/"));
-        id(&url, (p.user_id >> 22) % 6);
+        id(&url, index);
         append(&url, utf8_literal(".png"));
         result.circular = true;
-        result.key = profile_key(url, MediaAttachmentFormat::png, false);
+        result.key = default_avatar_key(index);
         copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
@@ -340,7 +342,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     auto format = MediaAttachmentFormat::webp;
     bool animated = false;
     Utf8View hash{};
-    if (layer == MemberMedia::nameplate) {
+    if (layer == MemberMedia::nameplate || layer == MemberMedia::nameplate_still) {
         const auto* a = guild && (guild->fields & appearance_nameplate) ? guild : global;
         if (!a || !a->nameplate_sku)
             return false;
@@ -352,6 +354,13 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         animated = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
                     widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&
                    ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
+        // The still behind a hovered row's animation: drawn while the animated variant is not
+        // resident (so the nameplate never blinks out on hover) and kept pinned with it.
+        if (layer == MemberMedia::nameplate_still) {
+            if (!animated)
+                return false;
+            animated = false;
+        }
         append(&url, animated ? utf8_literal("/animated") : utf8_literal("/static"));
         format = MediaAttachmentFormat::png;
         result.rectangle = {r->rectangle.left + 4, r->rectangle.top + 2, r->rectangle.right - 4,
@@ -430,10 +439,11 @@ bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedi
     return true;
 }
 bool member_plain_avatar_current(const MemberListScene& s, MediaAssetKey key) noexcept {
-    if (key.kind != MediaAssetKind::user_avatar || !s.active)
+    const bool shared = is_default_avatar_key(key);
+    if ((key.kind != MediaAssetKind::user_avatar && !shared) || !s.active)
         return false;
     return avatar_media_current(0, s.count, key, [&](u32 i, AvatarMedia* media) noexcept {
-        return s.rows[i].user_id == key.id && member_plain_avatar_resolve(s, i, media);
+        return (shared || s.rows[i].user_id == key.id) && member_plain_avatar_resolve(s, i, media);
     });
 }
 bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, ProfileMedia* out) noexcept {

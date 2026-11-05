@@ -8,6 +8,7 @@
 #include "maicord/render/media/animation_frame_cache.hpp"
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "maicord/ui/text/text.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
@@ -3086,9 +3087,7 @@ bool message_media_test_capture_asset(void* context, MediaAssetKey key, bool for
 bool message_media_test_capture_avatar(void* context, const UserRecord& user, bool force_request,
                                        bool* stop_scan) noexcept {
     const Utf8View hash = user_store_avatar_hash(user);
-    return message_media_test_capture_asset(
-        context, media_asset_user_avatar(user.id, user_avatar_variant(hash), hash.bytes == 34),
-        force_request, stop_scan);
+    return message_media_test_capture_asset(context, user_avatar_key(user.id, hash), force_request, stop_scan);
 }
 
 bool message_media_test_ignore_attachment(void*, const MessageRecord&, const MessageRichAttachment&, float,
@@ -3420,6 +3419,96 @@ void test_message_media_controller() noexcept {
     message_media_controller_release(&owned);
     expect(!owned.initialized && owned.rows == nullptr && owned.owned_rows.arena.base == nullptr,
            "message_media_controller_owned_storage_releases");
+}
+
+// A message author and the author a reply quotes, both without an avatar hash, each ask for their default avatar:
+// the shared key of the CDN picture their id selects, still never a per-user hashed avatar.
+void test_message_media_default_avatar_candidates() noexcept {
+    constexpr u64 author = 30, quoted = 30 + (1ull << 22);
+    MessageRecord message_records[1]{};
+    u32 message_order[1]{};
+    u8 message_text[64]{};
+    MessageStore messages{};
+    const bool messages_ready = message_store_initialize(&messages, Slice<MessageRecord>{message_records, 1},
+                                                         Slice<u32>{message_order, 1}, Slice<u8>{message_text, 64});
+    const MessageStoreResult message =
+        messages_ready ? message_store_upsert(&messages, MessageInput{100, 7, author, 1'000, 0, utf8_literal("hi"), 0})
+                       : MessageStoreResult{};
+    MessageRichRecord rich_records[1]{};
+    u16 rich_order[1]{};
+    u8 rich_text[128]{};
+    MessageRichStore rich_store{};
+    const bool rich_ready = message_rich_store_initialize(&rich_store, Slice<MessageRichRecord>{rich_records, 1},
+                                                          Slice<u16>{rich_order, 1}, Slice<u8>{rich_text, 128});
+    GatewayMessageEvent rich_event{};
+    rich_event.id = 100;
+    rich_event.fields = gateway_message_field_message_reference | gateway_message_field_referenced_message;
+    rich_event.reference.author_id = quoted;
+    rich_event.reference.message_id = 90;
+    rich_event.reference.channel_id = 7;
+    rich_event.reference.state = GatewayMessageReferenceState::available;
+    const MessageRecord* record = message.ok() ? message_store_resolve(messages, message.handle) : nullptr;
+    const MessageRichStoreResult rich_applied =
+        rich_ready && record ? message_rich_store_apply(&rich_store, record->id, record->revision, rich_event)
+                             : MessageRichStoreResult{};
+
+    UserRecord user_records[2]{};
+    u32 user_order[2]{};
+    u8 user_names[128]{};
+    UserStore users{};
+    const bool users_seeded =
+        user_store_initialize(&users, Slice<UserRecord>{user_records, 2}, Slice<u32>{user_order, 2},
+                              Slice<u8>{user_names, 128}) &&
+        user_store_upsert(&users, author, utf8_literal("one")).ok() &&
+        user_store_upsert(&users, quoted, utf8_literal("two")).ok();
+
+    MessageSceneRowWidget scene_rows[1]{};
+    scene_rows[0].source_index = 0;
+    scene_rows[0].message_id = 100;
+    MessageScene scene{};
+    scene.rows = Slice<MessageSceneRowWidget>{scene_rows, 1};
+    scene.first = 0;
+    scene.count = 1;
+
+    AnimationTimelineEntry animation_entries[4]{};
+    u32 animation_buckets[8]{};
+    AnimationTimeline animations{};
+    MediaAtlasEntry atlas_entries[4]{};
+    u32 atlas_buckets[8]{};
+    GlyphAtlasEntry atlas_allocations[4]{};
+    GlyphAtlasRow atlas_rows[2]{};
+    MediaAtlas atlas{};
+    MessageMediaVisibleRow visible_rows[1]{};
+    MessageMediaAssetMark asset_marks[8]{};
+    MessageMediaController controller{};
+    const bool ready =
+        animation_timeline_initialize(&animations, Slice<AnimationTimelineEntry>{animation_entries, 4},
+                                      Slice<u32>{animation_buckets, 8}) &&
+        media_atlas_initialize(&atlas, 64, 64, 0, Slice<MediaAtlasEntry>{atlas_entries, 4},
+                               Slice<u32>{atlas_buckets, 8}, Slice<GlyphAtlasEntry>{atlas_allocations, 4},
+                               Slice<GlyphAtlasRow>{atlas_rows, 2}) &&
+        message_media_controller_initialize(&controller, Slice<MessageMediaVisibleRow>{visible_rows, 1},
+                                            Slice<MessageMediaAssetMark>{asset_marks, 8});
+    static MessageMediaEmojiMemoBank emoji_memo{};
+    controller.emoji_memo = &emoji_memo;
+    MessageMediaTestCapture capture{};
+    const MessageMediaControllerCallbacks callbacks{&capture, message_media_test_ignore_attachment,
+                                                    message_media_test_ignore_embed, message_media_test_capture_avatar,
+                                                    message_media_test_capture_asset};
+    message_media_controller_begin_pump(&controller);
+    const MessageMediaControllerResult collected =
+        message_media_controller_collect(&controller, messages, rich_store, scene, UiVariableRange{0, 1, 0});
+    animation_timeline_begin_visibility(&animations);
+    const MessageMediaControllerResult decorated = message_media_controller_visit_decorations(
+        &controller, messages, users, &animations, &atlas, 50'000, callbacks);
+    animation_timeline_end_visibility(&animations, 50'000);
+    expect(messages_ready && message.ok() && rich_ready && rich_applied.ok() && users_seeded && ready &&
+               collected.ok() && decorated.ok() && decorated.candidates == 2 && capture.count == 2 &&
+               message_media_test_captured(capture, default_avatar_key(default_avatar_index(author)), false) &&
+               message_media_test_captured(capture, default_avatar_key(default_avatar_index(quoted)), false) &&
+               !media_asset_key_equal(default_avatar_key(default_avatar_index(author)),
+                                      default_avatar_key(default_avatar_index(quoted))),
+           "message_media_controller_requests_default_avatars_for_authors_without_a_hash");
 }
 
 void test_media_presentation_policy() noexcept {

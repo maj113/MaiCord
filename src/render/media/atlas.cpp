@@ -120,6 +120,7 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
     atlas->free_cursor = 0;
     atlas->insertions = 0;
     atlas->stale_entries = 0;
+    atlas->compactions = 0;
     atlas->next_allocation_key = 0;
     reset_value<GlyphAtlasGrowth>(&atlas->growth);
     atlas->disposal_backup_used_ms = 0;
@@ -298,6 +299,59 @@ void media_atlas_observe_time(MediaAtlas* atlas, u64 now_ms) noexcept {
 
 u16 media_atlas_capacity_height(const MediaAtlas& atlas) noexcept {
     return atlas.growth.maximum_height ? atlas.growth.maximum_height : atlas.allocations.height;
+}
+
+bool media_atlas_can_place(const MediaAtlas& atlas, u16 width, u16 height) noexcept {
+    return glyph_atlas_can_place(atlas.allocations, width, height, media_atlas_capacity_height(atlas));
+}
+
+bool media_atlas_compact(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept {
+    if (!atlas || !atlas->entries) {
+        if (move_count) {
+            *move_count = 0;
+        }
+        return false;
+    }
+    const u32 evicted_before = atlas->allocations.evicted_entries;
+    if (!glyph_atlas_compact(&atlas->allocations, moves, move_count)) {
+        return false;
+    }
+    ++atlas->compactions;
+    if (atlas->allocations.evicted_entries != evicted_before) {
+        rebuild_buckets_and_clear_stale(atlas);
+    }
+    return true;
+}
+
+MediaAtlasPressure media_atlas_pressure(const MediaAtlas& atlas) noexcept {
+    MediaAtlasPressure pressure{};
+    const GlyphAtlasAllocator& allocator = atlas.allocations;
+    pressure.entries = atlas.entry_count;
+    pressure.rows = allocator.row_count;
+    pressure.height = allocator.height;
+    pressure.maximum_height = media_atlas_capacity_height(atlas);
+    u64 pixels = 0;
+    for (u32 index = 0, live = allocator.entry_count; allocator.entries && index < allocator.entry_capacity && live;
+         ++index) {
+        const GlyphAtlasEntry& entry = allocator.entries[index];
+        if (!entry.occupied) {
+            continue;
+        }
+        --live;
+        pixels += static_cast<u64>(entry.width) * entry.height;
+        pressure.pinned_entries += entry.visibility_epoch == allocator.visibility_epoch;
+    }
+    for (u32 index = 0; allocator.rows && index < allocator.row_count; ++index) {
+        const GlyphAtlasRow& row = allocator.rows[index];
+        if (row.visibility_epoch == allocator.visibility_epoch && row.pinned_entries != 0) {
+            ++pressure.pinned_rows;
+            pressure.pinned_height += row.height;
+        }
+    }
+    const u64 surface = static_cast<u64>(allocator.width) * maximum<u32>(pressure.maximum_height, 1);
+    pressure.shelf_permille = static_cast<u32>(static_cast<u64>(allocator.next_y) * allocator.width * 1000 / surface);
+    pressure.pixel_permille = static_cast<u32>(pixels * 1000 / surface);
+    return pressure;
 }
 
 bool media_atlas_prepare(MediaAtlas* atlas, MediaAssetKey key, u16 width, u16 height) noexcept {

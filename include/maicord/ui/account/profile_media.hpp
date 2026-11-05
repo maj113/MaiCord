@@ -36,7 +36,9 @@ enum class MemberMedia : u8 {
     avatar,
     decoration,
     guild_badge,
-    status_emoji
+    status_emoji,
+    // The static nameplate under a hovered row's animated one (see member_media_resolve).
+    nameplate_still
 };
 // MemberMedia::avatar resolves only a per-guild avatar (its own URL identity).
 // visible_only false also resolves rows outside the viewport.
@@ -54,7 +56,7 @@ bool member_plain_avatar_current(const MemberListScene& scene, MediaAssetKey key
 // avatar. A change in any store revision the resolution reads, the measure cache
 // generation or the guild clears the cache; hover, offline state and row width
 // revalidate a single row.
-inline constexpr u32 kMemberMediaLayerCount = 5;
+inline constexpr u32 kMemberMediaLayerCount = 6;
 inline constexpr u32 kMemberMediaCacheCapacity = 128;
 inline constexpr u32 kMemberMediaRowMemory = 64;
 struct MemberMediaCacheEntry {

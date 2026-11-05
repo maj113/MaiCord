@@ -1,4 +1,5 @@
 #include "maicord/app/media/message_media_controller.hpp"
+#include "maicord/app/media/capacity_deferral.hpp"
 #include "maicord/app/media/account_media.hpp"
 
 #include "maicord/core/deadline.hpp"
@@ -6,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -225,14 +227,13 @@ bool request_avatar(const MessageMediaControllerCallbacks& callbacks, const User
                     MessageMediaController* controller, AnimationTimeline* animations, MediaAtlas* atlas,
                     u64 now_us, u32* candidates, bool* stopped, bool play) noexcept {
     const Utf8View avatar_hash = user_store_avatar_hash(user);
-    const u32 variant = user_avatar_variant(avatar_hash);
-    if (avatar_hash.bytes == 0 || variant == 0) {
+    const MediaAssetKey key = user_avatar_key(user.id, avatar_hash);
+    if (key.kind == MediaAssetKind::none) {
         return true;
     }
     const bool animated = asset_hash_animated(avatar_hash);
     bool force_request = false;
-    if (!needs_request(controller, media_asset_user_avatar(user.id, variant, animated), animated, animations,
-                       atlas, now_us, play, &force_request))
+    if (!needs_request(controller, key, animated, animations, atlas, now_us, play, &force_request))
         return true;
     ++*candidates;
     bool stop_scan = false;
@@ -812,6 +813,76 @@ MessageMediaControllerResult message_media_controller_visit_asset(
         return failure(controller, MessageMediaControllerError::callback, 0, candidates);
     saturating_accumulate(controller->decoration_candidates, candidates);
     return {0, candidates, MessageMediaControllerError::none, stopped};
+}
+
+void media_capacity_defer(MediaCapacityDeferrals* deferrals, MediaAssetKey key, u16 width, u16 height,
+                          u64 now_ms) noexcept {
+    if (!deferrals || !media_asset_key_valid(key)) {
+        return;
+    }
+    saturating_increment(deferrals->refused);
+    MediaCapacityDeferral* slot = nullptr;
+    for (auto& entry : deferrals->entries) {
+        if (entry.retry_at_ms != 0 && media_asset_key_equal(entry.key, key)) {
+            slot = &entry;
+            break;
+        }
+    }
+    if (!slot) {
+        for (auto& entry : deferrals->entries) {
+            if (entry.retry_at_ms == 0) {
+                slot = &entry;
+                break;
+            }
+        }
+    }
+    if (!slot) {
+        // Every slot waits: the oldest refusal is replaced.
+        slot = &deferrals->entries[deferrals->cursor++ % kMediaCapacityDeferralCapacity];
+    }
+    slot->key = key;
+    slot->width = width;
+    slot->height = height;
+    slot->retry_at_ms = deadline_after(now_ms, kMediaCapacityDeferralSafetyMs);
+    slot->earliest_ms = deadline_after(now_ms, kMediaCapacityDeferralMinimumMs);
+}
+
+bool media_capacity_waiting(MediaCapacityDeferrals* deferrals, const MediaAtlas& atlas, MediaAssetKey key,
+                            u64 now_ms, u64* wake_ms) noexcept {
+    if (!deferrals) {
+        return false;
+    }
+    for (auto& entry : deferrals->entries) {
+        if (entry.retry_at_ms == 0 || !media_asset_key_equal(entry.key, key)) {
+            continue;
+        }
+        if (now_ms < entry.earliest_ms) {
+            saturating_increment(deferrals->waited);
+            if (wake_ms) {
+                *wake_ms = entry.earliest_ms;
+            }
+            return true;
+        }
+        if (now_ms < entry.retry_at_ms && !media_atlas_can_place(atlas, entry.width, entry.height)) {
+            saturating_increment(deferrals->waited);
+            if (wake_ms) {
+                *wake_ms = entry.retry_at_ms;
+            }
+            return true;
+        }
+        reset_value<MediaCapacityDeferral>(&entry);
+        saturating_increment(deferrals->released);
+        return false;
+    }
+    return false;
+}
+
+u32 media_capacity_waiting_count(const MediaCapacityDeferrals& deferrals) noexcept {
+    u32 count = 0;
+    for (const auto& entry : deferrals.entries) {
+        count += entry.retry_at_ms != 0;
+    }
+    return count;
 }
 
 } // namespace maicord

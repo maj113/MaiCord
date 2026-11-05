@@ -947,10 +947,13 @@ u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& s, 
 bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept {
     if (!scene || !scene->active || !scene->effect || !scene->effect->sku)
         return false;
-    if (!scene->reduced_motion && scene->hover_changed_ms && now < scene->hover_changed_ms + 600)
-        return true;
-    if (scene->reduced_motion)
+    // An effect plays only once the media pump found every layer resident and started it. Until
+    // then (or when a layer never loads) the card draws no effect, and a looping layer must not
+    // keep the frame loop running on its own: a failed or pending asset never holds frames hot.
+    if (scene->reduced_motion || scene->effect_started_ms == 0)
         return false;
+    if (scene->hover_changed_ms && now < scene->hover_changed_ms + 600)
+        return true;
     for (u32 i = 0; i < scene->effect->count; ++i) {
         const auto& layer = scene->effect->layers[i];
         if (layer.loop || now < scene->effect_started_ms + layer.start_ms + layer.duration_ms)

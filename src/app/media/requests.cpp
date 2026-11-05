@@ -178,7 +178,7 @@ __declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, c
         *stop = true;
         return ScanStep::stopped;
     }
-    if (!pump.request_visible_user_avatar_value(key.id, hash, stop, force))
+    if (!pump.request_visible_avatar_media(key, hash, stop, force))
         return ScanStep::failed;
     return *stop ? ScanStep::stopped : ScanStep::next;
 }
@@ -381,20 +381,41 @@ bool profile_editor_key_current(const MediaAssetKey& key) noexcept {
 
 } // namespace
 
+MediaAtlas* ApplicationMediaPump::upload_atlas(const MediaAssetKey& key) noexcept {
+    const bool preview = media_asset_large_preview(key) &&
+                         media_asset_resolution_tier(key) != MediaResolutionTier::original &&
+                         application.renderer.preview_media_atlas;
+    return preview ? application.renderer.preview_media_atlas : application.renderer.media_atlas;
+}
+
+bool ApplicationMediaPump::capacity_waiting(const MediaAssetKey& key) noexcept {
+    const MediaAtlas* atlas = upload_atlas(key);
+    u64 wake_ms = 0;
+    if (!atlas || !media_capacity_waiting(&application.media_deferrals, *atlas, key, now_ms, &wake_ms))
+        return false;
+    message_media_controller_observe_retry(&application.message_media, wake_ms);
+    return true;
+}
+
 u32 ApplicationMediaPump::yield_decorative_media(const MediaAssetKey& key) noexcept {
-    if (!application.profile || !application.profile->scene.active ||
-        !profile_scene_shows(application.profile->scene, key))
+    // Only the identity atlas holds member row ornaments, and they are decoration: an image the
+    // reader looks at (avatar, emoji, server icon, the open card's pictures) takes their shelves.
+    if (!application.member_list_scene.active || upload_atlas(key) != application.renderer.media_atlas)
         return 0;
-    static constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::decoration};
-    MediaAssetKey decorative[128];
+    static constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::nameplate_still,
+                                             MemberMedia::decoration};
+    MediaAssetKey decorative[192];
     u32 count = 0;
     const auto& members = application.member_list_scene;
-    for (u32 i = 0; members.active && i < members.count && count + 2 <= 128; ++i)
+    for (u32 i = 0; i < members.count && count + 3 <= 192; ++i)
         for (const MemberMedia layer : layers) {
             MemberMediaPlacement placed{};
             if (member_media_place(members, i, layer, &placed))
                 decorative[count++] = placed.key;
         }
+    for (u32 i = 0; i < count; ++i)
+        if (media_asset_key_equal(decorative[i], key))
+            return 0; // An ornament never takes another's room.
     return media_atlas_yield(application.renderer.media_atlas, {decorative, count});
 }
 bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexcept {
@@ -447,6 +468,8 @@ bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexce
         return catalog_media_visible() && application_media_picker_preview_visible(key);
     if (key.kind == MediaAssetKind::user_avatar)
         return avatar_key_is_current(key);
+    if (is_default_avatar_key(key) && avatar_key_is_current(key))
+        return true;
     if (key.kind == MediaAssetKind::channel_icon)
         return channel_icon_key_is_current(key);
     if (content_media_visible() || key.kind == MediaAssetKind::guild_icon)
@@ -569,8 +592,7 @@ bool ApplicationMediaPump::request_forward_identities(bool* stop) noexcept {
             media.key.kind == MediaAssetKind::guild_icon ? chat_state_store_find_guild(state, media.key.id) : nullptr;
         if (media.key.kind == MediaAssetKind::guild_icon
                 ? guild && !request_visible_guild_icon(*guild, stop, false, false)
-                : !request_visible_user_avatar_value(media.key.id, media.hash,
-                                                     stop, false))
+                : !request_visible_avatar_media(media.key, media.hash, stop, false))
             return false;
         if (*stop)
             return true;
@@ -578,7 +600,8 @@ bool ApplicationMediaPump::request_forward_identities(bool* stop) noexcept {
     return true;
 }
 bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexcept {
-    if (!application.account_ui || key.kind != MediaAssetKind::user_avatar || !media_asset_key_valid(key))
+    if (!application.account_ui || (key.kind != MediaAssetKind::user_avatar && !is_default_avatar_key(key)) ||
+        !media_asset_key_valid(key))
         return false;
     const auto& users = application.account_ui->user_store;
     if (d3d11_renderer_search_visible(application.renderer) &&
@@ -618,10 +641,7 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
         const auto* user = user_store_find(users, id);
         if (!user)
             return false;
-        const auto hash = user_store_avatar_hash(*user);
-        const u32 variant = user_avatar_variant(hash);
-        return variant && media_asset_key_equal(
-                              key, media_asset_user_avatar(id, variant, asset_hash_animated(hash)));
+        return media_asset_key_equal(key, user_avatar_key(id, user_store_avatar_hash(*user)));
     };
     const auto& composer = application.message_composer_scene;
     if (content_media_visible() && ui_rect_has_area(message_composer_scene_command_avatar(composer)) &&
@@ -698,11 +718,7 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
             if (!ui_rect_has_area(reaction_viewer_user_rectangle(viewer, i)))
                 break;
             const auto& user = viewer.users[i];
-            const auto hash = reaction_viewer_user_avatar_hash(user);
-            const u32 variant = user_avatar_variant(hash);
-            if (variant &&
-                media_asset_key_equal(
-                    key, media_asset_user_avatar(user.id, variant, asset_hash_animated(hash))))
+            if (media_asset_key_equal(key, user_avatar_key(user.id, reaction_viewer_user_avatar_hash(user))))
                 return true;
         }
     }
@@ -861,7 +877,7 @@ bool ApplicationMediaPump::request_friends_avatars(bool* stop) noexcept {
                 *stopped = true;
                 return true;
             }
-            return pump.request_visible_user_avatar_value(media.key.id, media.hash, stopped, force);
+            return pump.request_visible_avatar_media(media.key, media.hash, stopped, force);
         }};
     // The dimmed main list uses resident cache entries while this modal owns
     // avatar requests and animation visibility. No hidden rows are fetched.

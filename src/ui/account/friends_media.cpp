@@ -26,14 +26,14 @@ bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& 
     if (!user) return false;
     const auto hash = user_store_avatar_hash(*user);
     MediaAssetKey key;
-    // Defaults and malformed hashes keep the native placeholder.
+    // A malformed hash keeps the native placeholder; none shows the default avatar.
     if (!avatar_media_key(user->id, hash, &key)) return false;
     *output = {key, hash, avatar, clip};
     return true;
 }
 bool friends_avatar_media_current(const UiFriendsScene& scene, const UserStore& users,
     MediaAssetKey key) noexcept {
-    if (key.kind != MediaAssetKind::user_avatar || !media_asset_key_valid(key)) return false;
+    if ((key.kind != MediaAssetKind::user_avatar && !is_default_avatar_key(key)) || !media_asset_key_valid(key)) return false;
     const u32 count = friends_avatar_media_count(scene);
     if (count > kUiFriendsMaximumVisibleRows + kUiFriendsActiveNowCards * kUiFriendsActiveNowAvatars) return false;
     return avatar_media_current(0, count, key, [&](u32 slot, AvatarMedia* media) noexcept {

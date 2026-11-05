@@ -6,6 +6,7 @@
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 
 namespace maicord {
 namespace {
@@ -363,12 +364,10 @@ bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, co
     MediaAssetKey key{};
     Utf8View hash{};
     bool circle = false;
-    if (row.kind == UiQuickSwitcherKind::private_channel && row.user_id && row.avatar_hash.bytes) {
-        const u32 variant = user_avatar_variant(row.avatar_hash);
-        if (!variant)
+    if (row.kind == UiQuickSwitcherKind::private_channel && row.user_id) {
+        if (!avatar_media_key(row.user_id, row.avatar_hash, &key))
             return false;
         hash = row.avatar_hash;
-        key = media_asset_user_avatar(row.user_id, variant, asset_hash_animated(hash));
         circle = true;
     } else if ((row.kind == UiQuickSwitcherKind::text_channel || row.kind == UiQuickSwitcherKind::voice_channel) &&
                row.guild_id && state) {

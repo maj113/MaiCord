@@ -72,9 +72,10 @@ void test_inbox_scene(void (*check)(bool, const char*) noexcept) noexcept {
               avatar.key.variant == user_avatar_variant(utf8_literal("0123456789abcdef0123456789abcdef")) &&
               ui_rect_width(avatar.rectangle) == kUiInboxAvatarExtent &&
               ui_rect_equal(avatar.rectangle, ui_rect_intersection(avatar.rectangle, scene.row_rectangles[0])) &&
-              inbox_avatar_media_current(scene, avatar.key) && !inbox_avatar_media_resolve(scene, 1, &blank) &&
-              ui_inbox_scene_avatar(scene, 1, &avatar_rect, &avatar_clip),
-          "inbox scene: mention cards resolve their author's avatar identity; default avatars keep the placeholder");
+              inbox_avatar_media_current(scene, avatar.key) && inbox_avatar_media_resolve(scene, 1, &blank) &&
+              media_asset_key_equal(blank.key, default_avatar_key(default_avatar_index(41))) && !blank.hash.bytes &&
+              inbox_avatar_media_current(scene, blank.key) && ui_inbox_scene_avatar(scene, 1, &avatar_rect, &avatar_clip),
+          "inbox scene: mention cards resolve their author's avatar identity; default avatars share the CDN default");
     check(ui_inbox_scene_scroll(&scene, 10000) && scene.scroll_dips == ui_inbox_scene_scroll_maximum(scene) &&
               scene.scroll_dips > 0 && !inbox_avatar_media_current(scene, avatar.key) &&
               ui_inbox_scene_scroll(&scene, 0) && scene.first == 0,

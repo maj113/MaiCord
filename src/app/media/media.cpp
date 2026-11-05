@@ -287,8 +287,13 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             if (!proceed(requested))
                 return false;
         }
-        if (!visibility_only && scene.effect && scene.effect->count && !scene.effect_started_ms && ready)
+        if (!visibility_only && scene.effect && scene.effect->count && !scene.effect_started_ms && ready) {
             scene.effect_started_ms = now_ms + 500;
+            // Nothing was uploaded for an effect whose layers were already resident: the frame
+            // loop no longer runs for an unstarted effect, so ask for the one that starts it.
+            if (repaint)
+                *repaint = true;
+        }
         return true;
     };
     if (application.profile && application.profile->scene.active) {
@@ -579,7 +584,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, &stop, force)))
+            if (!proceed(request_visible_avatar_media(media.key, media.hash, &stop, force)))
                 return outcome;
         }
     }
@@ -600,7 +605,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             if (!proceed(media.key.kind == MediaAssetKind::guild_icon
                              ? !guild || request_visible_guild_icon(*guild,
                                                                     &stop, false, false)
-                             : request_visible_user_avatar_value(media.key.id, media.hash, &stop, false)))
+                             : request_visible_avatar_media(media.key, media.hash, &stop, false)))
                 return outcome;
         }
     }
@@ -617,7 +622,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, &stop, false)))
+            if (!proceed(request_visible_avatar_media(media.key, media.hash, &stop, false)))
                 return outcome;
         }
     }
@@ -629,7 +634,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, &stop, false)))
+            if (!proceed(request_visible_avatar_media(media.key, media.hash, &stop, false)))
                 return outcome;
         }
     }
@@ -698,11 +703,11 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     }
     // A held avatar (play false) keeps its current frame.
     const auto request_avatar = [&](const UserRecord* user, bool play) noexcept {
-        if (!user || !user->avatar_hash_bytes)
+        if (!user)
             return true;
         const Utf8View hash = user_store_avatar_hash(*user);
         const u32 variant = user_avatar_variant(hash);
-        if (!variant)
+        if (hash.bytes && !variant)
             return true;
         bool force_request = false;
         if (asset_hash_animated(hash) &&
@@ -986,7 +991,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             AvatarMedia media;
             if (!member_plain_avatar_resolve(members, visible, &media))
                 continue;
-            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, &stop, force)))
+            if (!proceed(request_visible_avatar_media(media.key, media.hash, &stop, force)))
                 return outcome;
         }
         for (u32 visible = 0; visible < members.count; ++visible) {
@@ -994,7 +999,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             if (row.kind != MemberListRowKind::member || row.user_id == 0) {
                 continue;
             }
-            for (u32 layer = 0; layer < 5; ++layer) {
+            for (u32 layer = 0; layer < kMemberMediaLayerCount; ++layer) {
                 MemberMediaPlacement placed{};
                 if (!member_media_place(members, visible, static_cast<MemberMedia>(layer), &placed))
                     continue;
@@ -1098,7 +1103,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         // Forum post cards are the browser's own content: their author avatars
         // upload here. Other completions are leased without being shown, exactly
         // like the browser-covered forum preview drain; normal reacquisition reloads them.
-        if (!consumed && (pending.key.kind == MediaAssetKind::user_avatar ||
+        if (!consumed && (pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
                           pending.key.kind == MediaAssetKind::attachment) &&
             d3d11_renderer_thread_browser_visible(application.renderer) &&
             application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) {

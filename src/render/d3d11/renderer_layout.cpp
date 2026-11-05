@@ -525,16 +525,11 @@ bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row
 }
 bool find_user_avatar(const D3D11Renderer& renderer, const UserRecord& user,
                       MediaAtlasResult* allocation) noexcept {
-    if (!renderer.media_atlas || user.avatar_hash_bytes == 0) {
+    MediaAssetKey key;
+    if (!renderer.media_atlas || !avatar_media_key(user.id, user_store_avatar_hash(user), &key)) {
         return false;
     }
-    const Utf8View hash = user_store_avatar_hash(user);
-    const u32 variant = user_avatar_variant(hash);
-    if (variant == 0) {
-        return false;
-    }
-    *allocation = media_atlas_peek(
-        renderer.media_atlas, media_asset_user_avatar(user.id, variant, asset_hash_animated(hash)));
+    *allocation = media_atlas_peek(renderer.media_atlas, key);
     return allocation->ok();
 }
 
@@ -1346,6 +1341,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         if (user)
                             find_user_avatar(*renderer, *user, &allocation);
                     }
+                    if (!allocation.ok() && layer == static_cast<u32>(MemberMedia::nameplate)) {
+                        // A hovered row's animated nameplate still loading keeps its still.
+                        MemberMediaPlacement still{};
+                        if (member_media_place(member_scene, index, MemberMedia::nameplate_still, &still))
+                            allocation = media_atlas_find(renderer->media_atlas, still.key);
+                    }
                 } else if (layer == static_cast<u32>(MemberMedia::avatar)) {
                     if (!member_plain_avatar_place(member_scene, index, &media))
                         continue;
@@ -2015,14 +2016,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 break;
             }
             const ReactionViewerUser& user = viewer.users[index];
-            const Utf8View hash = reaction_viewer_user_avatar_hash(user);
-            const u32 variant = user_avatar_variant(hash);
-            if (variant == 0) {
+            MediaAssetKey avatar_key;
+            if (!avatar_media_key(user.id, reaction_viewer_user_avatar_hash(user), &avatar_key)) {
                 continue;
             }
-            const bool animated = asset_hash_animated(hash);
-            const MediaAtlasResult allocation = media_atlas_peek(
-                renderer->media_atlas, media_asset_user_avatar(user.id, variant, animated));
+            const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, avatar_key);
             if (!allocation.ok()) {
                 continue;
             }

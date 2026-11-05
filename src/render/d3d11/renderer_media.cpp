@@ -107,6 +107,36 @@ MediaAtlasGpuResult prepare_media_surface(D3D11Renderer* renderer, MediaAtlas* a
     return ready;
 }
 
+void release_media_surfaces(D3D11Renderer* renderer) noexcept;
+
+bool media_capacity_miss(const MediaAtlasGpuResult& result) noexcept {
+    return result.error == MediaAtlasGpuError::atlas_failure &&
+           result.allocation.error == MediaAtlasError::no_capacity;
+}
+
+// A request the shelves refused while visible media is scattered over them:
+// pack the pinned shelves to the top so the free span below can take it. The
+// surface is recreated at the same height with each moved shelf copied from
+// the old one; handles and x stay valid, so only the retained quads' sources
+// (rebuilt from the presentation stamp) change. `surface_preview` names the
+// surface slot that currently holds this atlas's texture.
+bool compact_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas, bool surface_preview) noexcept {
+    GlyphAtlasRowMove moves[256];
+    u32 moved = 0;
+    if (!media_atlas_compact(atlas, {moves, 256}, &moved)) {
+        return false;
+    }
+    if (moved != 0 && !media_atlas_gpu_resize(&renderer->media_gpu, renderer->graphics.device,
+                                              renderer->graphics.context1, surface_preview,
+                                              atlas->allocations.height, {moves, moved})
+                           .ok()) {
+        release_media_surfaces(renderer);
+        return false;
+    }
+    presentation_damage_invalidate_full(&renderer->presentation_damage);
+    return true;
+}
+
 // Codec shaders/buffers are shared, but each atlas owns its canvas and
 // disposal backup. Borrow the chosen surface for one synchronous render-thread
 // operation. This swaps metadata only: no texture copies, allocation or AddRef.
@@ -179,7 +209,12 @@ MediaAtlasGpuResult run_atlas_upload(D3D11Renderer* renderer, const MediaAssetKe
     if (!preview_initialized.ok()) return preview_initialized;
     const MediaAtlasGpuResult prepared = prepare_media_surface(renderer, atlas, preview, key, width, height);
     if (!prepared.ok()) return prepared;
-    const MediaAtlasGpuResult uploaded = upload.run(upload.context, atlas);
+    MediaAtlasGpuResult uploaded = upload.run(upload.context, atlas);
+    if (media_capacity_miss(uploaded) && compact_media_atlas(renderer, atlas, preview)) {
+        const MediaAtlasGpuResult grown = prepare_media_surface(renderer, atlas, preview, key, width, height);
+        if (!grown.ok()) return grown;
+        uploaded = upload.run(upload.context, atlas);
+    }
     if (!uploaded.ok()) {
         log_media_upload_failure(uploaded, failure_event);
     } else if (preview) {
@@ -196,7 +231,14 @@ MediaAtlasGpuResult run_animation_upload(D3D11Renderer* renderer, const MediaAss
                                          const AtlasUpload& upload) noexcept {
     AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
     if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = upload.run(upload.context, target.atlas);
+    MediaAtlasGpuResult uploaded = upload.run(upload.context, target.atlas);
+    // The borrowed surface sits in the primary slot for the whole operation.
+    if (media_capacity_miss(uploaded) && compact_media_atlas(renderer, target.atlas, false)) {
+        const MediaAtlasGpuResult grown =
+            prepare_media_surface(renderer, target.atlas, false, key, canvas_width, canvas_height);
+        if (!grown.ok()) return grown;
+        uploaded = upload.run(upload.context, target.atlas);
+    }
     if (!uploaded.ok()) {
         log_media_upload_failure(uploaded, failure_event);
     }

@@ -96,6 +96,11 @@ try:
 except ImportError:  # no Pillow: the WebP URL answers with the PNG, which the client refuses
     FILES[f"/emojis/{EMOJI_ID}.webp"] = FILES[f"/emojis/{EMOJI_ID}.png"]
 
+# The CDN's six default avatars (embed/avatars/N.png): the fake serves flat colours of its own, not Discord's art.
+for _index in range(6):
+    _tint = (60 + 30 * _index, 160 - 20 * _index, 220 - 25 * _index)
+    FILES[f"/embed/avatars/{_index}.png"] = ("image/png", png(64, 64, lambda x, y, c=_tint: c))
+
 
 def reaction(name, count, me=False, emoji_id=None):
     return {"emoji": {"id": emoji_id, "name": name, "animated": False}, "count": count,

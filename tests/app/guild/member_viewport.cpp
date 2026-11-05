@@ -88,16 +88,20 @@ u32 test_member_visible_avatar_requests() noexcept {
         const bool admitted = member_plain_avatar_resolve(scene, i, &media);
         if (admitted) {
             ++resolved;
-            first_visible = first_visible ? first_visible : media.key.id;
+            first_visible = first_visible ? first_visible : row.user_id;
             const auto* user = user_store_find(users, row.user_id);
-            check(on_screen && user && media.key.kind == MediaAssetKind::user_avatar &&
-                  media.key.id == row.user_id &&
-                  media.key.variant == user_avatar_variant(user_store_avatar_hash(*user)) &&
-                  ui_rect_equal(media.clip, scene.viewport) && member_plain_avatar_current(scene, media.key));
+            // A custom avatar keeps its own identity; none shows the shared default avatar.
+            const bool custom = user && user->avatar_hash_bytes;
+            check(on_screen && user && ui_rect_equal(media.clip, scene.viewport) &&
+                  member_plain_avatar_current(scene, media.key) &&
+                  (custom ? media.key.kind == MediaAssetKind::user_avatar && media.key.id == row.user_id &&
+                                media.key.variant == user_avatar_variant(user_store_avatar_hash(*user))
+                          : media_asset_key_equal(media.key, default_avatar_key(default_avatar_index(row.user_id))) &&
+                                !media.hash.bytes));
         } else {
-            // Off-screen overscan rows and default avatars admit nothing.
+            // Off-screen overscan rows admit nothing.
             const auto* user = user_store_find(users, row.user_id);
-            check(!on_screen || !user || !user->avatar_hash_bytes);
+            check(!on_screen || !user);
         }
     }
     check(scene.count > visible_rows && visible_rows >= 5 && resolved > 0 && resolved <= visible_rows);

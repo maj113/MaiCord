@@ -1,4 +1,5 @@
 #include "maicord/app/media/message_media_controller.hpp"
+#include "maicord/app/media/capacity_deferral.hpp"
 #include "../../support/message_media_controller_fixture.hpp"
 #include "maicord/render/media/animation_frame_cache_gpu.hpp"
 #include "maicord/render/media/atlas.hpp"
@@ -196,6 +197,163 @@ void test_decorative_yield(void (*check)(bool, const char*) noexcept) noexcept {
           "atlas_pressure_profile_art_takes_one_decoration_shelf_from_a_full_visible_set");
 }
 
+namespace {
+
+MediaAssetKey profile_image_key(u64 id) noexcept {
+    auto key = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::png, false,
+                                 MediaResolutionTier::px512);
+    key.kind = MediaAssetKind::profile_image;
+    return key;
+}
+
+constexpr u32 kSessionEntries = 256;
+constexpr u32 kSessionRows = 64;
+
+struct SessionAtlas {
+    MediaAtlasEntry entries[kSessionEntries];
+    u32 buckets[kSessionEntries * 2];
+    GlyphAtlasEntry allocations[kSessionEntries];
+    GlyphAtlasRow rows[kSessionRows];
+    MediaAtlas atlas;
+    u64 serial;
+    bool ready(u16 height) noexcept {
+        serial = 0;
+        return media_atlas_initialize(&atlas, 2048, height, 1, {entries, kSessionEntries}, {buckets, kSessionEntries * 2},
+                                      {allocations, kSessionEntries}, {rows, kSessionRows});
+    }
+    // `count` pictures of one size, in session order; the first is returned.
+    MediaAssetKey fill(u32 count, u16 width, u16 height, bool* ok) noexcept {
+        const MediaAssetKey first = profile_image_key(serial + 1);
+        for (u32 i = 0; i < count; ++i)
+            *ok = media_atlas_allocate(&atlas, profile_image_key(++serial), width, height).ok() && *ok;
+        return first;
+    }
+};
+
+} // namespace
+
+// The profile card's 450x880 effect layer (a 882 px shelf) found no room on a production-sized identity atlas
+// holding only a few hundred stale or visible pictures: one visible entry per shelf keeps every shelf in
+// place, so no 882 px span is ever contiguous although less than a fifth of the atlas is visible. Packing the
+// visible shelves to the top makes the span; the reader's pictures keep their handles.
+void test_atlas_compaction(void (*check)(bool, const char*) noexcept) noexcept {
+    static SessionAtlas session;
+    bool ok = session.ready(2048);
+    // Session history: decoration, avatar, nameplate and banner shelves interleave as they were first needed.
+    session.fill(7, 288, 288, &ok);
+    const MediaAssetKey avatar_row = session.fill(31, 64, 64, &ok);
+    session.fill(7, 288, 288, &ok);
+    const MediaAssetKey nameplate_row = session.fill(4, 448, 84, &ok);
+    session.fill(7, 288, 288, &ok);
+    const MediaAssetKey banner_row = session.fill(3, 600, 240, &ok);
+    session.fill(31, 64, 64, &ok);
+    MediaAtlas& atlas = session.atlas;
+    media_atlas_begin_visibility(&atlas);
+    const auto avatar = media_atlas_find(&atlas, avatar_row);
+    const auto nameplate = media_atlas_find(&atlas, nameplate_row);
+    const auto banner = media_atlas_find(&atlas, banner_row);
+    const MediaAssetKey effect = profile_image_key(9'000);
+    const bool fits_when_packed = media_atlas_can_place(atlas, 450, 880);
+    const auto refused = media_atlas_allocate(&atlas, effect, 450, 880);
+    const u32 used_before = atlas.allocations.next_y;
+    GlyphAtlasRowMove moves[kSessionRows]{};
+    u32 moved = 0;
+    const bool compacted = media_atlas_compact(&atlas, {moves, kSessionRows}, &moved);
+    const auto avatar_after = media_atlas_peek(&atlas, avatar_row);
+    const auto nameplate_after = media_atlas_peek(&atlas, nameplate_row);
+    const auto banner_after = media_atlas_peek(&atlas, banner_row);
+    const auto placed = media_atlas_allocate(&atlas, effect, 450, 880);
+    u32 moved_again = 0;
+    check(ok && avatar.ok() && nameplate.ok() && banner.ok() && fits_when_packed &&
+              refused.error == MediaAtlasError::no_capacity && used_before == 1330 && compacted &&
+              moved == 3 && moves[0].source_y == 290 && moves[0].destination_y == 0 && moves[0].height == 66 &&
+              moves[1].source_y == 646 && moves[1].destination_y == 66 && moves[2].source_y == 1022 &&
+              moves[2].destination_y == 152 && atlas.compactions == 1,
+          "atlas_compaction_packs_scattered_visible_shelves_to_the_top");
+    check(avatar_after.ok() && avatar_after.handle.slot == avatar.handle.slot && avatar_after.x == avatar.x &&
+              avatar_after.y == 1 && nameplate_after.ok() && nameplate_after.y == 67 && banner_after.ok() &&
+              banner_after.y == 153 && placed.ok() && placed.y == 395 && !placed.atlas_reset &&
+              atlas.allocations.full_resets == 0 &&
+              // The visible avatar's shelf-mates stay resident: whole shelves move, nothing is re-uploaded.
+              media_atlas_peek(&atlas, profile_image_key(avatar_row.id + 1)).ok() &&
+              !media_atlas_compact(&atlas, {moves, kSessionRows}, &moved_again) && moved_again == 0,
+          "atlas_compaction_keeps_visible_handles_and_makes_the_span");
+
+    // A visible set that itself fills the atlas is not compacted away: nothing is freed, nothing is evicted,
+    // and the request stays refused until something scrolls out of view.
+    ok = session.ready(1024);
+    session.fill(4, 450, 880, &ok);
+    session.fill(62, 64, 64, &ok);
+    media_atlas_begin_visibility(&atlas);
+    for (u64 id = 1; ok && id <= session.serial; ++id)
+        ok = media_atlas_find(&atlas, profile_image_key(id)).ok();
+    const u32 evicted = atlas.allocations.evicted_entries;
+    const auto blocked = media_atlas_allocate(&atlas, effect, 450, 880);
+    const bool full_cannot_place = !media_atlas_can_place(atlas, 450, 880);
+    const bool full_compacts = media_atlas_compact(&atlas, {moves, kSessionRows}, &moved);
+    const bool small_fits = media_atlas_can_place(atlas, 64, 64);
+    media_atlas_begin_visibility(&atlas);
+    check(ok && blocked.error == MediaAtlasError::no_capacity && full_cannot_place && !full_compacts &&
+              atlas.allocations.evicted_entries == evicted && small_fits && media_atlas_can_place(atlas, 450, 880),
+          "atlas_compaction_never_evicts_a_visible_set_that_fills_the_atlas");
+}
+
+// An upload the atlas refuses drops its decoded frame, so every later request for the key decodes it again.
+// Held back by the deferral table the key costs one decode while the visible set leaves no room, and one more
+// the moment room appears; before, every pump pass decoded it (and stopped the scan behind it).
+void test_capacity_deferral(void (*check)(bool, const char*) noexcept) noexcept {
+    static SessionAtlas session;
+    bool ok = session.ready(1024);
+    session.fill(4, 450, 880, &ok);
+    session.fill(62, 64, 64, &ok);
+    MediaAtlas& atlas = session.atlas;
+    media_atlas_begin_visibility(&atlas);
+    for (u64 id = 1; ok && id <= session.serial; ++id)
+        ok = media_atlas_find(&atlas, profile_image_key(id)).ok();
+    const MediaAssetKey effect = profile_image_key(9'000);
+    MediaCapacityDeferrals deferrals{};
+    GlyphAtlasRowMove moves[kSessionRows]{};
+    u32 decodes = 0, moved = 0;
+    bool resident_at = false;
+    u64 resident_ms = 0;
+    for (u64 now = 1'000; ok && now < 31'000; ++now) {
+        // The visible set scrolls away at 6 s: room appears.
+        if (now == 6'000)
+            media_atlas_begin_visibility(&atlas);
+        if (media_atlas_peek(&atlas, effect).ok() || media_capacity_waiting(&deferrals, atlas, effect, now))
+            continue;
+        ++decodes; // The pump's request: the account decodes the picture again.
+        auto upload = media_atlas_allocate(&atlas, effect, 450, 880);
+        if (!upload.ok() && media_atlas_compact(&atlas, {moves, kSessionRows}, &moved))
+            upload = media_atlas_allocate(&atlas, effect, 450, 880);
+        if (upload.ok() && !resident_at) {
+            resident_at = true;
+            resident_ms = now;
+        } else if (!upload.ok()) {
+            media_capacity_defer(&deferrals, effect, 450, 880, now);
+        }
+    }
+    check(ok && decodes == 2 && resident_at && resident_ms == 6'000 && deferrals.refused == 1 &&
+              deferrals.released == 1 && deferrals.waited >= 4'900 && !media_capacity_waiting_count(deferrals),
+          "capacity_deferral_costs_two_decodes_over_thirty_seconds_and_loads_when_room_appears");
+
+    // A prediction that the atlas fits must not become a decode per pass: the minimum backoff holds.
+    session.ready(1024); // Empty: the atlas can always take a 64 px picture.
+    MediaCapacityDeferrals fresh{};
+    media_capacity_defer(&fresh, profile_image_key(1), 64, 64, 10'000);
+    const bool early = media_capacity_waiting(&fresh, atlas, profile_image_key(1), 10'999);
+    const bool due = !media_capacity_waiting(&fresh, atlas, profile_image_key(1), 11'000);
+    // A prediction that is wrong (the atlas "fits" but refuses) retries once a second, not every pass.
+    media_capacity_defer(&fresh, profile_image_key(2), 64, 64, 20'000);
+    u32 asked = 0;
+    for (u64 now = 20'000; now < 30'000; ++now)
+        if (!media_capacity_waiting(&fresh, atlas, profile_image_key(2), now)) {
+            ++asked;
+            media_capacity_defer(&fresh, profile_image_key(2), 64, 64, now);
+        }
+    check(early && due && asked == 9, "capacity_deferral_minimum_backoff_bounds_a_wrong_prediction");
+}
+
 void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     MediaAtlas atlas{};
     MediaAtlasEntry entries[16]{};
@@ -306,5 +464,7 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
           "atlas_pressure_upload_retry_survives_pump_wakes_and_resets_on_view_change");
     test_atlas_growth(check);
     test_decorative_yield(check);
+    test_atlas_compaction(check);
+    test_capacity_deferral(check);
 }
 }

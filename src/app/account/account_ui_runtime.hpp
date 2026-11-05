@@ -296,9 +296,10 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // cache counters removed since (see the base literal). One embedded layout node also shrank by 8
 // bytes when the layout baseline went away (the 16 + 8 - 8 terms); the composer controller lost two
 // counters, its send tracker two more and the draft store three (the - 24 term); the poll receipt
-// sequence guard shrank from eight sources to one (the - 56 term).
+// sequence guard shrank from eight sources to one (the - 56 term); the member media cache's sixth layer
+// (the hovered nameplate's still) moved the alignment padding after it by 16 (the last + 16 term).
 static_assert(kAccountUiFixedBytes ==
-              4'261'068 + 16 + 8 - 8 - 24 - 56 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'068 + 16 + 8 - 8 - 24 - 56 + 16 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

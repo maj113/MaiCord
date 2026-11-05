@@ -51,10 +51,16 @@ struct ApplicationMediaPump {
     bool request_inline_flags() noexcept;
     bool request_catalog_previews() noexcept;
     bool media_key_is_current(const MediaAssetKey& key) noexcept;
-    // An image of the open profile card that found the atlas full unpins the
-    // visible member rows' nameplates and avatar decorations; returns how many
-    // (zero for any other key). The caller retries its upload when nonzero.
+    // An essential image (anything but the member rows' own nameplates and avatar decorations)
+    // that found the atlas full unpins those decorations, so the allocation may evict shelves
+    // that hold nothing else visible; returns how many (zero for a decoration itself or when
+    // none were pinned). The caller retries its upload when nonzero.
     u32 yield_decorative_media(const MediaAssetKey& key) noexcept;
+    // True while `key`'s last upload was refused for room and the atlas still cannot take its
+    // size: asking the account again would decode a frame that cannot be uploaded.
+    bool capacity_waiting(const MediaAssetKey& key) noexcept;
+    // The atlas that holds `key`: the preview atlas for large downscaled previews.
+    MediaAtlas* upload_atlas(const MediaAssetKey& key) noexcept;
     // True when an animated key is resident and its timeline is observed (play) or merely present (held
     // frame). Otherwise force_request says whether the request must bypass its residency check.
     bool animation_resident(const MediaAssetKey& key, bool* force_request, bool play = true) noexcept;
@@ -114,6 +120,11 @@ struct ApplicationMediaPump {
                                                          bool animate = true) noexcept;
     __declspec(noinline) bool request_visible_user_avatar_value(u64 user_id, const Utf8View& avatar_hash, bool* stop_scan,
                                                                 bool force_request = false) noexcept;
+    // A default avatar fetched by its CDN URL, under the key every avatar list shares.
+    __declspec(noinline) bool request_visible_default_avatar(const MediaAssetKey& key, bool* stop_scan) noexcept;
+    // A visible avatar by its key: a default avatar by URL, a custom one by its hash.
+    __declspec(noinline) bool request_visible_avatar_media(const MediaAssetKey& key, const Utf8View& hash,
+                                                           bool* stop_scan, bool force_request = false) noexcept;
     // Shared request path for hash-addressed user avatars and group DM icons.
     __declspec(noinline) bool request_visible_hashed_identity(const MediaAssetKey& key, const Utf8View& hash, bool* stop_scan,
                                                               bool force_request = false) noexcept;

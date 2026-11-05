@@ -801,6 +801,7 @@ void run_visibility_test() noexcept {
                   !g_app.animations.pending_advance_count,
               "catalog ownership: closed picker retires paused visuals without animation capacity growth");
         run_identity_residency_test(fixture, *ui, pump);
+        run_default_avatar_timeline_test(*ui, pump);
         run_catalog_residency_test(fixture, pump);
         run_picker_emoji_visibility_test(pump);
         run_search_avatar_test(pump);

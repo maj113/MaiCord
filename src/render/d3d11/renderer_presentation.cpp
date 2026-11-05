@@ -50,6 +50,7 @@ public:
             .push(atlas.stale_entries)
             .push(atlas.allocations.evicted_entries)
             .push(atlas.allocations.full_resets)
+            .push(atlas.compactions)
             .push(atlas.next_allocation_key);
     }
 

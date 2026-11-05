@@ -10,6 +10,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/ui/media/avatar_media.hpp"
 
 namespace maicord::app_detail {
 
@@ -27,7 +28,7 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
             return true;
     } else if (resident)
         return true;
-    if (visibility_only)
+    if (visibility_only || capacity_waiting(key))
         return true;
     const AccountMediaAttachmentRequest request{media.url.view(),
                                                 key,
@@ -55,10 +56,10 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
         const FrameTake taken = take_ready_frame(*this, key, false, true);
         if (taken == FrameTake::failed)
             return false;
-        if (taken == FrameTake::deferred) {
-            *stop = true;
+        // The atlas refused it (capacity_waiting holds the key back): the rest of the scan,
+        // other sizes included, still gets its turn.
+        if (taken == FrameTake::deferred)
             return true;
-        }
         note_frame_uploaded(*this);
         if (play)
             animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
@@ -74,9 +75,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
     *stop_scan = false;
     if (visibility_only)
         return true;
-    if (!force_request && media_atlas_find(application.renderer.media_atlas, key).ok()) {
+    if (!force_request && media_atlas_find(application.renderer.media_atlas, key).ok())
         return true;
-    }
+    if (capacity_waiting(key))
+        return true;
     return settle_media_request(
         application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
 }
@@ -88,10 +90,8 @@ __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
         const FrameTake taken = take_ready_frame(*this, key, false, true);
         if (taken == FrameTake::failed)
             return false;
-        if (taken == FrameTake::deferred) {
-            *stop_scan = true;
+        if (taken == FrameTake::deferred)
             return true;
-        }
         note_frame_uploaded(*this);
         if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
             *stop_scan = true;
@@ -128,9 +128,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
     const MediaAssetKey key = media_asset_guild_icon(guild.id, guild.icon_variant, animated);
     const auto resident = media_atlas_find(application.renderer.media_atlas, key);
     if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
-                                                *application.renderer.media_atlas, resident.handle))) {
+                                                *application.renderer.media_atlas, resident.handle)))
         return true;
-    }
+    if (capacity_waiting(key))
+        return true;
     const AccountMediaGuildIconRequest request{icon_hash, key, {0, 0}};
     return settle_media_request(application.account.api.media_guild_icon_request(
                                     application.account.instance, &request, now_ms, now_seconds),
@@ -141,11 +142,41 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_user_avatar_valu
     u64 user_id, const Utf8View& avatar_hash,
     bool* stop_scan, bool force_request) noexcept {
     *stop_scan = false;
+    // No hash: the CDN's default avatar, the one the user's id picks.
+    if (user_id != 0 && avatar_hash.bytes == 0)
+        return request_visible_default_avatar(default_avatar_key(default_avatar_index(user_id)), stop_scan);
     const u32 variant = user_avatar_variant(avatar_hash);
     if (user_id == 0 || avatar_hash.bytes == 0 || variant == 0)
         return application.account_ui && application.account.api.media_guild_icon_request;
     return request_visible_hashed_identity(
         media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash)), avatar_hash, stop_scan, force_request);
+}
+
+__declspec(noinline) bool ApplicationMediaPump::request_visible_default_avatar(const MediaAssetKey& key,
+                                                                                bool* stop_scan) noexcept {
+    *stop_scan = false;
+    if (!application.account_ui || !application.account.api.media_attachment_request)
+        return false;
+    // A default avatar is one of six shared pictures: skip it unless a visible surface shows it.
+    if (visibility_only || !is_default_avatar_key(key) || !media_key_is_current(key))
+        return true;
+    ProfileMedia media{};
+    media.key = key;
+    constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
+    char path[kDefaultAvatarPathBytes];
+    default_avatar_path(static_cast<u32>(key.id - kDefaultAvatarKeyBase), path);
+    copy_bytes(media.url.data, host.data, host.bytes);
+    copy_bytes(media.url.data + host.bytes, path, kDefaultAvatarPathBytes);
+    media.url.bytes = static_cast<u16>(host.bytes + kDefaultAvatarPathBytes);
+    return request_profile_media(media, stop_scan, false, nullptr);
+}
+
+__declspec(noinline) bool ApplicationMediaPump::request_visible_avatar_media(const MediaAssetKey& key,
+                                                                              const Utf8View& hash,
+                                                                              bool* stop_scan,
+                                                                              bool force_request) noexcept {
+    return is_default_avatar_key(key) ? request_visible_default_avatar(key, stop_scan)
+                                      : request_visible_user_avatar_value(key.id, hash, stop_scan, force_request);
 }
 
 u32 ApplicationMediaPump::identity_cdn_size() const noexcept {
@@ -167,9 +198,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
         return true;
     const auto resident = media_atlas_find(application.renderer.media_atlas, key);
     if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
-                                                *application.renderer.media_atlas, resident.handle))) {
+                                                *application.renderer.media_atlas, resident.handle)))
         return true;
-    }
+    if (capacity_waiting(key))
+        return true;
     // The account ABI keeps this historical name, but the request is the
     // generic hash-addressed CDN asset path. The asset key selects
     // /avatars or /channel-icons rather than /icons in the account module;

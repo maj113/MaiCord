@@ -122,6 +122,8 @@ MediaAssetKey attachment_key(const VisibilityFixture& fixture, const AccountUiRu
 void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
                                  ApplicationMediaPump& pump) noexcept;
 
+void run_default_avatar_timeline_test(AccountUiRuntime& ui, ApplicationMediaPump& pump) noexcept;
+
 void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept;
 
 void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump& pump) noexcept;

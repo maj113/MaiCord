@@ -32,6 +32,7 @@ struct MediaAtlas {
     u32 free_cursor;
     u32 insertions;
     u32 stale_entries;
+    u32 compactions;
     u64 next_allocation_key;
     // Height growth/idle trim (zero maximum: fixed size). The renderer resizes
     // the GPU surface whenever allocations.height changes.
@@ -125,6 +126,32 @@ u64 media_atlas_trim_deadline(const MediaAtlas& atlas) noexcept;
 u32 media_atlas_trim(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, bool* resized) noexcept;
 // After media_atlas_reset with the GPU surface released: back to initial height.
 void media_atlas_reset_growth(MediaAtlas* atlas) noexcept;
+// A request no shelf could take (allocate returned no_capacity) while the
+// visible shelves are scattered: packs them to the top and evicts the rest
+// (see glyph_atlas_compact). The owner copies `moves` on its surface before
+// retrying. False when packing would free nothing.
+bool media_atlas_compact(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept;
+// Whether a request of this size can be placed now, by packing, or by growth.
+// False means the visible set itself leaves no room, so asking again before
+// it changes only repeats a decode that cannot be uploaded.
+bool media_atlas_can_place(const MediaAtlas& atlas, u16 width, u16 height) noexcept;
+
+// Occupancy for diagnostics (cold path: walks every shelf and entry).
+struct MediaAtlasPressure {
+    u32 entries;
+    u32 rows;
+    u32 pinned_rows;
+    u32 pinned_entries;
+    u32 height;
+    u32 maximum_height;
+    // Share of the surface taken by the shelves (permille of height * width),
+    // and by pixels of live entries.
+    u32 shelf_permille;
+    u32 pixel_permille;
+    // Height of the shelves holding a pinned (visible) entry: what packing cannot reclaim.
+    u32 pinned_height;
+};
+MediaAtlasPressure media_atlas_pressure(const MediaAtlas& atlas) noexcept;
 
 static_assert(sizeof(MediaAtlasEntry) == 24);
 

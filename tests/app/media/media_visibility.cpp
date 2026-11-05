@@ -7,7 +7,6 @@
 #include "maicord/render/media/inline_media.hpp"
 #include "../../../src/app/account/profile.hpp"
 #include "../../../src/app/chat/channel_authority.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "../../support/test_output.hpp"
 
@@ -533,6 +532,19 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
               last_identity_size == cdn_image_size(kCdnIdentityDisplayDips, g_app.renderer.dpi) &&
               last_identity_size <= kCdnIdentityDefaultSize && (last_identity_size & (last_identity_size - 1)) == 0,
           "avatar admission: the CDN size matches the 40-DIP avatar extent at the renderer DPI");
+    // The atlas refused this avatar's upload (the decoded frame is gone): asking again decodes the same
+    // frame again, so the key waits instead of costing a decode per pump pass, and only then retries.
+    const u32 before_refusal = identity_requests;
+    g_app.media_deferrals = {};
+    media_capacity_defer(&g_app.media_deferrals, avatar, 32, 32, 1'000);
+    for (u32 pass = 0; pass < 64; ++pass)
+        valid = pump.pass(1'000 + pass, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
+                valid;
+    const bool held_back = identity_requests == before_refusal && g_app.media_deferrals.waited == 64;
+    valid = pump.pass(2'100, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) && valid;
+    check(valid && held_back && identity_requests == before_refusal + 1 &&
+              g_app.media_deferrals.released == 1 && !media_capacity_waiting_count(g_app.media_deferrals),
+          "avatar admission: an atlas-refused key is held back for its backoff, then asks once");
 
     GuildRecord guild{};
     guild.id = 600;
@@ -564,6 +576,37 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
         pump.pass(1'000, 1'100, 0, &repaint).request_visible_guild_icon(guild, &stop, true);
     check(valid && identity_requests == before_static + 2,
           "identity residency: decoded multiframe residents still admit missing-timeline reacquisition");
+}
+
+// A visible timeline author without an avatar hash shows the CDN's default avatar: its key is current while that
+// author is on screen, and the request is the profile card's by-URL fetch, never skipped for want of a hash.
+void run_default_avatar_timeline_test(AccountUiRuntime& ui, ApplicationMediaPump& pump) noexcept {
+    const auto key = default_avatar_key(default_avatar_index(9));
+    bool valid = user_store_upsert(&ui.user_store, 9, utf8_literal("Author")).ok() &&
+                 user_store_set_avatar(&ui.user_store, 9, Utf8View{});
+    const auto* user = user_store_find(ui.user_store, 9);
+    valid = valid && user && !user->avatar_hash_bytes && media_asset_key_valid(key);
+    bool repaint = false, stop = false;
+    pump.uploads = 0;
+    last_profile_key = {};
+    watched_profile_key = key;
+    const bool current = pump.avatar_key_is_current(key) && pump.media_key_is_current(key);
+    valid = valid && pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, Utf8View{}, &stop);
+    check(valid && current && media_asset_key_equal(last_profile_key, key) &&
+              utf8_equal({last_profile_url, last_profile_url_bytes},
+                         utf8_literal("https://cdn.discordapp.com/embed/avatars/0.png")),
+          "default avatar: a timeline author without an avatar requests the CDN default avatar");
+    last_profile_key = {};
+    const u32 before_identity = identity_requests;
+    valid = pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, Utf8View{}, &stop);
+    check(valid && media_asset_key_equal(last_profile_key, key) && identity_requests == before_identity,
+          "default avatar: it is fetched by URL under the shared key, never as a hashed user avatar");
+    watched_profile_key = {};
+    user_store_set_avatar(&ui.user_store, 9, utf8_literal("a_0123456789abcdef0123456789abcdef"));
+    // A user whose id picks another default shares nothing with this key.
+    check(!media_asset_key_equal(default_avatar_key(default_avatar_index(9 + (1ull << 22))), key) &&
+              is_default_avatar_key(key) && !is_default_avatar_key(media_asset_user_avatar(9, 1, false)),
+          "default avatar: six shared keys, one per CDN picture");
 }
 
 } // namespace media_visibility_detail
@@ -1003,13 +1046,9 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
               media_asset_key_equal(last_identity_key, guild_key) && last_identity_size != 0,
           "settings avatar: the server identity row requests the shared guild icon key with its hash");
     // Audit log actors without an avatar hash show the default avatar,
-    // fetched by its CDN path under the profile card's key.
+    // fetched by its CDN path under the key every avatar list shares.
     const auto default_path = utf8_literal("embed/avatars/3.png");
-    const auto default_url = utf8_literal("https://cdn.discordapp.com/embed/avatars/3.png");
-    auto default_key = media_asset_embed(hash64_bytes(kHash64Seed, default_url.data, default_url.bytes), 1, 0,
-                                         MediaEmbedResource::image, MediaAttachmentFormat::png, false,
-                                         MediaResolutionTier::px512);
-    default_key.kind = MediaAssetKind::profile_image;
+    const auto default_key = default_avatar_key(3);
     avatars[0] = {};
     avatars[0].key = default_key;
     avatars[0].hash_bytes = static_cast<u8>(default_path.bytes);

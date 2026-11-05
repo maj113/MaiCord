@@ -466,6 +466,15 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
               profile_effect_media_resolve(scene, 1, 3100, &later_cycle) &&
               first_cycle.playback_epoch != later_cycle.playback_epoch,
           "profile_delayed_layer_restarts_only_at_declared_loop_boundary");
+    // A looping layer whose pictures never loaded (the media pump starts the effect only once every layer is
+    // resident) used to keep the card repainting at 24 Hz for as long as it was open.
+    scene.effect_started_ms = 0;
+    scene.hover_changed_ms = 4'900;
+    const bool unstarted_animates = profile_scene_animating(&scene, 5'000);
+    scene.hover_changed_ms = 0;
+    scene.effect_started_ms = 1000;
+    check(!unstarted_animates && profile_scene_animating(&scene, 5'000),
+          "profile_effect_that_never_started_does_not_hold_the_frame_loop");
     scene.reduced_motion = true;
     check(profile_effect_media_resolve(scene, 0, 1000, &media) &&
               !(media.key.flags & media_asset_flag_animated) &&

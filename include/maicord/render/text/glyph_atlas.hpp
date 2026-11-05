@@ -159,6 +159,19 @@ inline u64 glyph_atlas_growth_trim_deadline(const GlyphAtlasGrowth& growth, u32 
 // reported for the owner's GPU copy) and shrinks to the step covering the rest.
 u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas,
                             Slice<GlyphAtlasRowMove> moves, bool* resized) noexcept;
+// Shelves that hold at least one pinned entry cannot be reclaimed, so visible
+// media scattered over many shelves can leave no contiguous span for a tall
+// request although most of the atlas is unused. Packing moves every pinned
+// shelf to the top (handles and x stay valid, entry y moves with its shelf),
+// evicts the rest and leaves one free span below. `moves` (old -> new texture,
+// as for trim) must hold one move per shelf that changed place; when it is
+// too small, or packing frees nothing, nothing changes and false returns.
+// `move_count` receives the number of moves.
+bool glyph_atlas_compact(GlyphAtlasAllocator* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept;
+// True when a request of this size can be placed now or after glyph_atlas_compact
+// (with the atlas grown to `limit_height`). False means only a new visibility
+// epoch (something scrolled away) can make room.
+bool glyph_atlas_can_place(const GlyphAtlasAllocator& atlas, u16 width, u16 height, u16 limit_height) noexcept;
 
 // Optional open-addressed key -> slot index for per-glyph lookup. Buckets hold
 // slot + 1 and are validated against the entry on every probe, so evictions,
