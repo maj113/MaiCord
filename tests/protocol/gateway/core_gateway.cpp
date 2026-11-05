@@ -3129,9 +3129,9 @@ void test_gateway_commands() noexcept {
         false,
         false};
     const ConstSlice<u8> expected_user_properties = byte_literal(
-        R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null})");
+        R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
@@ -3166,7 +3166,7 @@ void test_gateway_commands() noexcept {
     expect(unchanged, "gateway_user_properties_output_bound");
 
 #define MAICORD_TEST_PROPERTIES_HEAD \
-    R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"launch_signature":"10203040-5060-4708-9090-a0b0c0d0e0f0")"
+    R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"launch_signature":"10203040-5060-4708-9090-a0b0c0d0e0f0")"
     // The desktop client's later properties: native build, launch signature,
     // then the request-time heartbeat session and app state in the order they
     // first appeared. Identify replaces the app state in place or appends it.
@@ -3234,7 +3234,7 @@ void test_gateway_commands() noexcept {
     live_identify.since_ms = 1759800000000ull;
     live_identify.qos_token = utf8_literal("CgIIAQ==");
     expect(identify_equal(live_identify,
-                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"99887766-5544-4332-a110-ffeeddccbbaa","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"is_fast_connect":true},"client_state":{"guild_versions":{}}}})")),
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"99887766-5544-4332-a110-ffeeddccbbaa","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"is_fast_connect":true},"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_fast_connect");
     {
         u8 measured[2048];
@@ -3354,7 +3354,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"idle","since":987654321,"activities":[],"afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"idle","since":987654321,"activities":[],"afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&

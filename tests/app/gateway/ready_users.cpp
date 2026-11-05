@@ -822,9 +822,9 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     runtime.user = &user;
     fast_connect_taken = 0;
     constexpr auto head = utf8_literal(
-        R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");
+        R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");
     constexpr auto tail = utf8_literal(
-        R"(","browser_user_agent":"Agent","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,)");
+        R"(","browser_user_agent":"Agent","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,)");
     const auto text = [](u32 offset) noexcept { return reinterpret_cast<const char*>(runtime.gateway_payload) + offset; };
     const auto first = write_user_identify_command(&runtime, utf8_literal("t"));
     constexpr auto fast_end = utf8_literal(R"("is_fast_connect":true},"client_state":{"guild_versions":{}}}})");

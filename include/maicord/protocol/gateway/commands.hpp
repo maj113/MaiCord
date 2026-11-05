@@ -154,8 +154,8 @@ struct GatewayUserProperties {
     Utf8View client_heartbeat_session_id;
     Utf8View client_app_state;
     bool app_state_first;
-    // The Linux desktop client's object: os_version_is_release follows os_version, os_sdk_version is not sent, and
-    // window_manager, distro, runtime_environment and display_server follow browser_version (an empty one is omitted).
+    // The Linux desktop client's object: os_sdk_version is not sent, and window_manager, distro, runtime_environment
+    // and display_server follow browser_version (an empty one is omitted).
     bool linux_desktop;
     Utf8View window_manager;
     Utf8View distro;

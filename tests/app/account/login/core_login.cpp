@@ -1728,7 +1728,7 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
                      "X-Captcha-Session-Id: session-7\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_head =
@@ -1736,7 +1736,7 @@ void test_user_auth_protocol() noexcept {
                      "Host: discord.com\r\n"
                      "Connection: keep-alive\r\n"
                      "Content-Length: 32\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_captcha_head =
@@ -1747,7 +1747,7 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
                      "X-Captcha-Session-Id: session-7\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     written = user_auth_write_request_head(UserAuthOperation::password, 123,

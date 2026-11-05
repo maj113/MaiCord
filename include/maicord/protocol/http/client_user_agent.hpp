@@ -10,7 +10,7 @@ namespace maicord {
 #if defined(_WIN32)
 inline constexpr char kClientUserAgent[] =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36";
+    "discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36";
 // The os property and the sec-ch-ua-platform header (a quoted structured-header string).
 inline constexpr char kClientOperatingSystem[] = "Windows";
 inline constexpr char kClientSecChUaPlatform[] = "\"Windows\"";
@@ -26,18 +26,18 @@ inline constexpr char kClientSecChUaPlatform[] = "\"Linux\"";
 inline constexpr char kClientBrowser[] = "Discord Client";
 // Stable web build number: the BUILD_NUMBER the discord.com/app page serves
 // (GLOBAL_ENV) and its entry bundle embeds as client_build_number.
-inline constexpr unsigned kClientBuildNumber = 655'747;
+inline constexpr unsigned kClientBuildNumber = 663'810;
 
 // The desktop app and Electron versions the user agent names, reported as the
 // client_version and browser_version properties.
 #if defined(_WIN32)
-inline constexpr char kClientVersion[] = "1.0.9266";
-inline constexpr char kClientElectronVersion[] = "44.9.3";
+inline constexpr char kClientVersion[] = "1.0.9267";
+inline constexpr char kClientElectronVersion[] = "44.10.0";
 // The Chromium the Electron runtime embeds, as the user agent names it.
-inline constexpr char kClientChromeVersion[] = "152.0.7977.167";
-// native_build_number: the updater metadata_version an installed 1.0.9266
-// stable win/x64 host reports (its crash reporter's nativeBuildNumber).
-inline constexpr unsigned kClientNativeBuildNumber = 97'026;
+inline constexpr char kClientChromeVersion[] = "152.0.7977.169";
+// native_build_number: the updater metadata_version updates.discord.com serves for the stable win/x64 host 1.0.9267
+// (distributions/app/manifests/latest with an install_id), which the host reports as app.getBuildNumber().
+inline constexpr unsigned kClientNativeBuildNumber = 97'793;
 #else
 inline constexpr char kClientVersion[] = "1.0.168";
 inline constexpr char kClientElectronVersion[] = "44.10.0";

@@ -134,9 +134,9 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
                                             kGatewayUserLaunchIdBytes, false};
     // An app state the request-time object lacks follows its other properties.
     const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes && !fast;
-    // Windows: os_version, os_arch ... browser_version, os_sdk_version, client_build_number. Linux desktop: the live
-    // web client's order, with os_version_is_release after os_version, no os_sdk_version and the host's window
-    // manager, distro, runtime environment and display server after browser_version.
+    // The live client's order: os_version, os_version_is_release, then on Windows os_sdk_version, os_arch ...
+    // browser_version, client_build_number. The Linux desktop client sends no os_sdk_version and adds the host's
+    // window manager, distro, runtime environment and display server after browser_version.
     constexpr u32 segment_capacity = 24;
     PropertySegment segments[segment_capacity];
     u32 segment_count = 0;
@@ -147,8 +147,10 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
          false});
     add({utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes, false});
     add({utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes, false});
-    if (properties.linux_desktop)
-        add({utf8_literal(",\"os_version_is_release\":"), utf8_literal("true"), 0, true});
+    add({utf8_literal(",\"os_version_is_release\":"), utf8_literal("true"), 0, true});
+    if (!properties.linux_desktop)
+        add({utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
+             false});
     add({utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes, false});
     add({utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes, false});
     add({utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes, false});
@@ -166,9 +168,6 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
         add({utf8_literal(",\"runtime_environment\":"), properties.runtime_environment,
              kGatewayUserMaximumRuntimeBytes, false});
         add({utf8_literal(",\"display_server\":"), properties.display_server, kGatewayUserMaximumRuntimeBytes,
-             false});
-    } else {
-        add({utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
              false});
     }
     add({utf8_literal(",\"client_build_number\":"), build_text, 0, true});

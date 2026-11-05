@@ -26,24 +26,25 @@ bool properties_json_equal(const GatewayUserProperties& properties, const char* 
 
 void test_windows_layout(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayUserProperties properties{
-        utf8_literal("Windows"), utf8_literal("Discord Client"), utf8_literal("stable"), utf8_literal("1.0.9266"),
+        utf8_literal("Windows"), utf8_literal("Discord Client"), utf8_literal("stable"), utf8_literal("1.0.9267"),
         utf8_literal("10.0.26100"), utf8_literal("x64"), utf8_literal("x64"), utf8_literal("en-US"),
         text(kLaunchId),
         utf8_literal("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                     "discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36"),
-        utf8_literal("44.9.3"), utf8_literal("26100"), 655'747, 97'026, text(kSignature)};
+                     "discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36"),
+        utf8_literal("44.10.0"), utf8_literal("26100"), 663'810, 97'793, text(kSignature)};
     check(properties_json_equal(
               properties,
               "{\"os\":\"Windows\",\"browser\":\"Discord Client\",\"release_channel\":\"stable\","
-              "\"client_version\":\"1.0.9266\",\"os_version\":\"10.0.26100\",\"os_arch\":\"x64\","
+              "\"client_version\":\"1.0.9267\",\"os_version\":\"10.0.26100\",\"os_version_is_release\":true,"
+              "\"os_sdk_version\":\"26100\",\"os_arch\":\"x64\","
               "\"app_arch\":\"x64\",\"system_locale\":\"en-US\",\"has_client_mods\":false,"
               "\"client_launch_id\":\"11111111-2222-4333-8444-555555555555\","
               "\"browser_user_agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like "
-              "Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\","
-              "\"browser_version\":\"44.9.3\",\"os_sdk_version\":\"26100\",\"client_build_number\":655747,"
-              "\"native_build_number\":97026,\"client_event_source\":null,"
+              "Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\","
+              "\"browser_version\":\"44.10.0\",\"client_build_number\":663810,"
+              "\"native_build_number\":97793,\"client_event_source\":null,"
               "\"launch_signature\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\"}"),
-          "the Windows client's properties keep their order, with os_sdk_version after browser_version");
+          "the Windows client's properties keep their order, with os_sdk_version right after os_version_is_release");
     properties.os_sdk_version = {};
     u8 output[2048];
     check(gateway_write_user_properties(properties, {output, sizeof(output)}).error != GatewayCommandError::none,
@@ -55,15 +56,16 @@ void test_windows_layout(void (*check)(bool, const char*) noexcept) noexcept {
     properties.runtime_environment = utf8_literal("native");
     properties.display_server = utf8_literal("x11");
     check(properties_json_equal(properties, "{\"os\":\"Windows\",\"browser\":\"Discord Client\",\"release_channel\":"
-                                            "\"stable\",\"client_version\":\"1.0.9266\",\"os_version\":"
-                                            "\"10.0.26100\",\"os_arch\":\"x64\",\"app_arch\":\"x64\","
+                                            "\"stable\",\"client_version\":\"1.0.9267\",\"os_version\":"
+                                            "\"10.0.26100\",\"os_version_is_release\":true,"
+                                            "\"os_sdk_version\":\"26100\",\"os_arch\":\"x64\",\"app_arch\":\"x64\","
                                             "\"system_locale\":\"en-US\",\"has_client_mods\":false,"
                                             "\"client_launch_id\":\"11111111-2222-4333-8444-555555555555\","
                                             "\"browser_user_agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                            "AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 "
-                                            "Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\","
-                                            "\"browser_version\":\"44.9.3\",\"os_sdk_version\":\"26100\","
-                                            "\"client_build_number\":655747,\"native_build_number\":97026,"
+                                            "AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 "
+                                            "Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\","
+                                            "\"browser_version\":\"44.10.0\","
+                                            "\"client_build_number\":663810,\"native_build_number\":97793,"
                                             "\"client_event_source\":null,"
                                             "\"launch_signature\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\"}"),
           "the Linux fields are not written into a Windows object");
@@ -114,7 +116,7 @@ void test_exact_object(void (*check)(bool, const char*) noexcept) noexcept {
                   "Gecko) discord/1.0.168 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\","
                   "\"browser_version\":\"44.10.0\",\"window_manager\":\"ubuntu:GNOME,ubuntu\","
                   "\"distro\":\"Ubuntu 24.04.1 LTS\",\"runtime_environment\":\"native\","
-                  "\"display_server\":\"wayland\",\"client_build_number\":655747,"
+                  "\"display_server\":\"wayland\",\"client_build_number\":663810,"
                   "\"native_build_number\":97685,\"client_event_source\":null,"
                   "\"launch_signature\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\"}"),
           "a GNOME Wayland Ubuntu host reports the Linux client's exact property object");

@@ -371,7 +371,7 @@ void test_cdn_http_policy() noexcept {
     expect(unconditional.ok() && bytes_equal(ConstSlice<u8>{request, unconditional.bytes},
                                              byte_literal("GET /stickers/88.png HTTP/1.1\r\n"
                                                           "Host: cdn.discordapp.com\r\n"
-                                                          "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                                          "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                                                           "Accept: image/png\r\n"
                                                           "Accept-Encoding: identity\r\n"
                                                           "Connection: keep-alive\r\n\r\n")),
@@ -382,7 +382,7 @@ void test_cdn_http_policy() noexcept {
     expect(conditional.ok() && bytes_equal(ConstSlice<u8>{request, conditional.bytes},
                                            byte_literal("GET /stickers/90.png HTTP/1.1\r\n"
                                                         "Host: media.discordapp.net\r\n"
-                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                                                         "Accept: image/png\r\n"
                                                         "Accept-Encoding: identity\r\n"
                                                         "Connection: keep-alive\r\n"
@@ -395,7 +395,7 @@ void test_cdn_http_policy() noexcept {
     expect(webp_request.ok() && bytes_equal(ConstSlice<u8>{request, webp_request.bytes},
                                             byte_literal("GET /emojis/45.webp?size=64 HTTP/1.1\r\n"
                                                          "Host: cdn.discordapp.com\r\n"
-                                                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                                                          "Accept: image/webp\r\n"
                                                          "Accept-Encoding: identity\r\n"
                                                          "Connection: keep-alive\r\n\r\n")),
@@ -407,7 +407,7 @@ void test_cdn_http_policy() noexcept {
     expect(gif_request.ok() && bytes_equal(ConstSlice<u8>{request, gif_request.bytes},
                                            byte_literal("GET /stickers/90.gif HTTP/1.1\r\n"
                                                         "Host: media.discordapp.net\r\n"
-                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                                                         "Accept: image/gif\r\n"
                                                         "Accept-Encoding: identity\r\n"
                                                         "Connection: keep-alive\r\n\r\n")),
@@ -425,7 +425,7 @@ void test_cdn_http_policy() noexcept {
                 byte_literal("GET /attachments/123/456/a.jpg?ex=2&is=1&hm="
                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\n"
                              "Host: cdn.discordapp.com\r\n"
-                             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                              "Accept: image/jpeg\r\n"
                              "Accept-Encoding: identity\r\n"
                              "Connection: keep-alive\r\n\r\n")),
@@ -442,7 +442,7 @@ void test_cdn_http_policy() noexcept {
                    byte_literal(
                        "GET /external/hash/https/media.tenor.com/clip.mp4 HTTP/1.1\r\n"
                        "Host: images-ext-1.discordapp.net\r\n"
-                       "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
+                       "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                        "Accept: video/mp4\r\n"
                        "Accept-Encoding: identity\r\n"
                        "Connection: keep-alive\r\n\r\n")),

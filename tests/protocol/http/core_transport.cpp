@@ -26,8 +26,8 @@
 // The bytes of the host platform's desktop profile, pinned apart from the constants that build them.
 #if defined(_WIN32)
 #define TEST_USER_AGENT                                                                                            \
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 "           \
-    "Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 "           \
+    "Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36"
 #define TEST_SEC_CH_UA_PLATFORM "\"Windows\""
 #else
 #define TEST_USER_AGENT                                                                                            \
