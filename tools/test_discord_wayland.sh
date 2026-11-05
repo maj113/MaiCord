@@ -20,6 +20,8 @@
 # MAICORD_FAKE_EXTRA_MESSAGES=FILE adds messages to the fake server's seed (see seed_extra in tools/fake_discord_server.py: a
 # JSON list of {"channel": "general"|"media", "author": "me"|"other", "content", "embeds"}), for a run that needs one particular
 # message, such as an embed with a given description; the channel the client opens is general, so no navigation is needed.
+# A message may also name its author (author_name: a user with that display name), mention users by display name
+# (mention_names, with {m0}, {m1} in the content standing for their <@id>) and reply to an earlier entry (reply_to: its index).
 #
 # --dbus starts a private session bus with the desktop mocks (notifications, portals, secrets) and a swaybar that hosts the
 # tray, and prints what the mocks received; --bar runs swaybar alone, which reserves the top 23 pixels of the output (the

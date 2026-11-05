@@ -174,6 +174,11 @@ and ranges that differ per system sit under `#if defined(_WIN32)` in `src/ui/tex
 build. Tests that observe Windows font files (`catalog_test`, `catalog_coverage_test`) are not registered on Linux;
 the Linux font tests assert installed families only with `MAICORD_TEST_FONT_SET=ubuntu`. Regenerate the fallback
 table with `tools/font_reference/linux_fallback.py` after a Unicode version change.
+On Linux a line box is sized by the primary font only, like Discord's fixed CSS line height: a span in a fallback or emoji face
+takes the vertical metrics of the face the text asked for (`line_metrics_binding` in `src/ui/text/native_text_styled.inc`), so
+Noto Sans Symbols (hhea 1480/-570, against Noto Sans' 1069/-293) cannot lift a name over its timestamp or stretch a mention
+pill. Windows keeps the union of the faces that DirectWrite computes and the Windows tests compare (Segoe UI Symbol and Emoji
+share Segoe UI's win metrics); `maicord_native_system_text` holds the Linux rule.
 
 Lottie stickers lean on Direct2D as a CPU geometry engine (`src/render/effects/lottie_program.cpp`: path, ellipse and
 rounded rectangle geometries, transforms, bounds, simplification, area, the four boolean combinations of mattes, masks

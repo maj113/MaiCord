@@ -219,6 +219,102 @@ void message_bold_emoji_statistics(TextSystem& base) noexcept {
     shape(base, latin, nullptr);
 }
 
+TextDecoration g_decorations[16];
+
+struct LineProbe {
+    bool ok = false;
+    float height = 0, baseline = 0, pill_height = 0;
+    bool pill = false, fallback_face = false;
+};
+
+// The first line of `text` laid out as a chat message under `flags` over all of it: its measured height, the baseline
+// the retained geometry reports (the taller ascent of the line's spans) and, for a mention, the box of its background.
+LineProbe probe_line(const TextSystem& base, Utf8View text, u32 flags) noexcept {
+    TextSystem system = base;
+    system.message_hit_policy = true;
+    const TextStyleSpan styles[] = {{0, text.bytes, flags}};
+    const ConstSlice<TextStyleSpan> spans{styles, flags ? 1u : 0u};
+    LineProbe probe;
+    NativeParagraphHits geometry{};
+    NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
+                                       &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
+    TextMeasureResult measured{};
+    if (!native_text_candidate_styled(system, text, spans, 1000.0f, 1000.0f, nullptr, &measured, TextWrapping::wrap,
+                                      TextOverflow::clip, {}, &retained) ||
+        !measured.ok() || geometry.lines.count < 1)
+        return probe;
+    probe.height = measured.height;
+    probe.baseline = geometry.style_count ? geometry.styles[geometry.lines[0].ascent_style].baseline
+                                          : geometry.uniform.baseline;
+    ShapedText shaped{};
+    check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                 {g_storage.clusters, kGlyphCapacity}, {g_decorations, 16}),
+          "shaped_text_initialize");
+    if (native_text_candidate_styled(system, text, spans, 1000.0f, 1000.0f, &shaped, nullptr, TextWrapping::wrap)) {
+        for (u32 i = 0; i < shaped.decoration_count; ++i)
+            if (g_decorations[i].kind == TextDecorationKind::background && (g_decorations[i].style_flags & text_style_mention)) {
+                probe.pill = true;
+                probe.pill_height = g_decorations[i].bottom - g_decorations[i].top;
+            }
+        for (u32 r = 0; r < shaped.run_count; ++r) {
+            SystemFontName name{};
+            bool cbdt = false;
+            const NativeFontFace* face = nullptr;
+            probe.fallback_face = probe.fallback_face || (run_family(system, shaped.runs[r], &name, &cbdt, &face) &&
+                                                          (starts_with(name, "Noto Sans Symbols") || cbdt));
+        }
+        probe.ok = true;
+    }
+    shaped_text_reset(&shaped);
+    return probe;
+}
+
+bool within_a_pixel(float a, float b) noexcept {
+    const float difference = a - b;
+    return difference > -1.0f && difference < 1.0f;
+}
+
+// A face used only for fallback glyphs sets neither the line, nor its baseline, nor a pill: Noto Sans Symbols (circled
+// letters) is 2.05 em tall against the interface font's 1.36, Noto Sans CJK and Noto Color Emoji differ too, and the
+// union of their metrics lifted a message's display name over its timestamp and stretched every mention pill. The
+// same text in ASCII is the reference (Discord's fixed line height leaves a line as tall as the primary font makes it).
+void fallback_keeps_the_line_box(const TextSystem& system) noexcept {
+    struct Pair {
+        const char* name;
+        const char* ascii;
+        const char* fallback;
+        u32 flags;
+        bool symbol; // the Ubuntu set draws the fallback text with Noto Sans Symbols or Noto Color Emoji
+    };
+    const Pair pairs[] = {
+        {"display_name", "RAT", "\xF0\x9F\x85\xA1\xF0\x9F\x85\x90\xF0\x9F\x85\xA3", text_style_bold, true},
+        {"mention_pill", "@MRE", "@\xF0\x9F\x85\x9C\xF0\x9F\x85\xA1\xF0\x9F\x85\x94", text_style_mention, true},
+        {"inline_symbols", "fax AR bro", "fax \xF0\x9F\x85\x90\xF0\x9F\x85\xA1 bro", 0, true},
+        {"emoji_line", "ok ok", "ok \xF0\x9F\x98\x80", 0, true},
+        {"cjk_line", "abc", "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E", 0, false},
+    };
+    for (const Pair& pair : pairs) {
+        u32 ascii_bytes = 0, other_bytes = 0;
+        while (pair.ascii[ascii_bytes])
+            ++ascii_bytes;
+        while (pair.fallback[other_bytes])
+            ++other_bytes;
+        const LineProbe ascii = probe_line(system, {pair.ascii, ascii_bytes}, pair.flags);
+        const LineProbe other = probe_line(system, {pair.fallback, other_bytes}, pair.flags);
+        if (!other.ok || !ascii.ok) {
+            check(!strict(), pair.name);
+            continue;
+        }
+        check(within_a_pixel(ascii.height, other.height), pair.name);
+        check(within_a_pixel(ascii.baseline, other.baseline), pair.name);
+        check(ascii.pill == other.pill && within_a_pixel(ascii.pill_height, other.pill_height), pair.name);
+        if (pair.flags == text_style_mention)
+            check(ascii.pill && ascii.pill_height > 0.0f, "mention_pill_is_drawn");
+        if (strict() && pair.symbol)
+            check(other.fallback_face, pair.name);
+    }
+}
+
 bool run(const char* mode, const char* expected_family) noexcept {
     TextSystem system{};
     const wchar_t* ui = default_font_family(DefaultFont::ui);
@@ -259,6 +355,7 @@ bool run(const char* mode, const char* expected_family) noexcept {
     for (const Sample& sample : samples)
         shape(system, sample, sample.family_prefix);
     message_bold_emoji_statistics(system);
+    fallback_keeps_the_line_box(system);
     return g_failures == 0;
 }
 

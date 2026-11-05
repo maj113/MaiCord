@@ -343,6 +343,12 @@ has the same rules in more detail.
   `MAICORD_TEST_FONT_SET=ubuntu` (the registry sets it; the Ubuntu packages are `fonts-dejavu-core`, `fonts-noto-core`,
   `fonts-noto-cjk`, `fonts-noto-color-emoji`, `fonts-liberation`). `maicord_font_locator` also runs on NixOS, where
   libfontconfig is found only through `NIX_LD_LIBRARY_PATH` or the scan answers.
+  A line box on Linux is sized by the primary font alone, as under Discord's fixed CSS line height: a span drawn with a system
+  fallback face or the emoji face takes the ascent and descent of the face the text asked for (`line_metrics_binding` in
+  `native_text_styled.inc`, which feeds the paragraph fitter's per-span `SfntFontLineParts`), so a face like Noto Sans Symbols
+  (hhea 1480/-570 against Noto Sans 1069/-293: circled letters in a display name or a mention) neither lifts the baseline nor grows
+  the line, the header row or the mention pill. Windows keeps the union of the faces, as DirectWrite computes it and the tests
+  compare it (its fallback faces share Segoe UI's 2210/514). `maicord_native_system_text` checks height, baseline and pill.
   Local time on Linux (`include/maicord/os/local_time.hpp`, `src/os/linux/local_time.cpp`) is the TZif database read by
   the pure reader `src/platform/time/tzif.cpp`: `$TZ` (a name, `:name`, a path or a POSIX rule), else `/etc/localtime`,
   else `/etc/timezone`, in `$TZDIR` or the usual zoneinfo directories (NixOS: `/etc/zoneinfo`); a zone that changed is

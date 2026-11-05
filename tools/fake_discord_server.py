@@ -139,13 +139,34 @@ def seed() -> None:
          mentions=[{"id": OTHER}])
 
 
+NAMED_USERS = {}  # display name -> user id, for seed_extra's "author_name" and "mention_names"
+
+
+def named_user(name: str) -> int:
+    return NAMED_USERS.setdefault(name, 100000000000000100 + len(NAMED_USERS))
+
+
 def seed_extra() -> None:
     """MAICORD_FAKE_EXTRA_MESSAGES=FILE: a JSON list of {"channel": "general"|"media", "author": "me"|"other", "content": str,
-    "embeds": [...]} posted after the seed, for a run that needs one particular message (an embed with a given description)."""
+    "embeds": [...]} posted after the seed, for a run that needs one particular message (an embed with a given description).
+    Optional: "author_name" (a user with that display name writes it), "mention_names" (display names whose users the
+    message mentions: "{m0}", "{m1}"... in content become their <@id>) and "reply_to" (the index in this list of the
+    message it answers)."""
     path = os.environ.get("MAICORD_FAKE_EXTRA_MESSAGES")
+    posted = []
     for item in json.load(open(path, encoding="utf-8")) if path else []:
-        post({"general": CID, "media": MEDIA}[item.get("channel", "media")], UID if item.get("author") == "me" else OTHER,
-             item.get("content", ""), embeds=item.get("embeds", []))
+        mentioned = [named_user(name) for name in item.get("mention_names", [])]
+        content = item.get("content", "")
+        for number, user in enumerate(mentioned):
+            content = content.replace("{m%d}" % number, "<@%d>" % user)
+        author = named_user(item["author_name"]) if "author_name" in item else UID if item.get("author") == "me" else OTHER
+        extra = {"mentions": [{"id": user} for user in mentioned]}
+        channel = {"general": CID, "media": MEDIA}[item.get("channel", "media")]
+        if "reply_to" in item:
+            target = posted[item["reply_to"]]
+            extra.update(type=19, message_reference={"type": 0, "message_id": str(target["id"]), "channel_id": str(channel),
+                                                      "guild_id": str(GID)}, _reply_to=target)
+        posted.append(post(channel, author, content, embeds=item.get("embeds", []), **extra))
 
 
 seed()
@@ -168,21 +189,25 @@ def iso(ms: int) -> str:
 
 def user_object(user_id: int) -> dict:
     mine = user_id == UID
-    return {"id": user_id, "username": "qatester" if mine else "guide", "discriminator": "0",
-            "global_name": "QA Tester" if mine else "Guide Bot Person", "avatar": None, "avatar_decoration_data": None,
+    named = {identifier: name for name, identifier in NAMED_USERS.items()}.get(user_id)
+    return {"id": user_id, "username": named or ("qatester" if mine else "guide"), "discriminator": "0",
+            "global_name": named or ("QA Tester" if mine else "Guide Bot Person"), "avatar": None, "avatar_decoration_data": None,
             "banner": None, "accent_color": None, "bot": False, "system": False, "flags": 0, "public_flags": 0,
             "premium_type": 0, "clan": None, "primary_guild": None}
 
 
+def message_row(m: dict) -> dict:
+    row = {k: v for k, v in m.items() if not k.startswith("_")}
+    row["author"] = user_object(m["_author_id"])
+    row["timestamp"] = iso(((row["id"] >> 22) + EPOCH))
+    row["mentions"] = [user_object(int(u["id"])) for u in m["mentions"]]
+    if "_reply_to" in m:
+        row["referenced_message"] = message_row(m["_reply_to"])
+    return row
+
+
 def message_rows(channel: int) -> list:
-    rows = []
-    for m in MESSAGES[channel]:
-        row = {k: v for k, v in m.items() if not k.startswith("_")}
-        row["author"] = user_object(m["_author_id"])
-        row["timestamp"] = iso(((row["id"] >> 22) + EPOCH))
-        row["mentions"] = [user_object(int(u["id"])) for u in m["mentions"]]
-        rows.append(row)
-    return rows
+    return [message_row(m) for m in MESSAGES[channel]]
 
 
 def guild_object() -> dict:

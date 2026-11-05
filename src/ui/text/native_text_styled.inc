@@ -257,6 +257,20 @@ u32 font_span_end(ConstSlice<TextStyleSpan> styles,u32 at,u32 limit,u32 style,co
         if(span_size(system,format,value)!=em||(decorations&&((value^flags)&(text_style_underline|text_style_strikethrough)))||!same_query(query,font_query(*system.native_text,format,requested_font(system,value))))break;if(end<=at)return 0;at=end;
     }return at;
 }
+#if !defined(_WIN32)
+// A line box is sized by the primary font alone (Discord's CSS gives every line a fixed line height, and a fallback face
+// never raises it), so a span set in a system fallback face or the emoji face takes the vertical metrics of the face the
+// text asked for: Noto Sans Symbols is 2.05 em tall (hhea 1480/-570) against Noto Sans' 1.36, and used as a union it
+// lifted the baseline, grew the line and every pill and row drawn over it. Windows keeps the union: its fallback faces
+// (Segoe UI Symbol and Emoji, win 2210/514) share Segoe UI's metrics and its engine is checked against DirectWrite.
+// An existing binding only: acquiring one here could reset the arena that holds the resolved spans.
+const Binding* line_metrics_binding(const NativeTextContext& owner,const NativeFormat* format,u32 font_flags,const Binding* span) noexcept {
+    if((span->key&binding_default)&&span->font_flags!=emoji_font_flag)return span;
+    for(u32 i=0;i<owner.binding_count;++i){const auto& prior=owner.bindings[i];
+        if((prior.key&binding_default)&&prior.font_flags==font_flags&&prior.plan.slot&&(prior.format==format||same_font(prior.format->font,format->font)))return &prior;}
+    return span;
+}
+#endif
 bool layout_control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029||cp==0x200b||native_text_bidi_format(cp)||native_text_zero_width_control(cp);}
 u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 presentation,StyledSpan* spans=nullptr,u8* continuity=nullptr,
     const TextSystem* system=nullptr,const NativeFormat* format=nullptr,const u8* scripts=nullptr,bool fallback=false,bool* changed=nullptr,bool editor=false,u8* directions=nullptr,
@@ -653,7 +667,13 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         paragraph_buffers.glyphs=take<u16>(owner.scratch,glyphs);paragraph_buffers.placements=take<SfntPlacement>(owner.scratch,glyphs);
         paragraph_buffers.source_glyphs=take<u32>(owner.scratch,units);paragraph_buffers.clusters=take<NativeParagraphCluster>(owner.scratch,units);shape={};
         if(!paragraph_buffers.glyphs.data||!paragraph_buffers.placements.data||!paragraph_buffers.source_glyphs.data||!paragraph_buffers.clusters.data)return false;
-        for(u32 i=0;i<count;++i){const auto* m=native_run_plan_metrics(owner.store,resolved[i].binding()->plan);
+        for(u32 i=0;i<count;++i){
+#if defined(_WIN32)
+            const auto* source=resolved[i].binding();
+#else
+            const auto* source=line_metrics_binding(owner,format,requested_font(system,resolved[i].flags),resolved[i].binding());
+#endif
+            const auto* m=native_run_plan_metrics(owner.store,source->plan);
             if(!m||sfnt_font_line_parts(*m,resolved[i].em,parts.data+i)!=SfntStatus::ok)return false;}
         u32 span=0;bool nominal=true;
         auto group_boundaries=boundary_storage(runs);group_boundaries.deferred=true;
