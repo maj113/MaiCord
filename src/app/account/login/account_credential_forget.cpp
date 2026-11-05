@@ -3,6 +3,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 
 namespace maicord {
@@ -39,7 +40,7 @@ u32 target_path(const AccountPaths& paths, u32 target, wchar_t* output) noexcept
         output[i] = paths.account_directory[i];
     u32 cursor = directory;
     if (separator)
-        output[cursor++] = L'\\';
+        output[cursor++] = kPathSeparator;
     for (u32 i = 0; i < name_length; ++i)
         output[cursor++] = name[i];
     output[cursor] = 0;

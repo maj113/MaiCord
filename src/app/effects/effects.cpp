@@ -19,7 +19,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -666,8 +666,8 @@ bool turned_off(const char* slug) noexcept {
 EffectLocalTime local_time(u64 now_ms) noexcept {
     Inputs& in = g.inputs;
     if (!in.clock_next_ms || now_ms >= in.clock_next_ms) {
-        SYSTEMTIME time{};
-        GetLocalTime(&time);
+        CalendarTime time{};
+        local_time_now(&time);
         in.local = {time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute};
         in.clock_next_ms = now_ms + (60u - minimum<u32>(time.wSecond, 59u)) * 1000u - minimum<u32>(time.wMilliseconds, 999u);
     }

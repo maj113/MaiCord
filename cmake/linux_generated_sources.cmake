@@ -131,3 +131,15 @@ add_custom_command(
 set_source_files_properties(src/app/chat/composer/builtin_commands.cpp PROPERTIES
     OBJECT_DEPENDS "${MAICORD_BUILTIN_COMMANDS_PACK}"
     COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+
+# The executable's icon (the tray mark in the default theme colours, PNG-compressed), the file Windows compiles into
+# the resource: src/core/linux/resource.cpp embeds it for window_app_icon_png.
+set(MAICORD_APP_ICON "${MAICORD_GENERATED_DIRECTORY}/maicord.ico")
+add_custom_command(
+    OUTPUT "${MAICORD_APP_ICON}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_app_icon.py"
+        --output "${MAICORD_APP_ICON}"
+    DEPENDS tools/generate_app_icon.py
+    VERBATIM)
+# The #embed sits in an include of its own because a quoted #embed is looked up beside the file that names it.
+file(WRITE "${MAICORD_GENERATED_DIRECTORY}/app_icon.inc" "#embed \"maicord.ico\"\n")

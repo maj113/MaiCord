@@ -1,5 +1,9 @@
 #include "updates.hpp"
 #include "maicord/app/update/log.hpp"
+#if !defined(_WIN32)
+#include "maicord/app/update/portable.hpp"
+#include "maicord/core/data_path.hpp"
+#endif
 
 // Build inputs from CMake (MAICORD_UPDATE_REPOSITORY, MAICORD_UPDATE_PUBLIC_KEY,
 // MAICORD_UPDATE_DEV, MAICORD_UPDATE_COMMIT and the version). Only this
@@ -34,6 +38,13 @@ static_assert(sizeof(commit) == 1 || sizeof(commit) == 41, "MAICORD_UPDATE_COMMI
 static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV));
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV);
+#if !defined(_WIN32)
+// The release channels carry the Windows client's package only: a zip of MaiCord.exe, a PE image, named by manifests
+// signed for the Windows build. Staging and swapping that over a Linux ELF would end the install, so no Linux install
+// updates itself, marker or not, until the channels publish the Linux tarball and the package reader takes it; the marker
+// check in application_update_build_config is what that change then turns on.
+constexpr bool kLinuxUpdatesPublished = false;
+#endif
 } // namespace
 
 UpdateServiceConfig application_update_build_config() noexcept {
@@ -42,6 +53,16 @@ UpdateServiceConfig application_update_build_config() noexcept {
     UpdateServiceConfig config{};
     if (!update_service_config({repository, sizeof(repository) - 1}, {public_key, sizeof(public_key) - 1}, installed_version, &config))
         update_service_config({}, {}, installed_version, &config);
+#if !defined(_WIN32)
+    // Only the tarball install (the .maicord-portable marker beside the real executable, in a directory this user can
+    // write) may replace its own files; a package manager owns every other install (packaging/README.md).
+    if (config.configured) {
+        wchar_t executable[4096];
+        const u32 count = executable_path(executable, 4096);
+        if (!kLinuxUpdatesPublished || !count || count >= 4096 || !update_portable_install({executable, count}))
+            config.configured = false;
+    }
+#endif
     return config;
 }
 

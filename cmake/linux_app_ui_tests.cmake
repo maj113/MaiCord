@@ -38,6 +38,16 @@ maicord_test(MaiCordLinuxIntegrationTests ENTRY maicord_linux_integration_entry
     ENV XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/config
         XDG_DATA_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/data
     TEST maicord_linux_integration)
+# The launch's arguments as the command line the launch parser reads (the Linux entry's input to the shared startup).
+maicord_test(MaiCordLinuxLaunchLineTests ENTRY maicord_linux_launch_line_entry
+    SOURCES tests/platform/desktop/linux_launch_line.cpp
+    LIBS maicord_app_client maicord_desktop_system maicord_core
+    TIMEOUT 10 TEST maicord_linux_launch_line)
+# The account's file locations and the start-up logout probe on a Linux profile.
+maicord_test(MaiCordLinuxAccountPathsTests ENTRY maicord_linux_account_paths_entry
+    SOURCES tests/app/account/linux_account_paths.cpp
+    LIBS maicord_app_client maicord_core
+    TIMEOUT 10 TEST maicord_linux_account_paths)
 # The toast layer without a session bus: no daemon is ever reached.
 maicord_test(MaiCordLinuxNotificationsTests ENTRY maicord_linux_notifications_entry
     SOURCES tests/platform/desktop/linux_notifications.cpp

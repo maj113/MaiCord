@@ -16,6 +16,7 @@ maicord_library(maicord_app_update
     src/app/update/manifest.cpp src/app/update/artifact.cpp src/app/update/acceptance.cpp
     src/app/update/prepare.cpp src/app/update/package.cpp src/app/update/fetch.cpp src/app/update/https.cpp
     src/app/update/service.cpp src/app/update/changelog.cpp src/app/account/login/acceptance_record.cpp
+    src/app/update/linux/portable.cpp
     LIBS maicord_app_net maicord_core maicord_protocol maicord_net INCLUDES src/app)
 
 # Effect and theme packages (src/app/packages): the link parser, the container reader and the installer; the session

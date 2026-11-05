@@ -1,12 +1,13 @@
 # The application proper on Linux: every unit of src/app that the transport, updater and package libraries
 # (linux_app_libraries.cmake) do not already hold, as one library (cmake/client.cmake lists them for Windows). The
-# shell (src/app/shell) belongs to the window layer and is not here; src/app/windows is the Win32 entry and window
-# procedure, and accessibility.cpp and accessibility_actions.cpp are the UI Automation server (the Linux unit that
-# stands in for them is src/app/accessibility/linux/accessibility.cpp).
+# shell (src/app/shell) belongs to the window layer and is not here, nor are src/app/windows (the Win32 entry and
+# window procedure) and src/app/linux (the Linux entry and window glue): those are the programs' own (the client,
+# cmake/linux_client.cmake). accessibility.cpp and accessibility_actions.cpp are the UI Automation server (the Linux
+# unit that stands in for them is src/app/accessibility/linux/accessibility.cpp).
 file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/src/app/*.cpp")
 list(FILTER MAICORD_APP_CLIENT_SOURCES EXCLUDE REGEX
-    "^src/app/shell/|^src/app/windows/|^src/app/accessibility/accessibility(_actions)?\\.cpp$")
+    "^src/app/shell/|^src/app/windows/|^src/app/linux/|^src/app/accessibility/accessibility(_actions)?\\.cpp$")
 foreach(library maicord_app_net maicord_app_update maicord_app_packages)
     get_target_property(held_sources ${library} SOURCES)
     list(REMOVE_ITEM MAICORD_APP_CLIENT_SOURCES ${held_sources})
@@ -19,6 +20,8 @@ maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
     src/platform/desktop/taskbar_attention.cpp src/platform/desktop/system_tray.cpp
     src/platform/desktop/browser_sign_in_launcher.cpp src/platform/desktop/linux/webauthn.cpp
     src/platform/desktop/linux/notifications.cpp src/platform/desktop/linux/notification_identity.cpp
+    # The file dialog (the FileChooser portal) and the dropped and pasted files it checks.
+    src/platform/desktop/linux/file_picker.cpp
     src/model/chat/message_reconcile.cpp
     LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_ui maicord_core maicord_model
         maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto

@@ -13,6 +13,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/core/win32_threadpool.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -28,7 +29,11 @@ enum class Work : u8 { load, save };
 // neither while `busy` is set. The read is consumed by apply (or dropped).
 // `shell` is allocated only for a read or a write.
 struct StartupShellOwner {
+#if defined(_WIN32)
     PTP_WORK work;
+#else
+    Thread* work;
+#endif
     volatile LONG busy;
     Work job;
     StartupShellOpenError loaded;
@@ -47,14 +52,23 @@ StartupShellOwner* g_owner;
 // READY ended a shell that replaced the restoring view.
 bool g_release_pending;
 
-void __stdcall run(PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) noexcept {
-    auto& owner = *static_cast<StartupShellOwner*>(context);
+void do_work(StartupShellOwner& owner) noexcept {
     if (owner.job == Work::load) {
         owner.loaded = startup_shell_load_file(owner.path, owner.profile_id, owner.now_unix_ms, &owner.key,
                                                owner.shell);
     } else
         owner.saved = startup_shell_save_file(owner.path, &owner.key, *owner.shell);
     InterlockedExchange(&owner.busy, 0);
+}
+
+#if defined(_WIN32)
+void __stdcall run(PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) noexcept {
+    do_work(*static_cast<StartupShellOwner*>(context));
+}
+
+bool create_work(StartupShellOwner& owner) noexcept {
+    owner.work = CreateThreadpoolWork(run, &owner, nullptr);
+    return owner.work != nullptr;
 }
 
 void submit(StartupShellOwner& owner, Work job) noexcept {
@@ -66,6 +80,48 @@ void submit(StartupShellOwner& owner, Work job) noexcept {
 void wait(StartupShellOwner& owner) noexcept {
     WaitForThreadpoolWorkCallbacks(owner.work, FALSE);
 }
+
+void close_work(StartupShellOwner& owner) noexcept {
+    CloseThreadpoolWork(owner.work);
+}
+#else
+// One job at a time: a thread per job (the previous one has finished before the next is submitted).
+u32 run(void* context) noexcept {
+    do_work(*static_cast<StartupShellOwner*>(context));
+    return 0;
+}
+
+bool create_work(StartupShellOwner&) noexcept {
+    return true;
+}
+
+void wait(StartupShellOwner& owner) noexcept {
+    if (owner.work)
+        thread_wait(owner.work, INFINITE);
+}
+
+void submit(StartupShellOwner& owner, Work job) noexcept {
+    wait(owner);
+    if (owner.work)
+        thread_close(owner.work);
+    owner.job = job;
+    InterlockedExchange(&owner.busy, 1);
+    owner.work = thread_start(run, &owner, 256 * 1024, nullptr);
+    if (!owner.work) {
+        // The job did not start: it fails as one that ran and found nothing.
+        if (job == Work::load)
+            owner.loaded = StartupShellOpenError::format;
+        else
+            owner.saved = false;
+        InterlockedExchange(&owner.busy, 0);
+    }
+}
+
+void close_work(StartupShellOwner& owner) noexcept {
+    if (owner.work)
+        thread_close(owner.work);
+}
+#endif
 
 // Fresh pages each time: a shell is only ever read whole or written whole.
 bool allocate_shell(StartupShellOwner& owner) noexcept {
@@ -98,7 +154,7 @@ void release_owner() noexcept {
     if (!g_owner)
         return;
     wait(*g_owner);
-    CloseThreadpoolWork(g_owner->work);
+    close_work(*g_owner);
     startup_shell_key_release(&g_owner->key);
     release_shell(*g_owner);
     pages_release(g_owner);
@@ -154,8 +210,7 @@ void application_startup_shell_begin(const AccountPaths& paths, u64 profile_id) 
         commit_pages(sizeof(StartupShellOwner)));
     if (!owner)
         return;
-    owner->work = CreateThreadpoolWork(run, owner, nullptr);
-    if (!owner->work) {
+    if (!create_work(*owner)) {
         pages_release(owner);
         return;
     }

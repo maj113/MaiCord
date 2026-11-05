@@ -19,9 +19,11 @@ maicord_library(maicord_video_vaapi
     LIBS maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
 
 # The live stream decoder (the Linux gpu_stream_decoder.hpp) over the software tier, and the GLES conversion of the
-# pictures it publishes (the planes of maicord/gpu/video_planes.hpp).
+# pictures it publishes (the planes of maicord/gpu/video_planes.hpp). mp4_decoder.cpp is the attachment decoder's
+# interface answering "unavailable": no MP4 file decoder exists on Linux yet.
 maicord_library(maicord_video_decode
     src/platform/decode/linux/gpu_stream_decoder.cpp src/platform/decode/linux/software_stream.cpp
+    src/platform/decode/linux/mp4_decoder.cpp
     LIBS maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
 maicord_library(maicord_gpu_gles_video src/gpu/gles/video_frame.cpp
     LIBS maicord_gpu_gles_shaders maicord_gpu_gles maicord_core INCLUDES src)

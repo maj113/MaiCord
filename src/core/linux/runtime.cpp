@@ -163,4 +163,9 @@ int memcmp(const void* left_pointer, const void* right_pointer, size_t count) {
     return 0;
 }
 
+// The equality-only form LLVM turns a memcmp compared with zero into when it optimizes across the whole program.
+int bcmp(const void* left, const void* right, size_t count) {
+    return memcmp(left, right, count);
+}
+
 } // extern "C"

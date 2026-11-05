@@ -4,7 +4,7 @@
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -81,8 +81,8 @@ void application_dev_console_add(DevLineKind kind, const Utf8View& name, const U
     // One line each: a plugin's text may hold line breaks or controls.
     for (u32 i = 0; i < line.text_bytes; ++i)
         if (static_cast<u8>(line.text[i]) < 0x20 || line.text[i] == 0x7f) line.text[i] = ' ';
-    SYSTEMTIME now{};
-    GetLocalTime(&now);
+    CalendarTime now{};
+    local_time_now(&now);
     line.second_of_day = (now.wHour * 60u + now.wMinute) * 60u + now.wSecond;
     ++g.revision;
 }

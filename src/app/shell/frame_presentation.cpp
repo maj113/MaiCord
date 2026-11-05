@@ -31,6 +31,7 @@
 #include "frame_presentation.hpp"
 #include "../media/media.hpp"
 #include "background.hpp"
+#include "maicord/core/data_path.hpp"
 #include "window_resize.hpp"
 #include "window_state.hpp"
 
@@ -84,7 +85,7 @@ bool frame_rate_title_enabled() noexcept {
     static u32 cached = 0; // 0 unknown, 1 off, 2 on
     if (cached == 0) {
         wchar_t value[2]{};
-        const DWORD length = GetEnvironmentVariableW(L"MAICORD_FPS_TITLE", value, 2);
+        const u32 length = environment_variable(L"MAICORD_FPS_TITLE", value, 2);
         cached = (length == 1 && value[0] == L'1') ? 2u : 1u;
     }
     return cached == 2;

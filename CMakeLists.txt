@@ -30,8 +30,10 @@ endif()
 # removed by runtime-only finalization after the wrapper finishes.
 include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
 if(MAICORD_LINUX)
-    # What the Linux port builds so far: the core library and its tests (cmake/linux_libraries.cmake).
+    # What the Linux port builds: the libraries (cmake/linux_libraries.cmake), the client (cmake/linux_client.cmake)
+    # and its tests (cmake/linux_tests.cmake).
     include(cmake/linux_libraries.cmake)
+    include(cmake/linux_client.cmake)
     include(cmake/linux_tests.cmake)
     return()
 endif()

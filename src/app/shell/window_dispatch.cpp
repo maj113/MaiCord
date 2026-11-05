@@ -73,7 +73,6 @@
 #include "../notifications/desktop.hpp"
 #include "../voice/application_voice_message.hpp"
 
-#include "maicord/sys/shell.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

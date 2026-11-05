@@ -184,6 +184,22 @@ bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
         return false;
     }
     long result = sys_mkdir(text, 0700);
+    if (result == -kErrorNoEntry) {
+        // A missing ancestor (a fresh user's $XDG_DATA_HOME, which XDG says to create as needed): make each in turn.
+        for (u32 i = 1; text[i]; ++i) {
+            if (text[i] != '/')
+                continue;
+            text[i] = 0;
+            const long made = sys_mkdir(text, 0700);
+            text[i] = '/';
+            if (syscall_failed(made) && made != -kErrorExists) {
+                result = made;
+                break;
+            }
+        }
+        if (result == -kErrorNoEntry)
+            result = sys_mkdir(text, 0700);
+    }
     if (result == -kErrorExists) {
         // It exists: fine when it is a directory.
         result = sys_open(text, kOpenReadOnly | kOpenDirectory);

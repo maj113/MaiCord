@@ -6,6 +6,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/os/file.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -274,23 +275,23 @@ StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_i
                                               StartupShellKey* key, StartupShell* shell) noexcept {
     if (!path || !key || !shell)
         return StartupShellOpenError::format;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead | kFileShareDelete,
+                                             kFileSequential});
     if (file == INVALID_HANDLE_VALUE)
         return StartupShellOpenError::format;
-    Win32LargeInteger size{};
+    u64 size = 0;
     u32 native_error = 0;
     u8* image = nullptr;
     u32 bytes = 0;
-    if (GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kStartupShellFileBytes) {
-        bytes = static_cast<u32>(size.QuadPart);
+    if (file_size(file, &size) && size > 0 && size <= kStartupShellFileBytes) {
+        bytes = static_cast<u32>(size);
         image = commit_pages<u8>(bytes);
         if (image && !file_persistence_read_complete(file, {image, bytes}, &native_error)) {
             file_persistence_secure_release(image, bytes);
             image = nullptr;
         }
     }
-    CloseHandle(file);
+    file_close(file);
     if (!image)
         return StartupShellOpenError::format;
     u8* plaintext = commit_pages<u8>(kStartupShellPlaintextBytes);

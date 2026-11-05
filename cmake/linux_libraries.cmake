@@ -16,13 +16,18 @@ maicord_library(maicord_core
     src/os/linux/pages.cpp src/os/linux/srwlock.cpp src/os/linux/wait.cpp src/os/linux/thread.cpp
     src/os/linux/file.cpp src/os/linux/directory.cpp src/os/linux/ordinal.cpp src/os/linux/local_time.cpp
     src/os/linux/date_format.cpp src/os/linux/process.cpp src/os/linux/text.cpp src/platform/time/tzif.cpp)
-set_source_files_properties(src/core/linux/resource.cpp PROPERTIES COMPILE_OPTIONS "-Wno-c23-extensions")
+# resource.cpp #embeds the executable's icon (the generated ICO of cmake/linux_generated_sources.cmake) and the sounds.
+set_source_files_properties(src/core/linux/resource.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_APP_ICON}"
+    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
 
 # What the desktop shell asks the system for: the time zone identifier, the spell checker (Hunspell or Enchant
-# through dlopen; spell_checker.cpp holds the language choice the two systems share) and opening a link or a file.
+# through dlopen; spell_checker.cpp holds the language choice the two systems share), opening a link or a file and the
+# launch's arguments as the command line the launch parser reads.
 maicord_library(maicord_desktop_system
     src/platform/desktop/linux/timezone.cpp src/platform/desktop/spell_checker.cpp
     src/platform/desktop/linux/spell_checker.cpp src/platform/desktop/linux/shell_open.cpp
+    src/platform/desktop/linux/launch_line.cpp
     LIBS maicord_core maicord_dbus)
 
 maicord_library(maicord_compression

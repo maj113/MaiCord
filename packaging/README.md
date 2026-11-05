@@ -55,12 +55,15 @@ uninstall. `~/.local/opt/MaiCord/uninstall.sh` removes everything it installed a
 Flatpak, `.deb` and `.rpm` packages leave it out: a package manager owns those files, and a program that replaced itself
 under it would break the package's verification and the next upgrade.
 
-The updater's Linux mode (not written yet) must enable itself only when the marker exists in the directory of the real
-executable (`readlink /proc/self/exe`, not the `~/.local/bin` link) and that directory is writable. The place is
+The updater's Linux mode enables itself only when the marker exists in the directory of the real executable
+(`readlink /proc/self/exe`, not the `~/.local/bin` link), it is a regular file with the first line above, and that
+directory is writable (`update_portable_install`, `src/app/update/linux/portable.cpp`). The place is
 `application_update_build_config()` in `src/app/update/entry.cpp`: it returns the `UpdateServiceConfig`, and a config with
 `configured == false` is what makes `ApplicationUpdateState::disabled` (src/app/update/updates.cpp, `update_service_init`'s
-`config.configured ? idle : disabled`). On Linux that function clears `configured` when the marker is missing. The
-Windows build never looks for it.
+`config.configured ? idle : disabled`). On Linux that function clears `configured` when the marker check fails. It also
+clears it while `kLinuxUpdatesPublished` is false: the release channels carry the Windows zip only, so even a portable
+install would stage a PE and swap it over the ELF. Set the constant when the channels publish the tarball (and the
+updater's artifact step unpacks it). The Windows build never looks for any of this.
 
 ## Distribution packages
 

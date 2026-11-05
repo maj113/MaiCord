@@ -81,6 +81,8 @@ bool caption_bar_rects(void*, FrameBarRects* rectangles) noexcept {
 
 } // namespace
 
+void application_platform_window_prepare() noexcept {}
+
 bool application_platform_window_create(Window* out, const char** failure) noexcept {
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
     // The benchmark window never activates and has no taskbar button.

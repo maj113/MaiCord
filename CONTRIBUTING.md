@@ -47,14 +47,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
   reconfigures the build directory from scratch. Visual Studio still supplies
   the Windows SDK, MASM (`ml64`), `rc`, `mt` and `dumpbin`.
 
-### Linux (in progress)
+### Linux
 
-The Linux port builds the core library, the portable libraries (`protocol`, `model`, the `text` engine and `media`)
-and their tests, nothing more yet. Run
+The Linux port builds the client (`MaiCord`), the libraries behind it and their tests. Run
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build_linux.ps1 -Test` (or `tools/build_linux.sh
 --test` inside WSL): the script rsyncs the tree to ext4, builds with clang and ld.lld 23 into `~/mc-build`, runs
-`tools/audit_elf.py` on the images and the Linux tests, and empties the build directory afterwards (`--keep` /
-`-KeepIntermediates` keeps it). Its header documents the layout and decisions. Platform code lives in
+`tools/audit_elf.py` on the images and the Linux tests, and empties the build directory afterwards but for the client
+and its runtime assets (`--keep` / `-KeepIntermediates` keeps it all). Its header documents the layout and decisions. Platform code lives in
 `src/core/linux` and `include/maicord/sys/linux`; shared headers choose between the two with `#if defined(_WIN32)`
 and the Windows branch stays byte-for-byte the code it was. Shared code uses the portable wrappers in
 `include/maicord/core` (`intrinsics.hpp`, `virtual_memory.hpp`, `interlocked.hpp`) instead of MSVC intrinsics.
@@ -236,6 +235,20 @@ need no Win32 window are registered in `cmake/linux_app_ui_tests.cmake` under th
 `maicord_window_null`; the few Win32 calls they make are shimmed for tests only in `tests/support/linux_test_app.hpp`.
 A fixture that calls other Windows API directly (BCrypt, Winsock, GDI, UI Automation, the registry, a real window) is
 not registered on Linux, and the clipboard-bound ones wait for a clipboard in the headless backend.
+
+The client itself is the `MaiCord` target of `cmake/linux_client.cmake` (the shell, `src/app/shell`, with the Linux entry
+and window glue in `src/app/linux`, over `maicord_window_wayland`; the null backend is the tests'). `src/app/linux/entry.cpp`
+turns `argv` into the one command line `desktop_launch_parse` reads (`platform/desktop/launch_line.hpp`, tested by
+`maicord_linux_launch_line`), so `--startup`, `--url -- <link>`, a bare `discord://` argument and single-instance
+forwarding are the Windows startup's. `tools/build_linux.sh` leaves `MaiCord`, `fonts/` and `licenses/` in `~/mc-build`
+(the resources Windows takes from `.rc` are embedded: `core/linux/resource.cpp`, the icon from `tools/generate_app_icon.py`).
+`tools/test_client_wayland.sh` runs it on headless sway (or nested, or the running compositor) with a private empty
+profile, takes a `grim` screenshot and reports the idle CPU, wakeups and memory; `tools/client_flow.py` drives it through
+clicks, typing (`wtype`), scroll, output scale and window commands with screenshots in between (`tools/wayland_pointer.py`
+is the long-lived virtual pointer it uses). WSLg's Weston has no screencopy, so a screenshot there is the nested run.
+The updater is off on Linux, whatever the build's publisher: the channels carry the Windows package only. When they carry
+the tarball, `application_update_build_config()` enables it for the install that has the `.maicord-portable` marker next
+to its real executable (`update_portable_install`, `maicord_update_pipeline`) and for no other.
 
 ### The toolchain release
 

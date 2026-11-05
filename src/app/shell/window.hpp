@@ -9,6 +9,9 @@ namespace maicord::app_detail {
 void application_minimum_client_size(u32* width, u32* height) noexcept;
 // Creates the main window; its events reach application_window_event (window_runtime.hpp).
 bool application_create_main_window() noexcept;
+// Before the renderer starts: what the window system must have ready for the GPU device (the Wayland connection the
+// device is made on). Nothing on Windows.
+void application_platform_window_prepare() noexcept;
 // How the platform makes the window and its frame: the Windows build's frame glue and hooks
 // (src/app/windows/platform_window.cpp). On failure `*failure` names the step for the log.
 bool application_platform_window_create(Window* out, const char** failure) noexcept;

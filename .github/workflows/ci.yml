@@ -270,6 +270,11 @@ jobs:
         continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
         run: bash tools/test_gpu_surface.sh --binary "$HOME/mc-build/MaiCordGpuSurfaceWaylandTests" --out "$RUNNER_TEMP/gpu-surface"
 
+      # The client itself on the signed-out login screen with a private profile: screenshot, idle CPU and wakeups, memory.
+      - name: Client (headless sway, llvmpipe)
+        continue-on-error: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING != 'true' }}
+        run: bash tools/test_client_wayland.sh --binary "$HOME/mc-build/MaiCord" --out "$RUNNER_TEMP/client"
+
       # tools/test_dbus_real.sh (the real xdg-desktop-portal and gnome-keyring) is left to a machine with a graphical
       # session: the portal's GTK backend needs a display and the document portal needs FUSE, which a hosted runner lacks.
       - name: D-Bus (mock services)

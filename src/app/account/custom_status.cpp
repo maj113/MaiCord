@@ -16,7 +16,7 @@
 #include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_system_time.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::app_detail {
@@ -48,8 +48,8 @@ void scope() noexcept {
     request.account_scope = g_app.plugin_account_scope_serial;
 }
 u64 local_ms_of_day() noexcept {
-    SYSTEMTIME now{};
-    GetLocalTime(&now);
+    CalendarTime now{};
+    local_time_now(&now);
     return ((static_cast<u64>(now.wHour) * 60 + now.wMinute) * 60 + now.wSecond) * 1000 + now.wMilliseconds;
 }
 // The account's own rows (member list, profile card, account panel) read the

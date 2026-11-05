@@ -195,7 +195,9 @@ int run_application() noexcept {
     g_app.process_start = clock_now();
     MAICORD_PERF_MARK("application_run");
     // GPU driver initialization is the longest startup step; overlap it with
-    // the window and model setup below.
+    // the window and model setup below. A window system whose GPU device needs its connection (Wayland) is
+    // connected first.
+    application_platform_window_prepare();
     renderer_prestart();
     MAICORD_PERF_MARK("renderer_prestart");
     g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;

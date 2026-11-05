@@ -20,6 +20,7 @@ inline constexpr int kOpenNoFollow = 0x20000;
 inline constexpr int kOpenCloseOnExec = 0x80000;
 inline constexpr int kAtCurrentDirectory = -100; // AT_FDCWD
 inline constexpr int kAtRemoveDirectory = 0x200;
+inline constexpr int kAccessWrite = 2;           // W_OK
 inline constexpr int kSeekSet = 0;
 inline constexpr int kSeekCurrent = 1;
 inline constexpr int kSeekEnd = 2;

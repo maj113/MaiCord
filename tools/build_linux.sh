@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Linux port of MaiCord, audits what it built and, with --test, runs the Linux test suite.
 #
-#   tools/build_linux.sh                       configure, build (core library), audit
+#   tools/build_linux.sh                       configure, build the client (MaiCord) and the libraries, audit
 #   tools/build_linux.sh --test                also build and run every registered test with ctest
 #   tools/build_linux.sh --test a b            only the ctest cases named a and b
 #   tools/build_linux.sh --test --keep         keep objects, ninja state and compile_commands.json (incremental)
@@ -32,8 +32,8 @@
 #   Audit     tools/audit_elf.py runs on every image: no GLIBC_ symbol version above 2.17, only the three stub
 #             libraries needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack.
 #   Tests     ctest under the build directory; each case runs with a private XDG_DATA_HOME below it.
-#   Cleanup   Unless --keep, the run ends with the build directory holding only the shipping images (none yet),
-#             as tools/build.ps1 leaves the Windows one with only the client.
+#   Cleanup   Unless --keep, the run ends with the build directory holding only the shipping client (MaiCord) and its
+#             runtime assets (fonts/, licenses/), as tools/build.ps1 leaves the Windows one with only the client.
 #   Foreign   The images run on NixOS through nix-ld, or ld.so --library-path <glibc>:<libs> <image>.
 #
 # Exit status: nonzero on a failed configure, build, audit or test.
@@ -149,9 +149,10 @@ elapsed() {
 }
 
 clean() {
-    # Leaves only the shipping images: none yet, so the directory is emptied.
+    # Leaves the shipping client and the runtime assets beside it (fonts/, licenses/), as tools/build.ps1 leaves the
+    # Windows directory with only the client and its assets; everything else goes.
     if [ "$keep" = 0 ] && [ -d "$build_directory" ]; then
-        find "$build_directory" -mindepth 1 -delete
+        find "$build_directory" -mindepth 1 -maxdepth 1 ! -name MaiCord ! -name fonts ! -name licenses -exec rm -rf {} +
     fi
 }
 trap clean EXIT

@@ -66,6 +66,12 @@ inline long sys_set_modification_time(const char* path, i64 seconds, i64 nanosec
     return syscall4(kSysUtimensat, kAtCurrentDirectory, reinterpret_cast<long>(path), reinterpret_cast<long>(times), 0);
 }
 
+// access(2) as faccessat(AT_FDCWD, path, mode): 0 when the calling process may do `mode` (kAccessWrite) to `path`,
+// else a negated errno.
+inline long sys_access(const char* path, int mode) noexcept {
+    return syscall3(kSysFaccessat, kAtCurrentDirectory, reinterpret_cast<long>(path), mode);
+}
+
 // The length of the link target written to `buffer` (not NUL terminated), or a negated errno.
 inline long sys_readlink(const char* path, char* buffer, usize bytes) noexcept {
     return syscall4(kSysReadlinkat, kAtCurrentDirectory, reinterpret_cast<long>(path), reinterpret_cast<long>(buffer),

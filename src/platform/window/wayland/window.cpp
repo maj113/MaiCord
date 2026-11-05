@@ -3,6 +3,7 @@
 // pump.cpp; the shared state is in backend.hpp.
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/resource.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/wayland.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
@@ -168,15 +169,17 @@ u32 state_bits_of(u32 states) noexcept {
     return bits;
 }
 
-void emit_state_changed() noexcept {
+// `geometry` is state_geometry when the client's pixel size changed with this configure or scale: the app sizes its
+// surface again on it (as for WM_WINDOWPOSCHANGED), so the pixel size must be settled before the event is pushed.
+void emit_state_changed(u32 geometry = 0) noexcept {
     const u32 bits = state_bits_of(g.window.states);
-    const u32 changed = bits ^ g.window.state_bits;
+    const u32 changed = (bits ^ g.window.state_bits) | geometry;
     g.window.state_bits = bits;
     if (!changed)
         return;
     WindowEvent event = make_event(EventType::state_changed, now_ms32());
     event.window_state.changed = changed;
-    event.window_state.state = bits;
+    event.window_state.state = bits | geometry;
     ring_push(event);
 }
 
@@ -282,7 +285,7 @@ void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
         event.focus.gained = now_active;
         ring_push(event);
     }
-    emit_state_changed();
+    emit_state_changed((first || size_changed) ? state_geometry : 0);
     if (was_resizing && !now_resizing)
         emit_resize(EventType::resize_end);
     present_clear();
@@ -461,6 +464,31 @@ void sink_call(const WindowEvent& event, WindowEventResult* result) noexcept {
         g.window.sink(g.window.sink_context, event, result);
 }
 
+void set_min_size_px(u32 width_px, u32 height_px) noexcept {
+    WindowState& window = g.window;
+    if (!window.toplevel)
+        return;
+    // Logical units, rounded up: a window the compositor sizes to the minimum must still hold the layout.
+    const u32 dpi = window.dpi ? window.dpi : kDefaultDpi;
+    const u32 width = (width_px * kDefaultDpi + dpi - 1) / dpi;
+    const u32 height = (height_px * kDefaultDpi + dpi - 1) / dpi;
+    if (width == window.min_logical_width && height == window.min_logical_height)
+        return;
+    window.min_logical_width = width;
+    window.min_logical_height = height;
+    xdg_toplevel_set_min_size(window.toplevel, static_cast<i32>(width), static_cast<i32>(height));
+}
+
+void apply_size_limits() noexcept {
+    if (!g.window.sink || !g.window.configured)
+        return;
+    WindowEvent query = make_event(EventType::size_limits, now_ms32());
+    WindowEventResult answer{};
+    sink_call(query, &answer);
+    if (answer.handled)
+        set_min_size_px(answer.width_px, answer.height_px);
+}
+
 void connection_check() noexcept {
     if (g.failed || !g.display)
         return;
@@ -533,6 +561,8 @@ void window_scale_changed(u32 scale_120) noexcept {
     if (!g.window.configured)
         return;
     emit_resize(EventType::scale_changed);
+    // The same logical size is another pixel size: the app sizes its surface again.
+    emit_state_changed(state_geometry);
     pointer_scale_changed();
     present_clear();
 }
@@ -596,9 +626,11 @@ static void on_desktop_settings(void*, u32 areas) noexcept {
     }
 }
 
-bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept {
-    if (g.window_exists || !out || info.client_width_dips == 0 || info.client_height_dips == 0)
-        return false;
+// Connects to the compositor and reads its globals; a second call finds the connection made. Separate from the window
+// so the GPU backend can open EGL on the display before the window exists (the device start-up overlaps window creation).
+static bool connect_display() noexcept {
+    if (g.display)
+        return true;
     if (!client_load())
         return false;
     g.display = g_client.display_connect(nullptr);
@@ -619,6 +651,18 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
         disconnect();
         return false;
     }
+    return true;
+}
+
+void* window_wayland_connect() noexcept {
+    return connect_display() ? g.display : nullptr;
+}
+
+bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept {
+    if (g.window_exists || !out || info.client_width_dips == 0 || info.client_height_dips == 0)
+        return false;
+    if (!connect_display())
+        return false;
     g.display_waitable = waitable_borrow_fd(g_client.display_get_fd(g.display));
     post_queue_init(&g.post);
     __atomic_store_n(&g.post_ready, 1u, __ATOMIC_RELEASE);
@@ -754,9 +798,31 @@ void window_set_title(Window window, Utf8View title) noexcept {
 
 void window_set_icon(Window, const IconImage*, u32) noexcept {}
 
-// No icon is stored in the program on Linux; the .desktop entry and the hicolor icons carry it.
-ConstSlice<u8> window_app_icon_png(u32, u32, u32*) noexcept {
-    return {};
+// The program's icon: the ICO file the image carries (program_resource 1, PNG-compressed images, written by
+// tools/generate_app_icon.py), the stored image closest above the wanted size.
+ConstSlice<u8> window_app_icon_png(u32 extent, u32 largest, u32* side) noexcept {
+    const ConstSlice<u8> icon = program_resource(nullptr, 1);
+    if (!icon.data || icon.count < 6 || !side)
+        return {};
+    // ICONDIR: three 16-bit words, then 16-byte entries: width, height (0 is 256), ..., image size, image offset.
+    const u32 count = minimum<u32>(icon.data[4] | icon.data[5] << 8, (icon.count - 6) / 16);
+    u32 best = 0;
+    ConstSlice<u8> image{};
+    for (u32 i = 0; i < count; ++i) {
+        const u8* entry = icon.data + 6 + i * 16;
+        const u32 size = entry[0] ? entry[0] : 256;
+        const u32 bytes = entry[8] | entry[9] << 8 | entry[10] << 16 | static_cast<u32>(entry[11]) << 24;
+        const u32 offset = entry[12] | entry[13] << 8 | entry[14] << 16 | static_cast<u32>(entry[15]) << 24;
+        if (size >= extent && size <= largest && (!best || size < best) && offset <= icon.count &&
+            bytes <= icon.count - offset) {
+            best = size;
+            image = {icon.data + offset, bytes};
+        }
+    }
+    if (!best)
+        return {};
+    *side = best;
+    return image;
 }
 
 void window_minimize(Window window) noexcept {
@@ -812,11 +878,8 @@ void window_begin_resize(Window window, FrameHit edge) noexcept {
 }
 
 void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept {
-    if (!is_window(window))
-        return;
-    const u32 dpi = g.window.dpi;
-    xdg_toplevel_set_min_size(g.window.toplevel, static_cast<i32>(width_px * 96 / dpi),
-                              static_cast<i32>(height_px * 96 / dpi));
+    if (is_window(window))
+        set_min_size_px(width_px, height_px);
 }
 
 

@@ -87,7 +87,7 @@ AccountPathsResult account_paths_ensure_directories(const AccountPaths& paths) n
     // A slot directory sits below accounts\; create that root first.
     const u32 application_length = wide_length(paths.application_directory, kCapacity);
     u32 parent_length = wide_length(paths.account_directory, kCapacity);
-    while (parent_length && paths.account_directory[parent_length - 1] != L'\\')
+    while (parent_length && paths.account_directory[parent_length - 1] != kPathSeparator)
         --parent_length;
     if (parent_length > application_length + 1) {
         wchar_t parent[kCapacity];

@@ -46,5 +46,7 @@ maicord_library(maicord_window_wayland
     src/platform/window/wayland/frame.cpp src/platform/window/wayland/extras.cpp
     src/platform/window/wayland/data.cpp src/platform/window/wayland/uri.cpp
     src/platform/window/wayland/text_input.cpp
+    # Copy Image encodes its PNG with the clipboard's own encoder, which the Windows backend shares.
+    src/platform/desktop/clipboard_image.cpp
     "${MAICORD_WAYLAND_PROTOCOL_HEADER}" "${MAICORD_WAYLAND_PROTOCOL_SOURCE}"
     LIBS maicord_core maicord_media_codec maicord_dbus INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}")

@@ -224,7 +224,9 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         const u64 wait = next <= now_seconds ? 0 : minimum<u64>((next - now_seconds) * 1'000, INFINITE - 1);
         timeout = minimum(timeout, static_cast<u32>(wait));
     }
-    if (g_app.message_media.scan_pending && !application_thread_browser_read_blocked())
+    // The scan is the running account's (the pump clears it only with an account); signed out, a flag left by start-up
+    // settings would otherwise hold every wait at zero.
+    if (account_running && g_app.message_media.scan_pending && !application_thread_browser_read_blocked())
         timeout = 0;
     if (!frame_clock_armed) {
         limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));

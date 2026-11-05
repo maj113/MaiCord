@@ -77,6 +77,10 @@ void dispatch(const WindowEvent& event) noexcept {
     pointer_before_dispatch(event);
     WindowEventResult result{};
     sink_call(event, &result);
+    // What the app answers to size_limits follows its layout: ask again once the events that move it are handled.
+    if (event.type == EventType::resize || event.type == EventType::scale_changed ||
+        event.type == EventType::state_changed)
+        apply_size_limits();
     pointer_after_dispatch(event);
     if (event.type == EventType::close_requested && !result.handled) {
         g.quit = true;

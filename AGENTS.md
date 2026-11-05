@@ -272,8 +272,9 @@ has the same rules in more detail.
   `application_update_build_config()`); every package-manager install leaves it out. The `linux` job of `release.yml` is
   off until `MAICORD_LINUX_RELEASES` is `true`. Flathub needs a hand-written source-build manifest (its policy refuses
   AI-generated manifests and AI-opened submissions): do not write or submit one.
-- The application (`src/app`, `src/ui`) builds for both systems. Not on Linux: `src/app/shell` (the window layer's),
-  `src/app/windows` (the Win32 entry and window procedure) and the UI Automation server (`accessibility.cpp`,
+- The application (`src/app`, `src/ui`) builds for both systems. Not in `maicord_app_client` on Linux: `src/app/shell`
+  (the client's own sources), `src/app/windows` (the Win32 entry and window procedure), `src/app/linux` (the Linux entry
+  and window glue) and the UI Automation server (`accessibility.cpp`,
   `accessibility_actions.cpp`; `src/app/accessibility/linux` stands in, the snapshots are shared).
   `cmake/linux_app_client.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and
   must use the seams: `os/process.hpp` (`process_launch_detached`), `os/text.hpp` (`utf16_to_utf8`, `utf8_to_utf16`),
@@ -292,6 +293,21 @@ has the same rules in more detail.
   no Win32 window run on Linux from `cmake/linux_app_ui_tests.cmake` over `maicord_window_null`, with the Win32 calls
   they make shimmed for tests only in `tests/support/linux_test_app.hpp`; a fixture that calls other Windows API
   directly stays Windows-only and is listed there.
+  The client is the `MaiCord` target (`cmake/linux_client.cmake`): the shell (`src/app/shell`) compiled on Linux with
+  `src/app/linux/entry.cpp` (`argv` as the one command line `desktop_launch_parse` reads, via
+  `platform/desktop/launch_line.hpp`: `--startup`, `--url -- <link>`, a bare `discord://` argument and single-instance
+  forwarding are the Windows startup's) and `src/app/linux/platform_window.cpp` (the window through the Wayland backend;
+  `application_platform_window_prepare` connects the compositor before the renderer's device start, which EGL needs). Only
+  the Wayland backend is linked (`maicord_window_null` is the tests'); the resources Windows takes from `.rc` are
+  embedded (`core/linux/resource.cpp`: the sounds and the icon, which `window_app_icon_png` reads as an ICO). Shared
+  paths join with `kPathSeparator` (`core/data_path.hpp`), not a literal backslash, wherever they are compared or
+  split, and `directory_ensure` makes missing ancestors on Linux. The updater is disabled on Linux until the release
+  channels carry the tarball (`application_update_build_config()`, `kLinuxUpdatesPublished`); then only the install with the
+  `.maicord-portable` marker beside its real executable (`update_portable_install`) enables it. `build_linux.sh` leaves
+  `MaiCord`, `fonts/` and `licenses/` in `~/mc-build`. `tools/test_client_wayland.sh` (headless or nested sway, the running
+  compositor; screenshot, idle CPU, wakeups, RSS, binary size) and `tools/client_flow.py` (clicks over
+  `tools/wayland_pointer.py`, typing, scale and window commands, screenshots) run it with a private empty profile;
+  `GALLIUM_DRIVER=d3d12` selects WSL's GPU, and WSLg's Weston has no screencopy (nested sway is the screenshot path).
 
 ## Code rules
 

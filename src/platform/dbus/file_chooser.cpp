@@ -13,6 +13,8 @@ struct FileChooser {
     bool reply_pending;  // the method's reply has not come: the handler still holds this pointer
     bool released;       // released while the reply was pending: freed when it arrives
     u32 count;
+    void (*settled)(void* context) noexcept;
+    void* settled_context;
     char paths[kFileChooserMaximumFiles][kFileChooserPathBytes];
 };
 
@@ -96,6 +98,14 @@ void read_uris(FileChooser* chooser, Reader* r) noexcept {
     chooser->state = found && chooser->count ? FileChooserState::done : FileChooserState::failed;
 }
 
+// Tells the owner, once, that the dialog is no longer pending.
+void settle(FileChooser* chooser) noexcept {
+    auto* callback = chooser->settled;
+    chooser->settled = nullptr;
+    if (callback && chooser->state != FileChooserState::pending)
+        callback(chooser->settled_context);
+}
+
 void on_response(void* context, u32 code, Reader* results) noexcept {
     FileChooser* chooser = static_cast<FileChooser*>(context);
     if (chooser->released) {
@@ -110,6 +120,7 @@ void on_response(void* context, u32 code, Reader* results) noexcept {
     } else {
         read_uris(chooser, results);
     }
+    settle(chooser);
 }
 
 void on_reply(void* context, Status status, const Message* reply) noexcept {
@@ -123,8 +134,10 @@ void on_reply(void* context, Status status, const Message* reply) noexcept {
         log_write(LogLevel::trace, "file_chooser",
                   status == Status::error_reply && reply && reply->error_name ? reply->error_name : "the call failed");
         portal_request_end(&chooser->request);
-        if (chooser->state == FileChooserState::pending)
+        if (chooser->state == FileChooserState::pending) {
             chooser->state = FileChooserState::failed;
+            settle(chooser);
+        }
         return;
     }
     Reader r;
@@ -181,6 +194,8 @@ FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
     if (!chooser)
         return nullptr;
     chooser->state = FileChooserState::pending;
+    chooser->settled = options.settled;
+    chooser->settled_context = options.settled_context;
     if (!portal_request_begin(&chooser->request, c, on_response, chooser)) {
         heap_free(chooser);
         return nullptr;

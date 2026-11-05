@@ -61,6 +61,7 @@ enum SyscallNumber : long {
     kSysRenameat = 264,
     kSysLinkat = 265,
     kSysReadlinkat = 267,
+    kSysFaccessat = 269,
     kSysPpoll = 271,
     kSysUtimensat = 280,
     kSysTimerfdCreate = 283,

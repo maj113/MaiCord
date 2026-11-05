@@ -19,6 +19,11 @@ struct WaylandSurfaceInfo {
 };
 bool window_wayland_info(Window window, WaylandSurfaceInfo* info) noexcept;
 
+// Connects to the compositor ahead of the window (window_create then finds the connection made) and returns the
+// wl_display*, or null when there is no compositor. The GPU device is made on this display, and its start-up overlaps
+// the creation of the window.
+void* window_wayland_connect() noexcept;
+
 // The GPU backend takes over the surface's buffers (true): from now on it attaches and commits (eglSwapBuffers) and
 // the window stops presenting its wl_shm clear. The window keeps the wp_viewport destination at the logical size
 // and sends frame callbacks through window_frame_callback_request. False hands the surface back; the window

@@ -4,10 +4,10 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/crc32.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"
-
-extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
-    unsigned long initial, const void* bytes, unsigned long count);
+#endif
 
 namespace maicord {
 namespace {
@@ -21,7 +21,7 @@ u32 crc32_update(u32 crc, const u8* data, u64 count) noexcept {
     // seed for an empty range. PNG uses the same IEEE CRC as png_common.cpp.
     while (count) {
         const u32 bytes = static_cast<u32>(minimum<u64>(count, 0xffffffffull));
-        crc = static_cast<u32>(RtlComputeCrc32(crc, data, bytes));
+        crc = crc32_extend(crc, data, bytes);
         data += bytes;
         count -= bytes;
     }
@@ -107,6 +107,8 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     chunk(iend, "IEND", nullptr, 0);
     return total;
 }
+// The DIB formats and the paste conversion are Windows' (the Wayland backend pastes PNG as it receives it).
+#if defined(_WIN32)
 u64 clipboard_image_dib_bytes(u32 width, u32 height) noexcept {
     return extent_valid(width, height) ? sizeof(BITMAPV5HEADER) + u64{width} * height * 4 : 0;
 }
@@ -446,4 +448,5 @@ DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 l
 void clipboard_png_release(ClipboardPng* png) noexcept {
     if (png) { unreserve(png->data); reset_value(png); }
 }
+#endif
 } // namespace maicord

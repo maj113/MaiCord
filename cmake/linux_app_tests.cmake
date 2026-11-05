@@ -5,6 +5,7 @@
 maicord_test(MaiCordUpdatePipelineTests ENTRY maicord_update_pipeline_entry
     SOURCES tests/app/update/linux_main.cpp tests/app/update/manifest.cpp tests/app/update/artifact.cpp
         tests/app/update/acceptance.cpp tests/app/update/prepare.cpp tests/app/update/package.cpp
+        tests/app/update/portable.cpp
     LIBS maicord_app_update maicord_crypto maicord_protocol maicord_core INCLUDES src/app tests
     TIMEOUT 20 TEST maicord_update_pipeline)
 

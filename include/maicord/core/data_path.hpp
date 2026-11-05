@@ -60,6 +60,14 @@ DataPathResult state_path(wchar_t* output, u32 capacity, const wchar_t* relative
                           bool create_parents = false) noexcept;
 #endif
 
+// The separator the paths of data_path_build carry between their components (backslashes in a relative part are
+// converted to it on Linux): what shared code appends to a built path it later compares or splits.
+#if defined(_WIN32)
+inline constexpr wchar_t kPathSeparator = L'\\';
+#else
+inline constexpr wchar_t kPathSeparator = L'/';
+#endif
+
 // data_path(stem), then the profile id as 16 lowercase hex digits and extension: one account's file, such as
 // profile_data_path(id, path, capacity, L"accounts\\links-", L".trust"). False for profile 0 or when it does not fit.
 bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_t* stem,

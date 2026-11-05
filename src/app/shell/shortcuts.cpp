@@ -24,6 +24,7 @@
 #include "../voice/voice.hpp"
 #include "../voice/settings.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
@@ -291,7 +292,7 @@ void application_shortcuts_pump() noexcept {
 
 u64 application_shortcuts_next_wake() noexcept {
     // The capture thread samples push to talk every 20 ms; toggles match it.
-    return global.armed ? GetTickCount64() + 20 : 0;
+    return global.armed ? clock_monotonic_milliseconds() + 20 : 0;
 }
 
 bool application_shortcuts_overlay_active() noexcept {

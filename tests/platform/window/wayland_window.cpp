@@ -1173,6 +1173,12 @@ void test_frame() noexcept {
     });
     check(shrunk != kNone && find_event(g_mark, EventType::resize_begin, [](const Record&) { return true; }) != kNone,
           "resize_begin brackets the resize");
+    // The app sizes its surface on state_changed with state_geometry (WM_WINDOWPOSCHANGED's counterpart), so a resize
+    // that changes the pixel size must carry it.
+    check(find_event(g_mark, EventType::state_changed, [](const Record& r) {
+              return (r.event.window_state.changed & state_geometry) != 0 && (r.event.window_state.state & state_geometry) != 0;
+          }) != kNone,
+          "a resize reports state_geometry");
     inject::pointer_button(&g_injector, kBtnLeft, false);
     expect("resize_end when the grab ends", EventType::resize_end, [](const Record&) { return true; });
     check(count_events(g_mark, EventType::pointer_down) == 0, "the edge press is the window's");

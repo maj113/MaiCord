@@ -33,6 +33,11 @@ struct FileChooserOptions {
     const char* accept_label;    // the confirm button's text; null for the default
     const char* current_name;    // save: the suggested file name
     const char* current_folder;  // the folder to start in (an absolute path); null for the portal's choice
+    // Called once, on the UI thread inside the session bus processing, when the state leaves `pending` through the
+    // portal's answer or a failed call; not for file_chooser_cancel or file_chooser_release, which the caller makes
+    // itself. May be null.
+    void (*settled)(void* context) noexcept;
+    void* settled_context;
 };
 
 enum class FileChooserState : u8 {

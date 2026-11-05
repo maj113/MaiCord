@@ -219,6 +219,7 @@ struct WindowState {
     bool resizing;
     u32 clear_color;
     wl_buffer* shm_buffer;
+    u32 min_logical_width, min_logical_height;  // what xdg_toplevel.set_min_size last said
 };
 
 struct Backend {
@@ -281,6 +282,13 @@ bool ring_push(const WindowEvent& event) noexcept;
 
 // Sends one event to the sink now, for the synchronous kinds (cursor_query, capture_lost) and for the pump.
 void sink_call(const WindowEvent& event, WindowEventResult* result) noexcept;
+// Asks the sink for the window's smallest client size (the synchronous size_limits query: the Win32 side answers
+// WM_GETMINMAXINFO) and tells the compositor (xdg_toplevel.set_min_size); the pump calls it after the events that can
+// change the answer (a resize, a scale change, a state change).
+void apply_size_limits() noexcept;
+// The window's smallest client size in pixels at its scale, as xdg_toplevel.set_min_size in logical units (sent only
+// when it changed; zero is no limit).
+void set_min_size_px(u32 width_px, u32 height_px) noexcept;
 // The window's size in client pixels at its scale.
 void window_pixel_size(u32* width, u32* height) noexcept;
 u32 dpi_of_scale(u32 scale_120) noexcept;
