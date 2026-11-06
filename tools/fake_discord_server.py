@@ -645,6 +645,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.serve_catalog()
         if self.headers.get("Upgrade", "").lower() == "websocket":
             return self.gateway()
+        if WORLD and (host == "www.youtube.com" or host == fake_discord_world.VIDEO_HOST):
+            length = int(self.headers.get("Content-Length") or 0)
+            answer = WORLD.site(host, self.command, self.path, self.headers, self.rfile.read(length) if length else b"")
+            if not answer:
+                return self.reply(404, b"", "text/plain")
+            status, kind, data, extra = answer
+            return self.reply(status, data, kind, extra)
         if host.startswith("cdn.") or host.startswith("media."):
             found = (WORLD and WORLD.file(self.path)) or FILES.get(self.path.split("?", 1)[0])
             return self.reply(200, found[1], found[0]) if found else self.reply(404, b"", "text/plain")

@@ -233,7 +233,9 @@ re-applies the output scale; never judge a screenshot from a bare `grim`. Signed
 user, network and mount namespace) serving one account, a guild with two channels, messages with markdown, emoji, reactions, an embed, a
 picture, an MP4 and a file (`MAICORD_FAKE_MENTION_AFTER=N` adds a mention of the account, `MAICORD_FAKE_EXTRA_MESSAGES=FILE` more
 messages; `MAICORD_FAKE_WORLD=DIR` replaces the QA guild with a fuller made-up world: several guilds, people with avatars, banners and
-profiles, roles, presences, the member list, direct messages and scripted live events, described in `tools/fake_discord_world.py`).
+profiles, roles, presences, server tags, display-name styles, the member list, direct messages and scripted live events, and a
+made-up YouTube video whose embed plays when `www.youtube.com` and the world's video host point at the server too, described in
+`tools/fake_discord_world.py`).
 Sign in with any e-mail and password. `--site` serves a catalog site on the catalog host too (Plugins and Themes stores,
 consent dialog, install; `--root` makes the namespace with sudo so the plugin loader's ownership check sees real root); `--dbus` starts the
 desktop mocks and a swaybar hosting the tray and prints the notifications and portal calls (`desktop-calls.txt`). The fake answers only what

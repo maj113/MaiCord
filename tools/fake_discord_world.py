@@ -6,7 +6,9 @@ avatars/<user>/<hash>.png, icons/<guild>/<hash>.webp, banners/..., emojis/<id>.w
 made up; the server answers from it instead of its built-in QA guild. world.json:
 
     me                  key of the signed-in account in users
-    users               key -> {id, username, global_name, avatar, banner, accent_color, bio, pronouns, theme_colors, bot}
+    users               key -> {id, username, global_name, avatar, banner, accent_color, bio, pronouns, theme_colors, bot,
+                          display_name_styles: {font_id, effect_id, colors}, primary_guild: {identity_guild_id,
+                          identity_enabled, tag, badge} (the badge under cdn/clan-badges/<guild>/<badge>.png)}
     guilds              [{id, name, icon, description, owner, roles: [{id, name, color, hoist, position}],
                           channels: [{id, type, name, parent, topic}], members: [{user, roles, nick}],
                           emojis: [{id, name}], voice: [{user, channel, self_mute, self_video}]}]
@@ -17,10 +19,13 @@ made up; the server answers from it instead of its built-in QA guild. world.json
     pictures            key -> {file, name, width, height} under cdn/
     messages            channel id -> [{author, content, ago (minutes), reactions: [[emoji, count, me]],
                           pictures: [keys], embeds, reply (index in the same list), poll, mentions: [keys]}];
+                        an embed's image or thumbnail and its author's or footer's icon_url may name a picture key
                         content may hold {e:name}, {m:user} (a mention) and {t:minutes} (a time that many minutes away)
     unread              channel id -> mention count (the channel shows unread)
     events              name -> [{at (seconds), type: typing|message|reaction, ...}]: GET /__world/event/<name> on the
                         API host plays one, so a capture can show someone typing and a message arriving
+    videos              11-character id -> {file under cdn/ (an MP4 with H.264 and AAC), width, height, seconds}: a
+                        YouTube embed of that id plays the file when www.youtube.com and VIDEO_HOST point at the server
 """
 import json
 import os
@@ -30,6 +35,7 @@ import time
 
 EPOCH = 1420070400000
 CDN = "https://cdn.discordapp.com"
+VIDEO_HOST = "rr1---sn-world.googlevideo.com"
 PERMISSIONS = 1071698660929
 NOW = int(time.time() * 1000)
 
@@ -94,7 +100,8 @@ class World:
                 "global_name": u["global_name"], "avatar": u["avatar"], "avatar_decoration_data": None,
                 "banner": u.get("banner"), "accent_color": u.get("accent_color"), "bot": bool(u.get("bot")),
                 "system": False, "flags": 0, "public_flags": 0, "premium_type": 2 if u.get("theme_colors") else 0,
-                "clan": None, "primary_guild": None}
+                "clan": u.get("primary_guild"), "primary_guild": u.get("primary_guild"),
+                **({"display_name_styles": u["display_name_styles"]} if u.get("display_name_styles") else {})}
 
     def text(self, content: str) -> str:
         emoji = self.data.get("emoji", {})
@@ -133,10 +140,16 @@ class World:
                    "pinned": False, "type": 0, "flags": 0, "components": []}
         for embed in item.get("embeds", []):
             embed = dict(embed)
-            if isinstance(embed.get("image"), str):
-                shown = self.picture(channel, embed["image"])
-                embed["image"] = {"url": shown["url"], "proxy_url": shown["proxy_url"], "width": shown["width"],
-                                  "height": shown["height"]}
+            for slot in ("image", "thumbnail"):  # a picture key becomes that picture on the CDN
+                if isinstance(embed.get(slot), str):
+                    shown = self.picture(channel, embed[slot])
+                    embed[slot] = {"url": shown["url"], "proxy_url": shown["proxy_url"], "width": shown["width"],
+                                   "height": shown["height"]}
+            for slot in ("author", "footer"):
+                part = embed.get(slot)
+                if isinstance(part, dict) and part.get("icon_url") in self.data["pictures"]:
+                    shown = self.picture(channel, part["icon_url"])
+                    embed[slot] = dict(part, icon_url=shown["url"], proxy_icon_url=shown["proxy_url"])
             message["embeds"].append(embed)
         if item.get("reactions"):
             message["reactions"] = [self.reaction(*r) for r in item["reactions"]]
@@ -518,6 +531,49 @@ class World:
             if os.path.isfile(candidate):
                 with open(candidate, "rb") as handle:
                     return KINDS.get(os.path.splitext(candidate)[1], "application/octet-stream"), handle.read()
+        return None
+
+    # -- the video site ---------------------------------------------------------------------------------------------------
+    def site(self, host: str, method: str, target: str, headers, body: bytes):
+        """(status, content type, bytes, extra headers) for the world's videos (world.json "videos": an 11-character id
+        -> {file under cdn/, width, height}), or None. Answers what the client's YouTube player reads: the visitor id on
+        the home page, the player response with one progressive MP4 (H.264 and AAC), and that file's byte ranges on
+        VIDEO_HOST, so a YouTube embed of a made-up video plays its own local file."""
+        videos = self.data.get("videos", {})
+        path, _, query = target.partition("?")
+        if host == "www.youtube.com" and method == "GET" and path == "/":
+            return 200, "text/html", b'<script>ytcfg.set({"VISITOR_DATA":"CgtmYWtld29ybGQ%3D"});</script>', {}
+        if host == "www.youtube.com" and method == "POST" and path == "/youtubei/v1/player":
+            identifier = json.loads(body or b"{}").get("videoId", "")
+            video = videos.get(identifier)
+            if not video:
+                return 200, "application/json", json.dumps({"playabilityStatus": {"status": "ERROR"}}).encode(), {}
+            size = os.path.getsize(os.path.join(self.directory, "cdn", video["file"]))
+            url = (f"https://{VIDEO_HOST}/videoplayback?expire={NOW // 1000 + 21600}&id={identifier}&itag=18"
+                   "&mime=video%2Fmp4")
+            answer = {"playabilityStatus": {"status": "OK", "playableInEmbed": True},
+                      "videoDetails": {"videoId": identifier, "isLive": False},
+                      "streamingData": {"expiresInSeconds": "21540", "formats": [{
+                          "itag": 18, "url": url, "mimeType": 'video/mp4; codecs="avc1.42001E, mp4a.40.2"',
+                          "contentLength": str(size), "bitrate": max(1, size * 8 // max(1, video.get("seconds", 10))),
+                          "width": video["width"], "height": video["height"], "audioQuality": "AUDIO_QUALITY_LOW",
+                          "audioChannels": 2}]}}
+            return 200, "application/json", json.dumps(answer).encode(), {}
+        if host == VIDEO_HOST and method == "GET" and path == "/videoplayback":
+            identifier = dict(p.split("=", 1) for p in query.split("&") if "=" in p).get("id", "")
+            if identifier not in videos:
+                return 404, "text/plain", b"", {}
+            with open(os.path.join(self.directory, "cdn", videos[identifier]["file"]), "rb") as handle:
+                data = handle.read()
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", headers.get("Range") or "")
+            if not match:
+                return 200, "video/mp4", data, {"Accept-Ranges": "bytes"}
+            first = int(match.group(1))
+            last = min(int(match.group(2)) if match.group(2) else len(data) - 1, len(data) - 1)
+            if first > last:
+                return 416, "text/plain", b"", {"Content-Range": f"bytes */{len(data)}"}
+            return 206, "video/mp4", data[first:last + 1], {"Content-Range": f"bytes {first}-{last}/{len(data)}",
+                                                            "Accept-Ranges": "bytes"}
         return None
 
 
