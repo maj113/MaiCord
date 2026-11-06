@@ -6,6 +6,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "../../../src/app/gateway/dispatch_common.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "maicord/protocol/gateway/etf.hpp"
 
 namespace maicord {
 namespace {
@@ -349,10 +350,94 @@ void poll_vote_batch_checks(void (*check)(bool, const char*) noexcept) noexcept 
               capture.votes[0].user_id == 12 && capture.votes[1].user_id == 13 && !cursor.active,
           "poll vote batch bridge resumes with only the remaining votes as message_poll_vote_add descriptors");
 }
+namespace {
+// Terms as term_to_binary lays them out on the user Gateway (ETF), for the transcoder.
+struct EtfTerm {
+    u8 data[1024];
+    u32 used = 0;
+    EtfTerm& b(u8 v) noexcept {
+        data[used++] = v;
+        return *this;
+    }
+    EtfTerm& be32(u32 v) noexcept {
+        return b(static_cast<u8>(v >> 24)).b(static_cast<u8>(v >> 16)).b(static_cast<u8>(v >> 8)).b(static_cast<u8>(v));
+    }
+    template <u32 N> EtfTerm& bytes(const char (&value)[N]) noexcept {
+        for (u32 i = 0; i + 1 < N; ++i)
+            b(static_cast<u8>(value[i]));
+        return *this;
+    }
+    template <u32 N> EtfTerm& atom(const char (&name)[N]) noexcept {
+        return b(100).b(0).b(static_cast<u8>(N - 1)).bytes(name);
+    }
+    template <u32 N> EtfTerm& binary(const char (&value)[N]) noexcept { return b(109).be32(N - 1).bytes(value); }
+    EtfTerm& falsity() noexcept { return b(115).b(5).bytes("false"); }
+    EtfTerm& map(u32 n) noexcept { return b(116).be32(n); }
+    EtfTerm& list(u32 n) noexcept { return b(108).be32(n); }
+    EtfTerm& small(u8 v) noexcept { return b(97).b(v); }
+    EtfTerm& snowflake(u64 v) noexcept {
+        b(110).b(8).b(0);
+        for (u32 i = 0; i < 8; ++i)
+            b(static_cast<u8>(v >> (8 * i)));
+        return *this;
+    }
+};
+Utf8View transcode(EtfTerm& term, u8 (&json)[4096]) noexcept {
+    Slice<u8> output{json, sizeof(json)};
+    u32 marks = 0;
+    const auto result = etf_to_json_indexed({term.data, term.used}, &output, sizeof(json), nullptr, nullptr, {}, &marks);
+    return result.ok() ? Utf8View{reinterpret_cast<const char*>(json), result.bytes} : Utf8View{};
+}
+// Poll answer IDs and component IDs are integers, but the ETF transcoder quotes every value under an
+// "id" or "*_id" key (as JSON carries snowflakes), so they reach the decoders as decimal strings.
+void etf_integer_id_checks(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr u64 channel = 1097750000000000001ull, guild = 1097750000000000002ull,
+                  message = 1097750000000000003ull, user = 1097750000000000004ull;
+    static u8 json[4096];
+    EtfTerm vote;
+    vote.b(131).map(5).atom("answer_id").small(2).atom("channel_id").snowflake(channel).atom("guild_id")
+        .snowflake(guild).atom("message_id").snowflake(message).atom("user_id").snowflake(user);
+    const auto vote_json = transcode(vote, json);
+    GatewayMessagePollVoteEvent decoded_vote{};
+    check(utf8_equal(vote_json, utf8_literal(R"({"answer_id":"2","channel_id":"1097750000000000001",)"
+                                             R"("guild_id":"1097750000000000002","message_id":"1097750000000000003",)"
+                                             R"("user_id":"1097750000000000004"})")) &&
+              gateway_decode_message_poll_vote({vote_json, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
+                                               true, &decoded_vote)
+                  .ok() &&
+              decoded_vote.answer_id == 2 && decoded_vote.user_id == user && decoded_vote.message_id == message,
+          "ETF poll vote: the transcoded answer_id string decodes as the answer");
+    EtfTerm poll;
+    poll.b(131).map(2).atom("answers").list(1).map(2).atom("answer_id").small(3).atom("poll_media").map(1)
+        .atom("text").binary("Yes").b(106).atom("results").map(2).atom("answer_counts").list(1).map(3)
+        .atom("count").small(4).atom("id").small(3).atom("me_voted").falsity().b(106).atom("is_finalized").falsity();
+    f.used = 0;
+    check(decode(transcode(poll, json)).ok() && f.output.answers.count == 1 && f.output.answers[0].answer_id == 3 &&
+              f.output.answer_counts.count == 1 && f.output.answer_counts[0].answer_id == 3 &&
+              f.output.answer_counts[0].count == 4,
+          "ETF poll: transcoded answer and count IDs decode in a message's poll");
+    EtfTerm update;
+    update.b(131).map(3).atom("channel_id").snowflake(channel).atom("components").list(1).map(3)
+        .atom("components").list(1).map(5).atom("custom_id").binary("go").atom("id").small(2).atom("label")
+        .binary("Go").atom("style").small(1).atom("type").small(2).b(106).atom("id").small(1).atom("type").small(1)
+        .b(106).atom("id").snowflake(message);
+    const auto update_json = transcode(update, json);
+    auto& event = f.messages[0];
+    check(gateway_decode_message_update({update_json, 0, JsonValueKind::object}, {f.message_structurals, 2048}, 32,
+                                        {f.mailbox, sizeof(f.mailbox)}, {f.roles, 100},
+                                        {f.member_roles, kGatewayMessageMemberRoleMaximumIds}, {f.users, 100}, rich(),
+                                        0, &event)
+                  .ok() &&
+              event.id == message && event.components.count == 2 && event.components[0].id == 1 &&
+              event.components[1].id == 2,
+          "ETF message update: transcoded component IDs decode instead of dropping the event");
+}
+} // namespace
 
 void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexcept {
     reaction_batch_checks(check);
     poll_vote_batch_checks(check);
+    etf_integer_id_checks(check);
     f.used = 0;
     check(decode(complete_poll, true).ok() && f.output.present && f.output.fields == 63 &&
               f.output.answers.count == 2 && f.output.answers[0].answer_id == 7 &&

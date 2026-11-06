@@ -723,9 +723,13 @@ bool visit_component(void* opaque, JsonString name, JsonValue value) noexcept {
                              value_u32(value, &context->type) && context->type != 0 &&
                                  context->type < gateway_component_select_option,
                              &context->error);
-    case 2:
-        return accept_member(&context->seen, component_seen_id, value_u32(value, &context->id),
-                             &context->error);
+    case 2: {
+        // A JSON number in REST; the ETF Gateway quotes every value under an "id" key.
+        u64 id = 0;
+        const bool valid = json_value_to_u64_or_string(value, &id) && id <= ~0u;
+        context->id = static_cast<u32>(id);
+        return accept_member(&context->seen, component_seen_id, valid, &context->error);
+    }
     case 3: return component_number(context, component_seen_style, value, &context->style, 0xFFFFu);
     case 4: return component_bool(context, component_seen_disabled, value, &context->disabled);
     case 5: return component_text(context, component_seen_label, value, &context->label);

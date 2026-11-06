@@ -23,9 +23,10 @@ inline constexpr u32 kPollFields = gateway_message_poll_field_question |
                                    gateway_message_poll_field_answers | gateway_message_poll_field_expiry |
                                    gateway_message_poll_field_multiselect |
                                    gateway_message_poll_field_layout | gateway_message_poll_field_results;
+// Answer IDs: JSON numbers in REST, strings from the ETF Gateway (which quotes every value under an ID key).
 bool nonzero_u32(JsonValue value, u32* out) noexcept {
     u64 number = 0;
-    if (!json_value_to_u64(value, &number) || !number || number > ~0u)
+    if (!json_value_to_u64_or_string(value, &number) || !number || number > ~0u)
         return false;
     *out = static_cast<u32>(number);
     return true;
