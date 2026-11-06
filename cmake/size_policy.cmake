@@ -324,8 +324,8 @@ maicord_fold_helpers(
 # services, the TLS and crypto wrappers over OpenSSL, the Wayland and EGL backends, the in-house AAC decoder, the Lottie
 # geometry, the ELF plugin loader), and with the lists above it stayed over the Windows client's size cap
 # (6,500,000 bytes). So every source that is still at the contract's -O2 compiles -Os (MAICORD_BALANCED_OPTION) instead,
-# except the hot code below. Every exception was measured: benchmarks/*.cpp built for Linux (with a <Windows.h> shim and
-# drivers for the Gateway replay, the glyph atlas, the UI units and AAC) at -O2 and with the policy, `perf stat`
+# except the hot code below. Every exception was measured with the repository's former benchmarks built for Linux (with a
+# <Windows.h> shim and drivers for the Gateway replay, the glyph atlas, the UI units and AAC) at -O2 and with the policy, `perf stat`
 # instructions and best-of-five wall time per metric. One binary against itself moves a metric by up to 2%, and unrelated
 # code by up to 5% on a metric of a few nanoseconds, so a path counts when several of its metrics move together.
 # At -Os, text shaping cycles were 5-13% longer, the stores 3-9%, atlas allocation 9-17%, text entry (with the unicode

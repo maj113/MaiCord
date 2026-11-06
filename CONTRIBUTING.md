@@ -269,7 +269,7 @@ to the tag and the `.sha256` value.
 | `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches), the ones that also fold helpers (`/Ob2`, `-finline-functions`) and, on Linux only, the `-Os` tier for what is left at `-O2` that is not a byte or sample loop; one list names Windows and Linux files side by side |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
-| `perf_probe.cmake`, `benchmarks.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools |
+| `perf_probe.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools: the performance probe, the live-network probes and the Opus conformance run, the DirectWrite oracles |
 
 A test is one `maicord_test()` call; more cases on the same executable use
 `maicord_add_tests()`. Tests link non-LTO copies of the shipping libraries
@@ -355,15 +355,14 @@ Arenas count under the `ArenaTag` their owner passes to `arena_initialize` (`oth
   in `include/maicord/sys` (or `core/win32_*.hpp`) exactly as the SDK does, and
   intrinsics in `include/maicord/sys/simd.hpp` as clang defines them; the
   conformance unit generated from the declarations fails the build on any
-  difference. Only the reference oracles and opt-in benchmarks use the SDK
+  difference. Only the reference oracles and the Opus conformance run use the SDK
   headers (`MAICORD_SDK_INCLUDES`).
 - **No unwind tables.** Every unit (maiopus included) compiles without
   `.pdata`/`.xdata`, so nothing may rely on unwinding MaiCord frames:
   no SEH, no unhandled-exception filters (frame-based dispatch stops at the
   first MaiCord frame; the tests report crashes from a vectored handler), and
-  crash-dump stacks through MaiCord code are heuristic. Only the perf probe and
-  `benchmark_gateway_pipeline.ps1 -Profile`, which walk stacks in-process,
-  configure with `MAICORD_UNWIND_TABLES`.
+  crash-dump stacks through MaiCord code are heuristic. Only the perf probe,
+  which walks stacks in-process, configures with `MAICORD_UNWIND_TABLES`.
 - **Structs default to zero without initializers.** A struct with any default
   member initializer, even `= {}`, makes each `T x{}` store its fields one by
   one; without them it is a single fill. Leave zero-valued members bare and

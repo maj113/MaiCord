@@ -137,9 +137,6 @@ maicord_test(MaiCordFontFamilyTests ENTRY maicord_font_candidates_entry SOURCES 
     LIBS maicord_core maicord_font
     DEFINES MAICORD_FONT_FAMILY=1 TIMEOUT 10 LABELS native-text-font-family
     TEST maicord_native_font_family)
-maicord_test(MaiCordFontCandidatesTests ENTRY maicord_font_candidates_entry SOURCES
-        tests/text/fonts/candidates_test.cpp
-    LIBS maicord_core maicord_font)
 maicord_font_test(MaiCordFontMatchTests maicord_font_match_entry text/fonts/match_test
     TEST maicord_native_font_match)
 maicord_font_test(MaiCordFontNamesTests maicord_font_names_entry text/fonts/names_test TIMEOUT 2 LABELS

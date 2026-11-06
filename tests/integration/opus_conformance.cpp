@@ -9,7 +9,8 @@
 //     original (.dec) or the RFC 8251 (m.dec) reference output;
 //   - the decoded PCM must hash to the pinned value of the fixed-point build,
 //     so any change to the codec has to be bit-exact.
-#include "benchmark_line.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/compression/deflate.hpp"
 #include "support/opus_vector_decode.hpp"
 
@@ -19,6 +20,38 @@
 
 namespace maicord {
 namespace {
+// One "label key=value ..." record assembled in a bounded buffer and written as a single line.
+struct Line {
+    char text[1024];
+    u32 used = 0;
+    Line() noexcept = default;
+    explicit Line(const char* label) noexcept { put(label); }
+    void put(const char* value) noexcept {
+        while (*value && used + 3 < sizeof(text)) text[used++] = *value++;
+    }
+    void put(const char* value, u32 count) noexcept {
+        for (u32 i = 0; i < count && used + 3 < sizeof(text); ++i) text[used++] = value[i];
+    }
+    void number(u64 value) noexcept {
+        char digits[20];
+        const u32 count = decimal_write(digits, value);
+        put(digits, count);
+    }
+    Line& field(const char* key, u64 value) noexcept { put(" "), put(key), put("="), number(value); return *this; }
+    Line& field(const char* key, const char* value) noexcept { put(" "), put(key), put("="), put(value); return *this; }
+    void digest(const char* key, u64 value) noexcept {
+        put(" "), put(key), put("=");
+        for (i32 shift = 60; shift >= 0 && used + 3 < sizeof(text); shift -= 4)
+            text[used++] = "0123456789abcdef"[(value >> shift) & 15];
+    }
+    void emit() noexcept {
+        text[used++] = '\r', text[used++] = '\n';
+        DWORD written = 0;
+        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, used, &written, nullptr);
+        used = 0;
+    }
+};
+
 constexpr u8 kArchiveSha256[32]{0x6b, 0x26, 0xa2, 0x2f, 0x9b, 0xa8, 0x7b, 0x2b, 0x83, 0x69, 0x06, 0xa9, 0xbb, 0x7a, 0xfe, 0xc5,
                                 0xf8, 0xe5, 0x4d, 0x49, 0x55, 0x3b, 0x12, 0x00, 0x38, 0x25, 0x20, 0xee, 0x6f, 0xed, 0xfa, 0x55};
 constexpr u32 kVectors = 12;

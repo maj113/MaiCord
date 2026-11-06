@@ -1,9 +1,8 @@
 // Indic shaping plans, profiles and corpora (MaiCordDevanagariPlanTests). The built-in
 // --<script>-plan/-profile/-input/-shape modes are the suite (cmake/test_registry.cmake).
-// Manual QA modes, not run by the suite: a font path as the only argument (the output
-// tools/font_reference/devanagari_plan_oracle.py reads; MAICORD_DEVANAGARI_RTL=1 shapes right to left)
-// and the benchmarks MAICORD_<BENGALI|GUJARATI>_RUN (warm runs, tools/benchmark_indic_window.py) and
-// MAICORD_DEVANAGARI_MEMO_BENCH (tools/benchmark_devanagari_memo.py).
+// Manual QA modes, not run by the suite: a font path as the only argument (MAICORD_DEVANAGARI_RTL=1
+// shapes right to left) and the benchmarks MAICORD_<BENGALI|GUJARATI>_RUN (warm runs) and
+// MAICORD_DEVANAGARI_MEMO_BENCH.
 #include "../../../src/text/scripts/indic_forms.hpp"
 #include "../../../src/text/scripts/indic_cluster.hpp"
 #include "maicord/text/scripts/devanagari_plan.hpp"

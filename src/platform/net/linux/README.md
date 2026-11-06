@@ -39,7 +39,7 @@ completion-port model (an operation is started on a caller-owned object, finishe
   (`tools/test_linux_distros.sh`); Flatpak's seccomp blocklist does not list io_uring.
 - Tests: `maicord_network_loop` (the model, large sends, more requests than ring entries),
   `maicord_network_loop_ring_refused` / `_ring_hidden` (a seccomp filter returns EPERM / ENOSYS for
-  `io_uring_setup`). `MaiCordNetworkBenchmark` (`benchmarks/network_loop_benchmark.cpp`) is the load generator below.
+  `io_uring_setup`).
 
 ## Measured (WSL2 Ubuntu 24.04, kernel 6.18, Ryzen 7 5800X, median of 5 interleaved runs, loopback; epoll emulation -> ring)
 
@@ -54,8 +54,7 @@ completion-port model (an operation is started on a caller-owned object, finishe
 | file writes, 512 x 128 KB | 1558 + 3074 in the pool -> 516 | 44.9 -> 40.8 ms, CPU 52 -> 36 ms |
 
 Sockets are a tie in time and CPU with about half the syscalls or fewer; file operations are the large win (no helper
-threads, no wakeups). `getrusage` CPU has tick granularity, so small CPU differences are noise. Reproduce with
-`MaiCordNetworkBenchmark` and `strace -f -o log`, counting the main thread's calls between the BEGIN and END lines.
+threads, no wakeups). `getrusage` CPU has tick granularity, so small CPU differences are noise.
 
 ## Tried and not used
 

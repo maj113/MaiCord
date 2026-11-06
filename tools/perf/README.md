@@ -1,9 +1,4 @@
-# Performance benchmarks
-
-Opt-in micro-benchmarks (`benchmarks/`, `tests/bench`, targets in `cmake/benchmarks.cmake`) run with `tools\benchmark_<name>.ps1` where
-a driver parses their output (text, glyph, compression, event pump, ...), and with `tools\benchmark.ps1 -Target <MaiCord...Benchmark>
-[-Samples N]` for every other target, which prints the `name=value` lines the benchmark writes. The Linux size policy's measurements
-(`cmake/size_policy.cmake`) used these sources built for Linux.
+# Performance probe
 
 ## Offline workload
 
@@ -184,7 +179,7 @@ test suite never asserts them.
 
 ## Probe windows
 
-Benchmarks and probes run while someone uses the same desktop, so every window they
+Probes run while someone uses the same desktop, so every window they
 open stays out of the way (`probe_window.hpp`). MaiCordPerfProbe's client window,
 MaiCordUiProbe (including the GPU, resize-pacing and render probes it hosts) and the
 composer, logout and scoped-read UI probes are created with

@@ -304,7 +304,6 @@ src/platform/      per-system services: desktop, net (TLS), crypto, audio,
                    (accessibility), dbus, font, time
 tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
                    support/, fixtures/, generated/ data and integration/ probes
-benchmarks/        opt-in benchmarks
 samples/           example plugins (plugins/) and background effects (effects/)
 cmake/             build modules included by CMakeLists.txt
 config/            application manifest and resource scripts

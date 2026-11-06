@@ -50,6 +50,5 @@ include(cmake/reference_tools.cmake)    # opt-in: MAICORD_BUILD_FONT_REFERENCE
 # Temporary and opt-in targets.
 include(cmake/tests.cmake)              # MAICORD_BUILD_TESTS (tools/build.ps1 -Test)
 include(cmake/perf_probe.cmake)         # MAICORD_BUILD_PERF_PROBE (tools/build.ps1 -PerfProbe)
-include(cmake/benchmarks.cmake)         # MAICORD_BUILD_BENCHMARKS (tools/benchmark_*.ps1)
-include(cmake/integration.cmake)        # MAICORD_BUILD_INTEGRATION_TESTS (tools/probe_*.ps1)
+include(cmake/integration.cmake)        # MAICORD_BUILD_INTEGRATION_TESTS (tools/probe_network.ps1, tools/opus_conformance.ps1)
 include(cmake/build_outputs.cmake)      # transient ownership for runtime-only cleanup

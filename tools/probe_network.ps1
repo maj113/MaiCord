@@ -1,13 +1,13 @@
 #requires -Version 5.1
 # Builds one opt-in network probe (cmake/integration.cmake) under the shared build mutex, audits it, runs it -Samples
-# times against the live endpoints and prints every sample with the medians and maxima. tools/benchmark_session.ps1
+# times against the live endpoints and prints every sample with the medians and maxima. tools/target_session.ps1
 # owns the build, mutex and cleanup.
 param(
     [Parameter(Mandatory)][ValidateSet('tls', 'tls-stream', 'tls-resume', 'rest', 'rest-async', 'cdn')][string]$Probe,
     [ValidateRange(1, 20)][int]$Samples = 5
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
+. (Join-Path $PSScriptRoot 'target_session.ps1')
 
 # Fields: the probe's key=value output names and the columns they fill. Median and Maximum: the columns summarised,
 # as Column or SummaryName=Column.
@@ -46,7 +46,7 @@ $probes = @{
 }
 $spec = $probes[$Probe]
 
-Invoke-BenchmarkTarget -Target $spec.Target -Label "MaiCord $($spec.Label)" -CMakeArguments '-DMAICORD_BUILD_INTEGRATION_TESTS=ON' -Run {
+Invoke-OptInTarget -Target $spec.Target -Label "MaiCord $($spec.Label)" -Run {
     param($binary)
     & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary
     $rows = @(for ($sample = 1; $sample -le $Samples; $sample++) {

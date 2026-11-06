@@ -6,11 +6,11 @@ param(
 )
 
 # Decodes the official Opus test vectors with the shipping decoder: range coder
-# state, opus_compare quality and pinned PCM hashes (benchmarks/opus_conformance.cpp).
-# The archive is checked against its pinned SHA-256 and parsed in memory, never
-# extracted. tools/benchmark_session.ps1 owns the build, mutex and cleanup.
+# state, opus_compare quality and pinned PCM hashes (tests/integration/opus_conformance.cpp, a target of
+# cmake/integration.cmake). The archive is checked against its pinned SHA-256 and parsed in memory, never
+# extracted. tools/target_session.ps1 owns the build, mutex and cleanup.
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
+. (Join-Path $PSScriptRoot 'target_session.ps1')
 $url = 'https://opus-codec.org/docs/opus_testvectors-rfc8251.tar.gz'
 $sha256 = '6B26A22F9BA87B2B836906A9BB7AFEC5F8E54D49553B1200382520EE6FEDFA55'
 $download = $null
@@ -20,7 +20,7 @@ if (-not $Archive) {
     $Archive = Join-Path $download 'opus_testvectors-rfc8251.tar.gz'
 }
 
-Invoke-BenchmarkTarget -Target 'MaiCordOpusConformance' -Label 'Opus conformance' -Prepare {
+Invoke-OptInTarget -Target 'MaiCordOpusConformance' -Label 'Opus conformance' -Prepare {
     if ($download) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $url -OutFile $Archive -UseBasicParsing

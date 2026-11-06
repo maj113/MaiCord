@@ -209,7 +209,7 @@ target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET}
 set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 # Linux only: the CELT encoder, decoder, band, pitch and LPC code are the largest -O2 units. Without loop unrolling
-# they are 25 KB smaller; the Linux build of benchmarks/opus_benchmark.cpp (best of nine runs, perf stat) measured the
+# they are 25 KB smaller; the Linux build of the former Opus benchmark (best of nine runs, perf stat) measured the
 # CELT encode 0.3-1.4% and the decode within 0.6% longer, 0.6% more instructions, the PCM and packets bit-identical.
 # -Os on the same files saves 39 KB and made the CELT encode 18% slower, so they keep -O2 (cmake/size_policy.cmake).
 if(NOT CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")

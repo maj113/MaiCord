@@ -1,6 +1,6 @@
 // Native text engine against DirectWrite (MaiCordNativeAppLineTests). The modes
 // registered in cmake/test_registry.cmake are the suite. Manual modes, not run by it:
-//   benchmarks  --devanagari-bench (tools/benchmark_devanagari.py)
+//   benchmarks  --devanagari-bench
 //   dumps for external comparison  --inspect (the registered
 //     --bidi-range-check is the quiet form of the bidi range dump)
 //   exhaustive variants  --matrix-batch (the union of the registered --matrix-profile 0-4, which

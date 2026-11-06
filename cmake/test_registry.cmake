@@ -1332,11 +1332,6 @@ maicord_test(MaiCordFontFamilyTests ENTRY maicord_font_candidates_entry SOURCES 
     LIBS maicord_core maicord_font kernel32
     DEFINES MAICORD_FONT_FAMILY=1
     TIMEOUT 10 LABELS native-text-font-family TEST maicord_native_font_family)
-# The family test also runs basic() and guards(). Keep the direct-candidates
-# executable for tools/font_reference/font_candidates_compare.py's manual API
-# comparison, but do not compile or run its identical no-argument CTest case.
-maicord_test(MaiCordFontCandidatesTests ENTRY maicord_font_candidates_entry SOURCES tests/text/fonts/candidates_test.cpp
-    LIBS maicord_core maicord_font kernel32)
 maicord_font_test(MaiCordFontMatchTests maicord_font_match_entry text/fonts/match_test TEST maicord_native_font_match)
 maicord_font_test(MaiCordFontNamesTests maicord_font_names_entry text/fonts/names_test TIMEOUT 2
     LABELS native-text-font-names TEST maicord_native_font_names)
@@ -1894,8 +1889,7 @@ maicord_ui_probe_test(maicord_hangul_render_probe HANGUL_RENDER_PROBE TIMEOUT 15
 maicord_ui_probe_test(maicord_standard_render_probe STANDARD_RENDER_PROBE TIMEOUT 15 LABELS native-text-render
     RESOURCE_LOCK native_gpu)
 # Wrapped profile geometry for each script's samples. The same gates write
-# frames that tools/verify_hangul_render.py and tools/verify_tamil_render.py
-# check pixel by pixel when MAICORD_UI_PROBE_CAPTURE_DIR is set.
+# frames when MAICORD_UI_PROBE_CAPTURE_DIR is set.
 foreach(maicord_render_script IN ITEMS TIBETAN MYANMAR KHMER SINHALA MALAYALAM KANNADA TELUGU ODIA GURMUKHI
         GUJARATI BENGALI TAMIL THAI)
     string(TOLOWER "maicord_${maicord_render_script}_wrap_render_probe" maicord_render_test)

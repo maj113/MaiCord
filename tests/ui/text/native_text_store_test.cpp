@@ -1,5 +1,5 @@
 // Native text store. No argument runs the suite; --oracle-data keeps the detailed CSV
-// oracle that tools/verify_native_tsf.py consumes (manual).
+// oracle (manual).
 #include "../../support/tsf_composition_fixture.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
 #include "maicord/ui/text/text.hpp"
@@ -104,7 +104,7 @@ bool configure_output() noexcept {
         ++argument;
     if (!*argument)
         return true;
-    // --oracle-data retains the detailed CSV oracle consumed by verify_native_tsf.py.
+    // --oracle-data retains the detailed CSV oracle.
     const bool option_quoted = *argument == L'"';
     if (option_quoted)
         ++argument;

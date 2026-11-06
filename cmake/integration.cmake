@@ -1,7 +1,8 @@
-# Opt-in network probes against the live service endpoints (TLS, REST, Gateway,
-# CDN, voice UDP). tools/probe_network.ps1 measures the TLS, REST and CDN ones;
-# the others run by hand. They never run in the test suite.
-option(MAICORD_BUILD_INTEGRATION_TESTS "Build opt-in network integration probes" OFF)
+# Opt-in network probes against the live service endpoints (TLS, REST, CDN) and the
+# Opus decoder conformance run. tools/probe_network.ps1 measures the probes and
+# tools/opus_conformance.ps1 runs the conformance vectors. They never run in the
+# test suite.
+option(MAICORD_BUILD_INTEGRATION_TESTS "Build opt-in network probes and the Opus conformance run" OFF)
 if(NOT MAICORD_BUILD_INTEGRATION_TESTS)
     return()
 endif()
@@ -21,14 +22,14 @@ maicord_program(MaiCordTlsStreamProbe ENTRY maicord_tls_stream_probe_entry
 maicord_program(MaiCordTlsResumeProbe ENTRY maicord_tls_resume_probe_entry
     SOURCES tests/integration/tls_resume_probe.cpp
     LIBS maicord_core maicord_platform kernel32 ${maicord_tls_libs})
-maicord_program(MaiCordVoiceSocketProbe ENTRY maicord_voice_socket_probe_entry
-    SOURCES tests/integration/voice_socket_probe.cpp
-    LIBS maicord_app_core maicord_core maicord_platform maicord_protocol kernel32 ${maicord_tls_libs})
 maicord_program(MaiCordCdnClientProbe ENTRY maicord_cdn_client_probe_entry
     SOURCES tests/integration/cdn_client_probe.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_codec kernel32 ${maicord_tls_libs})
-maicord_program(MaiCordLottieCdnProbe ENTRY maicord_lottie_cdn_probe_entry
-    SOURCES tests/integration/lottie_cdn_probe.cpp
-    LIBS maicord_core maicord_platform maicord_app_core maicord_media_core kernel32 ${maicord_tls_libs})
-# The Windows resource probe stays an optimized native object outside LTCG.
-set_target_properties(MaiCordLottieCdnProbe PROPERTIES MAICORD_NO_WHOLE_PROGRAM ON)
+
+# The official RFC 6716/8251 test vectors through the shipping decoder. It compiles
+# against the SDK (MAICORD_SDK_INCLUDES) for bcrypt's SHA-256.
+maicord_program(MaiCordOpusConformance ENTRY maicord_opus_conformance_entry
+    SOURCES tests/integration/opus_conformance.cpp
+    LIBS maicord_core maicord_media_codec maicord_opus_decoder kernel32 bcrypt
+    INCLUDES tests third_party/opus/include)
+set_target_properties(MaiCordOpusConformance PROPERTIES MAICORD_SDK_INCLUDES ON)

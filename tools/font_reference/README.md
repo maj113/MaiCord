@@ -1,12 +1,14 @@
 # Font and text reference tools
 
-QA tools that compare MaiCord's first-party font, layout and COLR code with
-Windows (DirectWrite, Direct2D) and fontTools. None ships. `maicord_font` and
-the native test targets link first-party libraries and `kernel32` only.
+Windows (DirectWrite) oracles and fontTools generators that produce the data
+compiled into the client under `src/**/generated` and the committed
+`tests/generated` fixtures, and compare MaiCord's first-party font and COLR code
+with Windows. None ships. `maicord_font` and the native test targets link
+first-party libraries and `kernel32` only.
 
 - C++ oracles (`MaiCord*Reference`) record what DirectWrite does.
-- Python generators and comparers (`*_oracle.py`, `make_*.py`) build first-party
-  fixture fonts, drive the oracles and write corpora for the native tests
+- Python generators (`*_oracle.py`, `*_fixture.py`) build first-party fixture
+  fonts, drive the oracles and write corpora for the native tests
   (`MaiCord*Tests`). They need fontTools and run from the repository root.
 
 ## Conventions
@@ -132,29 +134,22 @@ tested by synthetic native tests only) and rendered pixels.
 - Prepared views borrow immutable mapping storage; callers keep it alive and do
   not fabricate or mutate views.
 
-## Fixture generators
+## Fixture generator
 
 ```powershell
-python tools/font_reference/make_outline_fixture.py <scratch-directory>
 python tools/font_reference/make_cff_fixture.py <scratch-directory>
 ```
 
-- `make_outline_fixture.py` writes `outline-1000.ttf` and `outline-2048.ttf`
-  (units/em in the name).
-- `make_cff_fixture.py` writes `cff-canonical.otf`, `cff-rounded.otf`,
-  `cff-scale.otf`, `cff-inverse.otf`, `cff-inverse2.otf` and `cff-affine.otf`
-  (different FontMatrix values; Windows rejects the affine one, so the probe exits
-  6 for it). `--expanded` adds flex/equivalent-cubic and stress pairs and
-  `cff-small.otf`, `cff-third.otf`, `cff-scale107.otf`.
-- `tools/colr_reference/make_fixture.py` generates further COLRv1 paint cases
-  (`tools/colr_reference/README.md`).
+`make_cff_fixture.py` writes `cff-canonical.otf`, `cff-rounded.otf`, `cff-scale.otf`,
+`cff-inverse.otf`, `cff-inverse2.otf` and `cff-affine.otf` (different FontMatrix
+values; Windows rejects the affine one, so the probe exits 6 for it). `--expanded` adds
+flex/equivalent-cubic and stress pairs and `cff-small.otf`, `cff-third.otf`,
+`cff-scale107.otf`.
 
-## COLR, variation and axis comparisons
+## COLR and variation comparison
 
 ```powershell
 MaiCordFontReference.exe <font-path> > <native-log>
-python tools/font_reference/color_table_oracle.py <font-path> --native-log <native-log>
-python tools/font_reference/make_color_fixture.py <scratch-directory>/all-formats.ttf
 ```
 
 The probe validates each native paint graph, compares palette bytes and COLRv1
@@ -162,32 +157,10 @@ roots with DirectWrite, and emits an FNV-1a digest (`color_value_hash`) of decod
 paint fields, clip boxes and color stops (variable fields and indices stay raw):
 a structural diagnostic, not a pixel comparison.
 
-- `color_table_oracle.py <font> [--native-log <log>] [--output <json>]
-  [--variations]` is the independent fontTools parser. It prints JSON and, with
-  `--native-log`, exits 1 on a digest mismatch.
-- `make_color_fixture.py <output.ttf>` writes a reproducible variable COLRv1 font
-  (all 32 paint formats, both clip-box formats). Options: `--variation-stress`
-  (second axis, interacting regions), `--empty-index-map` (an encoded empty map is
-  the identity), `--avar-remap`, `--map-last-active` (requires
-  `--variation-stress`; the last map entry carries real deltas) and
-  `--outline-variation` (gvar outlines).
-
-### Variation resolution
-
-```powershell
-python tools/font_reference/make_color_fixture.py <scratch>/all-formats.ttf
-python tools/font_reference/make_color_fixture.py <scratch>/variation-stress.ttf --variation-stress
-python tools/font_reference/make_color_fixture.py <scratch>/empty-index-map.ttf --empty-index-map
-MaiCordFontReference.exe <font-path> > <native-log>
-python tools/font_reference/color_table_oracle.py <font-path> --native-log <native-log> --variations
-```
-
 With a COLR ItemVariationStore the probe resolves the normalized grid -1, -.75,
 -1/3, -.25, 0, .125, 1/3, .5, .875, 1: ten instances for one axis, 100 for two
-(axis zero varies fastest). The QA grid supports at most two axes (the native
-evaluator has no such limit); `--variations` compares the probe's
-`variation_sample=` / `variation_value_hash=` rows with fontTools'
-`VarStoreInstancer`. The probe also creates Windows instances through
+(axis zero varies fastest) and writes its `variation_sample=` /
+`variation_value_hash=` rows. The probe also creates Windows instances through
 `IDWriteFontResource` (same float axis requests) and compares clip rectangles,
 root-solid alpha and root-gradient stop position and alpha, with foreground white
 and palette zero; more than two axes or avar v2 are unsupported here.
@@ -203,27 +176,14 @@ and palette zero; more than two axes or avar v2 are unsupported here.
   encoded radial radii, and `VarScaleAroundCenter` with nonuniform scale where
   both center deltas change X.
 - `standard` keeps fractional deltas, clamps opacity and keeps correct
-  center/radius semantics; it is compared with fontTools.
-
-### Native axis normalization
-
-```powershell
-python tools/font_reference/make_color_fixture.py <scratch>/avar-remap.ttf --avar-remap
-python tools/font_reference/make_color_fixture.py <scratch>/avar-stress.ttf --variation-stress --avar-remap
-MaiCordFontReference.exe <font-path> > <native-log>
-python tools/font_reference/axis_oracle.py <font-path> --native-log <native-log>
-```
+  center/radius semantics.
 
 `text/fonts/axes.cpp` normalizes through fvar and avar v1 over immutable byte views and
 caller-owned arrays. Missing required avar anchors disable that axis's map, invalid
 ordering is rejected, and avar v2 returns unsupported (not treated as v1). Default
 precision rounds to 16.16, separate 2.14 outputs serve feature conditions, and
 paint-reader mode keeps float user inputs before normalization. The probe emits
-per-axis requested float bits, biased 16.16 results and biased 2.14 conditions;
-`axis_oracle.py` recomputes them with exact Python fractions from independently
-parsed fvar/avar, requires every grid record, rejects duplicate or missing results,
-prints JSON and exits 0 on a match, 1 otherwise. Established for COLR reader values
-only.
+per-axis requested float bits, biased 16.16 results and biased 2.14 conditions.
 
 ### Paint-program comparisons
 
@@ -241,7 +201,6 @@ paint resolution.
 ```powershell
 MaiCordFontReference.exe <font-path> --native-source
 MaiCordFontReference.exe <font-path> --native-source-grid
-python tools/font_reference/make_color_fixture.py <scratch>/map-last-active.ttf --variation-stress --map-last-active
 ```
 
 `--native-source` replaces the adapter with `colr_source_begin` plus native
@@ -253,7 +212,7 @@ whole programs at each selected Windows variation instance at 32 pixels/em.
 `--native-source-grid` uses all ten sizes. Without either option the adapter grid
 runs and the native default-program check uses 32 pixels/em. A corpus match does
 not prove all floating-point inputs or all Windows or hardware versions; executed
-GPU pixels are compared by `MaiCordColrReference` (`tools/colr_reference/README.md`).
+GPU pixels are not compared here.
 
 ## OpenType layout table oracles
 
@@ -263,27 +222,14 @@ native code produces expectations. Native verifiers do not execute substitutions
 or positioning unless stated.
 
 `layout_table_oracle.py` (`MCOTCM1`) covers Coverage, ClassDef, Device and
-VariationIndex subtables; `make_layout_fixtures.py` writes synthetic records in the
-same format. The oracle also writes `<out>.json` (fonts, subtables, hashes) whose
-`fonts` list is the `--font-manifest` of the oracles below (the examples call it
-`layout-corpus.json`).
+VariationIndex subtables. The oracle also writes `<out>.json` (fonts, subtables,
+hashes) whose `fonts` list is the `--font-manifest` of the oracles below (the
+examples call it `layout-corpus.json`).
 
 ```powershell
 python tools/font_reference/layout_table_oracle.py --out corpus.bin <font.ttf> <font.otf> <collection.ttc>
-python tools/font_reference/make_layout_fixtures.py --out synthetic.bin
 cmake --build <build> --config Release --target MaiCordLayoutTableTests
 MaiCordLayoutTableTests.exe corpus.bin
-MaiCordLayoutTableTests.exe synthetic.bin
-```
-
-`gdef_oracle.py` (`MCGDEF2`) covers GDEF classes, mark sets, variation-store
-metadata and filter decisions, plus synthetic tables;
-manifest hashes and glyph counts must match.
-
-```powershell
-python tools/font_reference/gdef_oracle.py --font-manifest layout-corpus.json --out gdef-corpus.bin
-cmake --build <build> --config Release --target MaiCordGdefTests
-MaiCordGdefTests.exe gdef-corpus.bin
 ```
 
 `layout_directory_oracle.py` (`MCLDIR1`) covers GSUB/GPOS script, language,
@@ -297,16 +243,6 @@ cmake --build <build> --config Release --target MaiCordLayoutDirectoryTests
 MaiCordLayoutDirectoryTests.exe directory-corpus.bin
 ```
 
-`gsub_oracle.py` (`MCGSUB1`) covers single, multiple, alternate and ligature
-substitution matching; a Python evaluator applies decoded ligature rules and GDEF
-filters.
-
-```powershell
-python tools/font_reference/gsub_oracle.py --font-manifest layout-corpus.json --out gsub-corpus.bin
-cmake --build <build> --config Release --target MaiCordGsubTests
-MaiCordGsubTests.exe gsub-corpus.bin
-```
-
 `context_oracle.py` (`MCCTX1`) covers GSUB/GPOS contextual, chaining and reverse
 matching (input positions, ordered nested actions, feature-range boundaries,
 prepared-storage needs); standalone fixtures cover formats absent from real fonts.
@@ -315,19 +251,6 @@ Nested lookups are not executed.
 ```powershell
 python tools/font_reference/context_oracle.py --font-manifest layout-corpus.json --out context-corpus.bin --fixture-header tests/generated/context_fixture.inc
 cmake --build <build> --config Release --target MaiCordContextTests
-MaiCordContextTests.exe context-corpus.bin
-```
-
-`MaiCordGlyphBufferTests` (no corpus) compares full-record edits with a flat-array
-model, including index and boundary maps, failure atomicity and a streaming
-expansion copy count (an operation count, not a timing). `MaiCordGsubTests` and
-`MaiCordContextTests` also test every input split with strided records around a
-poisoned gap through `tests/text/opentype/glyph_view_check.hpp`.
-
-```powershell
-cmake --build <build> --config Release --target MaiCordGlyphBufferTests MaiCordGsubTests MaiCordContextTests
-MaiCordGlyphBufferTests.exe
-MaiCordGsubTests.exe gsub-corpus.bin
 MaiCordContextTests.exe context-corpus.bin
 ```
 
@@ -534,12 +457,6 @@ The binary also has the modes `hit-layout`, `edit-layout`, `font-metrics`,
 `metric-cost`, `ranges`, `range-profile` and `range-interior`, not covered here.
 Exit 0 success, 1 failure, 2 bad arguments.
 
-`maicord_scope_audit.py --repo <repo> --out <scope.json>` is a read-only inventory
-of MaiCord's font choices (the `text_fonts` table in
-`src/render/d3d11/renderer_text.cpp`), call sites, bundled font formats and axes,
-and registry entries for selected system fonts (`winreg`: Windows only). It does
-not prove runtime fallback-face coverage.
-
 `lookup_plan_oracle.py` (`MCPLN03`) generates first-party fonts for the two
 MaiCord typography modes (default and independent-letter) and records full
 `TextAnalyzer` shaping and `TextLayout` output (`layout`); `layout-differences.json`
@@ -567,11 +484,8 @@ MaiCordNominalParticipationTests.exe <font-file>
 ```
 
 The font-file mode emits a combined GSUB/GPOS bitmap and status using the native
-source-character bitmap, so `nominal_app_fonts.py` can compare actual app faces.
-`nominal_cmap_probe.py <source> <out> --exe <reference> [--native <test exe>]
-[--ligature]` isolates cmap effects with lookup data fixed. Table participation
-alone is insufficient: cmap-dependent context pruning, Unicode eligibility and
-FeatureVariations also decide eligibility.
+source-character bitmap. Table participation alone is insufficient: cmap-dependent
+context pruning, Unicode eligibility and FeatureVariations also decide eligibility.
 
 `nominal_scalar_oracle.py` builds neutral first-party cmap 12/13 fonts mapping all
 valid BMP scalars to one glyph, with no layout tables. The reference's
@@ -579,14 +493,12 @@ valid BMP scalars to one glyph, with no layout tables. The reference's
 cmap formats and two glyph IDs must agree. The profile is calibrated to the
 recorded Windows reference, not to general Unicode property data.
 `sfnt_nominal_sources` walks native cmap ranges to build the reachable-glyph
-bitmap, which prunes impossible format-3 contexts and ligatures. `<scope.json>` is
-the `maicord_scope_audit.py` output.
+bitmap, which prunes impossible format-3 contexts and ligatures.
 
 ```powershell
 python tools/font_reference/nominal_scalar_oracle.py <output>/scalars --exe <bin>/MaiCordFeaturePlanReference.exe --header src/text/unicode/generated/nominal_scalar_data.inc --test-header tests/generated/nominal_scalar_fixture.inc
 cmake --build <build> --config Release --target MaiCordNominalSourcesTests MaiCordNominalParticipationTests
 MaiCordNominalSourcesTests.exe
-python tools/font_reference/nominal_app_fonts.py --scope <scope.json> --native <bin>/MaiCordNominalParticipationTests.exe --reference <bin>/MaiCordFeaturePlanReference.exe --out <output>/app-printable.json --ascii-printable
 ```
 
 `nominal_variations_oracle.py` (`MCNVAR1`) creates first-party variable fonts and
@@ -600,7 +512,6 @@ eligibility bitmap is shared across both weights. No general range segmentation.
 python tools/font_reference/nominal_variations_oracle.py <output> --exe <bin>/MaiCordFeaturePlanReference.exe --header tests/generated/nominal_variations_fixture.inc
 cmake --build <build> --config Release --target MaiCordNominalVariationsTests
 MaiCordNominalVariationsTests.exe
-python tools/font_reference/nominal_app_fonts.py --scope <scope.json> --native <bin>/MaiCordNominalParticipationTests.exe --reference <bin>/MaiCordFeaturePlanReference.exe --out <output>/app-printable.json --ascii-printable --variable-weights
 ```
 
 `metric_variations_oracle.py` (`MCVMET1`) records the `metrics` mode for first-party
@@ -689,35 +600,25 @@ These scripts support diagnostics and regression fixtures; they do not enable
 native bold in the renderer. Most take an output `<root>` directory first and
 `--exe <ref>` (`MaiCordFontReference.exe`); `--help` shows each script's arguments.
 
-- `bold_geometry_oracle.py`, `bold_direction_oracle.py`: synthetic-bold outlines
-  and contour-direction probes.
+- `bold_geometry_oracle.py`: synthetic-bold outlines and contour-direction probes.
 - `bold_app_points_oracle.py` (`--exe`, `--inventory`, `--analyse-existing`):
   native pre-simulation points and Windows bold outlines for app faces.
 - `bold_point_model.py <observations> --output <path>`: QA model of the bold
   scaler; not a provider.
-- `bold_preparation_oracle.py` (`--inventory <scope.json>`): bold-preparation
-  policy, in disposable QA processes.
 - `bold_orientation_oracle.py <root> --model <path> [--probes]`: per-contour
   Windows flags from disposable reference processes, never the app;
-  `orientation_first_party.py ... --output <path>` builds the native fixture and
-  `orientation_native_oracle.py ... --reference <path>` compares native
-  classification with the frozen flags.
-- `prep_instance_oracle.py ... --reference <path>`: native preparation policy
-  against frozen probes.
-- `bold_native_matrix.py ... --source <path> [--renderer]`: native bold and
-  bold-oblique outlines against Windows.
+  `orientation_first_party.py ... --output <path>` builds the native fixture.
 - `bold_outline_fixture.py ... --headers <two paths>`: nested, overlapping and
   reflected-component bold fixtures.
 
 ## Script analysis observers
 
-`script_analysis_reference.cpp`, `script_sequence_reference.cpp` and
-`script_font_reference.cpp` are not built by `cmake/reference_tools.cmake`
-or any other CMake file. Each defines its own entry point
-(`maicord_script_analysis_reference_entry`,
-`maicord_script_sequence_reference_entry`, `maicord_script_font_reference_entry`);
-the sequence and font sources include `script_analysis_reference.cpp`.
-All three use an isolated DirectWrite factory. Layouts are little-endian. A
+`script_analysis_reference.cpp` and `script_sequence_reference.cpp` are not built by
+`cmake/reference_tools.cmake` or any other CMake file. Each defines its own entry
+point (`maicord_script_analysis_reference_entry`,
+`maicord_script_sequence_reference_entry`); the sequence source includes
+`script_analysis_reference.cpp`.
+Both use an isolated DirectWrite factory. Layouts are little-endian. A
 packed script ID is the DirectWrite script index with `0x8000` set for
 `DWRITE_SCRIPT_SHAPES_NO_VISUAL`; `0xffff` marks an unobserved slot. Binary outputs
 end with a `u32` count and that many 20-byte `DWRITE_SCRIPT_PROPERTIES`. Scalars
@@ -732,15 +633,6 @@ are valid Unicode scalar values (no surrogates, at most `0x10ffff`).
   1,000,000), per case a scalar count (1 to 4096) and the scalars. Stdout echoes
   the header, then per case the count and one packed ID per scalar (en-US, left to
   right, no font selection). Exit 0 or 1.
-- `script_font_reference <font>`: stdin `SFP1` (`0x31504653`) or `SFP2`
-  (`0x32504653`) and a case count (1 to 100000); per case a scalar count (1 to 64),
-  an RTL flag (0 or 1), for `SFP2` a feature count (up to 32) and that many
-  `DWRITE_FONT_FEATURE` (tag, value), then the scalars. Stdout echoes the header,
-  then per case UTF-16 length, glyph count, the `GetGlyphs` and
-  `GetGlyphPlacements` HRESULTs, packed IDs per UTF-16 unit and, when they
-  succeeded, cluster map, text properties, glyph IDs, glyph properties, advances
-  and offsets (size 1000, en-US). The font must hold exactly one face and each case
-  must resolve to one script run. Exit 0, 1 failure, 2 bad font argument.
 
 `script_fixtures.py` turns these observations and a Unicode dump into a compact
 compatibility table and standalone native replay fixtures:
@@ -758,28 +650,3 @@ with `MCUCD17\0` or `MCUCDS1\0`; other layouts are rejected, including the
 `MaiCordScriptTests.exe <classes.bin|contexts.bin|resolved.bin>` replays one
 generated file against the native script classes and resolution (no argument: the
 built-in checks) and asserts that `dwrite.dll` is not loaded.
-
-## Application text boundary
-
-`MaiCordAppTextBoundary` (`app_text_boundary.cpp`) observes MaiCord's real
-profile, style, emoji and fallback path (`renderer_text_system`,
-`text_shape_utf8`) without a window or graphics device. It uses synthetic
-public-script samples only, never user messages. The font inventory describes the
-host and the corpus; it is neither a native fallback implementation nor an
-exhaustive Unicode test.
-
-```powershell
-python tools/font_reference/app_text_boundary.py prepare <qa-root>
-python tools/font_reference/app_text_boundary.py capture <qa-root>
-python tools/font_reference/app_text_boundary.py summarize <qa-root>
-```
-
-- `prepare` writes `corpus.bin` and `corpus.json` into `<qa-root>`. `capture` runs
-  `MaiCordAppTextBoundary.exe` from `<qa-root>` on `corpus.bin` with a private
-  `LOCALAPPDATA`, writes `observations-<config>-<n>.jsonl` and
-  `capture-<config>-<n>.json` (exit code, stderr, hashes) and asserts exit 0.
-  `summarize` (needs fontTools) writes `summary-<config>-<n>.json`.
-- `--config Release|Debug` (default Release) and `--repeat <n>` (default 1) name
-  the outputs, so other values keep independent captures.
-- Application errors are recorded as case results: a successful capture exit
-  means the observation completed, not that every app case succeeded.

@@ -12,9 +12,6 @@ The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`,
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_compat
 ```
 
-The corpus and Windows comparisons below run the executables directly.
-`MaiCordBidiReference` and `MaiCordLineBreakReference` are DirectWrite oracles
-built with `-DMAICORD_BUILD_FONT_REFERENCE=ON` (`cmake/reference_tools.cmake`).
 Unicode conformance does not establish DirectWrite or app parity (layout,
 carets, pixels).
 
@@ -98,69 +95,9 @@ policy are outside it; source text is never changed.
 - `auto_rtl` is a higher-level paragraph fallback; FSI keeps its normative LTR
   fallback when its contents have no eligible strong character.
 
-### Official suites
-
-```powershell
-python tools/unicode/generate_bidi_tests.py --ucd <UCD.zip> --schema <generation.json> --output <corpus.bin> --report <corpus.json>
-MaiCordBidiTests.exe <corpus.bin>
-```
-
-The generator transcribes `BidiTest.txt` and `BidiCharacterTest.txt` without
-implementing any bidi algorithm. The executable compares levels, the visual
-index list and the paragraph level where given. Truncation and cases over the
-512-scalar QA buffer (not an engine limit) fail. Without a corpus argument only
-unit, stress and invariant checks run, so CTest alone does not establish
-conformance.
-
-### Installed DirectWrite comparison
-
-`MaiCordBidiReference` first checks the native results against the official
-vectors, then compares every character case with the installed Windows analyzer
-and with no-wrap layout hit-test levels. Abstract class cases are skipped. Auto
-cases pass the native base level to Windows, which exposes only a forced
-paragraph direction.
-
-```powershell
-MaiCordBidiReference.exe <corpus.bin> > comparison.csv
-python tools/unicode/summarize_bidi_reference.py comparison.csv --character-tests <BidiCharacterTest.txt> --out results.json --require-exact
-python tools/unicode/make_bidi_supplementary.py --character-tests <BidiCharacterTest.txt> --out supplementary.bin
-MaiCordBidiReference.exe supplementary.bin > supplementary.csv
-python tools/unicode/summarize_bidi_reference.py supplementary.csv --character-tests <BidiCharacterTest.txt> --out supplementary-results.json --supplementary --require-exact
-```
-
-- Check the executable's exit code before accepting its CSV. The summarizer
-  rejects incomplete or duplicate cases and inconsistent counters; with
-  `--require-exact` it exits 2 when a difference was captured.
-- The supplementary corpus replaces selected L, R and ON characters with
-  supplementary-plane ones and keeps the published expected vectors. It is
-  synthetic, not official conformance data.
-- `candidate_levels` and `candidate_diff` record the tailored profile
-  (`bidi_resolve_tailored`) that message layout uses. The public resolver stays
-  Unicode 17, and these columns do not change the strict parity result.
-
-Exploratory bracket probes use the `MCBIDIP` format. The CSV marks them
-`has_expected=0` and the official summarizer rejects them: they record Windows
-observations, and no native model supplies expected answers.
-
-```powershell
-python tools/unicode/bracket_probes.py generate --ucd <UCD.zip> --out probes.bin
-MaiCordBidiReference.exe probes.bin > probes.csv
-python tools/unicode/bracket_probes.py summarize probes.csv --manifest probes.json --out probe-results.json
-```
-
-`summarize` also writes `probe-results-failures.json` next to `--out`. To reduce
-captured failures, use a frozen oracle binary and keep the output directory;
-`--previous-oracle` keeps only regressions (the previous candidate matched
-Windows):
-
-```powershell
-python tools/unicode/reduce_bidi_probes.py --failures probe-results-failures.json --oracle <frozen-oracle.exe> --out reduced --limit 32
-python tools/unicode/reduce_bidi_probes.py --failures regressions.json --oracle <new-frozen-oracle.exe> --previous-oracle <old-frozen-oracle.exe> --out new-regressions --limit 5
-```
-
-Results are deletion-minimal, not globally minimal, and not Unicode expected
-outputs. Oracle identity and batch coverage are checked; when comparing two
-candidates, their Windows observations must agree.
+`MaiCordBidiTests` runs the unit, stress and invariant checks. The official
+`BidiTest.txt` and `BidiCharacterTest.txt` suites are not compiled into the
+repository, so CTest alone does not establish conformance.
 
 ## Line-break opportunities
 
@@ -173,41 +110,9 @@ linear pass with constant additional state; null input or short output leaves
 the output untouched. It is not a
 dictionary segmenter.
 
-```powershell
-python tools/unicode/generate_line_tests.py --ucd <UCD.zip> --output tests/generated/line_break_test.inc --report generation.json
-cmake --build <build> --config Release --target MaiCordLineBreakReference
-MaiCordLineBreakReference.exe > windows.csv
-```
-
-- The official `LineBreakTest.txt` cases are compiled into the QA binary.
-- `MaiCordLineBreakReference` records the raw before, after, whitespace and
-  soft-hyphen attributes of Windows at every UTF-16 unit, plus the tailored
-  output and its differences. With no argument it runs every official vector
-  (`has_expected=1`); given an `MCLBPRB1` probe file it reports independent probes
-  (`has_expected=0`). Check its exit code before using the CSV.
-
-```powershell
-python tools/unicode/line_probes.py generate --root <probe-root> --seed <integer>
-python tools/unicode/line_probes.py capture --root <probe-root> --exe <MaiCordLineBreakReference.exe>
-python tools/unicode/line_probes.py summarize --root <probe-root>
-```
-
-`generate` covers punctuation and mark contexts, seeded Latin and mixed-script
-text, arbitrary scalars, emoji, regional indicators, dictionary examples,
-property edges and selector chains, with no expected decisions. `summarize`
-validates the complete UTF-16 capture, adjacent-condition precedence, endpoints,
-native and default counters and surrogate interiors; dictionary differences are
-listed, not hidden.
-
-- `line_windows_corpus.py --root <probe-root> --ucd <UCD.zip>` writes the observed
-  Windows boundaries to `<root>/native-corpus.bin` (`MCWINLB1`). Dictionary cases
-  are excluded and listed; any other case where candidate and Windows differ is
-  rejected, so the observations must come from a Windows build whose line-break
-  data is Unicode 17.
-- `MaiCordLineTailoredTests` runs unit and stress checks and, given a corpus path,
-  replays it. It imports only KERNEL32.dll.
-
-QA caps: 256 scalars per case and 32 MiB per `MCLBPRB1` or `MCWINLB1` file.
+`MaiCordLineTailoredTests` runs unit and stress checks and imports only
+KERNEL32.dll. The official `LineBreakTest.txt` cases are not compiled into the
+repository.
 
 ## Thai word breaking data
 

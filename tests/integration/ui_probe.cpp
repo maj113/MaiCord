@@ -4,12 +4,10 @@
 // register a new gate there together with the code that adds it.
 //
 // Manual modes, deliberately not in the suite:
-//   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames that
-//     tools/verify_hangul_render.py, verify_tamil_render.py and
-//     verify_native_cjk_pixels.py check; MAICORD_CJK_PIXEL_* select their text.
+//   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames; MAICORD_CJK_PIXEL_* select their text.
 //   MAICORD_GLYPH_CACHE_METRICS, MAICORD_SCENE_MEMORY, MAICORD_SCENE_FONT_RESIDENCY,
-//     MAICORD_EMOJI_PAGE_CONTROL  measurement runs (tools/measure_*.py).
-//   MAICORD_SCROLL_BENCHMARK  benchmark (tools/benchmark_scroll.ps1).
+//     MAICORD_EMOJI_PAGE_CONTROL  measurement runs.
+//   MAICORD_SCROLL_BENCHMARK  scroll timing.
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
