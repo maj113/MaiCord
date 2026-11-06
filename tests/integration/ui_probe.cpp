@@ -16,6 +16,7 @@
 #include "ui_probe_internal.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/application_downloads_inactive.hpp"
+#include "../support/warp_device.hpp"
 #include "probe_draw_pipeline.hpp"
 #include "regional_flag_surfaces_probe.hpp"
 #include "inline_flags_probe.hpp"
@@ -4025,7 +4026,22 @@ bool probe_resize_surface(u32 width, u32 height) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_ui_probe_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run_probe()));
+    // MAICORD_UI_PROBE_WARP=1 (cmake/test_registry.cmake: the GPU hang reproductions): every device the probe makes,
+    // the renderer's included, is WARP with the debug layer where it is installed, so the case never reaches the
+    // hardware adapter; a debug-layer message other than NULL_TILE_MAPPING_ACCESS_WARNING fails it.
+    const bool warp = maicord::probe_option_enabled(L"MAICORD_UI_PROBE_WARP");
+    if (warp && !maicord::warp_device::install(true))
+        ExitProcess(2);
+    int result = maicord::run_probe();
+    if (warp) {
+        maicord::warp_device::report(+[](const char* text, maicord::u32 bytes) noexcept {
+            DWORD written = 0;
+            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, bytes, &written, nullptr);
+        });
+        if (!result && maicord::warp_device::failures())
+            result = 253;
+    }
+    ExitProcess(static_cast<UINT>(result));
 }
 
 namespace maicord::app_detail {

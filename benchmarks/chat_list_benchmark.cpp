@@ -36,6 +36,7 @@
 #include <intrin.h>
 
 #include "../tools/perf/perf_imports.hpp"
+#include "../tests/support/warp_device.hpp"
 #else
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/platform/window/pump.hpp"
@@ -616,44 +617,60 @@ struct FrameTimes {
 
 // --marks 0 runs without the GPU-call marks, to measure what they cost (the split fields are then absent).
 bool g_marks_enabled = true;
+// --warp 1 runs on WARP with the Direct3D 11 debug layer, never on the hardware adapter: the validation run of
+// tools/benchmark_chat_list.ps1 -Warp. Every debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it.
+bool g_warp = false;
 #if defined(_WIN32)
 // Where the CPU's part of a frame ends. renderer_present builds the paint stream, then uploads it (Map, Unmap,
 // UpdateSubresource), draws and presents, all inside one call; the first call of any of those into the immediate
 // context marks the end of the CPU's work (layout, shaping, glyph quads and the paint stream are complete) and the rest
-// is the GPU's part. The context's vtable is patched in this process only; nothing of the renderer changes.
-using ContextFunction = u64(__stdcall*)(void*, u64, u64, u64, u64, u64, u64);
-inline constexpr u32 kContextSlots[] = {12, 13, 14, 15, 20, 21, 41, 46, 47, 48, 50};
+// is the GPU's part. The context's vtable is patched in this process only; nothing of the renderer changes. The table
+// is the runtime's, shared by every caller in the process (the runtime's own included), so each hook has exactly its
+// method's parameters, derived from the method's declaration, and forwards them unchanged; it makes no Direct3D call.
 void* g_context_original[64]{};
 volatile u32 g_present_armed = 0;
 i64 g_gpu_mark = 0;
-template <u32 Slot> u64 __stdcall hook_context_call(void* context, u64 a, u64 b, u64 c, u64 d, u64 e, u64 f) noexcept {
-    if (g_present_armed && !g_gpu_mark && GetCurrentThreadId() == g_ui_thread)
-        g_gpu_mark = clock_now();
-    return reinterpret_cast<ContextFunction>(g_context_original[Slot])(context, a, b, c, d, e, f);
+template <u32 Slot, typename Method> struct ContextHook;
+template <u32 Slot, typename Result, typename... Parameters>
+struct ContextHook<Slot, Result (ID3D11DeviceContext::*)(Parameters...)> {
+    static Result STDMETHODCALLTYPE call(ID3D11DeviceContext* context, Parameters... parameters) noexcept {
+        if (g_present_armed && !g_gpu_mark && GetCurrentThreadId() == g_ui_thread)
+            g_gpu_mark = clock_now();
+        using Original = Result(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, Parameters...);
+        return reinterpret_cast<Original>(g_context_original[Slot])(context, parameters...);
+    }
+};
+template <u32 Slot, auto Method> void* context_hook() noexcept {
+    return reinterpret_cast<void*>(&ContextHook<Slot, decltype(Method)>::call);
 }
+struct ContextSlot {
+    u32 slot; // the method's index in the ID3D11DeviceContext vtable (d3d11.h)
+    void* hook;
+};
 void install_gpu_marks(ID3D11DeviceContext* context) noexcept {
     if (!g_marks_enabled)
         return;
+    const ContextSlot slots[] = {
+        {12, context_hook<12, &ID3D11DeviceContext::DrawIndexed>()},
+        {13, context_hook<13, &ID3D11DeviceContext::Draw>()},
+        {14, context_hook<14, &ID3D11DeviceContext::Map>()},
+        {15, context_hook<15, &ID3D11DeviceContext::Unmap>()},
+        {20, context_hook<20, &ID3D11DeviceContext::DrawIndexedInstanced>()},
+        {21, context_hook<21, &ID3D11DeviceContext::DrawInstanced>()},
+        {41, context_hook<41, &ID3D11DeviceContext::Dispatch>()},
+        {46, context_hook<46, &ID3D11DeviceContext::CopySubresourceRegion>()},
+        {47, context_hook<47, &ID3D11DeviceContext::CopyResource>()},
+        {48, context_hook<48, &ID3D11DeviceContext::UpdateSubresource>()},
+        {50, context_hook<50, &ID3D11DeviceContext::ClearRenderTargetView>()},
+    };
     void** table = *reinterpret_cast<void***>(context);
-    void* replacements[64]{};
-    replacements[12] = reinterpret_cast<void*>(&hook_context_call<12>);
-    replacements[13] = reinterpret_cast<void*>(&hook_context_call<13>);
-    replacements[14] = reinterpret_cast<void*>(&hook_context_call<14>);
-    replacements[15] = reinterpret_cast<void*>(&hook_context_call<15>);
-    replacements[20] = reinterpret_cast<void*>(&hook_context_call<20>);
-    replacements[21] = reinterpret_cast<void*>(&hook_context_call<21>);
-    replacements[41] = reinterpret_cast<void*>(&hook_context_call<41>);
-    replacements[46] = reinterpret_cast<void*>(&hook_context_call<46>);
-    replacements[47] = reinterpret_cast<void*>(&hook_context_call<47>);
-    replacements[48] = reinterpret_cast<void*>(&hook_context_call<48>);
-    replacements[50] = reinterpret_cast<void*>(&hook_context_call<50>);
-    for (const u32 slot : kContextSlots) {
+    for (const ContextSlot& entry : slots) {
         DWORD old = 0;
-        if (!VirtualProtect(&table[slot], sizeof(void*), PAGE_READWRITE, &old))
+        if (!VirtualProtect(&table[entry.slot], sizeof(void*), PAGE_READWRITE, &old))
             continue;
-        g_context_original[slot] = table[slot];
-        table[slot] = replacements[slot];
-        VirtualProtect(&table[slot], sizeof(void*), old, &old);
+        g_context_original[entry.slot] = table[entry.slot];
+        table[entry.slot] = entry.hook;
+        VirtualProtect(&table[entry.slot], sizeof(void*), old, &old);
     }
 }
 bool present_timed(FrameTimes* times) noexcept {
@@ -730,6 +747,10 @@ void pump_window() noexcept {
 // Waits for the swap chain's slot the way the client's loop does before it samples input, so the frame's own time
 // excludes the wait for the display.
 bool acquire_frame() noexcept {
+#if defined(_WIN32)
+    if (g_warp)
+        warp_device::drain();
+#endif
     pump_window();
     D3D11Renderer& r = g_f->renderer;
     if (gpu_frame_clock_waitable(&r.graphics.surface) && !r.begin_frame_permit) {
@@ -1124,6 +1145,8 @@ template <class C> void apply_arguments(Args* a, C* const* token, u32 count) noe
             a->profile = parse_number(token[i + 1]) != 0;
         else if (text_equals(token[i], "--marks"))
             g_marks_enabled = parse_number(token[i + 1]) != 0;
+        else if (text_equals(token[i], "--warp"))
+            g_warp = parse_number(token[i + 1]) != 0;
     }
 }
 Args parse_arguments() noexcept {
@@ -1527,6 +1550,9 @@ int run() noexcept {
     g_b.count = args.count;
 #if defined(_WIN32)
     g_ui_thread = GetCurrentThreadId();
+    // Before the renderer makes its device.
+    if (g_warp && !warp_device::install(true))
+        return 12;
 #else
     g_ui_thread = current_thread_id();
 #endif
@@ -1677,7 +1703,26 @@ int run() noexcept {
     field("gpu_submit_present_ms_p50", scroll.gpu_p50, 3);
     field("gpu_submit_present_ms_p95", scroll.gpu_p95, 3);
     field("gpu_submit_present_ms_p99", scroll.gpu_p99, 3);
+    if (g_warp) {
+        warp_device::drain();
+        const warp_device::State& debug = warp_device::g_state;
+        field("warp_devices", debug.devices, 0);
+        field("warp_devices_without_debug_layer", debug.undebugged, 0);
+        field("debug_corruption", static_cast<double>(debug.severity[D3D11_MESSAGE_SEVERITY_CORRUPTION]), 0);
+        field("debug_errors", static_cast<double>(debug.severity[D3D11_MESSAGE_SEVERITY_ERROR]), 0);
+        field("debug_warnings", static_cast<double>(debug.severity[D3D11_MESSAGE_SEVERITY_WARNING]), 0);
+        field("debug_null_tile_warnings", static_cast<double>(debug.allowed), 0);
+    }
 #endif
+    // The paged atlas surfaces' tile pools (memory_summary.cpp's list), at the end of the run.
+    const GpuPagedTexture* const surfaces[] = {f->renderer.media_gpu.surface,      f->renderer.media_gpu.preview_surface,
+                                               f->renderer.media_gpu.backup,       f->renderer.media_gpu.preview_backup,
+                                               f->renderer.animation_gpu.surface, f->renderer.preview_animation_gpu.surface,
+                                               f->renderer.glyph_text.gpu.surface};
+    u64 atlas_bytes = 0;
+    for (const GpuPagedTexture* surface : surfaces)
+        atlas_bytes += gpu_paged_texture_bytes(surface);
+    field("atlas_pool_kib", static_cast<double>(atlas_bytes >> 10), 0);
     field("dpi", f->renderer.dpi, 0);
     field("scene_rows", f->scene.count, 0);
     field("text_quads", f->text.quad_count, 0);
@@ -1696,7 +1741,17 @@ int run() noexcept {
 
 #if defined(_WIN32)
 extern "C" __declspec(noreturn) void WINAPI maicord_chat_list_benchmark_entry() noexcept {
-    ExitProcess(static_cast<UINT>(maicord::run()));
+    int code = maicord::run();
+    // --warp: the debug layer's messages, one line per kind, after the result line (or the failure); a device
+    // without the layer or any message but the allowed warning fails the run.
+    if (maicord::g_warp) {
+        maicord::warp_device::report(+[](const char* text, maicord::u32 bytes) noexcept {
+            maicord::write_stdout(text, bytes);
+        });
+        if (!code && (maicord::warp_device::g_state.undebugged || maicord::warp_device::failures()))
+            code = 40;
+    }
+    ExitProcess(static_cast<UINT>(code));
 }
 #else
 // The image links with --wrap=malloc,calloc,realloc (cmake/linux_benchmarks.cmake): its heap calls on the UI thread

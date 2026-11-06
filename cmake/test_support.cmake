@@ -262,14 +262,19 @@ function(maicord_indic_plan_tests script)
     maicord_add_tests(MaiCordDevanagariPlanTests TIMEOUT 5 LABELS native-text-${script}-plan ${rows})
 endfunction()
 
-# maicord_ui_probe_test(<test> <variable> [BOOTSTRAP] [<maicord_add_tests property>...])
+# maicord_ui_probe_test(<test> <variable> [BOOTSTRAP] [WARP] [<maicord_add_tests property>...])
 # MaiCordUiProbe with MAICORD_<variable>=1, the native bootstrap when
-# BOOTSTRAP is given.
+# BOOTSTRAP is given. WARP runs it on WARP with the Direct3D 11 debug layer
+# (tests/support/warp_device.hpp), never on the hardware adapter: GPU hang
+# reproductions take it.
 function(maicord_ui_probe_test test variable)
-    cmake_parse_arguments(PARSE_ARGV 2 ARG "BOOTSTRAP" "" "")
+    cmake_parse_arguments(PARSE_ARGV 2 ARG "BOOTSTRAP;WARP" "" "")
     set(environment MAICORD_${variable}=1)
     if(ARG_BOOTSTRAP)
         list(APPEND environment MAICORD_NATIVE_BOOTSTRAP_PROBE=1)
+    endif()
+    if(ARG_WARP)
+        list(APPEND environment MAICORD_UI_PROBE_WARP=1)
     endif()
     maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENV ${environment}
         TEST ${test})

@@ -1920,13 +1920,18 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
         UI_INLINE_FLAGS UI_RESIZE_TEXT
         UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_MESSAGE_HEADER_CLIP UI_PANE_GLYPH_STRESS
-        UI_PINNED_MESSAGES UI_PROFILE_MEDIA_SEQUENCE UI_QUICK_SWITCHER
+        UI_PINNED_MESSAGES UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")
     maicord_ui_probe_test(maicord_${maicord_ui_gate_name}_probe ${maicord_ui_gate}_PROBE BOOTSTRAP TIMEOUT 15
         LABELS native-ui display)
 endforeach()
+# The sequence that hung an AMD GPU when the tile pool shrank under queued writes (profile cards opened in the frame
+# of a member-list upload burst): a GPU hang reproduction, so it runs on WARP with the debug layer only, never on the
+# hardware adapter, and any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it.
+maicord_ui_probe_test(maicord_profile_media_sequence_ui_probe UI_PROFILE_MEDIA_SEQUENCE_PROBE BOOTSTRAP WARP TIMEOUT 15
+    LABELS native-ui display)
 # Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.

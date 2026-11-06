@@ -291,6 +291,18 @@ results) and `profile_chat_list.py` resolves the samples against the linker map 
 static or inlined helper is charged to the public symbol before it) into the share of busy time per module and per function. The
 one ntdll address holding most samples is the wait for the display and counts as idle.
 
+`cpu_frame_ms_*` and `gpu_submit_present_ms_*` split each scroll frame at the first call of the present into the immediate context
+(a draw, map, copy, update, clear or dispatch): before it, layout, text and the paint stream; after it, submission and `Present`.
+The mark comes from 11 slots of the context's vtable patched in the process (`--marks 0` leaves it alone and drops the fields). The
+table is the runtime's and shared by every caller, so each hook takes exactly its method's parameters (derived from the method's
+declaration) and forwards them unchanged. `atlas_pool_kib` is the tile-pool memory of the paged atlas surfaces at the end.
+
+`tools\benchmark_chat_list.ps1 -Warp [-Reps 1 -Seconds 2]` is a validation run, not a measurement: every process runs on WARP with
+the Direct3D 11 debug layer (`--warp 1`: `tests/support/warp_device.hpp` points the image's `D3D11CreateDevice` at WARP and
+drains the debug layer's messages every frame), never on the hardware adapter, and prints one `D3D11` line per message kind. A
+process fails (exit 40) on any message but `NULL_TILE_MAPPING_ACCESS_WARNING` (`src/render/README.md`) or when the debug layer is
+missing (Windows' Graphics Tools optional feature). It may run beside an open client.
+
 **Linux.** `tools/build_linux.sh --benchmarks --keep` also builds `MaiCordChatListBenchmark` (`cmake/linux_benchmarks.cmake`: the same
 source, the Wayland window service and the GLES backend, the message runtime's units compiled into the program), and
 `tools/benchmark_chat_list.py --binary <build>/MaiCordChatListBenchmark` runs it with the same medians and columns. It needs a

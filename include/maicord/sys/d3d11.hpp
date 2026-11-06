@@ -35,6 +35,7 @@ struct ID3D11DeviceContext3;
 struct ID3D11DeviceContext4;
 struct ID3D11DeviceContext;
 struct ID3D11Fence;
+struct ID3D11InfoQueue;
 struct ID3D11InputLayout;
 struct ID3D11Multithread;
 struct ID3D11PixelShader;
@@ -797,6 +798,7 @@ struct __declspec(uuid("db6f6ddb-ac77-4e88-8253-819df9bbf140")) __declspec(novta
     MAICORD_COM_UNUSED(GetExceptionMode);
 };
 enum D3D11_CREATE_DEVICE_FLAG {
+    D3D11_CREATE_DEVICE_DEBUG = 0x2,
     D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS = 0x8,
     D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20,
     D3D11_CREATE_DEVICE_VIDEO_SUPPORT = 0x800
@@ -908,6 +910,35 @@ struct __declspec(uuid("9B7E4E00-342C-4106-A19F-4F2704F689F0")) __declspec(novta
     virtual void __stdcall Enter() = 0;
     virtual void __stdcall Leave() = 0;
     virtual BOOL __stdcall SetMultithreadProtected(BOOL bMTProtect) = 0;
+};
+// <d3d11sdklayers.h>
+enum D3D11_MESSAGE_CATEGORY {
+    D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED = 0
+};
+enum D3D11_MESSAGE_SEVERITY {
+    D3D11_MESSAGE_SEVERITY_CORRUPTION = 0,
+    D3D11_MESSAGE_SEVERITY_ERROR = 1,
+    D3D11_MESSAGE_SEVERITY_WARNING = 2,
+    D3D11_MESSAGE_SEVERITY_INFO = 3,
+    D3D11_MESSAGE_SEVERITY_MESSAGE = 4
+};
+enum D3D11_MESSAGE_ID {
+    D3D11_MESSAGE_ID_NULL_TILE_MAPPING_ACCESS_WARNING = 3146131
+};
+struct D3D11_MESSAGE {
+    D3D11_MESSAGE_CATEGORY Category;
+    D3D11_MESSAGE_SEVERITY Severity;
+    D3D11_MESSAGE_ID ID;
+    const char* pDescription;
+    SIZE_T DescriptionByteLength;
+};
+struct __declspec(uuid("6543dbb6-1b48-42f5-ab82-e97ec74326f6")) __declspec(novtable) ID3D11InfoQueue : IUnknown {
+    virtual HRESULT __stdcall SetMessageCountLimit(UINT64 MessageCountLimit) = 0;
+    virtual void __stdcall ClearStoredMessages() = 0;
+    virtual HRESULT __stdcall GetMessage(UINT64 MessageIndex, D3D11_MESSAGE* pMessage, SIZE_T* pMessageByteLength) = 0;
+    MAICORD_COM_UNUSED(GetNumMessagesAllowedByStorageFilter);
+    MAICORD_COM_UNUSED(GetNumMessagesDeniedByStorageFilter);
+    virtual UINT64 __stdcall GetNumStoredMessages() = 0;
 };
 MAICORD_SYS_TYPES_END
 

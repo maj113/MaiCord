@@ -17,7 +17,11 @@ param(
     # One profiled run of the first size instead of the suite.
     [switch]$Profile,
     # Appended to every process's command line (for example "--marks 0").
-    [string]$ExtraArguments = ''
+    [string]$ExtraArguments = '',
+    # Validation instead of measurement: every process runs on WARP with the Direct3D 11 debug layer (never on the
+    # hardware adapter) and fails on any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING. Needs the Graphics
+    # Tools optional feature. Its frame figures are WARP's, not results.
+    [switch]$Warp
 )
 
 # Builds MaiCordChatListBenchmark (tools/benchmark_session.ps1 owns the build, mutex and cleanup) and runs it
@@ -36,7 +40,7 @@ function Get-Median([double[]]$Values) {
 function Invoke-ChatListRun([string]$Image, [long]$Size) {
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $Image
-    $info.Arguments = "--n $Size --seconds $Seconds --cap-mb $CapMb --limit-seconds $LimitSeconds $ExtraArguments"
+    $info.Arguments = "--n $Size --seconds $Seconds --cap-mb $CapMb --limit-seconds $LimitSeconds $(if ($Warp) { '--warp 1 ' })$ExtraArguments"
     $info.UseShellExecute = $false
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
@@ -44,13 +48,18 @@ function Invoke-ChatListRun([string]$Image, [long]$Size) {
     $output = $process.StandardOutput.ReadToEndAsync()
     $errors = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit(($LimitSeconds + 120) * 1000)) { $process.Kill(); $process.WaitForExit() }
-    $line = ($output.Result -split "`r?`n" | Where-Object { $_.StartsWith('{') } | Select-Object -First 1)
+    $lines = $output.Result -split "`r?`n"
+    $lines | Where-Object { $_.StartsWith('D3D11 ') } | ForEach-Object { Write-Host "  $_" }
+    $line = ($lines | Where-Object { $_.StartsWith('{') } | Select-Object -First 1)
     if (-not $line) { return [pscustomobject]@{ failed = "no output (exit $($process.ExitCode))" } }
-    return ($line | ConvertFrom-Json)
+    $result = $line | ConvertFrom-Json
+    if ($process.ExitCode -eq 40) { $result | Add-Member -NotePropertyName failed -NotePropertyValue 'debug layer messages' -Force }
+    return $result
 }
 
 function Invoke-ChatListSuite([string]$Image) {
-    if (Get-Process -Name MaiCord -ErrorAction SilentlyContinue) {
+    # A validation run (-Warp) measures nothing, so it may share the machine.
+    if (-not $Warp -and (Get-Process -Name MaiCord -ErrorAction SilentlyContinue)) {
         throw 'MaiCord.exe is running: close it before measuring (the benchmark shares the display and the CPU).'
     }
     [void](New-Item -ItemType Directory -Force -Path $OutDirectory)
