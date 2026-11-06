@@ -45,8 +45,8 @@ bands: ResizeTilePool frees memory at once, and shrinking it under queued writes
 until written: media allocations are cleared with their padding before a picture lands, and glyph rasters write their gutter.
 Under the Direct3D 11 debug layer every compute write through a surface's UAV reports `NULL_TILE_MAPPING_ACCESS_WARNING`: a
 `Texture2D` UAV spans the whole texture, unbacked bands included, though no shader or copy touches unbacked rows
-(`gpu_paged_texture_backed`). The WARP validation runs (`tools\benchmark_chat_list.ps1 -Warp`, the UI probe's GPU hang reproductions)
-allow that warning alone. Hang reproductions run only on WARP (`tests/support/warp_device.hpp`), never on the hardware adapter.
+(`gpu_paged_texture_backed`). The UI probe's GPU hang reproductions run only on WARP with the debug layer
+(`tests/support/warp_device.hpp`), never on the hardware adapter, and allow that warning alone.
 
 ## Background effects
 

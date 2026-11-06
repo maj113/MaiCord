@@ -135,16 +135,6 @@ maicord_program(MaiCordGlyphCacheProbe WIN32 ENTRY maicord_glyph_cache_probe_ent
         maicord_media_codec maicord_atlas_gpu maicord_renderer kernel32 user32 d3d11 dxgi dcomp
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 maicord_copy_fonts(MaiCordGlyphCacheProbe)
-# tools/benchmark_chat_list.ps1: the real timeline, scene, text and renderer in a 700x600 window against BUI's
-# variable-height list benchmark (same synthetic messages, same metrics, one JSON line per process).
-maicord_program(MaiCordChatListBenchmark ENTRY maicord_chat_list_benchmark_entry
-    SOURCES config/maicord.manifest benchmarks/chat_list_benchmark.cpp src/core/log.cpp
-    LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_protocol maicord_app_core
-        maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
-        maicord_platform kernel32 user32 d3d11 dxgi dcomp
-    LINK_OPTIONS "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordChatListBenchmark.map"
-    PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
-maicord_copy_fonts(MaiCordChatListBenchmark)
 
 # Opt-in measurement tools; several compare with Media Foundation and FFmpeg
 # references, so they compile against the SDK (MAICORD_SDK_INCLUDES).

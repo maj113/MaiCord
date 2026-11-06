@@ -40,7 +40,6 @@ if(MAICORD_LINUX)
     include(cmake/linux_libraries.cmake)
     include(cmake/linux_client.cmake)
     include(cmake/linux_tests.cmake)
-    include(cmake/linux_benchmarks.cmake)  # MAICORD_BUILD_BENCHMARKS (tools/build_linux.sh --benchmarks)
     return()
 endif()
 include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds
