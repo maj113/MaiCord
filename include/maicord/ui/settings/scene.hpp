@@ -427,8 +427,8 @@ struct UiSettingsScene {
     u8 spinner_phase{};
     // Control index the focus last sat on: where it lands when that control is removed.
     u32 focus_row{};
-    // The control indexes (first, end) whose rows are materialized as widgets.
-    u32 rows_first{}, rows_end{};
+    // The first control whose row is materialized as a widget.
+    u32 rows_first{};
     // Retained markdown blocks of the page's markdown rows (allocated on first use); freed when the scene releases.
     mutable UiMarkdownBank* markdown{};
 };
@@ -448,7 +448,6 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
 // The page check ui_settings_scene_update applies; owners use it to tell a
 // malformed projection apart from a transient (viewport) rejection.
 bool ui_settings_page_content_valid(const UiSettingsPageContent& content) noexcept;
-void ui_settings_scene_close(UiSettingsScene* scene) noexcept;
 void ui_settings_scene_release(UiSettingsScene* scene) noexcept;
 UiSettingsTarget ui_settings_scene_hit_test(const UiSettingsScene& scene, float x, float y) noexcept;
 UiSettingsTarget ui_settings_scene_focused(const UiSettingsScene& scene) noexcept;

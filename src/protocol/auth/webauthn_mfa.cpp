@@ -547,40 +547,26 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(const WebAuthnMfaAssertionView& a
                        Base64UrlError::none, required);
     }
     u32 offset = 0;
+    const auto binary = [&](const ConstSlice<u8>& value) noexcept {
+        offset += base64url_encode(value, Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset})
+                      .bytes;
+    };
     write_literal(output, &offset, prefix);
-    Base64UrlResult encoded =
-        base64url_encode(assertion.credential_id,
-                         Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-    offset += encoded.bytes;
+    binary(assertion.credential_id);
     write_literal(output, &offset, raw_id);
-    encoded =
-        base64url_encode(assertion.credential_id,
-                         Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-    offset += encoded.bytes;
+    binary(assertion.credential_id);
     write_literal(output, &offset, response);
-    encoded =
-        base64url_encode(assertion.authenticator_data,
-                         Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-    offset += encoded.bytes;
+    binary(assertion.authenticator_data);
     write_literal(output, &offset, client);
-    encoded =
-        base64url_encode(assertion.client_data_json,
-                         Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-    offset += encoded.bytes;
+    binary(assertion.client_data_json);
     write_literal(output, &offset, signature);
-    encoded =
-        base64url_encode(assertion.signature,
-                         Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-    offset += encoded.bytes;
+    binary(assertion.signature);
     write_literal(output, &offset, user);
     if (assertion.user_handle.count == 0) {
         write_literal(output, &offset, null_value);
     } else {
         output.data[offset++] = '"';
-        encoded = base64url_encode(
-            assertion.user_handle,
-            Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset});
-        offset += encoded.bytes;
+        binary(assertion.user_handle);
         output.data[offset++] = '"';
     }
     write_literal(output, &offset, tail);

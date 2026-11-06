@@ -1,4 +1,4 @@
-#include "maicord/core/slice.hpp"
+#include "maicord/core/base.hpp"
 
 // The plugin pipeline's application hooks (src/app/plugins/pipeline_host.cpp) for tests of code that calls them
 // but never runs a plugin: no plugin suppresses typing or embeds.

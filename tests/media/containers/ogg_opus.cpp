@@ -1,4 +1,5 @@
 #include "maicord/media/containers/ogg_opus.hpp"
+#include "../../support/ogg_page_fixture.hpp"
 
 namespace maicord {
 namespace {
@@ -16,19 +17,10 @@ void put64(u8* p, u64 value) noexcept {
     for (u32 i = 0; i < 8; ++i)
         p[i] = static_cast<u8>(value >> (8 * i));
 }
-u32 fixture_crc(const u8* p, u32 count) noexcept {
-    u32 crc = 0;
-    for (u32 i = 0; i < count; ++i) {
-        crc ^= u32{i >= 22 && i < 26 ? u8{0} : p[i]} << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            crc = (crc << 1) ^ ((crc & 0x80000000u) ? 0x04c11db7u : 0);
-    }
-    return crc;
-}
 template <typename Fixture> void fix_crc(Fixture& f, u32 index) noexcept {
     const u32 offset = f.pages[index];
     const u32 end = index + 1 < f.page_count ? f.pages[index + 1] : f.count;
-    put32(f.bytes + offset + 22, fixture_crc(f.bytes + offset, end - offset));
+    put32(f.bytes + offset + 22, ogg_page_crc(f.bytes + offset, end - offset));
 }
 template <typename Fixture>
 bool append_page(Fixture& f, u8 flags, u64 granule, ConstSlice<u8> laces, ConstSlice<u8> body,

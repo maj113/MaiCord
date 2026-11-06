@@ -1,7 +1,6 @@
 // Icons on Windows: the window's own (window_set_icon) and the one stored in the program (window_app_icon_png).
 #include "maicord/platform/window/win32.hpp"
 
-#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 

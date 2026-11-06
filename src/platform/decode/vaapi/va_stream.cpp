@@ -2,8 +2,6 @@
 #include "va.hpp"
 #include "va_parameters.hpp"
 
-#include "maicord/core/memory.hpp"
-#include "maicord/gpu/api.hpp"
 // Per-picture control flow, no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
@@ -90,10 +88,6 @@ void reset(GpuStream* stream) noexcept {
 void drain(GpuStream* stream) noexcept {
     stream->h264.state.drain = true;
     present_ready(stream);
-}
-
-void release(GpuStream* stream) noexcept {
-    release_hardware(stream);
 }
 
 bool create(GpuStream* stream, const H264Sps& sps, u8 surfaces) noexcept {
@@ -224,10 +218,6 @@ void reset(GpuStream* stream) noexcept {
 void drain(GpuStream* stream) noexcept {
     stream->hevc.state.drain = true;
     present_ready(stream);
-}
-
-void release(GpuStream* stream) noexcept {
-    release_hardware(stream);
 }
 
 bool create(GpuStream* stream, const HevcSps& sps, u8 surfaces) noexcept {
@@ -568,10 +558,6 @@ void reset(GpuStream* stream) noexcept {
 void drain(GpuStream*) noexcept {
 }
 
-void release(GpuStream* stream) noexcept {
-    release_hardware(stream);
-}
-
 void decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact, bool resynchronize) noexcept {
     Av1GpuStreamState* state = &stream->av1;
     if (resynchronize)
@@ -669,9 +655,9 @@ void stats(const GpuStream& stream, GpuStreamDecoderStats* out) noexcept {
 } // namespace av1
 
 // Indexed by GpuStreamCodec.
-const StreamBackend kBackends[]{{true, h264::reset, h264::decode, h264::drain, h264::release, h264::stats},
-                                {true, hevc::reset, hevc::decode, hevc::drain, hevc::release, hevc::stats},
-                                {true, av1::reset, av1::decode, av1::drain, av1::release, av1::stats}};
+const StreamBackend kBackends[]{{true, h264::reset, h264::decode, h264::drain, release_hardware, h264::stats},
+                                {true, hevc::reset, hevc::decode, hevc::drain, release_hardware, hevc::stats},
+                                {true, av1::reset, av1::decode, av1::drain, release_hardware, av1::stats}};
 
 } // namespace
 

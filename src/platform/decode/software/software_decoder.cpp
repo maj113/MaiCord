@@ -1,6 +1,5 @@
 #include "software_decoder.hpp"
 
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"

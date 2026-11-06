@@ -1,23 +1,7 @@
 #include "media_fixture_internal.hpp"
+#include "../fixtures/png_crc_reference.hpp"
 
 namespace maicord {
-namespace {
-
-u32 crc32(const u8* bytes, u32 count) noexcept {
-    constexpr u32 table[16] = {
-        0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu, 0x76DC4190u, 0x6B6B51F4u,
-        0x4DB26158u, 0x5005713Cu, 0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu,
-        0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu,
-    };
-    u32 crc = 0xFFFFFFFFu;
-    for (u32 index = 0; index < count; ++index) {
-        crc = crc >> 4 ^ table[(crc ^ bytes[index]) & 0xFu];
-        crc = crc >> 4 ^ table[(crc ^ (bytes[index] >> 4)) & 0xFu];
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
-
-} // namespace
 
 namespace media_fixture_detail {
 
@@ -132,7 +116,7 @@ bool append_chunk(Slice<u8> output, u32* cursor, u32 type, ConstSlice<u8> data) 
     for (u32 index = 0; index < data.count; ++index) {
         destination[8 + index] = data[index];
     }
-    write_be32(destination + 8 + data.count, crc32(destination + 4, data.count + 4));
+    write_be32(destination + 8 + data.count, png_crc32_reference(destination + 4, data.count + 4));
     *cursor += data.count + 12;
     return true;
 }
@@ -567,7 +551,7 @@ void write_icc_header(u8* profile, bool version_four, u32 device_class, u32 colo
 } // namespace media_fixture_detail
 
 u32 png_fixture_crc32(ConstSlice<u8> bytes) noexcept {
-    return bytes.data || bytes.count == 0 ? crc32(bytes.data, bytes.count) : 0;
+    return bytes.data || bytes.count == 0 ? png_crc32_reference(bytes.data, bytes.count) : 0;
 }
 
 u32 png_fixture_adler32(ConstSlice<u8> bytes) noexcept {

@@ -181,9 +181,6 @@ cbuffer JpegAtlasConstants : register(b0) {
 };
 
 ByteAddressBuffer reconstructed_components : register(t0);
-#if defined(__spirv__)
-[[vk::image_format("rgba8")]]
-#endif
 RWTexture2D<unorm float4> media_atlas : register(u0);
 
 float component_sample(uint offset, uint stride, uint width, uint height, uint horizontal_sampling,

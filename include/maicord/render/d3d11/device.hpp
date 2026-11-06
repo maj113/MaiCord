@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/gpu/api.hpp"
+#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 

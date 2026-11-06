@@ -28,7 +28,6 @@ inline constexpr int kFalse = 0;
 // The FC_SLANT values.
 inline constexpr int kSlantRoman = 0;
 inline constexpr int kSlantItalic = 100;
-inline constexpr int kSlantOblique = 110;
 
 // The fontconfig weight scale (FC_WEIGHT_*), which is not the OpenType one.
 int weight_from_open_type(u32 weight) noexcept;

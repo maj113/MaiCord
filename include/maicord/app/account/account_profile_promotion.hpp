@@ -18,10 +18,7 @@ enum class AccountProfilePromotionError : u8 {
 };
 
 struct AccountProfilePromotionResult {
-    u32 bytes;
     u32 native_error;
-    AccountProfileError profile_error;
-    SecureBufferError credential_error;
     AccountProfilePromotionPhase phase;
     AccountProfilePromotionError error;
 
@@ -46,6 +43,6 @@ AccountProfilePromotionResult account_profile_promotion_commit(AccountProfilePro
 void account_profile_promotion_release(AccountProfilePromotion* promotion) noexcept;
 bool account_profile_promotion_has_credential(const AccountProfilePromotion& promotion) noexcept;
 
-static_assert(sizeof(AccountProfilePromotion) == 48);
+static_assert(sizeof(AccountProfilePromotion) == 40);
 
 } // namespace maicord

@@ -5,7 +5,6 @@
 #include "maicord/sys/simd.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 using namespace ui_media_picker_detail;

@@ -3,6 +3,11 @@
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "../account/account_ui_runtime.hpp"
+#include "../shell/state.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/model/guild/member_store.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,11 +1,9 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/app/shell/navigation_shortcuts.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {

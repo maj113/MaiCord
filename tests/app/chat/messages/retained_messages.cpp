@@ -1,10 +1,10 @@
+#include "../../../support/gateway_message_scratch.hpp"
 #include "../../../support/test_main_shared.hpp"
 
-#include "../../../support/gateway_message_scratch.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/app/chat/messages/timeline.hpp"
-#include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/app/gateway/client_event.hpp"
 
 // Tombstones: a deleted message a plugin keeps stays in the live timeline as a retained row, survives
 // history merges that remove local rows, comes back through message_timeline_insert_retained only inside

@@ -8,6 +8,7 @@
 #include "maicord/media/audio/encoded_audio.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
+#include "../support/ogg_page_fixture.hpp"
 
 #if !defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
 #error The native playback probe requires the actual endpoint diagnostic contract.
@@ -277,33 +278,6 @@ bool option(const wchar_t* wanted) noexcept {
         ++cursor;
     return !*cursor;
 }
-u32 opus_page(u8* output, u32 sequence, u8 flags, u64 granule, const u8* packet, u8 count) noexcept {
-    const u32 bytes = 28u + count;
-    for (u32 i = 0; i < bytes; ++i)
-        output[i] = 0;
-    constexpr char capture[] = "OggS";
-    for (u32 i = 0; i < 4; ++i)
-        output[i] = static_cast<u8>(capture[i]);
-    output[5] = flags;
-    for (u32 i = 0; i < 8; ++i)
-        output[6 + i] = static_cast<u8>(granule >> (8 * i));
-    output[14] = 123;
-    for (u32 i = 0; i < 4; ++i)
-        output[18 + i] = static_cast<u8>(sequence >> (8 * i));
-    output[26] = 1;
-    output[27] = count;
-    for (u32 i = 0; i < count; ++i)
-        output[28 + i] = packet[i];
-    u32 crc{};
-    for (u32 i = 0; i < bytes; ++i) {
-        crc ^= static_cast<u32>(output[i]) << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            crc = (crc << 1) ^ ((crc & 0x80000000u) ? 0x04c11db7u : 0u);
-    }
-    for (u32 i = 0; i < 4; ++i)
-        output[22 + i] = static_cast<u8>(crc >> (8 * i));
-    return bytes;
-}
 bool build_opus(Probe& p) noexcept {
     constexpr u32 packets = 40, encoded_bytes = 47 + 44 + 31 * packets;
     p.input =
@@ -322,12 +296,12 @@ bool build_opus(Probe& p) noexcept {
     head[13] = 0xbb;
     head[17] = 0xff;
     constexpr u8 silence[]{0xf8, 0xff, 0xfe};
-    p.input_bytes = opus_page(p.input, 0, 2, 0, head, 19);
-    p.input_bytes += opus_page(p.input + p.input_bytes, 1, 0, 0, tags, 16);
+    p.input_bytes = ogg_opus_page(p.input, 0, 2, 0, head, 19);
+    p.input_bytes += ogg_opus_page(p.input + p.input_bytes, 1, 0, 0, tags, 16);
     for (u32 i = 0; i < packets; ++i) {
         const bool last = i + 1 == packets;
-        p.input_bytes += opus_page(p.input + p.input_bytes, i + 2, last ? 4 : 0,
-                                   u64{i + 1} * 960 - (last ? 80 : 0), silence, 3);
+        p.input_bytes += ogg_opus_page(p.input + p.input_bytes, i + 2, last ? 4 : 0,
+                                       u64{i + 1} * 960 - (last ? 80 : 0), silence, 3);
     }
     const auto parsed = ogg_opus_demux_initialize(&p.opus_metadata, {p.input, p.input_bytes}, {});
     if (parsed != OggOpusError::none)

@@ -3,7 +3,6 @@
 #include "maicord/text/scripts/latin_line.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/layout/visibility.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/text/unicode/detail/line_break_tailored.hpp"
 #include "maicord/text/unicode/detail/thai_word_break.hpp"
 #include "../shaping/script_paragraph.hpp"

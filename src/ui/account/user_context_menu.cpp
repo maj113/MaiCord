@@ -12,8 +12,8 @@ PopupItem row(Utf8View label, UserContextAction value, u16 flags = 0) noexcept {
     item.flags = static_cast<u16>(popup_item_enabled | flags);
     return item;
 }
-PopupItem submenu(Utf8View label, UserContextAction value, u16 flags = 0) noexcept {
-    auto item = row(label, value, flags);
+PopupItem submenu(Utf8View label, UserContextAction value) noexcept {
+    auto item = row(label, value);
     item.presentation = ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
     return item;
 }

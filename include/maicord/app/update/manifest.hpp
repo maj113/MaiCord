@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/json_reader.hpp"
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/platform/crypto/p256.hpp"
 

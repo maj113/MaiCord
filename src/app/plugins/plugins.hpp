@@ -1,8 +1,6 @@
 #pragma once
 #include "maicord/app/plugins/surfaces.hpp"
 #include "maicord/app/plugins/ui.hpp"
-#include "maicord/core/utf.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"

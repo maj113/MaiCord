@@ -1,6 +1,7 @@
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/platform/dbus/tray.hpp"
@@ -104,28 +105,6 @@ const char kMenuIntrospection[] =
     "<signal name=\"ItemActivationRequested\"><arg type=\"i\" name=\"id\"/><arg type=\"u\" name=\"timestamp\"/></signal>"
     "</interface>";
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
-void copy_text(char* out, u32 capacity, const char* text) noexcept {
-    u32 length = text ? text_length(text) : 0;
-    if (length >= capacity)
-        length = capacity - 1;
-    if (length)
-        copy_bytes(out, text, length);
-    out[length] = 0;
-}
-
 void emit_event(TrayEventKind kind, i32 x, i32 y, u32 command) noexcept {
     if (!g.handler)
         return;
@@ -187,34 +166,34 @@ const ExportedProperty kItemProperties[] = {
 };
 
 bool write_item_property(void*, const char*, const char* name, Builder* b) noexcept {
-    if (text_equal(name, "Category")) {
+    if (c_string_equal(name, "Category")) {
         variant_text(b, "s", "ApplicationStatus");
-    } else if (text_equal(name, "Id")) {
+    } else if (c_string_equal(name, "Id")) {
         variant_text(b, "s", g.id);
-    } else if (text_equal(name, "Title")) {
+    } else if (c_string_equal(name, "Title")) {
         variant_text(b, "s", g.title);
-    } else if (text_equal(name, "Status")) {
+    } else if (c_string_equal(name, "Status")) {
         variant_text(b, "s", g.attention ? "NeedsAttention" : "Active");
-    } else if (text_equal(name, "WindowId")) {
+    } else if (c_string_equal(name, "WindowId")) {
         builder_open_variant(b, "u");
         builder_u32(b, 0);
         builder_close_variant(b);
-    } else if (text_equal(name, "IconThemePath") || text_equal(name, "IconName") || text_equal(name, "OverlayIconName") ||
-               text_equal(name, "AttentionIconName") || text_equal(name, "AttentionMovieName")) {
+    } else if (c_string_equal(name, "IconThemePath") || c_string_equal(name, "IconName") || c_string_equal(name, "OverlayIconName") ||
+               c_string_equal(name, "AttentionIconName") || c_string_equal(name, "AttentionMovieName")) {
         variant_text(b, "s", "");
-    } else if (text_equal(name, "Menu")) {
+    } else if (c_string_equal(name, "Menu")) {
         builder_open_variant(b, "o");
         builder_object_path(b, kMenuPath);
         builder_close_variant(b);
-    } else if (text_equal(name, "ItemIsMenu")) {
+    } else if (c_string_equal(name, "ItemIsMenu")) {
         builder_open_variant(b, "b");
         builder_bool(b, false);
         builder_close_variant(b);
-    } else if (text_equal(name, "IconPixmap") || text_equal(name, "AttentionIconPixmap")) {
+    } else if (c_string_equal(name, "IconPixmap") || c_string_equal(name, "AttentionIconPixmap")) {
         write_pixmaps(b);
-    } else if (text_equal(name, "OverlayIconPixmap")) {
+    } else if (c_string_equal(name, "OverlayIconPixmap")) {
         write_empty_pixmaps(b);
-    } else if (text_equal(name, "ToolTip")) {
+    } else if (c_string_equal(name, "ToolTip")) {
         // (icon name, icon pixmaps, title, description)
         builder_open_variant(b, "(sa(iiay)ss)");
         builder_open_struct(b, "(sa(iiay)ss)");
@@ -239,12 +218,12 @@ ExportedObject item_object() noexcept {
 bool item_call(void*, Connection* c, const Message& call) noexcept {
     if (object_handle_standard(c, call, item_object()))
         return true;
-    if (!call.interface || !text_equal(call.interface, kItemInterface))
+    if (!call.interface || !c_string_equal(call.interface, kItemInterface))
         return false;
     Reader r;
     message_reader(call, &r);
-    if (text_equal(call.member, "Activate") || text_equal(call.member, "SecondaryActivate") ||
-        text_equal(call.member, "ContextMenu")) {
+    if (c_string_equal(call.member, "Activate") || c_string_equal(call.member, "SecondaryActivate") ||
+        c_string_equal(call.member, "ContextMenu")) {
         i32 x = 0;
         i32 y = 0;
         if (!reader_i32(&r, &x) || !reader_i32(&r, &y)) {
@@ -252,13 +231,13 @@ bool item_call(void*, Connection* c, const Message& call) noexcept {
             return true;
         }
         connection_reply(c, call, nullptr);
-        emit_event(text_equal(call.member, "Activate")            ? TrayEventKind::activate
-                   : text_equal(call.member, "SecondaryActivate") ? TrayEventKind::secondary_activate
+        emit_event(c_string_equal(call.member, "Activate")            ? TrayEventKind::activate
+                   : c_string_equal(call.member, "SecondaryActivate") ? TrayEventKind::secondary_activate
                                                                   : TrayEventKind::context_menu,
                    x, y, 0);
         return true;
     }
-    if (text_equal(call.member, "Scroll")) {
+    if (c_string_equal(call.member, "Scroll")) {
         connection_reply(c, call, nullptr);
         return true;
     }
@@ -275,15 +254,15 @@ const ExportedProperty kMenuProperties[] = {
 };
 
 bool write_menu_property(void*, const char*, const char* name, Builder* b) noexcept {
-    if (text_equal(name, "Version")) {
+    if (c_string_equal(name, "Version")) {
         builder_open_variant(b, "u");
         builder_u32(b, 3);
         builder_close_variant(b);
-    } else if (text_equal(name, "TextDirection")) {
+    } else if (c_string_equal(name, "TextDirection")) {
         variant_text(b, "s", "ltr");
-    } else if (text_equal(name, "Status")) {
+    } else if (c_string_equal(name, "Status")) {
         variant_text(b, "s", "normal");
-    } else if (text_equal(name, "IconThemePath")) {
+    } else if (c_string_equal(name, "IconThemePath")) {
         builder_open_variant(b, "as");
         builder_open_array(b, "s");
         builder_close_array(b);
@@ -375,14 +354,14 @@ void menu_clicked(i32 id) noexcept {
 bool menu_call(void*, Connection* c, const Message& call) noexcept {
     if (object_handle_standard(c, call, menu_object()))
         return true;
-    if (!call.interface || !text_equal(call.interface, kMenuInterface))
+    if (!call.interface || !c_string_equal(call.interface, kMenuInterface))
         return false;
     Reader r;
     message_reader(call, &r);
     Builder body;
     builder_init(&body);
     bool ok = true;
-    if (text_equal(call.member, "GetLayout")) {
+    if (c_string_equal(call.member, "GetLayout")) {
         i32 parent = 0;
         i32 depth = 0;
         ok = reader_i32(&r, &parent) && reader_i32(&r, &depth);
@@ -393,7 +372,7 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
         }
         builder_u32(&body, g.revision);
         write_layout(&body, parent, depth);
-    } else if (text_equal(call.member, "GetGroupProperties")) {
+    } else if (c_string_equal(call.member, "GetGroupProperties")) {
         bool all = true;
         ok = reader_enter_array(&r);
         u32 ids[kMaxItems + 1];
@@ -420,7 +399,7 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
             builder_close_struct(&body);
         }
         builder_close_array(&body);
-    } else if (text_equal(call.member, "GetProperty")) {
+    } else if (c_string_equal(call.member, "GetProperty")) {
         // The one property asked for, taken out of the item's full set.
         i32 id = 0;
         const char* name = nullptr;
@@ -435,7 +414,7 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
             while (!found && reader_more(a)) {
                 const char* key = nullptr;
                 ok = reader_enter_struct(&a) && reader_string(&a, &key, nullptr);
-                if (ok && text_equal(key, name)) {
+                if (ok && c_string_equal(key, name)) {
                     // Copy the variant by re-reading: only strings, booleans and integers occur.
                     const char* signature = nullptr;
                     ok = reader_enter_variant(&a, &signature);
@@ -468,26 +447,26 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "no such property");
             return true;
         }
-    } else if (text_equal(call.member, "Event")) {
+    } else if (c_string_equal(call.member, "Event")) {
         i32 id = 0;
         const char* event = nullptr;
         ok = reader_i32(&r, &id) && reader_string(&r, &event, nullptr);
-        if (ok && text_equal(event, "clicked"))
+        if (ok && c_string_equal(event, "clicked"))
             menu_clicked(id);
-    } else if (text_equal(call.member, "EventGroup")) {
+    } else if (c_string_equal(call.member, "EventGroup")) {
         ok = reader_enter_array(&r);
         while (ok && reader_more(r)) {
             i32 id = 0;
             const char* event = nullptr;
             ok = reader_enter_struct(&r) && reader_i32(&r, &id) && reader_string(&r, &event, nullptr) && reader_leave(&r);
-            if (ok && text_equal(event, "clicked"))
+            if (ok && c_string_equal(event, "clicked"))
                 menu_clicked(id);
         }
         builder_open_array(&body, "i");
         builder_close_array(&body);
-    } else if (text_equal(call.member, "AboutToShow")) {
+    } else if (c_string_equal(call.member, "AboutToShow")) {
         builder_bool(&body, false);
-    } else if (text_equal(call.member, "AboutToShowGroup")) {
+    } else if (c_string_equal(call.member, "AboutToShowGroup")) {
         builder_open_array(&body, "i");
         builder_close_array(&body);
         builder_open_array(&body, "i");
@@ -571,7 +550,7 @@ bool same_menu(const TrayState& state) noexcept {
             return false;
         const Item& item = g.items[at++];
         if (item.command != state.menu[i].command || item.checkable != state.menu[i].checkable ||
-            item.checked != state.menu[i].checked || !text_equal(item.label, state.menu[i].label))
+            item.checked != state.menu[i].checked || !c_string_equal(item.label, state.menu[i].label))
             return false;
     }
     return true;
@@ -595,7 +574,7 @@ bool tray_start(const char* id, TrayHandler handler, void* context) noexcept {
     g.started = true;
     g.handler = handler;
     g.context = context;
-    copy_text(g.id, sizeof(g.id), id);
+    c_string_copy(g.id, sizeof(g.id), id);
     // org.kde.StatusNotifierItem-<pid>-<n>: the name hosts expect (the watcher is told it).
     const char prefix[] = "org.kde.StatusNotifierItem-";
     copy_bytes(g.service, prefix, sizeof(prefix) - 1);
@@ -621,15 +600,15 @@ bool tray_available() noexcept {
 }
 
 void tray_update(const TrayState& state) noexcept {
-    const bool title_changed = !text_equal(g.title, state.title ? state.title : "");
-    const bool tooltip_changed = !text_equal(g.tooltip, state.tooltip ? state.tooltip : "");
+    const bool title_changed = !c_string_equal(g.title, state.title ? state.title : "");
+    const bool tooltip_changed = !c_string_equal(g.tooltip, state.tooltip ? state.tooltip : "");
     const bool icons_changed = !same_icons(state);
     const bool menu_changed = !same_menu(state);
     const bool attention_changed = g.attention != state.attention;
     if (!title_changed && !tooltip_changed && !icons_changed && !menu_changed && !attention_changed)
         return;
-    copy_text(g.title, sizeof(g.title), state.title);
-    copy_text(g.tooltip, sizeof(g.tooltip), state.tooltip);
+    c_string_copy(g.title, sizeof(g.title), state.title);
+    c_string_copy(g.tooltip, sizeof(g.tooltip), state.tooltip);
     g.attention = state.attention;
     if (icons_changed) {
         g.icon_count = 0;
@@ -656,7 +635,7 @@ void tray_update(const TrayState& state) noexcept {
             item.command = state.menu[i].command;
             item.checkable = state.menu[i].checkable;
             item.checked = state.menu[i].checked;
-            copy_text(item.label, sizeof(item.label), state.menu[i].label);
+            c_string_copy(item.label, sizeof(item.label), state.menu[i].label);
         }
         ++g.revision;
     }

@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_draw.hlsl d70cf2a82edc2432
+// twin: src/render/shaders/glyph_draw.hlsl f3272e0606f93e4a
 // Text quads and text effects: glyph_vertex (STAGE_VS) and glyph_pixel (STAGE_PS). The atlases are paged surfaces
 // (see media_draw.glsl): each draw binds the page its quads sample, and their v is in that page's rows.
 

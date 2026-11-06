@@ -2,9 +2,6 @@
 
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/theme/background_presentation.hpp"
-#include "maicord/ui/core/transition.hpp"
-#include "maicord/ui/text/style.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/core/visit_ref.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"

@@ -1,9 +1,9 @@
 #include "text_presentation_internal.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/theme/styles.hpp"
-#include "maicord/ui/chat/messages/unread_divider.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;
@@ -719,32 +719,17 @@ u32 parse_u32(const Utf8View& text) noexcept {
     return value;
 }
 
-// Generated card text, retained in the presentation's UTF-8 bank.
-struct RetainedText {
-    MessageTextPresentation* presentation;
-    u32 begin, used;
-    bool ok;
-    __declspec(noinline) void append(const char* source, u32 count) noexcept {
-        if (!ok || count > presentation->utf8.count - presentation->utf8_count - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(presentation->utf8.data + begin + used, source, count);
-        used += count;
-    }
-    void add(const Utf8View& text) noexcept {
-        append(text.data, text.bytes);
-    }
-    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
-        append(text, Count - 1);
-    }
-    Utf8View commit() noexcept {
-        if (!ok)
-            return {};
-        presentation->utf8_count += used;
-        return {presentation->utf8.data + begin, used};
-    }
-};
+// Generated card text, written into the presentation's free UTF-8 bank.
+TextWriter retained_writer(const MessageTextPresentation& presentation) noexcept {
+    return {{presentation.utf8.data + presentation.utf8_count, presentation.utf8.count - presentation.utf8_count}};
+}
+// Keeps what the writer wrote; empty when it did not fit.
+Utf8View retain(MessageTextPresentation* presentation, const TextWriter& writer) noexcept {
+    if (!writer.ok)
+        return {};
+    presentation->utf8_count += writer.used;
+    return {writer.output.data, writer.used};
+}
 
 } // namespace
 // The poll result card: the winning answer with its share, a tie or no winner.
@@ -760,7 +745,7 @@ bool append_poll_result(BuildContext* context, const MessageRichStore& store, co
         total ? static_cast<u32>(minimum<u64>((u64{votes} * 200u + total) / (2u * u64{total}), 100u)) : 0u;
     char number[16];
     const Utf8View share{number, decimal_write(number, percent)};
-    RetainedText head{presentation, presentation->utf8_count, 0, true};
+    TextWriter head = retained_writer(*presentation);
     if (!total)
         head.add("There was no winner");
     else if (victor) {
@@ -774,15 +759,15 @@ bool append_poll_result(BuildContext* context, const MessageRichStore& store, co
         head.add(answer.bytes || emoji.bytes ? answer : utf8_literal("Answer"));
     } else
         head.add("The results were tied");
-    const Utf8View head_text = head.commit();
-    RetainedText detail{presentation, presentation->utf8_count, 0, true};
+    const Utf8View head_text = retain(presentation, head);
+    TextWriter detail = retained_writer(*presentation);
     if (total) {
         if (victor)
             detail.add("Winning answer \xE2\x80\xA2 ");
         detail.add(share);
         detail.add("%");
     }
-    const Utf8View detail_text = detail.commit();
+    const Utf8View detail_text = retain(presentation, detail);
     if (!head.ok || !detail.ok)
         return fail(presentation, MessageTextPresentationError::capacity);
     return append_embed_plain_line(context, head_text, flow, kMessageEmbedContentInset, kMessageEmbedEndInset, text,

@@ -1,10 +1,10 @@
 #include "../../support/test_output.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
-#include "maicord/protocol/media/cdn_http.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/text/inline_flag_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/media/cdn_url.hpp"
 
 namespace maicord {
 namespace {

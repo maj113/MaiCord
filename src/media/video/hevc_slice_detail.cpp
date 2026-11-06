@@ -1,5 +1,4 @@
 #include "maicord/media/video/hevc_slice_detail.hpp"
-#include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
 // Header parsing, once per slice and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)

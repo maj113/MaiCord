@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
@@ -51,9 +52,6 @@ void padded(TextWriter& w, u64 value, u32 width) noexcept {
 bool word(char c) noexcept {
     return ascii_is_alnum(c) || c == '_';
 }
-bool digit(char c) noexcept {
-    return c >= '0' && c <= '9';
-}
 // Matches \w+ (\d+) at s[at..]: returns the digits' end, or 0.
 u32 word_number(const Utf8View& s, u32 at, u32* digits_begin) noexcept {
     u32 i = at;
@@ -62,7 +60,7 @@ u32 word_number(const Utf8View& s, u32 at, u32* digits_begin) noexcept {
     if (i == at || i + 1 >= s.bytes || s.data[i] != ' ')
         return 0;
     *digits_begin = ++i;
-    while (i < s.bytes && digit(s.data[i]))
+    while (i < s.bytes && ascii_is_digit(s.data[i]))
         ++i;
     return i > *digits_begin ? i : 0;
 }

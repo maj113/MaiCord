@@ -38,19 +38,12 @@ bool load() noexcept {
         log_unavailable("libpulse.so.0 is not installed: audio is unavailable", "");
         return false;
     }
-    const char* missing = nullptr;
+    SharedLibraryResolver resolve{g_library, nullptr};
     Api api{};
-#define MAICORD_PULSE_RESOLVE(ret, name, args)                                                                         \
-    if (!missing) {                                                                                                    \
-        void* address = shared_library_symbol(g_library, #name);                                                       \
-        if (address)                                                                                                   \
-            api.name = reinterpret_cast<decltype(api.name)>(address);                                                  \
-        else                                                                                                           \
-            missing = #name;                                                                                           \
-    }
+#define MAICORD_PULSE_RESOLVE(ret, name, args) resolve(&api.name, #name);
     MAICORD_PULSE_FUNCTIONS(MAICORD_PULSE_RESOLVE)
 #undef MAICORD_PULSE_RESOLVE
-    if (missing) {
+    if (const char* missing = resolve.missing) {
         log_unavailable("libpulse.so.0: no symbol ", missing);
         shared_library_close(&g_library);
         return false;

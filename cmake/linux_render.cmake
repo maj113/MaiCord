@@ -1,52 +1,6 @@
 # The shared renderer of the Linux build (src/render): the code the Windows build compiles over Direct3D 11, here over
 # the OpenGL ES backend of cmake/linux_gpu.cmake through the same gpu_* API, with the UI scenes it paints.
 
-# The packed UI data the scenes embed (the Windows build's cmake/generated_sources.cmake rules, minus the shaders and the
-# icon): the emoji catalog and pools, and the icon pack.
-set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
-add_custom_command(
-    OUTPUT "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-    COMMAND "${Python3_EXECUTABLE}" -B
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_unicode_emoji_catalog.py"
-        --canonical-include
-        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/unicode_emoji_16.inc"
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/text/unicode_emoji_16.inc src/ui/text/emoji_shortcodes.inc
-    VERBATIM)
-set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
-set(MAICORD_EMOJI_POOL_PACKED "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_packed.bin")
-add_custom_command(
-    OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
-    COMMAND "${Python3_EXECUTABLE}" -B
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
-    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
-        tools/optimal_deflate.py tools/deflate_cache.txt "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
-    VERBATIM)
-add_custom_target(maicord_emoji_catalog_data
-    DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
-
-file(GLOB MAICORD_ICON_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons/*.svg"
-    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original/*.svg")
-set(MAICORD_ICON_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack.inc")
-set(MAICORD_ICON_PACK_DATA "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_data.bin")
-set(MAICORD_ICON_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_packed.bin")
-add_custom_command(
-    OUTPUT "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
-    COMMAND "${Python3_EXECUTABLE}" -B
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
-        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
-        --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
-        --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
-        --output "${MAICORD_ICON_PACK_INCLUDE}"
-    DEPENDS tools/generate_icon_pack.py tools/optimal_deflate.py tools/deflate_cache.txt tools/font_reference/embed_fixture.py
-        include/maicord/ui/widgets/icon_ids.inc
-        ${MAICORD_ICON_SOURCES}
-    VERBATIM)
-add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
-
 maicord_library(maicord_render_core
     src/render/media/animation_frame_cache.cpp src/render/text/glyph_atlas.cpp src/render/text/glyph_quad_bounds.cpp
     src/render/text/glyph_raster.cpp src/render/media/atlas.cpp src/render/d3d11/presentation_damage.cpp

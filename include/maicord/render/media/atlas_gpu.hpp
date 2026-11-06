@@ -2,7 +2,6 @@
 
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/gpu/gpu.hpp"
 
 namespace maicord {

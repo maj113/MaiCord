@@ -4,7 +4,6 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {

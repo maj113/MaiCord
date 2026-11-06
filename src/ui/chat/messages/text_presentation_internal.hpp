@@ -4,7 +4,6 @@
 #include "maicord/ui/text/flow_layout.hpp"
 
 #include "maicord/ui/chat/messages/system_text.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord::text_presentation_detail {
 

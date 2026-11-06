@@ -7,12 +7,12 @@
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/render/media/animation_frame_cache.hpp"
 #include "maicord/render/d3d11/presentation_damage.hpp"
-#include "maicord/ui/text/text.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
-#include "maicord/core/win32_exception.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

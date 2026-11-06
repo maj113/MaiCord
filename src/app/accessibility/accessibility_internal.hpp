@@ -1,5 +1,6 @@
 #pragma once
-// Shared by accessibility.cpp and its parts (accessibility_*.cpp); private to them.
+// Shared by the accessibility servers (accessibility.cpp on Windows, linux/accessibility.cpp) and their parts
+// (accessibility_*.cpp); private to them.
 #include "maicord/core/memory.hpp"
 
 #include "../chat/composer/attachments_state.hpp"
@@ -127,6 +128,18 @@ bool ensure_storage() noexcept;
 const UiAccessTree* access_tree(void*) noexcept;
 bool access_act(void*, u64 key, UiAccessAction action, double number, Utf8View text) noexcept;
 void run_action(const PendingAction& pending) noexcept;
+// Runs the actions queued by access_act, from the UI loop.
+void run_pending() noexcept;
+// Text geometry for the edit that owns native text input.
+u32 access_text_bounds(void*, u64 key, u32 start, u32 end, UiRect* rectangles, u32 capacity) noexcept;
+inline u64 access_event_key(const UiAccessTree& tree, u32 node) noexcept {
+    return node == 0 || node >= tree.count ? 0 : tree.nodes[node].key;
+}
+// After each published snapshot: the announcements the application's state calls for (a new message, a connection that
+// came or went, a failed send, ...). Sources start from their current state the first time.
+void announce_status(const UiAccessTree& tree, u64 now_ms) noexcept;
+// Nobody listens: the next announcements start from the then-current state, silently.
+void forget_status() noexcept;
 
 } // namespace accessibility_detail
 } // namespace maicord::app_detail

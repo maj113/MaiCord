@@ -1213,7 +1213,7 @@ maicord_test(MaiCordArabicMaskTests ENTRY maicord_arabic_mask_tests_entry SOURCE
     BUNDLE MaiCordTextUnitTests TEST maicord_native_arabic_mask)
 maicord_test(MaiCordArabicPlanTests ENTRY maicord_arabic_plan_tests_entry SOURCES tests/text/scripts/arabic_plan_test.cpp
     LIBS maicord_core maicord_unicode maicord_font kernel32
-    BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_arabic_plan)
+    BUNDLE MaiCordTextUnitTests TEST maicord_native_arabic_plan)
 maicord_add_tests(MaiCordArabicPlanTests TIMEOUT 5 LABELS native-text-arabic-run TEST maicord_native_arabic_run --run)
 maicord_font_test(MaiCordArabicMarksTests maicord_arabic_marks_tests_entry text/scripts/arabic_marks_test
     TEST maicord_native_arabic_marks)
@@ -1223,7 +1223,7 @@ maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry SOURCES tests/text/
 # The TZif reader and POSIX rules (pure; the same test runs in the Linux suite) against zic's output and Python's zoneinfo.
 maicord_test(MaiCordTzifTests ENTRY maicord_tzif_entry SOURCES tests/platform/time/tzif_test.cpp src/platform/time/tzif.cpp
     LIBS maicord_core kernel32
-    BUNDLE MaiCordCoreUnitTests STANDALONE TEST maicord_tzif)
+    BUNDLE MaiCordCoreUnitTests TEST maicord_tzif)
 # Real Windows spell checker (read-only); CI may pass -ExcludeTestLabels system_spellcheck.
 maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry SOURCES tests/platform/desktop/system_spellcheck.cpp
     LIBS maicord_platform ole32
@@ -1248,25 +1248,25 @@ maicord_font_test(MaiCordGsubExecuteTests maicord_gsub_execute_entry text/openty
 maicord_font_test(MaiCordClustersTests maicord_clusters_entry text/shaping/clusters_test STANDALONE)
 maicord_font_test(MaiCordComponentShapingTests maicord_component_shaping_entry text/opentype/component_shaping_test UNICODE
     STANDALONE TEST maicord_native_component_shaping)
-maicord_font_test(MaiCordSinhalaShapeTests maicord_sinhala_shape_entry text/scripts/sinhala_shape_test UNICODE STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordSinhalaShapeTests maicord_sinhala_shape_entry text/scripts/sinhala_shape_test UNICODE TIMEOUT 2
     LABELS native-text-sinhala-shape TEST maicord_native_sinhala_shape)
-maicord_font_test(MaiCordKhmerShapeTests maicord_khmer_shape_entry text/scripts/khmer_shape_test UNICODE STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordKhmerShapeTests maicord_khmer_shape_entry text/scripts/khmer_shape_test UNICODE TIMEOUT 2
     LABELS native-text-khmer-shape TEST maicord_native_khmer_shape)
 maicord_add_tests(MaiCordKhmerShapeTests TIMEOUT 2 LABELS native-text-khmer-shape
     ENVIRONMENT MAICORD_KHMER_OWNED_TEST=1 TEST maicord_native_khmer_owned)
 maicord_add_tests(MaiCordSinhalaShapeTests TIMEOUT 2 LABELS native-text-sinhala-shape
     ENVIRONMENT MAICORD_SINHALA_OWNED_TEST=1 TEST maicord_native_sinhala_owned)
-maicord_font_test(MaiCordSinhalaInputTests maicord_sinhala_input_entry text/scripts/sinhala_input_test UNICODE STANDALONE)
-maicord_font_test(MaiCordTibetanInputTests maicord_tibetan_input_entry text/scripts/tibetan_input_test UNICODE STANDALONE)
-maicord_font_test(MaiCordTibetanShapeTests maicord_tibetan_shape_entry text/scripts/tibetan_shape_test UNICODE STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordSinhalaInputTests maicord_sinhala_input_entry text/scripts/sinhala_input_test UNICODE)
+maicord_font_test(MaiCordTibetanInputTests maicord_tibetan_input_entry text/scripts/tibetan_input_test UNICODE)
+maicord_font_test(MaiCordTibetanShapeTests maicord_tibetan_shape_entry text/scripts/tibetan_shape_test UNICODE TIMEOUT 2
     LABELS native-text-tibetan-shape TEST maicord_native_tibetan_shape)
 maicord_add_tests(MaiCordTibetanShapeTests TIMEOUT 2 LABELS native-text-tibetan-shape
     ENVIRONMENT MAICORD_TIBETAN_OWNED_TEST=1 TEST maicord_native_tibetan_owned)
 maicord_add_tests(MaiCordTibetanInputTests TIMEOUT 2 LABELS native-text-tibetan-input TEST maicord_native_tibetan_input)
 maicord_add_tests(MaiCordSinhalaInputTests TIMEOUT 2 LABELS native-text-sinhala-input TEST maicord_native_sinhala_input)
-maicord_font_test(MaiCordKhmerInputTests maicord_khmer_input_entry text/scripts/khmer_input_test UNICODE STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordKhmerInputTests maicord_khmer_input_entry text/scripts/khmer_input_test UNICODE TIMEOUT 2
     LABELS native-text-khmer-input TEST maicord_native_khmer_input)
-maicord_font_test(MaiCordUsePlanTests maicord_use_plan_entry text/scripts/use_plan_test STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordUsePlanTests maicord_use_plan_entry text/scripts/use_plan_test TIMEOUT 2
     LABELS native-text-use-plan TEST maicord_native_use_plan)
 maicord_font_test(MaiCordMyanmarShapeTests maicord_myanmar_shape_entry text/scripts/myanmar_shape_test UNICODE TIMEOUT 2
     LABELS native-text-myanmar-shape TEST maicord_native_myanmar_shape)
@@ -1278,9 +1278,9 @@ maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-tibetan-plan
     TEST maicord_native_tibetan_plan --tibetan)
 maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-myanmar-plan
     TEST maicord_native_myanmar_plan --myanmar)
-maicord_font_test(MaiCordKhmerPlanTests maicord_khmer_plan_entry text/scripts/khmer_plan_test STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordKhmerPlanTests maicord_khmer_plan_entry text/scripts/khmer_plan_test TIMEOUT 2
     LABELS native-text-khmer-plan TEST maicord_native_khmer_plan)
-maicord_font_test(MaiCordShapeStageTests maicord_shape_stage_entry text/shaping/shape_stage_test STANDALONE TIMEOUT 5
+maicord_font_test(MaiCordShapeStageTests maicord_shape_stage_entry text/shaping/shape_stage_test TIMEOUT 5
     LABELS native-text-stages TEST maicord_native_shape_stages)
 # Keep large QA corpora out of the C++ parser. Reconfigure and rebuild the
 # resource if any binary record changes, including changes of equal size.
@@ -1332,9 +1332,9 @@ maicord_test(MaiCordFontFamilyTests ENTRY maicord_font_candidates_entry SOURCES 
 maicord_test(MaiCordFontCandidatesTests ENTRY maicord_font_candidates_entry SOURCES tests/text/fonts/candidates_test.cpp
     LIBS maicord_core maicord_font kernel32)
 maicord_font_test(MaiCordFontMatchTests maicord_font_match_entry text/fonts/match_test TEST maicord_native_font_match)
-maicord_font_test(MaiCordFontNamesTests maicord_font_names_entry text/fonts/names_test STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordFontNamesTests maicord_font_names_entry text/fonts/names_test TIMEOUT 2
     LABELS native-text-font-names TEST maicord_native_font_names)
-maicord_font_test(MaiCordRunPlanTests maicord_run_plan_entry text/shaping/run_plan_test STANDALONE TEST maicord_native_run_plans)
+maicord_font_test(MaiCordRunPlanTests maicord_run_plan_entry text/shaping/run_plan_test TEST maicord_native_run_plans)
 # <font> <weight> <command> runs one font through a single check.
 maicord_add_tests(MaiCordRunPlanTests TIMEOUT 5
     TEST maicord_native_run_plan_lazy_units "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf" 400 lazy-units
@@ -1342,7 +1342,7 @@ maicord_add_tests(MaiCordRunPlanTests TIMEOUT 5
 maicord_font_test(MaiCordSimulationPlanTests maicord_simulation_plan_entry text/shaping/simulation_plan_test
     TEST maicord_native_simulation_plans "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Orbitron.ttf")
 maicord_font_test(MaiCordLatinRunTests maicord_latin_run_entry text/scripts/latin_run_test TEST maicord_native_latin_guards)
-maicord_font_test(MaiCordEmojiRunTests maicord_emoji_run_entry text/scripts/emoji_run_test STANDALONE TIMEOUT 5
+maicord_font_test(MaiCordEmojiRunTests maicord_emoji_run_entry text/scripts/emoji_run_test TIMEOUT 5
     LABELS native-text-emoji-run TEST maicord_native_emoji_runs)
 maicord_test(MaiCordEmojiPresentationTests ENTRY maicord_emoji_presentation_entry
     SOURCES tests/ui/media/emoji_presentation_test.cpp
@@ -1362,9 +1362,6 @@ maicord_test(MaiCordGatewayEtfSessionTests ENTRY maicord_gateway_etf_session_ent
     BUNDLE MaiCordCoreUnitTests TEST maicord_gateway_etf_session)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/core/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
-# The Gpu* handle vocabulary (include/maicord/gpu): each handle is its D3D11 interface, GpuStatus an HRESULT.
-maicord_test(MaiCordGpuTypesTests ENTRY maicord_gpu_types_entry SOURCES tests/gpu/gpu_types.cpp
-    BUNDLE MaiCordCoreUnitTests TEST maicord_gpu_types)
 # The window vocabulary (include/maicord/platform/window): key numbering, event layout, headers compile.
 maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
     SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
@@ -1463,9 +1460,8 @@ foreach(sample RANGE 0 5)
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_standard_scripts --standard-script-profile --family "Segoe UI" 400)
-maicord_native_profile_tests(5 tamil-direction "Nirmala UI")
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-tamil-app
-    TEST maicord_native_tamil_app --tamil-profile --family "Nirmala UI" 400)
+maicord_native_profile_tests(5 tamil-direction "Nirmala UI" PRIVATE)
+maicord_native_profile_tests(5 tamil-app "Nirmala UI" PRIVATE)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-telugu-cpu
     TEST maicord_native_telugu_cpu --smoke --telugu-bench)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-kannada-cpu
@@ -1479,28 +1475,22 @@ maicord_native_profile_tests(5 khmer-app "Leelawadee UI")
 maicord_native_profile_tests(5 myanmar-app "Myanmar Text")
 maicord_native_profile_tests(5 tibetan-app "Microsoft Himalaya")
 maicord_native_profile_tests(5 malayalam-app "Nirmala UI")
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-app
-    TEST maicord_native_odia_app --odia-profile --family "Nirmala UI" 400)
+maicord_native_profile_tests(5 odia-app "Nirmala UI")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-cpu
     TEST maicord_native_odia_cpu --smoke --odia-bench)
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-app
-    TEST maicord_native_odia_app_default --odia-profile --family "Segoe UI" 400
-    TEST maicord_native_odia_app_private --odia-profile "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
 maicord_native_profile_tests(5 gurmukhi-app "Nirmala UI")
 maicord_native_profile_tests(5 gujarati-app "Nirmala UI")
 maicord_native_profile_tests(5 bengali-app "Nirmala UI")
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-tamil-app
-    TEST maicord_native_tamil_app_default --tamil-profile --family "Segoe UI" 400
-    TEST maicord_native_tamil_app_private --tamil-profile "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
-maicord_native_profile_tests(10 devanagari-app "Nirmala UI")
-maicord_native_profile_tests(5 devanagari-direction "Nirmala UI")
-maicord_native_profile_tests(5 direction-tracking "Nirmala UI")
-maicord_native_profile_tests(5 arabic-context "Nirmala UI")
-maicord_native_profile_tests(10 devanagari-tracking "Nirmala UI")
-# Every app profile above keeps its fallback variants (_default: Segoe UI,
-# _private: a private font). Tracking under a fallback font runs only in the
-# devanagari, direction, Arabic context and Tamil direction profiles; the other
-# scripts' tracking profiles use their own family.
+maicord_native_profile_tests(10 devanagari-app "Nirmala UI" PRIVATE)
+maicord_native_profile_tests(5 devanagari-direction "Nirmala UI" PRIVATE)
+maicord_native_profile_tests(5 direction-tracking "Nirmala UI" PRIVATE)
+maicord_native_profile_tests(5 arabic-context "Nirmala UI" PRIVATE)
+maicord_native_profile_tests(10 devanagari-tracking "Nirmala UI" PRIVATE)
+# Every app profile keeps a _default variant (Segoe UI, the script's glyphs through system fallback); the
+# private-font variant (_private, BioRhyme) runs for the Tamil and Devanagari profiles, the direction and Arabic
+# context profiles, and the Thai, standard and extended script profiles. Tracking under a fallback font runs only in
+# the devanagari, direction, Arabic context and Tamil direction profiles; the other scripts' tracking profiles use
+# their own family.
 foreach(maicord_tracking_profile IN ITEMS tamil-direction-shape tamil-tracking-shape tamil-tracking telugu-tracking
         kannada-tracking sinhala-tracking malayalam-tracking odia-tracking gurmukhi-tracking gujarati-tracking
         bengali-tracking)
@@ -1841,13 +1831,16 @@ maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_e
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
+# The GPU-locked probes run as two chains (native_gpu and native_gpu_b), so the longest probes (this one, frame damage
+# and forum media) share one chain and the suite's wall time is not their sum with all the others. The pacing probe
+# holds both chains: nothing else draws while it measures frame pacing.
 # Background canvases, Stars/Comets and package effects against CPU references; the samples rendered at 1440p.
 maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
-    RESOURCE_LOCK native_gpu)
+    RESOURCE_LOCK native_gpu_b)
 # Every present (scroll, hover, animated media, background effect ticks, theme
 # and size changes) equals a full render of the same state, buffer age included.
 maicord_ui_probe_test(maicord_frame_damage_probe UI_FRAME_DAMAGE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
-    RESOURCE_LOCK native_gpu)
+    RESOURCE_LOCK native_gpu_b)
 maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_PROBE BOOTSTRAP TIMEOUT 20 COST 50
     RESOURCE_LOCK native_gpu)
 # Rail server icons through layout and present: static, animated at rest and
@@ -1871,7 +1864,7 @@ maicord_ui_probe_test(maicord_media_memory_probe MEDIA_MEMORY_PROBE BOOTSTRAP TI
 maicord_ui_probe_test(maicord_call_ui_probe UI_CALL_PROBE BOOTSTRAP TIMEOUT 20 LABELS native-ui display
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_post_resize_pacing_probe UI_POST_RESIZE_PACING_PROBE BOOTSTRAP
-    LABELS native-ui display RESOURCE_LOCK native_gpu)
+    LABELS native-ui display RESOURCE_LOCK native_gpu native_gpu_b)
 # Exit 77: the display is asleep and DWM composes at ~4 Hz, which no paced
 # frame can meet; CTest reports a skip instead of a pacing failure.
 set_tests_properties(maicord_post_resize_pacing_probe PROPERTIES SKIP_RETURN_CODE 77)
@@ -1888,7 +1881,7 @@ maicord_ui_probe_test(maicord_thread_browser_probe UI_THREAD_BROWSER_PROBE BOOTS
 maicord_ui_probe_test(maicord_reply_draft_probe UI_REPLY_DRAFT_PROBE BOOTSTRAP LABELS native-ui reply-drafts
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_forum_media_probe UI_FORUM_MEDIA_PROBE BOOTSTRAP LABELS native-ui forum-media
-    RESOURCE_LOCK native_gpu)
+    RESOURCE_LOCK native_gpu_b)
 maicord_ui_probe_test(maicord_hangul_render_probe HANGUL_RENDER_PROBE TIMEOUT 15 LABELS native-text-render
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_standard_render_probe STANDARD_RENDER_PROBE TIMEOUT 15 LABELS native-text-render

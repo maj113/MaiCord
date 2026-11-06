@@ -4,6 +4,13 @@
 #include "../shell/frame_presentation.hpp"
 #include "policy.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
+#include "../../render/d3d11/renderer_interaction_state.hpp"
+#include "maicord/app/media/account_media.hpp"
+#include "maicord/media/containers/track_info.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/audio_presentation.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

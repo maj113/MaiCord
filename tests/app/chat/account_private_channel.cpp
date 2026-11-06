@@ -1,5 +1,4 @@
 #include "maicord/app/chat/account_private_channel.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"

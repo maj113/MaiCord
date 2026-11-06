@@ -22,7 +22,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/app/gateway/member_request_owner.hpp"
-#include "../../src/render/d3d11/renderer_draw.hpp"
 #include "../../src/render/d3d11/renderer_layout.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "../support/application_action_captcha_stubs.hpp"

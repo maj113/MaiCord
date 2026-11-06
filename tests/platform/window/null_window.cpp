@@ -1,6 +1,5 @@
 #include "maicord/platform/window/null.hpp"
 #include "maicord/platform/window/event.hpp"
-#include "maicord/platform/window/global_keys.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/ui/core/cursor.hpp"

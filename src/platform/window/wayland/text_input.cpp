@@ -12,16 +12,6 @@ namespace {
 
 constexpr u32 kSurroundingMaximum = 4000;  // bytes the protocol allows
 
-u32 copy_text(char* destination, u32 capacity, const char* text) noexcept {
-    u32 length = 0;
-    while (text && text[length] && length + 1 < capacity) {
-        destination[length] = text[length];
-        ++length;
-    }
-    destination[length] = 0;
-    return length;
-}
-
 // The UTF-16 units of `bytes` of UTF-8 text, in the ring the ime events point into; null when it does not fit.
 const u16* store_units(const char* text, u32 bytes, u32* count) noexcept {
     TextState& state = g.text;
@@ -97,7 +87,7 @@ void on_leave(void*, zwp_text_input_v3*, wl_surface*) noexcept {
 void on_preedit_string(void*, zwp_text_input_v3*, const char* text, i32 begin, i32 end) noexcept {
     TextState& state = g.text;
     state.preedit_present = text != nullptr;
-    state.preedit_bytes = copy_text(state.preedit, kImeBytes, text);
+    state.preedit_bytes = c_string_copy(state.preedit, kImeBytes, text);
     state.preedit_begin = begin;
     state.preedit_end = end;
 }
@@ -105,7 +95,7 @@ void on_preedit_string(void*, zwp_text_input_v3*, const char* text, i32 begin, i
 void on_commit_string(void*, zwp_text_input_v3*, const char* text) noexcept {
     TextState& state = g.text;
     state.commit_present = text != nullptr;
-    state.commit_bytes = copy_text(state.commit, kImeBytes, text);
+    state.commit_bytes = c_string_copy(state.commit, kImeBytes, text);
 }
 
 void on_delete_surrounding(void*, zwp_text_input_v3*, u32 before, u32 after) noexcept {

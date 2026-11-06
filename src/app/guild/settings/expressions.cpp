@@ -1,7 +1,9 @@
 #include "internal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/app/media/account_media.hpp"
 #include "../../plugins/pipeline_host.hpp"
+#include "../../shell/state.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

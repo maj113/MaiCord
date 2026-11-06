@@ -4,7 +4,6 @@
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

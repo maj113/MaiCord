@@ -1,6 +1,4 @@
-#include "maicord/core/win32_process.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "maicord/sys/process_info.hpp"
 #include "../../support/test_output.hpp"

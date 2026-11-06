@@ -3,7 +3,6 @@
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "maicord/protocol/gateway/events.hpp"
-#include "maicord/model/chat/message_rich_store.hpp"
 
 namespace maicord {
 struct RestClientResponse;

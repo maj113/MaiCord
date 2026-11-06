@@ -2,7 +2,6 @@
 // through colr_paint_upload_pixels into an RGBA8 atlas, and a readback shows each tile at its allocation with the
 // padding gutter transparent and nothing outside written. Linux runs it on whatever EGL finds.
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/render/effects/colr_paint.hpp"
 #include "maicord/text/opentype/bitmap_color.hpp"

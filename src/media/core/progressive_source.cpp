@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 // Block bookkeeping around network chunks: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)

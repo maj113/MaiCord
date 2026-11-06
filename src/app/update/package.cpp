@@ -1,6 +1,5 @@
 #include "maicord/app/update/package.hpp"
 #include "package_admission.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/core/crc32.hpp"
 #include "maicord/core/win32_image.hpp"

@@ -1,10 +1,9 @@
 #pragma once
-#include "maicord/ui/settings/scene.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/app/net/rest_client.hpp"
+#include "maicord/ui/core/geometry.hpp"
 namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/core/input_router.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

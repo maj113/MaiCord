@@ -2,13 +2,13 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/message_media_controller_fixture.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
-#include "maicord/render/media/inline_media.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "../../../src/app/chat/channel_authority.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
 namespace maicord {
 namespace {

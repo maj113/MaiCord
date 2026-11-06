@@ -1,6 +1,5 @@
 #include "maicord/ui/settings/schema.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/settings/scene.hpp"
 
 namespace maicord {

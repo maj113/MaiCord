@@ -142,13 +142,13 @@ ReadScopePlanResult read_scope_plan_size(const ChatStateStore& state, ReadScopeK
 ReadScopePlanResult read_scope_plan(const ChatStateStore& state, ReadScopeKind kind, u64 id,
                                     u64 action_time_ms, Slice<ReadScopeTarget> output) noexcept {
     const auto result = read_scope_plan_size(state, kind, id, action_time_ms);
+    const u64 output_bytes = static_cast<u64>(output.count) * sizeof(ReadScopeTarget);
     if (!result.valid || (result.count && (!output.data || output.count < result.count)) ||
-        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.channels,
+        byte_ranges_overlap_or_wrap(output.data, output_bytes, state.channels,
                                     static_cast<u64>(state.channel_capacity) * sizeof(ChannelRecord)) ||
-        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.guilds,
+        byte_ranges_overlap_or_wrap(output.data, output_bytes, state.guilds,
                                     static_cast<u64>(state.guild_capacity) * sizeof(GuildRecord)) ||
-        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), &state,
-                                    sizeof(state)))
+        byte_ranges_overlap_or_wrap(output.data, output_bytes, &state, sizeof(state)))
         return {};
     const u64 cursor = clock_cursor(action_time_ms);
     u32 used = 0;

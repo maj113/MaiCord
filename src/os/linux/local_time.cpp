@@ -35,13 +35,9 @@ struct State {
 State g_state;
 Loaded g_candidate; // read under the lock; becomes `current` when it differs
 
-u32 text_length(const char* text) noexcept {
-    return c_string_length(text);
-}
-
 // Joins directory, "/" and name into `path`; false when it does not fit.
 bool join(char (&path)[kPathBytes], const char* directory, const char* name) noexcept {
-    const u32 d = text_length(directory), n = text_length(name);
+    const u32 d = c_string_length(directory), n = c_string_length(name);
     if (d + 1 + n >= kPathBytes)
         return false;
     copy_bytes(path, directory, d);
@@ -107,7 +103,7 @@ void set_utc(Loaded* loaded) noexcept {
 
 // Reads the zone `name` from the first zoneinfo directory that has it.
 bool read_named(const char* name, Loaded* loaded) noexcept {
-    const u32 length = text_length(name);
+    const u32 length = c_string_length(name);
     if (!tzif_name_valid(name, length))
         return false;
     const char* tzdir = environment_get("TZDIR");
@@ -130,7 +126,7 @@ bool read_named(const char* name, Loaded* loaded) noexcept {
 // The identifier a symlink chain names: the first link text on the way that has a "zoneinfo/" part.
 u32 name_from_links(const char* start, char (&output)[64]) noexcept {
     char path[kPathBytes];
-    u32 length = text_length(start);
+    u32 length = c_string_length(start);
     if (length >= kPathBytes)
         return 0;
     copy_bytes(path, start, length + 1);
@@ -146,7 +142,7 @@ u32 name_from_links(const char* start, char (&output)[64]) noexcept {
             copy_bytes(path, target, static_cast<u32>(got) + 1);
         } else {
             // Relative to the link's directory.
-            u32 slash = text_length(path);
+            u32 slash = c_string_length(path);
             while (slash > 0 && path[slash - 1] != '/')
                 --slash;
             if (slash + static_cast<u32>(got) >= kPathBytes)
@@ -177,7 +173,7 @@ bool load_from_environment(const char* tz, Loaded* loaded) noexcept {
     if (read_named(tz, loaded))
         return true;
     TzifRule rule{};
-    if (tzif_parse_rule(tz, text_length(tz), &rule)) {
+    if (tzif_parse_rule(tz, c_string_length(tz), &rule)) {
         set_rule(loaded, rule);
         return true;
     }

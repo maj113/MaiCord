@@ -1,5 +1,4 @@
 #include "maicord/media/video/h264_slice_detail.hpp"
-#include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
 // Header parsing, once per slice and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -77,8 +76,7 @@ void skip_marking(H264Bits* b, u32 max_frame_num, bool idr) noexcept {
     }
 }
 
-} // namespace
-
+// Emulation prevention bytes among the first `bytes` of nal (the bytes the slice header takes in the stream).
 u32 h264_escape_bytes(ConstSlice<u8> nal, u32 bytes) noexcept {
     u32 escapes = 0, zeroes = 0;
     for (u32 i = 0; i < bytes && i < nal.count; ++i) {
@@ -92,6 +90,8 @@ u32 h264_escape_bytes(ConstSlice<u8> nal, u32 bytes) noexcept {
     }
     return escapes;
 }
+
+} // namespace
 
 H264Error h264_parse_slice_detail(ConstSlice<u8> nal, const H264Sps& sps, const H264Pps& pps,
                                   H264SliceDetail* output) noexcept {

@@ -12,7 +12,6 @@
 #include "maicord/core/log.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -67,7 +66,7 @@ bool application_commands_sync(bool* handled) noexcept {
     if (c.selected.command) {
         const auto name = c.selected.command->name;
         if (input.bytes < name.bytes + 1 || !utf8_equal({input.data + 1, name.bytes}, name) ||
-            (input.bytes > name.bytes + 1 && !command_space(input.data[name.bytes + 1])))
+            (input.bytes > name.bytes + 1 && !ascii_is_space(input.data[name.bytes + 1])))
             reset_value(&c.selected);
     }
     resolve_wanted(input);
@@ -202,7 +201,7 @@ bool application_commands_activate(u32 action) noexcept {
         const auto input = message_composer_text(g_app.message_composer);
         const u32 caret = minimum(g_app.message_composer.caret, input.bytes);
         const u32 first = caret - caret_word(input, caret).bytes;
-        const bool before = first && !command_space(input.data[first - 1]) &&
+        const bool before = first && !ascii_is_space(input.data[first - 1]) &&
                             !(first >= kCommandOptionEndBytes && option_end_at(input, first - kCommandOptionEndBytes));
         const auto value = copy_label(insertion, sizeof(insertion), before ? utf8_literal(" ") : Utf8View{}, key,
                                       utf8_literal(":"), Utf8View{kCommandOptionEnd, kCommandOptionEndBytes});
@@ -234,7 +233,7 @@ bool application_commands_activate(u32 action) noexcept {
         const u32 prefix = c.selected.command->name.bytes + 1;
         const bool named_arguments = input.bytes > prefix && input.data[0] == '/' &&
             utf8_equal({input.data + 1, prefix - 1}, c.selected.command->name) &&
-            command_space(input.data[prefix]);
+            ascii_is_space(input.data[prefix]);
         edit_result = message_composer_replace_range(&g_app.message_composer, 0,
             named_arguments ? prefix + 1 : input.bytes, value);
     }
@@ -796,7 +795,7 @@ bool application_commands_option_tab(bool reverse) noexcept {
     CommandArgumentSpan spans[25];
     const u32 count = typed_options(input, {spans, 25});
     const u32 caret = g_app.message_composer.caret;
-    const u32 current = chip_at(input, spans, count, caret);
+    const u32 current = chip_at(spans, count, caret);
     u32 target = no_option;
     for (u32 n = 0; n < count; ++n)
         if (n != current && (reverse ? spans[n].key_first < caret : spans[n].key_first >= caret)) {

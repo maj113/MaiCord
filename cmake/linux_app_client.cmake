@@ -3,10 +3,10 @@
 # shell (src/app/shell) belongs to the window layer and is not here, nor are src/app/windows (the Win32 entry and
 # window procedure) and src/app/linux (the Linux entry and window glue): those are the programs' own (the client,
 # cmake/linux_client.cmake). accessibility.cpp is the UI Automation server (the units that stand in for it are in
-# src/app/accessibility/linux: the AT-SPI server's host, over platform/atspi); the snapshot (accessibility_describe.cpp)
-# and the actions it routes (accessibility_actions.cpp) are shared. src/app/update/package.cpp, the zip
-# and PE reader of the Windows updater, is not here either: src/app/update/linux/package.cpp (in maicord_app_update)
-# reads the Linux tarball instead.
+# src/app/accessibility/linux: the AT-SPI server's host, over platform/atspi); the snapshot (accessibility_describe.cpp),
+# the actions it routes (accessibility_actions.cpp) and the announcements (accessibility_status.cpp) are shared.
+# src/app/update/package.cpp, the zip and PE reader of the Windows updater, is not here either:
+# src/app/update/linux/package.cpp (in maicord_app_update) reads the Linux tarball instead.
 file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/src/app/*.cpp")
 list(FILTER MAICORD_APP_CLIENT_SOURCES EXCLUDE REGEX

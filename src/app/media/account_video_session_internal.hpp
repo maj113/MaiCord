@@ -1,13 +1,11 @@
 #pragma once
 // Shared by account_video_session.cpp and its parts (account_video_session_*.cpp); private to them.
 #include "maicord/app/media/account_video_session.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/decode/aac_decoder.hpp"
 #include "maicord/platform/audio/media_audio.hpp"
 #include "maicord/media/audio/opus_decoder.hpp"
 #include "maicord/media/audio/encoded_audio.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace account_video_session_detail {}

@@ -27,7 +27,7 @@ struct Request {
     u64 account_scope, profile_id, self_user_id, request_id, retry_at, expired_created_at;
     u32 revision, submitted_revision;
     u8 attempts;
-    bool queued, failed, projected_known;
+    bool queued, projected_known;
 } request;
 
 GatewayClientSelfStatusSnapshot identity() noexcept {
@@ -102,7 +102,7 @@ constexpr u32 kClearCount = sizeof(kClearLabels) / sizeof(kClearLabels[0]);
 constexpr u32 kEmojiInputBytes = 96;
 
 struct Form : SettingsDialog {
-    UiSettingsControl controls[4];
+    UiSettingsControl controls[3];
     UiSettingsEditor editors[2];
     UiSettingsFooter footer;
     MessageComposer models[2];
@@ -266,7 +266,6 @@ bool application_custom_status_request(const SelfCustomStatus* status) noexcept 
     else
         reset_value(&request.desired);
     request.queued = true;
-    request.failed = false;
     request.attempts = 0;
     if (++request.revision == 0)
         request.revision = 1;
@@ -309,7 +308,6 @@ bool application_custom_status_submit(u64 request_id, u64 now_ms) noexcept {
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "account", "custom_status_submit_error", static_cast<u64>(submitted.error));
         request.queued = false;
-        request.failed = true;
         request.retry_at = 0;
         return false;
     }
@@ -337,7 +335,6 @@ bool application_custom_status_response(const RestClientResponse& response, Utf8
         // An ambiguous settings write is never silently resent.
         log_u64(LogLevel::warning, "account", "custom_status_response_status", response.status_code);
         request.queued = false;
-        request.failed = true;
     } else if (request.revision != request.submitted_revision) {
         request.retry_at = 1;
         request.attempts = 0;

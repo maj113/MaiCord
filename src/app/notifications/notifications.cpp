@@ -138,6 +138,10 @@ struct ApplicationNotifications {
 #endif
 };
 namespace {
+// A channel the user sees: listed, with View Channel.
+bool viewable(const ChatStateStore& state,const ChannelRecord* channel) noexcept {
+    return channel && chat_state_store_channel_visible(state,*channel) && (channel->actions&channel_action_view);
+}
 bool local_dnd(const Application& a) noexcept {
     if(a.self_status.queued) return a.self_status.desired==GatewayUserStatus::dnd;
     if(!a.account.instance || !a.account.api.self_status_snapshot) return false;
@@ -684,11 +688,9 @@ void application_notifications_drain(Application* a) noexcept {
     while(activations<kDesktopNotificationActivationCapacity && desktop_notifications_take_activation(&n.native,&request)) {
         ++activations;
         if(a->account.status.profile_id && request.profile_id!=a->account.status.profile_id) continue;
-        if(n.ready && a->account_ui) {
-            const auto& state=a->account_ui->chat_state;
-            const auto* channel=chat_state_store_find_channel(state,request.channel_id);
-            if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) continue;
-        }
+        if(n.ready && a->account_ui &&
+            !viewable(a->account_ui->chat_state,chat_state_store_find_channel(a->account_ui->chat_state,request.channel_id)))
+            continue;
         n.pending=request;
     }
     if(activations==kDesktopNotificationActivationCapacity) post_continuation(*a,n);
@@ -782,8 +784,7 @@ void application_notifications_drain(Application* a) noexcept {
     request=n.pending; reset_value(&n.pending);
     if(request.profile_id!=a->account.status.profile_id) return;
     const auto& state=a->account_ui->chat_state;
-    const auto* channel=chat_state_store_find_channel(state,request.channel_id);
-    if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) {
+    if(!viewable(state,chat_state_store_find_channel(state,request.channel_id))) {
         log_write(LogLevel::info,"notifications","activation_channel_unavailable"); return;
     }
     if(a->window) { window_show(a->window,ShowMode::restore); desktop_window_reveal(a->window); }
@@ -1148,12 +1149,11 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     audio_preferences(*a,n); audio_observe(n);
     const bool has_popup_sink=popup_sink(*a,n);
     const auto* channel=chat_state_store_find_channel(state,event.message.channel_id);
-    if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) return;
+    if(!viewable(state,channel)) return;
     const auto* guild=channel->guild_id?chat_state_store_find_guild(state,channel->guild_id):nullptr;
     const auto* parent=channel->parent_id?chat_state_store_find_channel(state,channel->parent_id):nullptr;
     const auto* policy_channel=event.message.type==21?parent:channel;
-    if(!policy_channel || !chat_state_store_channel_visible(state,*policy_channel) ||
-        !(policy_channel->actions&channel_action_view)) return;
+    if(!viewable(state,policy_channel)) return;
     const auto* policy_parent=policy_channel->parent_id?chat_state_store_find_channel(state,policy_channel->parent_id):nullptr;
     const auto* gs=find_scope(n.guild_scopes,n.guild_scope_count,channel->guild_id);
     const auto* cs=find_scope(n.channel_scopes,n.channel_scope_count,policy_channel->id);

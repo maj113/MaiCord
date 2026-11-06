@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/utf.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/model/user/activity.hpp"
 

@@ -7,6 +7,7 @@
 #include "plugins/dev_console.hpp"
 #include "plugins/settings_dialog.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/media/image/png.hpp"
 
 namespace maicord {
 namespace {

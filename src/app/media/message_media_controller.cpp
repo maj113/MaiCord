@@ -9,7 +9,6 @@
 #include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

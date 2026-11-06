@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "indic_cluster.hpp"
 #include "indic_run_support.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 
 namespace maicord {

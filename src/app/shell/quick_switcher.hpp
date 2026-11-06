@@ -3,7 +3,6 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/core/geometry.hpp"
 
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

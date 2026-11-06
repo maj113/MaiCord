@@ -304,7 +304,6 @@ void apply_size_limits() noexcept;
 void set_min_size_px(u32 width_px, u32 height_px) noexcept;
 // The window's size in client pixels at its scale.
 void window_pixel_size(u32* width, u32* height) noexcept;
-u32 dpi_of_scale(u32 scale_120) noexcept;
 // Client pixels per logical unit.
 float pixel_scale() noexcept;
 // After a configure, a resize or a scale change: the surface geometry (viewport destination, opaque region) follows.

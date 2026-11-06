@@ -53,6 +53,17 @@ bool running(ConstSlice<Utf8View> processes, Utf8View executable) noexcept {
             return true;
     return false;
 }
+// Adds a process name to the snapshot once, normalized as registered executables are.
+void add_process(Slice<char> storage, Slice<Utf8View> names, u32* count, u32* used, Utf8View name) noexcept {
+    char normalized[kRegisteredGameExecutableBytes];
+    u8 bytes = 0;
+    if (!game_detection_normalize(name, normalized, &bytes) || bytes > storage.count - *used ||
+        running({names.data, *count}, {normalized, bytes}))
+        return;
+    copy_bytes(storage.data + *used, normalized, bytes);
+    names[(*count)++] = {storage.data + *used, bytes};
+    *used += bytes;
+}
 #if defined(_WIN32)
 struct WindowOwners {
     DWORD pids[512];
@@ -168,21 +179,8 @@ u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool win
         char utf8[kRegisteredGameExecutableBytes * 3];
         const int converted = WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, utf8, sizeof(utf8), nullptr,
                                                   nullptr);
-        if (converted <= 1)
-            continue;
-        char normalized[kRegisteredGameExecutableBytes];
-        u8 bytes = 0;
-        if (!game_detection_normalize({utf8, static_cast<u32>(converted - 1)}, normalized, &bytes) ||
-            bytes > storage.count - used)
-            continue;
-        bool duplicate = false;
-        for (u32 i = 0; i < count && !duplicate; ++i)
-            duplicate = utf8_equal(names[i], {normalized, bytes});
-        if (duplicate)
-            continue;
-        copy_bytes(storage.data + used, normalized, bytes);
-        names[count++] = {storage.data + used, bytes};
-        used += bytes;
+        if (converted > 1)
+            add_process(storage, names, &count, &used, {utf8, static_cast<u32>(converted - 1)});
     }
     CloseHandle(snapshot);
     return count;
@@ -225,19 +223,8 @@ u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool win
         file_close(file);
         while (got && read && (text[read - 1] == '\n' || text[read - 1] == '\r'))
             --read;
-        char normalized[kRegisteredGameExecutableBytes];
-        u8 bytes = 0;
-        if (!got || !read || !game_detection_normalize({text, read}, normalized, &bytes) ||
-            bytes > storage.count - used)
-            continue;
-        bool duplicate = false;
-        for (u32 i = 0; i < count && !duplicate; ++i)
-            duplicate = utf8_equal(names[i], {normalized, bytes});
-        if (duplicate)
-            continue;
-        copy_bytes(storage.data + used, normalized, bytes);
-        names[count++] = {storage.data + used, bytes};
-        used += bytes;
+        if (got)
+            add_process(storage, names, &count, &used, {text, read});
     }
     dir_close(&directory);
     return count;

@@ -2,7 +2,6 @@
 // fonts/ and licenses/. A stage is a directory of the same names beside the program (<executable>.update), and the swap
 // moves each live entry into <executable>.old and each staged one in, so the old version stays whole for a rollback.
 #include "maicord/app/update/log.hpp"
-#include "maicord/app/update/package.hpp"
 #include "maicord/app/update/service.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_error.hpp"

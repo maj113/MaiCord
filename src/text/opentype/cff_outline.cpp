@@ -1,6 +1,5 @@
 #include "cff_internal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {

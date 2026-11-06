@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/sdk/maicord_plugin.h"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

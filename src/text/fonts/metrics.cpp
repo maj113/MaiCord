@@ -1,6 +1,5 @@
 #include "maicord/text/fonts/metrics.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/base.hpp"
 #include "../opentype/layout_float.hpp"
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 offset) noexcept {return byte_load_be16(bytes.data+offset);}

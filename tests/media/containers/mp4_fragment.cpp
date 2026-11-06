@@ -4,7 +4,6 @@
 #include "maicord/media/containers/mp4_segment_store.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/platform/decode/h264_gpu_decoder.hpp"
-#include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/app/media/account_video_session.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/app/media/segmented_video_fetch.hpp"

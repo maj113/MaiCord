@@ -22,8 +22,6 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
 
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/core/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
-maicord_test(MaiCordGpuTypesTests ENTRY maicord_gpu_types_entry SOURCES tests/gpu/gpu_types.cpp
-    BUNDLE MaiCordCoreUnitTests TEST maicord_gpu_types)
 maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
     SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
 maicord_test(MaiCordOsWaitTests ENTRY maicord_os_wait_entry SOURCES tests/os/wait.cpp

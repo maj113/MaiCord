@@ -5,7 +5,6 @@
 #include "../../support/window_fixture.hpp"
 #include "chat/composer/text_form_state.hpp"
 #include "maicord/sys/shell.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/test_output.hpp"
 

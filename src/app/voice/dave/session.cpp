@@ -5,7 +5,6 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

@@ -2,8 +2,6 @@
 // monotonic time and frame publication are injected; no account or socket runs.
 #include "chat/threads/actions.hpp"
 #include "shell/state.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../../support/test_output.hpp"
 
 

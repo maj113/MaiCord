@@ -1,6 +1,5 @@
 #include "maicord/app/chat/threads/account_forum_post.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../../support/rest_submit_hook.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

@@ -1,5 +1,7 @@
 #pragma once
 #include "maicord/protocol/media/attachment_upload.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 namespace maicord {
 // Compact process-local representation: headers and UTF-8 strings are copied
 // together. No persisted/native pointers and no alignment requirement.

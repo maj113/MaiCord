@@ -2,7 +2,6 @@
 
 #include "account_login_pump.hpp"
 #include "maicord/app/account/login/captcha_bridge.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 // CAPTCHA continuation for the TU-local login owner: secret copy, replay and
 // the loopback browser bridge. Shared by the account module and native tests.

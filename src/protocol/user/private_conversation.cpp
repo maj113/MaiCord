@@ -1,5 +1,6 @@
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

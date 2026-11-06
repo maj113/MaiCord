@@ -1,6 +1,5 @@
 #include "maicord/text/opentype/tt_interpreter.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/base.hpp"
 #include "tt_math.hpp"
 namespace maicord {namespace {
 inline bool fits(i64 v) noexcept {return v>=-2147483648ll && v<=2147483647ll;}

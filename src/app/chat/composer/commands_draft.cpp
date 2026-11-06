@@ -1,7 +1,8 @@
 #include "commands_internal.hpp"
 #include "../messages/components.hpp"
 #include "maicord/core/log.hpp"
-#include "../../account/account_access.hpp"
+#include "../../account/account_ui_runtime.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {
@@ -186,7 +187,7 @@ void resolve_wanted(const Utf8View& input) noexcept {
     if (find_entry(c.insert_application, c.insert_command, {c.insert_name, c.insert_name_bytes}, &wanted)) {
         const auto name = wanted.command->name;
         if (input.bytes > name.bytes && input.data[0] == '/' && utf8_equal({input.data + 1, name.bytes}, name) &&
-            (input.bytes == name.bytes + 1 || command_space(input.data[name.bytes + 1]))) {
+            (input.bytes == name.bytes + 1 || ascii_is_space(input.data[name.bytes + 1]))) {
             c.selected = wanted;
             c.revision = 0;
             c.offset = 0;
@@ -201,9 +202,9 @@ void resolve_wanted(const Utf8View& input) noexcept {
 namespace {
 
 Utf8View trimmed_text(Utf8View input, u32 first, u32 last) noexcept {
-    while (first < last && command_space(input.data[first]))
+    while (first < last && ascii_is_space(input.data[first]))
         ++first;
-    while (last > first && command_space(input.data[last - 1]))
+    while (last > first && ascii_is_space(input.data[last - 1]))
         --last;
     return {input.data + first, last - first};
 }
@@ -226,7 +227,7 @@ bool select_typed(Utf8View input) noexcept {
     u32 matches = 0;
     const auto consider = [&](const ApplicationCommand& command, const CommandIndex& source) noexcept {
         const auto candidate = command.name;
-        if (candidate.bytes > name.bytes && command_space(candidate.data[name.bytes]) &&
+        if (candidate.bytes > name.bytes && ascii_is_space(candidate.data[name.bytes]) &&
             utf8_equal({candidate.data, name.bytes}, name))
             matches += 2;
         else if (utf8_equal(candidate, name) && (!found.command || found.command->id != command.id)) {
@@ -292,7 +293,7 @@ MessageComposerResult normalize_markers(Utf8View input, bool command) noexcept {
         if (spans[n].end_last != spans[n].value_last)
             continue;
         u32 end = spans[n].value_last;
-        while (end > spans[n].value_first && command_space(input.data[end - 1]))
+        while (end > spans[n].value_first && ascii_is_space(input.data[end - 1]))
             --end;
         inserts[insert_count++] = end;
     }
@@ -361,7 +362,7 @@ MessageComposerResult chip_single_option(const Utf8View& input, u32 typed) noexc
     const u32 start = c.selected.command->name.bytes + 2;
     if (typed || list.count != 1 || option_flag(list.options[0], "required") ||
         option_type(*c.selected.index, list.options[0]) == 11 || input.bytes <= start ||
-        !command_space(input.data[start - 1]))
+        !ascii_is_space(input.data[start - 1]))
         return MessageComposerResult::unchanged;
     char key[130];
     const auto name = field_text(*c.selected.index, list.options[0], "name", {key, 128});
@@ -459,7 +460,7 @@ MessageComposerResult set_up_command() noexcept {
         rewrite_draft({text, w.used}, caret != no_option ? caret : last_value != no_option ? last_value : w.used);
     const auto now = message_composer_text(g_app.message_composer);
     const u32 count = typed_options(now, {spans, 25});
-    const u32 chip = chip_at(now, spans, count, g_app.message_composer.caret);
+    const u32 chip = chip_at(spans, count, g_app.message_composer.caret);
     check_options(spans, count, chip == no_option ? no_option : spans[chip].slot, true, true);
     if (added_count)
         return result;
@@ -589,7 +590,7 @@ bool command_in_draft() noexcept {
     const auto name = commands->selected.command->name;
     return name.bytes < 0xffffu && commands->channel == g_app.message_composer.channel_id &&
            input.bytes >= name.bytes + 1 && input.data[0] == '/' && utf8_equal({input.data + 1, name.bytes}, name) &&
-           (input.bytes == name.bytes + 1 || command_space(input.data[name.bytes + 1]));
+           (input.bytes == name.bytes + 1 || ascii_is_space(input.data[name.bytes + 1]));
 }
 
 } // namespace commands_detail
@@ -617,13 +618,13 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
             update_focus(input);
         CommandArgumentSpan spans[25];
         const u32 count = typed_options(input, {spans, 25});
-        const u32 active = chip_at(input, spans, count, g_app.message_composer.caret);
+        const u32 active = chip_at(spans, count, g_app.message_composer.caret);
         for (u32 n = 0; n < count; ++n) {
             const bool selected = n == active && g_app.message_composer.focused;
             const u8 flags = selected ? message_composer_chip_active
                              : prepared && c.option_states[spans[n].slot].error.bytes ? message_composer_chip_error
                                                                                        : 0;
-            const u32 head = spans[n].key_first > 0 && command_space(input.data[spans[n].key_first - 1])
+            const u32 head = spans[n].key_first > 0 && ascii_is_space(input.data[spans[n].key_first - 1])
                                  ? spans[n].key_first - 1
                                  : spans[n].key_first;
             projection->option_chips[n] = {static_cast<u16>(head), static_cast<u16>(spans[n].key_first),

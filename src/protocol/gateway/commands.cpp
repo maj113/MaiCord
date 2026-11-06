@@ -3,7 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 
-#include "../encoding/json_write.hpp"
+#include "../encoding/json_command_writer.hpp"
 
 namespace maicord {
 namespace {
@@ -12,6 +12,16 @@ using protocol_detail::encoded_string;
 using protocol_detail::EncodedString;
 using protocol_detail::write_encoded;
 using protocol_detail::write_literal;
+using Writer = protocol_detail::JsonCommandWriter;
+
+// A command measured before it is written: output stays untouched and the result carries no bytes unless the
+// whole command fits.
+template <typename Emit> GatewayCommandWriteResult write_command(Slice<u8> output, Emit emit) noexcept {
+    GatewayCommandWriteResult result = protocol_detail::write_json_command(output, emit);
+    if (!result.ok())
+        result.bytes = 0;
+    return result;
+}
 
 GatewayCommandWriteResult invalid_string_result(const Utf8View& value, bool require_nonempty) noexcept {
     return (!value.data && value.bytes != 0) || (require_nonempty && value.bytes == 0)
@@ -27,13 +37,6 @@ GatewayCommandWriteResult encode_bounded(Utf8View value, u32 maximum, EncodedStr
         return invalid_string_result(value, true);
     }
     return GatewayCommandWriteResult{0, GatewayCommandError::none};
-}
-
-void write_boolean(u8* output, u32* offset, bool value) noexcept {
-    if (value)
-        write_literal(output, offset, "true");
-    else
-        write_literal(output, offset, "false");
 }
 
 bool launch_id_valid(Utf8View value) noexcept {
@@ -55,38 +58,20 @@ GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdat
                                                     Slice<u8> output) noexcept {
     if (!output.data)
         return {0, GatewayCommandError::invalid_input};
-    const u32 guild_bytes = state.guild_id ? decimal_digits(state.guild_id) + 2 : 4;
-    const u32 channel_bytes = state.channel_id ? decimal_digits(state.channel_id) + 2 : 4;
-    const u32 required = sizeof("{\"op\":4,\"d\":{\"guild_id\":,\"channel_id\":,\"self_mute\":,\"self_"
-                                "deaf\":,\"self_video\":,\"flags\":}}") -
-                         1 + guild_bytes + channel_bytes + (state.self_mute ? 4 : 5) +
-                         (state.self_deaf ? 4 : 5) + (state.self_video ? 4 : 5) + decimal_digits(flags);
-    if (required > output.count)
-        return {0, GatewayCommandError::output_too_small};
-    u32 at = 0;
-    auto id = [&](u64 value) noexcept {
-        if (!value) {
-            write_literal(output.data, &at, "null");
-            return;
-        }
-        output.data[at++] = '"';
-        at += decimal_write(output.data + at, value);
-        output.data[at++] = '"';
-    };
-    write_literal(output.data, &at, "{\"op\":4,\"d\":{\"guild_id\":");
-    id(state.guild_id);
-    write_literal(output.data, &at, ",\"channel_id\":");
-    id(state.channel_id);
-    write_literal(output.data, &at, ",\"self_mute\":");
-    write_boolean(output.data, &at, state.self_mute);
-    write_literal(output.data, &at, ",\"self_deaf\":");
-    write_boolean(output.data, &at, state.self_deaf);
-    write_literal(output.data, &at, ",\"self_video\":");
-    write_boolean(output.data, &at, state.self_video);
-    write_literal(output.data, &at, ",\"flags\":");
-    at += decimal_write(output.data + at, flags);
-    write_literal(output.data, &at, "}}");
-    return {at, GatewayCommandError::none};
+    return write_command(output, [&](Writer& writer) noexcept {
+        const auto id = [&](u64 value) noexcept {
+            if (value)
+                writer.id(value);
+            else
+                writer.put("null");
+        };
+        writer.put("{\"op\":4,\"d\":{\"guild_id\":");
+        id(state.guild_id);
+        writer.put(",\"channel_id\":");
+        id(state.channel_id);
+        writer.put(",\"self_mute\":", state.self_mute, ",\"self_deaf\":", state.self_deaf, ",\"self_video\":",
+                   state.self_video, ",\"flags\":", flags, "}}");
+    });
 }
 
 namespace {
@@ -181,45 +166,36 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     add(app_state_first ? heartbeat_segment : app_state_segment);
     add(markers);
     EncodedString encoded[segment_capacity]{};
-    u32 required = 1;
     for (u32 index = 0; index < segment_count; ++index) {
         const PropertySegment& segment = segments[index];
-        if (index >= required_count && segment.value.bytes == 0)
+        if (segment.raw || (index >= required_count && segment.value.bytes == 0))
             continue;
-        if (segment.raw) {
-            required += segment.key.bytes + segment.value.bytes;
-            continue;
-        }
-        const GatewayCommandWriteResult field =
-            encode_bounded(segment.value, segment.maximum, &encoded[index]);
-        if (!field.ok()) {
+        const GatewayCommandWriteResult field = encode_bounded(segment.value, segment.maximum, &encoded[index]);
+        if (!field.ok())
             return field;
+    }
+    const auto emit = [&](Writer& writer) noexcept {
+        for (u32 index = 0; index < segment_count; ++index) {
+            const PropertySegment& segment = segments[index];
+            if (index >= required_count && segment.value.bytes == 0)
+                continue;
+            writer.put(segment.key);
+            if (segment.raw)
+                writer.put(segment.value);
+            else
+                writer.put(encoded[index]);
         }
-        required += segment.key.bytes + encoded[index].bytes;
-    }
-    if (!output.data) {
-        return GatewayCommandWriteResult{required, GatewayCommandError::none};
-    }
-    if (required > output.count) {
+        writer.byte('}');
+    };
+    Writer measure{};
+    emit(measure);
+    if (!output.data)
+        return GatewayCommandWriteResult{static_cast<u32>(measure.at), GatewayCommandError::none};
+    if (measure.at > output.count)
         return GatewayCommandWriteResult{0, GatewayCommandError::output_too_small};
-    }
-
-    u32 offset = 0;
-    for (u32 index = 0; index < segment_count; ++index) {
-        const PropertySegment& segment = segments[index];
-        if (index >= required_count && segment.value.bytes == 0)
-            continue;
-        copy_bytes(output.data + offset, segment.key.data, segment.key.bytes);
-        offset += segment.key.bytes;
-        if (segment.raw) {
-            copy_bytes(output.data + offset, segment.value.data, segment.value.bytes);
-            offset += segment.value.bytes;
-        } else {
-            write_encoded(output.data, &offset, encoded[index]);
-        }
-    }
-    output.data[offset++] = '}';
-    return GatewayCommandWriteResult{offset, GatewayCommandError::none};
+    Writer writer{output.data, 0};
+    emit(writer);
+    return GatewayCommandWriteResult{static_cast<u32>(writer.at), GatewayCommandError::none};
 }
 
 // Standard base64 with padding, as the client encodes the token.
@@ -271,62 +247,35 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
         }
     }
 
-    constexpr u32 prefix_bytes = sizeof("{\"op\":2,\"d\":{\"token\":") - 1;
-    constexpr u32 capabilities_bytes = sizeof(",\"capabilities\":,\"properties\":") - 1;
-    constexpr u32 presence_bytes = sizeof(",\"presence\":{\"status\":") - 1;
-    constexpr u32 since_bytes = sizeof(",\"since\":") - 1;
-    constexpr u32 afk_bytes = sizeof(",\"activities\":[],\"afk\":") - 1;
-    constexpr u32 suffix_bytes = sizeof("},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}") - 1;
-    constexpr u32 fast_suffix_bytes = sizeof(",\"client_state\":{\"guild_versions\":{}}}}") - 1;
-    constexpr u32 qos_bytes = sizeof(",\"qos_token\":\"\"") - 1;
     if (!qos_token_valid(identify.qos_token))
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
-    const u32 capability_digits = decimal_digits(kGatewayUserCapabilitiesDefault);
-    const u64 since = identify.has_since ? identify.since_ms : 0;
-    const u32 since_digits = decimal_digits(since);
-    const u32 afk_literal_bytes = identify.afk ? 4 : 5;
-    const u64 head = static_cast<u64>(prefix_bytes) + token.bytes + capabilities_bytes + capability_digits +
-                     properties.bytes;
-    const u64 required =
-        identify.fast_connect
-            ? head + fast_suffix_bytes
-            : head + presence_bytes + status.bytes + since_bytes + since_digits + afk_bytes + afk_literal_bytes +
-                  suffix_bytes + (identify.qos_token.bytes ? qos_bytes + identify.qos_token.bytes : 0);
-    if (required > kGatewayUserMaximumCommandBytes) {
+    const auto emit = [&](Writer& writer) noexcept {
+        writer.put("{\"op\":2,\"d\":{\"token\":", token, ",\"capabilities\":", kGatewayUserCapabilitiesDefault,
+                   ",\"properties\":");
+        if (writer.output)
+            write_properties(identify.properties, &identify, {writer.output + writer.at, properties.bytes});
+        writer.at += properties.bytes;
+        if (identify.fast_connect) {
+            writer.put(",\"client_state\":{\"guild_versions\":{}}}}");
+            return;
+        }
+        // The presence in the desktop client's order; since is 0 unless idle.
+        writer.put(",\"presence\":{\"status\":", status, ",\"since\":", identify.has_since ? identify.since_ms : u64{0},
+                   ",\"activities\":[],\"afk\":", identify.afk,
+                   "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}");
+        if (identify.qos_token.bytes)
+            writer.put(",\"qos_token\":\"", identify.qos_token, '"');
+        writer.put("}}");
+    };
+    Writer measure{};
+    emit(measure);
+    if (measure.at > kGatewayUserMaximumCommandBytes)
         return GatewayCommandWriteResult{0, GatewayCommandError::value_too_large};
-    }
-    if (required > output.count) {
+    if (measure.at > output.count)
         return GatewayCommandWriteResult{0, GatewayCommandError::output_too_small};
-    }
-
-    u32 offset = 0;
-    write_literal(output.data, &offset, "{\"op\":2,\"d\":{\"token\":");
-    write_encoded(output.data, &offset, token);
-    write_literal(output.data, &offset, ",\"capabilities\":");
-    decimal_write(output.data + offset, kGatewayUserCapabilitiesDefault);
-    offset += capability_digits;
-    write_literal(output.data, &offset, ",\"properties\":");
-    offset += write_properties(identify.properties, &identify, {output.data + offset, properties.bytes}).bytes;
-    if (identify.fast_connect) {
-        write_literal(output.data, &offset, ",\"client_state\":{\"guild_versions\":{}}}}");
-        return GatewayCommandWriteResult{offset, GatewayCommandError::none};
-    }
-    // The presence in the desktop client's order; since is 0 unless idle.
-    write_literal(output.data, &offset, ",\"presence\":{\"status\":");
-    write_encoded(output.data, &offset, status);
-    write_literal(output.data, &offset, ",\"since\":");
-    offset += decimal_write(output.data + offset, since);
-    write_literal(output.data, &offset, ",\"activities\":[],\"afk\":");
-    write_boolean(output.data, &offset, identify.afk);
-    write_literal(output.data, &offset, "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}");
-    if (identify.qos_token.bytes) {
-        write_literal(output.data, &offset, ",\"qos_token\":\"");
-        copy_bytes(output.data + offset, identify.qos_token.data, identify.qos_token.bytes);
-        offset += identify.qos_token.bytes;
-        write_literal(output.data, &offset, "\"");
-    }
-    write_literal(output.data, &offset, "}}");
-    return GatewayCommandWriteResult{offset, GatewayCommandError::none};
+    Writer writer{output.data, 0};
+    emit(writer);
+    return GatewayCommandWriteResult{static_cast<u32>(writer.at), GatewayCommandError::none};
 }
 
 GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slice<u8> output) noexcept {
@@ -398,7 +347,6 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     if (subscription.range_count > kGatewayMemberSubscriptionMaximumRanges ||
         (subscription.omit_channel_ranges && subscription.range_count))
         return {0, GatewayCommandError::invalid_input};
-    u32 range_digits = 0;
     for (u32 i = 0; i < range_count; ++i) {
         const auto range =
             subscription.range_count
@@ -408,14 +356,12 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
             (subscription.range_count && range.last - range.first >= 100u) ||
             (i && range.first <= subscription.ranges[i - 1].last))
             return {0, GatewayCommandError::invalid_input};
-        range_digits += decimal_digits(range.first) + decimal_digits(range.last);
     }
     // The guild's other remembered channels: distinct, never empty, each with
     // ascending bounded ranges.
     if (subscription.channel_count > kGatewayGuildSubscriptionMaximumChannels - 1 ||
         (subscription.channel_count && subscription.omit_channel_ranges))
         return {0, GatewayCommandError::invalid_input};
-    u32 other_bytes = 0;
     for (u32 c = 0; c < subscription.channel_count; ++c) {
         const auto& other = subscription.channels[c];
         if (!other.channel_id || other.channel_id == subscription.channel_id || !other.range_count ||
@@ -424,145 +370,83 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
         for (u32 earlier = 0; earlier < c; ++earlier)
             if (subscription.channels[earlier].channel_id == other.channel_id)
                 return {0, GatewayCommandError::invalid_input};
-        other_bytes += sizeof(",\"\":[]") - 1 + decimal_digits(other.channel_id) + other.range_count - 1;
         for (u32 i = 0; i < other.range_count; ++i) {
             const auto range = other.ranges[i];
             if (range.last < range.first || range.last - range.first >= 100u ||
                 (i && range.first <= other.ranges[i - 1].last))
                 return {0, GatewayCommandError::invalid_input};
-            other_bytes += sizeof("[,]") - 1 + decimal_digits(range.first) + decimal_digits(range.last);
         }
     }
     // The users whose presence and member updates the client follows in the guild: bounded, distinct, nonzero.
     if (subscription.member_count > kGatewayGuildSubscriptionMaximumMembers ||
         (subscription.member_count && !subscription.members_present))
         return {0, GatewayCommandError::invalid_input};
-    u32 members_bytes = 0;
     for (u32 i = 0; i < subscription.member_count; ++i) {
         if (!subscription.members[i])
             return {0, GatewayCommandError::invalid_input};
         for (u32 earlier = 0; earlier < i; ++earlier)
             if (subscription.members[earlier] == subscription.members[i])
                 return {0, GatewayCommandError::invalid_input};
-        members_bytes += decimal_digits(subscription.members[i]) + 3;
     }
-    u32 field_bytes = 0, field_count = 0;
-    if (!subscription.omit_features) {
-        field_bytes += sizeof("\"typing\":,\"activities\":,\"threads\":") - 1 +
-                       (subscription.typing ? 4u : 5u) + (subscription.activities ? 4u : 5u) +
-                       (subscription.threads ? 4u : 5u);
-        ++field_count;
-    }
-    if (subscription.members_present) {
-        field_bytes += sizeof("\"members\":[]") - 1 + (members_bytes ? members_bytes - 1 : 0);
-        ++field_count;
-    }
-    if (!subscription.omit_channel_ranges) {
-        field_bytes += sizeof("\"channels\":{\":[[]]}") - 1 + decimal_digits(subscription.channel_id) +
-                       range_digits + range_count + 1 + (range_count - 1) * 3 + other_bytes;
-        ++field_count;
-    }
-    if (subscription.thread_member_lists_present) {
-        field_bytes += sizeof("\"thread_member_lists\":[]") - 1 +
-                       (subscription.thread_id ? decimal_digits(subscription.thread_id) + 2 : 0);
-        ++field_count;
-    }
-    if (!field_count)
+    if (subscription.omit_features && !subscription.members_present && subscription.omit_channel_ranges &&
+        !subscription.thread_member_lists_present)
         return {0, GatewayCommandError::invalid_input};
-    field_bytes += field_count - 1;
-    const u32 clear_bytes = subscription.clear_thread_guild_id
-                                ? decimal_digits(subscription.clear_thread_guild_id) + 5 +
-                                      sizeof("\"thread_member_lists\":[]") - 1 + 1
-                                : 0;
-    const u64 required = sizeof("{\"op\":37,\"d\":{\"subscriptions\":{") - 1 +
-                         static_cast<u64>(decimal_digits(subscription.guild_id)) + 5 + field_bytes +
-                         clear_bytes + 3;
-    if (required > output.count)
-        return {0, GatewayCommandError::output_too_small};
-    u32 offset = 0;
-    const auto number = [&](u64 value) noexcept {
-        offset += decimal_write(output.data + offset, value);
-    };
-    const auto guild = [&](u64 id) noexcept {
-        write_literal(output.data, &offset, "\"");
-        number(id);
-        write_literal(output.data, &offset, "\":{");
-    };
-    const auto range_pair = [&](u32 i, const GatewayMemberSubscriptionRange& range) noexcept {
-        if (i)
-            write_literal(output.data, &offset, ",");
-        write_literal(output.data, &offset, "[");
-        number(range.first);
-        write_literal(output.data, &offset, ",");
-        number(range.last);
-        write_literal(output.data, &offset, "]");
-    };
-    write_literal(output.data, &offset, "{\"op\":37,\"d\":{\"subscriptions\":{");
-    if (subscription.clear_thread_guild_id) {
-        guild(subscription.clear_thread_guild_id);
-        write_literal(output.data, &offset, "\"thread_member_lists\":[]},");
-    }
-    guild(subscription.guild_id);
-    bool comma = false;
-    if (!subscription.omit_features) {
-        write_literal(output.data, &offset, "\"typing\":");
-        write_boolean(output.data, &offset, subscription.typing);
-        write_literal(output.data, &offset, ",\"activities\":");
-        write_boolean(output.data, &offset, subscription.activities);
-        write_literal(output.data, &offset, ",\"threads\":");
-        write_boolean(output.data, &offset, subscription.threads);
-        comma = true;
-    }
-    if (subscription.members_present) {
-        if (comma)
-            write_literal(output.data, &offset, ",");
-        write_literal(output.data, &offset, "\"members\":[");
-        for (u32 i = 0; i < subscription.member_count; ++i) {
-            if (i)
-                write_literal(output.data, &offset, ",");
-            write_literal(output.data, &offset, "\"");
-            number(subscription.members[i]);
-            write_literal(output.data, &offset, "\"");
+    return write_command(output, [&](Writer& writer) noexcept {
+        const auto ranges = [&](const GatewayMemberSubscriptionRange* list, u32 count) noexcept {
+            for (u32 i = 0; i < count; ++i) {
+                if (i)
+                    writer.byte(',');
+                writer.put('[', list[i].first, ',', list[i].last, ']');
+            }
+        };
+        writer.put("{\"op\":37,\"d\":{\"subscriptions\":{");
+        if (subscription.clear_thread_guild_id)
+            writer.put('"', subscription.clear_thread_guild_id, "\":{\"thread_member_lists\":[]},");
+        writer.put('"', subscription.guild_id, "\":{");
+        bool comma = false;
+        if (!subscription.omit_features) {
+            writer.put("\"typing\":", subscription.typing, ",\"activities\":", subscription.activities,
+                       ",\"threads\":", subscription.threads);
+            comma = true;
         }
-        write_literal(output.data, &offset, "]");
-        comma = true;
-    }
-    if (!subscription.omit_channel_ranges) {
-        if (comma)
-            write_literal(output.data, &offset, ",");
-        write_literal(output.data, &offset, "\"channels\":{\"");
-        number(subscription.channel_id);
-        write_literal(output.data, &offset, "\":[");
-        for (u32 i = 0; i < range_count; ++i)
-            range_pair(i, subscription.range_count
-                              ? subscription.ranges[i]
-                              : GatewayMemberSubscriptionRange{subscription.range_first, subscription.range_last});
-        write_literal(output.data, &offset, "]");
-        for (u32 c = 0; c < subscription.channel_count; ++c) {
-            const auto& other = subscription.channels[c];
-            write_literal(output.data, &offset, ",\"");
-            number(other.channel_id);
-            write_literal(output.data, &offset, "\":[");
-            for (u32 i = 0; i < other.range_count; ++i)
-                range_pair(i, other.ranges[i]);
-            write_literal(output.data, &offset, "]");
+        if (subscription.members_present) {
+            if (comma)
+                writer.byte(',');
+            writer.put("\"members\":[");
+            for (u32 i = 0; i < subscription.member_count; ++i) {
+                if (i)
+                    writer.byte(',');
+                writer.id(subscription.members[i]);
+            }
+            writer.byte(']');
+            comma = true;
         }
-        write_literal(output.data, &offset, "}");
-        comma = true;
-    }
-    if (subscription.thread_member_lists_present) {
-        if (comma)
-            write_literal(output.data, &offset, ",");
-        write_literal(output.data, &offset, "\"thread_member_lists\":[");
-        if (subscription.thread_id) {
-            write_literal(output.data, &offset, "\"");
-            number(subscription.thread_id);
-            write_literal(output.data, &offset, "\"");
+        if (!subscription.omit_channel_ranges) {
+            const GatewayMemberSubscriptionRange single{subscription.range_first, subscription.range_last};
+            if (comma)
+                writer.byte(',');
+            writer.put("\"channels\":{\"", subscription.channel_id, "\":[");
+            ranges(subscription.range_count ? subscription.ranges : &single, range_count);
+            writer.byte(']');
+            for (u32 c = 0; c < subscription.channel_count; ++c) {
+                const auto& other = subscription.channels[c];
+                writer.put(",\"", other.channel_id, "\":[");
+                ranges(other.ranges, other.range_count);
+                writer.byte(']');
+            }
+            writer.byte('}');
+            comma = true;
         }
-        write_literal(output.data, &offset, "]");
-    }
-    write_literal(output.data, &offset, "}}}}");
-    return {offset, GatewayCommandError::none};
+        if (subscription.thread_member_lists_present) {
+            if (comma)
+                writer.byte(',');
+            writer.put("\"thread_member_lists\":[");
+            if (subscription.thread_id)
+                writer.id(subscription.thread_id);
+            writer.byte(']');
+        }
+        writer.put("}}}}");
+    });
 }
 
 bool gateway_guild_member_request_valid(const GatewayGuildMemberRequest& request) noexcept {
@@ -588,57 +472,27 @@ GatewayCommandWriteResult gateway_write_guild_member_request(const GatewayGuildM
                                                              Slice<u8> output) noexcept {
     if (!gateway_guild_member_request_valid(request))
         return {0, GatewayCommandError::invalid_input};
-    static constexpr char prefix[] = "{\"op\":8,\"d\":{\"guild_id\":\"";
-    if (gateway_guild_member_request_is_query(request)) {
-        // The composer's member search: {"guild_id","query","limit","presences":false,"nonce"}.
-        static constexpr char query[] = "\",\"query\":";
-        static constexpr char limit[] = ",\"limit\":";
-        static constexpr char tail[] = ",\"presences\":false,\"nonce\":\"";
-        EncodedString text{};
-        if (!encoded_string(Utf8View{request.query, request.query_bytes}, false, &text))
-            return {0, GatewayCommandError::invalid_utf8};
-        const u32 required = static_cast<u32>(sizeof(prefix) + sizeof(query) + sizeof(limit) + sizeof(tail) - 4) +
-                             decimal_digits(request.guild_id) + text.bytes + decimal_digits(request.limit) +
-                             decimal_digits(request.nonce) + 3;
-        if (!output.data || output.count < required)
-            return {0, GatewayCommandError::output_too_small};
-        u32 offset = 0;
-        write_literal(output.data, &offset, prefix);
-        offset += decimal_write(output.data + offset, request.guild_id);
-        write_literal(output.data, &offset, query);
-        write_encoded(output.data, &offset, text);
-        write_literal(output.data, &offset, limit);
-        offset += decimal_write(output.data + offset, request.limit);
-        write_literal(output.data, &offset, tail);
-        offset += decimal_write(output.data + offset, request.nonce);
-        write_literal(output.data, &offset, "\"}}");
-        return {offset, GatewayCommandError::none};
-    }
-    static constexpr char users[] = "\",\"presences\":false,\"user_ids\":[";
-    static constexpr char nonce[] = "],\"nonce\":\"";
-    u32 required = static_cast<u32>(sizeof(prefix) + sizeof(users) + sizeof(nonce) - 3) +
-                   decimal_digits(request.guild_id) + decimal_digits(request.nonce) + 3;
-    for (u32 i = 0; i < request.user_count; ++i)
-        required += decimal_digits(request.user_ids[i]) + 2 + (i ? 1u : 0u);
-    if (!output.data || output.count < required)
+    EncodedString text{};
+    const bool query = gateway_guild_member_request_is_query(request);
+    if (query && !encoded_string(Utf8View{request.query, request.query_bytes}, false, &text))
+        return {0, GatewayCommandError::invalid_utf8};
+    if (!output.data)
         return {0, GatewayCommandError::output_too_small};
-    u32 offset = 0;
-    const auto number = [&](u64 value) noexcept {
-        offset += decimal_write(output.data + offset, value);
-    };
-    write_literal(output.data, &offset, prefix);
-    number(request.guild_id);
-    write_literal(output.data, &offset, users);
-    for (u32 i = 0; i < request.user_count; ++i) {
-        if (i)
-            write_literal(output.data, &offset, ",");
-        write_literal(output.data, &offset, "\"");
-        number(request.user_ids[i]);
-        write_literal(output.data, &offset, "\"");
-    }
-    write_literal(output.data, &offset, nonce);
-    number(request.nonce);
-    write_literal(output.data, &offset, "\"}}");
-    return {offset, GatewayCommandError::none};
+    return write_command(output, [&](Writer& writer) noexcept {
+        writer.put("{\"op\":8,\"d\":{\"guild_id\":\"", request.guild_id);
+        if (query) {
+            // The composer's member search: {"guild_id","query","limit","presences":false,"nonce"}.
+            writer.put("\",\"query\":", text, ",\"limit\":", request.limit, ",\"presences\":false,\"nonce\":\"");
+        } else {
+            writer.put("\",\"presences\":false,\"user_ids\":[");
+            for (u32 i = 0; i < request.user_count; ++i) {
+                if (i)
+                    writer.byte(',');
+                writer.id(request.user_ids[i]);
+            }
+            writer.put("],\"nonce\":\"");
+        }
+        writer.put(request.nonce, "\"}}");
+    });
 }
 } // namespace maicord

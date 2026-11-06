@@ -4,7 +4,6 @@
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

@@ -98,13 +98,6 @@ __forceinline bool file_write(FileHandle file, const void* buffer, u32 bytes, u3
     return ok != 0;
 }
 
-inline bool file_write_at(FileHandle file, u64 offset, const void* buffer, u32 bytes, u32* written) noexcept {
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    *written = 0;
-    return SetFilePointerEx(file, position, nullptr, FILE_BEGIN) != 0 && file_write(file, buffer, bytes, written);
-}
-
 inline bool file_seek(FileHandle file, i64 offset, FileSeek origin, u64* position = nullptr) noexcept {
     LARGE_INTEGER distance{};
     LARGE_INTEGER moved{};
@@ -123,10 +116,6 @@ __forceinline bool file_size(FileHandle file, u64* bytes) noexcept {
         return false;
     *bytes = static_cast<u64>(length.QuadPart);
     return true;
-}
-
-inline bool file_set_size(FileHandle file, u64 bytes) noexcept {
-    return file_seek(file, static_cast<i64>(bytes), FileSeek::begin) && SetEndOfFile(file) != 0;
 }
 
 __forceinline bool file_flush(FileHandle file) noexcept {
@@ -231,14 +220,6 @@ inline bool file_mark_delete_on_close(FileHandle file) noexcept {
 
 __forceinline bool file_duplicate_sealed(FileHandle file, FileHandle* sealed) noexcept {
     return DuplicateHandle(GetCurrentProcess(), file, GetCurrentProcess(), sealed, GENERIC_READ | DELETE, FALSE, 0) != 0;
-}
-
-inline bool file_final_path(FileHandle file, wchar_t* output, u32 capacity, u32* length) noexcept {
-    const DWORD written = GetFinalPathNameByHandleW(file, output, capacity, 0);
-    if (written == 0 || written >= capacity)
-        return false;
-    *length = written;
-    return true;
 }
 
 // The system calls the pattern "<directory>\*" a listing of the directory.

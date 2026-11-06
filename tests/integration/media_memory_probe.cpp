@@ -12,6 +12,7 @@
 #include "../support/hevc_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {

@@ -1,7 +1,6 @@
 // wl_keyboard and libxkbcommon to WindowEvents: the keymap, key codes (the Windows virtual-key numbering, D14),
 // characters with compose, client-side repeat on a timerfd, held-key tracking and focus.
 #include "maicord/core/memory.hpp"
-#include "maicord/platform/window/global_keys.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/keymap.hpp"

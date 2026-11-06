@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/win32_types.hpp"
 #include "maicord/render/effects/background_effect.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/gpu/gpu.hpp"

@@ -2,7 +2,6 @@
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 

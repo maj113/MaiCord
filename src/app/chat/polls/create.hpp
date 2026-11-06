@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/model/chat/message_composer.hpp"
 
 namespace maicord::app_detail {
 // Create poll: a modal settings form over the shell (question, 2-10 answers

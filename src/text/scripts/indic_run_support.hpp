@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/utf.hpp"
 #include "maicord/text/scripts/indic_clusters.hpp"
 #include "maicord/text/shaping/shape_run.hpp"
 #include "use_shape_internal.hpp"

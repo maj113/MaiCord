@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/http/http1.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 namespace {

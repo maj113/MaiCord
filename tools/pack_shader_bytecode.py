@@ -33,20 +33,8 @@ def read_bytecode(path):
 CACHE = optimal_deflate.DeflateCache("shaders")
 
 
-def zlib_best(data):
-    best = None
-    for mem in (8, 9):
-        for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
-            c = zlib.compressobj(9, zlib.DEFLATED, 15, mem, strategy)
-            out = c.compress(data) + c.flush()
-            if best is None or len(out) < len(best):
-                best = out
-    assert zlib.decompress(best) == data
-    return best
-
-
 def pack(data):
-    return CACHE.stream(data, zlib_best)
+    return CACHE.stream(data, optimal_deflate.zlib_best)
 
 
 # Entries are three u16: offset, packed bytes, raw bytes. The flag marks a raw size
@@ -59,7 +47,7 @@ def generate(entries):
     if len(set(names)) != len(names):
         raise ValueError("Duplicate shader name")
     # The sparse variant only needs a size to compare its patch against.
-    compressed = [zlib_best(data) if name == "colr_wide_compute" else pack(data) for name, data in entries]
+    compressed = [optimal_deflate.zlib_best(data) if name == "colr_wide_compute" else pack(data) for name, data in entries]
     patches, shared_index, base_index = [], None, None
     if "colr_compute" in names and "colr_wide_compute" in names:
         base_index = names.index("colr_compute")

@@ -112,8 +112,6 @@ bool media_atlas_unpin(MediaAtlas* atlas, const MediaAssetKey& key) noexcept;
 // video whose reduced picture changed extent); its slot is reused. False when
 // the key was not resident.
 bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept;
-// A key the profile pools hold: their index + 1, else 0 (the general region).
-u8 media_atlas_pool(const MediaAtlas& atlas, const MediaAssetKey& key, u16 width, u16 height) noexcept;
 MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
                                       u16 width, u16 height) noexcept;
 bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,

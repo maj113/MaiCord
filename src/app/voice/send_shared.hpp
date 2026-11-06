@@ -2,7 +2,6 @@
 // The capture pipeline's shared block, which send.cpp allocates behind VoiceSend::shared; the send test
 // reads its packet queue indices.
 #include "maicord/app/voice/send.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord {

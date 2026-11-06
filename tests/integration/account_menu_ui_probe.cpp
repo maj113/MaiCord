@@ -4,7 +4,6 @@
 #include "maicord/ui/account/menu.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/core/scene.hpp"

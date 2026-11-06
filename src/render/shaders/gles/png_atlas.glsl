@@ -1,4 +1,4 @@
-// twin: src/render/shaders/png_atlas.hlsl 0cb614e92d13cd70
+// twin: src/render/shaders/png_atlas.hlsl 2cf02d5cfa7e64fc
 // png_expand (STAGE_CS): decodes reconstructed PNG scanlines into the premultiplied media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
 

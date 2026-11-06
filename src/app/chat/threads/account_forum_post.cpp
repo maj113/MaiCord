@@ -1,7 +1,6 @@
 #include "maicord/app/chat/threads/account_forum_post.hpp"
 
 #include "maicord/app/net/request_body_bank.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 static_assert(kForumPostMaximumTargetBytes <= kRestClientMaximumTargetBytes);

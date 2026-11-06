@@ -7,7 +7,6 @@
 #include "maicord/core/utf.hpp"
 #include "renderer_interaction_state.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

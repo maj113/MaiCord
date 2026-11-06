@@ -6,7 +6,6 @@
 #include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../../src/app/shell/content_point.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

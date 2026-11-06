@@ -1,7 +1,6 @@
 #include "maicord/app/chat/search/account_message_search.hpp"
 #include "../../../support/rest_submit_hook.hpp"
 #include "../../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace search_transport_test {

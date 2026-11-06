@@ -13,7 +13,6 @@
 #include "../../src/app/shell/app_icon.hpp"
 #include "../../src/render/d3d11/renderer_caption.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"

@@ -29,7 +29,6 @@ inline constexpr i32 kErrorPinRequired = 0x36;    // FIDO_ERR_PIN_REQUIRED
 inline constexpr i32 kErrorActionTimeout = 0x3a;  // FIDO_ERR_ACTION_TIMEOUT
 inline constexpr i32 kErrorUvBlocked = 0x3c;      // FIDO_ERR_UV_BLOCKED
 inline constexpr i32 kErrorTransmit = -1;         // FIDO_ERR_TX
-inline constexpr i32 kErrorReceive = -2;          // FIDO_ERR_RX
 inline constexpr i32 kErrorInternal = -9;         // FIDO_ERR_INTERNAL
 
 // fido_opt_t: what an assertion asks of an authenticator option (user verification here).

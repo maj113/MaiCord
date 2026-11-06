@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/media/video/gpu_video_frame.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/gpu/gpu.hpp"
 
 namespace maicord {

@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "../../../support/test_output.hpp"
+#include "maicord/protocol/auth/p256_signature.hpp"
 
 namespace maicord {
 namespace {

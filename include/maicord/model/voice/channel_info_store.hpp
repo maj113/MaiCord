@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 // Voice channel statuses and session start times by channel. Only channels

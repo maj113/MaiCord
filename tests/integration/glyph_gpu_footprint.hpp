@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "../../src/render/text/d3d11_color_glyph_owner.hpp"
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 // Sizes of the descriptor payloads, not the driver's allocation size or actual memory use.

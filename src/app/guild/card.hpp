@@ -1,10 +1,8 @@
 #pragma once
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/media/core/asset.hpp"
 #include "maicord/ui/core/geometry.hpp"
 
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {

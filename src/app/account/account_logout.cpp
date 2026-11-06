@@ -1,4 +1,5 @@
 #include "maicord/app/account/account_logout.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -6,12 +7,7 @@ constexpr char kTarget[] = "/api/v10/auth/logout";
 constexpr char kBody[] = "{\"provider\":null,\"voip_provider\":null}";
 
 bool equal(ConstSlice<u8> bytes, const char* text, u32 count) noexcept {
-    if (!bytes.data || bytes.count != count)
-        return false;
-    for (u32 i = 0; i < count; ++i)
-        if (bytes[i] != static_cast<u8>(text[i]))
-            return false;
-    return true;
+    return bytes.count == count && bytes_equal(bytes.data, text, count);
 }
 } // namespace
 

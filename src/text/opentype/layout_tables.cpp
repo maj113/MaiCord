@@ -1,7 +1,6 @@
 #include "maicord/text/opentype/layout_tables.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/opentype/lookup_bounds.hpp"
-#include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
 inline u16 read(const u8* bytes,u32 at) noexcept {return byte_load_be16(bytes+at);}

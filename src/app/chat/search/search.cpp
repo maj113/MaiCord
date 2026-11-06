@@ -12,6 +12,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
+#include "../polls/poll.hpp"
+#include "maicord/ui/chat/polls/controls.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -36,30 +38,18 @@ bool text_reserve(SearchTextBanks& storage, u32 bank, u32 bytes) noexcept {
     }
     return true;
 }
+u32 search_publication_counter{};
 
 } // namespace
+
+static_assert(sizeof(SearchFilterChoices) <= 4096);
+static_assert(sizeof(ApplicationSearch) <= 8192);
+
 namespace search_detail {
 
 bool text_reserve_both(SearchTextBanks& storage, u32 bytes) noexcept {
     return text_reserve(storage, 0, bytes) && text_reserve(storage, 1, bytes);
 }
-
-} // namespace search_detail
-namespace {
-
-static_assert(sizeof(SearchFilterChoices) <= 4096);
-
-} // namespace
-
-static_assert(sizeof(ApplicationSearch) <= 8192);
-
-namespace {
-
-u32 search_publication_counter{};
-
-} // namespace
-namespace search_detail {
-
 u32 filter_publication_counter{};
 Utf8View without_prefix(const Utf8View& value, char prefix) noexcept {
     return value.bytes && value.data[0] == prefix ? Utf8View{value.data + 1, value.bytes - 1} : value;

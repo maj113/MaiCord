@@ -2,5 +2,5 @@ name=Aurora
 uses=blue_noise
 blend=normal
 resolution=50
-fps=24
+fps=15
 knobs=350 700 750 3000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0

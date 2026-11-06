@@ -19,12 +19,9 @@ does:
 With no --include the system headers (/usr/include) are used; CI installs libpulse-dev and runs this beside the build.
 """
 
-import argparse
 import os
 import re
-import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_openssl_abi as shared  # noqa: E402  (its declaration parsing is not OpenSSL specific)
@@ -76,79 +73,16 @@ def read_header():
     return functions, constants, layouts
 
 
-def run(command, source):
-    result = subprocess.run(command + [source], capture_output=True, text=True)
-    return result
-
-
-def preprocess(compiler, includes):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "check.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-        result = run([compiler, "-E", "-P"] + ["-I" + d for d in includes], source)
-        if result.returncode:
-            raise SystemExit("preprocessing failed (is libpulse-dev installed?):\n" + result.stderr)
-        return result.stdout
-
-
-def check_compiled(compiler, includes, constants, layouts):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "constants.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            handle.write("#include <stddef.h>\n#include <stdint.h>\n")
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-            for macro, value in constants:
-                handle.write("_Static_assert((unsigned long long)(%s) == (unsigned long long)(%s), \"%s\");\n"
-                             % (macro, value, macro))
-            for layout in layouts:
-                handle.write("_Static_assert(%s, \"%s\");\n" % (layout, layout))
-        result = run([compiler, "-fsyntax-only"] + ["-I" + d for d in includes], source)
-        if result.returncode:
-            print(result.stderr)
-            return 1
-    return 0
-
-
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--include", action="append", default=[])
-    parser.add_argument("--compiler", default=os.environ.get("CC", "cc"))
-    arguments = parser.parse_args()
-    includes = arguments.include or ["/usr/include"]
+    compiler, includes = shared.command_line(__doc__, ["/usr/include"])
     functions, constants, layouts = read_header()
     if not functions or not constants or not layouts:
         raise SystemExit("found no table in " + HEADER)
 
-    failures = check_compiled(arguments.compiler, includes, constants, layouts)
-    text = preprocess(arguments.compiler, includes)
-    for name, ret, table_arguments in functions:
-        declared = shared.find_declaration(text, name)
-        if not declared:
-            print("%s: not declared by the libpulse headers" % name)
-            failures += 1
-            continue
-        declared_ret, declared_arguments = declared
-        problems = []
-        try:
-            if len(declared_arguments) != len(table_arguments):
-                problems.append("%d arguments declared, %d in the table" % (len(declared_arguments), len(table_arguments)))
-            elif kind(declared_ret) != kind(ret):
-                problems.append("returns %s, the table says %s" % (declared_ret, ret))
-            else:
-                for index, (theirs, ours) in enumerate(zip(declared_arguments, table_arguments)):
-                    if kind(theirs) != kind(ours):
-                        problems.append("argument %d is '%s', the table says '%s'" % (index + 1, theirs, ours))
-        except ValueError as error:
-            problems = [str(error)]
-        if problems:
-            failures += 1
-            print("%s: %s" % (name, "; ".join(problems)))
-    print("%d functions, %d constants and %d layouts checked against %s: %s" % (
-        len(functions), len(constants), len(layouts), ", ".join(includes), "FAILED" if failures else "ok"))
-    return 1 if failures else 0
+    failures = shared.check_constants(compiler, includes, INCLUDES, constants, layouts)
+    failures += shared.check_functions(shared.preprocess(compiler, includes, INCLUDES), functions, kind)
+    return shared.summary("%d functions, %d constants and %d layouts" % (len(functions), len(constants), len(layouts)),
+                          includes, failures)
 
 
 if __name__ == "__main__":

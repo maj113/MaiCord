@@ -12,7 +12,7 @@
 #include "maicord/app/chat/messages/send_response.hpp"
 #include "maicord/app/chat/private_conversation.hpp"
 #include "maicord/core/json_scan.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
@@ -70,31 +70,14 @@ struct State {
 };
 State g_builtins;
 
-Utf8View view(const char* data, u32 bytes) noexcept {
-    return {data, bytes};
-}
-bool space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\n' || value == '\r';
-}
-Utf8View trim(Utf8View text) noexcept {
-    while (text.bytes && space(text.data[0]))
-        text = {text.data + 1, text.bytes - 1};
-    while (text.bytes && space(text.data[text.bytes - 1]))
-        --text.bytes;
-    return text;
-}
 // Joins parts into storage; empty on overflow.
 Utf8View join(Slice<char> storage, const Utf8View& a, const Utf8View& b = {},
               const Utf8View& c = {}) noexcept {
-    u32 used = 0;
-    const Utf8View parts[] = {a, b, c};
-    for (const auto part : parts) {
-        if (part.bytes > storage.count - used)
-            return {};
-        copy_bytes(storage.data + used, part.data, part.bytes);
-        used += part.bytes;
-    }
-    return {storage.data, used};
+    TextWriter writer{storage};
+    writer.add(a);
+    writer.add(b);
+    writer.add(c);
+    return writer.ok ? Utf8View{storage.data, writer.used} : Utf8View{};
 }
 
 // One option of command_arguments' array: {"name","type","value"}.
@@ -286,14 +269,14 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         const Utf8View suffix = command.id == shrug       ? utf8_literal(" ¯\\_(ツ)_/¯")
                                 : command.id == tableflip ? utf8_literal(" (╯°□°)╯︵ ┻━┻")
                                                           : utf8_literal(" ┬─┬ノ( º _ ºノ)");
-        *text = trim(join(text_storage, message, suffix));
+        *text = ascii_trim(join(text_storage, message, suffix));
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     }
     case me:
         *text = join(text_storage, utf8_literal("_"), message, utf8_literal("_"));
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case spoiler:
-        *text = trim(join(text_storage, utf8_literal("||"), message, utf8_literal("||")));
+        *text = ascii_trim(join(text_storage, utf8_literal("||"), message, utf8_literal("||")));
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case gif:
     case sticker: {
@@ -390,7 +373,7 @@ bool builtin_commands_submit(u64 request_id, bool* busy) noexcept {
     if (s.action == Action::nick || s.action == Action::thread) {
         if (g_app.account.api.application_command)
             result = g_app.account.api.application_command(
-                g_app.account.instance, s.channel, s.guild, 0, 0, view(s.body, s.body_bytes), request_id,
+                g_app.account.instance, s.channel, s.guild, 0, 0, Utf8View{s.body, s.body_bytes}, request_id,
                 s.action == Action::nick ? kBuiltinCommandNick : kBuiltinCommandThread);
     } else if (g_app.account.api.guild_admin) {
         GuildAdminRequest request{};
@@ -440,9 +423,9 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
     char line[512];
     const Slice<char> storage{line, sizeof(line)};
     Utf8View text{};
-    const Utf8View tag = s.tag_bytes ? view(s.tag, s.tag_bytes) : Utf8View{};
+    const Utf8View tag = s.tag_bytes ? Utf8View{s.tag, s.tag_bytes} : Utf8View{};
     char id_digits[24];
-    const Utf8View named = tag.bytes ? tag : view(id_digits, decimal_write(id_digits, s.target));
+    const Utf8View named = tag.bytes ? tag : Utf8View{id_digits, decimal_write(id_digits, s.target)};
     switch (action) {
     case Action::nick: {
         char nick_storage[256];
@@ -499,7 +482,7 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
         char tail[48];
         u32 digits = decimal_write_grouped(tail, s.seconds);
         digits += utf8_copy_truncated(tail + digits, 48u - digits, utf8_literal(" seconds."));
-        text = ok ? join(storage, named, utf8_literal(" timed out for "), view(tail, digits))
+        text = ok ? join(storage, named, utf8_literal(" timed out for "), Utf8View{tail, digits})
                   : utf8_literal("Oops! We encountered an error when trying to time out that user.");
         break;
     }
@@ -565,7 +548,7 @@ bool builtin_command_results(const ApplicationCommand* command, const Utf8View& 
         return true;
     }
     return application_media_picker_inline(command->id == gif ? UiMediaPickerKind::gif : UiMediaPickerKind::sticker,
-                                           trim(query), anchor);
+                                           ascii_trim(query), anchor);
 }
 
 bool builtin_command_results_key(u32 key, bool* handled) noexcept {

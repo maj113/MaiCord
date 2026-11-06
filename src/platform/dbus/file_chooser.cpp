@@ -1,6 +1,6 @@
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/file_chooser.hpp"
 #include "maicord/platform/dbus/portal.hpp"
@@ -26,29 +26,6 @@ constexpr const char* kPortalPath = "/org/freedesktop/portal/desktop";
 constexpr const char* kInterface = "org.freedesktop.portal.FileChooser";
 constexpr u32 kReplyTimeoutMs = 30000;
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
-int hex_value(char c) noexcept {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
 void release_memory(FileChooser* chooser) noexcept {
     portal_request_end(&chooser->request);
     heap_free(chooser);
@@ -66,7 +43,7 @@ void read_uris(FileChooser* chooser, Reader* r) noexcept {
         const char* signature = nullptr;
         if (!reader_enter_struct(r) || !reader_string(r, &key, nullptr) || !reader_enter_variant(r, &signature))
             break;
-        if (text_equal(key, "uris") && text_equal(signature, "as")) {
+        if (c_string_equal(key, "uris") && c_string_equal(signature, "as")) {
             found = true;
             u32 uris = 0;
             if (reader_enter_array(r)) {
@@ -82,7 +59,7 @@ void read_uris(FileChooser* chooser, Reader* r) noexcept {
                         return;
                     }
                     if (!file_uri_to_path(uri, chooser->paths[chooser->count], kFileChooserPathBytes)) {
-                        chooser->state = text_length(uri) >= kFileChooserPathBytes ? FileChooserState::capacity
+                        chooser->state = c_string_length(uri) >= kFileChooserPathBytes ? FileChooserState::capacity
                                                                                   : FileChooserState::failed;
                         chooser->count = 0;
                         return;
@@ -230,7 +207,7 @@ FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
         builder_string(&body, "current_folder");
         builder_open_variant(&body, "ay");
         builder_byte_array(&body, reinterpret_cast<const u8*>(options.current_folder),
-                           text_length(options.current_folder) + 1);
+                           c_string_length(options.current_folder) + 1);
         builder_close_variant(&body);
         builder_close_entry(&body);
     }
@@ -268,8 +245,8 @@ bool file_uri_to_path(const char* uri, char* path, u32 capacity) noexcept {
     for (const char* p = rest; *p; ++p) {
         char c = *p;
         if (c == '%') {
-            const int high = p[1] ? hex_value(p[1]) : -1;
-            const int low = high >= 0 && p[2] ? hex_value(p[2]) : -1;
+            const int high = ascii_hex_value(p[1]);
+            const int low = high >= 0 ? ascii_hex_value(p[2]) : -1;
             if (high < 0 || low < 0)
                 return false;
             c = static_cast<char>(high * 16 + low);

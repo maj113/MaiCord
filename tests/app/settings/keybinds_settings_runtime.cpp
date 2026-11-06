@@ -2,7 +2,6 @@
 #include "settings/settings.hpp"
 #include "shell/state.hpp"
 #include "voice/voice.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/null.hpp"

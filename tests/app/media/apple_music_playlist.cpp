@@ -1,7 +1,6 @@
 #include "maicord/app/media/embed_resolver.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {
 namespace {

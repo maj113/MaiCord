@@ -10,7 +10,6 @@
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

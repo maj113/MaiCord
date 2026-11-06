@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/render/text/glyph_raster.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
 #include "maicord/gpu/gpu.hpp"
 

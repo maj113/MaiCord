@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/update/manifest.hpp"
-#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 

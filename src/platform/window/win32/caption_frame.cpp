@@ -6,7 +6,6 @@
 #include "maicord/platform/window/win32.hpp"
 #include "internal.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/shell.hpp"
 

@@ -8,7 +8,6 @@
 // with FONTCONFIG_FILE naming tests/fixtures/fonts/fonts.conf (a NixOS-style configuration: an xdg directory, a store
 // path that does not exist and an include directory that adds the repository's bundled fonts).
 #include "maicord/os/ordinal.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/font/default_fonts.hpp"

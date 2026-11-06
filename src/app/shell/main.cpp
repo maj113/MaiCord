@@ -11,7 +11,6 @@
 #include "maicord/app/shell/background_frame_policy.hpp"
 #include "maicord/app/gateway/wake_coalescing.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/module.hpp"
 #include "maicord/core/os_text.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
@@ -58,7 +57,6 @@
 #include "ui_runtime.hpp"
 #include "window.hpp"
 #include "run.hpp"
-#include "window_runtime.hpp"
 #include "window_state.hpp"
 #include "../notifications/notifications.hpp"
 #include "../media/media.hpp"
@@ -573,7 +571,7 @@ int run_application() noexcept {
         if (!logout_blocked && g_app.account_ui &&
             (dispatched_messages || account_work || application_smooth_scroll_active())) {
             const u32 revision = g_app.account_ui->chat_state.channel_mutations;
-            if (!application_read_state_observe(clock_monotonic_milliseconds()))
+            if (!application_read_state_observe())
                 log_write(LogLevel::warning, "read", "visible_ack_not_admitted");
             if (revision != g_app.account_ui->chat_state.channel_mutations) {
                 refresh_account_text();

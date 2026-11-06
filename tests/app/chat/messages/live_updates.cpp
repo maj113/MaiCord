@@ -2,7 +2,6 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_rich_store.hpp"
 
 namespace maicord {

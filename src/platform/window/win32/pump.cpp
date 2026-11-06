@@ -3,7 +3,6 @@
 #include "maicord/platform/window/pump.hpp"
 
 #include "maicord/core/time.hpp"
-#include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/win32.hpp"
 

@@ -2,7 +2,6 @@
 #include "maicord/protocol/user/account_settings.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
 

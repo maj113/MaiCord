@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 
 // Opening a link or a file URI in the user's browser or viewer: the OpenURI portal
 // (org.freedesktop.portal.OpenURI.OpenURI on the session bus), and only when the portal is not there or refuses the call,

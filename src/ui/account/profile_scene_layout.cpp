@@ -2,8 +2,8 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/model/guild/role_policy.hpp"
 #include "maicord/model/user/store.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord {
 using namespace profile_scene_detail;

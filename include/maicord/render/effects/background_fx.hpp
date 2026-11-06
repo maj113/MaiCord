@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/render/effects/background_fx_data.hpp"
 #include "maicord/ui/core/geometry.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/theme.hpp"
 
 // Built-in Stars/Comets pass: CPU-side policy shared by the renderer and the tests. The effect

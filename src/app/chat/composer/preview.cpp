@@ -2,7 +2,6 @@
 #include "attachments_state.hpp"
 #include "../../shell/state.hpp"
 #include "../../shell/owner.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 

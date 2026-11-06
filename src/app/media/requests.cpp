@@ -16,6 +16,9 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/ui/chat/inbox_avatar_media.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
+#include "../account/account_ui_runtime.hpp"
+#include "maicord/ui/account/friends_media.hpp"
+#include "maicord/ui/chat/polls/voters_avatar_media.hpp"
 
 namespace maicord::app_detail {
 namespace requests_detail {

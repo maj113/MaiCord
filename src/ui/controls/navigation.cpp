@@ -59,7 +59,7 @@ UiRect ui_settings_nav_badge_rect(const UiRect& item, bool dot, float digits_wid
     return {right - width, cy - height * .5f, right, cy + height * .5f};
 }
 
-bool ui_settings_nav_badge_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& badge, bool) noexcept {
+bool ui_settings_nav_badge_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& badge) noexcept {
     return paint_stream_push_rounded(paint, badge, tokens.color.brand, ui_rect_height(badge) * .5f);
 }
 

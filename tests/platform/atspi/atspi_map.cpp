@@ -1,4 +1,3 @@
-#include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/atspi/accessible.hpp"
 #include "maicord/platform/atspi/map.hpp"

@@ -7,15 +7,8 @@
 
 #include "maicord/gpu/api.hpp"
 #include "maicord/os/wait.hpp"
-#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
-
-struct GpuSurfaceDesc {
-    NativeWindow window; // the window's native handle: an HWND, or the wl_surface* of the Wayland backend
-    u32 width, height;   // the buffer size in pixels
-    u32 dpi;
-};
 
 // One surface per device. On OpenGL ES the device must have been made with gpu_device_set_native_display. The caller
 // owns the storage: `surface` is a zeroed GpuSurface that this fills and gpu_surface_release releases and zeroes.

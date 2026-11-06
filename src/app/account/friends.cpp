@@ -103,12 +103,13 @@ const RelationshipStore* application_friends_relationships() noexcept {
     return friends && friends->ready && !friends->incomplete && !friends->snapshot_active
                ? &friends->store : nullptr;
 }
-bool application_friends_notification_gates(u64 user_id,u32* gates) noexcept {
-    if(!gates || !g_app.friends || !g_app.friends->ready || g_app.friends->incomplete || g_app.friends->snapshot_active) return false;
-    *gates=0;
-    const auto* row=relationship_store_find(g_app.friends->store,user_id);
-    if(row && row->type==RelationshipType::blocked) *gates|=notification_gate_blocked;
-    if(row && row->ignored) *gates|=notification_gate_ignored;
+bool application_friends_notification_gates(u64 user_id, u32* gates) noexcept {
+    const auto* store = application_friends_relationships();
+    if (!gates || !store)
+        return false;
+    const auto* row = relationship_store_find(*store, user_id);
+    *gates = (row && row->type == RelationshipType::blocked ? notification_gate_blocked : 0) |
+             (row && row->ignored ? notification_gate_ignored : 0);
     return true;
 }
 namespace {
@@ -118,6 +119,14 @@ UiFriendsScene& input_scene(ApplicationFriends& friends) noexcept {
 }
 void invalidate_sources(ApplicationFriends& friends) noexcept {
     ++friends.source.revision;++friends.requests_source.revision;
+}
+// Relationship presence as a UI dot; an unreported presence shows as unknown.
+UiPresence presence_dot(RelationshipPresence value) noexcept {
+    return value == RelationshipPresence::online    ? UiPresence::online
+           : value == RelationshipPresence::idle    ? UiPresence::idle
+           : value == RelationshipPresence::dnd     ? UiPresence::busy
+           : value == RelationshipPresence::offline ? UiPresence::offline
+                                                    : UiPresence::unknown;
 }
 bool request_busy(const ApplicationFriends& friends) noexcept {
     return friends.request.phase == FriendsRequestPhase::queued || friends.request.phase == FriendsRequestPhase::awaiting ||
@@ -165,7 +174,7 @@ bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* 
         record.presence == RelationshipPresence::idle ? utf8_literal("Idle") :
         record.presence == RelationshipPresence::dnd ? utf8_literal("Do Not Disturb") :
         record.presence == RelationshipPresence::offline ? utf8_literal("Offline") : utf8_literal("Status unavailable"),
-        application_friends_presence(record.presence), record.type == RelationshipType::incoming ? UiFriendsKind::incoming :
+        presence_dot(record.presence), record.type == RelationshipType::incoming ? UiFriendsKind::incoming :
         record.type == RelationshipType::outgoing ? UiFriendsKind::outgoing :
         record.type == RelationshipType::blocked ? UiFriendsKind::blocked : UiFriendsKind::friend_user,
         request_busy(friends), record.spam, record.ignored};

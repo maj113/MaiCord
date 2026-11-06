@@ -4,24 +4,16 @@
 #include "maicord/core/intrinsics.hpp"
 #include "video.hpp"
 #include "../shell/overlay_input.hpp"
-#include "../shell/window_state.hpp"
-#include "../shell/content_point.hpp"
-#include "video_request.hpp"
 #include "../shell/state.hpp"
 #include "../chat/channel_authority.hpp"
 #include "../chat/search/search.hpp"
-#include "image_viewer.hpp"
-#include "../shell/cursor.hpp"
 #include "maicord/media/video/gpu_video_frame.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/hash.hpp"
-#include "maicord/core/utf.hpp"
-#include "../../render/d3d11/renderer_interaction_state.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/media/account_video_playback.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 
 namespace maicord::app_detail {
 namespace video_detail {}

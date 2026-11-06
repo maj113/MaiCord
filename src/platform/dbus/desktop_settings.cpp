@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
@@ -24,36 +25,18 @@ struct State {
 
 State g;
 
-u32 length_of(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool equals(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 bool equals_n(const char* a, u32 a_length, const char* b) noexcept {
-    return a_length == length_of(b) && bytes_equal(a, b, a_length);
-}
-
-// Whether `layout` (n bytes) is the name.
-bool token_is(const char* token, u32 length, const char* name) noexcept {
-    return equals_n(token, length, name);
+    return a_length == c_string_length(b) && bytes_equal(a, b, a_length);
 }
 
 CaptionButton button_named(const char* token, u32 length) noexcept {
-    if (token_is(token, length, "close"))
+    if (equals_n(token, length, "close"))
         return caption_close;
-    if (token_is(token, length, "minimize"))
+    if (equals_n(token, length, "minimize"))
         return caption_minimize;
-    if (token_is(token, length, "maximize"))
+    if (equals_n(token, length, "maximize"))
         return caption_maximize;
-    if (token_is(token, length, "appmenu") || token_is(token, length, "icon"))
+    if (equals_n(token, length, "appmenu") || equals_n(token, length, "icon"))
         return caption_menu;
     return caption_none;
 }
@@ -198,7 +181,7 @@ bool set_text(char* field, u32 capacity, const char* text, u32 length) noexcept 
     char next[128];
     copy_bytes(next, text, length);
     next[length] = 0;
-    const bool changed = !equals(field, next);
+    const bool changed = !c_string_equal(field, next);
     copy_bytes(field, next, length + 1);
     return changed;
 }
@@ -211,14 +194,14 @@ ColorScheme scheme_of_number(i64 number) noexcept {
 u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, const Value& v) noexcept {
     u32 areas = 0;
     const auto integer_in = [&](i64 low, i64 high) { return (v.type == 'i' || v.type == 'u' || v.type == 'x' || v.type == 'n' || v.type == 'q' || v.type == 'y' || v.type == 't') && v.integer >= low && v.integer <= high; };
-    if (equals(ns, "org.freedesktop.appearance")) {
-        if (equals(key, "color-scheme") && integer_in(0, 2)) {
+    if (c_string_equal(ns, "org.freedesktop.appearance")) {
+        if (c_string_equal(key, "color-scheme") && integer_in(0, 2)) {
             state->portal_scheme_seen = true;
             const ColorScheme next = scheme_of_number(v.integer);
             if (s->color_scheme != next)
                 areas |= desktop_scheme;
             s->color_scheme = next;
-        } else if (equals(key, "accent-color")) {
+        } else if (c_string_equal(key, "accent-color")) {
             const bool valid = v.is_rgb && v.rgb[0] >= 0 && v.rgb[0] <= 1 && v.rgb[1] >= 0 && v.rgb[1] <= 1 &&
                                v.rgb[2] >= 0 && v.rgb[2] <= 1;
             const float r = valid ? static_cast<float>(v.rgb[0]) : 0;
@@ -230,44 +213,44 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
             s->accent[0] = r;
             s->accent[1] = g2;
             s->accent[2] = b;
-        } else if (equals(key, "contrast") && integer_in(0, 1)) {
+        } else if (c_string_equal(key, "contrast") && integer_in(0, 1)) {
             if (set_flag(&s->more_contrast, v.integer == 1))
                 areas |= desktop_contrast;
-        } else if (equals(key, "reduced-motion") && integer_in(0, 1)) {
+        } else if (c_string_equal(key, "reduced-motion") && integer_in(0, 1)) {
             if (set_flag(&s->reduced_motion, v.integer == 1))
                 areas |= desktop_motion;
         }
-    } else if (equals(ns, "org.gnome.desktop.interface")) {
-        if (equals(key, "enable-animations") && v.type == 'b') {
+    } else if (c_string_equal(ns, "org.gnome.desktop.interface")) {
+        if (c_string_equal(key, "enable-animations") && v.type == 'b') {
             if (set_flag(&s->animations, v.boolean))
                 areas |= desktop_motion;
-        } else if (equals(key, "cursor-blink") && v.type == 'b') {
+        } else if (c_string_equal(key, "cursor-blink") && v.type == 'b') {
             if (set_flag(&s->cursor_blink, v.boolean))
                 areas |= desktop_caret;
-        } else if (equals(key, "cursor-blink-time") && integer_in(100, 20000)) {
+        } else if (c_string_equal(key, "cursor-blink-time") && integer_in(100, 20000)) {
             if (set_number(&s->cursor_blink_ms, static_cast<u32>(v.integer)))
                 areas |= desktop_caret;
-        } else if (equals(key, "cursor-size") && integer_in(1, 512)) {
+        } else if (c_string_equal(key, "cursor-size") && integer_in(1, 512)) {
             if (set_number(&s->cursor_size, static_cast<u32>(v.integer)))
                 areas |= desktop_cursor;
-        } else if (equals(key, "cursor-theme") && v.type == 's') {
+        } else if (c_string_equal(key, "cursor-theme") && v.type == 's') {
             if (set_text(s->cursor_theme, sizeof(s->cursor_theme), v.text, v.text_length))
                 areas |= desktop_cursor;
-        } else if (equals(key, "font-name") && v.type == 's') {
+        } else if (c_string_equal(key, "font-name") && v.type == 's') {
             if (set_text(s->ui_font, sizeof(s->ui_font), v.text, v.text_length))
                 areas |= desktop_fonts;
-        } else if (equals(key, "document-font-name") && v.type == 's') {
+        } else if (c_string_equal(key, "document-font-name") && v.type == 's') {
             if (set_text(s->document_font, sizeof(s->document_font), v.text, v.text_length))
                 areas |= desktop_fonts;
-        } else if (equals(key, "monospace-font-name") && v.type == 's') {
+        } else if (c_string_equal(key, "monospace-font-name") && v.type == 's') {
             if (set_text(s->monospace_font, sizeof(s->monospace_font), v.text, v.text_length))
                 areas |= desktop_fonts;
-        } else if (equals(key, "text-scaling-factor") && v.type == 'd' && v.real >= 0.5 && v.real <= 3.0) {
+        } else if (c_string_equal(key, "text-scaling-factor") && v.type == 'd' && v.real >= 0.5 && v.real <= 3.0) {
             const float next = static_cast<float>(v.real);
             if (s->text_scale != next)
                 areas |= desktop_fonts;
             s->text_scale = next;
-        } else if (equals(key, "color-scheme") && v.type == 's' && !state->portal_scheme_seen) {
+        } else if (c_string_equal(key, "color-scheme") && v.type == 's' && !state->portal_scheme_seen) {
             const ColorScheme next = equals_n(v.text, v.text_length, "prefer-dark")    ? ColorScheme::dark
                                      : equals_n(v.text, v.text_length, "prefer-light") ? ColorScheme::light
                                                                                        : ColorScheme::no_preference;
@@ -275,8 +258,8 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
                 areas |= desktop_scheme;
             s->color_scheme = next;
         }
-    } else if (equals(ns, "org.gnome.desktop.wm.preferences")) {
-        if (equals(key, "button-layout") && v.type == 's') {
+    } else if (c_string_equal(ns, "org.gnome.desktop.wm.preferences")) {
+        if (c_string_equal(key, "button-layout") && v.type == 's') {
             char layout[128];
             const u32 length = v.text_length < sizeof(layout) - 1 ? v.text_length : sizeof(layout) - 1;
             copy_bytes(layout, v.text, length);
@@ -287,17 +270,17 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
                 areas |= desktop_caption;
             s->caption_known = known;
             s->caption = parsed;
-        } else if (equals(key, "titlebar-font") && v.type == 's') {
+        } else if (c_string_equal(key, "titlebar-font") && v.type == 's') {
             if (set_text(s->titlebar_font, sizeof(s->titlebar_font), v.text, v.text_length))
                 areas |= desktop_fonts;
         }
-    } else if (equals(ns, "org.gnome.desktop.peripherals.mouse")) {
-        if (equals(key, "double-click") && integer_in(50, 5000)) {
+    } else if (c_string_equal(ns, "org.gnome.desktop.peripherals.mouse")) {
+        if (c_string_equal(key, "double-click") && integer_in(50, 5000)) {
             if (set_number(&s->double_click_ms, static_cast<u32>(v.integer)))
                 areas |= desktop_pointer;
         }
-    } else if (equals(ns, "org.kde.kdeglobals.KDE")) {
-        if (equals(key, "DoubleClickInterval")) {
+    } else if (c_string_equal(ns, "org.kde.kdeglobals.KDE")) {
+        if (c_string_equal(key, "DoubleClickInterval")) {
             i64 interval = 0;
             if (v.type == 's') {
                 for (u32 i = 0; i < v.text_length && v.text[i] >= '0' && v.text[i] <= '9' && interval < 100000; ++i)

@@ -3,7 +3,6 @@
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "shell/state.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"

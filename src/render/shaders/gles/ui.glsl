@@ -1,4 +1,4 @@
-// twin: src/render/shaders/ui.hlsl b4eb1fabe022f1c6
+// twin: src/render/shaders/ui.hlsl b21393632491dca9
 // Rectangles, borders, gradients, lines and icons of the UI pass: ui_vertex (STAGE_VS) and ui_pixel (STAGE_PS).
 
 // xy: offset from the rectangle centre, zw: position in DIPs; parameters: x radius, y kind, zw per kind.

@@ -6,6 +6,7 @@
 #include "../../tools/perf/probe_window.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/gpu/api.hpp"
 
 extern "C" __declspec(dllimport) long __stdcall DwmFlush();
 

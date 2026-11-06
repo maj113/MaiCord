@@ -4,7 +4,6 @@
 #include "maicord/media/core/asset_key.hpp"
 #include "../chat/search/search.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {
 // One previewable message item. Video keys are bound when the item becomes

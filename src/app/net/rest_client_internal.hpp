@@ -3,7 +3,6 @@
 #include "maicord/app/net/rest_client.hpp"
 #include "request_state.hpp"
 
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/platform/net/tls_stream.hpp"

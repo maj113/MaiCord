@@ -1,23 +1,9 @@
 #include "maicord/ui/chat/messages/typing_presentation.hpp"
 
-#include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 namespace {
-
-struct Writer {
-    Slice<char> output;
-    u32 used;
-};
-
-bool append(Writer* writer, const Utf8View& value) noexcept {
-    if ((!value.data && value.bytes != 0) || value.bytes > writer->output.count - writer->used) {
-        return false;
-    }
-    copy_bytes(writer->output.data + writer->used, value.data, value.bytes);
-    writer->used += value.bytes;
-    return true;
-}
 
 Utf8View display_name(const UserStore& users, u64 user_id) noexcept {
     const UserRecord* user = user_store_find(users, user_id);
@@ -42,39 +28,31 @@ MessageTypingPresentationResult message_typing_presentation_build(const TypingSt
     if (count == 0) {
         return MessageTypingPresentationResult{0, 0, MessageTypingPresentationError::none};
     }
-    Writer writer{output, 0};
+    TextWriter writer{output};
     if (count > 3) {
-        constexpr Utf8View several = utf8_literal("Several people are typing…");
-        if (!append(&writer, several)) {
-            return failure(MessageTypingPresentationError::capacity);
+        writer.add(utf8_literal("Several people are typing…"));
+    } else {
+        u64 ids[3]{};
+        const u32 written =
+            typing_store_channel_users(typing, channel_id, self_user_id, Slice<u64>{ids, 3});
+        if (written != count) {
+            return failure(MessageTypingPresentationError::invalid_input);
         }
-        return MessageTypingPresentationResult{writer.used, count, MessageTypingPresentationError::none};
-    }
-    u64 ids[3]{};
-    const u32 written =
-        typing_store_channel_users(typing, channel_id, self_user_id, Slice<u64>{ids, 3});
-    if (written != count) {
-        return failure(MessageTypingPresentationError::invalid_input);
-    }
-    constexpr Utf8View someone = utf8_literal("Someone");
-    for (u32 index = 0; index < written; ++index) {
-        const Utf8View name = display_name(users, ids[index]);
-        if (index != 0) {
-            const Utf8View separator = written == 2           ? utf8_literal(" and ")
-                                       : index + 1 == written ? utf8_literal(", and ")
-                                                              : utf8_literal(", ");
-            if (!append(&writer, separator)) {
-                return failure(MessageTypingPresentationError::capacity);
+        for (u32 index = 0; index < written; ++index) {
+            const Utf8View name = display_name(users, ids[index]);
+            if (index != 0) {
+                writer.add(written == 2           ? utf8_literal(" and ")
+                           : index + 1 == written ? utf8_literal(", and ")
+                                                  : utf8_literal(", "));
             }
+            const u32 name_at = writer.used;
+            writer.add(name.bytes != 0 ? name : utf8_literal("Someone"));
+            if (names && writer.ok)
+                names[index] = {ids[index], static_cast<u16>(name_at), static_cast<u16>(writer.used - name_at)};
         }
-        const u32 name_at = writer.used;
-        if (!append(&writer, name.bytes != 0 ? name : someone)) {
-            return failure(MessageTypingPresentationError::capacity);
-        }
-        if (names)
-            names[index] = {ids[index], static_cast<u16>(name_at), static_cast<u16>(writer.used - name_at)};
+        writer.add(written == 1 ? utf8_literal(" is typing…") : utf8_literal(" are typing…"));
     }
-    if (!append(&writer, written == 1 ? utf8_literal(" is typing…") : utf8_literal(" are typing…"))) {
+    if (!writer.ok) {
         return failure(MessageTypingPresentationError::capacity);
     }
     return MessageTypingPresentationResult{writer.used, count, MessageTypingPresentationError::none};

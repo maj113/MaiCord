@@ -2,10 +2,12 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/http/rest.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
+#include "maicord/protocol/http/https_upload.hpp"
 
 namespace maicord {
 namespace {

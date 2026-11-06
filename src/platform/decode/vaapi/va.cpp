@@ -1,6 +1,5 @@
 #include "va.hpp"
 
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -8,10 +7,10 @@
 #include "maicord/core/test_hook.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/os/thread.hpp"
-#include "maicord/platform/decode/video_capability.hpp"
 #include "maicord/sys/linux/abi.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
+#include "maicord/platform/decode/gpu_stream_decoder.hpp"
 
 namespace maicord::vaapi {
 namespace {

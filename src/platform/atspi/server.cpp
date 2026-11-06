@@ -27,14 +27,6 @@ bool equal(const char* a, const char* b) noexcept {
     return *a == *b;
 }
 
-void copy_text(char* destination, u32 capacity, const char* source) noexcept {
-    u32 length = 0;
-    while (source && source[length] && length + 1 < capacity)
-        ++length;
-    copy_bytes(destination, source, length);
-    destination[length] = 0;
-}
-
 void disconnect_bus() noexcept {
     Server& s = g_server;
     if (s.bus) {
@@ -81,10 +73,10 @@ void on_embed(void*, Status status, const Message* reply) noexcept {
     const char* name = nullptr;
     const char* path = nullptr;
     if (reader_enter_struct(&reader) && reader_string(&reader, &name, nullptr) && reader_string(&reader, &path, nullptr)) {
-        copy_text(s.endpoint.parent_name, sizeof(s.endpoint.parent_name), name);
-        copy_text(s.endpoint.parent_path, sizeof(s.endpoint.parent_path), path);
+        c_string_copy(s.endpoint.parent_name, sizeof(s.endpoint.parent_name), name);
+        c_string_copy(s.endpoint.parent_path, sizeof(s.endpoint.parent_path), path);
     }
-    copy_text(s.endpoint.registry_sender, sizeof(s.endpoint.registry_sender), reply->sender);
+    c_string_copy(s.endpoint.registry_sender, sizeof(s.endpoint.registry_sender), reply->sender);
     s.embedded = true;
     log_write(LogLevel::trace, "atspi", "registered with the accessibility registry");
 }
@@ -116,7 +108,7 @@ void connect_bus(const char* address) noexcept {
         return;
     }
     s.bus = bus;
-    copy_text(s.endpoint.bus_name, sizeof(s.endpoint.bus_name), connection_unique_name(bus));
+    c_string_copy(s.endpoint.bus_name, sizeof(s.endpoint.bus_name), connection_unique_name(bus));
     connection_set_method_handler(bus, on_call, nullptr);
     s.registry_watch = connection_watch_name(bus, kRegistryName, on_registry, nullptr);
     log_write(LogLevel::trace, "atspi", "connected to the accessibility bus");

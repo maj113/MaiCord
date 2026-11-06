@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/crc32.hpp"
 #if defined(_WIN32)

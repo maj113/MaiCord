@@ -6,7 +6,6 @@
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/chat/messages/context_menu.hpp"
 #include "maicord/ui/text/edit_menu.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/model/chat/message_store.hpp"
 
 namespace maicord {

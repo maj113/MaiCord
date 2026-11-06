@@ -1,4 +1,5 @@
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/launcher_entry.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
@@ -13,13 +14,6 @@ struct Entry {
 };
 
 Entry g;
-
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
 
 // "/com/canonical/unity/launcherentry/<number>": the number a hash of the desktop id.
 void entry_path(const char* desktop_id, char (&path)[64]) noexcept {
@@ -42,7 +36,7 @@ bool send(Connection* c) noexcept {
     char uri[192];
     const char scheme[] = "application://";
     copy_bytes(uri, scheme, sizeof(scheme) - 1);
-    copy_bytes(uri + sizeof(scheme) - 1, g.desktop_id, text_length(g.desktop_id) + 1);
+    copy_bytes(uri + sizeof(scheme) - 1, g.desktop_id, c_string_length(g.desktop_id) + 1);
     char path[64];
     entry_path(g.desktop_id, path);
     Builder body;
@@ -81,10 +75,10 @@ void on_session(Connection* c) noexcept {
 } // namespace
 
 bool launcher_entry_update(const char* desktop_id, const LauncherEntryState& state) noexcept {
-    if (!desktop_id || text_length(desktop_id) >= sizeof(g.desktop_id) - 20)
+    if (!desktop_id || c_string_length(desktop_id) >= sizeof(g.desktop_id) - 20)
         return false;
     g.known = true;
-    copy_bytes(g.desktop_id, desktop_id, text_length(desktop_id) + 1);
+    copy_bytes(g.desktop_id, desktop_id, c_string_length(desktop_id) + 1);
     g.state = state;
     if (!g.hook_added) {
         g.hook_added = true;

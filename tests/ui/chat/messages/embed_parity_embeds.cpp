@@ -2,7 +2,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
-#include "maicord/ui/chat/messages/interaction.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "../../../support/test_output.hpp"
 

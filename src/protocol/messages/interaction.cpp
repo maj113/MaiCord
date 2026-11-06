@@ -3,8 +3,8 @@
 
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

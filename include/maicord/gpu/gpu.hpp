@@ -1,9 +1,10 @@
 #pragma once
 
 // The backend-neutral GPU vocabulary: handle types, GpuStatus and gpu_release from the build's backend, plus the
-// status test and the capability record every backend fills.
+// status test, the capability record every backend fills and the description a surface is made from.
 
 #include "maicord/gpu/backend.hpp"
+#include "maicord/platform/window/event.hpp"
 
 namespace maicord {
 
@@ -28,6 +29,12 @@ struct GpuCaps {
     bool dmabuf_import;
     bool surface_damage;         // presentation with damage rectangles
     bool buffer_age;
+};
+
+struct GpuSurfaceDesc {
+    NativeWindow window; // the window's native handle: an HWND, or the wl_surface* of the Wayland backend
+    u32 width, height;   // the buffer size in pixels
+    u32 dpi;
 };
 
 } // namespace maicord

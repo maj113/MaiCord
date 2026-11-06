@@ -1,7 +1,8 @@
 #pragma once
 
-#include "maicord/core/utf.hpp"
 #include "maicord/protocol/media/attachment_upload.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 

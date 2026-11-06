@@ -21,7 +21,6 @@
 
 #include "maicord/core/memory.hpp"
 #include "account_ui_runtime.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 
 namespace maicord::app_detail {

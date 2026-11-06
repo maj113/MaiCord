@@ -10,7 +10,6 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
-#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/media/image/gif.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/sys/d3d11.hpp"

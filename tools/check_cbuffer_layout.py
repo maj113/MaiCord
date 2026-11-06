@@ -8,7 +8,8 @@ disagree reads the wrong bytes on Linux without any diagnostic from fxc, so this
 
 For every file under src/render/shaders and the plugin header include/maicord/sdk/background.hlsli, and for every
 combination of the macros its #if conditions name (with and without __spirv__, which DXC defines and fxc does not; the
-plugin effects still go through DXC):
+plugin effects still go through DXC, and a client shader's __spirv__ branch exists only as the std140 reference of a
+cbuffer whose host layout is not std140 that no compiler reads):
 
   * with __spirv__ defined, each cbuffer member must sit at the same offset in HLSL packing and in std140, and
     arrays and structs must have the same stride and size;

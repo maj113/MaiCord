@@ -4,7 +4,6 @@
 #include "settings.hpp"
 #include "../../settings/layer.hpp"
 #include "../../settings/modal.hpp"
-#include "../../shell/state.hpp"
 #include "../../chat/composer/text_form.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/model/guild/ban_store.hpp"
@@ -14,7 +13,8 @@
 #include "maicord/app/media/profile_image.hpp"
 #include "maicord/protocol/guild/assets.hpp"
 #include "../../voice/soundboard.hpp"
-#include "maicord/core/memory.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/guild/detail_store.hpp"
 
 namespace maicord::app_detail::server_settings {
 

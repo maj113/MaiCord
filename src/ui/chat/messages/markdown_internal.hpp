@@ -2,7 +2,6 @@
 
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/ui/text/code_highlight.hpp"
-#include "maicord/core/memory.hpp"
 #include <stddef.h>
 
 namespace maicord::markdown_detail {
@@ -106,7 +105,6 @@ static_assert(is_standard_layout_v<Parser> && is_trivially_copyable_v<Parser>);
 static_assert(sizeof(Delimiter) == 16);
 
 void source_byte(Parser* parser, u32 offset, char value, u32 flags) noexcept;
-bool ascii_space(char value) noexcept;
 bool unicode_space(u32 cp) noexcept;
 bool starts_with(const Parser& parser, const char* value, u32 bytes) noexcept;
 bool emit_byte(Parser* parser, char value, u32 added_style = 0, u32 source_offset = ~0u) noexcept;

@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/ui/core/widget_builder.hpp"
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/media/core/asset_key.hpp"

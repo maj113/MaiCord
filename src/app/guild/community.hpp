@@ -3,7 +3,6 @@
 namespace maicord { struct GatewayClientEvent; }
 #include "maicord/model/guild/scheduled_event_store.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 struct NavigationView;

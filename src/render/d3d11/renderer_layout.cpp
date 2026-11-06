@@ -24,6 +24,7 @@
 #include "renderer_caption.hpp"
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {

@@ -10,7 +10,6 @@
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/protocol/gateway/client_status.hpp"
 #include "maicord/ui/plugins/render.hpp"
-#include "maicord/ui/plugins/slot_surfaces.hpp"
 #include "maicord/ui/chat/private_channel_title.hpp"
 #include "../account/account_presentation.hpp"
 #include "../account/profile.hpp"
@@ -19,6 +18,7 @@
 #include "plugins.hpp"
 #include "../shell/content_input.hpp"
 #include "../shell/state.hpp"
+#include "maicord/ui/plugins/slots.hpp"
 
 namespace maicord::app_detail {
 namespace {

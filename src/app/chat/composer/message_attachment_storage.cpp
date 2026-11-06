@@ -1,5 +1,6 @@
 #include "maicord/app/chat/composer/message_attachment_storage.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 namespace maicord {
 namespace {
 struct Header { u32 filename; u32 uploaded; u32 description; u32 id; u32 spoiler; u32 waveform; u32 duration_ms; };

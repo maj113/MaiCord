@@ -93,10 +93,6 @@ struct Round {
     Outcome ended;  // the outcome when a step returns Step::ended
 };
 
-u64 now() noexcept {
-    return clock_monotonic_milliseconds();
-}
-
 bool plain_cancelled(const Round& round) noexcept {
     return round.hooks->cancelled(round.hooks->context);
 }
@@ -214,7 +210,7 @@ Step ask(Round* round, Device* device) noexcept {
         }
         if (status == kErrorActionTimeout || status == kErrorUserActionTimeout || status == kErrorTimeout) {
             // The key stopped waiting for a touch; ask again until the request's own time runs out.
-            if (now() >= round->deadline) {
+            if (clock_monotonic_milliseconds() >= round->deadline) {
                 round->ended = Outcome::timed_out;
                 step = Step::ended;
                 break;
@@ -246,19 +242,12 @@ const Api* library() noexcept {
         log_write(LogLevel::info, "fido2", "libfido2.so.1 is not installed: security keys are unavailable");
         return nullptr;
     }
-    const char* missing = nullptr;
+    SharedLibraryResolver resolve{g_library, nullptr};
     Api api{};
-#define MAICORD_FIDO2_RESOLVE(result, name, arguments)                                                                 \
-    if (!missing) {                                                                                                    \
-        void* address = shared_library_symbol(g_library, #name);                                                       \
-        if (address)                                                                                                   \
-            api.name = reinterpret_cast<decltype(api.name)>(address);                                                  \
-        else                                                                                                           \
-            missing = #name;                                                                                           \
-    }
+#define MAICORD_FIDO2_RESOLVE(result, name, arguments) resolve(&api.name, #name);
     MAICORD_FIDO2_FUNCTIONS(MAICORD_FIDO2_RESOLVE)
 #undef MAICORD_FIDO2_RESOLVE
-    if (missing) {
+    if (const char* missing = resolve.missing) {
         // libfido2 lacks a function: security keys are unavailable.
         LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "fido2");
         shared_library_close(&g_library);
@@ -276,14 +265,14 @@ Outcome run(const Api& api, const WebAuthnMfaRequestOptions& request, const u8* 
     const u32 timeout = request.timeout_ms == 0 ? kDefaultTimeoutMs
                         : request.timeout_ms > kMaximumTimeoutMs ? kMaximumTimeoutMs
                                                                   : request.timeout_ms;
-    Round round{&api, &request, client_data_hash, &hooks, result, now() + timeout, Outcome::failed};
+    Round round{&api, &request, client_data_hash, &hooks, result, clock_monotonic_milliseconds() + timeout, Outcome::failed};
     bool seen = false;       // a key was listed in some round
     u32 failed_opens = 0;    // consecutive rounds in which no listed key could be opened
     bool unreadable = false; // a key answered with an error that is no answer
     for (;;) {
         if (plain_cancelled(round))
             return Outcome::cancelled;
-        if (now() >= round.deadline)
+        if (clock_monotonic_milliseconds() >= round.deadline)
             return !seen ? Outcome::no_device : unreadable ? Outcome::failed : Outcome::timed_out;
         Paths paths;
         if (!list_devices(api, &paths))

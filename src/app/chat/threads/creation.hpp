@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/messages/thread_creation.hpp"
 

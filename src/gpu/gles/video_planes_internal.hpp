@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 
 namespace maicord::gles {
 

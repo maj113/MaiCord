@@ -11,7 +11,6 @@
 #include "maicord/ui/plugins/render.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

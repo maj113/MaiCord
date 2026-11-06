@@ -7,19 +7,17 @@
 //
 // argv[1]: none runs everything with the host's language; "--language <family>" (the registry sets LANG for it)
 // expects the face that draws Han to belong to the family whose name starts with <family>.
-#include "maicord/core/memory.hpp"
 #include "maicord/os/ordinal.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/text/fonts/family.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/text/layout/paragraph_hits.hpp"
-#include "maicord/text/opentype/bitmap_color.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/ui/text/text.hpp"
 
-#include "../../../src/ui/text/native_text_catalog_owner.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/platform/font/system_font_locator.hpp"
 
 namespace maicord {
 namespace {

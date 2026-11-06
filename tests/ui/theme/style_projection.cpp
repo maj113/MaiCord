@@ -3,7 +3,6 @@
 #include "maicord/ui/text/form.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/shell/page_registry.hpp"

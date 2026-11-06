@@ -1,7 +1,5 @@
 #include "maicord/text/scripts/arabic_joining.hpp"
 #include "../../support/gsub_program_fixture.hpp"
-#include "maicord/core/utf.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
 #include "../../support/test_output.hpp"
 

@@ -577,10 +577,6 @@ __declspec(noinline) UiStoreNode& UiStoreBuilder::button(const Utf8View& value, 
     return button(value, variant, action, UiIcon::count, false);
 }
 
-__declspec(noinline) UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, const Utf8View& name, u32 action) noexcept {
-    return icon_button(icon, name, action, 32.f);
-}
-
 __declspec(noinline) UiStoreNode& UiStoreBuilder::text(const char* value, UiStoreType type, UiStoreInk ink) noexcept {
     return text(Utf8View{value, c_string_length(value)}, type, ink, u16{0});
 }

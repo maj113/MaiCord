@@ -134,24 +134,6 @@ set_target_properties(maicord_runtime PROPERTIES CXX_EXTENSIONS OFF)
 # The bodies of memcpy and the others must not be turned back into calls of themselves.
 set_source_files_properties(src/core/linux/runtime.cpp PROPERTIES COMPILE_OPTIONS -fno-builtin)
 
-# maicord_library(<name> <source>... [LIBS <library>...] [INCLUDES <dir>...] [DEPENDS <target>...])
-# A shipping static library under the compile contract (linked first unless LIBS places it).
-function(maicord_library name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES;DEPENDS")
-    if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
-        list(PREPEND ARG_LIBS maicord_compile_contract)
-    endif()
-    add_library(${name} STATIC ${ARG_UNPARSED_ARGUMENTS})
-    target_link_libraries(${name} PRIVATE ${ARG_LIBS})
-    if(ARG_INCLUDES)
-        target_include_directories(${name} PRIVATE ${ARG_INCLUDES})
-    endif()
-    if(ARG_DEPENDS)
-        add_dependencies(${name} ${ARG_DEPENDS})
-    endif()
-    set_target_properties(${name} PROPERTIES CXX_EXTENSIONS OFF)
-endfunction()
-
 # maicord_program(<target> ENTRY <symbol> SOURCES <file>... [LIBS <library>...] [INCLUDES <dir>...]
 #     [DEFINES <definition>...] [OPTIONS <option>...] [LINK_OPTIONS <option>...] [PROPERTIES <name> <value>...]
 #     [DEPENDS <target>...])

@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/window.hpp"
 
 #include "maicord/sys/com.hpp"

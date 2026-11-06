@@ -4,7 +4,6 @@
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "maicord/core/log.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord {

@@ -10,7 +10,6 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"

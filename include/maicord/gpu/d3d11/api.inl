@@ -127,33 +127,6 @@ __forceinline GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDe
     return device->CreateTexture2D(&description, initial ? &data : nullptr, texture);
 }
 
-struct GpuTextureInfo {
-    D3D11_TEXTURE2D_DESC description;
-};
-
-__forceinline void gpu_texture_info(GpuTexture* texture, GpuTextureInfo* info) {
-    texture->GetDesc(&info->description);
-}
-
-__forceinline u32 gpu_texture_info_width(const GpuTextureInfo& info) {
-    return info.description.Width;
-}
-
-__forceinline u32 gpu_texture_info_height(const GpuTextureInfo& info) {
-    return info.description.Height;
-}
-
-__forceinline GpuStatus gpu_texture_create_from_info(GpuDevice* device, GpuTextureInfo& info, u32 height,
-                                                     bool copy_only, GpuTexture** texture) {
-    info.description.Height = height;
-    if (copy_only) {
-        info.description.BindFlags = 0;
-        info.description.CPUAccessFlags = 0;
-        info.description.MiscFlags = 0;
-    }
-    return device->CreateTexture2D(&info.description, nullptr, texture);
-}
-
 // A texture view covers the whole texture in the texture's own format.
 __forceinline GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDesc&, GpuSrv** view) {
     return device->CreateShaderResourceView(texture, nullptr, view);

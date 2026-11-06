@@ -44,6 +44,7 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

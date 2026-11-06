@@ -34,9 +34,6 @@ inline constexpr u8 kMp4H264FragmentedRef[]{
 inline constexpr u8 kMp4HevcMainAac[]{
 #embed "hevc_main_aac.mp4"
 };
-inline constexpr u8 kMp4HevcMainAacRef[]{
-#embed "hevc_main_aac.ref"
-};
 #pragma clang diagnostic pop
 
 // One parsed .ref: the pictures (output order, each with its presentation time and duration) and the PCM.

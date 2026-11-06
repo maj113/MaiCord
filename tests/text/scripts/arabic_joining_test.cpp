@@ -1,6 +1,5 @@
 #include "maicord/text/scripts/arabic_joining.hpp"
 #include "maicord/text/opentype/glyph_buffer.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"

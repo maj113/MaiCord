@@ -1,6 +1,5 @@
 #include "maicord/text/opentype/sfnt.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"
 

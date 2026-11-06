@@ -1,9 +1,9 @@
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/app/chat/composer/message_attachment_storage.hpp"
-#include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
 
 namespace maicord {
 namespace {
@@ -538,13 +538,6 @@ u32 first_global_mention(Utf8View content) noexcept {
     }
     return 0;
 }
-
-u32 append_text(const Slice<char>& output, u32 used, const Utf8View& text) noexcept {
-    if (used > output.count || text.bytes > output.count - used)
-        return ~0u;
-    copy_bytes(output.data + used, text.data, text.bytes);
-    return used + text.bytes;
-}
 } // namespace
 
 u32 message_mention_warning_round(u32 count) noexcept {
@@ -577,17 +570,16 @@ u32 message_mention_warning_body(const MessageMentionWarning& warning, MessageMe
     if (!warning.required || !output.data)
         return 0;
     char digits[16];
-    const u32 digit_count = decimal_write_grouped(digits, warning.count);
-    u32 used = append_text(output, 0, utf8_literal("By using "));
-    used = append_text(output, used, warning.here ? utf8_literal("@here") : utf8_literal("@everyone"));
-    used = append_text(output, used, utf8_literal(", you are about to mention "));
-    used = append_text(output, used, {digits, digit_count});
-    used = append_text(output, used,
-                       place == MessageMentionWarningPlace::thread       ? utf8_literal("+ people in this thread.")
-                       : place == MessageMentionWarningPlace::forum_post ? utf8_literal("+ people in this post.")
-                                                                         : utf8_literal("+ people."));
-    used = append_text(output, used, utf8_literal(" Are you sure?"));
-    return used == ~0u ? 0 : used;
+    TextWriter writer{output};
+    writer.add("By using ");
+    writer.add(warning.here ? utf8_literal("@here") : utf8_literal("@everyone"));
+    writer.add(", you are about to mention ");
+    writer.add(digits, decimal_write_grouped(digits, warning.count));
+    writer.add(place == MessageMentionWarningPlace::thread       ? utf8_literal("+ people in this thread.")
+               : place == MessageMentionWarningPlace::forum_post ? utf8_literal("+ people in this post.")
+                                                                 : utf8_literal("+ people."));
+    writer.add(" Are you sure?");
+    return writer.finish();
 }
 
 MessageComposerControllerResult message_composer_controller_queue_forward(

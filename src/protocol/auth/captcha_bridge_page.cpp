@@ -6,6 +6,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/http/http1.hpp"
+#include "maicord/core/utf.hpp"
 
 
 namespace maicord {

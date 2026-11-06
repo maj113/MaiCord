@@ -3,7 +3,6 @@
 #include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
-#include "maicord/ui/chat/polls/presentation.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"

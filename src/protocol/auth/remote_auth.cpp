@@ -5,6 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "maicord/protocol/encoding/base64url.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,5 @@
 #include "maicord/protocol/voice/heartbeat.hpp"
 #include "maicord/protocol/voice/gateway.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway/events.hpp"
 
 namespace maicord {

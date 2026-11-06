@@ -2,6 +2,7 @@
 // case's state declarations and alias that namespace as navigation_runtime_test.
 // These definitions retain the same counters and inactive surfaces in both cases.
 #pragma once
+#include "maicord/core/hash.hpp"
 
 namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {

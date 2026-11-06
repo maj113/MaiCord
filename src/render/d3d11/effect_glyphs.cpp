@@ -1,13 +1,10 @@
 #include "effect_inputs.hpp"
 
-#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/glyph_text.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/text/glyph_atlas_gpu.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
-#include "maicord/text/fonts/run.hpp"
 
 namespace maicord {
 namespace {

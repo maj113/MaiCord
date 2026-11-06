@@ -1,6 +1,5 @@
 #include "effect_inputs.hpp"
 
-#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {

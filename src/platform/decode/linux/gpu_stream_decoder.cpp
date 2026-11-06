@@ -5,7 +5,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/gpu/api.hpp"
 #include "maicord/media/video/av1.hpp"
 #include "maicord/media/video/video_display.hpp"
 #include "maicord/platform/decode/video_capability.hpp"

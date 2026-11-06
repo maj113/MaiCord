@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_id, u64 nonce,

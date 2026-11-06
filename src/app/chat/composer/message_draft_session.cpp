@@ -4,7 +4,6 @@
 #include "maicord/app/chat/composer/message_draft_persistence.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/win32_error.hpp"
-#include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/thread.hpp"

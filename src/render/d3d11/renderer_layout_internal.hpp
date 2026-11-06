@@ -2,23 +2,19 @@
 
 #include "maicord/render/d3d11/renderer.hpp"
 
-#include "maicord/core/memory.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/account/login_presentation.hpp"
-#include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
-#include "maicord/ui/chat/polls/presentation.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/shell/presentation.hpp"
 #include "maicord/render/media/inline_media.hpp"
 
 #include "renderer_interaction_state.hpp"
 
-#include "maicord/gpu/api.hpp"
 
 namespace maicord::renderer_layout_detail {
 

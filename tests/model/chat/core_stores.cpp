@@ -6,6 +6,7 @@
 #include "maicord/model/chat/message_draft_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

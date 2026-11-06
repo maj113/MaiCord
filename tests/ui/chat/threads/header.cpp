@@ -1,7 +1,6 @@
 #include "maicord/ui/chat/threads/header.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/core/scene.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 
 namespace maicord {

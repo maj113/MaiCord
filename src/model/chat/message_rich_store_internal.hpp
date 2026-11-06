@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/model/chat/message_rich_store.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 

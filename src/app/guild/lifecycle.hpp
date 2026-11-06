@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/protocol/guild/admin.hpp"
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Server lifecycle: Invite people (a modal that creates an invite link with

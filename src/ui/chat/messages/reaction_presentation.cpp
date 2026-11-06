@@ -9,14 +9,6 @@
 namespace maicord {
 namespace {
 
-bool append_decimal(u32 value, Slice<char> output, u32* cursor) noexcept {
-    if (decimal_digits(value) > output.count - *cursor) {
-        return false;
-    }
-    *cursor += decimal_write(output.data + *cursor, value);
-    return true;
-}
-
 bool label_bytes(const MessageRichStore& store, const MessageRichReaction& reaction, u32* bytes) noexcept {
     u32 required = decimal_digits(reaction.count);
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
@@ -35,25 +27,21 @@ bool label_bytes(const MessageRichStore& store, const MessageRichReaction& react
 
 bool append_label(const MessageRichStore& store, const MessageRichReaction& reaction, Slice<char> output,
                   u32* cursor, Utf8View* label) noexcept {
-    const u32 begin = *cursor;
+    TextWriter writer{{output.data + *cursor, output.count - *cursor}};
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
         const Utf8View name = message_rich_store_string(store, reaction.name);
-        if ((!name.data && name.bytes != 0) || name.bytes > output.count - *cursor) {
+        if (!name.data && name.bytes != 0) {
             return false;
         }
-        copy_bytes(output.data + *cursor, name.data, name.bytes);
-        *cursor += name.bytes;
-        if (name.bytes != 0) {
-            if (*cursor == output.count) {
-                return false;
-            }
-            output.data[(*cursor)++] = ' ';
-        }
+        writer.add(name);
+        if (name.bytes != 0)
+            writer.add(" ");
     }
-    if (!append_decimal(reaction.count, output, cursor)) {
+    writer.number(reaction.count);
+    if (!writer.ok)
         return false;
-    }
-    *label = Utf8View{output.data + begin, *cursor - begin};
+    *cursor += writer.used;
+    *label = Utf8View{writer.output.data, writer.used};
     return label->bytes != 0;
 }
 

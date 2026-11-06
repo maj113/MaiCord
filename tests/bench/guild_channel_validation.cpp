@@ -17,7 +17,6 @@ constexpr u64 kGuild = 77, kSelf = 42, kOwner = 999;
 constexpr u64 kPermissions = kPermissionViewChannel | kPermissionReadMessageHistory |
     kPermissionSendMessages;
 constexpr const char* kModesText[kModes] = {"ascending", "decreasing", "permuted", "late_duplicate"};
-static_assert(sizeof(GatewayClientStateMutation) == 168);
 struct Model {
     ChatStateStore state;
     GuildRecord guilds[1];

@@ -1,3 +1,4 @@
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -114,19 +115,6 @@ struct Connection {
 
 namespace {
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 // Waits for the descriptor until `deadline` (monotonic ms); false on timeout or error.
 bool poll_until(int fd, i16 events, u64 deadline) noexcept {
     for (;;) {
@@ -215,16 +203,6 @@ bool starts_with(const char* text, const char* prefix) noexcept {
     return *prefix == 0;
 }
 
-int hex_digit(char c) noexcept {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
 // The authentication exchange of the specification, with EXTERNAL (the uid as hex of its decimal digits).
 bool authenticate(int fd, bool* fds_ok) noexcept {
     const u64 deadline = clock_monotonic_milliseconds() + kHandshakeTimeoutMs;
@@ -261,7 +239,7 @@ bool authenticate(int fd, bool* fds_ok) noexcept {
     if (!send_all_blocking(fd, reinterpret_cast<const u8*>(negotiate), sizeof(negotiate) - 1, deadline) ||
         !read_line(fd, line, sizeof(line), deadline))
         return false;
-    *fds_ok = text_equal(line, "AGREE_UNIX_FD");
+    *fds_ok = c_string_equal(line, "AGREE_UNIX_FD");
     const char begin[] = "BEGIN\r\n";
     return send_all_blocking(fd, reinterpret_cast<const u8*>(begin), sizeof(begin) - 1, deadline);
 }
@@ -432,11 +410,11 @@ void dispatch_signal(Connection* c, const Message& message) noexcept {
         const Subscription& s = c->subscriptions[i];
         if (!s.active)
             continue;
-        if (s.path[0] && !text_equal(s.path, message.path))
+        if (s.path[0] && !c_string_equal(s.path, message.path))
             continue;
-        if (s.interface[0] && (!message.interface || !text_equal(s.interface, message.interface)))
+        if (s.interface[0] && (!message.interface || !c_string_equal(s.interface, message.interface)))
             continue;
-        if (s.member[0] && (!message.member || !text_equal(s.member, message.member)))
+        if (s.member[0] && (!message.member || !c_string_equal(s.member, message.member)))
             continue;
         if (s.arg0[0]) {
             // The first argument, when it is a string, must equal the filter (the bus applies the same rule to its own
@@ -447,7 +425,7 @@ void dispatch_signal(Connection* c, const Message& message) noexcept {
             u32 first_length = 0;
             const char type = reader_type(reader);
             if ((type != 's' && type != 'o') || !reader_string(&reader, &first, &first_length) ||
-                !text_equal(s.arg0, first))
+                !c_string_equal(s.arg0, first))
                 continue;
         }
         const SignalHandler handler = s.handler;
@@ -457,14 +435,14 @@ void dispatch_signal(Connection* c, const Message& message) noexcept {
 }
 
 void dispatch_call(Connection* c, const Message& message) noexcept {
-    if (message.interface && text_equal(message.interface, "org.freedesktop.DBus.Peer") &&
-        text_equal(message.member, "Ping")) {
+    if (message.interface && c_string_equal(message.interface, "org.freedesktop.DBus.Peer") &&
+        c_string_equal(message.member, "Ping")) {
         if (!(message.flags & flag_no_reply_expected))
             connection_reply(c, message, nullptr);
         return;
     }
     for (const Route& route : c->routes) {
-        if (route.used && text_equal(route.path, message.path)) {
+        if (route.used && c_string_equal(route.path, message.path)) {
             if (route.handler(route.context, c, message))
                 return;
             break;
@@ -648,8 +626,8 @@ u32 unescape(const char* text, u32 length, char* out, u32 capacity) noexcept {
         if (c == '%') {
             if (i + 2 >= length)
                 return ~0u;
-            const int high = hex_digit(text[i + 1]);
-            const int low = hex_digit(text[i + 2]);
+            const int high = ascii_hex_value(text[i + 1]);
+            const int low = ascii_hex_value(text[i + 2]);
             if (high < 0 || low < 0)
                 return ~0u;
             c = static_cast<char>(high * 16 + low);
@@ -806,8 +784,8 @@ Connection* connection_open_session() noexcept {
     const char prefix[] = "unix:path=";
     u32 length = sizeof(prefix) - 1;
     copy_bytes(fallback, prefix, length);
-    if (runtime && *runtime && text_length(runtime) < 120) {
-        const u32 runtime_length = text_length(runtime);
+    if (runtime && *runtime && c_string_length(runtime) < 120) {
+        const u32 runtime_length = c_string_length(runtime);
         copy_bytes(fallback + length, runtime, runtime_length);
         length += runtime_length;
     } else {
@@ -966,7 +944,7 @@ u32 connection_subscribe(Connection* c, const SignalMatch& match, SignalHandler 
     const auto store = [](char* destination, u32 capacity, const char* value) {
         if (!value)
             return true;
-        const u32 length = text_length(value);
+        const u32 length = c_string_length(value);
         if (length >= capacity)
             return false;
         copy_bytes(destination, value, length + 1);
@@ -980,7 +958,7 @@ u32 connection_subscribe(Connection* c, const SignalMatch& match, SignalHandler 
     u32 length = 0;
     bool ok = true;
     const auto append = [&](const char* text) {
-        const u32 n = text_length(text);
+        const u32 n = c_string_length(text);
         if (length + n + 1 > sizeof(s.rule)) {
             ok = false;
             return;
@@ -1040,12 +1018,12 @@ void connection_unsubscribe(Connection* c, u32 id) noexcept {
 }
 
 bool connection_export_object(Connection* c, const char* path, MethodHandler handler, void* context) noexcept {
-    const u32 length = text_length(path);
+    const u32 length = c_string_length(path);
     if (length >= sizeof(Route::path))
         return false;
     Route* free_route = nullptr;
     for (Route& route : c->routes) {
-        if (route.used && text_equal(route.path, path)) {
+        if (route.used && c_string_equal(route.path, path)) {
             route.handler = handler;
             route.context = context;
             return true;
@@ -1064,7 +1042,7 @@ bool connection_export_object(Connection* c, const char* path, MethodHandler han
 
 void connection_unexport_object(Connection* c, const char* path) noexcept {
     for (Route& route : c->routes)
-        if (route.used && text_equal(route.path, path))
+        if (route.used && c_string_equal(route.path, path))
             route.used = false;
 }
 

@@ -10,7 +10,6 @@
 #include "../account/custom_status.hpp"
 #include "../plugins/settings_dialog.hpp"
 #include "../settings/modal.hpp"
-#include "../shell/state.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../chat/composer/text_form.hpp"
@@ -19,7 +18,6 @@
 #include "maicord/model/guild/permission_grid.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "../account/account_access.hpp"
 
 namespace maicord::app_detail {
 namespace channel_overview_detail {}

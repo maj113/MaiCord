@@ -2,7 +2,6 @@
 #include "reaction_intent_ui_adapter.hpp"
 #include "shell/state.hpp"
 #include "chat/messages/mutation_notice.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"

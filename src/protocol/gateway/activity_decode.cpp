@@ -1,6 +1,5 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/json_scan.hpp"

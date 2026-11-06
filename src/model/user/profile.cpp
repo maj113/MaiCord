@@ -1,6 +1,7 @@
 #include "maicord/model/user/profile.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
+#include "maicord/core/utf.hpp"
 namespace maicord {
 namespace {
 constexpr u32 maximum_records = 4096;

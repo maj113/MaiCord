@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/base.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/platform/window/window.hpp"
 

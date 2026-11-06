@@ -1,5 +1,4 @@
 #include "maicord/protocol/gateway/voice.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept {

@@ -64,7 +64,7 @@ void settings_modal_unbind(SettingsModal& modal) noexcept {
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     modal.layer.entrance_started = 0;
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&modal.scene);
+    ui_settings_scene_release(&modal.scene);
 }
 
 void settings_modal_restore_focus(bool restore_focus) noexcept {

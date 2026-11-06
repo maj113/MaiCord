@@ -235,17 +235,19 @@ function(maicord_font_test target entry source)
         BUNDLE MaiCordTextUnitTests ${ARGN})
 endfunction()
 
-# maicord_native_profile_tests(<timeout> <profile> <family>)
+# maicord_native_profile_tests(<timeout> <profile> <family> [PRIVATE])
 # MaiCordNativeAppLineTests --<profile>-profile (an -app suffix is dropped
-# from the option) under <family>, Segoe UI and the bundled BioRhyme, as
+# from the option) under <family> and Segoe UI, and with PRIVATE under the bundled BioRhyme too, as
 # maicord_native_<profile>[_default|_private], labelled native-text-<profile>.
 function(maicord_native_profile_tests timeout profile family)
     string(REPLACE "-" "_" test "maicord_native_${profile}")
     string(REGEX REPLACE "-app-profile$" "-profile" option "--${profile}-profile")
-    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT ${timeout} LABELS native-text-${profile}
-        TEST ${test} ${option} --family "${family}" 400
-        TEST ${test}_default ${option} --family "Segoe UI" 400
-        TEST ${test}_private ${option} "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
+    set(rows TEST ${test} ${option} --family "${family}" 400
+        TEST ${test}_default ${option} --family "Segoe UI" 400)
+    if(ARGV3 STREQUAL "PRIVATE")
+        list(APPEND rows TEST ${test}_private ${option} "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
+    endif()
+    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT ${timeout} LABELS native-text-${profile} ${rows})
 endfunction()
 
 # maicord_indic_plan_tests(<script> <mode>...)

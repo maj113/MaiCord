@@ -14,6 +14,7 @@
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

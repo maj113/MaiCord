@@ -4,6 +4,12 @@
 #include "../chat/composer/text_input.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
+#include "../../render/d3d11/renderer_interaction_state.hpp"
+#include "maicord/app/media/account_media.hpp"
+#include "maicord/protocol/media/cdn_http.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
+#include "video_request.hpp"
 
 namespace maicord::app_detail {
 

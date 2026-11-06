@@ -1,12 +1,11 @@
 #pragma once
 
 #include "maicord/app/chat/polls/controller.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/core/input_router.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
 
 namespace maicord::app_detail {
 // Capture beside the native card action. An action never resolves a retired

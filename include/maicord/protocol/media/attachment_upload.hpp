@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/protocol/http/https_upload.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 struct RestRouteKey;

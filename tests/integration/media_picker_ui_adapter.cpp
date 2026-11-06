@@ -3,7 +3,7 @@
 // shipping-controller runtime test; they are deliberately absent here.
 #include "../../src/app/media/picker.hpp"
 #include "maicord/media/core/asset_key.hpp"
-#include "maicord/ui/media/picker.hpp"
+#include "maicord/ui/core/geometry.hpp"
 
 namespace maicord::app_detail {
 MessageComposer* application_media_picker_edit_model() noexcept { return nullptr; }

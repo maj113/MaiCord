@@ -1,15 +1,12 @@
 #pragma once
 
-#include "content_point.hpp"
 #include "cursor.hpp"
 #include "state.hpp"
 #include "window_state.hpp"
 #include "window_events.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
-#include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/core/input_router.hpp"
-#include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
 
 namespace maicord::app_detail {

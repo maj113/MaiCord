@@ -6,7 +6,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/thread.hpp"

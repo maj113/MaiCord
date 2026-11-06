@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/base.hpp"
 
 namespace maicord::app_detail {
 // Projects the official client's channel-beginning header for the selected channel into

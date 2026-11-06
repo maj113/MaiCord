@@ -6,10 +6,6 @@ struct GlyphPathCommand {
 };
 
 ByteAddressBuffer raster_data : register(t0);
-#if defined(__spirv__)
-// ES 3.1 storage images have no 8-bit single-channel format: the atlas is RGBA8 and coverage is its red channel.
-[[vk::image_format("rgba8")]]
-#endif
 RWTexture2D<unorm float> coverage_atlas : register(u0);
 
 // GLYPH_JOBS is the job count a dispatch carries: the job headers fill the first

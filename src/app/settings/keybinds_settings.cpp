@@ -169,8 +169,7 @@ void application_keybinds_settings_visible(bool visible) noexcept {
     stop_draft();
 }
 
-bool application_keybinds_settings_project(SettingBinding binding, UiSettingsControl* control,
-                                           UiSettingsControlPresentation*) noexcept {
+bool application_keybinds_settings_project(SettingBinding binding, UiSettingsControl* control) noexcept {
     ensure_loaded();
     switch (binding) {
     case SettingBinding::keybinds_add:

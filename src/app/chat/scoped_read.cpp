@@ -7,7 +7,6 @@
 #include "maicord/core/deadline.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {

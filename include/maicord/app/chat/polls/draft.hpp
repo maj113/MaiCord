@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/protocol/messages/create.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 // Editable poll creation form. Text fields hold raw input; build trims them.

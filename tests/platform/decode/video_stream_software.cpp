@@ -17,7 +17,6 @@
 #include "../../fixtures/video/video_fixtures.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/yuv_reference.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/decode/gpu_stream_decoder.hpp"

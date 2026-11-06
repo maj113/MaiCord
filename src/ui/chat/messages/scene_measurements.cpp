@@ -8,10 +8,11 @@ u32 item_slot(const MessageScene& scene, u32 slot, bool snapshot) noexcept {
     return snapshot ? slot + scene.timeline->store->capacity : slot;
 }
 
+// Every member is a float: a word per step, not a byte (this runs for every measured row).
 bool items_zero(const MessageSceneRichItemLayout& items) noexcept {
-    const u8* bytes = reinterpret_cast<const u8*>(&items);
-    u8 any = 0;
-    for (u32 i = 0; i < sizeof(items); ++i) any |= bytes[i];
+    const auto* words = reinterpret_cast<const u32*>(&items);
+    u32 any = 0;
+    for (u32 i = 0; i < sizeof(items) / sizeof(u32); ++i) any |= words[i];
     return any == 0;
 }
 } // namespace

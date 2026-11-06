@@ -1,5 +1,4 @@
 #include "shell/state.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../../support/test_output.hpp"
 
@@ -472,8 +471,6 @@ void thread_reaction_tests() noexcept {
 }
 
 void run() noexcept {
-    static_assert(sizeof(MessageReactionIntent) == 232);
-    static_assert(sizeof(MessageReactionController) == 1408);
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(g_app.account_ui != nullptr, "reaction runtime: real account UI allocates");

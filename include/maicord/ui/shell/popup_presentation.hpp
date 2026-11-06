@@ -2,7 +2,7 @@
 
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/text/presentation.hpp"
-#include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
 struct PopupScene;

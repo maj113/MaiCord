@@ -1,7 +1,6 @@
 // maicord/platform/net/socket.hpp on Windows: Winsock, with the calls and their order the loopback listeners and the
 // updater transport made themselves before they used it.
 #include "maicord/platform/net/socket.hpp"
-#include "maicord/core/memory.hpp"
 #include "native.hpp"
 
 namespace maicord {

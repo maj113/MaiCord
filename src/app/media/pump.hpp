@@ -2,7 +2,6 @@
 
 #include "media.hpp"
 #include "maicord/ui/account/profile_media.hpp"
-#include "maicord/ui/account/friends_media.hpp"
 #include "../shell/state.hpp"
 
 namespace maicord {

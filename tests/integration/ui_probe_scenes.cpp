@@ -3562,7 +3562,7 @@ bool probe_settings_scene() noexcept {
         !probe_capture_frame(L"settings-owner-removed.bmp"))
         return false;
     renderer_bind_settings_scene(&g_probe.renderer, nullptr);
-    ui_settings_scene_close(&scene);
+    ui_settings_scene_release(&scene);
     if (scene.storage.arena.base || scene.registry ||
         !renderer_resize(&g_probe.renderer, old_width, old_height) || !synchronize_probe_shell_layout() ||
         !rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))

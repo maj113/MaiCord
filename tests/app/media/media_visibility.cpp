@@ -6,9 +6,9 @@
 #include "maicord/ui/chat/search/avatar_media.hpp"
 #include "maicord/render/media/inline_media.hpp"
 #include "../../../src/app/account/profile.hpp"
-#include "../../../src/app/chat/channel_authority.hpp"
-#include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "../../support/test_output.hpp"
+#include "../../../src/app/account/account_ui_runtime.hpp"
+#include "maicord/ui/shell/quick_switcher_scene.hpp"
 
 namespace maicord::app_detail {
 ForumPostScene* fixture_forum_scene;

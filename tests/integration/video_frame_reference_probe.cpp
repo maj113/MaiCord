@@ -1,8 +1,6 @@
 // video_frame.hlsl (shared-chroma fast path for even steps) must match the
 // frozen per-pixel converter for every step, crop, range and matrix; a frame
 // without plane views is refused.
-#include "maicord/media/core/asset.hpp"
-#include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
 #include "maicord/core/hash.hpp"

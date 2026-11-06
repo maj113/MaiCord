@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 // The application's side of the plugin message pipeline (include/maicord/app/plugins/pipeline.hpp):

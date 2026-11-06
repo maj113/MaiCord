@@ -1,7 +1,6 @@
 #include "commands_internal.hpp"
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
@@ -199,9 +198,6 @@ Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
     command_json_text(command_member(index.document, value, {key, c_string_length(key)}), scratch, &text);
     return text;
 }
-bool command_space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
-}
 Utf8View copy_label(char* out, u32 capacity, const Utf8View& a, const Utf8View& b, const Utf8View& c,
                     const Utf8View& d) noexcept {
     u32 n = 0;
@@ -271,7 +267,7 @@ PickerQuery picker_query(Utf8View input) noexcept {
             break;
         }
     PickerQuery query{{input.data, end}, end < input.bytes};
-    while (query.text.bytes && command_space(query.text.data[query.text.bytes - 1])) {
+    while (query.text.bytes && ascii_is_space(query.text.data[query.text.bytes - 1])) {
         --query.text.bytes;
         query.terminated = true;
     }

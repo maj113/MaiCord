@@ -18,7 +18,6 @@
 #include "../../fixtures/mp4/mp4_fixtures.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/yuv_reference.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/media/containers/mp4_audio_demux.hpp"
 #include "maicord/media/containers/mp4_fragment_source.hpp"

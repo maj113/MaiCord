@@ -13,6 +13,7 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {
@@ -411,6 +412,11 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
     const bool retained_content = content && renderer->uploaded_text_storage == renderer->content_text &&
                                   renderer->uploaded_text_rebuild == renderer->content_text->rebuilds &&
                                   renderer->uploaded_text_quad_count == quad_count;
+    const UiLayoutNode* title =
+        content || renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
+    if (!content && !renderer->login_visible && !title) {
+        return false;
+    }
     upload = upload && !retained_content;
     if (upload) {
         // Leading glyphs unchanged since the ring last received them (the
@@ -453,12 +459,6 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
                 destination[index] = quad;
             }
         } else {
-            const UiLayoutNode* title =
-                renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
-            if (!renderer->login_visible && !title) {
-                gpu_unmap(renderer->graphics.context, renderer->pipeline.glyph_instance_buffer);
-                return false;
-            }
             const UiRect title_content =
                 renderer->login_visible
                     ? UiRect{}
@@ -507,11 +507,6 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
     const u32 suffix_base = renderer->uploaded_text_suffix_base;
     if (prefix_base + prefix > renderer->pipeline.glyph_instance_capacity ||
         suffix_base + (quad_count - prefix) > renderer->pipeline.glyph_instance_end) {
-        return false;
-    }
-    const UiLayoutNode* title =
-        content || renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
-    if (!content && !renderer->login_visible && !title) {
         return false;
     }
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;

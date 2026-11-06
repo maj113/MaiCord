@@ -1,4 +1,4 @@
-// twin: src/render/shaders/jpeg.hlsl 10477f8e482b9d3f
+// twin: src/render/shaders/jpeg.hlsl 3761bc51fb0f4460
 // JPEG decode. ENTRY_jpeg_idct (STAGE_CS): the dequantizing 8x8 inverse DCT of every coefficient block.
 // ENTRY_jpeg_to_atlas (STAGE_CS): upsampling, colour conversion, ICC transform and orientation into the media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;

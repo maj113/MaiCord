@@ -2,7 +2,6 @@
 
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
-#include "maicord/protocol/encoding/base64url.hpp"
 
 namespace maicord {
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/slice.hpp"
 
 // User-visible text that names the operating system, one wording per system: MAICORD_OS_TEXT("Windows ...", "Your
 // desktop ...") is the first literal in the Windows build and the second in the Linux build, as a Utf8View, and the

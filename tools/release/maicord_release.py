@@ -1017,7 +1017,6 @@ SLOTS = (
     Slot("preview", "preview", f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json",
          f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json", dev_builds=True),
 )
-PREVIEW_SLOT = SLOTS[1]
 # The Linux client's manifests: the same channels and layout, in their own directory, naming tarballs. The preview feed
 # carries master builds with their tarballs beside the manifest; the changelogs are SLOTS', which describe versions.
 LINUX_SLOTS = (

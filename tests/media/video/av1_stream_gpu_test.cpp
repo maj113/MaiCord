@@ -8,7 +8,6 @@
 #include "maicord/protocol/voice/video_signaling.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
 #include "../../support/yuv_reference.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dxva.hpp"
 #include "../../support/test_output.hpp"

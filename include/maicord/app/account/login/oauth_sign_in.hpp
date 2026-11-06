@@ -7,7 +7,7 @@ struct OAuthSignInStatus {
     u64 generation;
     OAuthSignInPhase phase;
     OAuthError error;
-    u16 port, http_status;
+    u16 port;
     u32 native_error;
 };
 struct OAuthSignIn { void* runtime; };

@@ -5,7 +5,6 @@
 #include "maicord/app/plugins/dispatch.hpp"
 #include "../shell/state.hpp"
 #include "../shell/window_state.hpp"
-#include "../chat/composer/text_form.hpp"
 #include "../media/downloads.hpp"
 #include "../chat/threads/forum_form.hpp"
 #include "../guild/lifecycle.hpp"
@@ -27,7 +26,6 @@
 #include "../account/custom_status.hpp"
 #include "../account/friends.hpp"
 
-#include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {

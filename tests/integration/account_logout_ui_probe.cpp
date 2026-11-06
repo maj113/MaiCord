@@ -22,9 +22,7 @@
 #include "account/self_status.hpp"
 #include "plugins/plugins.hpp"
 #include "maicord/app/account/login/account_credential_forget.hpp"
-#include "maicord/app/account/account_logout_stop.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/account/menu.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
@@ -782,7 +780,7 @@ bool application_downloads_open() noexcept {
 bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return unexpected();
 }
-bool application_profile_open_edit(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open_edit(u64) noexcept {
     return unexpected();
 }
 bool application_custom_status_available() noexcept {

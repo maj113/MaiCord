@@ -764,7 +764,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         (members && !ui_background_paint_canvas(stream, members->rectangle, theme, theme.base_lower))) {
         return false;
     }
-    if (const UiLayoutNode* title_label = ui_scene_node(scene, UiSemantic::title_label); title_label && title) {
+    if (const UiLayoutNode* title_label = ui_scene_node(scene, UiSemantic::title_label)) {
         UiRect line = title_label->rectangle;
         line.top = title->rectangle.top;
         line.bottom = title->rectangle.bottom;

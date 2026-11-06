@@ -1,6 +1,5 @@
 #include "maicord/render/effects/colr_program.hpp"
 #include "maicord/render/effects/lottie_program.hpp"
-#include "maicord/core/utf.hpp"
 #include "colr_program_equal.hpp"
 #include "../../../src/render/effects/colr_segment_bounds.hpp"
 #include "maicord/core/win32_kernel.hpp"

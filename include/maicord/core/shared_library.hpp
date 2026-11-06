@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 
 // System libraries loaded at run time (Linux; Windows images use delay-loaded imports and LoadLibrary). A Linux image
 // links only libc; every other library (libwayland-client, libEGL, libxkbcommon, ...) is
@@ -23,6 +22,23 @@ bool shared_library_open(SharedLibrary* library, const char* name) noexcept;
 void* shared_library_symbol(const SharedLibrary& library, const char* name) noexcept;
 
 void shared_library_close(SharedLibrary* library) noexcept;
+
+// Resolves the functions of a table one by one, remembering the first name that is missing (and resolving no more).
+struct SharedLibraryResolver {
+    const SharedLibrary& library;
+    const char* missing;
+
+    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
+        if (missing)
+            return;
+        void* address = shared_library_symbol(library, name);
+        if (!address) {
+            missing = name;
+            return;
+        }
+        *slot = reinterpret_cast<Function>(address);
+    }
+};
 
 // The loader's message for the last failed open or lookup on this thread, or null.
 const char* shared_library_error() noexcept;

@@ -84,8 +84,6 @@ stdenv.mkDerivation (finalAttrs: {
     (lib.cmakeFeature "CMAKE_RANLIB" "${llvm.llvm}/bin/llvm-ranlib")
     # The unwrapped clang cannot link a hosted program: the compiler check only needs to compile.
     (lib.cmakeFeature "CMAKE_TRY_COMPILE_TARGET_TYPE" "STATIC_LIBRARY")
-    # (no shader toolchain flags: the client's shaders are hand-written GLSL, packed with python; DXC and SPIRV-Cross are
-    # for plugin effects only)
   ];
 
   env = {
@@ -98,7 +96,6 @@ stdenv.mkDerivation (finalAttrs: {
     # The generated sources must not land inside the source tree, so the build directory is beside it.
     cmakeDir=$PWD
     cmakeBuildDir=$NIX_BUILD_TOP/build
-    # Nothing else to prepare: the shaders are GLSL the build packs with python (no DXC, SPIRV-Cross or downloads).
   '';
 
   # Upstream's audit of the image (no GLIBC_ symbol above 2.34, libc.so.6 the only DT_NEEDED entry, no run path, no test

@@ -1,8 +1,6 @@
 #include "maicord/text/fonts/store.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/base.hpp"
 #include "path_stat.hpp"
-#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/os/file.hpp"
 namespace maicord {namespace {

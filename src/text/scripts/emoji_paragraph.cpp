@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/layout/visibility.hpp"
 #include "maicord/text/unicode/unicode.hpp"
-#include "maicord/text/base.hpp"
 namespace maicord {
 SfntStatus native_emoji_paragraph_shape(const NativeRunPlanStore& store,const NativeEmojiPlan& plan,Utf8View input,float em,
     const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,bool coverage,bool rtl,bool arabic) noexcept {

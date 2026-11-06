@@ -1,7 +1,5 @@
 #pragma once
 
-#include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/account/account_module_api.hpp"
 #include "maicord/app/account/account_profile_promotion.hpp"
 #include "maicord/app/account/login/browser_login.hpp"

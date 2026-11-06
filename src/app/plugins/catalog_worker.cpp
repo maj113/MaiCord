@@ -12,6 +12,7 @@
 #include "maicord/os/file.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/os/wait.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord::app_detail {
 namespace {

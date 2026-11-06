@@ -3,10 +3,12 @@
 #include "../shell/frame_presentation.hpp"
 #include "../voice/call.hpp"
 #include "../chat/application_link_trust.hpp"
-#include "policy.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/core/log_event.hpp"
+#include "../account/account_presentation.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/ui/voice/audio_presentation.hpp"
 
 namespace maicord::app_detail {
 

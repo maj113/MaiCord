@@ -4,6 +4,7 @@
 #include "maicord/os/file.hpp"
 #include "maicord/sys/linux/path.hpp"
 #include "maicord/sys/linux/process.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord::font_locator {
 namespace {
@@ -34,21 +35,6 @@ const char* find(const char* at, const char* end, const char* literal) noexcept 
     return nullptr;
 }
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool equal_prefix(const char* a, const char* b) noexcept {
-    while (*a && *a == *b) {
-        ++a;
-        ++b;
-    }
-    return *a == *b;
-}
-
 bool wide_equal(const wchar_t* a, const wchar_t* b) noexcept {
     while (*a && *a == *b) {
         ++a;
@@ -72,7 +58,7 @@ bool append(char (&path)[kPathCapacity], u32* length, const char* text, u32 byte
 }
 
 bool append(char (&path)[kPathCapacity], u32* length, const char* text) noexcept {
-    return append(path, length, text, text_length(text));
+    return append(path, length, text, c_string_length(text));
 }
 
 // $XDG_DATA_HOME or ~/.local/share, and $XDG_CONFIG_HOME or ~/.config: the base directory rule.
@@ -197,7 +183,7 @@ void include_path(Collector& c, const char* utf8, u32 depth) noexcept {
 
 // The value of attribute `name` inside the tag text [begin, end), or an empty string.
 u32 attribute(const char* begin, const char* end, const char* name, char* value, u32 capacity) noexcept {
-    const u32 length = text_length(name);
+    const u32 length = c_string_length(name);
     for (const char* at = begin; at + length + 1 < end; ++at) {
         const bool boundary = at == begin || at[-1] == ' ' || at[-1] == '\t' || at[-1] == '\n' || at[-1] == '\r';
         if (!boundary || !starts_with(at, end, name) || at[length] != '=')
@@ -225,19 +211,19 @@ bool resolve(const char* prefix, bool include, const char* content, u32 bytes, c
              char (&path)[kPathCapacity]) noexcept {
     u32 length = 0;
     path[0] = 0;
-    if (equal_prefix(prefix, "xdg")) {
+    if (c_string_equal(prefix, "xdg")) {
         if (!(include ? xdg_home("XDG_CONFIG_HOME", "/.config", path, &length)
                       : xdg_home("XDG_DATA_HOME", "/.local/share", path, &length)))
             return false;
         return append(path, &length, "/") && append(path, &length, content, bytes);
     }
-    if (equal_prefix(prefix, "relative")) {
-        u32 directory = text_length(config);
+    if (c_string_equal(prefix, "relative")) {
+        u32 directory = c_string_length(config);
         while (directory && config[directory - 1] != '/')
             --directory;
         return directory && append(path, &length, config, directory) && append(path, &length, content, bytes);
     }
-    if (equal_prefix(prefix, "cwd"))
+    if (c_string_equal(prefix, "cwd"))
         return false;
     if (bytes && content[0] == '~' && (bytes == 1 || content[1] == '/')) {
         const char* home = environment_get("HOME");
@@ -248,7 +234,7 @@ bool resolve(const char* prefix, bool include, const char* content, u32 bytes, c
     if (!include)
         return false;
     // A relative include is relative to the including file.
-    u32 directory = text_length(config);
+    u32 directory = c_string_length(config);
     while (directory && config[directory - 1] != '/')
         --directory;
     return directory && append(path, &length, config, directory) && append(path, &length, content, bytes);

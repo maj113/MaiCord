@@ -6,7 +6,6 @@
 #include "indic_forms.hpp"
 #include "maicord/text/scripts/indic_clusters.hpp"
 #include "../opentype/shape_position.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/text/scripts/detail/indic_form.hpp"
 #include "../shaping/compact_run.hpp"
 #include "../shaping/script_paragraph.hpp"

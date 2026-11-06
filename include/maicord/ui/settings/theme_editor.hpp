@@ -47,6 +47,13 @@ enum class UiThemeEditorElement : u8 {
     count
 };
 inline constexpr u32 kUiThemeEditorElements = static_cast<u32>(UiThemeEditorElement::count);
+// The elements dragged or stepped as a value (the colour field, hue and the sliders).
+constexpr bool ui_theme_editor_range(UiThemeEditorElement e) noexcept {
+    return e == UiThemeEditorElement::sv || e == UiThemeEditorElement::hue ||
+           e == UiThemeEditorElement::direction || e == UiThemeEditorElement::intensity ||
+           e == UiThemeEditorElement::speed || e == UiThemeEditorElement::strength ||
+           e == UiThemeEditorElement::density;
+}
 struct UiThemeEditorStyle {
     float width, height, padding, gap, radius, control_radius;
 };
@@ -85,6 +92,8 @@ bool ui_theme_editor_update(UiThemeEditorScene*, const BackgroundTheme&, u8 sele
 void ui_theme_editor_close(UiThemeEditorScene*) noexcept;
 void ui_theme_editor_release(UiThemeEditorScene*) noexcept;
 const UiLayoutNode* ui_theme_editor_node(const UiThemeEditorScene&, UiThemeEditorElement) noexcept;
+// The element a widget handle names; count when none.
+UiThemeEditorElement ui_theme_editor_element(const UiThemeEditorScene&, UiWidgetHandle) noexcept;
 UiThemeEditorElement ui_theme_editor_hit_test(const UiThemeEditorScene&, UiPoint) noexcept;
 bool ui_theme_editor_focus(UiThemeEditorScene*, UiThemeEditorElement) noexcept;
 bool ui_theme_editor_move_focus(UiThemeEditorScene*, bool reverse) noexcept;

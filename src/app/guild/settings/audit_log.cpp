@@ -1,6 +1,7 @@
 #include "internal.hpp"
 #include "../../settings/settings.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

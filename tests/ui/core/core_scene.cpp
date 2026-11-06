@@ -9,7 +9,6 @@
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/render/text/glyph_quad_bounds.hpp"
 #include "maicord/render/text/glyph_raster.hpp"
-#include "maicord/render/media/atlas.hpp"
 #include "../../support/message_background_surfaces.inc"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
@@ -23,6 +22,7 @@
 #include "maicord/ui/text/flow_layout.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/render/text/glyph_atlas.hpp"
 
 namespace maicord {
 MessageRichRecord g_message_scene_rich_records[32];

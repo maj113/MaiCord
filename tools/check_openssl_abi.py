@@ -75,7 +75,7 @@ def parameter_type(parameter):
     """A parameter without its name: 'const unsigned char *tbs' becomes 'const unsigned char *'."""
     parameter = parameter.strip()
     if parameter.endswith("]"):  # OSSL_PARAM params[]
-        return re.sub(r"\s*\w+\s*\[\s*\]$", " *", parameter)
+        return re.sub(r"\s*\w+\s*\[[^\]]*\]$", " *", parameter)
     match = re.match(r"^(.*?[\s\*])(\w+)$", parameter)
     if match and not re.match(r"^(void|int|long|unsigned|char|size_t|short)$", parameter):
         return match.group(1)
@@ -90,20 +90,43 @@ def read_table():
     constants = []
     for match in re.finditer(
             r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>[A-Z][A-Z0-9_]+)\b", text):
-        constants.append((match["macro"], match["value"].strip(), match["type"]))
+        constants.append((match["macro"], re.sub(r"(?<=[0-9a-fA-F])(ull|ULL)\b", "ULL", match["value"].strip())))
     return functions, constants
 
 
-def preprocess(compiler, includes):
+# The helpers below serve every tools/check_*_abi.py that compiles against installed headers.
+
+def command_line(description, default_includes):
+    """(compiler, include directories) of the usual command line."""
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--include", action="append", default=[])
+    parser.add_argument("--compiler", default=os.environ.get("CC", "cc"))
+    arguments = parser.parse_args()
+    return arguments.compiler, arguments.include or default_includes
+
+
+def read_dlsym_table(path, table, macro_prefix):
+    """(functions, constants) of an abi.hpp whose `#define <table>` lists F(ret, name, (arguments)) rows and whose
+    constants carry a comment naming a `<macro_prefix>...` macro or enumerator."""
+    text = open(path, encoding="utf-8").read()
+    rows = text[text.index("#define " + table):text.index("struct Api")].replace("\\\n", " ")
+    functions = [(match["name"], match["ret"].strip(), [parameter_type(p) for p in split_arguments(match["args"])])
+                 for match in re.finditer(r"F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)", rows, re.S)]
+    constants = [(match["macro"], match["value"].strip()) for match in re.finditer(
+        r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>%s[A-Z0-9_]+)" % macro_prefix, text)]
+    return functions, constants
+
+
+def preprocess(compiler, includes, headers, defines=()):
+    """The preprocessed text of the headers."""
     with tempfile.TemporaryDirectory() as directory:
         source = os.path.join(directory, "check.c")
         with open(source, "w", encoding="utf-8") as handle:
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-        command = [compiler, "-E", "-P", "-DOPENSSL_API_COMPAT=0x30000000L"] + ["-I" + d for d in includes] + [source]
+            handle.write("".join("#include <%s>\n" % header for header in headers))
+        command = [compiler, "-E", "-P"] + list(defines) + ["-I" + d for d in includes] + [source]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
-            raise SystemExit("preprocessing failed (is libssl-dev installed?):\n" + result.stderr)
+            raise SystemExit("preprocessing failed (are the development headers installed?):\n" + result.stderr)
         return result.stdout
 
 
@@ -118,26 +141,27 @@ def find_declaration(text, name):
         if depth:
             continue
         following = text[index:index + 64].lstrip()
-        if not (following.startswith(";") or following.startswith("__attribute__") or following.startswith("OSSL_")):
+        if not following.startswith((";", "__attribute__", "OSSL_")):
             continue
         ret = match["ret"].strip().split(";")[-1].strip()
-        ret = re.sub(r"\b(extern|static|inline|__inline__|OSSL_DEPRECATEDIN_[0-9_]+\w*)\b", " ", ret).strip()
+        ret = re.sub(r"\b(extern|static|inline|__inline__|__attribute__\(\(.*?\)\)|OSSL_DEPRECATEDIN_[0-9_]+\w*)\b", " ", ret).strip()
         return ret, [parameter_type(p) for p in split_arguments(text[start:index - 1])]
     return None
 
 
-def check_constants(compiler, includes, constants):
+def check_constants(compiler, includes, headers, constants, layouts=(), defines=()):
+    """Compiles a _Static_assert per (macro, value) and per layout condition against the real headers: 0 or 1."""
     with tempfile.TemporaryDirectory() as directory:
         source = os.path.join(directory, "constants.c")
         with open(source, "w", encoding="utf-8") as handle:
-            handle.write("#include <stdint.h>\n")
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-            for macro, value, _ in constants:
-                value = re.sub(r"(?<=[0-9a-fA-F])(ull|ULL)\b", "ULL", value)
+            handle.write("#include <stddef.h>\n#include <stdint.h>\n")
+            handle.write("".join("#include <%s>\n" % header for header in headers))
+            for macro, value in constants:
                 handle.write("_Static_assert((unsigned long long)(%s) == (unsigned long long)(%s), \"%s\");\n"
                              % (macro, value, macro))
-        command = [compiler, "-fsyntax-only", "-DOPENSSL_API_COMPAT=0x30000000L"] + ["-I" + d for d in includes] + [source]
+            for layout in layouts:
+                handle.write("_Static_assert(%s, \"%s\");\n" % (layout, layout))
+        command = [compiler, "-fsyntax-only"] + list(defines) + ["-I" + d for d in includes] + [source]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             print(result.stderr)
@@ -145,43 +169,52 @@ def check_constants(compiler, includes, constants):
     return 0
 
 
+def compare_function(text, name, ret, arguments, kind_of):
+    """The problem with the table's declaration of `name` against the preprocessed headers, or None."""
+    declared = find_declaration(text, name)
+    if not declared:
+        return "%s: not declared by the headers" % name
+    declared_ret, declared_arguments = declared
+    problems = []
+    try:
+        if len(declared_arguments) != len(arguments):
+            problems.append("%d arguments declared, %d in the table" % (len(declared_arguments), len(arguments)))
+        elif kind_of(declared_ret) != kind_of(ret):
+            problems.append("returns %s, the table says %s" % (declared_ret, ret))
+        else:
+            for index, (theirs, ours) in enumerate(zip(declared_arguments, arguments)):
+                if kind_of(theirs) != kind_of(ours):
+                    problems.append("argument %d is '%s', the table says '%s'" % (index + 1, theirs, ours))
+    except ValueError as error:
+        problems = [str(error)]
+    return "%s: %s" % (name, "; ".join(problems)) if problems else None
+
+
+def check_functions(text, functions, kind_of):
+    """Prints the problem of every (name, return type, arguments) row that differs from the headers; their number."""
+    failures = 0
+    for name, ret, arguments in functions:
+        problem = compare_function(text, name, ret, arguments, kind_of)
+        if problem:
+            failures += 1
+            print(problem)
+    return failures
+
+
+def summary(what, includes, failures):
+    print("%s checked against %s: %s" % (what, ", ".join(includes), "FAILED" if failures else "ok"))
+    return 1 if failures else 0
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--include", action="append", default=[])
-    parser.add_argument("--compiler", default=os.environ.get("CC", "cc"))
-    arguments = parser.parse_args()
-    includes = arguments.include or ["/usr/include", "/usr/include/x86_64-linux-gnu"]
+    compiler, includes = command_line(__doc__, ["/usr/include", "/usr/include/x86_64-linux-gnu"])
     functions, constants = read_table()
     if not functions or not constants:
         raise SystemExit("found no table in " + HEADER)
-
-    failures = check_constants(arguments.compiler, includes, constants)
-    text = preprocess(arguments.compiler, includes)
-    for name, ret, table_arguments in functions:
-        declared = find_declaration(text, name)
-        if not declared:
-            print("%s: not declared by the OpenSSL headers" % name)
-            failures += 1
-            continue
-        declared_ret, declared_arguments = declared
-        problems = []
-        try:
-            if len(declared_arguments) != len(table_arguments):
-                problems.append("%d arguments declared, %d in the table" % (len(declared_arguments), len(table_arguments)))
-            elif kind(declared_ret) != kind(ret):
-                problems.append("returns %s, the table says %s" % (declared_ret, ret))
-            else:
-                for index, (theirs, ours) in enumerate(zip(declared_arguments, table_arguments)):
-                    if kind(theirs) != kind(ours):
-                        problems.append("argument %d is '%s', the table says '%s'" % (index + 1, theirs, ours))
-        except ValueError as error:
-            problems = [str(error)]
-        if problems:
-            failures += 1
-            print("%s: %s" % (name, "; ".join(problems)))
-    print("%d functions and %d constants checked against %s: %s" % (
-        len(functions), len(constants), ", ".join(includes), "FAILED" if failures else "ok"))
-    return 1 if failures else 0
+    defines = ["-DOPENSSL_API_COMPAT=0x30000000L"]
+    failures = check_constants(compiler, includes, INCLUDES, constants, defines=defines)
+    failures += check_functions(preprocess(compiler, includes, INCLUDES, defines), functions, kind)
+    return summary("%d functions and %d constants" % (len(functions), len(constants)), includes, failures)
 
 
 if __name__ == "__main__":

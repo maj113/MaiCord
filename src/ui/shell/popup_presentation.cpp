@@ -11,6 +11,8 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
 namespace {

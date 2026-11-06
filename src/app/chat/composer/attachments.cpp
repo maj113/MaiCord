@@ -20,6 +20,7 @@
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "attachments.hpp"
 
 namespace maicord::app_detail {
 namespace {

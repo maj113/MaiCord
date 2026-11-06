@@ -4,7 +4,6 @@
 #include "maicord/app/media/account_video_playback.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/os/thread.hpp"
-#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 

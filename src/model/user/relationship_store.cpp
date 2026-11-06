@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

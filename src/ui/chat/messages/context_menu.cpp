@@ -1,7 +1,7 @@
 #include "maicord/ui/chat/messages/context_menu.hpp"
 
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
@@ -97,16 +97,6 @@ bool append_quick_reactions(MessageContextMenuModel* model,
     }
     return true;
 }
-
-bool append_bytes(const Utf8View& value, const Slice<char>& output, u32* used) noexcept {
-    if (value.bytes > output.count - *used) {
-        return false;
-    }
-    copy_bytes(output.data + *used, value.data, value.bytes);
-    *used += value.bytes;
-    return true;
-}
-
 } // namespace
 
 MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* model,
@@ -242,40 +232,17 @@ u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id, co
     if (!output.data || channel_id == 0 || message_id == 0) {
         return 0;
     }
-    u32 used = 0;
-    if (!append_bytes(utf8_literal("https://discord.com/channels/"), output, &used)) {
-        return 0;
-    }
-    if (guild_id == 0) {
-        if (!append_bytes(utf8_literal("@me"), output, &used)) {
-            return 0;
-        }
-    } else {
-        const u32 bytes = message_context_format_snowflake(
-            guild_id, Slice<char>{output.data + used, output.count - used});
-        if (bytes == 0) {
-            return 0;
-        }
-        used += bytes;
-    }
-    if (!append_bytes(utf8_literal("/"), output, &used)) {
-        return 0;
-    }
-    u32 bytes =
-        message_context_format_snowflake(channel_id, Slice<char>{output.data + used, output.count - used});
-    if (bytes == 0) {
-        return 0;
-    }
-    used += bytes;
-    if (!append_bytes(utf8_literal("/"), output, &used)) {
-        return 0;
-    }
-    bytes =
-        message_context_format_snowflake(message_id, Slice<char>{output.data + used, output.count - used});
-    if (bytes == 0) {
-        return 0;
-    }
-    return used + bytes;
+    TextWriter writer{output};
+    writer.add("https://discord.com/channels/");
+    if (guild_id == 0)
+        writer.add("@me");
+    else
+        writer.number(guild_id);
+    writer.add("/");
+    writer.number(channel_id);
+    writer.add("/");
+    writer.number(message_id);
+    return writer.finish();
 }
 
 } // namespace maicord

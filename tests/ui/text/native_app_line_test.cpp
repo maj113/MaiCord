@@ -418,224 +418,147 @@ bool paragraph_options() noexcept {
 #include "native_fresh_engine_cases.inc"
 #include "native_font_context_cases.inc"
 #include "native_request_recovery.inc"
+// The command line is matched option by option, left to right, against what is left of it.
+u32 option_length(const wchar_t* p,const wchar_t* option) noexcept {u32 n=0;while(option[n]&&p[n]==option[n])++n;return option[n]?0:n;}
+bool is_option(const wchar_t* p,const wchar_t* option) noexcept {const u32 n=option_length(p,option);return n&&!p[n];}
+const wchar_t* after_option(const wchar_t* p,const wchar_t* option) noexcept {const u32 n=option_length(p,option);return n&&(p[n]==L' '||p[n]==L'\t')?p+n:nullptr;}
+// option followed by a blank (or by the end of the text with end_ok): consumes it and the blanks after it.
+bool take(const wchar_t*& p,const wchar_t* option,bool end_ok=false) noexcept {
+    const u32 n=option_length(p,option);if(!n||!(p[n]==L' '||p[n]==L'\t'||(end_ok&&!p[n])))return false;
+    p+=n;while(*p==L' '||*p==L'\t')++p;return true;
+}
+template<class... Flags> void profile(const wchar_t*& p,const wchar_t* option,Flags&... flags) noexcept {if(take(p,option))((flags=true),...);}
 bool run() noexcept {
     const wchar_t* p=GetCommandLineW();bool quote=false;while(*p){if(*p=='"')quote=!quote;else if(!quote&&(*p==' '||*p=='\t'))break;++p;}while(*p==' '||*p=='\t')++p;
-    static const wchar_t recovery_option[]=L"--request-recovery";u32 recovery_match=0;while(recovery_option[recovery_match]&&p[recovery_match]==recovery_option[recovery_match])++recovery_match;
-    if(!recovery_option[recovery_match]&&!p[recovery_match])return native_request_recovery();
-    static const wchar_t selection_check[]=L"--font-selection-check";u32 selection_match_check=0;while(selection_check[selection_match_check]&&p[selection_match_check]==selection_check[selection_match_check])++selection_match_check;
-    if(!selection_check[selection_match_check]&&!p[selection_match_check])return native_font_selection_cases();
-    static const wchar_t contexts_check[]=L"--font-context-layouts";u32 contexts_match=0;while(contexts_check[contexts_match]&&p[contexts_match]==contexts_check[contexts_match])++contexts_match;
-    if(!contexts_check[contexts_match]&&!p[contexts_match])return native_font_context_layouts();
-    static const wchar_t storage_option[]=L"--script-storage-check";u32 storage_match=0;while(storage_option[storage_match]&&p[storage_match]==storage_option[storage_match])++storage_match;
-    if(!storage_option[storage_match]&&!p[storage_match])return native_script_storage_cases();
+    if(is_option(p,L"--request-recovery"))return native_request_recovery();
+    if(is_option(p,L"--font-selection-check"))return native_font_selection_cases();
+    if(is_option(p,L"--font-context-layouts"))return native_font_context_layouts();
+    if(is_option(p,L"--script-storage-check"))return native_script_storage_cases();
     CHECK(text_system_initialize(&owner,L"Segoe UI",16).ok());
     Output* outputs[]{&native_output,&reference_output};for(auto* out:outputs){CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256},{out->decorations,256},{out->hits,4096}));}
-    static const wchar_t matrix_batch_option[]=L"--matrix-batch";
-    u32 matrix_batch_match = 0;
-    while (matrix_batch_option[matrix_batch_match] &&
-           p[matrix_batch_match] == matrix_batch_option[matrix_batch_match])
-        ++matrix_batch_match;
-    if (!matrix_batch_option[matrix_batch_match] &&
-        (p[matrix_batch_match] == L' ' || p[matrix_batch_match] == L'\t'))
-        return matrix_batch(p + matrix_batch_match);
-    static const wchar_t matrix_profile_option[]=L"--matrix-profile";
-    u32 matrix_profile_match = 0;
-    while (matrix_profile_option[matrix_profile_match] &&
-           p[matrix_profile_match] == matrix_profile_option[matrix_profile_match])
-        ++matrix_profile_match;
-    if (!matrix_profile_option[matrix_profile_match] &&
-        (p[matrix_profile_match] == L' ' || p[matrix_profile_match] == L'\t'))
-        return matrix_batch(p + matrix_profile_match, true);
-    static const wchar_t alphabetic_paragraph_option[]=L"--alphabetic-paragraph";u32 alphabetic_paragraph_match=0;while(alphabetic_paragraph_option[alphabetic_paragraph_match]&&p[alphabetic_paragraph_match]==alphabetic_paragraph_option[alphabetic_paragraph_match])++alphabetic_paragraph_match;
-    if(!alphabetic_paragraph_option[alphabetic_paragraph_match]&&!p[alphabetic_paragraph_match])return native_alphabetic_paragraph_corpus();
-    static const wchar_t han_option[]=L"--han-paragraph";u32 han_match=0;while(han_option[han_match]&&p[han_match]==han_option[han_match])++han_match;
-    if(!han_option[han_match]&&!p[han_match])return native_han_paragraph_corpus();
-    static const wchar_t thai_context_option[]=L"--thai-context-check";u32 thai_context_match=0;while(thai_context_option[thai_context_match]&&p[thai_context_match]==thai_context_option[thai_context_match])++thai_context_match;
-    if(!thai_context_option[thai_context_match]&&!p[thai_context_match])return native_thai_context_cases();
-    static const wchar_t deva_bench_option[]=L"--devanagari-bench";u32 deva_bench_match=0;while(deva_bench_option[deva_bench_match]&&p[deva_bench_match]==deva_bench_option[deva_bench_match])++deva_bench_match;
-    if(!deva_bench_option[deva_bench_match]&&!p[deva_bench_match])return native_devanagari_memory_benchmark();
-    static const wchar_t deva_memory_option[]=L"--devanagari-memory-check";u32 deva_memory_match=0;while(deva_memory_option[deva_memory_match]&&p[deva_memory_match]==deva_memory_option[deva_memory_match])++deva_memory_match;
-    if(!deva_memory_option[deva_memory_match]&&!p[deva_memory_match])return native_devanagari_memory_benchmark(true);
-    static const wchar_t long_editor_option[]=L"--long-editor-check";u32 long_editor_match=0;while(long_editor_option[long_editor_match]&&p[long_editor_match]==long_editor_option[long_editor_match])++long_editor_match;
-    static const wchar_t retained_option[]=L"--retained-editor-check";u32 retained_match=0;while(retained_option[retained_match]&&p[retained_match]==retained_option[retained_match])++retained_match;
-    if(!retained_option[retained_match]&&p[retained_match]==' '&&p[retained_match+1]>=L'0'&&p[retained_match+1]<=L'5'&&!p[retained_match+2])return retained_editor_capacity(p[retained_match+1]-L'0');
-    if(!long_editor_option[long_editor_match]&&!p[long_editor_match])return native_long_text_cases(true);
-    static const wchar_t long_option[]=L"--long-text-check";u32 long_match=0;while(long_option[long_match]&&p[long_match]==long_option[long_match])++long_match;
-    if(!long_option[long_match]&&!p[long_match])return native_long_text_cases();
-    static const wchar_t replay_option[]=L"--font-replay-check";u32 replay_match=0;while(replay_option[replay_match]&&p[replay_match]==replay_option[replay_match])++replay_match;
-    if(!replay_option[replay_match]&&!p[replay_match])return native_font_range_replay_cases();
-    static const wchar_t hangul_option[]=L"--hangul-profile";u32 hangul_match=0;while(hangul_option[hangul_match]&&p[hangul_match]==hangul_option[hangul_match])++hangul_match;
-    if(hangul_match==sizeof(hangul_option)/sizeof(wchar_t)-1&&p[hangul_match]==' '){hangul_profiles=true;p+=hangul_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t thai_shape_option[]=L"--thai-shape-profile";u32 thai_shape_match=0;while(thai_shape_option[thai_shape_match]&&p[thai_shape_match]==thai_shape_option[thai_shape_match])++thai_shape_match;
-    if(thai_shape_match==sizeof(thai_shape_option)/sizeof(wchar_t)-1&&p[thai_shape_match]==' '){thai_profiles=thai_shape_only=true;p+=thai_shape_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t thai_option[]=L"--thai-profile";u32 thai_match=0;while(thai_option[thai_match]&&p[thai_match]==thai_option[thai_match])++thai_match;
-    if(thai_match==sizeof(thai_option)/sizeof(wchar_t)-1&&p[thai_match]==' '){thai_profiles=true;p+=thai_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t extended_option[]=L"--extended-standard-profile";u32 extended_match=0;while(extended_option[extended_match]&&p[extended_match]==extended_option[extended_match])++extended_match;
-    if(extended_match==sizeof(extended_option)/sizeof(wchar_t)-1&&p[extended_match]==' '){standard_script_profiles=extended_standard_profiles=true;p+=extended_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t standard_option[]=L"--standard-script-profile";u32 standard_match=0;while(standard_option[standard_match]&&p[standard_match]==standard_option[standard_match])++standard_match;
-    if(standard_match==sizeof(standard_option)/sizeof(wchar_t)-1&&p[standard_match]==' '){standard_script_profiles=true;p+=standard_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tamil_shape_option[]=L"--tamil-direction-shape-profile";u32 tamil_shape_match=0;while(tamil_shape_option[tamil_shape_match]&&p[tamil_shape_match]==tamil_shape_option[tamil_shape_match])++tamil_shape_match;
-    if(!tamil_shape_option[tamil_shape_match]&&p[tamil_shape_match]==' '){devanagari_profiles=tamil_profiles=devanagari_directional=devanagari_tracking=tamil_shape_only=true;p+=tamil_shape_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tamil_direction_option[]=L"--tamil-direction-profile";u32 tamil_direction_match=0;while(tamil_direction_option[tamil_direction_match]&&p[tamil_direction_match]==tamil_direction_option[tamil_direction_match])++tamil_direction_match;
-    if(!tamil_direction_option[tamil_direction_match]&&p[tamil_direction_match]==' '){devanagari_profiles=tamil_profiles=devanagari_directional=devanagari_tracking=true;p+=tamil_direction_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t telugu_option[]=L"--telugu-profile";u32 telugu_match=0;while(telugu_option[telugu_match]&&p[telugu_match]==telugu_option[telugu_match])++telugu_match;
-    if(!telugu_option[telugu_match]&&p[telugu_match]==' '){devanagari_profiles=telugu_profiles=true;p+=telugu_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t telugu_tracking_option[]=L"--telugu-tracking-profile";u32 telugu_tracking_match=0;while(telugu_tracking_option[telugu_tracking_match]&&p[telugu_tracking_match]==telugu_tracking_option[telugu_tracking_match])++telugu_tracking_match;
-    if(!telugu_tracking_option[telugu_tracking_match]&&p[telugu_tracking_match]==' '){devanagari_profiles=telugu_profiles=devanagari_tracking=true;p+=telugu_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t kannada_option[]=L"--kannada-profile";u32 kannada_match=0;while(kannada_option[kannada_match]&&p[kannada_match]==kannada_option[kannada_match])++kannada_match;
-    if(!kannada_option[kannada_match]&&p[kannada_match]==' '){devanagari_profiles=kannada_profiles=true;p+=kannada_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t kannada_tracking_option[]=L"--kannada-tracking-profile";u32 kannada_tracking_match=0;while(kannada_tracking_option[kannada_tracking_match]&&p[kannada_tracking_match]==kannada_tracking_option[kannada_tracking_match])++kannada_tracking_match;
-    if(!kannada_tracking_option[kannada_tracking_match]&&p[kannada_tracking_match]==' '){devanagari_profiles=kannada_profiles=devanagari_tracking=true;p+=kannada_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t khmer_option[]=L"--khmer-profile";u32 khmer_match=0;while(khmer_option[khmer_match]&&p[khmer_match]==khmer_option[khmer_match])++khmer_match;
-    if(!khmer_option[khmer_match]&&p[khmer_match]==' '){devanagari_profiles=khmer_profiles=true;p+=khmer_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t khmer_tracking_option[]=L"--khmer-tracking-profile";u32 khmer_tracking_match=0;while(khmer_tracking_option[khmer_tracking_match]&&p[khmer_tracking_match]==khmer_tracking_option[khmer_tracking_match])++khmer_tracking_match;
-    if(!khmer_tracking_option[khmer_tracking_match]&&p[khmer_tracking_match]==' '){devanagari_profiles=khmer_profiles=devanagari_tracking=true;p+=khmer_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t myanmar_option[]=L"--myanmar-profile";u32 myanmar_match=0;while(myanmar_option[myanmar_match]&&p[myanmar_match]==myanmar_option[myanmar_match])++myanmar_match;
-    if(!myanmar_option[myanmar_match]&&p[myanmar_match]==' '){devanagari_profiles=myanmar_profiles=true;p+=myanmar_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t myanmar_tracking_option[]=L"--myanmar-tracking-profile";u32 myanmar_tracking_match=0;while(myanmar_tracking_option[myanmar_tracking_match]&&p[myanmar_tracking_match]==myanmar_tracking_option[myanmar_tracking_match])++myanmar_tracking_match;
-    if(!myanmar_tracking_option[myanmar_tracking_match]&&p[myanmar_tracking_match]==' '){devanagari_profiles=myanmar_profiles=devanagari_tracking=true;p+=myanmar_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tibetan_option[]=L"--tibetan-profile";u32 tibetan_match=0;while(tibetan_option[tibetan_match]&&p[tibetan_match]==tibetan_option[tibetan_match])++tibetan_match;
-    if(!tibetan_option[tibetan_match]&&p[tibetan_match]==' '){devanagari_profiles=tibetan_profiles=true;p+=tibetan_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tibetan_tracking_option[]=L"--tibetan-tracking-profile";u32 tibetan_tracking_match=0;while(tibetan_tracking_option[tibetan_tracking_match]&&p[tibetan_tracking_match]==tibetan_tracking_option[tibetan_tracking_match])++tibetan_tracking_match;
-    if(!tibetan_tracking_option[tibetan_tracking_match]&&p[tibetan_tracking_match]==' '){devanagari_profiles=tibetan_profiles=devanagari_tracking=true;p+=tibetan_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t sinhala_option[]=L"--sinhala-profile";u32 sinhala_match=0;while(sinhala_option[sinhala_match]&&p[sinhala_match]==sinhala_option[sinhala_match])++sinhala_match;
-    if(!sinhala_option[sinhala_match]&&p[sinhala_match]==' '){devanagari_profiles=sinhala_profiles=true;p+=sinhala_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t sinhala_tracking_option[]=L"--sinhala-tracking-profile";u32 sinhala_tracking_match=0;while(sinhala_tracking_option[sinhala_tracking_match]&&p[sinhala_tracking_match]==sinhala_tracking_option[sinhala_tracking_match])++sinhala_tracking_match;
-    if(!sinhala_tracking_option[sinhala_tracking_match]&&p[sinhala_tracking_match]==' '){devanagari_profiles=sinhala_profiles=devanagari_tracking=true;p+=sinhala_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t malayalam_option[]=L"--malayalam-profile";u32 malayalam_match=0;while(malayalam_option[malayalam_match]&&p[malayalam_match]==malayalam_option[malayalam_match])++malayalam_match;
-    if(!malayalam_option[malayalam_match]&&p[malayalam_match]==' '){devanagari_profiles=malayalam_profiles=true;p+=malayalam_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t malayalam_tracking_option[]=L"--malayalam-tracking-profile";u32 malayalam_tracking_match=0;while(malayalam_tracking_option[malayalam_tracking_match]&&p[malayalam_tracking_match]==malayalam_tracking_option[malayalam_tracking_match])++malayalam_tracking_match;
-    if(!malayalam_tracking_option[malayalam_tracking_match]&&p[malayalam_tracking_match]==' '){devanagari_profiles=malayalam_profiles=devanagari_tracking=true;p+=malayalam_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t odia_option[]=L"--odia-profile";u32 odia_match=0;while(odia_option[odia_match]&&p[odia_match]==odia_option[odia_match])++odia_match;
-    if(!odia_option[odia_match]&&p[odia_match]==' '){devanagari_profiles=odia_profiles=true;p+=odia_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t odia_tracking_option[]=L"--odia-tracking-profile";u32 odia_tracking_match=0;while(odia_tracking_option[odia_tracking_match]&&p[odia_tracking_match]==odia_tracking_option[odia_tracking_match])++odia_tracking_match;
-    if(!odia_tracking_option[odia_tracking_match]&&p[odia_tracking_match]==' '){devanagari_profiles=odia_profiles=devanagari_tracking=true;p+=odia_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t gurmukhi_option[]=L"--gurmukhi-profile";u32 gurmukhi_match=0;while(gurmukhi_option[gurmukhi_match]&&p[gurmukhi_match]==gurmukhi_option[gurmukhi_match])++gurmukhi_match;
-    if(!gurmukhi_option[gurmukhi_match]&&p[gurmukhi_match]==' '){devanagari_profiles=gurmukhi_profiles=true;p+=gurmukhi_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t gurmukhi_tracking_option[]=L"--gurmukhi-tracking-profile";u32 gurmukhi_tracking_match=0;while(gurmukhi_tracking_option[gurmukhi_tracking_match]&&p[gurmukhi_tracking_match]==gurmukhi_tracking_option[gurmukhi_tracking_match])++gurmukhi_tracking_match;
-    if(!gurmukhi_tracking_option[gurmukhi_tracking_match]&&p[gurmukhi_tracking_match]==' '){devanagari_profiles=gurmukhi_profiles=devanagari_tracking=true;p+=gurmukhi_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t gujarati_option[]=L"--gujarati-profile";u32 gujarati_match=0;while(gujarati_option[gujarati_match]&&p[gujarati_match]==gujarati_option[gujarati_match])++gujarati_match;
-    if(!gujarati_option[gujarati_match]&&p[gujarati_match]==' '){devanagari_profiles=gujarati_profiles=true;p+=gujarati_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t gujarati_tracking_option[]=L"--gujarati-tracking-profile";u32 gujarati_tracking_match=0;while(gujarati_tracking_option[gujarati_tracking_match]&&p[gujarati_tracking_match]==gujarati_tracking_option[gujarati_tracking_match])++gujarati_tracking_match;
-    if(!gujarati_tracking_option[gujarati_tracking_match]&&p[gujarati_tracking_match]==' '){devanagari_profiles=gujarati_profiles=devanagari_tracking=true;p+=gujarati_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t bengali_option[]=L"--bengali-profile";u32 bengali_match=0;while(bengali_option[bengali_match]&&p[bengali_match]==bengali_option[bengali_match])++bengali_match;
-    if(!bengali_option[bengali_match]&&p[bengali_match]==' '){devanagari_profiles=bengali_profiles=true;p+=bengali_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t bengali_tracking_option[]=L"--bengali-tracking-profile";u32 bengali_tracking_match=0;while(bengali_tracking_option[bengali_tracking_match]&&p[bengali_tracking_match]==bengali_tracking_option[bengali_tracking_match])++bengali_tracking_match;
-    if(!bengali_tracking_option[bengali_tracking_match]&&p[bengali_tracking_match]==' '){devanagari_profiles=bengali_profiles=devanagari_tracking=true;p+=bengali_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tamil_tracking_shape_option[]=L"--tamil-tracking-shape-profile";u32 tamil_tracking_shape_match=0;while(tamil_tracking_shape_option[tamil_tracking_shape_match]&&p[tamil_tracking_shape_match]==tamil_tracking_shape_option[tamil_tracking_shape_match])++tamil_tracking_shape_match;
-    if(!tamil_tracking_shape_option[tamil_tracking_shape_match]&&p[tamil_tracking_shape_match]==' '){devanagari_profiles=tamil_profiles=devanagari_tracking=tamil_shape_only=true;p+=tamil_tracking_shape_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tamil_tracking_option[]=L"--tamil-tracking-profile";u32 tamil_tracking_match=0;while(tamil_tracking_option[tamil_tracking_match]&&p[tamil_tracking_match]==tamil_tracking_option[tamil_tracking_match])++tamil_tracking_match;
-    if(!tamil_tracking_option[tamil_tracking_match]&&p[tamil_tracking_match]==' '){devanagari_profiles=tamil_profiles=devanagari_tracking=true;p+=tamil_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tamil_option[]=L"--tamil-profile";u32 tamil_match=0;while(tamil_option[tamil_match]&&p[tamil_match]==tamil_option[tamil_match])++tamil_match;
-    if(!tamil_option[tamil_match]&&p[tamil_match]==' '){devanagari_profiles=tamil_profiles=true;p+=tamil_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t deva_option[]=L"--devanagari-profile";u32 deva_match=0;while(deva_option[deva_match]&&p[deva_match]==deva_option[deva_match])++deva_match;
-    if(deva_match==sizeof(deva_option)/sizeof(wchar_t)-1&&p[deva_match]==' '){devanagari_profiles=true;p+=deva_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t deva_tracking_option[]=L"--devanagari-tracking-profile";u32 deva_tracking_match=0;while(deva_tracking_option[deva_tracking_match]&&p[deva_tracking_match]==deva_tracking_option[deva_tracking_match])++deva_tracking_match;
-    if(deva_tracking_match==sizeof(deva_tracking_option)/sizeof(wchar_t)-1&&p[deva_tracking_match]==' '){devanagari_profiles=devanagari_tracking=true;p+=deva_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t deva_direction_option[]=L"--devanagari-direction-profile";u32 deva_direction_match=0;while(deva_direction_option[deva_direction_match]&&p[deva_direction_match]==deva_direction_option[deva_direction_match])++deva_direction_match;
-    if(deva_direction_match==sizeof(deva_direction_option)/sizeof(wchar_t)-1&&p[deva_direction_match]==' '){devanagari_profiles=devanagari_directional=true;p+=deva_direction_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t direction_tracking_option[]=L"--direction-tracking-profile";u32 direction_tracking_match=0;while(direction_tracking_option[direction_tracking_match]&&p[direction_tracking_match]==direction_tracking_option[direction_tracking_match])++direction_tracking_match;
-    if(direction_tracking_match==sizeof(direction_tracking_option)/sizeof(wchar_t)-1&&p[direction_tracking_match]==' '){devanagari_profiles=devanagari_directional=devanagari_tracking=true;p+=direction_tracking_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t arabic_context_option[]=L"--arabic-context-profile";u32 arabic_context_match=0;while(arabic_context_option[arabic_context_match]&&p[arabic_context_match]==arabic_context_option[arabic_context_match])++arabic_context_match;
-    if(arabic_context_match==sizeof(arabic_context_option)/sizeof(wchar_t)-1&&p[arabic_context_match]==' '){arabic_context_profiles=devanagari_profiles=devanagari_directional=devanagari_tracking=true;p+=arabic_context_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t quick_option[]=L"--quick";u32 quick_match=0;while(quick_option[quick_match]&&p[quick_match]==quick_option[quick_match])++quick_match;
-    if(quick_match==7&&p[7]==' '){multiline_quick=true;p+=7;while(*p==' '||*p=='\t')++p;
-        const wchar_t* prefixes[]{L"--multiline-",L"--bidi-emoji-profile",L"--mixed-emoji"};bool supported=false;
-        for(u32 i=0;i<3;++i){u32 matched=0;while(prefixes[i][matched]&&p[matched]==prefixes[i][matched])++matched;
-            supported|=!prefixes[i][matched]&&(!i||!p[matched]||p[matched]==' ');}CHECK(supported);
+    if(const wchar_t* rest=after_option(p,L"--matrix-batch"))return matrix_batch(rest);
+    if(const wchar_t* rest=after_option(p,L"--matrix-profile"))return matrix_batch(rest,true);
+    if(is_option(p,L"--alphabetic-paragraph"))return native_alphabetic_paragraph_corpus();
+    if(is_option(p,L"--han-paragraph"))return native_han_paragraph_corpus();
+    if(is_option(p,L"--thai-context-check"))return native_thai_context_cases();
+    if(is_option(p,L"--devanagari-bench"))return native_devanagari_memory_benchmark();
+    if(is_option(p,L"--devanagari-memory-check"))return native_devanagari_memory_benchmark(true);
+    if(const u32 n=option_length(p,L"--retained-editor-check");n&&p[n]==' '&&p[n+1]>=L'0'&&p[n+1]<=L'5'&&!p[n+2])return retained_editor_capacity(p[n+1]-L'0');
+    if(is_option(p,L"--long-editor-check"))return native_long_text_cases(true);
+    if(is_option(p,L"--long-text-check"))return native_long_text_cases();
+    if(is_option(p,L"--font-replay-check"))return native_font_range_replay_cases();
+    profile(p,L"--hangul-profile",hangul_profiles);
+    profile(p,L"--thai-shape-profile",thai_profiles,thai_shape_only);
+    profile(p,L"--thai-profile",thai_profiles);
+    profile(p,L"--extended-standard-profile",standard_script_profiles,extended_standard_profiles);
+    profile(p,L"--standard-script-profile",standard_script_profiles);
+    profile(p,L"--tamil-direction-shape-profile",devanagari_profiles,tamil_profiles,devanagari_directional,devanagari_tracking,tamil_shape_only);
+    profile(p,L"--tamil-direction-profile",devanagari_profiles,tamil_profiles,devanagari_directional,devanagari_tracking);
+    profile(p,L"--telugu-profile",devanagari_profiles,telugu_profiles);
+    profile(p,L"--telugu-tracking-profile",devanagari_profiles,telugu_profiles,devanagari_tracking);
+    profile(p,L"--kannada-profile",devanagari_profiles,kannada_profiles);
+    profile(p,L"--kannada-tracking-profile",devanagari_profiles,kannada_profiles,devanagari_tracking);
+    profile(p,L"--khmer-profile",devanagari_profiles,khmer_profiles);
+    profile(p,L"--khmer-tracking-profile",devanagari_profiles,khmer_profiles,devanagari_tracking);
+    profile(p,L"--myanmar-profile",devanagari_profiles,myanmar_profiles);
+    profile(p,L"--myanmar-tracking-profile",devanagari_profiles,myanmar_profiles,devanagari_tracking);
+    profile(p,L"--tibetan-profile",devanagari_profiles,tibetan_profiles);
+    profile(p,L"--tibetan-tracking-profile",devanagari_profiles,tibetan_profiles,devanagari_tracking);
+    profile(p,L"--sinhala-profile",devanagari_profiles,sinhala_profiles);
+    profile(p,L"--sinhala-tracking-profile",devanagari_profiles,sinhala_profiles,devanagari_tracking);
+    profile(p,L"--malayalam-profile",devanagari_profiles,malayalam_profiles);
+    profile(p,L"--malayalam-tracking-profile",devanagari_profiles,malayalam_profiles,devanagari_tracking);
+    profile(p,L"--odia-profile",devanagari_profiles,odia_profiles);
+    profile(p,L"--odia-tracking-profile",devanagari_profiles,odia_profiles,devanagari_tracking);
+    profile(p,L"--gurmukhi-profile",devanagari_profiles,gurmukhi_profiles);
+    profile(p,L"--gurmukhi-tracking-profile",devanagari_profiles,gurmukhi_profiles,devanagari_tracking);
+    profile(p,L"--gujarati-profile",devanagari_profiles,gujarati_profiles);
+    profile(p,L"--gujarati-tracking-profile",devanagari_profiles,gujarati_profiles,devanagari_tracking);
+    profile(p,L"--bengali-profile",devanagari_profiles,bengali_profiles);
+    profile(p,L"--bengali-tracking-profile",devanagari_profiles,bengali_profiles,devanagari_tracking);
+    profile(p,L"--tamil-tracking-shape-profile",devanagari_profiles,tamil_profiles,devanagari_tracking,tamil_shape_only);
+    profile(p,L"--tamil-tracking-profile",devanagari_profiles,tamil_profiles,devanagari_tracking);
+    profile(p,L"--tamil-profile",devanagari_profiles,tamil_profiles);
+    profile(p,L"--devanagari-profile",devanagari_profiles);
+    profile(p,L"--devanagari-tracking-profile",devanagari_profiles,devanagari_tracking);
+    profile(p,L"--devanagari-direction-profile",devanagari_profiles,devanagari_directional);
+    profile(p,L"--direction-tracking-profile",devanagari_profiles,devanagari_directional,devanagari_tracking);
+    profile(p,L"--arabic-context-profile",arabic_context_profiles,devanagari_profiles,devanagari_directional,devanagari_tracking);
+    if(take(p,L"--quick")){multiline_quick=true;
+        CHECK(option_length(p,L"--multiline-")||(option_length(p,L"--bidi-emoji-profile")&&(!p[20]||p[20]==' '))||(option_length(p,L"--mixed-emoji")&&(!p[13]||p[13]==' ')));
         print("quick sampled coverage; exhaustive combinations remain available without --quick\n");}
-    static const wchar_t editor_policy_option[]=L"--editor-policy-probe";u32 editor_match=0;while(editor_policy_option[editor_match]&&p[editor_match]==editor_policy_option[editor_match])++editor_match;
-    static const wchar_t mixed_gates_option[]=L"--mixed-bidi-gates";u32 mixed_gates_match=0;while(mixed_gates_option[mixed_gates_match]&&p[mixed_gates_match]==mixed_gates_option[mixed_gates_match])++mixed_gates_match;
-    static const wchar_t bidi_range_check[]=L"--bidi-range-check";u32 bidi_range_match=0;while(bidi_range_check[bidi_range_match]&&p[bidi_range_match]==bidi_range_check[bidi_range_match])++bidi_range_match;
-    if(bidi_range_match+1==sizeof(bidi_range_check)/sizeof(wchar_t)&&!p[bidi_range_match])return native_bidi_style_range_probe(true);
-    if(mixed_gates_match+1==sizeof(mixed_gates_option)/sizeof(wchar_t)&&!p[mixed_gates_match])return native_mixed_bidi_gates();
-    if(editor_match==21&&!p[21])return native_editor_policy_probe();
-    static const wchar_t simulated_option[]=L"--simulated-styles";u32 simulated_match=0;while(simulated_option[simulated_match]&&p[simulated_match]==simulated_option[simulated_match])++simulated_match;
-    if(simulated_match==18&&!p[18])return native_simulated_style_corpus();
-    static const wchar_t simulation_profile[]=L"--simulated-profile";simulated_match=0;while(simulation_profile[simulated_match]&&p[simulated_match]==simulation_profile[simulated_match])++simulated_match;
-    if(simulated_match==19&&p[19]==' '){simulated_profiles=true;p+=19;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t system_profile[]=L"--system-fallback-profile";u32 system_match=0;while(system_profile[system_match]&&p[system_match]==system_profile[system_match])++system_match;
-    static const wchar_t hebrew_profile[]=L"--hebrew-profile";u32 hebrew_match=0;while(hebrew_profile[hebrew_match]&&p[hebrew_match]==hebrew_profile[hebrew_match])++hebrew_match;
-    static const wchar_t mixed_bidi_profile[]=L"--mixed-bidi-profile";u32 mixed_bidi_match=0;while(mixed_bidi_profile[mixed_bidi_match]&&p[mixed_bidi_match]==mixed_bidi_profile[mixed_bidi_match])++mixed_bidi_match;
-    static const wchar_t symbol_option[]=L"--symbols-profile";u32 symbol_match=0;while(symbol_option[symbol_match]&&p[symbol_match]==symbol_option[symbol_match])++symbol_match;
-    if(symbol_match+1==sizeof(symbol_option)/sizeof(wchar_t)&&p[symbol_match]==' '){bidi_styles_profiles=symbol_profiles=true;p+=symbol_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t bidi_emoji_option[]=L"--bidi-emoji-profile";u32 bidi_emoji_match=0;while(bidi_emoji_option[bidi_emoji_match]&&p[bidi_emoji_match]==bidi_emoji_option[bidi_emoji_match])++bidi_emoji_match;
-    if(bidi_emoji_match+1==sizeof(bidi_emoji_option)/sizeof(wchar_t)&&p[bidi_emoji_match]==' '){bidi_styles_profiles=bidi_emoji_profiles=true;p+=bidi_emoji_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t bidi_styles_option[]=L"--bidi-styles-profile";u32 bidi_styles_match=0;while(bidi_styles_option[bidi_styles_match]&&p[bidi_styles_match]==bidi_styles_option[bidi_styles_match])++bidi_styles_match;
-    if(bidi_styles_match+1==sizeof(bidi_styles_option)/sizeof(wchar_t)&&p[bidi_styles_match]==' '){bidi_styles_profiles=true;p+=bidi_styles_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t mixed_bidi_wrap_option[]=L"--mixed-bidi-wrap-profile";u32 mixed_bidi_wrap_match=0;while(mixed_bidi_wrap_option[mixed_bidi_wrap_match]&&p[mixed_bidi_wrap_match]==mixed_bidi_wrap_option[mixed_bidi_wrap_match])++mixed_bidi_wrap_match;
-    if(mixed_bidi_wrap_match+1==sizeof(mixed_bidi_wrap_option)/sizeof(wchar_t)&&p[mixed_bidi_wrap_match]==' '){mixed_bidi_profiles=mixed_bidi_wrap=true;p+=mixed_bidi_wrap_match;while(*p==' '||*p=='\t')++p;}
-    if(mixed_bidi_match+1==sizeof(mixed_bidi_profile)/sizeof(wchar_t)&&p[mixed_bidi_match]==' '){mixed_bidi_profiles=true;p+=mixed_bidi_match;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t hebrew_wrap_profile[]=L"--hebrew-wrap-profile";u32 hebrew_wrap_match=0;while(hebrew_wrap_profile[hebrew_wrap_match]&&p[hebrew_wrap_match]==hebrew_wrap_profile[hebrew_wrap_match])++hebrew_wrap_match;
-    if(hebrew_wrap_match+1==sizeof(hebrew_wrap_profile)/sizeof(wchar_t)&&p[hebrew_wrap_match]==' '){hebrew_profiles=hebrew_wrap_profiles=true;p+=hebrew_wrap_match;while(*p==' '||*p=='\t')++p;}
-    if(hebrew_match+1==sizeof(hebrew_profile)/sizeof(wchar_t)&&p[hebrew_match]==' '){hebrew_profiles=true;p+=hebrew_match;while(*p==' '||*p=='\t')++p;}
-    if(system_match==25&&p[25]==' '){system_fallback_profiles=true;p+=25;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t fallback_option[]=L"--fallback-bindings";u32 fallback_match=0;while(fallback_option[fallback_match]&&p[fallback_match]==fallback_option[fallback_match])++fallback_match;
-    if(fallback_match==19&&!p[19])return native_fallback_binding_corpus();
-    static const wchar_t alphabetic_option[]=L"--alphabetic-profile";u32 alphabetic_match=0;while(alphabetic_option[alphabetic_match]&&p[alphabetic_match]==alphabetic_option[alphabetic_match])++alphabetic_match;
-    if(alphabetic_match==20&&p[20]==' '){alphabetic_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t mixed_option[]=L"--mixed-emoji";u32 mixed_match=0;while(mixed_option[mixed_match]&&p[mixed_match]==mixed_option[mixed_match])++mixed_match;
-    if(mixed_match==13&&(!p[13]||p[13]==' ')){p+=13;while(*p==' '||*p=='\t')++p;return *p?native_emoji_dispatch_corpus(p,true):native_mixed_emoji_corpus();}
-    static const wchar_t emoji_option[]=L"--emoji-dispatch";u32 emoji_match=0;while(emoji_option[emoji_match]&&p[emoji_match]==emoji_option[emoji_match])++emoji_match;
-    if(emoji_match==16&&(!p[16]||p[16]==' ')){p+=16;while(*p==' '||*p=='\t')++p;return native_emoji_dispatch_corpus(p);}
-    static const wchar_t tracking_option[]=L"--tracking-profile";u32 tracking_match=0;while(tracking_option[tracking_match]&&p[tracking_match]==tracking_option[tracking_match])++tracking_match;
-    if(tracking_match==18&&p[18]==' '){tracking_profiles=true;p+=18;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t native_formats[]=L"--native-formats";u32 format_option=0;while(native_formats[format_option]&&p[format_option]==native_formats[format_option])++format_option;if(format_option==16&&!p[16])return native_format_corpus();
-    static const wchar_t cluster_cases[]=L"--style-clusters";u32 matched_hits=0;while(cluster_cases[matched_hits]&&p[matched_hits]==cluster_cases[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return inspect_style_clusters();
-    static const wchar_t cluster_profile[]=L"--style-cluster-profile";matched_hits=0;while(cluster_profile[matched_hits]&&p[matched_hits]==cluster_profile[matched_hits])++matched_hits;if(matched_hits==23&&p[23]==' '){style_cluster_profiles=true;p+=23;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t continuity_profile[]=L"--continuity-profile";matched_hits=0;while(continuity_profile[matched_hits]&&p[matched_hits]==continuity_profile[matched_hits])++matched_hits;if(matched_hits==20&&p[20]==' '){style_continuity_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t hit_tests[]=L"--paragraph-hits";matched_hits=0;while(hit_tests[matched_hits]&&p[matched_hits]==hit_tests[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return paragraph_hits();
-    if (lstrcmpW(p,L"--tsf-points")==0) return tsf_point_geometry();
-    if (lstrcmpW(p,L"--historic")==0) return historic_cases();
-    static const wchar_t edit_tests[]=L"--edit-hits";matched_hits=0;while(edit_tests[matched_hits]&&p[matched_hits]==edit_tests[matched_hits])++matched_hits;if(matched_hits==11&&!p[11])return edit_hits();
-    static const wchar_t directional_edit_cuts_option[]=L"--directional-edit-cuts";matched_hits=0;while(directional_edit_cuts_option[matched_hits]&&p[matched_hits]==directional_edit_cuts_option[matched_hits])++matched_hits;if(matched_hits==sizeof(directional_edit_cuts_option)/sizeof(wchar_t)-1&&!p[matched_hits])return directional_edit_cuts();
-    static const wchar_t directional_edit_option[]=L"--directional-edit";matched_hits=0;while(directional_edit_option[matched_hits]&&p[matched_hits]==directional_edit_option[matched_hits])++matched_hits;if(matched_hits==sizeof(directional_edit_option)/sizeof(wchar_t)-1&&!p[matched_hits])return directional_edit();
-    static const wchar_t styled_edit_option[]=L"--styled-edit";matched_hits=0;while(styled_edit_option[matched_hits]&&p[matched_hits]==styled_edit_option[matched_hits])++matched_hits;if(matched_hits==13&&!p[13])return styled_edit();
-    static const wchar_t inspect[]=L"--inspect";u32 inspected=0;while(inspect[inspected]&&p[inspected]==inspect[inspected])++inspected;if(inspected==9&&!p[9])return inspect_paragraphs();
-    static const wchar_t paragraphs[]=L"--paragraphs";inspected=0;while(paragraphs[inspected]&&p[inspected]==paragraphs[inspected])++inspected;if(inspected==12&&!p[12])return inspect_paragraphs(true);
-    static const wchar_t fuzz[]=L"--paragraph-fuzz";inspected=0;while(fuzz[inspected]&&p[inspected]==fuzz[inspected])++inspected;if(inspected==16&&!p[16])return paragraph_fuzz();
-    static const wchar_t options[]=L"--paragraph-options";inspected=0;while(options[inspected]&&p[inspected]==options[inspected])++inspected;if(inspected==19&&!p[19])return paragraph_options();
-    static const wchar_t break_option[]=L"--break-tests";inspected=0;while(break_option[inspected]&&p[inspected]==break_option[inspected])++inspected;if(inspected==13&&!p[13])return break_tests();
-    static const wchar_t hit_profile[]=L"--hit-profile";inspected=0;while(hit_profile[inspected]&&p[inspected]==hit_profile[inspected])++inspected;if(inspected==13&&p[13]==' '){hit_profiles=true;p+=13;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_profile[]=L"--latin-profile";inspected=0;while(latin_profile[inspected]&&p[inspected]==latin_profile[inspected])++inspected;if(inspected==15&&p[15]==' '){latin_profiles=true;p+=15;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_paragraph_option[]=L"--latin-paragraph";inspected=0;while(latin_paragraph_option[inspected]&&p[inspected]==latin_paragraph_option[inspected])++inspected;if(inspected==17&&p[17]==' '){latin_paragraph_profiles=true;p+=17;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_hits_option[]=L"--latin-hits";inspected=0;while(latin_hits_option[inspected]&&p[inspected]==latin_hits_option[inspected])++inspected;if(inspected==12&&p[12]==' '){latin_paragraph_hits=true;p+=12;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_fuzz_option[]=L"--latin-paragraph-fuzz";inspected=0;while(latin_fuzz_option[inspected]&&p[inspected]==latin_fuzz_option[inspected])++inspected;if(inspected==22&&!p[22])return latin_paragraph_fuzz();
-    static const wchar_t directional_semantic_option[]=L"--directional-semantic-profile";inspected=0;while(directional_semantic_option[inspected]&&p[inspected]==directional_semantic_option[inspected])++inspected;
-    if(inspected+1==sizeof(directional_semantic_option)/sizeof(wchar_t)&&p[inspected]==' '){directional_semantic_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t large_range_option[]=L"--directional-large-profile";inspected=0;while(large_range_option[inspected]&&p[inspected]==large_range_option[inspected])++inspected;if(inspected==sizeof(large_range_option)/sizeof(wchar_t)-1&&p[inspected]==' '){directional_large_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t directional_editor_cuts_option[]=L"--directional-editor-cuts-profile";inspected=0;while(directional_editor_cuts_option[inspected]&&p[inspected]==directional_editor_cuts_option[inspected])++inspected;if(inspected==sizeof(directional_editor_cuts_option)/sizeof(wchar_t)-1&&p[inspected]==' '){directional_editor_cuts_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t multiline_hit_option[]=L"--multiline-hit-profile";inspected=0;while(multiline_hit_option[inspected]&&p[inspected]==multiline_hit_option[inspected])++inspected;if(inspected==sizeof(multiline_hit_option)/sizeof(wchar_t)-1&&p[inspected]==' '){multiline_trim_profiles=multiline_hit_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t multiline_plan_option[]=L"--multiline-plan-profile";inspected=0;while(multiline_plan_option[inspected]&&p[inspected]==multiline_plan_option[inspected])++inspected;if(inspected==sizeof(multiline_plan_option)/sizeof(wchar_t)-1&&p[inspected]==' '){multiline_trim_profiles=multiline_plan_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t multiline_trim_option[]=L"--multiline-trim-profile";inspected=0;while(multiline_trim_option[inspected]&&p[inspected]==multiline_trim_option[inspected])++inspected;if(inspected==sizeof(multiline_trim_option)/sizeof(wchar_t)-1&&p[inspected]==' '){multiline_trim_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t ellipsis_line_option[]=L"--ellipsis-line-profile";inspected=0;while(ellipsis_line_option[inspected]&&p[inspected]==ellipsis_line_option[inspected])++inspected;if(inspected==sizeof(ellipsis_line_option)/sizeof(wchar_t)-1&&p[inspected]==' '){ellipsis_line_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t ellipsis_style_option[]=L"--ellipsis-style-profile";inspected=0;while(ellipsis_style_option[inspected]&&p[inspected]==ellipsis_style_option[inspected])++inspected;if(inspected==sizeof(ellipsis_style_option)/sizeof(wchar_t)-1&&p[inspected]==' '){ellipsis_style_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t ellipsis_hit_option[]=L"--ellipsis-hit-profile";inspected=0;while(ellipsis_hit_option[inspected]&&p[inspected]==ellipsis_hit_option[inspected])++inspected;if(inspected==sizeof(ellipsis_hit_option)/sizeof(wchar_t)-1&&p[inspected]==' '){ellipsis_hit_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t ellipsis_cut_option[]=L"--ellipsis-cut-profile";inspected=0;while(ellipsis_cut_option[inspected]&&p[inspected]==ellipsis_cut_option[inspected])++inspected;if(inspected==sizeof(ellipsis_cut_option)/sizeof(wchar_t)-1&&p[inspected]==' '){ellipsis_cut_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t common_punctuation_option[]=L"--common-punctuation-profile";inspected=0;while(common_punctuation_option[inspected]&&p[inspected]==common_punctuation_option[inspected])++inspected;if(inspected==sizeof(common_punctuation_option)/sizeof(wchar_t)-1&&p[inspected]==' '){common_punctuation_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t ellipsis_sign_option[]=L"--ellipsis-sign-profile";inspected=0;while(ellipsis_sign_option[inspected]&&p[inspected]==ellipsis_sign_option[inspected])++inspected;if(inspected==sizeof(ellipsis_sign_option)/sizeof(wchar_t)-1&&p[inspected]==' '){ellipsis_sign_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t height_overflow_option[]=L"--height-overflow-profile";inspected=0;while(height_overflow_option[inspected]&&p[inspected]==height_overflow_option[inspected])++inspected;if(inspected==sizeof(height_overflow_option)/sizeof(wchar_t)-1&&p[inspected]==' '){height_overflow_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t cjk_paragraph_option[]=L"--cjk-paragraph-profile";inspected=0;while(cjk_paragraph_option[inspected]&&p[inspected]==cjk_paragraph_option[inspected])++inspected;if(inspected==sizeof(cjk_paragraph_option)/sizeof(wchar_t)-1&&p[inspected]==' '){cjk_paragraph_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t cjk_editor_option[]=L"--cjk-editor-profile";inspected=0;while(cjk_editor_option[inspected]&&p[inspected]==cjk_editor_option[inspected])++inspected;if(inspected==sizeof(cjk_editor_option)/sizeof(wchar_t)-1&&p[inspected]==' '){cjk_editor_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t cjk_editor_paint_option[]=L"--cjk-editor-paint-profile";inspected=0;while(cjk_editor_paint_option[inspected]&&p[inspected]==cjk_editor_paint_option[inspected])++inspected;if(inspected==sizeof(cjk_editor_paint_option)/sizeof(wchar_t)-1&&p[inspected]==' '){cjk_editor_paint_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t arabic_editor_option[]=L"--arabic-editor-profile";inspected=0;while(arabic_editor_option[inspected]&&p[inspected]==arabic_editor_option[inspected])++inspected;if(inspected==sizeof(arabic_editor_option)/sizeof(wchar_t)-1&&p[inspected]==' '){arabic_editor_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t arabic_paragraph_option[]=L"--arabic-paragraph-profile";inspected=0;while(arabic_paragraph_option[inspected]&&p[inspected]==arabic_paragraph_option[inspected])++inspected;if(inspected==sizeof(arabic_paragraph_option)/sizeof(wchar_t)-1&&p[inspected]==' '){arabic_paragraph_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t directional_editor_option[]=L"--directional-editor-profile";inspected=0;while(directional_editor_option[inspected]&&p[inspected]==directional_editor_option[inspected])++inspected;if(inspected==sizeof(directional_editor_option)/sizeof(wchar_t)-1&&p[inspected]==' '){directional_editor_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t semantic_option[]=L"--semantic-profile";inspected=0;while(semantic_option[inspected]&&p[inspected]==semantic_option[inspected])++inspected;if(inspected==18&&p[18]==' '){semantic_profiles=true;p+=18;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t styled_hit_option[]=L"--styled-hit-profile";inspected=0;while(styled_hit_option[inspected]&&p[inspected]==styled_hit_option[inspected])++inspected;if(inspected==20&&p[20]==' '){styled_hit_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t semantic_options_option[]=L"--semantic-options";inspected=0;while(semantic_options_option[inspected]&&p[inspected]==semantic_options_option[inspected])++inspected;if(inspected==18&&!p[18])return semantic_options();
-    static const wchar_t style_option[]=L"--style-profile";inspected=0;while(style_option[inspected]&&p[inspected]==style_option[inspected])++inspected;if(inspected==15&&p[15]==' '){style_profiles=true;p+=15;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t decoration_option[]=L"--decoration-profile";inspected=0;while(decoration_option[inspected]&&p[inspected]==decoration_option[inspected])++inspected;if(inspected==20&&p[20]==' '){decoration_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t decoration_options_option[]=L"--decoration-options";inspected=0;while(decoration_options_option[inspected]&&p[inspected]==decoration_options_option[inspected])++inspected;if(inspected==20&&!p[20])return decoration_options();
-    static const wchar_t smoke_option[]=L"--smoke ";inspected=0;while(smoke_option[inspected]&&p[inspected]==smoke_option[inspected])++inspected;if(!smoke_option[inspected]){benchmark_smoke=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t telugu_bench_option[]=L"--telugu-bench";inspected=0;while(telugu_bench_option[inspected]&&p[inspected]==telugu_bench_option[inspected])++inspected;if(!telugu_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(true,false,false);
-    static const wchar_t arabic_bench_option[]=L"--arabic-bench";inspected=0;while(arabic_bench_option[inspected]&&p[inspected]==arabic_bench_option[inspected])++inspected;if(!arabic_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,false,true);
-    static const wchar_t kannada_bench_option[]=L"--kannada-bench";inspected=0;while(kannada_bench_option[inspected]&&p[inspected]==kannada_bench_option[inspected])++inspected;if(!kannada_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,true,false);
-    static const wchar_t odia_bench_option[]=L"--odia-bench";inspected=0;while(odia_bench_option[inspected]&&p[inspected]==odia_bench_option[inspected])++inspected;if(inspected==12&&!p[12])return styled_paragraph_benchmark(false,false,false);
-    static const wchar_t profile[]=L"--paragraph-profile";inspected=0;while(profile[inspected]&&p[inspected]==profile[inspected])++inspected;if(inspected==19&&(p[19]==0||p[19]==' ')){paragraph_profiles=true;p+=19;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t expansion[]=L"--paragraph-expansion";inspected=0;while(expansion[inspected]&&p[inspected]==expansion[inspected])++inspected;if(inspected==21&&p[21]==' '){paragraph_expansion=true;p+=21;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t family_option[]=L"--family";u32 matched=0;while(family_option[matched]&&p[matched]==family_option[matched])++matched;
-    const bool system_family=matched==8&&(p[8]==0||p[8]==' '||p[8]=='\t');if(system_family){p+=8;while(*p==' '||*p=='\t')++p;}
+    if(is_option(p,L"--bidi-range-check"))return native_bidi_style_range_probe(true);
+    if(is_option(p,L"--mixed-bidi-gates"))return native_mixed_bidi_gates();
+    if(is_option(p,L"--editor-policy-probe"))return native_editor_policy_probe();
+    if(is_option(p,L"--simulated-styles"))return native_simulated_style_corpus();
+    profile(p,L"--simulated-profile",simulated_profiles);
+    profile(p,L"--symbols-profile",bidi_styles_profiles,symbol_profiles);
+    profile(p,L"--bidi-emoji-profile",bidi_styles_profiles,bidi_emoji_profiles);
+    profile(p,L"--bidi-styles-profile",bidi_styles_profiles);
+    profile(p,L"--mixed-bidi-wrap-profile",mixed_bidi_profiles,mixed_bidi_wrap);
+    profile(p,L"--mixed-bidi-profile",mixed_bidi_profiles);
+    profile(p,L"--hebrew-wrap-profile",hebrew_profiles,hebrew_wrap_profiles);
+    profile(p,L"--hebrew-profile",hebrew_profiles);
+    profile(p,L"--system-fallback-profile",system_fallback_profiles);
+    if(is_option(p,L"--fallback-bindings"))return native_fallback_binding_corpus();
+    profile(p,L"--alphabetic-profile",alphabetic_profiles);
+    if(take(p,L"--mixed-emoji",true))return *p?native_emoji_dispatch_corpus(p,true):native_mixed_emoji_corpus();
+    if(take(p,L"--emoji-dispatch",true))return native_emoji_dispatch_corpus(p);
+    profile(p,L"--tracking-profile",tracking_profiles);
+    if(is_option(p,L"--native-formats"))return native_format_corpus();
+    if(is_option(p,L"--style-clusters"))return inspect_style_clusters();
+    profile(p,L"--style-cluster-profile",style_cluster_profiles);
+    profile(p,L"--continuity-profile",style_continuity_profiles);
+    if(is_option(p,L"--paragraph-hits"))return paragraph_hits();
+    if(is_option(p,L"--tsf-points"))return tsf_point_geometry();
+    if(is_option(p,L"--historic"))return historic_cases();
+    if(is_option(p,L"--edit-hits"))return edit_hits();
+    if(is_option(p,L"--directional-edit-cuts"))return directional_edit_cuts();
+    if(is_option(p,L"--directional-edit"))return directional_edit();
+    if(is_option(p,L"--styled-edit"))return styled_edit();
+    if(is_option(p,L"--inspect"))return inspect_paragraphs();
+    if(is_option(p,L"--paragraphs"))return inspect_paragraphs(true);
+    if(is_option(p,L"--paragraph-fuzz"))return paragraph_fuzz();
+    if(is_option(p,L"--paragraph-options"))return paragraph_options();
+    if(is_option(p,L"--break-tests"))return break_tests();
+    profile(p,L"--hit-profile",hit_profiles);
+    profile(p,L"--latin-profile",latin_profiles);
+    profile(p,L"--latin-paragraph",latin_paragraph_profiles);
+    profile(p,L"--latin-hits",latin_paragraph_hits);
+    if(is_option(p,L"--latin-paragraph-fuzz"))return latin_paragraph_fuzz();
+    profile(p,L"--directional-semantic-profile",directional_semantic_profiles);
+    profile(p,L"--directional-large-profile",directional_large_profiles);
+    profile(p,L"--directional-editor-cuts-profile",directional_editor_cuts_profiles);
+    profile(p,L"--multiline-hit-profile",multiline_trim_profiles,multiline_hit_profiles);
+    profile(p,L"--multiline-plan-profile",multiline_trim_profiles,multiline_plan_profiles);
+    profile(p,L"--multiline-trim-profile",multiline_trim_profiles);
+    profile(p,L"--ellipsis-line-profile",ellipsis_line_profiles);
+    profile(p,L"--ellipsis-style-profile",ellipsis_style_profiles);
+    profile(p,L"--ellipsis-hit-profile",ellipsis_hit_profiles);
+    profile(p,L"--ellipsis-cut-profile",ellipsis_cut_profiles);
+    profile(p,L"--common-punctuation-profile",common_punctuation_profiles);
+    profile(p,L"--ellipsis-sign-profile",ellipsis_sign_profiles);
+    profile(p,L"--height-overflow-profile",height_overflow_profiles);
+    profile(p,L"--cjk-paragraph-profile",cjk_paragraph_profiles);
+    profile(p,L"--cjk-editor-profile",cjk_editor_profiles);
+    profile(p,L"--cjk-editor-paint-profile",cjk_editor_paint_profiles);
+    profile(p,L"--arabic-editor-profile",arabic_editor_profiles);
+    profile(p,L"--arabic-paragraph-profile",arabic_paragraph_profiles);
+    profile(p,L"--directional-editor-profile",directional_editor_profiles);
+    profile(p,L"--semantic-profile",semantic_profiles);
+    profile(p,L"--styled-hit-profile",styled_hit_profiles);
+    if(is_option(p,L"--semantic-options"))return semantic_options();
+    profile(p,L"--style-profile",style_profiles);
+    profile(p,L"--decoration-profile",decoration_profiles);
+    if(is_option(p,L"--decoration-options"))return decoration_options();
+    profile(p,L"--smoke",benchmark_smoke);
+    if(is_option(p,L"--telugu-bench"))return styled_paragraph_benchmark(true,false,false);
+    if(is_option(p,L"--arabic-bench"))return styled_paragraph_benchmark(false,false,true);
+    if(is_option(p,L"--kannada-bench"))return styled_paragraph_benchmark(false,true,false);
+    if(is_option(p,L"--odia-bench"))return styled_paragraph_benchmark(false,false,false);
+    if(take(p,L"--paragraph-profile",true))paragraph_profiles=true;
+    profile(p,L"--paragraph-expansion",paragraph_expansion);
+    const bool system_family=take(p,L"--family",true);
     if(*p){wchar_t path[32768];u32 n=0;quote=*p=='"';if(quote)++p;while(*p&&!(quote?*p=='"':*p==' '||*p=='\t')){CHECK(n+1<32768);path[n++]=*p++;}path[n]=0;if(quote&&*p=='"')++p;while(*p==' '||*p=='\t')++p;u32 weight=0;while(*p>='0'&&*p<='9'){CHECK(weight<10000);weight=weight*10+*p++-'0';}return system_family?corpus(nullptr,path,weight):custom(path,weight);}
     CHECK(input_validation());
     CHECK(corpus(nullptr,L"Segoe UI",400));

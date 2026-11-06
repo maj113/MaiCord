@@ -62,9 +62,10 @@ void application_channel_memory_start(u64 profile_id) noexcept {
 void application_channel_memory_stop() noexcept {
     if (!g_memory.profile_id)
         return;
+    const u64 now_ms = clock_monotonic_milliseconds();
     if (g_app.account_ui)
-        observe(g_app.account_ui->chat_state, clock_monotonic_milliseconds());
-    write(clock_monotonic_milliseconds());
+        observe(g_app.account_ui->chat_state, now_ms);
+    write(now_ms);
     reset_value(&g_memory);
 }
 

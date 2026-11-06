@@ -15,7 +15,6 @@
 #include "../../../src/app/chat/messages/history_decode.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::profile_runtime_test {

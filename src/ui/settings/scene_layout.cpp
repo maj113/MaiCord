@@ -1,8 +1,8 @@
 #include "scene_internal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/widgets/kit.hpp"
+#include "maicord/ui/widgets/icon.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -801,7 +801,7 @@ float dialog_footer_height(const UiSettingsMetrics& m) noexcept {
 }
 namespace {
 // The subtitle's text height: one or two lines at 13/18, at most 560 wide in the modal.
-float description_text_height(const UiSettingsScene& scene, const UiSettingsMetrics&) noexcept {
+float description_text_height(const UiSettingsScene& scene) noexcept {
     if (!scene.content.description.bytes || scene.content.host)
         return 0;
     const bool modal = scene.presentation == UiSettingsPresentation::modal;
@@ -841,7 +841,7 @@ Frame frame(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept {
     f.title = {l.column.left, l.column.top, l.column.right, l.column.top + (host ? 0.f : line)};
     if (dialog)
         f.title.right = maximum(f.title.left + 1, minimum(f.title.right, l.close.left - 8));
-    const float description = description_text_height(scene, m);
+    const float description = description_text_height(scene);
     const float description_gap = modal ? kSubtitleGap : 4;
     f.description = {l.column.left, f.title.bottom + (description ? description_gap : 0),
                      modal ? minimum(l.column.right, l.column.left + kSubtitleWidth) : l.column.right,
@@ -1324,7 +1324,7 @@ bool build(UiSettingsScene* scene) noexcept {
     while (end < count && row_start(*scene, end) < bottom)
         ++end;
     end = minimum(count, end + 1);
-    scene->rows_first = first, scene->rows_end = end;
+    scene->rows_first = first;
     add(scene, scene->body, UiWidgetKind::container, utf8_literal("Before"), sized(width, row_start(*scene, first)));
     for (u32 i = first; i < end; ++i) {
         const auto& c = scene->content.controls[i];

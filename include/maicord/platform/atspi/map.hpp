@@ -12,7 +12,6 @@
 namespace maicord::atspi {
 
 enum Role : u32 {
-    role_unknown = 67,
     role_check_box = 7,
     role_combo_box = 11,
     role_dialog = 16,

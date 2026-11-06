@@ -24,7 +24,6 @@ AccountInventoryResult failure(AccountInventoryError error, u32 native_error = 0
     return AccountInventoryResult{native_error, error, false};
 }
 
-
 bool label_valid(const char* bytes, u32 count) noexcept {
     for (u32 index = 0; index < count; ++index)
         if (static_cast<u8>(bytes[index]) < 0x20 || bytes[index] == 0x7f)
@@ -220,13 +219,9 @@ AccountInventoryResult account_inventory_open(const AccountPaths& root, AccountI
     if (!account_inventory_profile_user(root.profile, &user_id))
         return AccountInventoryResult{};
     // The single-profile layout becomes slot 0 in place; nothing is moved.
-    AccountInventoryEntry entry{};
-    entry.user_id = user_id;
-    entry.slot = 0;
-    entry.last_used_unix_ms = now_unix_ms;
-    copy_value(&inventory->entries[0], entry);
+    inventory->entries[0].user_id = user_id;
+    inventory->entries[0].last_used_unix_ms = now_unix_ms;
     inventory->count = 1;
-    inventory->active_slot = 0;
     AccountInventoryResult saved = account_inventory_save(path, *inventory);
     saved.migrated = true;
     return saved;

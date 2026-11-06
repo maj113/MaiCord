@@ -1,5 +1,4 @@
 #include "maicord/media/image/vp8.hpp"
-#include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"

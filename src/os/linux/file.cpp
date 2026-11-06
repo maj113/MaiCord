@@ -322,33 +322,6 @@ bool file_write(FileHandle file, const void* buffer, u32 bytes, u32* written) no
     return true;
 }
 
-bool file_write_at(FileHandle file, u64 offset, const void* buffer, u32 bytes, u32* written) noexcept {
-    *written = 0;
-    if (!valid(file)) {
-        return invalid_handle();
-    }
-    const auto* source = static_cast<const u8*>(buffer);
-    u32 total = 0;
-    while (total < bytes) {
-        const u32 chunk = minimum(bytes - total, kChunkLimit);
-        const long result = sys_pwrite(descriptor(file), source + total, chunk, offset + total);
-        if (result == -kErrorInterrupted) {
-            continue;
-        }
-        if (syscall_failed(result)) {
-            *written = total;
-            return fail(result);
-        }
-        if (result == 0) {
-            *written = total;
-            return fail_with(ERROR_WRITE_FAULT);
-        }
-        total += static_cast<u32>(result);
-    }
-    *written = total;
-    return true;
-}
-
 bool file_seek(FileHandle file, i64 offset, FileSeek origin, u64* position) noexcept {
     if (!valid(file)) {
         return invalid_handle();
@@ -375,14 +348,6 @@ bool file_size(FileHandle file, u64* bytes) noexcept {
     }
     *bytes = statx.size;
     return true;
-}
-
-bool file_set_size(FileHandle file, u64 bytes) noexcept {
-    if (!valid(file)) {
-        return invalid_handle();
-    }
-    const long result = sys_ftruncate(descriptor(file), bytes);
-    return !syscall_failed(result) || fail(result);
 }
 
 bool file_flush(FileHandle file) noexcept {
@@ -636,23 +601,6 @@ bool file_duplicate_sealed(FileHandle file, FileHandle* sealed) noexcept {
         return fail(fd);
     }
     *sealed = make_handle(static_cast<int>(fd));
-    return true;
-}
-
-bool file_final_path(FileHandle file, wchar_t* output, u32 capacity, u32* length) noexcept {
-    if (!valid(file)) {
-        return invalid_handle();
-    }
-    char text[kPathCapacity];
-    long bytes = 0;
-    if (!resolve_descriptor(file, text, &bytes)) {
-        return false;
-    }
-    const u32 units = path_from_utf8(text, output, capacity);
-    if (units == 0) {
-        return fail_with(ERROR_INSUFFICIENT_BUFFER);
-    }
-    *length = units;
     return true;
 }
 

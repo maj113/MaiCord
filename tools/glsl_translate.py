@@ -9,7 +9,8 @@ import pathlib
 import shutil
 import struct
 import subprocess
-import zlib
+
+import optimal_deflate
 
 STAGES = {'vs': 0, 'ps': 1, 'cs': 2}
 STAGE_KIND = {'vs': 'vert', 'ps': 'frag', 'cs': 'comp'}
@@ -69,21 +70,9 @@ def translate_hlsl(tools, source, entry, stage, defines, work, name, include_dir
     return text.encode('ascii'), rows
 
 
-def zlib_best(data):
-    best = None
-    for mem in (8, 9):
-        for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
-            compressor = zlib.compressobj(9, zlib.DEFLATED, 15, mem, strategy)
-            out = compressor.compress(data) + compressor.flush()
-            if best is None or len(out) < len(best):
-                best = out
-    assert zlib.decompress(best) == data
-    return best
-
-
 def payload_entry(text, stage, rows, packed=None):
     """One shader as include/maicord/gpu/glsl_shader.hpp lays it out (`stage` 'ps' or 'vs')."""
-    packed = packed if packed is not None else zlib_best(text)
+    packed = packed if packed is not None else optimal_deflate.zlib_best(text)
     if len(rows) > BINDING_MAXIMUM or len(text) > RAW_MAXIMUM or len(packed) > PACKED_MAXIMUM:
         raise GlslError('a translated shader is over the payload limits (%d bindings, %d bytes of GLSL, %d packed)'
                         % (len(rows), len(text), len(packed)))

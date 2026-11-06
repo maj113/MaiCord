@@ -2,8 +2,8 @@
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/voice/packet_crypto.hpp"
+#include "maicord/core/win32_error.hpp"
 
 namespace maicord {
 namespace {

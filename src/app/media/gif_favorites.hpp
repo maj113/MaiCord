@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/app/media/account_gif_favorites.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/user/gif_favorites.hpp"
 

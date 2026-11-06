@@ -58,6 +58,23 @@ constexpr u32 c_string_length(const char* text) noexcept {
     return bytes;
 }
 
+inline bool c_string_equal(const char* left, const char* right) noexcept {
+    while (*left && *left == *right)
+        ++left, ++right;
+    return *left == *right;
+}
+
+// Copies the C string `text` (null is empty) into `output`, cut to capacity - 1 bytes, and terminates it; the
+// bytes copied.
+inline u32 c_string_copy(char* output, u32 capacity, const char* text) noexcept {
+    u32 length = 0;
+    while (text && text[length] && length + 1 < capacity)
+        ++length;
+    copy_bytes(output, text, length);
+    output[length] = 0;
+    return length;
+}
+
 template <usize Count> constexpr Utf8View utf8_literal(const char (&text)[Count]) noexcept {
     static_assert(Count > 0);
     static_assert(Count - 1 <= 0xFFFFFFFFull);

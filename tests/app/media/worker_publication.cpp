@@ -1,5 +1,6 @@
 #include "maicord/app/media/account_media_worker.hpp"
 
+#include "../../support/ogg_page_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -33,14 +34,7 @@ u32 audio_fixture(u8* bytes) noexcept {
         p[26] = 1;
         p[27] = static_cast<u8>(bodies[page].count);
         copy_bytes(p + 28, bodies[page].data, bodies[page].count);
-        u32 crc = 0;
-        for (u32 i = 0; i < size; ++i) {
-            crc ^= static_cast<u32>(p[i]) << 24;
-            for (u32 bit = 0; bit < 8; ++bit)
-                crc = (crc << 1) ^ ((crc & 0x80000000u) ? 0x04c11db7u : 0);
-        }
-        for (u32 i = 0; i < 4; ++i)
-            p[22 + i] = static_cast<u8>(crc >> (i * 8));
+        ogg_page_seal(p, size);
         count += size;
     }
     return count;

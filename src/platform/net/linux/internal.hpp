@@ -5,9 +5,6 @@
 // Everything that touches a NetworkLoop's ring or ready list runs on the loop's own thread (the ring is made with
 // IORING_SETUP_SINGLE_ISSUER). Other threads (the name lookup pool, network_signal_post callers) reach it only
 // through post(), which pushes onto the lock-free stack and wakes the ring through its eventfd.
-#include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/os/linux/error.hpp"
 #include "maicord/platform/net/network.hpp"
 #include "maicord/sys/linux/calls.hpp"
 

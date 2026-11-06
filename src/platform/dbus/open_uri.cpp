@@ -2,6 +2,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
@@ -30,13 +31,6 @@ SharedLibrary g_libc;
 SpawnFunction g_spawn;
 bool g_spawn_resolved;
 bool g_children_ignored;
-
-u32 length_of(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
 
 bool resolve_spawn() noexcept {
     if (g_spawn_resolved)
@@ -91,7 +85,7 @@ void on_portal_reply(void* context, Status status, const Message* reply) noexcep
 bool open_uri_valid(const char* uri) noexcept {
     if (!uri)
         return false;
-    const u32 length = length_of(uri);
+    const u32 length = c_string_length(uri);
     if (length == 0 || length >= kMaxUriBytes)
         return false;
     const auto alpha = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
@@ -117,7 +111,7 @@ bool open_uri(const char* uri, const char* activation_token) noexcept {
     Pending* pending = static_cast<Pending*>(heap_allocate(sizeof(Pending)));
     if (!pending)
         return false;
-    copy_bytes(pending->uri, uri, length_of(uri) + 1);
+    copy_bytes(pending->uri, uri, c_string_length(uri) + 1);
     Builder body;
     builder_init(&body);
     builder_string(&body, portal_parent_window());

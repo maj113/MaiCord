@@ -2,6 +2,24 @@
 # C++23 (no CRT, exceptions or RTTI), Release-only code generation and one
 # output directory, the build directory itself.
 
+# maicord_library(<name> <source>... [LIBS <library>...] [INCLUDES <dir>...] [DEPENDS <target>...])
+# A shipping static library under the compile contract (linked first unless LIBS places it).
+function(maicord_library name)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES;DEPENDS")
+    if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
+        list(PREPEND ARG_LIBS maicord_compile_contract)
+    endif()
+    add_library(${name} STATIC ${ARG_UNPARSED_ARGUMENTS})
+    target_link_libraries(${name} PRIVATE ${ARG_LIBS})
+    if(ARG_INCLUDES)
+        target_include_directories(${name} PRIVATE ${ARG_INCLUDES})
+    endif()
+    if(ARG_DEPENDS)
+        add_dependencies(${name} ${ARG_DEPENDS})
+    endif()
+    set_target_properties(${name} PROPERTIES CXX_EXTENSIONS OFF)
+endfunction()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(cmake/build_contract_linux.cmake)
     return()
@@ -151,25 +169,6 @@ add_library(maicord_runtime OBJECT
     src/core/runtime_x64.asm)
 target_link_libraries(maicord_runtime PRIVATE maicord_compile_contract)
 set_target_properties(maicord_runtime PROPERTIES CXX_EXTENSIONS OFF)
-
-# maicord_library(<name> <source>... [LIBS <library>...] [INCLUDES <dir>...] [DEPENDS <target>...])
-# A shipping static library under the compile contract (linked first unless
-# LIBS places it).
-function(maicord_library name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES;DEPENDS")
-    if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
-        list(PREPEND ARG_LIBS maicord_compile_contract)
-    endif()
-    add_library(${name} STATIC ${ARG_UNPARSED_ARGUMENTS})
-    target_link_libraries(${name} PRIVATE ${ARG_LIBS})
-    if(ARG_INCLUDES)
-        target_include_directories(${name} PRIVATE ${ARG_INCLUDES})
-    endif()
-    if(ARG_DEPENDS)
-        add_dependencies(${name} ${ARG_DEPENDS})
-    endif()
-    set_target_properties(${name} PROPERTIES CXX_EXTENSIONS OFF)
-endfunction()
 
 # maicord_program(<target> [SHARED|WIN32] ENTRY <symbol> SOURCES <file>...
 #     [LIBS <library>...] [INCLUDES <dir>...] [DEFINES <definition>...]

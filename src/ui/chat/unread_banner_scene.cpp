@@ -2,7 +2,7 @@
 #include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -13,19 +13,6 @@ constexpr Utf8View kJumpPresent = utf8_literal("Jump to present");
 constexpr Utf8View kOlderMessages = utf8_literal("You're viewing older messages");
 constexpr UiMotionStyle kMotion{kUiUnreadBannerMotionMs, UiMotionCurve::ease_out};
 
-bool append(const Slice<char>& output, u32* used, const Utf8View& text) noexcept {
-    if (text.bytes > output.count - *used)
-        return false;
-    copy_bytes(output.data + *used, text.data, text.bytes);
-    *used += text.bytes;
-    return true;
-}
-bool append_u32(Slice<char> output, u32* used, u32 value) noexcept {
-    if (decimal_digits(value) > output.count - *used)
-        return false;
-    *used += decimal_write(output.data + *used, value);
-    return true;
-}
 // Notice card text: a bold title line over the wrapped description (up to
 // four lines). Narrow cards move the actions to their own row below.
 constexpr float kNoticeTitleLine = 22, kNoticeTextLine = 18, kNoticePadding = 10, kNoticeTextLeft = 46,
@@ -56,7 +43,7 @@ u32 notice_lines(const UiUnreadBannerScene& s) noexcept {
         return 0;
     const u32 lines = ui_settings_text_lines({s.notice_text, s.notice_text_bytes}, kNoticeTextEm,
                                              maximum(1.f, notice_text_right(s) - kNoticeTextLeft));
-    return lines < 1 ? 1 : lines > 4 ? 4 : lines;
+    return clamp_value(lines, 1u, 4u);
 }
 float notice_height(const UiUnreadBannerScene& s) noexcept {
     const float text = kNoticePadding * 2 + kNoticeTitleLine + kNoticeTextLine * static_cast<float>(notice_lines(s));
@@ -108,14 +95,20 @@ bool banner_card(PaintStream* out, const UiRect& r, const Theme& theme, float ra
 } // namespace
 
 u32 ui_unread_banner_format_label(u32 count, bool estimated, Utf8View since, Slice<char> output) noexcept {
+    if (!count)
+        return 0;
     char text[kUiUnreadBannerLabelBytes];
-    const Slice<char> scratch{text, sizeof(text)};
-    u32 used = 0;
-    const bool written =
-        count && append_u32(scratch, &used, count) && (!estimated || append(scratch, &used, utf8_literal("+"))) &&
-        append(scratch, &used, count == 1 && !estimated ? utf8_literal(" new message") : utf8_literal(" new messages")) &&
-        (!since.bytes || (append(scratch, &used, utf8_literal(" since ")) && append(scratch, &used, since)));
-    if (!written || !output.data || used > output.count)
+    TextWriter writer{{text, sizeof(text)}};
+    writer.number(count);
+    if (estimated)
+        writer.add("+");
+    writer.add(count == 1 && !estimated ? utf8_literal(" new message") : utf8_literal(" new messages"));
+    if (since.bytes) {
+        writer.add(" since ");
+        writer.add(since);
+    }
+    const u32 used = writer.finish();
+    if (!used || !output.data || used > output.count)
         return 0;
     copy_bytes(output.data, text, used);
     return used;

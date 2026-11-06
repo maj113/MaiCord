@@ -4,10 +4,8 @@
 // argv[1] "--scan" replaces fontconfig by the directory scan. The assertions about particular families need the Ubuntu font packages (fonts-dejavu-core, fonts-noto-core,
 // fonts-noto-cjk, fonts-noto-color-emoji) and run when MAICORD_TEST_FONT_SET=ubuntu says so; the rest hold anywhere.
 #include "maicord/core/arena.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/sys/linux/process.hpp"
-#include "maicord/text/fonts/run.hpp"
 #include "maicord/text/opentype/bitmap_color.hpp"
 #include "maicord/ui/text/native_text_catalog.hpp"
 

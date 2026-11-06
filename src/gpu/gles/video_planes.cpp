@@ -1,7 +1,6 @@
 // The decoded-picture planes of the OpenGL ES backend (maicord/gpu/video_planes.hpp): a fixed pool of planes, each a
 // GpuTexture and a GpuSrv with an atomic count, made from a dma-buf's EGLImage or from CPU memory without GL, and
 // realized as a GL texture on the renderer's thread.
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"

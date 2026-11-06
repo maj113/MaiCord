@@ -1,11 +1,11 @@
 #include "maicord/app/chat/channel_memory.hpp"
 #include "maicord/model/chat/chat_state.hpp"
-#include "maicord/app/gateway/client.hpp"
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "maicord/app/gateway/client_event.hpp"
 
 namespace maicord {
 namespace {

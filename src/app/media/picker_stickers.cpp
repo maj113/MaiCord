@@ -5,6 +5,8 @@
 #include "maicord/protocol/user/emoji_preferences.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
+#include "../account/account_ui_runtime.hpp"
+#include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
 namespace picker_detail {

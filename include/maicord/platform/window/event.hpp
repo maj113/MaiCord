@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 
@@ -50,8 +49,6 @@ enum class EventType : u8 {
     // System and loop.
     settings_changed,
     wake,
-    timer,                 // reserved for Windows UIA only
-    clipboard_data_ready,  // reserved: asynchronous clipboard read; not emitted yet
     // Synchronous queries; the answer goes in WindowEventResult.
     hit_test,
     size_limits,

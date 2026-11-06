@@ -1,5 +1,4 @@
 #include "maicord/ui/media/zoom_lens.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/theme/theme.hpp"
 namespace maicord {

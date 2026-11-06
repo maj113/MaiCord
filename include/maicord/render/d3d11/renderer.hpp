@@ -27,7 +27,6 @@
 #include "maicord/core/win32_records.hpp"
 #include <stddef.h>
 #include "maicord/gpu/gpu.hpp"
-#include "maicord/gpu/surface.hpp"
 #include "maicord/platform/window/window.hpp"
 
 namespace maicord {

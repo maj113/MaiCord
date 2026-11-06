@@ -1,5 +1,5 @@
 #include "maicord/model/chat/message_reconcile.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
 
 namespace maicord {
 namespace {

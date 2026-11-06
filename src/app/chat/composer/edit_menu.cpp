@@ -7,7 +7,6 @@
 #include "../messages/interaction.hpp"
 #include "../../shell/state.hpp"
 #include "maicord/platform/window/clipboard.hpp"
-#include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

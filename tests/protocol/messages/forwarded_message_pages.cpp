@@ -1,6 +1,6 @@
 #include "maicord/protocol/messages/pins.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/protocol/gateway/events.hpp"
 
 namespace maicord {
 namespace {

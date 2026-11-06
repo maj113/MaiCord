@@ -45,12 +45,10 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/secure_edit.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
-#include "maicord/ui/layout/smooth_scroll.hpp"
 #include "maicord/ui/text/pointer_selection.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
 
 namespace maicord::app_detail {

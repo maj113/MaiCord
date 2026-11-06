@@ -4,6 +4,11 @@
 #include "../account/application_account_module.hpp"
 #include "../media/picker.hpp"
 #include "../chat/composer/attachments.hpp"
+#include "../account/account_access.hpp"
+#include "../shell/state.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 

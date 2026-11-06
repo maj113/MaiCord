@@ -3,7 +3,6 @@
 #include "scene_measurements.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/core/win32_system_time.hpp"
 #include "maicord/os/local_time.hpp"
 
 namespace maicord {
@@ -96,8 +95,6 @@ UiLayoutStyle region_style(float height) noexcept {
     return style;
 }
 
-} // namespace
-namespace {
 u64 hash_mix_string(u64 hash, MessageRichString value) noexcept {
     hash = hash_mix(hash, value.offset);
     return hash_mix(hash, value.bytes);

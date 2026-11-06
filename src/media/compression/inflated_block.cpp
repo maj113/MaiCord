@@ -2,6 +2,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/media/compression/deflate.hpp"
 
 namespace maicord {
 namespace {

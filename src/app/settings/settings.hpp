@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/protocol/auth/oauth.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/app/plugins/ui.hpp"
 #include "maicord/ui/shell/page_registry.hpp"

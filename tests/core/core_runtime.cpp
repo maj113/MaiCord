@@ -1,6 +1,6 @@
+#include "../support/test_output.hpp"
 #include "../support/test_main_shared.hpp"
 
-#include "../support/test_output.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_queue.hpp"
 #include "maicord/core/deadline.hpp"

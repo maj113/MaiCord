@@ -2,18 +2,12 @@
 // Shared by search.cpp and its parts (search_*.cpp); private to them.
 #include "search.hpp"
 #include "../../account/account_presentation.hpp"
-#include "../../media/image_viewer.hpp"
 #include "../threads/browser.hpp"
-#include "../polls/poll.hpp"
 #include "../channel_authority.hpp"
 #include "maicord/model/chat/message_search.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/ui/chat/search/filter_context.hpp"
-#include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/app/chat/search/recent.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

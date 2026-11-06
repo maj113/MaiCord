@@ -4,7 +4,6 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

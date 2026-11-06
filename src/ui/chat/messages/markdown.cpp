@@ -80,7 +80,7 @@ bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
     }
     const u32 name = probe;
     while (probe < source.bytes && source.data[probe] != ':' && source.data[probe] != '>' &&
-           !ascii_space(source.data[probe])) {
+           !ascii_is_space(source.data[probe])) {
         ++probe;
     }
     if (probe == name || probe >= source.bytes || source.data[probe++] != ':') {
@@ -157,7 +157,7 @@ bool emoji_only_source(Utf8View source) noexcept {
     u32 cursor = 0;
     u32 count = 0;
     while (cursor < source.bytes) {
-        if (ascii_space(source.data[cursor])) {
+        if (ascii_is_space(source.data[cursor])) {
             ++cursor;
             continue;
         }
@@ -407,7 +407,7 @@ bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcep
         return false;
     const bool spaced = kind != DelimiterKind::emphasis ||
                         (bytes >= 2 && parser.input.data[parser.input_offset] != '~');
-    return spaced || !ascii_space(parser.input.data[after]);
+    return spaced || !ascii_is_space(parser.input.data[after]);
 }
 
 bool marker_can_close(const Parser& parser, const Delimiter& delimiter) noexcept {
@@ -491,7 +491,7 @@ void emit_source_code_range(SourceCodeEmission* emission, u32 end, u32 style = 0
 
 bool emoji_alias_inside_url(Utf8View input, u32 begin, u32 end) noexcept {
     u32 first = begin;
-    while (first && !ascii_space(input.data[first - 1]) && input.data[first - 1] != '<' &&
+    while (first && !ascii_is_space(input.data[first - 1]) && input.data[first - 1] != '<' &&
            input.data[first - 1] != '>' && input.data[first - 1] != '[' &&
            input.data[first - 1] != '(') --first;
     while (first < begin && (input.data[first] == '*' || input.data[first] == '_' ||
@@ -612,7 +612,7 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                 const char byte = input.data[end];
                 parser.output.data[out] = byte;
                 parser.styles.data[out] =
-                    base | (parser.emoji_only && !ascii_space(byte) ? text_style_jumbo_emoji : 0u);
+                    base | (parser.emoji_only && !ascii_is_space(byte) ? text_style_jumbo_emoji : 0u);
             }
             if (end != begin) {
                 parser.output_bytes += end - begin;

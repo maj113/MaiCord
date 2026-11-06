@@ -3,7 +3,6 @@
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 
 #include "maicord/app/account/login/mfa_policy.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace user_auth_coordinator_detail {}

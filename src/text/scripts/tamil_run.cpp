@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/scripts/tamil_run.hpp"
 #include "maicord/text/scripts/tamil_shape_run.hpp"
-#include "maicord/text/base.hpp"
 #include "../shaping/compact_run.hpp"
 namespace maicord {
 SfntStatus native_tamil_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntLookupStep> steps,

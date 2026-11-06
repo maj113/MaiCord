@@ -1,8 +1,5 @@
 #pragma once
 
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_types.hpp"
-#include "maicord/gpu/video_planes.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/os/wait.hpp"
 #include "maicord/media/video/h264_stream.hpp"

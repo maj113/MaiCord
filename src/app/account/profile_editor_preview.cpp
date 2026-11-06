@@ -8,7 +8,10 @@
 #include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "account_access.hpp"
+#include "account_ui_runtime.hpp"
+#include "maicord/app/media/account_media.hpp"
+#include "maicord/app/media/local_draft_preview.hpp"
+#include "maicord/core/deadline.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,7 +1,5 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/ui/layout/rect_edges.hpp"
-#include "maicord/ui/widgets/spinner.hpp"
 #include "maicord/ui/theme/surface_elevation.hpp"
 
 namespace maicord {

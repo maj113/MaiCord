@@ -1,5 +1,4 @@
 #include "maicord/ui/voice/video_scene.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/render/text/content_text_retention.hpp"

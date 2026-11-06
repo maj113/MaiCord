@@ -16,23 +16,6 @@ CursorApi g_cursor_api;
 bool g_cursor_tried;
 bool g_cursor_loaded;
 
-// Resolves a function of a table, remembering the first one that is missing.
-struct Resolver {
-    const SharedLibrary& library;
-    const char* missing;
-
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (missing)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            missing = name;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
-
 void log_missing(const char* library, const char* name) noexcept {
     char message[128];
     u32 length = 0;
@@ -53,7 +36,7 @@ bool client_load() noexcept {
         log_write(LogLevel::warning, "wayland", "libwayland-client.so.0 is not installed");
         return false;
     }
-    Resolver resolve{g_client_library, nullptr};
+    SharedLibraryResolver resolve{g_client_library, nullptr};
     ClientApi api{};
     resolve(&api.display_connect, "wl_display_connect");
     resolve(&api.display_disconnect, "wl_display_disconnect");
@@ -87,7 +70,7 @@ const CursorApi* cursor_api() noexcept {
     g_cursor_tried = true;
     if (!shared_library_open(&g_cursor_library, "libwayland-cursor.so.0"))
         return nullptr;
-    Resolver resolve{g_cursor_library, nullptr};
+    SharedLibraryResolver resolve{g_cursor_library, nullptr};
     CursorApi api{};
     resolve(&api.theme_load, "wl_cursor_theme_load");
     resolve(&api.theme_destroy, "wl_cursor_theme_destroy");

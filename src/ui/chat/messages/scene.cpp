@@ -8,7 +8,6 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/chat/messages/unread_divider.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "scene_internal.hpp"
 
 namespace maicord {
@@ -490,9 +489,6 @@ UiRect intro_area(const MessageScene& scene) noexcept {
     }
     return {};
 }
-} // namespace
-
-namespace {
 struct IntroWriter {
     MessageSceneIntro* intro;
     u32 used;

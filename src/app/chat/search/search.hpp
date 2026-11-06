@@ -5,7 +5,6 @@
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/app/chat/messages/timeline.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

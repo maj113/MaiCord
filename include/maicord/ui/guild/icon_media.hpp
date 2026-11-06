@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/model/chat/chat_state.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord {

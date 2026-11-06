@@ -3,7 +3,6 @@
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../../src/text/opentype/cff_internal.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {

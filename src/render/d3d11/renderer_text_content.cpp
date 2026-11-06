@@ -7,7 +7,6 @@
 #include "maicord/render/text/glyph_quad_bounds.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/text/inline_flag_projection.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
@@ -192,6 +191,25 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
                                wrapping, overflow, {storage->hit_spans, hits});
     };
     bool primary_shape = true;
+    // The single overflow glyph replaces text that does not fit.
+    const auto shape_overflow = [&]() noexcept {
+        primary_shape = false;
+        flag_projection.count = 0;
+        if (!substituted && storage->substitutions != 0xFFFF) {
+            ++storage->substitutions;
+        }
+        interactive_count = 0;
+        semantic_count = 0;
+        selection_active = false;
+        return shape(overflow_text, {}, 0);
+    };
+    const auto shape_failed = [&](const TextShapeResult& failed) noexcept {
+        storage->last_error = RendererTextBuildError::shape;
+        storage->last_shape_error = failed.error;
+        storage->native_error = failed.native_error;
+        shaped_text_reset(&storage->scratch);
+        return false;
+    };
     TextShapeResult shaped = from_cache ? TextShapeResult{} : shape(input, styles, interactive_count);
     if (interactive_count != 0 && shaped.error == TextShapeError::output_too_small) {
         primary_shape = false;
@@ -206,43 +224,19 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         shaped = shape(input, styles, 0);
     }
     if (shaped.error == TextShapeError::output_too_small) {
-        primary_shape = false;
-        flag_projection.count = 0;
+        shaped = shape_overflow();
         substituted = true;
-        if (storage->substitutions != 0xFFFF) {
-            ++storage->substitutions;
-        }
-        shaped = shape(overflow_text, {}, 0);
-        interactive_count = 0;
-        semantic_count = 0;
-        selection_active = false;
     }
     if (!shaped.ok()) {
-        storage->last_error = RendererTextBuildError::shape;
-        storage->last_shape_error = shaped.error;
-        storage->native_error = shaped.native_error;
-        shaped_text_reset(&storage->scratch);
-        return false;
+        return shape_failed(shaped);
     }
     const u32 remaining_quads = storage->quad_capacity - storage->quad_count;
     if (!from_cache && (storage->scratch.glyph_count > remaining_quads ||
                         storage->scratch.decoration_count >
                             remaining_quads - minimum(storage->scratch.glyph_count, remaining_quads))) {
-        primary_shape = false;
-        flag_projection.count = 0;
-        if (!substituted && storage->substitutions != 0xFFFF) {
-            ++storage->substitutions;
-        }
-        shaped = shape(overflow_text, {}, 0);
-        interactive_count = 0;
-        semantic_count = 0;
-        selection_active = false;
+        shaped = shape_overflow();
         if (!shaped.ok()) {
-            storage->last_error = RendererTextBuildError::shape;
-            storage->last_shape_error = shaped.error;
-            storage->native_error = shaped.native_error;
-            shaped_text_reset(&storage->scratch);
-            return false;
+            return shape_failed(shaped);
         }
         if (storage->scratch.glyph_count > remaining_quads) {
             shaped_text_reset(&storage->scratch);
@@ -421,22 +415,13 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     return true;
 }
 
-__declspec(noinline) bool append_flag_text(D3D11Renderer* renderer, const ContentTextRequest& request,
-                                           float* shaped_height, bool* atlas_invalidated) noexcept {
-    // About 6 KiB, read only within this call: statics, not a guard-page walk.
+bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
+                         bool* atlas_invalidated) noexcept {
+    // About 6 KiB, read only within this call: a static, not a guard-page walk. Without flags it is only ever
+    // read as empty.
     static UiInlineFlagProjection projection;
     projection.count = projection.style_count = 0;
     return append_content_text_with(renderer, request, shaped_height, atlas_invalidated, projection);
-}
-
-bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
-                         bool* atlas_invalidated) noexcept {
-    RendererInlineMediaLayer layer{};
-    if (flag_projection_wanted(*renderer, request, &layer))
-        return append_flag_text(renderer, request, shaped_height, atlas_invalidated);
-    // Without flags the projection is only ever read as empty and reset to empty.
-    static UiInlineFlagProjection none;
-    return append_content_text_with(renderer, request, shaped_height, atlas_invalidated, none);
 }
 
 Color profile_tone(const Color& c, float light_scale, float floor = 0, float saturation_scale = 1,

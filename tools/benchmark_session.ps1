@@ -22,8 +22,7 @@ function Invoke-BenchmarkTarget {
     )
     $binary = Join-Path $cacheRoot "$Target.exe"
     $outputs = @($binary) + $ExtraOutputs + (Join-Path $cacheRoot "CMakeFiles\$Target.dir")
-    if ($AddInstallerToPath) { . (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -AddInstallerToPath }
-    else { . (Join-Path $PSScriptRoot 'enter_build_environment.ps1') }
+    . (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -AddInstallerToPath:$AddInstallerToPath
 
     $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
     $locked = $false

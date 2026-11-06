@@ -12,10 +12,10 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/protocol/user/settings_proto.hpp"
 
 namespace maicord::app_detail {
 namespace {

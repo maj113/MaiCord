@@ -11,22 +11,6 @@ XkbApi g_api;
 bool g_tried;
 bool g_loaded;
 
-struct Resolver {
-    const SharedLibrary& library;
-    const char* missing;
-
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (missing)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            missing = name;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
-
 } // namespace
 
 const XkbApi* xkb_api() noexcept {
@@ -37,7 +21,7 @@ const XkbApi* xkb_api() noexcept {
         log_write(LogLevel::warning, "wayland", "libxkbcommon.so.0 is not installed");
         return nullptr;
     }
-    Resolver resolve{g_library, nullptr};
+    SharedLibraryResolver resolve{g_library, nullptr};
     XkbApi api{};
     resolve(&api.context_new, "xkb_context_new");
     resolve(&api.context_unref, "xkb_context_unref");

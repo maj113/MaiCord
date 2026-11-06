@@ -1,11 +1,11 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "scene_internal.hpp"
+#include "maicord/ui/widgets/icon.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -356,9 +356,6 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     if (reveal)
         ui_settings_scene_reveal(scene, entry);
     return true;
-}
-void ui_settings_scene_close(UiSettingsScene* scene) noexcept {
-    ui_settings_scene_release(scene);
 }
 void ui_settings_scene_release(UiSettingsScene* scene) noexcept {
     if (!scene)

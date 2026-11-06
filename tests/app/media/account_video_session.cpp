@@ -2,6 +2,7 @@
 #include "maicord/platform/audio/media_audio.hpp"
 #include "maicord/media/audio/encoded_audio.hpp"
 #include "../../fixtures/mp3_original_tone.hpp"
+#include "../../support/ogg_page_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -11,33 +12,6 @@ bool cancel(void* context) noexcept {
     return true;
 }
 u8 opus_scratch[kOggOpusMaximumPacketBytes];
-u32 ogg_page(u8* output, u32 sequence, u8 flags, u64 granule, const u8* packet, u8 count) noexcept {
-    const u32 bytes = 28u + count;
-    for (u32 i = 0; i < bytes; ++i)
-        output[i] = 0;
-    const char capture[] = "OggS";
-    for (u32 i = 0; i < 4; ++i)
-        output[i] = static_cast<u8>(capture[i]);
-    output[5] = flags;
-    for (u32 i = 0; i < 8; ++i)
-        output[6 + i] = static_cast<u8>(granule >> (i * 8));
-    output[14] = 123;
-    for (u32 i = 0; i < 4; ++i)
-        output[18 + i] = static_cast<u8>(sequence >> (i * 8));
-    output[26] = 1;
-    output[27] = count;
-    for (u32 i = 0; i < count; ++i)
-        output[28 + i] = packet[i];
-    u32 crc = 0;
-    for (u32 i = 0; i < bytes; ++i) {
-        crc ^= static_cast<u32>(output[i]) << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            crc = (crc << 1) ^ ((crc & 0x80000000u) ? 0x04c11db7u : 0u);
-    }
-    for (u32 i = 0; i < 4; ++i)
-        output[22 + i] = static_cast<u8>(crc >> (i * 8));
-    return bytes;
-}
 bool cancel_before_decode(void* context) noexcept {
     return ++*static_cast<u32*>(context) == 3;
 }
@@ -288,9 +262,9 @@ void opus_session(void (*check)(bool, const char*) noexcept, const AccountVideoI
     head[13] = 0xbb;
     head[17] = 0xff; // -1 dB Q8 header gain, separate from user volume.
     const u8 silence[]{0xf8, 0xff, 0xfe};
-    u32 bytes = ogg_page(encoded, 0, 2, 0, head, 19);
-    bytes += ogg_page(encoded + bytes, 1, 0, 0, tags, 16);
-    bytes += ogg_page(encoded + bytes, 2, 4, 880, silence, 3);
+    u32 bytes = ogg_opus_page(encoded, 0, 2, 0, head, 19);
+    bytes += ogg_opus_page(encoded + bytes, 1, 0, 0, tags, 16);
+    bytes += ogg_opus_page(encoded + bytes, 2, 4, 880, silence, 3);
     OggOpusDemuxer demux{};
     const bool parsed =
         ogg_opus_demux_initialize(&demux, {encoded, bytes}, {opus_scratch, sizeof(opus_scratch)}) ==

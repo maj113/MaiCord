@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

@@ -66,4 +66,16 @@ inline bool write_file(const char* path, const void* data, u32 bytes) noexcept {
 #endif
 }
 
+// Writes data to the file named prefix + suffix (a longer path is cut), for inspecting a render.
+inline void dump(const char* prefix, const char* suffix, const void* data, u32 bytes) noexcept {
+    char path[512];
+    u32 at = 0;
+    for (const char* c = prefix; *c && at < 500; ++c)
+        path[at++] = *c;
+    for (const char* c = suffix; *c; ++c)
+        path[at++] = *c;
+    path[at] = 0;
+    write_file(path, data, bytes);
+}
+
 } // namespace maicord::capture_io

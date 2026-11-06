@@ -19,7 +19,6 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 

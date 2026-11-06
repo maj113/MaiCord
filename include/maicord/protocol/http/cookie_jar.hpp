@@ -1,7 +1,7 @@
 #pragma once
 
-#include "maicord/core/utf.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 

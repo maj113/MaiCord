@@ -2,6 +2,7 @@
 // application owner and native target lifetimes are exercised separately by
 // tests/app/guild/channel_overview_runtime.cpp; no account owner is present here.
 #include "../../src/app/guild/channel_overview.hpp"
+#include "maicord/ui/core/geometry.hpp"
 namespace maicord::app_detail {
 bool application_channel_overview_edit_focused() noexcept { return false; }
 MessageComposer* application_channel_overview_edit_model() noexcept { return nullptr; }

@@ -1,6 +1,5 @@
 #include "maicord/gpu/api.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dcomp.hpp"

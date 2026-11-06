@@ -1,6 +1,5 @@
 #include "maicord/media/compression/deflate.hpp"
 #include "../../fixtures/deflate_matches.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {

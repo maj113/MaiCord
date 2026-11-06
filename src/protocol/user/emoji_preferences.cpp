@@ -6,8 +6,8 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/utf.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

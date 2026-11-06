@@ -3,7 +3,6 @@
 // $TZDIR (tests/fixtures/zoneinfo, written by tools/tzif_fixtures.py) set: a name, a path, a POSIX rule, an empty $TZ
 // and a name that does not exist.
 // argv[1]: berlin | new_york | rule | kolkata | lord_howe | utc | missing | system (whatever the host has)
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/local_time.hpp"
 #include "maicord/core/data_path.hpp"

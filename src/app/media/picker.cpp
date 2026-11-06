@@ -7,6 +7,8 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../chat/composer/commands.hpp"
+#include "../account/account_ui_runtime.hpp"
+#include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
 namespace {

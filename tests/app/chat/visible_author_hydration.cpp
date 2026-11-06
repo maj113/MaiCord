@@ -5,7 +5,6 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../support/gateway_message_scratch.hpp"
 
 namespace maicord {

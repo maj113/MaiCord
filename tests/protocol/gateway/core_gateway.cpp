@@ -24,6 +24,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/core/win32_exception.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

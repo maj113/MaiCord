@@ -67,22 +67,6 @@ struct Backend {
     char personal[kPathBytes];   // Hunspell: the file "Add" appends to; empty when the data directory is unavailable
 };
 
-struct Resolver {
-    const SharedLibrary& library;
-    const char* missing;
-
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (missing)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            missing = name;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
-
 bool equal_ignore_case(const char* a, const char* b) noexcept {
     for (;; ++a, ++b) {
         char x = *a, y = *b;
@@ -109,7 +93,7 @@ bool open_hunspell(Backend* backend) noexcept {
     const char* soname = test_hook("MAICORD_HUNSPELL_LIBRARY");
     if (!shared_library_open(&backend->library, soname && *soname ? soname : "libhunspell-1.7.so.0"))
         return false;
-    Resolver resolve{backend->library, nullptr};
+    SharedLibraryResolver resolve{backend->library, nullptr};
     HunspellApi& api = backend->hunspell;
     resolve(&api.create, "Hunspell_create");
     resolve(&api.destroy, "Hunspell_destroy");
@@ -130,7 +114,7 @@ bool open_enchant(Backend* backend) noexcept {
     const char* soname = test_hook("MAICORD_ENCHANT_LIBRARY");
     if (!shared_library_open(&backend->library, soname && *soname ? soname : "libenchant-2.so.2"))
         return false;
-    Resolver resolve{backend->library, nullptr};
+    SharedLibraryResolver resolve{backend->library, nullptr};
     EnchantApi& api = backend->enchant;
     resolve(&api.broker_init, "enchant_broker_init");
     resolve(&api.broker_free, "enchant_broker_free");

@@ -16,7 +16,6 @@
 #include "../guild/banner.hpp"
 #include "../chat/inbox.hpp"
 #include "cursor.hpp"
-#include "../notifications/taskbar_attention.hpp"
 #include "../chat/unread_banner.hpp"
 #include "../media/downloads.hpp"
 #include "../media/gif_favorite_star.hpp"

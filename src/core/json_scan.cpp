@@ -101,16 +101,12 @@ struct ScanState {
 
 enum class ChunkResult : u8 { ok, overflow, control };
 
-__forceinline u32 lowest_bit(u64 bits) noexcept {
-    return lowest_set_bit(bits);
-}
-
 // Eight offsets from the lowest set bits of *bits. An empty mask stores 63 + base: the high bit
 // keeps the scan input nonzero, so there is no branch for "no bit left".
 __forceinline void store_eight(u32* out, u64* bits, u32 base) noexcept {
     u64 rest = *bits;
     for (u32 k = 0; k < 8; ++k) {
-        out[k] = base + lowest_bit(rest | 1ull << 63);
+        out[k] = base + lowest_set_bit(rest | 1ull << 63);
         rest &= rest - 1;
     }
     *bits = rest;
@@ -142,17 +138,17 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
     if (pending <= room) {
         state->count += pending;
         while (emitted) {
-            *out++ = base + lowest_bit(emitted);
+            *out++ = base + lowest_set_bit(emitted);
             emitted &= emitted - 1;
         }
         return ChunkResult::ok;
     }
     for (u32 left = room; left; --left) {
-        *out++ = base + lowest_bit(emitted);
+        *out++ = base + lowest_set_bit(emitted);
         emitted &= emitted - 1;
     }
     state->count = output.count;
-    *error_offset = base + lowest_bit(emitted);
+    *error_offset = base + lowest_set_bit(emitted);
     return ChunkResult::overflow;
 }
 
@@ -169,10 +165,6 @@ struct ScanSource {
     volatile u32 owner;
 };
 ScanSource g_source;
-
-__forceinline u32 current_thread() noexcept {
-    return current_thread_id();
-}
 
 u32 first_at_or_after(const u32* index, u32 count, u32 value) noexcept {
     u32 first = 0, last = count;
@@ -222,11 +214,11 @@ void json_scan_source_set(const Utf8View& input, const ConstSlice<u32>& index) n
     g_source.bytes = input.bytes;
     g_source.index = index.data;
     g_source.count = index.count;
-    g_source.owner = current_thread();
+    g_source.owner = current_thread_id();
 }
 
 void json_scan_source_clear() noexcept {
-    if (g_source.owner == current_thread())
+    if (g_source.owner == current_thread_id())
         g_source.owner = 0;
 }
 
@@ -243,7 +235,7 @@ JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slic
         return JsonScanResult{0, 0, JsonScanError::invalid_input};
     }
     JsonScanResult served;
-    if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread() &&
+    if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread_id() &&
         serve_from_source(input, output, &served))
         return served;
 

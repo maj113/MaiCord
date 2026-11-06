@@ -13,11 +13,8 @@
 #include "plugins/plugins.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "../../src/render/d3d11/renderer_draw.hpp"
 #include "../../src/render/d3d11/renderer_layout.hpp"
-#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/render/text/message_hit_test.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

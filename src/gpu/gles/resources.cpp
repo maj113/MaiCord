@@ -206,26 +206,6 @@ GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, cons
     return kGpuOk;
 }
 
-void gpu_texture_info(GpuTexture* texture, GpuTextureInfo* info) {
-    *info = {texture->width, texture->height, texture->format, texture->usage, texture->bind};
-}
-
-u32 gpu_texture_info_width(const GpuTextureInfo& info) {
-    return info.width;
-}
-
-u32 gpu_texture_info_height(const GpuTextureInfo& info) {
-    return info.height;
-}
-
-GpuStatus gpu_texture_create_from_info(GpuDevice* device, GpuTextureInfo& info, u32 height, bool copy_only,
-                                       GpuTexture** texture) {
-    info.height = height;
-    if (copy_only)
-        info.bind = 0;
-    return gpu_texture_create(device, {info.width, info.height, info.format, info.usage, info.bind}, nullptr, texture);
-}
-
 GpuStatus gpu_format_check(GpuDevice* device, GpuFormat format, u8 bind) {
     if (format == GpuFormat::bgra8 && (bind & (gpu_bind_rtv | gpu_bind_uav)))
         return kGpuUnsupported;

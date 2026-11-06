@@ -32,6 +32,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 #include <stddef.h>
+#include "maicord/core/utf.hpp"
 
 
 namespace maicord {

@@ -8,7 +8,6 @@
 #include "maicord/app/account/login/account_credential_forget.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "maicord/app/account/account_logout_stop.hpp"
-#include "maicord/core/time.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"

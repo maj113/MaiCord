@@ -30,6 +30,7 @@ cbuffer UiFrame : register(b0) {
 #if defined(__spirv__)
 // The same offsets without packoffset: std140 admits no gaps, so the members the layout skips are named and each
 // member starts where std140 places it (scalars, never a float3, fill the registers the host struct leaves open).
+// tools/check_cbuffer_layout.py compares the GLSL twin's block with this reference (no compiler reads it).
 cbuffer McFxVertex : register(b2) {
     float vertex_time;
     float vertex_pad0_unused_, vertex_pad1_unused_, vertex_pad2_unused_;
@@ -179,14 +180,8 @@ SamplerState fx_sampler : register(s0); // the pipeline's bilinear clamp sampler
 
 // The colour, and the weight of what is behind it: only the adapted screen and add's blend state reads the weight.
 struct FxCompositeTargets {
-#if defined(__spirv__)
-    // Dual-source blending (GL_EXT_blend_func_extended): both outputs are colour 0, the second at index 1.
-    [[vk::location(0), vk::index(0)]] float4 color : SV_Target0;
-    [[vk::location(0), vk::index(1)]] float4 weight : SV_Target1;
-#else
     float4 color : SV_Target0;
     float4 weight : SV_Target1;
-#endif
 };
 
 // The target holds premultiplied colour; the user's opacity scales all four channels.

@@ -1,5 +1,4 @@
 #include "maicord/ui/voice/video_controls.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

@@ -8,8 +8,6 @@
 #include "maicord/ui/chat/messages/action_bar.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_storage.hpp"
-#include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
-#include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/text/code_highlight.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
@@ -25,6 +23,9 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/text/text.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 
 namespace maicord {
 namespace {

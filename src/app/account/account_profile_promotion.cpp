@@ -1,27 +1,18 @@
 #include "maicord/app/account/account_profile_promotion.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_error.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 
-AccountProfilePromotionResult failure(AccountProfilePromotionPhase phase,
-                                      AccountProfilePromotionError error, u32 native_error = 0,
-                                      AccountProfileError profile_error = AccountProfileError::none,
-                                      SecureBufferError credential_error = SecureBufferError::none,
-                                      u32 bytes = 0) noexcept {
-    return AccountProfilePromotionResult{bytes, native_error, profile_error, credential_error,
-                                         phase, error};
+AccountProfilePromotionResult failure(AccountProfilePromotionPhase phase, AccountProfilePromotionError error,
+                                      u32 native_error) noexcept {
+    return AccountProfilePromotionResult{native_error, phase, error};
 }
 
-AccountProfilePromotionResult success(AccountProfilePromotionPhase phase, u32 bytes = 0) noexcept {
-    return AccountProfilePromotionResult{bytes,
-                                         0,
-                                         AccountProfileError::none,
-                                         SecureBufferError::none,
-                                         phase,
-                                         AccountProfilePromotionError::none};
+AccountProfilePromotionResult success(AccountProfilePromotionPhase phase) noexcept {
+    return AccountProfilePromotionResult{0, phase, AccountProfilePromotionError::none};
 }
 
 bool valid_source(const AccountProfile& source) noexcept {
@@ -41,16 +32,14 @@ AccountProfilePromotionResult account_profile_promotion_stage(AccountProfileProm
         return failure(promotion ? promotion->state.phase : AccountProfilePromotionPhase::empty,
                        AccountProfilePromotionError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    const u32 bytes = source->credential.bytes;
     if (!secure_buffer_transfer(&promotion->profile.credential, &source->credential)) {
         promotion->state =
-            failure(AccountProfilePromotionPhase::empty, AccountProfilePromotionError::credential,
-                    ERROR_INVALID_STATE, AccountProfileError::none, SecureBufferError::invalid_input);
+            failure(AccountProfilePromotionPhase::empty, AccountProfilePromotionError::credential, ERROR_INVALID_STATE);
         return promotion->state;
     }
     promotion->profile.metadata = source->metadata;
     reset_value<AccountProfileMetadata>(&source->metadata);
-    promotion->state = success(AccountProfilePromotionPhase::staged, bytes);
+    promotion->state = success(AccountProfilePromotionPhase::staged);
     return promotion->state;
 }
 
@@ -65,12 +54,11 @@ AccountProfilePromotionResult account_profile_promotion_commit(AccountProfilePro
         account_profile_save(path, promotion->profile.metadata, promotion->profile.credential);
     if (!saved.ok()) {
         promotion->state =
-            failure(AccountProfilePromotionPhase::staged, AccountProfilePromotionError::profile,
-                    saved.native_error, saved.error, SecureBufferError::none, saved.bytes);
+            failure(AccountProfilePromotionPhase::staged, AccountProfilePromotionError::profile, saved.native_error);
         return promotion->state;
     }
     account_profile_release(&promotion->profile);
-    promotion->state = success(AccountProfilePromotionPhase::committed, saved.bytes);
+    promotion->state = success(AccountProfilePromotionPhase::committed);
     return promotion->state;
 }
 

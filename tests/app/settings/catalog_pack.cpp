@@ -1,6 +1,4 @@
 #include "settings/catalog.hpp"
-#include "maicord/app/settings/client_theme.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/settings/scene.hpp"
 
 // The shipped settings catalog is a deflate stream that catalog.cpp inflates into its tables. This test compiles

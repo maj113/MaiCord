@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

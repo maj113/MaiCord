@@ -2,7 +2,6 @@
 
 #include "maicord/app/plugins/catalog_index.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 
 // The data and state of the Plugins, Themes and Effects pages (store-ui.md). The model is a plain snapshot the

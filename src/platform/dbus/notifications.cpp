@@ -7,6 +7,7 @@
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/path.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord::dbus {
 namespace {
@@ -41,12 +42,6 @@ bool g_hook_registered;
 NotificationBackend g_backend;  // none until chosen
 u32 g_markup;                   // 0 not asked, 1 the daemon reads markup in the body, 2 it does not
 char g_escaped[kEscapedCapacity];
-
-bool equals(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
 
 void emit(NotificationEventKind kind, u64 cookie, u32 id, const char* key, const char* token, u32 reason) noexcept {
     if (!g_handler)
@@ -90,9 +85,9 @@ Entry* take_entry(u64 cookie) noexcept {
 
 NotificationBackend choose_backend() noexcept {
     const char* forced = environment_get("MAICORD_NOTIFICATION_BACKEND");
-    if (forced && equals(forced, "portal"))
+    if (forced && c_string_equal(forced, "portal"))
         return NotificationBackend::portal;
-    if (forced && equals(forced, "direct"))
+    if (forced && c_string_equal(forced, "direct"))
         return NotificationBackend::direct;
     return portal_sandboxed() ? NotificationBackend::portal : NotificationBackend::direct;
 }
@@ -267,7 +262,7 @@ bool daemon_reads_markup(Connection* c) noexcept {
                 const char* name = nullptr;
                 if (!reader_string(&r, &name, nullptr))
                     break;
-                markup = markup || equals(name, "body-markup");
+                markup = markup || c_string_equal(name, "body-markup");
             }
             reader_leave(&r);
         }
@@ -478,7 +473,7 @@ bool notification_show(const NotificationRequest& request) noexcept {
     if (!request.summary || (request.action_count && !request.actions))
         return false;
     for (u32 i = 0; i < request.action_count; ++i)
-        if (!request.actions[i].key || !request.actions[i].label || equals(request.actions[i].key, "default"))
+        if (!request.actions[i].key || !request.actions[i].label || c_string_equal(request.actions[i].key, "default"))
             return false;
     if (!ensure_backend())
         return false;

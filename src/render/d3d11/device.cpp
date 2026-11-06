@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11/device.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 

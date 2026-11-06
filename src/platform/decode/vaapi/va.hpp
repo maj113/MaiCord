@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/gpu/video_planes.hpp"
-#include "maicord/platform/decode/gpu_stream_decoder.hpp"
 #include "maicord/platform/decode/vaapi/abi.hpp"
 
 namespace maicord::vaapi {

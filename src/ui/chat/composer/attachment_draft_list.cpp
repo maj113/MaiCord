@@ -4,6 +4,7 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/core/widget_builder.hpp"
 namespace maicord {
 namespace {
 enum Part : u32 {

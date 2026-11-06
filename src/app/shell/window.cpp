@@ -1,10 +1,8 @@
-#include "maicord/core/memory.hpp"
 
 #include "caption.hpp"
 #include "window_state.hpp"
 #include "state.hpp"
 #include "window.hpp"
-#include "window_runtime.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/ui/core/scene.hpp"

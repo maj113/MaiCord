@@ -1,6 +1,5 @@
 #include "maicord/app/media/received_attachment_open.hpp"
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

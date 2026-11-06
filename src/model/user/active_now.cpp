@@ -1,5 +1,6 @@
 #include "maicord/model/user/active_now.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

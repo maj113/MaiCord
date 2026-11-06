@@ -1,24 +1,14 @@
 // The Linux side of the network layer's vocabulary: address literals, the mapping of errno onto Winsock error
 // numbers, and the NetworkAddress <-> socket address conversions.
 #include "internal.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/os/linux/error.hpp"
 
 namespace maicord {
 namespace {
 
 constexpr u32 kLiteralCapacity = 64;
-
-bool hex_digit(char value, u32* digit) noexcept {
-    if (value >= '0' && value <= '9') {
-        *digit = static_cast<u32>(value - '0');
-    } else if (value >= 'a' && value <= 'f') {
-        *digit = static_cast<u32>(value - 'a') + 10;
-    } else if (value >= 'A' && value <= 'F') {
-        *digit = static_cast<u32>(value - 'A') + 10;
-    } else {
-        return false;
-    }
-    return true;
-}
 
 // "a.b.c.d": four decimal numbers up to 255 without leading zeros, as inet_pton reads one. `end` is where the text
 // ends; false when the span is not exactly an address.
@@ -95,12 +85,12 @@ bool parse_ipv6(const char* text, u32 length, u8 (&bytes)[16]) noexcept {
         }
         u32 value = 0;
         u32 digits = 0;
-        u32 digit = 0;
-        while (index < length && hex_digit(text[index], &digit)) {
+        i32 digit = 0;
+        while (index < length && (digit = ascii_hex_value(text[index])) >= 0) {
             if (++digits > 4) {
                 return false;
             }
-            value = (value << 4) | digit;
+            value = (value << 4) | static_cast<u32>(digit);
             ++index;
         }
         if (digits == 0) {

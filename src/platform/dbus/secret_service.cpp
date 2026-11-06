@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/connection.hpp"
 #include "maicord/platform/dbus/secret_service.hpp"
 
@@ -22,26 +23,13 @@ struct Client {
     char session[kPathCapacity];
 };
 
-u32 length_of(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool equals(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 SecretStatus classify(const Message& reply) noexcept {
     const char* name = reply.error_name ? reply.error_name : "";
-    if (equals(name, "org.freedesktop.Secret.Error.IsLocked"))
+    if (c_string_equal(name, "org.freedesktop.Secret.Error.IsLocked"))
         return SecretStatus::locked;
-    if (equals(name, "org.freedesktop.DBus.Error.ServiceUnknown") || equals(name, "org.freedesktop.DBus.Error.NameHasNoOwner") ||
-        equals(name, "org.freedesktop.DBus.Error.NoReply") || equals(name, "org.freedesktop.DBus.Error.Disconnected") ||
-        equals(name, "org.freedesktop.DBus.Error.AccessDenied") || equals(name, "org.freedesktop.DBus.Error.Spawn.ServiceNotFound"))
+    if (c_string_equal(name, "org.freedesktop.DBus.Error.ServiceUnknown") || c_string_equal(name, "org.freedesktop.DBus.Error.NameHasNoOwner") ||
+        c_string_equal(name, "org.freedesktop.DBus.Error.NoReply") || c_string_equal(name, "org.freedesktop.DBus.Error.Disconnected") ||
+        c_string_equal(name, "org.freedesktop.DBus.Error.AccessDenied") || c_string_equal(name, "org.freedesktop.DBus.Error.Spawn.ServiceNotFound"))
         return SecretStatus::unavailable;
     log_write(LogLevel::warning, "secret_service", name);
     return SecretStatus::failed;
@@ -295,7 +283,7 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
         builder_string(&body, "default");
         Message reply;
         const CallTarget target{kService, kServicePath, kServiceInterface, "ReadAlias"};
-        copy_bytes(collection, kDefaultAlias, length_of(kDefaultAlias) + 1);
+        copy_bytes(collection, kDefaultAlias, c_string_length(kDefaultAlias) + 1);
         if (call(&client, target, &body, &reply, &status)) {
             Reader r;
             message_reader(reply, &r);

@@ -4,7 +4,7 @@
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord {
-inline constexpr u32 kNotificationMessageAlertResource=20481,kNotificationFocusedAlertResource=20482;
+inline constexpr u32 kNotificationMessageAlertResource=20481;
 inline constexpr u32 kNotificationSoundAssetCount=2;
 struct NotificationSoundAssetBank {
     HMODULE module{};void* pcm[kNotificationSoundAssetCount]{};u32 frames[kNotificationSoundAssetCount]{};

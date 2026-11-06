@@ -1,6 +1,5 @@
 #include "maicord/protocol/messages/thread_browser.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

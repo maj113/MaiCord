@@ -79,8 +79,9 @@ bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u
     }
     return true;
 }
+} // namespace event_pump_detail
 
-bool synchronize_thread_scope(MessageEventPump* pump) noexcept {
+bool message_event_pump_synchronize_thread_scope(MessageEventPump* pump) noexcept {
     if (!pump->thread_members)
         return true;
     const auto* channel =
@@ -98,7 +99,6 @@ bool synchronize_thread_scope(MessageEventPump* pump) noexcept {
                                               active ? channel->id : 0);
 }
 
-} // namespace event_pump_detail
 namespace {
 
 // The official client keeps no per-platform presence for the current user
@@ -802,7 +802,7 @@ bool message_event_pump_set_state_store(MessageEventPump* pump, ChatStateStore* 
     }
     pump->state = state;
     pump->guild_id_scratch = guild_id_scratch;
-    return synchronize_thread_scope(pump);
+    return message_event_pump_synchronize_thread_scope(pump);
 }
 
 void message_event_pump_set_guild_detail_store(MessageEventPump* pump, GuildDetailStore* details) noexcept {
@@ -907,11 +907,7 @@ bool message_event_pump_set_thread_member_store(MessageEventPump* pump,
                     members->count > members->banks[members->active_bank].count))
         return false;
     pump->thread_members = members;
-    return synchronize_thread_scope(pump);
-}
-
-bool message_event_pump_synchronize_thread_scope(MessageEventPump* pump) noexcept {
-    return synchronize_thread_scope(pump);
+    return message_event_pump_synchronize_thread_scope(pump);
 }
 
 bool message_event_pump_set_send_tracker(MessageEventPump* pump, MessageSendTracker* sends) noexcept {

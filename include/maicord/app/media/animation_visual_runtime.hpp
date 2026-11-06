@@ -1,10 +1,10 @@
 #pragma once
 
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/media/image/animated_webp.hpp"
 #include "maicord/media/core/animation_timeline.hpp"
-#include "maicord/media/image/apng.hpp"
 #include "maicord/media/image/gif.hpp"
+#include "maicord/media/image/animated_webp_frame.hpp"
+#include "maicord/media/image/apng_frame.hpp"
 
 namespace maicord {
 

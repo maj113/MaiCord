@@ -3,7 +3,6 @@
 #include "maicord/ui/account/profile_scene.hpp"
 #include "maicord/ui/account/profile_activity.hpp"
 #include "maicord/ui/plugins/slots.hpp"
-#include "maicord/ui/core/transition.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/sys/crt.hpp"

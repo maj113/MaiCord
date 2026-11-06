@@ -21,7 +21,6 @@
 #include "maicord/render/text/form_surface.hpp"
 #include "account_ui_runtime.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/app/gateway/client.hpp"
@@ -319,7 +318,7 @@ bool application_account_menu_action(u32 value) noexcept {
         value == static_cast<u32>(UiAccountMenuAction::view_profile))
         return application_profile_open(user, anchor, ProfileAnchor::account);
     if (value == static_cast<u32>(UiAccountMenuAction::edit_profile))
-        return application_profile_open_edit(user, anchor);
+        return application_profile_open_edit(user);
     if (value == static_cast<u32>(UiAccountMenuAction::copy_user_id)) {
         char digits[20]{};
         const u32 count = message_context_format_snowflake(user, {digits, 20});

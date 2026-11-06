@@ -21,6 +21,7 @@ Run with `python -I`; the module imports only the standard library.
 import argparse
 from collections import Counter
 import hashlib
+import json
 from pathlib import Path
 import zlib
 

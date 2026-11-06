@@ -15,6 +15,12 @@ on:
 permissions:
   contents: read
 
+env:
+  TAG: ${{ github.ref_name }}
+  GH_REPO: ${{ github.repository }}
+  # Pages and attestations need a public repository on this plan.
+  PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+
 # Serialize with manifest-refresh.yml so channel manifests are never raced.
 concurrency:
   group: update-channels
@@ -32,11 +38,6 @@ jobs:
       attestations: write
     outputs:
       published: ${{ steps.existing.outputs.published }}
-    env:
-      TAG: ${{ github.ref_name }}
-      GH_REPO: ${{ github.repository }}
-      # Pages and attestations need a public repository on this plan.
-      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -195,9 +196,6 @@ jobs:
       id-token: write     # Sigstore identity for build provenance
       attestations: write
     env:
-      TAG: ${{ github.ref_name }}
-      GH_REPO: ${{ github.repository }}
-      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
       # The updater and the plugin catalog are compiled with this repository's published keys and the release's version and
       # commit, as in the Windows job; the tarball's updater enables itself only in a build told that the channels carry it.
       MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
@@ -289,10 +287,6 @@ jobs:
       contents: write     # publish; the update-channels branch
     outputs:
       deploy: ${{ steps.channels.outputs.deploy }}
-    env:
-      TAG: ${{ github.ref_name }}
-      GH_REPO: ${{ github.repository }}
-      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -381,8 +375,6 @@ jobs:
       - name: Delete the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
         run: |
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
             gh release delete "$TAG" --yes
@@ -404,9 +396,6 @@ jobs:
       contents: write     # the update-channels branch
     outputs:
       deploy: ${{ steps.site.outputs.deploy }}
-    env:
-      TAG: ${{ github.ref_name }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

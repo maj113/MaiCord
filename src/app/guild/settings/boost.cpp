@@ -3,8 +3,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/guild/detail_store.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

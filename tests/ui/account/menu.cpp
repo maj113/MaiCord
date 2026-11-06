@@ -3,7 +3,6 @@
 #include "maicord/ui/account/menu.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/theme/background_surface.hpp"
 
 namespace maicord {
 void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {

@@ -1,6 +1,4 @@
 #pragma once
-#include "maicord/app/voice/audio_settings.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/media/containers/ogg_opus_writer.hpp"
 #include "maicord/media/audio/opus_encoder.hpp"
 

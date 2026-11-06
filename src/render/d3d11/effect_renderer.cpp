@@ -428,8 +428,6 @@ bool start_controller(D3D11EffectOwner* owner) noexcept {
     return refuse;
 }
 
-bool bytes_same(const void* a, const void* b, usize bytes) noexcept { return bytes_equal(a, b, bytes); }
-
 } // namespace
 
 EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
@@ -448,11 +446,11 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
         // The package is built: only the user's side and the knob values can have moved. New knob values reach the
         // next frame through its inputs (d3d11_effect_begin_frame), so a running clock draws them on its next tick.
         bool changed = false;
-        if (!bytes_same(owner->knobs, spec.knobs, sizeof(owner->knobs))) {
+        if (!bytes_equal(owner->knobs, spec.knobs, sizeof(owner->knobs))) {
             copy_bytes(owner->knobs, spec.knobs, sizeof(owner->knobs));
             changed = true;
         }
-        if (!bytes_same(&owner->settings, &settings, sizeof(settings))) {
+        if (!bytes_equal(&owner->settings, &settings, sizeof(settings))) {
             const bool restart = owner->settings.resolution_step != settings.resolution_step ||
                                  owner->settings.budget != settings.budget;
             owner->settings = settings;
@@ -594,11 +592,11 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, GpuDevice* device, GpuCon
     // What the picture depends on besides the clock: palette, flags, knobs, ambient inputs, size and DPI. While the
     // clock runs, a change of inputs waits for its next tick, so every frame the effect draws moves time on.
     const bool inputs_changed =
-        !bytes_same(constants.palette, owner->constants.palette, sizeof(constants.palette)) ||
+        !bytes_equal(constants.palette, owner->constants.palette, sizeof(constants.palette)) ||
         constants.dark != owner->constants.dark || constants.intensity != owner->constants.intensity ||
-        !bytes_same(constants.knobs, owner->constants.knobs, sizeof(constants.knobs)) ||
-        !bytes_same(constants.ambient, owner->constants.ambient, sizeof(constants.ambient)) ||
-        !bytes_same(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
+        !bytes_equal(constants.knobs, owner->constants.knobs, sizeof(constants.knobs)) ||
+        !bytes_equal(constants.ambient, owner->constants.ambient, sizeof(constants.ambient)) ||
+        !bytes_equal(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
     const bool repaint = !owner->content_valid || owner->dirty || used_width != owner->used_width ||
                          used_height != owner->used_height || dpi != owner->dpi || (inputs_changed && !clock_running);
     // A window being dragged keeps the last picture, stretched.

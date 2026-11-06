@@ -1,5 +1,4 @@
 #include "maicord/text/scripts/arabic_marks.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"

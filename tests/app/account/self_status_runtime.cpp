@@ -3,7 +3,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/app/gateway/client.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::self_status_runtime_test {
 using namespace app_detail;

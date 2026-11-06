@@ -1,5 +1,4 @@
 #include "maicord/app/update/portable.hpp"
-#include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/os/text.hpp"
 #include "maicord/sys/linux/calls.hpp"

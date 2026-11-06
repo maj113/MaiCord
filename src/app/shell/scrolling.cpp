@@ -19,7 +19,7 @@ namespace {
 bool observe_read_after_scroll() noexcept {
     if (!g_app.account_ui) return true;
     const u32 revision = g_app.account_ui->navigation_view.revision;
-    if (!application_read_state_observe(clock_monotonic_milliseconds())) return false;
+    if (!application_read_state_observe()) return false;
     if (revision != g_app.account_ui->navigation_view.revision) {
         if (!refresh_account_text()) return false;
         application_request_frame();

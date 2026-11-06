@@ -160,24 +160,6 @@ __forceinline bool pages_protect(void* address, usize bytes, PageAccess access) 
 #endif
 }
 
-// Pins committed pages in memory so they are not written to swap (secrets). Not counted: one pages_unlock undoes
-// any number of pages_lock calls on a page. False when the system's lock quota is exhausted.
-__forceinline bool pages_lock(void* address, usize bytes) noexcept {
-#if defined(_WIN32)
-    return VirtualLock(address, bytes) != 0;
-#else
-    return !syscall_failed(sys_mlock(address, bytes));
-#endif
-}
-
-__forceinline bool pages_unlock(void* address, usize bytes) noexcept {
-#if defined(_WIN32)
-    return VirtualUnlock(address, bytes) != 0;
-#else
-    return !syscall_failed(sys_munlock(address, bytes));
-#endif
-}
-
 // The system page size: the granularity of the functions above.
 __forceinline usize pages_page_size() noexcept {
 #if defined(_WIN32)

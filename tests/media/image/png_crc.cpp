@@ -1,6 +1,5 @@
 #include "../../../src/media/image/png_common.hpp"
 #include "../../fixtures/png_crc_reference.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {

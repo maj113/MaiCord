@@ -1,7 +1,6 @@
 #include "maicord/text/opentype/gpos_execute.hpp"
 #include "maicord/core/memory.hpp"
 #include "gpos_validated.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 inline bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}

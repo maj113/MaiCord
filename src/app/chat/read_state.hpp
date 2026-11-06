@@ -16,7 +16,7 @@ bool application_read_state_mark_message_unread(u64 message_id) noexcept;
 bool application_read_state_mark_channel_unread(u64 channel_id) noexcept;
 bool application_read_state_channel_unread_retry_available(u64 channel_id) noexcept;
 bool application_read_state_retry_channel_unread(u64 channel_id) noexcept;
-bool application_read_state_observe(u64 now_ms) noexcept;
+bool application_read_state_observe() noexcept;
 bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_read_state_response(const RestClientResponse& response, const u8* body, u32 bytes,
                                      u64 now_ms) noexcept;

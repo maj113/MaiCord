@@ -10,7 +10,6 @@ struct H264OutputQueue {
     u8 count;
     u8 leased{255};
 };
-u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept;
 u8 h264_free_surface(const H264OutputQueue& queue, u32 references, u8 capacity) noexcept;
 bool h264_output_ready(const H264OutputQueue& queue, u32 references,
     u8 max_reorder, u8 max_buffering) noexcept;

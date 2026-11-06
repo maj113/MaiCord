@@ -1,6 +1,4 @@
 #include "maicord/ui/voice/audio_presentation.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/core/paint.hpp"
 

@@ -11,7 +11,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/widgets/kit.hpp"
-#include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/text/form.hpp"
 #include "maicord/core/log.hpp"

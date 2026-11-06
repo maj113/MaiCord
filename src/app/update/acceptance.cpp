@@ -5,7 +5,6 @@
 #include "maicord/core/hash.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 
 namespace maicord {

@@ -1,6 +1,5 @@
 #include "maicord/gpu/api.hpp"
 #include "maicord/core/heap.hpp"
-#include "maicord/core/memory.hpp"
 
 // Paged textures on Direct3D 11: one tiled texture whose tile bands map bands of a tile pool (api.hpp).
 namespace maicord {

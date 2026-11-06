@@ -1,6 +1,7 @@
 #include "maicord/protocol/messages/create.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

@@ -76,6 +76,5 @@ maicord_atspi_map
 [wayland]
 maicord_wayland_input
 [gpu]
-maicord_gpu_types
 maicord_gpu_clear_readback
 maicord_gpu_sync

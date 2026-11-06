@@ -43,7 +43,4 @@ struct H264SliceDetail {
 H264Error h264_parse_slice_detail(ConstSlice<u8> nal, const H264Sps& sps, const H264Pps& pps,
                                   H264SliceDetail* output) noexcept;
 
-// Emulation prevention bytes among the first `bytes` of nal (the bytes the slice header takes in the stream).
-u32 h264_escape_bytes(ConstSlice<u8> nal, u32 bytes) noexcept;
-
 } // namespace maicord

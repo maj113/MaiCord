@@ -14,6 +14,8 @@
 #include "../../guild/settings/settings.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../account/profile.hpp"
+#include "../composer/commands.hpp"
 
 namespace maicord::app_detail {
 

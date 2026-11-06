@@ -4,7 +4,7 @@
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
-u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept {
+static u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept {
     u32 mask = 0;
     for (u32 i = 0; i < queue.count && i < 17; ++i)
         if (queue.pictures[i].surface < 32) mask |= 1u << queue.pictures[i].surface;

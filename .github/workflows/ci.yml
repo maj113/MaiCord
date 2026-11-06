@@ -24,31 +24,19 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-# Hosted Windows runners for this private repository have 2 vCPUs. The client
-# build (about 8 minutes: front-end work plus the LTO link) and the
-# temporary test build (non-LTO copies of the same libraries plus about 200
-# test executables, about 11 minutes, then about 3 minutes of tests) are
-# independent, so three jobs run side by side for about 10 minutes each:
+# Hosted Windows runners have 2 vCPUs. The client build (front-end work plus the LTO link) and the temporary test build
+# (non-LTO copies of the same libraries plus the test executables) are independent, so three jobs run side by side:
 #   client     MaiCord.exe, PE audits and the artifact;
-#   app shard  tests whose executables link the application core or exercise
-#              the shipping client itself (update staging and the exit swap); they
-#              use the client job's artifact, which arrives while the tests
-#              build (build.ps1 -PrebuiltClient), instead of building the
-#              client a second time;
+#   app shard  tests whose executables link the application core or exercise the shipping client itself (update staging
+#              and the exit swap); they use the client job's artifact, which arrives while the tests build
+#              (build.ps1 -PrebuiltClient), instead of building the client a second time;
 #   core shard every other test (text, fonts, media, protocol, platform).
-# build.ps1 -TestShard picks each test's shard from its executable
-# (maicord-tests.txt, written by CMake), builds only that shard's
-# executables and runs exactly those tests. Both shards build most of the
-# shared test libraries, so this costs runner minutes for wall time: about
-# 29 runner minutes and 10 minutes of wall time per run, where one tests job
-# (-TestShard app,core) takes about 26 runner minutes and 15 minutes, and a
-# single job holding everything about 23 runner minutes and 23 minutes.
-# Pull requests run the same full suite: the jobs already run side by side,
-# so a pull-request subset would skip coverage without shortening the run.
-# The build tree is deliberately not cached: checkout gives every source a
-# fresh timestamp (so Ninja would rebuild anyway) and Release uses LTO.
-# sccache was measured and rejected: it treats every CMake clang-cl compile here
-# as "multiple input files" (nothing cacheable) and cannot cache PCH compiles.
+# build.ps1 -TestShard picks each test's shard from its executable (maicord-tests.txt, written by CMake), builds only that
+# shard's executables and runs exactly those tests. Pull requests run the same full suite: the jobs already run side by
+# side, so a pull-request subset would skip coverage without shortening the run.
+# The build tree is deliberately not cached: checkout gives every source a fresh timestamp (so Ninja would rebuild
+# anyway) and Release uses LTO. sccache was measured and rejected: it treats every CMake clang-cl compile here as
+# "multiple input files" (nothing cacheable) and cannot cache PCH compiles.
 
 jobs:
   client:

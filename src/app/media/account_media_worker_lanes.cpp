@@ -66,12 +66,8 @@ namespace {
 // Only the lane worker calls this helper. An armed registration must first
 // deliver its actual event; a fence value check does not consume that event.
 void release_poster_resources(AccountMediaWorkerLane* lane) noexcept {
-    if (lane->poster_fence) {
-        gpu_release(lane->poster_fence);
-    }
-    if (lane->poster_context) {
-        gpu_release(lane->poster_context);
-    }
+    gpu_release(lane->poster_fence);
+    gpu_release(lane->poster_context);
 }
 
 bool finish_poster_release(AccountMediaWorkerLane* lane) noexcept {

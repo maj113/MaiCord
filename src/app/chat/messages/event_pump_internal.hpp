@@ -1,7 +1,5 @@
 #pragma once
 // Shared by event_pump.cpp and its parts (event_pump_*.cpp); private to them.
-#include "maicord/model/user/activity.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/app/gateway/thread_members.hpp"
 #include "maicord/model/chat/read_state.hpp"
@@ -21,7 +19,6 @@ ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) no
 bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEvent& event,
                              ConstSlice<u8> payload, u32* required) noexcept;
 bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u32* count) noexcept;
-bool synchronize_thread_scope(MessageEventPump* pump) noexcept;
 
 constexpr bool is_message_dispatch(GatewayClientDispatchKind kind) noexcept {
     return kind == GatewayClientDispatchKind::message_create ||

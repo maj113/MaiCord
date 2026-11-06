@@ -2,10 +2,8 @@
 // Shared by community.cpp and its parts (community_*.cpp); private to them.
 #include "community.hpp"
 #include "../settings/modal.hpp"
-#include "../shell/state.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
-#include "maicord/ui/shell/navigation_view.hpp"
 #include "../account/account_access.hpp"
 
 namespace maicord::app_detail {

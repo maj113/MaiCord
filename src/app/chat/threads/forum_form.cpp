@@ -9,7 +9,6 @@
 #include "forum_attachments.hpp"
 #include "forum_preview.hpp"
 #include "../composer/text_form.hpp"
-#include "maicord/platform/desktop/clipboard_attachment.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../composer/text_input.hpp"
 #include "../composer/text_geometry.hpp"
@@ -21,7 +20,6 @@
 #include "../../shell/input.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
@@ -294,8 +292,7 @@ bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangl
     const auto clip = node->content_rectangle;
     *clipped = bounds.left < clip.left || bounds.top < clip.top || bounds.right > clip.right ||
                bounds.bottom > clip.bottom;
-    bounds = {maximum(bounds.left, clip.left), maximum(bounds.top, clip.top),
-              minimum(bounds.right, clip.right), minimum(bounds.bottom, clip.bottom)};
+    bounds = ui_rect_overlap(bounds, clip);
     POINT origin{};
     application_content_to_client(&origin);
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96;

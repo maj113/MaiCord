@@ -1,7 +1,6 @@
 #include "maicord/protocol/http/http1.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

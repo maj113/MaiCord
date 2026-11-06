@@ -318,14 +318,6 @@ void choose_cursor_theme(char (&name)[64], u32* size) noexcept {
         *size = kDefaultCursorSize;
 }
 
-bool same_text(const char* left, const char* right) noexcept {
-    while (*left && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
-
 void apply_cursor_theme(u8 code) noexcept {
     PointerState& pointer = g.pointer;
     const CursorApi* api = cursor_api();
@@ -335,7 +327,7 @@ void apply_cursor_theme(u8 code) noexcept {
     char name[64];
     u32 size = 0;
     choose_cursor_theme(name, &size);
-    if (pointer.theme && (pointer.theme_scale != scale || pointer.theme_size != size || !same_text(pointer.theme_name, name))) {
+    if (pointer.theme && (pointer.theme_scale != scale || pointer.theme_size != size || !c_string_equal(pointer.theme_name, name))) {
         api->theme_destroy(pointer.theme);
         pointer.theme = nullptr;
     }

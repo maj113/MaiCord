@@ -1,17 +1,7 @@
-#if defined(__spirv__)
-// OpenGL ES: a decoder publishes plain 2D plane textures (dma-buf images, CPU planes).
-Texture2D<float> Luma : register(t0);
-Texture2D<float2> Chroma : register(t1);
-#define PLANE_TEXEL(position) int3(position, 0)
-#else
 // One-slice array views: decoder arrays are read in place.
 Texture2DArray<float> Luma : register(t0);
 Texture2DArray<float2> Chroma : register(t1);
 #define PLANE_TEXEL(position) int4(position, 0, 0)
-#endif
-#if defined(__spirv__)
-[[vk::image_format("rgba8")]]
-#endif
 RWTexture2D<unorm float4> Target : register(u0);
 
 cbuffer VideoConstants : register(b0) {
@@ -28,7 +18,8 @@ cbuffer VideoConstants : register(b0) {
     // cropped source extent that bounds every Step x Step block.
     uint Step;
 #if defined(__spirv__)
-    // std140 aligns a uint2 to 8 bytes, but the host packs it right after Step (offset 52).
+    // std140 aligns a uint2 to 8 bytes, but the host packs it right after Step (offset 52): the reference layout
+    // tools/check_cbuffer_layout.py compares the GLSL twin's block with (no compiler reads this branch).
     uint VisibleX, VisibleY;
 #else
     uint2 Visible;
@@ -73,11 +64,7 @@ void cs_main(uint3 id : SV_DispatchThreadID) {
     }
     // Poster thumbnails: average the block, clipped at the visible edge.
     const uint2 first = pixel * Step;
-#if defined(__spirv__)
-    const uint2 last = min(first + Step, uint2(VisibleX, VisibleY));
-#else
     const uint2 last = min(first + Step, Visible);
-#endif
     float3 sum = 0;
     // Only complete, even-aligned blocks share one chroma load per 2x2 group.
     // Clamp each RGB value before the sum. All integer sums fit in float32.

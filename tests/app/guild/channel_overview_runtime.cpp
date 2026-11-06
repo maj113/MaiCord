@@ -6,6 +6,11 @@
 #include "../../../src/app/guild/channel_overview_projection.cpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "../../support/test_output.hpp"
+#include "../../../src/app/account/account_ui_runtime.hpp"
+#include "../../../src/app/shell/state.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/text/edit_layout.hpp"
 
 
 namespace maicord::channel_overview_runtime_test {

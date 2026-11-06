@@ -22,6 +22,7 @@
 #include "maicord/sys/winsock.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "../support/window_fixture.hpp"
+#include "../../src/app/chat/composer/text_input.hpp"
 
 namespace maicord::app_detail {
 u32 probe_button_actions;

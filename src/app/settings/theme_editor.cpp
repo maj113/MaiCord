@@ -19,7 +19,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -305,19 +304,6 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
     }
     return true;
 }
-bool range(UiThemeEditorElement e) noexcept {
-    return e == UiThemeEditorElement::sv || e == UiThemeEditorElement::hue ||
-           e == UiThemeEditorElement::direction || e == UiThemeEditorElement::intensity ||
-           e == UiThemeEditorElement::speed || e == UiThemeEditorElement::strength ||
-           e == UiThemeEditorElement::density;
-}
-UiThemeEditorElement focused(const UiThemeEditorScene& scene) noexcept {
-    for (u32 i = 0; i < kUiThemeEditorElements; ++i)
-        if (scene.widgets.focused.slot == scene.elements[i].slot &&
-            scene.widgets.focused.generation == scene.elements[i].generation)
-            return static_cast<UiThemeEditorElement>(i);
-    return UiThemeEditorElement::count;
-}
 } // namespace
 bool application_theme_editor_active() noexcept {
     return g_app.theme_editor && current(*g_app.theme_editor);
@@ -516,7 +502,7 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
         application_request_frame();
         return true;
     }
-    const auto element = focused(e->scene);
+    const auto element = ui_theme_editor_element(e->scene, e->scene.widgets.focused);
     if (key == key::enter || key == key::space) {
         if (!repeated) {
             e->held_key = key;
@@ -525,8 +511,8 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
         return true;
     }
     BackgroundTheme next{};
-    if (range(element) && (key == key::home || key == key::end || key == key::left || key == key::right ||
-                           key == key::up || key == key::down))
+    if (ui_theme_editor_range(element) && (key == key::home || key == key::end || key == key::left ||
+                                           key == key::right || key == key::up || key == key::down))
         begin_gesture(*e);
     if (ui_theme_editor_key(&e->scene, element, key, &next)) {
         e->range_key = key;
@@ -609,7 +595,7 @@ bool application_theme_editor_window_event(const WindowEvent& event) noexcept {
             return true;
         e->pressed = hit;
         e->captured_generation = e->scene.widgets.generation;
-        e->dragging = range(hit);
+        e->dragging = ui_theme_editor_range(hit);
         if (e->dragging)
             begin_gesture(*e);
         ui_theme_editor_focus(&e->scene, hit);

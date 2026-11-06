@@ -61,10 +61,6 @@ bool style_valid(const UiPollVotersStyle& style) noexcept {
             return false;
     return true;
 }
-bool contains(const UiRect& bounds, UiPoint point) noexcept {
-    return ui_rect_has_area(bounds) && point.x >= bounds.left && point.x < bounds.right &&
-           point.y >= bounds.top && point.y < bounds.bottom;
-}
 bool measured(const UiPollVotersState& state, const Utf8View& text, u16 item, u32 flags, float width,
               UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value,
               bool no_wrap = false) noexcept {
@@ -340,7 +336,7 @@ bool ui_poll_voters_target_enabled(const UiPollVotersScene& scene, UiPollVotersT
     }
 }
 UiPollVotersTarget ui_poll_voters_scene_hit(const UiPollVotersScene& scene, UiPoint point) noexcept {
-    if (!current(scene) || !contains(scene.geometry.panel, point))
+    if (!current(scene) || !ui_rect_contains(scene.geometry.panel, point.x, point.y))
         return {};
     UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4]{};
     const auto count = targets(scene, all);
@@ -349,7 +345,7 @@ UiPollVotersTarget ui_poll_voters_scene_hit(const UiPollVotersScene& scene, UiPo
         auto bounds = ui_poll_voters_target_rectangle(scene, target);
         if (target.control == UiPollVotersControl::user)
             bounds = ui_rect_intersection(bounds, scene.geometry.body);
-        if (ui_poll_voters_target_enabled(scene, target) && contains(bounds, point))
+        if (ui_poll_voters_target_enabled(scene, target) && ui_rect_contains(bounds, point.x, point.y))
             return target;
     }
     return {};

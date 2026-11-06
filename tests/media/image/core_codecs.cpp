@@ -3,14 +3,13 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/media/image/apng.hpp"
 #include "maicord/media/image/jpeg.hpp"
-#include "maicord/ui/text/text.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../fixtures/jpeg_reference_fixture.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/jpeg_cmyk_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 u8 g_png_encoded[17'000];

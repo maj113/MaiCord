@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_atlas.hlsl 27f7552d36238891
+// twin: src/render/shaders/glyph_atlas.hlsl a9633909fbf78d91
 // glyph_coverage (STAGE_CS): rasterizes glyph and icon outlines into the coverage atlas. GLYPH_TILE_CULLING builds the
 // variant for unstroked rasters that are large or have a long command chain, which skips every command that cannot
 // reach any sample of a thread group's tile. Other rasters run the plain loop of the default variant, whose

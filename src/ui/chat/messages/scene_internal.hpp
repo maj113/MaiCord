@@ -2,13 +2,10 @@
 
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
-#include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::message_scene_detail {
 

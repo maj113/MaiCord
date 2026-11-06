@@ -68,6 +68,7 @@
 #include "message_header_clip_ui_probe.hpp"
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord::app_detail {
 // Search rendering fixtures bind caller-owned scenes directly. They do not

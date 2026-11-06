@@ -1,9 +1,7 @@
 #pragma once
 #include "maicord/media/core/asset_key.hpp"
-#include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/ui/core/cursor.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {

@@ -1,4 +1,5 @@
 #include "maicord/app/chat/messages/account_message_ack.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_message_ack_submit(RestClient* rest,

@@ -1,10 +1,11 @@
 #include "maicord/ui/media/picker_presentation.hpp"
-#include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord {
 namespace {

@@ -5,7 +5,6 @@
 #include "../../../../src/app/chat/threads/forum_attachments.hpp"
 #include "../../../../src/app/chat/threads/forum_form.hpp"
 #include "../../../../src/app/shell/state.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../../src/app/chat/threads/forum_preview.cpp"
 #include "../../../support/test_output.hpp"

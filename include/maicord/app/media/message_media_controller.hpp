@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/model/user/store.hpp"

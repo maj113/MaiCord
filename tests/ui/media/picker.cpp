@@ -6,7 +6,6 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/app/settings/client_theme.hpp"
-#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/text/presentation.hpp"
 

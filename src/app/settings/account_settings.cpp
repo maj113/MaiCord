@@ -13,7 +13,6 @@
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
 

@@ -57,10 +57,15 @@ if(NOT MAICORD_TEST_PREBUILT_CLIENT)
 endif()
 # The tests/ sources only drive the code under test (src/, still /O2), so they
 # compile at /Od: several times faster, and nothing measures their own speed.
-# Sources using an application PCH keep its /O2 (clang rejects a mismatch), and
+# Sources using an application PCH keep its /O2 (clang rejects a mismatch),
 # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
-# temporaries are about 130 KB each), stays optimized.
-set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp")
+# temporaries are about 130 KB each), stays optimized, and so does the DirectWrite
+# comparison driver of MaiCordNativeAppLineTests, the largest share of the suite's
+# CPU time (its 149 cases ran about 15% faster with it optimized).
+set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_scripts.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_editing.cpp")
 set(maicord_unoptimized_sources)
 foreach(target IN LISTS maicord_test_targets)
     get_target_property(sources ${target} SOURCES)
@@ -121,7 +126,7 @@ endforeach()
 # chain (COST 60) starts immediately and overlaps the CPU matrices (COST 59.xx).
 # These independent window/readback probes also need an early start: resize
 # paints 64 native WM_SIZE steps; surface motion reads back multiple alpha
-# frames. Neither belongs to the serialized native_gpu chain.
+# frames. Neither belongs to the serialized native_gpu chains.
 set_tests_properties(maicord_resize_stress_probe maicord_surface_motion_ui_probe
     PROPERTIES COST 61)
 # The extension driver's independent fixture shards also start early so its
@@ -160,7 +165,7 @@ endforeach()
 # font/process tests; their device/window setup must not form the final tail.
 foreach(maicord_registered_test IN LISTS maicord_registered_tests)
     get_property(maicord_test_locks TEST ${maicord_registered_test} PROPERTY RESOURCE_LOCK)
-    if("native_gpu" IN_LIST maicord_test_locks)
+    if("native_gpu" IN_LIST maicord_test_locks OR "native_gpu_b" IN_LIST maicord_test_locks)
         set_property(TEST ${maicord_registered_test} PROPERTY COST 60)
     else()
         get_property(maicord_test_labels TEST ${maicord_registered_test} PROPERTY LABELS)

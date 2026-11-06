@@ -1,5 +1,4 @@
 #include "maicord/text/unicode/unicode.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

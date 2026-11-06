@@ -9,10 +9,10 @@
 #include "maicord/app/chat/messages/send_tracker.hpp"
 #include "../../../support/send_tracker_probe.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
-#include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
-#include "maicord/ui/text/text.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace {

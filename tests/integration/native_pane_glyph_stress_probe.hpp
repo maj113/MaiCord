@@ -274,7 +274,7 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
         if (!warm())
             return fail();
         renderer_bind_settings_scene(&renderer, nullptr);
-        ui_settings_scene_close(&settings);
+        ui_settings_scene_release(&settings);
         renderer_bind_focus_owner(&renderer, &gallery.widgets);
         if (!warm() || !retained_sample(0) || !category_label_clear(gallery, renderer) ||
             !query_geometry(gallery, renderer, &query) ||
@@ -329,7 +329,7 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
         if (!warm())
             return fail();
         renderer_bind_settings_scene(&renderer, nullptr);
-        ui_settings_scene_close(&settings);
+        ui_settings_scene_release(&settings);
         renderer_bind_focus_owner(&renderer, &search.widgets);
         if (!warm() || !retained_sample(0) || !query_geometry(search, renderer, &query) ||
             !ink(readback, 0, query, scale, kDefaultTheme.text_primary))

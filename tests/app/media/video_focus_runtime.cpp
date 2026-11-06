@@ -15,6 +15,8 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../support/window_fixture.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 
 namespace maicord::video_focus_runtime_test {
 u32 confirmations, media_refreshes;

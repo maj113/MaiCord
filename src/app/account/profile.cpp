@@ -629,7 +629,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     g_app.renderer.profile_scene = &p->scene;
     return repaint(true);
 }
-bool application_profile_open_edit(u64 user, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open_edit(u64 user) noexcept {
     if (!g_app.account_ui || user != g_app.account_ui->chat_state.self_user_id || !user)
         return false;
     application_profile_close();

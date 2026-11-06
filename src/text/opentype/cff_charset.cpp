@@ -1,5 +1,4 @@
 #include "cff_internal.hpp"
-#include "maicord/text/base.hpp"
 
 namespace maicord::cff_detail {
 namespace {

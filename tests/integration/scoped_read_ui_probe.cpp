@@ -22,7 +22,6 @@
 #include "notifications/controls.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/protocol/messages/bulk_message_ack.hpp"
 #include "maicord/protocol/messages/ack.hpp"

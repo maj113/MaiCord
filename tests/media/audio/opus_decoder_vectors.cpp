@@ -1,6 +1,5 @@
 #include "../../fixtures/opus_decoder_vectors.inc"
 #include "../../support/opus_vector_decode.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 
 // Fast in-suite subset of tools/opus_conformance.ps1: synthetic streams that

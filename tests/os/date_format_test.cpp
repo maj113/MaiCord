@@ -3,7 +3,6 @@
 // output) and the hour cycle from the locale environment.
 // argv[1]: "12" or "24" is the hour cycle the registry's environment (LC_ALL, LC_TIME, LANG) selects for the default
 // time format; none skips that check.
-#include "maicord/core/memory.hpp"
 #include "maicord/os/date_format.hpp"
 #include "maicord/sys/linux/process.hpp"
 

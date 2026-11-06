@@ -2,7 +2,6 @@
 #include "maicord/text/fonts/catalog.hpp"
 
 #include "maicord/os/file.hpp"
-#include "maicord/text/base.hpp"
 namespace maicord::font_path_stat {
 // Optional one-query metadata read from an already read-locked disk-file handle.
 // False leaves the output untouched and the caller falls back to read_fallback.

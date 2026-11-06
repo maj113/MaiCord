@@ -3,6 +3,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

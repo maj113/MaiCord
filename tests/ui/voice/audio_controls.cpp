@@ -5,7 +5,6 @@
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/theme/presets.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

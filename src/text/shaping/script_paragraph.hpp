@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/text/scripts/latin_paragraph.hpp"
-#include "maicord/core/memory.hpp"
 #include "../layout/unicode_line_geometry.hpp"
 namespace maicord {
 // One resolved script/font item. The printable callback and paragraph collector

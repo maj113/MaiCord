@@ -125,6 +125,18 @@ u64 presentation_handle(UiWidgetHandle handle) noexcept {
     return static_cast<u64>(handle.slot) | (static_cast<u64>(handle.generation) << 16);
 }
 
+// The theme is hundreds of words and changes rarely: it enters a stamp as a
+// digest, folded again only when its bytes differ from the last theme seen.
+u64 theme_digest(const Theme& theme) noexcept {
+    alignas(Theme) static u8 last[sizeof(Theme)];
+    static u64 digest;
+    if (!digest || !bytes_equal(last, &theme, sizeof(theme))) {
+        copy_bytes(last, &theme, sizeof(theme));
+        digest = hash64_bytes(kHash64Seed, &theme, sizeof(theme)) | 1u;
+    }
+    return digest;
+}
+
 StampWriter& StampWriter::widgets(const UiWidgetManager& widgets) noexcept {
     return push(widgets.generation)
         .push(widgets.layout.revision)
@@ -148,7 +160,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (d3d11_renderer_login_form_text(renderer)) {
         const auto& owned = *renderer.login_form_text;
         const auto* form = d3d11_renderer_text_form_active(renderer) ? renderer.text_form->scene : nullptr;
-        s.push(renderer.width).push(renderer.height).push(renderer.dpi).bytes(&theme, sizeof(theme));
+        s.push(renderer.width).push(renderer.height).push(renderer.dpi).push(theme_digest(theme));
         s.pointer(renderer.login_scene);
         if (renderer.login_scene)
             s.widgets(renderer.login_scene->widgets);
@@ -214,7 +226,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(renderer.height)
             .push(renderer.dpi)
             .push(renderer.login_visible)
-            .bytes(&theme, sizeof(theme))
+            .push(theme_digest(theme))
             .pointer(renderer.content_text)
             .push(renderer.glyph_text.allocator.evicted_entries)
             .push(renderer.glyph_text.allocator.full_resets)
@@ -499,7 +511,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         .push(renderer.height)
         .push(renderer.dpi)
         .push(renderer.login_visible)
-        .bytes(&theme, sizeof(theme))
+        .push(theme_digest(theme))
         .pointer(renderer.content_text)
         .pointer(renderer.media_atlas)
         .pointer(renderer.preview_media_atlas);

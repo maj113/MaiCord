@@ -3,6 +3,7 @@
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 MessageSendResponseResult message_send_accept_response(MessageComposerController* controller,

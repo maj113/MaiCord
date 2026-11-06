@@ -5,6 +5,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord::protocol_detail {
 

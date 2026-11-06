@@ -1,4 +1,4 @@
-// twin: src/render/shaders/video_frame.hlsl 9e99f8b4918fea4e
+// twin: src/render/shaders/video_frame.hlsl 46f1661ac3d6b6a7
 // cs_main (STAGE_CS): converts a decoder's luma and chroma planes into RGB at the target (rotation, poster box reduction).
 layout(local_size_x = 8, local_size_y = 8) in;
 

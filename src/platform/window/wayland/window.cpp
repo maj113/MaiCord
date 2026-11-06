@@ -10,7 +10,6 @@
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/settings_map.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
-#include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "backend.hpp"
@@ -27,14 +26,6 @@ constexpr u32 kSeatVersion = 8;
 constexpr u32 kWmBaseVersion = 6;
 constexpr u32 kCreateTimeoutMs = 10000;
 constexpr u32 kDefaultDpi = 96;
-
-bool same(const char* left, const char* right) noexcept {
-    while (*left && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
 
 // Registry ------------------------------------------------------------------------------------------------------------
 
@@ -68,83 +59,83 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
         entry.name[length] = 0;
         entry.version = version;
     }
-    if (same(interface, "wl_compositor")) {
+    if (c_string_equal(interface, "wl_compositor")) {
         if (version >= 4 && !g.compositor) {
             g.compositor_version = minimum(version, kCompositorVersion);
             g.compositor = static_cast<wl_compositor*>(
                 wl_registry_bind(registry, name, &wl_compositor_interface, g.compositor_version));
         }
-    } else if (same(interface, "wl_shm")) {
+    } else if (c_string_equal(interface, "wl_shm")) {
         if (!g.shm)
             g.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
-    } else if (same(interface, "xdg_wm_base")) {
+    } else if (c_string_equal(interface, "xdg_wm_base")) {
         if (!g.wm_base) {
             g.wm_base_version = minimum(version, kWmBaseVersion);
             g.wm_base = static_cast<xdg_wm_base*>(
                 wl_registry_bind(registry, name, &xdg_wm_base_interface, g.wm_base_version));
             xdg_wm_base_add_listener(g.wm_base, &kWmBaseListener, nullptr);
         }
-    } else if (same(interface, "wl_seat")) {
+    } else if (c_string_equal(interface, "wl_seat")) {
         if (!g.seat) {
             g.seat_version = minimum(version, kSeatVersion);
             g.seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, g.seat_version));
             wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
         }
-    } else if (same(interface, "wp_viewporter")) {
+    } else if (c_string_equal(interface, "wp_viewporter")) {
         if (!g.viewporter && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
-    } else if (same(interface, "wp_fractional_scale_manager_v1")) {
+    } else if (c_string_equal(interface, "wp_fractional_scale_manager_v1")) {
         // MAICORD_WAYLAND_NO_FRACTIONAL=1 ignores this protocol and viewporter: the integer scale path (wl_surface
         // buffer scale), for testing it where the compositor offers both.
         if (!g.fractional_manager && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
             g.fractional_manager = static_cast<wp_fractional_scale_manager_v1*>(
                 wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
-    } else if (same(interface, "wp_cursor_shape_manager_v1")) {
+    } else if (c_string_equal(interface, "wp_cursor_shape_manager_v1")) {
         if (!g.cursor_shape_manager)
             g.cursor_shape_manager = static_cast<wp_cursor_shape_manager_v1*>(
                 wl_registry_bind(registry, name, &wp_cursor_shape_manager_v1_interface, 1));
-    } else if (same(interface, "zxdg_decoration_manager_v1")) {
+    } else if (c_string_equal(interface, "zxdg_decoration_manager_v1")) {
         if (!g.decoration_manager)
             g.decoration_manager = static_cast<zxdg_decoration_manager_v1*>(
                 wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1));
-    } else if (same(interface, "wl_data_device_manager")) {
+    } else if (c_string_equal(interface, "wl_data_device_manager")) {
         if (!g.data_manager)
             g.data_manager = static_cast<wl_data_device_manager*>(
                 wl_registry_bind(registry, name, &wl_data_device_manager_interface, minimum(version, 3u)));
-    } else if (same(interface, "zwp_primary_selection_device_manager_v1")) {
+    } else if (c_string_equal(interface, "zwp_primary_selection_device_manager_v1")) {
         if (!g.primary_manager)
             g.primary_manager = static_cast<zwp_primary_selection_device_manager_v1*>(
                 wl_registry_bind(registry, name, &zwp_primary_selection_device_manager_v1_interface, 1));
-    } else if (same(interface, "zwp_text_input_manager_v3")) {
+    } else if (c_string_equal(interface, "zwp_text_input_manager_v3")) {
         if (!g.text_input_manager)
             g.text_input_manager = static_cast<zwp_text_input_manager_v3*>(
                 wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1));
-    } else if (same(interface, "xdg_activation_v1")) {
+    } else if (c_string_equal(interface, "xdg_activation_v1")) {
         if (!g.activation_manager)
             g.activation_manager = static_cast<xdg_activation_v1*>(
                 wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1));
-    } else if (same(interface, "zwp_idle_inhibit_manager_v1")) {
+    } else if (c_string_equal(interface, "zwp_idle_inhibit_manager_v1")) {
         if (!g.idle_manager)
             g.idle_manager = static_cast<zwp_idle_inhibit_manager_v1*>(
                 wl_registry_bind(registry, name, &zwp_idle_inhibit_manager_v1_interface, 1));
-    } else if (same(interface, "zxdg_exporter_v2")) {
+    } else if (c_string_equal(interface, "zxdg_exporter_v2")) {
         if (!g.exporter_manager)
             g.exporter_manager = static_cast<zxdg_exporter_v2*>(
                 wl_registry_bind(registry, name, &zxdg_exporter_v2_interface, 1));
-    } else if (same(interface, "ext_idle_notifier_v1")) {
+    } else if (c_string_equal(interface, "ext_idle_notifier_v1")) {
         if (!g.idle_notifier) {
             g.idle_notifier_version = minimum(version, 2u);
             g.idle_notifier = static_cast<ext_idle_notifier_v1*>(
                 wl_registry_bind(registry, name, &ext_idle_notifier_v1_interface, g.idle_notifier_version));
         }
-    } else if (same(interface, "xdg_system_bell_v1")) {
+    } else if (c_string_equal(interface, "xdg_system_bell_v1")) {
         if (!g.bell)
             g.bell = static_cast<xdg_system_bell_v1*>(wl_registry_bind(registry, name, &xdg_system_bell_v1_interface, 1));
-    } else if (same(interface, "xdg_toplevel_icon_manager_v1")) {
+    } else if (c_string_equal(interface, "xdg_toplevel_icon_manager_v1")) {
         if (!g.icon_manager)
             g.icon_manager = static_cast<xdg_toplevel_icon_manager_v1*>(
                 wl_registry_bind(registry, name, &xdg_toplevel_icon_manager_v1_interface, 1));
-    } else if (same(interface, "wl_output")) {
+    } else if (c_string_equal(interface, "wl_output")) {
         // Version 2 reports the integer scale; the output is only tracked when the window needs it.
         if (version >= 2)
             extras_output_added(static_cast<wl_output*>(
@@ -440,10 +431,6 @@ u32 latest_input_serial() noexcept {
 } // namespace
 
 // Shared with the other files -----------------------------------------------------------------------------------------
-
-u32 dpi_of_scale(u32 scale_120) noexcept {
-    return scale_to_dpi(scale_120);
-}
 
 float pixel_scale() noexcept {
     return static_cast<float>(g.window.dpi) / static_cast<float>(kDefaultDpi);

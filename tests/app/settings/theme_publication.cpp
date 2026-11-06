@@ -3,8 +3,6 @@
 #include "settings/custom_theme.hpp"
 #include "effects/effects.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/time.hpp"
 #include "../../support/test_output.hpp"
 
 // The shipping theme publication (src/app/settings/theme_publication.cpp) under a fixture clock: its glides step once

@@ -1,5 +1,4 @@
 #pragma once
-#include "text_input.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
 namespace maicord::app_detail {
 struct ApplicationComposerTextInput {

@@ -1,6 +1,5 @@
 #include "maicord/protocol/http/cookie_jar.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

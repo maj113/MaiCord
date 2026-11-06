@@ -1,5 +1,4 @@
 #include "position_anchor.hpp"
-#include "maicord/text/base.hpp"
 namespace maicord::position_detail {namespace {
 inline bool spend(u64* operations,u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;*operations+=amount;return true;}
 }

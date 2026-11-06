@@ -7,6 +7,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {

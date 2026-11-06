@@ -7,12 +7,8 @@
 #include "catalog.hpp"
 #include "../voice/settings.hpp"
 #include "maicord/app/account/login/oauth_sign_in.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/settings/scene.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/render/text/edit_layout.hpp"
-#include "../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace settings_detail {}

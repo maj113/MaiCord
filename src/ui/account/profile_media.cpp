@@ -4,7 +4,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/chat_state.hpp"

@@ -60,6 +60,16 @@ constexpr bool ascii_is_alnum(char value) noexcept {
     return static_cast<u8>(value - '0') < 10 || static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
 }
 
+// Without leading and trailing ASCII whitespace.
+constexpr Utf8View ascii_trim(Utf8View text) noexcept {
+    u32 first = 0, last = text.bytes;
+    while (first < last && ascii_is_space(text.data[first]))
+        ++first;
+    while (last > first && ascii_is_space(text.data[last - 1]))
+        --last;
+    return {text.data + first, last - first};
+}
+
 __declspec(noinline) constexpr bool ascii_equal_ignore_case(const Utf8View& left, const Utf8View& right) noexcept {
     if (left.bytes != right.bytes)
         return false;

@@ -1,4 +1,4 @@
-// twin: src/render/shaders/vp8_atlas.hlsl 85ebf4a0764ab6d6
+// twin: src/render/shaders/vp8_atlas.hlsl 383daebc204822d9
 // vp8_to_atlas (STAGE_CS): reconstructed VP8 planes (fancy chroma upsampling, optional alpha) into the media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
 

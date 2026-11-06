@@ -342,7 +342,6 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         if (store && store->active && !ui_store_scene_text_output(*store, theme, &output, false))
             return false;
         boundaries->settings_preview_end = emitter->count;
-        boundaries->form_start = emitter->count;
         boundaries->popup_start = boundaries->popup_end = emitter->count;
         boundaries->settings_choice_start = emitter->count;
         const auto* popup = d3d11_renderer_settings_popup(*renderer);
@@ -439,7 +438,7 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         !message_action_bar_text_presentation_build_output(*renderer->message_action_bar, theme, &output))
         return false;
     boundaries->profile_start = emitter->count;
-    if (!settings && renderer->profile_scene) {
+    if (renderer->profile_scene) {
         const auto profile_edit = d3d11_renderer_profile_edit_geometry(*renderer);
         if (!profile_scene_text_output(*renderer->profile_scene, theme, &output, &profile_edit))
             return false;
@@ -502,12 +501,12 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     if (d3d11_renderer_active(renderer->reaction_viewer) &&
         !reaction_viewer_text_presentation_build_output(*renderer->reaction_viewer, theme, &output))
         return false;
-    if (!settings && renderer->image_viewer &&
+    if (renderer->image_viewer &&
         !ui_image_viewer_text_output(*renderer->image_viewer, theme, &output))
         return false;
     boundaries->theme_editor_start = emitter->count;
     // Hosted video time glyphs follow their bar in the viewer's upper layer.
-    if (!settings && d3d11_renderer_viewer_video_visible(*renderer) &&
+    if (d3d11_renderer_viewer_video_visible(*renderer) &&
         !ui_video_scene_text_output(*renderer->video_scene, theme, &output, renderer->image_viewer->owner))
         return false;
 
@@ -522,8 +521,6 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     boundaries->forum_end = emitter->count;
     return (!form || text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
                                            theme, &output)) &&
-           (!renderer_settings_page_visible(*renderer) ||
-            ui_settings_scene_text_output(*renderer->settings_scene, theme, &output)) &&
            (!d3d11_renderer_tooltip_visible(*renderer) ||
             ui_tooltip_text_output(*renderer->tooltip_scene, theme, &output)) &&
            project_toast_text(renderer, theme, &output, boundaries);

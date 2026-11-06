@@ -4,7 +4,6 @@
 // created once.
 #include "../kdf_internal.hpp"
 #include "openssl.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

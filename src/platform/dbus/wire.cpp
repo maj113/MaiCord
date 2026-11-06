@@ -1,5 +1,6 @@
 #include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/wire.hpp"
 #include "maicord/sys/linux/calls.hpp"
 
@@ -26,13 +27,6 @@ u32 alignment_of(char type) noexcept {
     default:
         return 4;  // b i u s o a h
     }
-}
-
-u32 string_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
 }
 
 // Signatures ---------------------------------------------------------------------------------------------------------
@@ -210,7 +204,7 @@ u32 signature_type_length(const char* signature) noexcept {
 }
 
 bool signature_valid(const char* signature) noexcept {
-    if (!signature || string_length(signature) > kMaxSignature)
+    if (!signature || c_string_length(signature) > kMaxSignature)
         return false;
     while (*signature) {
         const u32 length = type_length(signature, 0);
@@ -307,16 +301,16 @@ void builder_string(Builder* builder, const char* text, u32 length) noexcept {
 }
 
 void builder_string(Builder* builder, const char* text) noexcept {
-    put_string(builder, text, string_length(text), false);
+    put_string(builder, text, c_string_length(text), false);
 }
 
 void builder_object_path(Builder* builder, const char* path) noexcept {
-    put_string(builder, path, string_length(path), true);
+    put_string(builder, path, c_string_length(path), true);
 }
 
 void builder_signature(Builder* builder, const char* signature) noexcept {
     note(builder, "g", 1);
-    const u32 length = string_length(signature);
+    const u32 length = c_string_length(signature);
     if (!signature_valid(signature)) {
         builder->failed = true;
         return;
@@ -349,7 +343,7 @@ void builder_unix_fd(Builder* builder, int fd) noexcept {
 }
 
 void builder_open_array(Builder* builder, const char* element_signature) noexcept {
-    const u32 length = string_length(element_signature);
+    const u32 length = c_string_length(element_signature);
     if (type_length(element_signature, 0) != length) {
         builder->failed = true;
         return;
@@ -379,7 +373,7 @@ void builder_close_array(Builder* builder) noexcept {
 }
 
 void builder_open_struct(Builder* builder, const char* full_signature) noexcept {
-    const u32 length = string_length(full_signature);
+    const u32 length = c_string_length(full_signature);
     if (full_signature[0] != '(' || type_length(full_signature, 0) != length) {
         builder->failed = true;
         return;
@@ -403,7 +397,7 @@ void builder_close_entry(Builder* builder) noexcept {
 }
 
 void builder_open_variant(Builder* builder, const char* value_signature) noexcept {
-    const u32 length = string_length(value_signature);
+    const u32 length = c_string_length(value_signature);
     if (type_length(value_signature, 0) != length) {
         builder->failed = true;
         return;

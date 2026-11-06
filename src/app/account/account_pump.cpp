@@ -783,7 +783,7 @@ bool application_pump_account() noexcept {
         return false;
     if (!application_scoped_read_menu_refresh())
         return false;
-    if (!application_read_state_observe(now_ms))
+    if (!application_read_state_observe())
         log_write(LogLevel::warning, "read", "automatic_ack_not_admitted");
     // Start model-ready requests before presentation work so their worker can
     // connect/receive while the UI prepares text. Coalesce coordinator and model

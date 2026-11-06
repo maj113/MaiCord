@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 
 // The updater's on-disk helpers on Linux (stage.cpp). The stage and the replaced install are directories there, where
 // Windows has one executable file each, so what Windows removes with file_remove is a tree here.

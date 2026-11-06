@@ -4,9 +4,7 @@
 #include "maicord/platform/window/win32.hpp"
 
 #include "internal.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 

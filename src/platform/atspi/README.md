@@ -19,9 +19,9 @@ and registers the application root with the registry (`org.a11y.atspi.Socket.Emb
   screen coordinates equal window coordinates.
 - Password fields expose no text.
 - The host is `src/app/accessibility/linux`: callbacks over the shared snapshot and `access_act` (deferred actions arrive as
-  `wake_accessibility` events in `application_window_event`), the status announcements of the Windows server
-  (`accessibility_status.cpp`) and the frame hook. `accessibility_describe.cpp` and `accessibility_actions.cpp` are shared with
-  Windows, so a new describer or action needs no AT-SPI work.
+  `wake_accessibility` events in `application_window_event`) and the frame hook. The snapshot (`accessibility_describe.cpp`),
+  the actions (`accessibility_actions.cpp`) and the status announcements (`accessibility_status.cpp`) are shared with
+  Windows, so a new describer, action or announcement needs no AT-SPI work.
 
 ## Tests
 

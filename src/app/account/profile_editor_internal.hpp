@@ -5,19 +5,16 @@
 #include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../settings/catalog.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
-#include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 
 
 #include <stddef.h>
 #include "maicord/app/account/account_profile_edit.hpp"
-#include "maicord/app/media/account_media.hpp"
+#include "maicord/app/media/local_draft_preview.hpp"
 
 namespace maicord::app_detail {
 namespace profile_editor_detail {}

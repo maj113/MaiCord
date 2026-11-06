@@ -10,6 +10,7 @@
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
+#include "../chat/channel_authority.hpp"
 
 namespace maicord::app_detail {
 
@@ -479,26 +480,16 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("attachment_request_failed", requested, key);
-    if (requested.state == AccountMediaRequestState::refresh_required) {
+    const bool target_failed =
+        requested.state == AccountMediaRequestState::failed && requested.error == AccountMediaError::target;
+    if (requested.state == AccountMediaRequestState::refresh_required || target_failed) {
         if (search_store) {
             message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
             return true;
         }
-        result.history_requested =
-            message_history_attachment_queue(&application.attachment_refresh, message.channel_id,
-                                             message.id, message.revision, attachment.id) ||
-            result.history_requested;
-        *stop_scan = true;
-        return true;
-    }
-    if (requested.state == AccountMediaRequestState::failed &&
-        requested.error == AccountMediaError::target) {
-        if (search_store) {
-            message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
-            return true;
-        }
-        log_u64(LogLevel::warning, "media", "attachment_url_refresh_error",
-                static_cast<u64>(requested.attachment_url_error));
+        if (target_failed)
+            log_u64(LogLevel::warning, "media", "attachment_url_refresh_error",
+                    static_cast<u64>(requested.attachment_url_error));
         result.history_requested =
             message_history_attachment_queue(&application.attachment_refresh, message.channel_id,
                                              message.id, message.revision, attachment.id) ||

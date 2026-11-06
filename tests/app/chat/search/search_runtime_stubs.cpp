@@ -1,6 +1,8 @@
 #include "search_runtime_internal.hpp"
 #include "../../../../src/app/shell/content_input.hpp"
 #include "application_search_measurement.hpp"
+#include "../../../../src/app/chat/polls/poll.hpp"
+#include "maicord/ui/chat/polls/controls.hpp"
 
 namespace maicord {
 bool renderer_bind_search_message_text_presentation(D3D11Renderer* renderer,

@@ -27,6 +27,7 @@
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
+#include "maicord/ui/settings/scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

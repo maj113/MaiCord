@@ -191,10 +191,9 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
     gpu_paged_texture_release(&gpu->surface);
     gpu->texture_view = nullptr;
     animation_frame_cache_reset(&gpu->cache);
-    AnimationFramePresentation* values = presentations(gpu);
-    for (u32 index = 0; values && index < gpu->storage.presentations.capacity; ++index) {
-        reset_value<AnimationFramePresentation>(&values[index]);
-    }
+    if (AnimationFramePresentation* values = presentations(gpu))
+        clear_bytes(values, gpu->storage.presentations.capacity *
+                                static_cast<u32>(sizeof(AnimationFramePresentation)));
 }
 
 void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept {

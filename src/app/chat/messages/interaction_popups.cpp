@@ -8,6 +8,8 @@
 #include "maicord/ui/shell/navigation_context.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "../../plugins/surface_host.hpp"
+#include "../../account/profile.hpp"
+#include "../composer/commands.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {

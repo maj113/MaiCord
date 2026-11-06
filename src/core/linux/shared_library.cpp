@@ -1,5 +1,6 @@
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/process.hpp"
 
@@ -21,14 +22,6 @@ constexpr const char* kFallbackDirectories[] = {
     "/lib64",
     "/lib",
 };
-
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length]) {
-        ++length;
-    }
-    return length;
-}
 
 bool contains_slash(const char* text) noexcept {
     for (; *text; ++text) {
@@ -63,7 +56,7 @@ bool shared_library_open(SharedLibrary* library, const char* name) noexcept {
         library->handle = dlopen(name, kDlNow | kDlLocal);
         return library->handle != nullptr;
     }
-    const u32 name_length = text_length(name);
+    const u32 name_length = c_string_length(name);
     const char* search = environment_get("MAICORD_LIBRARY_PATH");
     while (search && *search && !library->handle) {
         const char* end = search;
@@ -80,7 +73,7 @@ bool shared_library_open(SharedLibrary* library, const char* name) noexcept {
         if (library->handle) {
             break;
         }
-        library->handle = open_in(directory, text_length(directory), name, name_length);
+        library->handle = open_in(directory, c_string_length(directory), name, name_length);
     }
     return library->handle != nullptr;
 }

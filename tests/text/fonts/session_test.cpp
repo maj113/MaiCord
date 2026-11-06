@@ -1,6 +1,5 @@
 #include "maicord/text/fonts/prepare.hpp"
 #include "maicord/text/fonts/run.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {

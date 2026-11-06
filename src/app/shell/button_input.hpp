@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/base.hpp"
 
 #include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {

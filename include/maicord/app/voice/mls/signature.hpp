@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/platform/crypto/p256.hpp"
-#include "maicord/protocol/auth/p256_signature.hpp"
 
 namespace maicord {
 enum class MlsSignatureError : u8 {

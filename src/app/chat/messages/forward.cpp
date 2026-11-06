@@ -235,7 +235,7 @@ bool application_message_forward_synchronize() noexcept {
         return true;
     }
     const u32 previous = q->controller.candidates.revision;
-    message_forward_synchronize(&q->controller, scope(), sources(), message_composer_text(q->edit),
+    message_forward_synchronize(&q->controller, current, sources(), message_composer_text(q->edit),
         &g_app.account_ui->message_composer_controller);
     if (!q->controller.initialized || !available()) { application_message_forward_close(); return true; }
     if (!q->active) return true;

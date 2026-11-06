@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/text/style.hpp"

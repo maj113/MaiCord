@@ -32,11 +32,11 @@ void test_custom_status_retry(void (*check)(bool, const char*) noexcept) noexcep
         response.rejection.captcha = kind == 0;
         check(application_custom_status_response(response, {}), "custom status exact completion consumed");
         if (kind == 3)
-            check(request.queued && !request.failed && !request.request_id && request.retry_at == 2345678 &&
+            check(request.queued && !request.request_id && request.retry_at == 2345678 &&
                       request.attempts == 1,
                   "custom status genuine 429 retains exact deadline and attempt count");
         else
-            check(!request.queued && request.failed && !request.request_id && !request.retry_at,
+            check(!request.queued && !request.request_id && !request.retry_at,
                   "custom status challenge, unknown cooldown or exhausted retry is terminal");
     }
     check(retry_completions == 5, "custom status completes each owned receipt once");

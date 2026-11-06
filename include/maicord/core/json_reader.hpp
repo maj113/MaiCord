@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/json_scan.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 

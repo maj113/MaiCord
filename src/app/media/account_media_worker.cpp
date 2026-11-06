@@ -2,6 +2,7 @@
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {

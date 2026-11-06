@@ -2,6 +2,7 @@
 #include "maicord/protocol/messages/create.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/http/rest.hpp"
+#include "maicord/protocol/http/https_upload.hpp"
 
 namespace maicord {
 namespace {

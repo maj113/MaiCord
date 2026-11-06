@@ -8,7 +8,6 @@
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

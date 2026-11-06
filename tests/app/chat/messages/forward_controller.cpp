@@ -2,9 +2,9 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
-#include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
 
 namespace maicord {
 namespace {

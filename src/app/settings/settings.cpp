@@ -508,7 +508,7 @@ void application_settings_close(bool restore_focus) noexcept {
     settings->notifications_active = false;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&settings->scene);
+    ui_settings_scene_release(&settings->scene);
     application_preferences_apply();
     application_sync_attachment_drop_target();
     if (restore_focus && g_app.account_ui && !g_app.login.visible) {

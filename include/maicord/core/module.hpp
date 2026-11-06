@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
 
 #if defined(_WIN32)

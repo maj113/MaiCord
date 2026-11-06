@@ -8,6 +8,7 @@
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/protocol/user/settings_proto.hpp"
 
 namespace maicord::app_detail {
 // Guild folder layout writes share the settings lane; none run here.

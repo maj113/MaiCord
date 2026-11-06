@@ -13,6 +13,7 @@
 #include "render/d3d11/renderer_caption.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "../support/test_output.hpp"
+#include "maicord/gpu/api.hpp"
 
 #if defined(_WIN32)
 #include "../integration/probe_surface.hpp"

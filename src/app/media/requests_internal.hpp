@@ -1,19 +1,10 @@
 #pragma once
 // Shared by requests.cpp and its parts (requests_*.cpp); private to them.
 #include "pump.hpp"
-#include "../chat/channel_authority.hpp"
 #include "picker.hpp"
 #include "../chat/composer/preview.hpp"
-#include "image_viewer.hpp"
 
-#include "maicord/core/log.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
-#include "maicord/ui/core/geometry.hpp"
-#include "../chat/search/search.hpp"
-#include "maicord/ui/shell/quick_switcher_scene.hpp"
-#include "maicord/ui/chat/polls/voters_avatar_media.hpp"
 
 namespace maicord::app_detail {
 namespace requests_detail {}

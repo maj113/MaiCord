@@ -24,13 +24,11 @@
 #include "maicord/platform/audio/speech.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/protocol/guild/admin.hpp"
-#include "maicord/platform/window/clipboard.hpp"
 #include "../plugins/plugins.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/account/user_context_menu.hpp"
 #include "account_access.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

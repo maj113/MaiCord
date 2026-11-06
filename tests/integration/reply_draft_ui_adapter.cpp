@@ -12,7 +12,6 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/widgets/button_keyboard.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/app/gateway/client_event.hpp"

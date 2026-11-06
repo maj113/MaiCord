@@ -1,4 +1,4 @@
-// twin: src/render/shaders/colr_paint.hlsl 6bcdee881a9484ca
+// twin: src/render/shaders/colr_paint.hlsl 88e4d5ed75a07d31
 // colr_paint (STAGE_CS): the COLRv1 postfix paint evaluator. Results are premultiplied sRGB and retained in an RGBA
 // atlas; no paint-tree work runs when drawing a cached glyph. Variants: COLR_STACK_SIZE (paint stack depth, 8),
 // COLR_LAYERS (the sliced plan evaluator below) with COLR_SLICES threads per pixel (8).

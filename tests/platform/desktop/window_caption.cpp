@@ -10,7 +10,6 @@
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

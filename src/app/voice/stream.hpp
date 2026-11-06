@@ -4,7 +4,6 @@
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/core/geometry.hpp"
 
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {

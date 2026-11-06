@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/account/account_module_api.hpp"
-#include "maicord/protocol/user/settings_proto.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "catalog.hpp"

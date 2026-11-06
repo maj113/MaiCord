@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/arena.hpp"
-#include "maicord/platform/font/system_font_locator.hpp"
 
 namespace maicord::font_locator {
 

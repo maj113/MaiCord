@@ -1,4 +1,3 @@
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
@@ -27,13 +26,6 @@ struct State {
 };
 
 State g_state;
-
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
 
 bool equal_ignore_case(const char* a, u32 a_length, const char* b) noexcept {
     u32 i = 0;
@@ -140,8 +132,8 @@ bool ini_value(const char* utf8_path, const char* section, const char* key, char
     u32 line_length = 0;
     bool in_section = false;
     bool overflow = false;
-    const u32 section_length = text_length(section);
-    const u32 key_length = text_length(key);
+    const u32 section_length = c_string_length(section);
+    const u32 key_length = c_string_length(key);
     // The line in `line` is complete.
     auto handle = [&]() noexcept {
         if (overflow) {

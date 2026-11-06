@@ -1,6 +1,5 @@
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/surfaces.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/plugins/render.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "plugins/surfaces_internal.hpp"

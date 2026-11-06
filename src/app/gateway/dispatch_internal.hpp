@@ -1,6 +1,5 @@
 #pragma once
 // Shared by dispatch.cpp and its parts (dispatch_*.cpp); private to them.
-#include "maicord/core/memory.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 
 #include "relationship_dispatch.hpp"

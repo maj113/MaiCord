@@ -9,8 +9,6 @@
 #include "maicord/app/voice/send.hpp"
 
 #include "maicord/core/byte_queue.hpp"
-#include "maicord/core/deadline.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/reserved_bytes.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/time.hpp"
@@ -18,7 +16,6 @@
 #include "maicord/protocol/gateway/etf.hpp"
 #include "maicord/protocol/gateway/endpoint.hpp"
 #include "maicord/protocol/gateway/qos_token.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/gateway/session.hpp"
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
@@ -34,9 +31,7 @@
 #include "self_status_test.hpp"
 #endif
 
-#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/interlocked.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/os/wait.hpp"
 

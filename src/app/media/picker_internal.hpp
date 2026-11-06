@@ -1,26 +1,14 @@
 #pragma once
 // Shared by picker.cpp and its parts (picker_*.cpp); private to them.
 #include "picker.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
 #include "../shell/state.hpp"
-#include "../chat/messages/history.hpp"
 #include "../chat/messages/mutation_notice.hpp"
-#include "../chat/messages/reaction.hpp"
-#include "gif_favorites.hpp"
-#include "../shell/surface_motion.hpp"
-#include "maicord/model/chat/reaction_preferences.hpp"
-#include "maicord/ui/text/emoji_catalog.hpp"
-#include "maicord/ui/core/transition.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/app/media/account_media_catalog.hpp"
-#include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/ui/chat/messages/reaction_picker.hpp"
-#include "maicord/core/utf.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 #include <limits.h>
+#include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
 namespace picker_detail {}

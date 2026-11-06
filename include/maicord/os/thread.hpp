@@ -2,7 +2,6 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/os/wait.hpp"
 
 // Threads, sleeping and processor count (D17), with the Win32 semantics the shared code uses: a thread is

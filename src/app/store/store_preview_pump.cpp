@@ -4,7 +4,6 @@
 #include "../shell/state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/image/apng.hpp"
 #include "maicord/render/d3d11/renderer.hpp"

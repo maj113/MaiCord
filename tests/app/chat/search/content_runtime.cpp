@@ -1,6 +1,5 @@
 #include "shell/state.hpp"
 #include "chat/search/content.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../support/test_output.hpp"

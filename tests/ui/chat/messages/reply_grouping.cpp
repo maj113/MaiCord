@@ -6,6 +6,7 @@
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/ui/chat/messages/unread_divider.hpp"
 #include "maicord/app/chat/messages/send_tracker.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

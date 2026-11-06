@@ -1,8 +1,8 @@
 #include "maicord/model/chat/message_search.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/messages/card_excerpt.hpp"
 #include "maicord/model/chat/message_rich_store.hpp"
+#include "maicord/protocol/gateway/events.hpp"
 
 namespace maicord {
 namespace {

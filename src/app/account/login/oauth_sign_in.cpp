@@ -113,7 +113,6 @@ bool receive(Runtime& r) noexcept {
     secure_clear_bytes(r.wire.data + 8192, kOAuthCodeBytes);
     AcquireSRWLockExclusive(&r.lock);
     if (r.status.phase == Phase::exchanging) {
-        r.status.http_status = result.status;
         r.status.error = result.error;
         if (deadline_due(clock_monotonic_milliseconds(), r.deadline)) r.status.phase = Phase::expired;
         else if (result.ok() && secure_buffer_transfer(&r.tokens, &tokens)) r.status.phase = Phase::ready;

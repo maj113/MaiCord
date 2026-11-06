@@ -1,7 +1,6 @@
 // The icon names plugins give their buttons and decoration nodes ("lucide/star") as UiIcon values.
 #include "surfaces_internal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 
 namespace maicord {

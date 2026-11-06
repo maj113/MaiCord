@@ -1,9 +1,7 @@
 #pragma once
 #include "maicord/core/color_hex.hpp"
-#include "maicord/ui/text/secure_edit.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "../threads/forum_post.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

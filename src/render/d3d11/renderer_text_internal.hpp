@@ -3,9 +3,6 @@
 #include "maicord/ui/chat/messages/interaction.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 
-#include "maicord/core/hash.hpp"
-#include "maicord/ui/voice/audio_presentation.hpp"
-#include "maicord/ui/chat/polls/presentation.hpp"
 
 #include "renderer_interaction_state.hpp"
 

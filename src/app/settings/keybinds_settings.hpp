@@ -14,7 +14,7 @@ u32 application_custom_keybinds_revision() noexcept;
 // and the read-only default shortcuts from the registry. Push to talk edits
 // the voice preferences' key, the same one Voice settings records.
 void application_keybinds_settings_visible(bool visible) noexcept;
-bool application_keybinds_settings_project(SettingBinding, UiSettingsControl*, UiSettingsControlPresentation*) noexcept;
+bool application_keybinds_settings_project(SettingBinding, UiSettingsControl*) noexcept;
 // Expands keybinds_custom and keybinds_defaults into rows after their node.
 u32 application_keybinds_settings_list(SettingBinding, Slice<UiSettingsControl>,
                                        Slice<UiSettingsControlPresentation>) noexcept;

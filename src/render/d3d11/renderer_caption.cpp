@@ -3,7 +3,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
@@ -11,6 +10,7 @@
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 

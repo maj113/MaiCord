@@ -1,10 +1,9 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/dropped_files.hpp"
 #include "maicord/platform/window/event.hpp"
-#include "maicord/ui/text/secure_text_store.hpp"
+#include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
 
@@ -46,9 +45,6 @@ inline bool input_held(const WindowEvent& event, PointerButton button = PointerB
 }
 inline bool input_shift(const WindowEvent& event) noexcept {
     return (event.modifiers & mod_shift) != 0;
-}
-inline bool input_control(const WindowEvent& event) noexcept {
-    return (event.modifiers & mod_ctrl) != 0;
 }
 // Vertical and horizontal wheel notches (WM_MOUSEWHEEL, WM_MOUSEHWHEEL): a horizontal one carries no vertical
 // delta.
@@ -104,13 +100,6 @@ inline bool input_plain_key(const WindowEvent& event) noexcept {
 // The previous-state bit of a key message: set on auto-repeat and on every release.
 inline bool input_key_was_down(const WindowEvent& event) noexcept {
     return event.type == EventType::key_up || input_repeated(event);
-}
-
-// The position of a pointer event packed as the lparam of a client mouse message, for the click handlers that still
-// take one (they move to events with the core switch, and this goes with them).
-inline i64 input_lparam(const WindowEvent& event) noexcept {
-    return static_cast<i64>(static_cast<u32>(static_cast<u16>(static_cast<i16>(event.pointer.x))) |
-                            (static_cast<u32>(static_cast<u16>(static_cast<i16>(event.pointer.y))) << 16));
 }
 // The DPI a scale_changed event or a resize names (the scale is 120 * dpi / 96, rounded down).
 inline u32 input_dpi(const WindowEvent& event) noexcept {

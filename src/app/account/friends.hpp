@@ -3,7 +3,6 @@
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/ui/widgets/presence.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord {
@@ -14,15 +13,6 @@ struct GatewayClientEvent;
 
 namespace maicord::app_detail {
 const RelationshipStore* application_friends_relationships() noexcept;
-// Relationship presence as a UI dot; `unknown` is what an unreported presence shows.
-constexpr UiPresence application_friends_presence(RelationshipPresence value,
-                                                  UiPresence unknown = UiPresence::unknown) noexcept {
-    return value == RelationshipPresence::online    ? UiPresence::online
-           : value == RelationshipPresence::idle    ? UiPresence::idle
-           : value == RelationshipPresence::dnd     ? UiPresence::busy
-           : value == RelationshipPresence::offline ? UiPresence::offline
-                                                    : unknown;
-}
 bool application_friends_active() noexcept;
 bool application_friends_requests_active() noexcept;
 void application_friends_close_requests() noexcept;

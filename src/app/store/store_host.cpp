@@ -21,7 +21,6 @@
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"

@@ -2,6 +2,7 @@
 #include "../../src/core/json_reader.cpp"
 
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace json_string_probe {

@@ -7,7 +7,6 @@
 #include "maicord/text/scripts/hebrew_shape_run.hpp"
 #include "maicord/text/opentype/nominal_sources.hpp"
 #include "maicord/text/unicode/grapheme.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 #include "../unicode/generated/alphabetic_composition_data.inc"

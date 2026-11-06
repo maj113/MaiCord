@@ -8,7 +8,6 @@
 #include "maicord/media/image/png.hpp"
 #include "../../media/image/png_common.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

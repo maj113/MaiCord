@@ -89,11 +89,6 @@ struct LogEvent {
         append("\"");
         return *this;
     }
-    LogEvent& field_signed(const char* key, i64 value) noexcept {
-        char digits[22];
-        digits[decimal_write_signed(digits, value)] = 0;
-        return field(key, digits);
-    }
     // "key=0x1F": masks, handles and identifiers that read better in hex.
     __declspec(noinline) LogEvent& hex(const char* key, u64 value) noexcept {
         char digits[19] = {'0', 'x'};

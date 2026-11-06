@@ -2,6 +2,7 @@
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "renderer_layout.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace renderer_layout_detail {

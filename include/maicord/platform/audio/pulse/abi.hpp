@@ -95,7 +95,6 @@ inline constexpr u32 kInvalid = 0xFFFFFFFFu; // PA_INVALID_INDEX, and the "serve
 
 inline constexpr i32 kSampleS16LE = 3;      // PA_SAMPLE_S16LE
 inline constexpr i32 kSampleFloat32LE = 5;  // PA_SAMPLE_FLOAT32LE
-inline constexpr u32 kVolumeNormal = 0x10000u; // PA_VOLUME_NORM
 
 inline constexpr i32 kContextNoAutospawn = 1; // PA_CONTEXT_NOAUTOSPAWN
 inline constexpr i32 kContextReady = 4;       // PA_CONTEXT_READY
@@ -112,8 +111,6 @@ inline constexpr u32 kStreamInterpolateTiming = 0x2u; // PA_STREAM_INTERPOLATE_T
 inline constexpr u32 kStreamAutoTimingUpdate = 0x8u;  // PA_STREAM_AUTO_TIMING_UPDATE
 inline constexpr u32 kStreamAdjustLatency = 0x2000u;  // PA_STREAM_ADJUST_LATENCY
 
-inline constexpr i32 kOperationRunning = 0; // PA_OPERATION_RUNNING
-
 inline constexpr i32 kSeekRelative = 0; // PA_SEEK_RELATIVE
 
 inline constexpr u32 kSubscribeSink = 0x1u;    // PA_SUBSCRIPTION_MASK_SINK
@@ -126,8 +123,6 @@ inline constexpr u32 kEventSource = 1u;         // PA_SUBSCRIPTION_EVENT_SOURCE
 inline constexpr u32 kEventServer = 7u;         // PA_SUBSCRIPTION_EVENT_SERVER
 inline constexpr u32 kEventNew = 0x0u;          // PA_SUBSCRIPTION_EVENT_NEW
 inline constexpr u32 kEventRemove = 0x20u;      // PA_SUBSCRIPTION_EVENT_REMOVE
-
-inline constexpr i32 kErrorNoData = 16; // PA_ERR_NODATA
 
 // Callbacks run on libpulse's mainloop thread.
 using ContextNotifyCb = void (*)(Context*, void*) noexcept;

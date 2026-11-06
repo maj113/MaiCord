@@ -6,7 +6,6 @@
 #include "../shell/panel_cover.hpp"
 #include "../shell/state.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

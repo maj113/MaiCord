@@ -1,7 +1,6 @@
 #include "unicode_line_geometry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/unicode/unicode.hpp"
-#include "maicord/text/base.hpp"
 #include "../opentype/layout_float.hpp"
 namespace maicord {
 namespace {

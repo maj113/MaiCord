@@ -1,6 +1,5 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/os/wait.hpp"
 #include "maicord/platform/dbus/connection.hpp"
 #include "maicord/platform/dbus/session.hpp"

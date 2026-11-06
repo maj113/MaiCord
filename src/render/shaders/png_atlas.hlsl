@@ -18,19 +18,8 @@ cbuffer PngAtlasConstants : register(b0) {
 };
 
 ByteAddressBuffer reconstructed_scanlines : register(t0);
-#if defined(__spirv__)
-// ES 3.1 has no texture buffers without an extension: a read-only storage buffer takes the same index syntax.
-StructuredBuffer<uint> palette_rgba : register(t1);
-// ES 3.1 images of this format are either read-only or write-only: the atlas is bound twice, and the
-// over-blend reads through the second view.
-[[vk::image_format("rgba8")]]
-RWTexture2D<unorm float4> media_atlas : register(u0);
-[[vk::image_format("rgba8")]]
-RWTexture2D<unorm float4> media_atlas_read : register(u1);
-#else
 Buffer<uint> palette_rgba : register(t1);
 RWTexture2D<unorm float4> media_atlas : register(u0);
-#endif
 
 uint load_byte(uint offset) {
     const uint packed = reconstructed_scanlines.Load(offset & ~3u);
@@ -141,11 +130,7 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
         uint2(destination_x + x, destination_y + dispatch_id.y);
     float4 result = float4(rgba) / 255.0f;
     [branch] if (blend_over && rgba.a != 255u) {
-#if defined(__spirv__)
-        result += media_atlas_read[destination] * (1.0f - result.a);
-#else
         result += media_atlas[destination] * (1.0f - result.a);
-#endif
     }
     media_atlas[destination] = result;
 }

@@ -6,9 +6,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#if !defined(_WIN32)
 #include "../app/plugins/plugin_fixture.hpp"
-#endif
 
 // The ABI-6 UI fixture (tests/fixtures/plugin_ui_fixture.c) enabled through the real plugin runtime, for the
 // tests of the application's side of plugin menus: a private temporary plugins directory, the DLL copied next
@@ -99,37 +97,12 @@ struct Fixture {
         binding = enabled.ok() ? enabled.binding : nullptr;
         return binding != nullptr;
     }
-#if defined(_WIN32)
-    void remove_tree(const wchar_t* directory) noexcept {
-        wchar_t pattern[MAX_PATH];
-        join(pattern, directory, L"*");
-        WIN32_FIND_DATAW found;
-        HANDLE find = FindFirstFileW(pattern, &found);
-        if (find != INVALID_HANDLE_VALUE) {
-            do {
-                if (found.cFileName[0] == L'.' &&
-                    (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2])))
-                    continue;
-                wchar_t child[MAX_PATH];
-                join(child, directory, found.cFileName);
-                if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-                else DeleteFileW(child);
-            } while (FindNextFileW(find, &found));
-            FindClose(find);
-        }
-        RemoveDirectoryW(directory);
-    }
-#else
-    void remove_tree(const wchar_t* directory) noexcept {
-        plugin_fixture::remove_tree(directory);
-    }
-#endif
     // Disables anything left, closes the runtime and deletes the private directory.
     void release() noexcept {
         disable();
         if (opened) plugin_runtime_close(&runtime);
         opened = false;
-        if (base[0]) remove_tree(base);
+        if (base[0]) plugin_fixture::remove_tree(base);
         base[0] = 0;
     }
 };

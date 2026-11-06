@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/base.hpp"
 #include "maicord/platform/window/window.hpp"
 
 // What the user's desktop does with a link or a file: ShellExecute on Windows (inline forwarders,

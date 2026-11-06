@@ -5,7 +5,6 @@
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
 #include "maicord/core/data_path.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 
 // The client's catalog configuration and the hosts the service calls. Build inputs from CMake:

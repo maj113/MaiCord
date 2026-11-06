@@ -1,6 +1,5 @@
 #include "maicord/media/audio/notification_pcm.hpp"
 #include "../../fixtures/notification_pcm_fixture.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

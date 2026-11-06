@@ -46,17 +46,9 @@ constexpr MimeName kMimes[] = {
     {"x-special/gnome-copied-files", mime_gnome_files},
 };
 
-bool same(const char* left, const char* right) noexcept {
-    while (*left && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
-
 u32 mime_bit(const char* mime) noexcept {
     for (const MimeName& entry : kMimes)
-        if (same(mime, entry.name))
+        if (c_string_equal(mime, entry.name))
             return entry.bit;
     return 0;
 }

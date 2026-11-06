@@ -5,7 +5,6 @@
 #include "maicord/text/scripts/arabic_shape_run.hpp"
 #include "maicord/text/scripts/arabic_joining.hpp"
 #include "maicord/text/unicode/grapheme.hpp"
-#include "maicord/text/base.hpp"
 
 namespace maicord {
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,

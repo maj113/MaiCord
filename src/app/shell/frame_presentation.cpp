@@ -75,8 +75,8 @@
 #include "maicord/ui/chat/messages/typing_indicator.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/gpu/api.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

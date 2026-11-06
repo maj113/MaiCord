@@ -1,10 +1,8 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/ui/layout/splitter.hpp"
 #include "state.hpp"
 
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

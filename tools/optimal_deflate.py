@@ -430,6 +430,19 @@ def zlib_stream(data, iterations=48):
     return stream
 
 
+def zlib_best(data):
+    """The smallest zlib stream of ``data`` among zlib level 9's memory levels and strategies (the fallback encoder)."""
+    best = None
+    for mem in (8, 9):
+        for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
+            compressor = zlib.compressobj(9, zlib.DEFLATED, 15, mem, strategy)
+            out = compressor.compress(data) + compressor.flush()
+            if best is None or len(out) < len(best):
+                best = out
+    assert zlib.decompress(best) == data
+    return best
+
+
 CACHE_PATH = pathlib.Path(__file__).with_name("deflate_cache.txt")
 
 

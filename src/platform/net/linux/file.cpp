@@ -8,7 +8,6 @@
 // whose entry has not been submitted yet would let the number be reused by an unrelated open.
 #include "internal.hpp"
 #include "maicord/os/file.hpp"
-#include "maicord/os/thread.hpp"
 
 namespace maicord {
 namespace {

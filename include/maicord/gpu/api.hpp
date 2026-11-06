@@ -174,25 +174,6 @@ MAICORD_GPU_INLINE GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBuffe
                                                GpuBuffer** buffer);
 MAICORD_GPU_INLINE GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc,
                                                 const GpuInitialData* initial, GpuTexture** texture);
-// What gpu_texture_info reads of a texture (size, format, usage, bind bits): enough to make another texture like it
-// at another height. The backend defines the type.
-struct GpuTextureInfo;
-#if !defined(_WIN32)
-struct GpuTextureInfo {
-    u32 width, height;
-    GpuFormat format;
-    GpuUsage usage;
-    u8 bind;
-};
-#endif
-MAICORD_GPU_INLINE void gpu_texture_info(GpuTexture* texture, GpuTextureInfo* info);
-MAICORD_GPU_INLINE u32 gpu_texture_info_width(const GpuTextureInfo& info);
-MAICORD_GPU_INLINE u32 gpu_texture_info_height(const GpuTextureInfo& info);
-// Makes a texture with the info's width, format, usage and bind bits at `height`, no initial data. The info becomes
-// that texture's (its height is `height`; with copy_only it has no bind bits: the texture is only a copy source and
-// destination, a disposal backup), so the creation builds nothing beyond it.
-MAICORD_GPU_INLINE GpuStatus gpu_texture_create_from_info(GpuDevice* device, GpuTextureInfo& info, u32 height,
-                                                          bool copy_only, GpuTexture** texture);
 MAICORD_GPU_INLINE GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDesc& desc,
                                             GpuSrv** view);
 MAICORD_GPU_INLINE GpuStatus gpu_srv_create(GpuDevice* device, GpuBuffer* buffer, const GpuViewDesc& desc,

@@ -3,6 +3,7 @@
 
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

@@ -2,11 +2,8 @@
 // Shared by account_media_worker.cpp and its parts (account_media_worker_*.cpp); private to them.
 #include "maicord/app/media/account_media_worker.hpp"
 
-#include "maicord/core/deadline.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "account_media_video_internal.hpp"
-#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace account_media_worker_detail {}

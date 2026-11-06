@@ -6,8 +6,6 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "../shell/state.hpp"
 #include "../settings/catalog.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {

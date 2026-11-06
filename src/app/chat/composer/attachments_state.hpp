@@ -1,5 +1,4 @@
 #pragma once
-#include "attachments.hpp"
 #include "maicord/app/chat/composer/message_attachment_drafts.hpp"
 #include "../../media/upload_lane.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"

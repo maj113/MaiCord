@@ -2,7 +2,6 @@
 #include "forum_post.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

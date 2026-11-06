@@ -11,7 +11,6 @@
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
 #include "maicord/core/data_path.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/core/scratch_pages.hpp"

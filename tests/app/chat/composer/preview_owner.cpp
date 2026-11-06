@@ -1,7 +1,6 @@
 #include "../../../../src/app/chat/composer/attachments_state.hpp"
 #include "../../../../src/app/chat/composer/preview.hpp"
 #include "../../../../src/app/shell/state.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

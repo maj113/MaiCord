@@ -1,5 +1,5 @@
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 
 namespace maicord::dbus {
@@ -9,19 +9,6 @@ constexpr const char* kBusName = "org.freedesktop.DBus";
 constexpr const char* kBusPath = "/org/freedesktop/DBus";
 constexpr const char* kPortalName = "org.freedesktop.portal.Desktop";
 constexpr u32 kMaxWatches = 8;
-
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
 
 // Name watching -------------------------------------------------------------------------------------------------------
 
@@ -79,7 +66,7 @@ void on_owner_reply(void* context, Status status, const Message* reply) noexcept
 
 bool owns_property(const ExportedObject& object, const char* interface, const char* name) noexcept {
     for (u32 i = 0; i < object.property_count; ++i)
-        if (text_equal(object.properties[i].interface, interface) && text_equal(object.properties[i].name, name))
+        if (c_string_equal(object.properties[i].interface, interface) && c_string_equal(object.properties[i].name, name))
             return true;
     return false;
 }
@@ -141,7 +128,7 @@ bool connection_release_name(Connection* c, const char* name, u32 timeout_ms) no
 }
 
 u32 connection_watch_name(Connection* c, const char* name, NameWatchHandler handler, void* context) noexcept {
-    const u32 length = text_length(name);
+    const u32 length = c_string_length(name);
     if (length >= sizeof(Watch::name))
         return 0;
     for (u32 i = 0; i < kMaxWatches; ++i) {
@@ -184,7 +171,7 @@ void connection_unwatch_name(Connection* c, u32 id) noexcept {
 bool object_handle_standard(Connection* c, const Message& call, const ExportedObject& object) noexcept {
     if (!call.interface)
         return false;
-    if (text_equal(call.interface, "org.freedesktop.DBus.Introspectable") && text_equal(call.member, "Introspect")) {
+    if (c_string_equal(call.interface, "org.freedesktop.DBus.Introspectable") && c_string_equal(call.member, "Introspect")) {
         if (!object.introspection) {
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.UnknownMethod", "no introspection data");
             return true;
@@ -197,7 +184,7 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
                                      object.property_count ? "<interface name=\"org.freedesktop.DBus.Properties\"/>" : "",
                                      "<interface name=\"org.freedesktop.DBus.Introspectable\"/></node>"};
         for (const char* part : parts) {
-            const u32 length = text_length(part);
+            const u32 length = c_string_length(part);
             if (length > sizeof(text) - used) {
                 connection_reply_error(c, call, "org.freedesktop.DBus.Error.Failed", "introspection too long");
                 return true;
@@ -212,13 +199,13 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         builder_release(&body);
         return true;
     }
-    if (!text_equal(call.interface, "org.freedesktop.DBus.Properties"))
+    if (!c_string_equal(call.interface, "org.freedesktop.DBus.Properties"))
         return false;
     Reader r;
     message_reader(call, &r);
     const char* interface = nullptr;
     const char* name = nullptr;
-    if (text_equal(call.member, "Get")) {
+    if (c_string_equal(call.member, "Get")) {
         if (!reader_string(&r, &interface, nullptr) || !reader_string(&r, &name, nullptr)) {
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "Get(ss)");
             return true;
@@ -235,7 +222,7 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         builder_release(&body);
         return true;
     }
-    if (text_equal(call.member, "GetAll")) {
+    if (c_string_equal(call.member, "GetAll")) {
         if (!reader_string(&r, &interface, nullptr)) {
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "GetAll(s)");
             return true;
@@ -244,7 +231,7 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         builder_init(&body);
         builder_open_array(&body, "{sv}");
         for (u32 i = 0; i < object.property_count; ++i) {
-            if (!text_equal(object.properties[i].interface, interface))
+            if (!c_string_equal(object.properties[i].interface, interface))
                 continue;
             builder_open_entry(&body);
             builder_string(&body, object.properties[i].name);
@@ -262,7 +249,7 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         builder_release(&body);
         return true;
     }
-    if (text_equal(call.member, "Set")) {
+    if (c_string_equal(call.member, "Set")) {
         connection_reply_error(c, call, "org.freedesktop.DBus.Error.PropertyReadOnly", "read-only property");
         return true;
     }
@@ -291,7 +278,7 @@ bool portal_request_begin(PortalRequest* request, Connection* c, PortalResponseH
         request->path[length++] = *p == '.' ? '_' : *p;
     }
     request->path[length++] = '/';
-    copy_bytes(request->path + length, request->token, text_length(request->token) + 1);
+    copy_bytes(request->path + length, request->token, c_string_length(request->token) + 1);
     if (!listen(request))
         return false;
     request->active = true;
@@ -306,10 +293,10 @@ void portal_request_end(PortalRequest* request) noexcept {
 }
 
 void portal_request_adopt(PortalRequest* request, const char* path) noexcept {
-    if (!request->active || text_equal(path, request->path) || text_length(path) >= sizeof(request->path))
+    if (!request->active || c_string_equal(path, request->path) || c_string_length(path) >= sizeof(request->path))
         return;
     connection_unsubscribe(request->connection, request->subscription);
-    copy_bytes(request->path, path, text_length(path) + 1);
+    copy_bytes(request->path, path, c_string_length(path) + 1);
     if (!listen(request))
         request->active = false;
 }

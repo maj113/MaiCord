@@ -9,8 +9,8 @@ struct TextEffectMaterial {
     float animate; float3 reserved;
 };
 #if defined(__spirv__)
-// std140 aligns a float3 to 16 bytes, but the host packs `reserved` right after `animate`. The buffer's copy of
-// a material names the three scalars and TEXT_EFFECT rebuilds the struct above from it.
+// std140 aligns a float3 to 16 bytes, but the host packs `reserved` right after `animate`: the reference layout
+// tools/check_cbuffer_layout.py compares the GLSL twin's block with (no compiler reads this branch).
 struct TextEffectStorage {
     float4 colors[8];
     float left, width, kind, count;
@@ -25,23 +25,7 @@ cbuffer TextEffects : register(b1) {
     TextEffectMaterial effects[128];
 #endif
 };
-#if defined(__spirv__)
-TextEffectMaterial text_effect(uint index) {
-    const TextEffectStorage stored = effects[index];
-    TextEffectMaterial material;
-    material.colors = stored.colors;
-    material.left = stored.left;
-    material.width = stored.width;
-    material.kind = stored.kind;
-    material.count = stored.count;
-    material.animate = stored.animate;
-    material.reserved = float3(stored.reserved_x, stored.reserved_y, stored.reserved_z);
-    return material;
-}
-#define TEXT_EFFECT(index) text_effect(index)
-#else
 #define TEXT_EFFECT(index) effects[index]
-#endif
 
 struct GlyphVertexInput {
     float4 rectangle : RECT;

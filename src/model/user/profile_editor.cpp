@@ -1,12 +1,10 @@
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/color_hex.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
-bool same(Utf8View a, Utf8View b) noexcept {
-    return utf8_equal(a, b);
-}
 u32 codepoints(Utf8View text) noexcept {
     const auto checked = utf8_validate(text);
     return checked.valid ? checked.codepoints : ~0u;
@@ -76,11 +74,11 @@ Utf8View profile_editor_gate_reason(ProfileEditorTab tab, ProfileEditorGate gate
 
 u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base, const ProfileEditorDraft& draft) noexcept {
     u16 changed = 0;
-    if (!same(base.name, draft.name))
+    if (!utf8_equal(base.name, draft.name))
         changed |= profile_editor_name;
-    if (!same(base.pronouns, draft.pronouns))
+    if (!utf8_equal(base.pronouns, draft.pronouns))
         changed |= profile_editor_pronouns;
-    if (!same(base.bio, draft.bio))
+    if (!utf8_equal(base.bio, draft.bio))
         changed |= profile_editor_bio;
     if (image_changed(draft.avatar, base.avatar))
         changed |= profile_editor_avatar;

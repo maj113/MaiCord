@@ -1,6 +1,7 @@
 #include "maicord/app/account/login/continuations.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

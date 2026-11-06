@@ -5,11 +5,11 @@
 #include "maicord/core/reserved_bytes.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/chat/chat_state.hpp"
-#include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/protocol/gateway/runtime.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/gateway/session.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord {
 namespace ready_projection_probe {

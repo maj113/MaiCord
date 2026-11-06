@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/arena.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/model/chat/edit_history.hpp"
 #include "maicord/model/chat/input_target.hpp"
 

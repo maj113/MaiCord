@@ -36,6 +36,7 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
+#include "maicord/ui/layout/splitter.hpp"
 
 namespace maicord::app_detail {
 namespace {

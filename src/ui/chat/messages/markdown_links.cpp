@@ -10,7 +10,7 @@ namespace markdown_detail {
 void source_byte(Parser* parser, u32 offset, char value, u32 flags) noexcept {
     SourceSink& sink = *parser->source_sink;
     flags |= sink.active_style;
-    if (parser->emoji_only && !ascii_space(value)) flags |= text_style_jumbo_emoji;
+    if (parser->emoji_only && !ascii_is_space(value)) flags |= text_style_jumbo_emoji;
     if (!sink.have_previous || flags != sink.previous_flags) {
         if (flags) ++sink.transformed_runs;
         sink.previous_flags = flags;
@@ -31,10 +31,6 @@ void source_byte(Parser* parser, u32 offset, char value, u32 flags) noexcept {
         return;
     }
     sink.spans[sink.span_count++] = {offset, 1, flags};
-}
-
-bool ascii_space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
 }
 
 // JavaScript \s beyond ASCII (U+0085 is not part of it).
@@ -74,7 +70,7 @@ bool emit_byte(Parser* parser, char value, u32 added_style, u32 source_offset) n
         return false;
     }
     parser->output[parser->output_bytes] = value;
-    const u32 jumbo = parser->emoji_only && !ascii_space(value) ? text_style_jumbo_emoji : 0u;
+    const u32 jumbo = parser->emoji_only && !ascii_is_space(value) ? text_style_jumbo_emoji : 0u;
     parser->styles[parser->output_bytes] =
         parser->line_style | parser->persistent_style | added_style | jumbo;
     ++parser->output_bytes;
@@ -386,7 +382,7 @@ bool valid_url(Utf8View input, u32 begin, u32 end) noexcept {
         return false;
     }
     for (u32 offset = begin; offset < end; ++offset) {
-        if (ascii_space(input.data[offset]) || input.data[offset] == '<' || input.data[offset] == '>') {
+        if (ascii_is_space(input.data[offset]) || input.data[offset] == '<' || input.data[offset] == '>') {
             return false;
         }
     }
@@ -409,21 +405,21 @@ bool masked_link_target(Utf8View input, u32 open, u32* url_begin, u32* url_end, 
     const u32 begin = at;
     while (at < limit) {
         const char value = input.data[at];
-        if (value == '\\' && at + 1 < limit && !ascii_space(input.data[at + 1])) {
+        if (value == '\\' && at + 1 < limit && !ascii_is_space(input.data[at + 1])) {
             at += 2;
             continue;
         }
         if (value == '(') {
             u32 inner = at + 1;
             while (inner < limit && input.data[inner] != ')' && input.data[inner] != '(' &&
-                   !ascii_space(input.data[inner]))
+                   !ascii_is_space(input.data[inner]))
                 ++inner;
             if (inner >= limit || input.data[inner] != ')')
                 return false;
             at = inner + 1;
             continue;
         }
-        if (value == ')' || ascii_space(value) || (angle && value == '>'))
+        if (value == ')' || ascii_is_space(value) || (angle && value == '>'))
             break;
         ++at;
     }
@@ -530,7 +526,7 @@ u32 autolink_bytes(Utf8View input, u32 begin) noexcept {
     u32 end = begin + scheme;
     while (end < input.bytes && end - begin < 4'096) {
         const char value = input.data[end];
-        if (ascii_space(value) || value == '<')
+        if (ascii_is_space(value) || value == '<')
             break;
         if (static_cast<u8>(value) >= 0x80) {
             const Utf8DecodeResult decoded = utf8_decode_one(input.data + end, input.bytes - end);
@@ -823,7 +819,7 @@ bool emit_chip_name(const Chip& chip, Utf8View name) noexcept {
     }
     if (units <= 32)
         return emit_view(chip.parser, name, chip.style);
-    while (kept && (ascii_space(name.data[kept - 1]) || name.data[kept - 1] == '.'))
+    while (kept && (ascii_is_space(name.data[kept - 1]) || name.data[kept - 1] == '.'))
         --kept;
     return emit_view(chip.parser, {name.data, kept}, chip.style) &&
            emit_view(chip.parser, utf8_literal("\xE2\x80\xA6"), chip.style);

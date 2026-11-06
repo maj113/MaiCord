@@ -3,6 +3,7 @@
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

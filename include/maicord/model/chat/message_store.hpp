@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/arena.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {

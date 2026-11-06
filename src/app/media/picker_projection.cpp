@@ -16,6 +16,8 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/app/media/account_media.hpp"
+#include "../chat/messages/history.hpp"
+#include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
 namespace picker_detail {

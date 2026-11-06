@@ -629,7 +629,7 @@ bool application_read_state_retry_channel_unread(u64 channel_id) noexcept {
         return false;
     return queue_manual(*g_app.read_state, g_app.read_state->failed_manual);
 }
-bool application_read_state_observe(u64) noexcept {
+bool application_read_state_observe() noexcept {
     application_read_state_ready();
     if (g_app.read_state)
         maintain_selected(*g_app.read_state);

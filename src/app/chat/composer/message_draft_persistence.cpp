@@ -7,7 +7,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -29,11 +28,6 @@ MessageDraftPersistenceResult success(u32 bytes, u32 records, u32 discarded = 0)
 MessageDraftPersistenceResult failure(MessageDraftPersistenceError error, u32 native_error = 0,
                                       u32 bytes = 0) noexcept {
     return MessageDraftPersistenceResult{bytes, 0, 0, native_error, error};
-}
-
-bool text_boundary(const Utf8View& text, u32 offset) noexcept {
-    return offset <= text.bytes &&
-           (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
 }
 
 bool store_valid(const MessageDraftStore& store) noexcept {
@@ -62,8 +56,8 @@ bool store_valid(const MessageDraftStore& store) noexcept {
         }
         const Utf8View text{reinterpret_cast<const char*>(store.text + record.text_offset),
                             record.text_bytes};
-        if (!utf8_validate(text).valid || !text_boundary(text, record.anchor) ||
-            !text_boundary(text, record.caret)) {
+        if (!utf8_validate(text).valid || !utf8_is_boundary(text, record.anchor) ||
+            !utf8_is_boundary(text, record.caret)) {
             return false;
         }
     }
@@ -296,7 +290,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
             return failure(MessageDraftPersistenceError::format);
         }
         const Utf8View text{reinterpret_cast<const char*>(texts + text_cursor), bytes};
-        if (!utf8_validate(text).valid || !text_boundary(text, anchor) || !text_boundary(text, caret)) {
+        if (!utf8_validate(text).valid || !utf8_is_boundary(text, anchor) || !utf8_is_boundary(text, caret)) {
             return failure(MessageDraftPersistenceError::format);
         }
         if (reply_message_id == 0 && blank_after_trim(text)) {

@@ -1,8 +1,7 @@
 #include "maicord/ui/chat/inbox_scene.hpp"
 #include "maicord/ui/chat/inbox_avatar_media.hpp"
-#include "maicord/ui/theme/background_surface.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/text/presentation.hpp"
+#include "maicord/ui/core/paint.hpp"
 
 namespace maicord {
 namespace {

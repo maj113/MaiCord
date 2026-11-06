@@ -22,8 +22,6 @@ enum PrivateChannelRequestFlag : u8 {
 enum class PrivateSafetyWarning : u8 {
     none,
     stranger_danger = 1,
-    inappropriate_conversation_tier_1 = 2,
-    inappropriate_conversation_tier_2 = 3,
     likely_account_takeover = 4,
 };
 struct PrivateChannelRecord {

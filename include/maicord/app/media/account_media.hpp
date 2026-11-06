@@ -7,7 +7,6 @@
 #include "maicord/media/containers/track_info.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
 #include "maicord/app/media/attachment_media_probe.hpp"
-#include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
 

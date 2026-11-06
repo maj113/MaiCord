@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/instance.hpp"
@@ -56,33 +57,11 @@ const char kApplicationIntrospection[] =
     "<arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
     "</interface>";
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 bool equal_nocase_prefix(const char* text, const char* lower_prefix) noexcept {
     for (u32 i = 0; lower_prefix[i]; ++i)
         if (!text[i] || (text[i] | 0x20) != lower_prefix[i])
             return false;
     return true;
-}
-
-void copy_text(char* out, u32 capacity, const char* text) noexcept {
-    u32 length = text ? text_length(text) : 0;
-    if (length >= capacity)
-        length = capacity - 1;
-    if (length)
-        copy_bytes(out, text, length);
-    out[length] = 0;
 }
 
 u64 hash_of(const char* a, const char* b) noexcept {
@@ -125,10 +104,10 @@ void read_platform_data(Reader* r, char (&token)[kLaunchTokenCapacity]) noexcept
         if (!reader_enter_struct(r) || !reader_string(r, &key, nullptr) || !reader_enter_variant(r, &signature))
             break;
         if (signature[0] == 's' &&
-            (text_equal(key, "activation-token") || (text_equal(key, "desktop-startup-id") && !token[0]))) {
+            (c_string_equal(key, "activation-token") || (c_string_equal(key, "desktop-startup-id") && !token[0]))) {
             const char* value = nullptr;
             if (reader_string(r, &value, nullptr))
-                copy_text(token, sizeof(token), value);
+                c_string_copy(token, sizeof(token), value);
         }
         if (!reader_leave(r) || !reader_leave(r))  // the variant, then the entry
             break;
@@ -139,14 +118,14 @@ bool application_call(void*, Connection* c, const Message& call) noexcept {
     const ExportedObject object{nullptr, 0, nullptr, nullptr, kApplicationIntrospection};
     if (object_handle_standard(c, call, object))
         return true;
-    if (!call.interface || !text_equal(call.interface, kApplicationInterface))
+    if (!call.interface || !c_string_equal(call.interface, kApplicationInterface))
         return false;
     Reader r;
     message_reader(call, &r);
     LaunchRequest request{};
-    if (text_equal(call.member, "Activate")) {
+    if (c_string_equal(call.member, "Activate")) {
         read_platform_data(&r, request.activation_token);
-    } else if (text_equal(call.member, "Open")) {
+    } else if (c_string_equal(call.member, "Open")) {
         if (!reader_enter_array(&r)) {
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "Open(as a{sv})");
             return true;
@@ -163,7 +142,7 @@ bool application_call(void*, Connection* c, const Message& call) noexcept {
             return true;
         }
         read_platform_data(&r, request.activation_token);
-    } else if (text_equal(call.member, "ActivateAction")) {
+    } else if (c_string_equal(call.member, "ActivateAction")) {
         // Actions are not defined: the application comes forward.
     } else {
         return false;
@@ -315,7 +294,7 @@ bool read_all(int fd, u8* bytes, u32 count, u64 deadline) noexcept {
 
 // magic, flags (bit 0 startup, bit 1 url), url bytes, token bytes, then the url and the token.
 u32 encode_request(const LaunchRequest& request, u8* out) noexcept {
-    const u32 token_bytes = text_length(request.activation_token);
+    const u32 token_bytes = c_string_length(request.activation_token);
     const u32 flags = (request.startup ? 1u : 0u) | (request.url_present ? 2u : 0u);
     const u32 url_bytes = request.url_present ? request.url_bytes : 0;
     copy_bytes(out, &kSocketMagic, 4);
@@ -422,12 +401,12 @@ bool launch_parse(int argc, const char* const* argv, LaunchRequest* request) noe
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         const char* link = nullptr;
-        if (text_equal(arg, "--startup")) {
+        if (c_string_equal(arg, "--startup")) {
             request->startup = true;
             continue;
         }
-        if (text_equal(arg, "--url")) {
-            if (i + 1 < argc && text_equal(argv[i + 1], "--"))
+        if (c_string_equal(arg, "--url")) {
+            if (i + 1 < argc && c_string_equal(argv[i + 1], "--"))
                 ++i;
             if (i + 1 < argc)
                 link = argv[++i];
@@ -436,7 +415,7 @@ bool launch_parse(int argc, const char* const* argv, LaunchRequest* request) noe
         }
         if (!link)
             continue;
-        const u32 length = text_length(link);
+        const u32 length = c_string_length(link);
         if (length >= kLaunchUrlCapacity)
             return false;
         copy_bytes(request->url, link, length + 1);
@@ -446,7 +425,7 @@ bool launch_parse(int argc, const char* const* argv, LaunchRequest* request) noe
     const char* token = environment_get("XDG_ACTIVATION_TOKEN");
     if (!token || !*token)
         token = environment_get("DESKTOP_STARTUP_ID");
-    copy_text(request->activation_token, sizeof(request->activation_token), token);
+    c_string_copy(request->activation_token, sizeof(request->activation_token), token);
     return true;
 }
 
@@ -458,7 +437,7 @@ bool instance_bus_name(const char* application_id, const char* profile_key, char
                        u32 path_capacity) noexcept {
     if (!application_id)
         return false;
-    const u32 length = text_length(application_id);
+    const u32 length = c_string_length(application_id);
     u32 elements = 1;
     bool element_start = true;
     for (u32 i = 0; i < length; ++i) {
@@ -512,8 +491,8 @@ InstanceResult instance_acquire(const InstanceConfig& config, const LaunchReques
     // A test forces one backend ("socket": no bus; "bus": no socket); in a shipped client the bus is tried first and
     // the socket is the answer when there is none.
     const char* forced = test_hook("MAICORD_INSTANCE_BACKEND");
-    const bool bus_allowed = !(forced && text_equal(forced, "socket"));
-    const bool socket_allowed = !(forced && text_equal(forced, "bus"));
+    const bool bus_allowed = !(forced && c_string_equal(forced, "socket"));
+    const bool socket_allowed = !(forced && c_string_equal(forced, "bus"));
 
     if (bus_allowed && session_bus_open()) {
         Connection* c = session_bus();

@@ -1,7 +1,6 @@
 // maicord/os/file.hpp on Linux: directory enumeration (getdents64) and the directory watch (inotify, or a timed
 // scan on file systems that do not report changes made elsewhere).
 #include "maicord/os/file.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/path.hpp"

@@ -113,7 +113,7 @@ UiForumGrid ui_forum_grid(float width, UiForumLayout layout, const UiForumStyle&
     width = maximum(1.f, width);
     if (layout == UiForumLayout::list) return {1, width, s.list_card_height, s.card_gap};
     u32 columns = static_cast<u32>((width + s.card_gap) / (s.gallery_min_width + s.card_gap));
-    columns = columns < 1 ? 1 : columns > 6 ? 6 : columns;
+    columns = clamp_value(columns, 1u, 6u);
     return {columns, (width - s.card_gap * static_cast<float>(columns - 1)) / static_cast<float>(columns),
         s.gallery_card_height, s.card_gap};
 }

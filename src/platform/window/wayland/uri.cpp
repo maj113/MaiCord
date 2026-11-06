@@ -1,5 +1,5 @@
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/heap.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/platform/window/wayland/uri.hpp"
 #include "maicord/sys/linux/path.hpp"
 
@@ -7,16 +7,6 @@ namespace maicord::wayland {
 namespace {
 
 constexpr u32 kPathCapacity = 4096;
-
-i32 hex_digit(char c) noexcept {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
 
 bool starts_with(const char* text, u32 length, const char* prefix) noexcept {
     u32 i = 0;
@@ -35,8 +25,8 @@ bool uri_percent_decode(const char* text, u32 length, char* output, u32 capacity
         if (c == '%') {
             if (i + 2 >= length)
                 return false;
-            const i32 first = hex_digit(text[i + 1]);
-            const i32 second = hex_digit(text[i + 2]);
+            const i32 first = ascii_hex_value(text[i + 1]);
+            const i32 second = ascii_hex_value(text[i + 2]);
             if (first < 0 || second < 0)
                 return false;
             c = static_cast<char>(first * 16 + second);

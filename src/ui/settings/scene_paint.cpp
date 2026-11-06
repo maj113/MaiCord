@@ -2,6 +2,7 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/widgets/kit.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -658,8 +659,7 @@ bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             const bool dot = row.badge == kUiSettingsNavDot;
             p.use<ui_settings_nav_badge_paint>(
                 t, ui_settings_nav_badge_rect(node->rectangle, dot,
-                                              dot ? 0.f : ui_kit_text_width(scene.measure, nav_badge_label(row.badge), kUiKitTextSmallBold)),
-                dot);
+                                              dot ? 0.f : ui_kit_text_width(scene.measure, nav_badge_label(row.badge), kUiKitTextSmallBold)));
         }
     }
     return p.end();

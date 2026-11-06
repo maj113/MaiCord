@@ -353,7 +353,7 @@ bool application_profile_open(u64 user, const UiRect&, ProfileAnchor) noexcept {
     account_menu_runtime_test::viewed_user = user;
     return true;
 }
-bool application_profile_open_edit(u64 user, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open_edit(u64 user) noexcept {
     ++account_menu_runtime_test::edits;
     account_menu_runtime_test::edited_user = user;
     return true;

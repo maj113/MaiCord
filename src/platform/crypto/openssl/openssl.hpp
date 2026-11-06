@@ -30,7 +30,6 @@ struct Param {
     usize data_size;
     usize return_size;
 };
-inline constexpr u32 kParamUnsignedInteger = 2; // OSSL_PARAM_UNSIGNED_INTEGER
 inline constexpr u32 kParamUtf8String = 4;      // OSSL_PARAM_UTF8_STRING
 inline constexpr u32 kParamOctetString = 5;     // OSSL_PARAM_OCTET_STRING
 inline constexpr usize kParamUnmodified = ~usize{0};
@@ -46,7 +45,6 @@ inline constexpr Param param_octets(const char* key, const void* value, usize le
 }
 
 // Why the libraries cannot be used.
-inline constexpr u32 kFailureNone = 0;
 inline constexpr u32 kFailureLibrary = 1;  // no libcrypto/libssl of a supported soname
 inline constexpr u32 kFailureSymbol = 2;   // a function of the tables is missing
 inline constexpr u32 kFailureTrust = 3;    // no certificate authorities (TLS context)
@@ -62,7 +60,6 @@ inline constexpr int kKeyTypeEc = 408;             // EVP_PKEY_EC
 inline constexpr int kRsaOaepPadding = 4;          // RSA_PKCS1_OAEP_PADDING
 inline constexpr int kBioSetMemoryEofReturn = 130; // BIO_C_SET_BUF_MEM_EOF_RETURN
 inline constexpr int kSslCtrlMode = 33;            // SSL_CTRL_MODE
-inline constexpr int kSslCtrlSetSessionCacheMode = 44; // SSL_CTRL_SET_SESS_CACHE_MODE
 inline constexpr int kSslCtrlSetHostname = 55;     // SSL_CTRL_SET_TLSEXT_HOSTNAME
 inline constexpr int kSslCtrlSetMinimumVersion = 123; // SSL_CTRL_SET_MIN_PROTO_VERSION
 inline constexpr long kSslModeReleaseBuffers = 0x10; // SSL_MODE_RELEASE_BUFFERS
@@ -74,7 +71,6 @@ inline constexpr int kSslErrorNone = 0;       // SSL_ERROR_NONE
 inline constexpr int kSslErrorSsl = 1;        // SSL_ERROR_SSL
 inline constexpr int kSslErrorWantRead = 2;   // SSL_ERROR_WANT_READ
 inline constexpr int kSslErrorWantWrite = 3;  // SSL_ERROR_WANT_WRITE
-inline constexpr int kSslErrorSyscall = 5;    // SSL_ERROR_SYSCALL
 inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
 
 // libcrypto: F(return type, name, (argument types)).

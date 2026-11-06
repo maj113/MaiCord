@@ -1,9 +1,7 @@
 #include "maicord/app/voice/account_stage.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 // Capture-the-submission: every stage request reaches the transport with the
 // official client's exact target, method, route bucket and JSON body.

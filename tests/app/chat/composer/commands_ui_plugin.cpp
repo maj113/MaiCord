@@ -8,9 +8,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
-#if !defined(_WIN32)
 #include "../../plugins/plugin_fixture.hpp"
-#endif
 
 // Plugin slash commands in the composer: the picker lists the plugin as an app section, option chips and
 // their validation come from its typed arguments, Enter runs the command and its reply lands where it
@@ -35,36 +33,8 @@ u32 length(const wchar_t* text) noexcept {
     while (text[count]) ++count;
     return count;
 }
-#if defined(_WIN32)
-void join(wchar_t (&output)[MAX_PATH], const wchar_t* directory, const wchar_t* name) noexcept {
-    u32 at = 0;
-    for (; directory[at]; ++at) output[at] = directory[at];
-    output[at++] = L'\\';
-    for (u32 i = 0; name[i]; ++i) output[at++] = name[i];
-    output[at] = 0;
-}
-void remove_tree(const wchar_t* directory) noexcept {
-    wchar_t pattern[MAX_PATH];
-    join(pattern, directory, L"*");
-    WIN32_FIND_DATAW found;
-    HANDLE find = FindFirstFileW(pattern, &found);
-    if (find != INVALID_HANDLE_VALUE) {
-        do {
-            if (found.cFileName[0] == L'.' && (!found.cFileName[1] || (found.cFileName[1] == L'.' && !found.cFileName[2])))
-                continue;
-            wchar_t child[MAX_PATH];
-            join(child, directory, found.cFileName);
-            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) remove_tree(child);
-            else DeleteFileW(child);
-        } while (FindNextFileW(find, &found));
-        FindClose(find);
-    }
-    RemoveDirectoryW(directory);
-}
-#else
 using plugin_fixture::join;
 using plugin_fixture::remove_tree;
-#endif
 
 // What the application side of the plugin UI was asked to show.
 struct Shown {

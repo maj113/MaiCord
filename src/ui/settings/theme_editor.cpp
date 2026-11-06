@@ -43,17 +43,11 @@ float clamp(float v, float lo = 0, float hi = 1) noexcept {
 bool unit(float v) noexcept {
     return v >= 0 && v <= 1;
 }
-bool range(UiThemeEditorElement e) noexcept {
-    return e == UiThemeEditorElement::sv || e == UiThemeEditorElement::hue ||
-           e == UiThemeEditorElement::direction || e == UiThemeEditorElement::intensity ||
-           e == UiThemeEditorElement::speed || e == UiThemeEditorElement::strength ||
-           e == UiThemeEditorElement::density;
-}
 bool control(UiThemeEditorElement e) noexcept {
     return at(e) >= at(UiThemeEditorElement::close) && e != UiThemeEditorElement::effect_label;
 }
 bool slider(UiThemeEditorElement e) noexcept {
-    return range(e) && e != UiThemeEditorElement::sv && e != UiThemeEditorElement::hue;
+    return ui_theme_editor_range(e) && e != UiThemeEditorElement::sv && e != UiThemeEditorElement::hue;
 }
 // The percentage field a slider element edits.
 u8 BackgroundTheme::*percent_field(UiThemeEditorElement e) noexcept {
@@ -337,14 +331,15 @@ const UiLayoutNode* ui_theme_editor_node(const UiThemeEditorScene& s, UiThemeEdi
     return at(e) < kUiThemeEditorElements ? ui_widget_manager_layout_node(s.widgets, s.elements[at(e)])
                                           : nullptr;
 }
-UiThemeEditorElement ui_theme_editor_hit_test(const UiThemeEditorScene& s, UiPoint p) noexcept {
-    if (!ui_theme_editor_current(s))
-        return UiThemeEditorElement::count;
-    const auto h = ui_widget_manager_hit_test(s.widgets, p.x, p.y);
+UiThemeEditorElement ui_theme_editor_element(const UiThemeEditorScene& s, UiWidgetHandle handle) noexcept {
     for (u32 i = 0; i < kUiThemeEditorElements; ++i)
-        if (ui_widget_handle_equal(h, s.elements[i]))
+        if (ui_widget_handle_equal(handle, s.elements[i]))
             return static_cast<UiThemeEditorElement>(i);
     return UiThemeEditorElement::count;
+}
+UiThemeEditorElement ui_theme_editor_hit_test(const UiThemeEditorScene& s, UiPoint p) noexcept {
+    return ui_theme_editor_current(s) ? ui_theme_editor_element(s, ui_widget_manager_hit_test(s.widgets, p.x, p.y))
+                                      : UiThemeEditorElement::count;
 }
 bool ui_theme_editor_focus(UiThemeEditorScene* s, UiThemeEditorElement e) noexcept {
     if (!s || !ui_theme_editor_current(*s) || at(e) >= kUiThemeEditorElements)
@@ -431,8 +426,9 @@ UiScrollbarGeometry ui_theme_editor_scrollbar(const UiThemeEditorScene& s) noexc
 }
 bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPoint p,
                              BackgroundTheme* out) noexcept {
-    if (!s || !out || !ui_theme_editor_current(*s) || (!range(e) && e != UiThemeEditorElement::gradient) ||
-        !paint_coordinate_valid(p.x) || !paint_coordinate_valid(p.y))
+    if (!s || !out || !ui_theme_editor_current(*s) ||
+        (!ui_theme_editor_range(e) && e != UiThemeEditorElement::gradient) || !paint_coordinate_valid(p.x) ||
+        !paint_coordinate_valid(p.y))
         return false;
     if (e == UiThemeEditorElement::direction && s->draft.color_count == 1)
         return false;
@@ -475,7 +471,7 @@ bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPo
 }
 bool ui_theme_editor_key(UiThemeEditorScene* s, UiThemeEditorElement e, u32 key,
                          BackgroundTheme* out) noexcept {
-    if (!s || !range(e))
+    if (!s || !ui_theme_editor_range(e))
         return false;
     const auto* n = ui_theme_editor_node(*s, e);
     if (!n)

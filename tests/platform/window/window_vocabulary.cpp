@@ -1,9 +1,5 @@
-#include "maicord/platform/window/clipboard.hpp"
-#include "maicord/platform/window/dropped_files.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/platform/window/pump.hpp"
-#include "maicord/platform/window/window.hpp"
 #include "../../support/test_output.hpp"
 
 // The window vocabulary compiles on every platform. Windows additionally checks each key constant against

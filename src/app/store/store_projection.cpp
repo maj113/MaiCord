@@ -1,11 +1,9 @@
-#include "store_model.hpp"
+#include "store_build.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord::app_detail {
 namespace {
 
-char lower(char c) noexcept {
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
-}
 bool is_word(char c) noexcept {
     return c != ' ' && c != '\t' && c != '-' && c != '_' && c != '.' && c != ',' && c != '/' && c != '(' && c != ')';
 }
@@ -17,7 +15,7 @@ bool word_prefix(const Utf8View& word, const Utf8View& text) noexcept {
         if (text.bytes - i < word.bytes)
             return false;
         u32 k = 0;
-        while (k < word.bytes && lower(text.data[i + k]) == lower(word.data[k]))
+        while (k < word.bytes && ascii_lower(text.data[i + k]) == ascii_lower(word.data[k]))
             ++k;
         if (k == word.bytes)
             return true;
@@ -27,7 +25,7 @@ bool word_prefix(const Utf8View& word, const Utf8View& text) noexcept {
 int compare_names(const Utf8View& a, const Utf8View& b) noexcept {
     const u32 n = minimum(a.bytes, b.bytes);
     for (u32 i = 0; i < n; ++i) {
-        const char x = lower(a.data[i]), y = lower(b.data[i]);
+        const char x = ascii_lower(a.data[i]), y = ascii_lower(b.data[i]);
         if (x != y)
             return x < y ? -1 : 1;
     }
@@ -56,9 +54,6 @@ void insert_sorted(const StoreModel& model, u16* order, u32* count, u16 index, C
     order[at] = index;
     ++*count;
 }
-
-constexpr Utf8View kBaseNames[]{utf8_literal("Dark"), utf8_literal("Light"), utf8_literal("AMOLED")};
-
 } // namespace
 
 bool store_item_matches(const StoreItem& item, const Utf8View& query) noexcept {
@@ -106,7 +101,7 @@ void store_chips_build(const StoreModel& model, CatalogKind kind, StoreChips* ou
     if (kind == CatalogKind::theme)
         for (u32 b = 0; b < 3; ++b)
             if (base_count[b])
-                add(kBaseNames[b], base_count[b], 0, 1, static_cast<u8>(b));
+                add(store_build::base_label(b), base_count[b], 0, 1, static_cast<u8>(b));
     if (kind == CatalogKind::effect && light)
         add(utf8_literal("Light cost"), light, 0, 2, 0);
     // Categories, distinct, sorted by name.

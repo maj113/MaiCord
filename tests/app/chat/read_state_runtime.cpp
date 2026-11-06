@@ -279,7 +279,7 @@ void manual_tests() noexcept {
               equals(message_composer_text(g_app.message_composer).data,
                      message_composer_text(g_app.message_composer).bytes,
                      utf8_literal("Retained unsent draft")) &&
-              application_read_state_observe(clock_monotonic_milliseconds()) &&
+              application_read_state_observe() &&
               !application_read_state_next_wake() && application_read_state_mark(70, true) && admit() &&
               submitted_body(&body) && body.token_null && !body.manual_seen && reply(204),
           "manual read: successful manual body never rotates token mutates draft or triggers selected "
@@ -771,7 +771,7 @@ void run() noexcept {
     g_app.message_catchup.state = MessageHistoryCatchupState::complete;
     application_read_state_activity();
     check(!application_read_state_eligible() &&
-              application_read_state_observe(clock_monotonic_milliseconds()) &&
+              application_read_state_observe() &&
               channel().last_read_message_id == before_observe && !application_read_state_next_wake(),
           "read runtime: no owned foreground window cannot fabricate an automatic read");
     g_app.message_catchup.state = MessageHistoryCatchupState::idle;

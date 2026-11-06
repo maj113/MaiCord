@@ -4,6 +4,7 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/ogg_page_fixture.hpp"
 
 // Soundboard: Gateway effect and sound decoding, capture-the-submission
 // request bodies, send gating, upload checks with generated MP3/Ogg files,
@@ -47,15 +48,6 @@ void put32(u8* p, u32 value) noexcept {
     for (u32 i = 0; i < 4; ++i)
         p[i] = static_cast<u8>(value >> (8 * i));
 }
-u32 ogg_crc(const u8* p, u32 count) noexcept {
-    u32 crc = 0;
-    for (u32 i = 0; i < count; ++i) {
-        crc ^= u32{i >= 22 && i < 26 ? u8{0} : p[i]} << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            crc = (crc << 1) ^ ((crc & 0x80000000u) ? 0x04c11db7u : 0);
-    }
-    return crc;
-}
 u32 ogg_page(u8* out, u32 sequence, u8 flags, u64 granule, u32 packets, const u8* bodies, u32 packet_bytes) noexcept {
     copy_bytes(out, "OggS", 4);
     out[4] = 0;
@@ -64,13 +56,12 @@ u32 ogg_page(u8* out, u32 sequence, u8 flags, u64 granule, u32 packets, const u8
         out[6 + i] = static_cast<u8>(granule >> (8 * i));
     put32(out + 14, 7);
     put32(out + 18, sequence);
-    put32(out + 22, 0);
     out[26] = static_cast<u8>(packets);
     for (u32 i = 0; i < packets; ++i)
         out[27 + i] = static_cast<u8>(packet_bytes);
     copy_bytes(out + 27 + packets, bodies, packets * packet_bytes);
     const u32 bytes = 27 + packets + packets * packet_bytes;
-    put32(out + 22, ogg_crc(out, bytes));
+    ogg_page_seal(out, bytes);
     return bytes;
 }
 // Ogg Opus stereo stream of TOC-only CELT 20 ms packets (decoded as PLC silence).

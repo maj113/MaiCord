@@ -1,14 +1,13 @@
 #include "maicord/ui/text/flow_layout.hpp"
-#include "maicord/ui/chat/polls/presentation.hpp"
 
-#include "maicord/ui/chat/messages/system_text.hpp"
-#include "maicord/model/guild/scheduled_event_store.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "text_presentation_internal.hpp"
+#include "maicord/core/win32_types.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;
@@ -32,6 +31,14 @@ void reject_atomically(MessageTextPresentation* presentation, MessageTextPresent
     presentation->projection_signature = 0;
     presentation->active = false;
     presentation->last_error = error;
+}
+
+// A failed build keeps the error it recorded; a step that recorded none ran out of capacity.
+MessageTextPresentationResult reject_build(MessageTextPresentation* presentation) noexcept {
+    reject_atomically(presentation, presentation->last_error == MessageTextPresentationError::none
+                                        ? MessageTextPresentationError::capacity
+                                        : presentation->last_error);
+    return result(*presentation, presentation->last_error);
 }
 
 void clear_failure_context(MessageTextPresentation* presentation) noexcept {
@@ -232,25 +239,15 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->scroll_moving = false;
     presentation->last_error = MessageTextPresentationError::none;
     presentation->active = false;
-    if (!append_intro(presentation, scene, theme)) {
-        reject_atomically(presentation, presentation->last_error == MessageTextPresentationError::none
-                                            ? MessageTextPresentationError::capacity
-                                            : presentation->last_error);
-        return result(*presentation, presentation->last_error);
-    }
+    if (!append_intro(presentation, scene, theme))
+        return reject_build(presentation);
     for (u32 index = 0; index < scene.count; ++index) {
         const MessageSceneRowWidget* snapshot = message_scene_snapshot_row(scene, scene.rows[index]);
         if (!append_row(presentation, scene, scene.rows[index], state, users, navigation, theme,
                         now_unix_seconds) ||
             (snapshot && !append_row(presentation, scene, *snapshot, state, users, navigation, theme,
-                                     now_unix_seconds, true))) {
-            const MessageTextPresentationError error =
-                presentation->last_error == MessageTextPresentationError::none
-                    ? MessageTextPresentationError::capacity
-                    : presentation->last_error;
-            reject_atomically(presentation, error);
-            return result(*presentation, presentation->last_error);
-        }
+                                     now_unix_seconds, true)))
+            return reject_build(presentation);
     }
     presentation->active = true;
     clear_failure_context(presentation);
@@ -520,12 +517,10 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
             semantic.source_bytes > output.count - written - plain_bytes) {
             return MessageTextCopyProjectionResult{};
         }
-        for (u32 byte = 0; byte < plain_bytes; ++byte) {
-            output[written++] = command.text.data[cursor + byte];
-        }
-        for (u32 byte = 0; byte < semantic.source_bytes; ++byte) {
-            output[written++] = source.data[source_offset + byte];
-        }
+        copy_bytes(output.data + written, command.text.data + cursor, plain_bytes);
+        written += plain_bytes;
+        copy_bytes(output.data + written, source.data + source_offset, semantic.source_bytes);
+        written += semantic.source_bytes;
         cursor = semantic_end;
         transformed = true;
     }
@@ -533,9 +528,8 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
     if (tail_bytes > output.count - written) {
         return MessageTextCopyProjectionResult{};
     }
-    for (u32 byte = 0; byte < tail_bytes; ++byte) {
-        output[written++] = command.text.data[cursor + byte];
-    }
+    copy_bytes(output.data + written, command.text.data + cursor, tail_bytes);
+    written += tail_bytes;
     return MessageTextCopyProjectionResult{written, transformed, true};
 }
 

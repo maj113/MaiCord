@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/global_shortcuts.hpp"
 #include "maicord/platform/dbus/portal.hpp"
@@ -36,28 +37,6 @@ struct Shortcuts {
 
 Shortcuts g;
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
-bool text_equal(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
-void copy_text(char* out, u32 capacity, const char* text) noexcept {
-    u32 length = text ? text_length(text) : 0;
-    if (length >= capacity)
-        length = capacity - 1;
-    if (length)
-        copy_bytes(out, text, length);
-    out[length] = 0;
-}
-
 void fail(const char* why) noexcept {
     log_write(LogLevel::trace, "global_shortcuts", why);
     g.state = GlobalShortcutsState::unavailable;
@@ -73,7 +52,7 @@ void on_activated(void*, const Message& signal) noexcept {
     if (!reader_string(&r, &session, nullptr) || !reader_string(&r, &id, nullptr) || !reader_u64(&r, &timestamp))
         return;
     // The bus's arg0 filter only matches strings, so a signal for another session is dropped here.
-    if (!text_equal(session, g.session))
+    if (!c_string_equal(session, g.session))
         return;
     const bool active = signal.member && signal.member[0] == 'A';  // Activated, not Deactivated
     if (g.handler)
@@ -154,7 +133,7 @@ void on_session_created(void*, u32 code, Reader* results) noexcept {
             const char* key = nullptr;
             if (!reader_enter_struct(results) || !reader_string(results, &key, nullptr))
                 break;
-            if (text_equal(key, "session_handle")) {
+            if (c_string_equal(key, "session_handle")) {
                 const char* signature = nullptr;
                 if (reader_enter_variant(results, &signature) && (signature[0] == 's' || signature[0] == 'o'))
                     reader_string(results, &session, nullptr);
@@ -164,11 +143,11 @@ void on_session_created(void*, u32 code, Reader* results) noexcept {
                 break;
         }
     }
-    if (!session || text_length(session) >= sizeof(g.session)) {
+    if (!session || c_string_length(session) >= sizeof(g.session)) {
         fail("the session response named no handle");
         return;
     }
-    copy_text(g.session, sizeof(g.session), session);
+    c_string_copy(g.session, sizeof(g.session), session);
     const SignalMatch activated{kPortalName, kPortalPath, kInterface, "Activated", nullptr};
     const SignalMatch deactivated{kPortalName, kPortalPath, kInterface, "Deactivated", nullptr};
     g.activated = connection_subscribe(c, activated, on_activated, nullptr);
@@ -340,9 +319,9 @@ bool global_shortcuts_start(const GlobalShortcut* shortcuts, u32 count, GlobalSh
     g.context = context;
     g.spec_count = count;
     for (u32 i = 0; i < count; ++i) {
-        copy_text(g.specs[i].id, sizeof(g.specs[i].id), shortcuts[i].id);
-        copy_text(g.specs[i].description, sizeof(g.specs[i].description), shortcuts[i].description);
-        copy_text(g.specs[i].trigger, sizeof(g.specs[i].trigger), shortcuts[i].preferred_trigger);
+        c_string_copy(g.specs[i].id, sizeof(g.specs[i].id), shortcuts[i].id);
+        c_string_copy(g.specs[i].description, sizeof(g.specs[i].description), shortcuts[i].description);
+        c_string_copy(g.specs[i].trigger, sizeof(g.specs[i].trigger), shortcuts[i].preferred_trigger);
     }
     if (!g.hook_added) {
         g.hook_added = true;

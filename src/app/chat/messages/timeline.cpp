@@ -574,13 +574,9 @@ bool message_timeline_set_delivery(MessageTimeline* timeline, u64 message_id, Me
         return false;
     }
     const MessageStoreResult found = message_store_find(*timeline->store, message_id);
-    if (!found.ok()) {
+    const MessageRecord* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
+    if (!record)
         return false;
-    }
-    const MessageRecord* record = message_store_resolve(*timeline->store, found.handle);
-    if (!record) {
-        return false;
-    }
     const bool changed = record->delivery != delivery;
     const u32 previous_revision = record->revision;
     if (!message_store_set_delivery(timeline->store, message_id, delivery)) {

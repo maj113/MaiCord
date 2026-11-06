@@ -44,16 +44,6 @@ bool usable(Utf8View text, u32 limit) noexcept {
     return text.data && text.bytes <= limit && utf8_validate(text).valid;
 }
 
-Utf8View trimmed(Utf8View text) noexcept {
-    u32 first = 0;
-    u32 last = text.bytes;
-    while (first < last && ascii_is_space(text.data[first]))
-        ++first;
-    while (last > first && ascii_is_space(text.data[last - 1]))
-        --last;
-    return {text.data + first, last - first};
-}
-
 // One locale variable as a BCP 47 tag, written to output (kGatewayUserMaximumLocaleBytes); 0 when it names none
 // ("C", "POSIX", empty or malformed).
 u32 locale_tag(Utf8View raw, char* output) noexcept {
@@ -127,7 +117,7 @@ Utf8View pretty_name(Utf8View os_release) noexcept {
 // lsb-release's DISTRIB_DESCRIPTION, without the quotes around it.
 Utf8View lsb_description(Utf8View lsb_release) noexcept {
     u32 from = 0;
-    Utf8View value = trimmed(next_assignment(lsb_release, utf8_literal("DISTRIB_DESCRIPTION"), &from));
+    Utf8View value = ascii_trim(next_assignment(lsb_release, utf8_literal("DISTRIB_DESCRIPTION"), &from));
     if (value.bytes >= 2 && (value.data[0] == '"' || value.data[0] == '\'') &&
         value.data[value.bytes - 1] == value.data[0])
         value = {value.data + 1, value.bytes - 2};
@@ -224,9 +214,9 @@ u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice
 }
 
 u32 linux_client_distro(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
-    Utf8View description = environment.lsb_release.data ? trimmed(lsb_description(environment.lsb_release)) : Utf8View{};
+    Utf8View description = environment.lsb_release.data ? ascii_trim(lsb_description(environment.lsb_release)) : Utf8View{};
     if (!description.bytes && environment.os_release.data)
-        description = trimmed(pretty_name(environment.os_release));
+        description = ascii_trim(pretty_name(environment.os_release));
     if (!description.bytes || !usable(description, kGatewayUserMaximumHostBytes))
         return 0;
     return emit(description, output);

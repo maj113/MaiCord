@@ -1,7 +1,6 @@
 #include "../path_stat.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_error.hpp"
-#include "maicord/core/win32_process.hpp"
 
 // src/text/fonts/path_stat.hpp on Linux: one statx of the open descriptor gives the identity (device and inode),
 // size and write and change times, so read_handle is the whole read and read_fallback only names why it declined.

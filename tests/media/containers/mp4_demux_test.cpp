@@ -5,7 +5,6 @@
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/media/video/video_display.hpp"
 #include "../../../src/media/containers/mp4_demux_detail.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "../../support/test_output.hpp"
 

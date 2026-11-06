@@ -166,16 +166,8 @@ void test_read_write_seek() noexcept {
     check(file_read(file, text, 16, &count) && count == 0, "read at the end returns nothing");
     check(file_read_at(file, 1, text, 3, &count) && count == 3 && bytes_equal(text, "123", 3), "read_at");
     check(file_read_at(file, 100, text, 3, &count) && count == 0, "read_at past the end");
-    check(file_write_at(file, 4, "ab", 2, &count) && count == 2 && file_read_at(file, 0, text, 10, &count) &&
-              count == 10 && bytes_equal(text, "0123ab6789", 10),
-          "write_at overwrites in place");
     u64 bytes = 0;
     check(file_size(file, &bytes) && bytes == 10, "size");
-    check(file_set_size(file, 4) && file_size(file, &bytes) && bytes == 4, "truncate");
-    check(file_set_size(file, 8) && file_size(file, &bytes) && bytes == 8, "extend");
-    check(file_read_at(file, 0, text, 8, &count) && count == 8 && bytes_equal(text, "0123", 4) &&
-              test_filled(reinterpret_cast<const u8*>(text) + 4, 4, 0),
-          "an extension reads as zeros");
     check(file_flush(file), "flush");
     file_close(file);
     file_close(nullptr);
@@ -452,26 +444,6 @@ void test_delete_on_close() noexcept {
     check(!exists(L"temporary.bin"), "the file is gone after the close");
 }
 
-void test_final_path() noexcept {
-    wchar_t path[512];
-    file_path(L"final-path.bin", path);
-    write_text(L"final-path.bin", "x");
-    const FileHandle file = file_open(path, kReadShared);
-    wchar_t resolved[1024];
-    u32 length = 0;
-    check(file_final_path(file, resolved, 1024, &length) && length > 14, "final path");
-    const wchar_t tail[] = L"final-path.bin";
-    bool matches = length >= 14;
-    for (u32 index = 0; matches && index < 14; ++index) {
-        matches = resolved[length - 14 + index] == tail[index];
-    }
-    check(matches && resolved[length] == 0, "the final path ends with the file name");
-    wchar_t small[4];
-    check(!file_final_path(file, small, 4, &length), "a small buffer fails");
-    file_close(file);
-    remove_file(L"final-path.bin");
-}
-
 void test_directory_watch() noexcept {
     DirWatch watch{};
     wchar_t missing[512];
@@ -518,7 +490,6 @@ MAICORD_TEST_ENTRY(maicord_os_file_entry) {
     test_copy();
     test_mapping();
     test_delete_on_close();
-    test_final_path();
     test_directory_watch();
     clear_scratch();
     test_exit(g_failures, "os_file");

@@ -1,11 +1,11 @@
 #include "maicord/app/plugins/settings_page.hpp"
 #include "maicord/app/plugins/text.hpp"
-#include "maicord/app/update/fetch.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -92,12 +92,6 @@ bool parse_key(Utf8View text, u32* key) noexcept {
     return vk != 0;
 }
 
-Utf8View trim(Utf8View text) noexcept {
-    while (text.bytes && ascii_is_space(text.data[0])) { ++text.data; --text.bytes; }
-    while (text.bytes && ascii_is_space(text.data[text.bytes - 1])) --text.bytes;
-    return text;
-}
-
 PluginSettingsOutcome from(mc_status status) noexcept {
     return status == MC_OK ? PluginSettingsOutcome::changed : PluginSettingsOutcome::refused;
 }
@@ -169,7 +163,7 @@ u32 plugin_setting_format(const PluginBinding& binding, u32 index, Slice<char> o
 
 bool plugin_setting_parse(const mc_setting_def& setting, Utf8View text, Slice<u8> bytes, u32* used) noexcept {
     *used = 0;
-    const Utf8View trimmed = trim(text);
+    const Utf8View trimmed = ascii_trim(text);
     switch (setting.type) {
     case MC_SET_TEXT:
     case MC_SET_SECRET:

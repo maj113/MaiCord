@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/ui/media/zoom_lens.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/settings/client_theme.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/styles.hpp"
 
 namespace maicord::app_detail {

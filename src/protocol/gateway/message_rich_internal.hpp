@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/protocol/gateway/message_events.hpp"
-#include "maicord/core/memory.hpp"
 #include "decode.hpp"
 #include "../encoding/json_field_lists.hpp"
 

@@ -4,6 +4,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 #include "../encoding/json_helpers.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

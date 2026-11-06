@@ -140,7 +140,6 @@ class UiStoreBuilder {
     UiStoreNode& chip(const Utf8View& value, UiStoreTone tone, UiIcon icon = UiIcon::count) noexcept;
     UiStoreNode& button(const Utf8View& value, UiStoreButton variant, u32 action) noexcept;
     UiStoreNode& button(const Utf8View& value, UiStoreButton variant, u32 action, UiIcon icon, bool large = false) noexcept;
-    UiStoreNode& icon_button(UiIcon icon, const Utf8View& name, u32 action) noexcept; // 32 DIPs
     UiStoreNode& icon_button(UiIcon icon, const Utf8View& name, u32 action, float size) noexcept;
     UiStoreNode& tile(UiIcon icon, float size, UiStoreTone tone = UiStoreTone::neutral) noexcept;
     // Literal overloads: the caller passes the C string alone and the builder counts it, so a call site is

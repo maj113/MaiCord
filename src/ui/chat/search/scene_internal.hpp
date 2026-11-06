@@ -2,9 +2,8 @@
 
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/menu_row.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 
 namespace maicord {
 

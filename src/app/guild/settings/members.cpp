@@ -9,7 +9,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../../account/account_ui_runtime.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "../../shell/state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

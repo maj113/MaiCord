@@ -13,7 +13,6 @@
 #include "../../support/dumb_dmabuf.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/yuv_reference.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/gpu/video_planes.hpp"

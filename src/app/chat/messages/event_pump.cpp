@@ -66,7 +66,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             ++pump->users->revision;
         if (pump->thread_members) {
             thread_member_store_reset_snapshot(pump->thread_members);
-            if (!synchronize_thread_scope(pump))
+            if (!message_event_pump_synchronize_thread_scope(pump))
                 return consume_error(MessageEventPumpError::apply, MessageEventPumpRejectReason::thread_scope);
         }
         // A fresh READY begins a new full state. RESUMED never
@@ -120,7 +120,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         if (pump->state && (event.dispatch_kind == GatewayClientDispatchKind::supplemental_state_complete ||
                             pump->state->restore_guild_id))
             result.repaint = chat_state_store_finish_restore(pump->state);
-        if (!synchronize_thread_scope(pump))
+        if (!message_event_pump_synchronize_thread_scope(pump))
             return consume_error(MessageEventPumpError::apply, MessageEventPumpRejectReason::thread_scope);
         result.kind = MessageEventPumpConsumeKind::state_applied;
         return result;
@@ -170,7 +170,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         }
         result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint = true;
-        if (!synchronize_thread_scope(pump))
+        if (!message_event_pump_synchronize_thread_scope(pump))
             return consume_error(MessageEventPumpError::apply, MessageEventPumpRejectReason::thread_scope);
         constexpr auto update = utf8_literal("USER_UPDATE");
         bool original_user_update = event.event_name_bytes == update.bytes;
@@ -310,7 +310,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         const u32 revision = pump->thread_members->revision;
         const u32 member_revision = pump->members->revision;
         const u32 user_revision = pump->users->revision;
-        if (!synchronize_thread_scope(pump) ||
+        if (!message_event_pump_synchronize_thread_scope(pump) ||
             !gateway_client_apply_thread_members(event, payload, pump->thread_members, pump->members,
                                                  pump->users, *pump->state)) {
             chat_state_store_invalidate_thread_authority(pump->state, event.thread_members.guild_id);
@@ -424,7 +424,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             guild_detail_store_apply_gateway_event(pump->guild_details, *pump->state, event, payload);
         result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint = true;
-        if (!synchronize_thread_scope(pump))
+        if (!message_event_pump_synchronize_thread_scope(pump))
             return consume_error(MessageEventPumpError::apply, MessageEventPumpRejectReason::thread_scope);
         return result;
     }

@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/base.hpp"
 
 namespace maicord::app_detail {
 bool application_login_begin_browser_auth() noexcept;

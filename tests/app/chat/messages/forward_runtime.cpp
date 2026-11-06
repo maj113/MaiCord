@@ -11,8 +11,6 @@
 #include "../../../../src/app/chat/messages/forward.cpp"
 #include "shell/input_routing.hpp"
 #include "shell/window_state.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/hash.hpp"
 #include "../../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

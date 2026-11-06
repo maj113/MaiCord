@@ -3,8 +3,7 @@
 # maicord: MaiCord built from source. The project is written for LLVM 23 (tools/build_linux.sh refuses any other major), which
 # is what Arch ships today (clang, lld and llvm 23.1); when Arch moves to another major this package fails to build until
 # the project does, and maicord-bin is the package that keeps working. No shader toolchain is needed: the client's shaders are
-# hand-written GLSL that the build packs with python (a release before the one that did this also needs the DXC and SPIRV-Cross
-# pins of its tools/linux_shader_toolchain.json: build it with the PKGBUILD of its own tag).
+# hand-written GLSL that the build packs with python.
 #
 # Per release: set pkgver; `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push to the AUR repository.
 pkgname=maicord

@@ -1,34 +1,23 @@
-// What a screen reader is told that no node says: a new message in the open conversation, a connection that came or went,
-// a failed send, a finished upload, a toast, joining voice, a mention, the result counts of the quick switcher and search.
-// The sources and their wording are those of the Windows server (accessibility.cpp, UI Automation notifications); here
-// the speech goes out as AT-SPI announcements (platform/atspi).
-#include "accessibility_status.hpp"
-
-#include "../accessibility_internal.hpp"
+// What both accessibility servers run beside the snapshot (accessibility_describe.cpp) and its actions
+// (accessibility_actions.cpp): the deferred action queue, text geometry, and what a screen reader is told that no node
+// says: a new message in the open conversation, a connection that came or went, a failed send, a finished upload, a
+// toast, joining voice, a mention, the result counts of the quick switcher and search. Windows raises those as UI
+// Automation notifications (accessibility.cpp), Linux as AT-SPI announcements (platform/atspi).
+#include "accessibility_internal.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/platform/atspi/server.hpp"
-#include "../../chat/composer/text_input.hpp"
-#include "../../account/friends.hpp"
-#include "../../chat/messages/feedback.hpp"
-#include "../../shell/window_state.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../account/friends.hpp"
+#include "../chat/messages/feedback.hpp"
+#include "../shell/window_state.hpp"
 #include "maicord/app/voice/socket.hpp"
 #include "maicord/app/voice/udp_discovery.hpp"
 #include "maicord/app/chat/messages/interaction_rules.hpp"
+#if !defined(_WIN32)
+#include "maicord/platform/atspi/server.hpp"
+#endif
 
 namespace maicord::app_detail {
 namespace {
-
-u64 event_key(const UiAccessTree& tree, u32 node) noexcept {
-    return node == 0 || node >= tree.count ? 0 : tree.nodes[node].key;
-}
-
-void announce(const Utf8View& text, bool assertive) noexcept {
-    if (!ui_access_announce_admit(&g_access.announcer, text,
-                                  assertive ? UiAccessPoliteness::assertive : UiAccessPoliteness::polite,
-                                  clock_monotonic_milliseconds()))
-        return;
-    atspi::server_announce(0, text, assertive);
-}
 
 void announce_new_message(const UiAccessTree& tree) noexcept {
     const auto& scene = g_app.message_scene;
@@ -70,7 +59,30 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
             g_name.add(message_store_content(*scene.timeline->store, found.handle));
     }
     const u32 list = ui_access_widget_node(tree, {&scene.widgets, scene.root});
-    atspi::server_announce(list == kUiAccessNone ? 0 : event_key(tree, list), g_name.view(), false);
+    const u64 key = list == kUiAccessNone ? 0 : access_event_key(tree, list);
+#if defined(_WIN32)
+    uia_host_raise_notification(&g_access.host, key, UiaNotificationKind::item_added, UiaNotificationProcessing::all,
+                                g_name.view(), utf8_literal("MaiCord.NewMessage"));
+#else
+    atspi::server_announce(key, g_name.view(), false);
+#endif
+}
+
+// `activity` names the kind of announcement for UI Automation clients; AT-SPI has no such field.
+void announce(const Utf8View& text, bool assertive,
+              [[maybe_unused]] const Utf8View& activity = utf8_literal("MaiCord.Status")) noexcept {
+    if (!ui_access_announce_admit(&g_access.announcer, text,
+                                  assertive ? UiAccessPoliteness::assertive : UiAccessPoliteness::polite,
+                                  clock_monotonic_milliseconds()))
+        return;
+#if defined(_WIN32)
+    uia_host_raise_notification(&g_access.host, 0, UiaNotificationKind::other,
+                                assertive ? UiaNotificationProcessing::important_all
+                                          : UiaNotificationProcessing::most_recent,
+                                text, activity);
+#else
+    atspi::server_announce(0, text, assertive);
+#endif
 }
 
 u64 text_hash(const Utf8View& text) noexcept {
@@ -148,7 +160,8 @@ void observe_toast(StatusObserver& status, bool primed) noexcept {
         return;
     status.toast_serial = toasts.serial;
     if (primed)
-        announce(text, ui_toast_current_kind(toasts) == UiToastKind::failure);
+        announce(text, ui_toast_current_kind(toasts) == UiToastKind::failure,
+                 utf8_literal("MaiCord.Toast"));
 }
 
 // Joining and leaving voice.
@@ -195,7 +208,7 @@ void observe_mentions(StatusObserver& status, u64 now_ms) noexcept {
         const Utf8View name = chat_state_store_channel_name(*state, *latest);
         if (name.bytes)
             g_name.add(channel_is_private(latest->type) ? utf8_literal(" from ") : utf8_literal(" in #")).add(name);
-        announce(g_name.view(), false);
+        announce(g_name.view(), false, utf8_literal("MaiCord.Mention"));
     }
     status.mention_total = total;
     status.mentions_primed = true;
@@ -210,13 +223,13 @@ void observe_results(StatusObserver& status, bool primed) noexcept {
         ui_access_quick_switcher_summary(*renderer.quick_switcher_scene, &summary)) {
         quick = text_hash(summary.view());
         if (primed && quick != status.quick_summary)
-            announce(summary.view(), false);
+            announce(summary.view(), false, utf8_literal("MaiCord.Results"));
     }
     if (renderer.search_scene && d3d11_renderer_search_visible(renderer) &&
         ui_access_search_summary(*renderer.search_scene, &summary)) {
         search = text_hash(summary.view());
         if (primed && search != status.search_summary)
-            announce(summary.view(), false);
+            announce(summary.view(), false, utf8_literal("MaiCord.Results"));
     }
     status.quick_summary = quick;
     status.search_summary = search;
@@ -245,14 +258,40 @@ void observe_status(u64 now_ms) noexcept {
 }
 
 } // namespace
+namespace accessibility_detail {
 
-void application_accessibility_announce(const UiAccessTree& tree, u64 now_ms) noexcept {
+void run_pending() noexcept {
+    PendingAction actions[kPendingCapacity];
+    const u32 count = g_access.pending_count;
+    for (u32 index = 0; index < count; ++index)
+        actions[index] = g_access.pending[index];
+    g_access.pending_count = 0;
+    for (u32 index = 0; index < count; ++index) {
+        g_access.dirty = true;
+        run_action(actions[index]);
+    }
+    g_access.dirty = true;
+    // The next frame reports the action's result at once.
+    ui_access_throttle_mark_urgent(&g_access.throttle);
+}
+
+u32 access_text_bounds(void*, u64 key, u32 start, u32 end, UiRect* rectangles, u32 capacity) noexcept {
+    const auto& tree = g_access.tree;
+    const u32 index = tree.finished && capacity ? ui_access_find(tree, key) : kUiAccessNone;
+    if (index == kUiAccessNone || !(tree.nodes[index].state & ui_access_focused))
+        return 0;
+    return application_composer_text_input_range_bounds(ui_access_value(tree, index), start, end, rectangles) ? 1 : 0;
+}
+
+void announce_status(const UiAccessTree& tree, u64 now_ms) noexcept {
     announce_new_message(tree);
     observe_status(now_ms);
 }
 
-void application_accessibility_announce_reset() noexcept {
+void forget_status() noexcept {
     g_access.status.primed = g_access.status.mentions_primed = false;
 }
+
+} // namespace accessibility_detail
 
 } // namespace maicord::app_detail

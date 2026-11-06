@@ -10,7 +10,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
@@ -30,10 +29,6 @@ MessageSnapshotCache& snapshots() noexcept {
     return g_snapshots;
 }
 
-bool memory_low() noexcept {
-    return system_memory_low();
-}
-
 bool keep_readable(void*, u64 channel_id) noexcept {
     return application_channel_readable(g_app, channel_id);
 }
@@ -46,7 +41,7 @@ void application_channel_snapshot_capture(u64 channel_id) noexcept {
     if (!channel_id || !g_app.account_ui)
         return;
     MessageSnapshotCache& cache = snapshots();
-    if (memory_low()) {
+    if (system_memory_low()) {
         // The summary is rate-limited: a minute at least between two.
         application_memory_summary("memory_low");
         message_snapshot_cache_release(&cache);

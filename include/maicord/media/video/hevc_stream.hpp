@@ -38,8 +38,6 @@ struct HevcParameterSets {
     u32 clock, active_sps, active_pps; // Stored stamps of the active chain; 0 when none.
     HevcError last_sps_error;
 };
-// SPS (33) or PPS (34) NAL. A failing set invalidates a stored set of the same id.
-HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal) noexcept;
 // Makes the chain of pps_id the active configuration.
 HevcError hevc_parameter_sets_resolve(HevcParameterSets* sets, u8 pps_id) noexcept;
 

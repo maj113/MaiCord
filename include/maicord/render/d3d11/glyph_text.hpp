@@ -5,7 +5,6 @@
 #include "maicord/render/text/glyph_quad.hpp"
 #include "maicord/render/text/glyph_font_limits.hpp"
 #include "maicord/ui/text/text.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
 #include "maicord/gpu/gpu.hpp"
 
@@ -146,13 +145,13 @@ GpuPagedTexture* d3d11_glyph_text_color_surface(const D3D11GlyphTextOwner& owner
 // Glyph quads keep v in the whole virtual surface. Where pages are separate textures (kGpuPagedBindings), the upload
 // turns it into the rows of the quad's page and draws bind that page; quads with a negative u sample nothing.
 inline constexpr u32 kGlyphQuadNoPage = 0xFFu;
-inline u32 glyph_quad_page(const GlyphQuad& quad, u32 pages) noexcept {
+__forceinline u32 glyph_quad_page(const GlyphQuad& quad, u32 pages) noexcept {
     if (quad.u0 < 0.0f)
         return kGlyphQuadNoPage;
     const float middle = (quad.v0 + quad.v1) * 0.5f * static_cast<float>(pages);
     return middle <= 0.0f ? 0u : minimum(static_cast<u32>(middle), pages - 1u);
 }
-inline void glyph_quad_in_page(GlyphQuad* quad, u32 pages) noexcept {
+__forceinline void glyph_quad_in_page(GlyphQuad* quad, u32 pages) noexcept {
     const u32 page = glyph_quad_page(*quad, pages);
     if (page == kGlyphQuadNoPage)
         return;

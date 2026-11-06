@@ -106,7 +106,7 @@ struct ApplicationProfile {
 };
 bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;
 // Edit Profile for the signed-in user: the profile editor's Main Profile.
-bool application_profile_open_edit(u64 user, UiRect anchor, ProfileAnchor kind = ProfileAnchor::account) noexcept;
+bool application_profile_open_edit(u64 user) noexcept;
 // The open popout for user becomes the full profile on a tab (0 About Me,
 // then the mutual lists: 1 Mutual Friends and 2 Mutual Servers, a bot's
 // Mutual Servers 1); false when not shown.

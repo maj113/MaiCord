@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/media/containers/track_info.hpp"
 

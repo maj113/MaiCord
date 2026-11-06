@@ -2,16 +2,13 @@
 // the application keeps for itself) and what only Windows has in the window procedure: UI Automation, the shell
 // integration and the tray, a second launch. The portable event chain is shell/window_dispatch.cpp, the bar the
 // frame glue asks about is shell/caption.cpp.
-#include "../account/application_account_logout.hpp"
 #include "../notifications/taskbar_attention.hpp"
 #include "../accessibility/accessibility.hpp"
 #include "../notifications/desktop.hpp"
 #include "../shell/state.hpp"
 #include "../shell/caption.hpp"
 #include "../shell/window.hpp"
-#include "../shell/window_events.hpp"
 #include "../shell/window_runtime.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/platform/window/win32.hpp"
 #include "maicord/sys/shell.hpp"
 

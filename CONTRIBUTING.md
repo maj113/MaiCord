@@ -138,8 +138,8 @@ device, surface, shader and video-frame code that is not a single call lives in 
 the DXGI error codes `account_media.cpp` maps are the documented exceptions. A new GPU operation is declared in `api.hpp`, defined inline
 in `api.inl` and out of line in `src/gpu/gles`; a wrapper must compile to the call it replaces (compare per object with the previous
 commit, not whole executables, since LTO moves code). The enumerators of `GpuFormat`, `GpuUsage`, `GpuBind`, `GpuBlendFactor`,
-`GpuFilter` and `GpuAddress` carry Direct3D 11's values, buffer views carry their element count, and resizing a texture goes through
-`gpu_texture_info` and `gpu_texture_create_from_info`. On Linux the backend is OpenGL ES 3.1 over EGL, both opened with `dlopen`
+`GpuFilter` and `GpuAddress` carry Direct3D 11's values and buffer views carry their element count. On Linux the backend is OpenGL
+ES 3.1 over EGL, both opened with `dlopen`
 (`src/gpu/gles`, tests `tests/gpu`; see its README). The client's own GLES shaders are hand-written GLSL ES 3.10, one twin per HLSL file in
 `src/render/shaders/gles` (rules in its README); the HLSL stays the Windows source and the reference of every number.
 `tools/build_gles_shader_pack.py` prunes the twins for the packed shaders of `cmake/generated_sources.cmake`, strips them and deflate-packs
@@ -261,9 +261,11 @@ to the tag and the `.sha256` value.
 | Module | Contents |
 | --- | --- |
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
-| `generated_sources.cmake` | Packed UI data (including the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`), shaders (`maicord_shader()`), icon, sounds |
+| `packed_data.cmake` | Packed UI data both clients embed (the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the icon pack, regional flags, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`) |
+| `generated_sources.cmake` | The Windows build's generated inputs: that data's targets, shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
-| `client.cmake` | `MaiCord.exe` with the account module, updater identity and runtime assets |
+| `client.cmake` | `MaiCord.exe` with the account module and updater identity |
+| `runtime_assets.cmake` | The licenses and bundled fonts both clients carry beside the executable (`maicord_copy_fonts()`) |
 | `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches), the ones that also fold helpers (`/Ob2`, `-finline-functions`) and, on Linux only, the `-Os` tier for what is left at `-O2` that is not a byte or sample loop; one list names Windows and Linux files side by side |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
@@ -376,7 +378,8 @@ Arenas count under the `ArenaTag` their owner passes to `arena_initialize` (`oth
 - HLSL constant buffers keep the layout their C++ struct has under HLSL packing, and the Linux build reads the same
   buffers as std140 uniform blocks (a `float3` or `uint2` that straddles a register, or a `packoffset` gap, differs).
   Wherever the two differ, name the bytes with scalars and the gaps with `_unused_` members inside
-  `#if defined(__spirv__)` (the spelling the GLSL twin's block copies and plugin effects compile with);
+  `#if defined(__spirv__)` (the reference spelling the GLSL twin's block copies, which no client compiler reads, and what
+  plugin effects compile with);
   `tools/check_cbuffer_layout.py` (part of the suite) rejects a divergent cbuffer or a twin block whose members are elsewhere.
 - Public headers in `include/maicord/` document ownership and failure
   behavior; keep those comments accurate when behavior changes.

@@ -8,13 +8,11 @@
 #include "maicord/app/chat/polls/draft.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -65,14 +63,11 @@ struct Form : SettingsDialog {
 Form* owner;
 u64 lifetime_serial, nonce_sequence;
 
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.poll_create;
 }
 bool scope_current() noexcept {
-    if (!owner || !available() || owner->account_scope != g_app.plugin_account_scope_serial ||
+    if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id)
         return false;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, owner->channel_id);
@@ -324,7 +319,8 @@ bool application_poll_create_active() noexcept {
 }
 
 bool application_poll_create_open(u64 channel_id) noexcept {
-    if (!available() || !g_app.renderer_ready || g_app.text_form || application_channel_overview_active() ||
+    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form ||
+        application_channel_overview_active() ||
         (owner && owner->request_id) || !application_poll_create_available(channel_id))
         return false;
     settings_modal_yield();
@@ -362,7 +358,7 @@ void application_poll_create_close(bool restore_focus) noexcept {
     settings_modal_suspend(*owner);
     // A queued poll is dropped; one in flight finishes and is discarded.
     owner->queued = false;
-    settings_modal_leave(*owner, restore_focus && available());
+    settings_modal_leave(*owner, restore_focus && application_account_available());
 }
 
 void application_poll_create_release() noexcept {

@@ -12,6 +12,7 @@
 
 #include "maicord/sys/shell.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
+#include "../../../../src/app/chat/composer/attachments.hpp"
 
 // Drive the shipping attachment owner with a deterministic account boundary.
 // No file dialog, DNS, credentials, or external service participates here.

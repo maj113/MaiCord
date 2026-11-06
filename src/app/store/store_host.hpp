@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/plugins/catalog_index.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/settings/scene.hpp"

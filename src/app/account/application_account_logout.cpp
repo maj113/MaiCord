@@ -45,7 +45,7 @@ struct ApplicationAccountLogout {
     u64 actor_scope, deadline, admission_due, form_due, request_id, revision;
     Utf8View status;
     LogoutPhase phase;
-    bool committed, paths_valid, submitted, cancelled, had_account;
+    bool committed, paths_valid, cancelled, had_account;
     bool unconfirmed, form_bound, cleanup_joined, startup, login_published, host_transferred;
 };
 static_assert(sizeof(ApplicationAccountLogout) < 16 * 1024);
@@ -174,7 +174,6 @@ void stopped(ApplicationAccountLogout& owner, const AccountHostStopResult& resul
     }
     application_account_stop_observed(result, owner.had_account);
     owner.request_id = 0;
-    owner.submitted = false;
     if (!result.ok()) {
         publish(owner, LogoutPhase::stop_failed,
                 utf8_literal("Couldn't finish logging out. Try again."));
@@ -367,7 +366,6 @@ void application_account_logout_pump() noexcept {
             start_stop(*owner);
             return;
         }
-        owner->submitted = true;
         owner->admission_due = maximum(u64{1}, now);
         publish(*owner, LogoutPhase::server, utf8_literal("Logging out…"));
     }

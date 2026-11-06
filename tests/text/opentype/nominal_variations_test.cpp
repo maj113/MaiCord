@@ -6,7 +6,6 @@
 #include "gpos_lookup_fixture.hpp"
 #include "../../support/text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {

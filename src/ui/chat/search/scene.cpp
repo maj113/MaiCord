@@ -1,7 +1,5 @@
 #include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
@@ -9,6 +7,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "scene_internal.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord {
 using namespace search_scene_detail;

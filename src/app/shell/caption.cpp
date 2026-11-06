@@ -1,5 +1,4 @@
 #include "caption.hpp"
-#include "content_point.hpp"
 #include "cursor.hpp"
 #include "window_events.hpp"
 #include "window_state.hpp"
@@ -64,12 +63,6 @@ void measure_side_frame() noexcept {
 u32 window_dpi() noexcept {
     const u32 dpi = application_window_dpi(g_app.window);
     return dpi ? dpi : 96;
-}
-
-u32 caption_pixels(u32 dpi) noexcept {
-    if (!g_caption.enabled || g_caption.hidden)
-        return 0;
-    return static_cast<u32>(ui_caption_bar_height(application_theme()) * static_cast<float>(dpi) / 96.0f + .5f);
 }
 
 float to_dips(i32 pixels, u32 dpi) noexcept {
@@ -264,7 +257,9 @@ u32 application_caption_height() noexcept {
 }
 
 u32 application_caption_pixels(u32 dpi) noexcept {
-    return caption_pixels(dpi);
+    if (!g_caption.enabled || g_caption.hidden)
+        return 0;
+    return static_cast<u32>(ui_caption_bar_height(application_theme()) * static_cast<float>(dpi) / 96.0f + .5f);
 }
 
 bool application_caption_hidden() noexcept {
@@ -342,14 +337,14 @@ void application_caption_set_hidden(bool hidden) noexcept {
     if (!g_caption.enabled || g_caption.hidden == hidden)
         return;
     g_caption.hidden = hidden;
-    renderer_set_caption_height(&g_app.renderer, caption_pixels(window_dpi()));
+    renderer_set_caption_height(&g_app.renderer, application_caption_pixels(window_dpi()));
 }
 
 void application_caption_synchronize() noexcept {
     if (!g_caption.enabled || !g_app.window)
         return;
     const u32 dpi = window_dpi();
-    const u32 height = caption_pixels(dpi);
+    const u32 height = application_caption_pixels(dpi);
     if (height != g_app.renderer.caption_height) {
         // A theme changed the band: the content below it resizes.
         renderer_set_caption_height(&g_app.renderer, height);
@@ -369,7 +364,7 @@ bool application_caption_event(const WindowEvent& event) noexcept {
         g_caption.side_frame_stale = true;
     // The bar's height follows the scale of the monitor the window is on.
     else if (event.type == EventType::scale_changed)
-        renderer_set_caption_height(&g_app.renderer, caption_pixels(input_dpi(event)));
+        renderer_set_caption_height(&g_app.renderer, application_caption_pixels(input_dpi(event)));
     return g_app.renderer.caption_height && item_pointer(event);
 }
 

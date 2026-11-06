@@ -115,14 +115,12 @@ struct GlesSlab {
     T items[Capacity];
     u16 free_list[Capacity];
     u32 free_count;
-    bool ready;
 
     void reset() noexcept {
         clear_bytes(items, static_cast<u32>(sizeof(items)));
         for (u32 index = 0; index < Capacity; ++index)
             free_list[index] = static_cast<u16>(Capacity - 1 - index);
         free_count = Capacity;
-        ready = true;
     }
     T* allocate() noexcept {
         if (free_count == 0)
@@ -233,7 +231,6 @@ struct GpuDevice {
     GpuCaps caps;
     char description[160];
     u32 empty_vertex_array;
-    u32 scratch_framebuffer;
     bool lost;
     bool debug_checks; // MAICORD_GLES_CHECK=1: a GL error is reported after the draw or clear that raised it
     bool created;

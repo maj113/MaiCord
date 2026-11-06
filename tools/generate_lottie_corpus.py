@@ -226,7 +226,6 @@ def doc_masks():
 
 
 def doc_strokes():
-    rng = random.Random(505)
     layers = []
     index = 1
     for cap in (1, 2, 3):

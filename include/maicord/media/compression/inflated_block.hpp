@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/interlocked.hpp"
-#include "maicord/media/compression/deflate.hpp"
+#include "maicord/core/base.hpp"
 
 namespace maicord {
 

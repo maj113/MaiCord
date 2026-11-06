@@ -1,7 +1,6 @@
 #include "maicord/text/opentype/layout_directory.hpp"
 #include "maicord/core/memory.hpp"
 #include "layout_read.hpp"
-#include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::r32;using layout_read::span;using layout_read::tail;

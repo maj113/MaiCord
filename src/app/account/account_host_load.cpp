@@ -1,7 +1,6 @@
 #include "maicord/app/account/account_host.hpp"
 
 #include "maicord/core/module.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 extern "C" bool WINAPI maicord_account_get_api(maicord::u32, maicord::AccountModuleApi*) noexcept;
 

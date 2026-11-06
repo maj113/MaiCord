@@ -2,9 +2,9 @@
 #include "../../support/layout_validation.hpp"
 #include "maicord/ui/chat/pinned_messages_avatar_media.hpp"
 #include "maicord/ui/core/scene.hpp"
-#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/presentation.hpp"
+#include "maicord/ui/core/paint.hpp"
 
 namespace maicord {
 namespace {

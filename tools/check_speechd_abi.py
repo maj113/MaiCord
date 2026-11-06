@@ -16,12 +16,9 @@ itself. Nothing at build time proves those declarations match the library, so th
 With no --include the system headers (/usr/include) are used; CI installs libspeechd-dev and runs this beside the build.
 """
 
-import argparse
 import os
 import re
-import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_openssl_abi as shared  # noqa: E402  (its declaration parsing is not OpenSSL specific)
@@ -42,91 +39,15 @@ def kind(type_text):
     return shared.kind(text)
 
 
-def read_header():
-    text = open(HEADER, encoding="utf-8").read()
-    table = text[text.index("#define MAICORD_SPEECHD_FUNCTIONS"):text.index("struct Api")]
-    table = table.replace("\\\n", " ")
-    functions = []
-    for match in re.finditer(r"F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)", table, re.S):
-        functions.append((match["name"], match["ret"].strip(),
-                          [shared.parameter_type(p) for p in shared.split_arguments(match["args"])]))
-    constants = []
-    for match in re.finditer(
-            r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>SPD_[A-Z0-9_]+)", text):
-        constants.append((match["macro"], match["value"].strip()))
-    return functions, constants
-
-
-def run(command, source):
-    return subprocess.run(command + [source], capture_output=True, text=True)
-
-
-def preprocess(compiler, includes):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "check.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-        result = run([compiler, "-E", "-P"] + ["-I" + d for d in includes], source)
-        if result.returncode:
-            raise SystemExit("preprocessing failed (is libspeechd-dev installed?):\n" + result.stderr)
-        return result.stdout
-
-
-def check_compiled(compiler, includes, constants):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "constants.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            handle.write("#include <stddef.h>\n#include <stdint.h>\n")
-            for header in INCLUDES:
-                handle.write("#include <%s>\n" % header)
-            for macro, value in constants:
-                handle.write("_Static_assert((unsigned long long)(%s) == (unsigned long long)(%s), \"%s\");\n"
-                             % (macro, value, macro))
-        result = run([compiler, "-fsyntax-only"] + ["-I" + d for d in includes], source)
-        if result.returncode:
-            print(result.stderr)
-            return 1
-    return 0
-
-
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--include", action="append", default=[])
-    parser.add_argument("--compiler", default=os.environ.get("CC", "cc"))
-    arguments = parser.parse_args()
-    includes = arguments.include or ["/usr/include"]
-    functions, constants = read_header()
+    compiler, includes = shared.command_line(__doc__, ["/usr/include"])
+    functions, constants = shared.read_dlsym_table(HEADER, "MAICORD_SPEECHD_FUNCTIONS", "SPD_")
     if not functions or not constants:
         raise SystemExit("found no table in " + HEADER)
 
-    failures = check_compiled(arguments.compiler, includes, constants)
-    text = preprocess(arguments.compiler, includes)
-    for name, ret, table_arguments in functions:
-        declared = shared.find_declaration(text, name)
-        if not declared:
-            print("%s: not declared by the libspeechd headers" % name)
-            failures += 1
-            continue
-        declared_ret, declared_arguments = declared
-        problems = []
-        try:
-            if len(declared_arguments) != len(table_arguments):
-                problems.append("%d arguments declared, %d in the table" % (len(declared_arguments), len(table_arguments)))
-            elif kind(declared_ret) != kind(ret):
-                problems.append("returns %s, the table says %s" % (declared_ret, ret))
-            else:
-                for index, (theirs, ours) in enumerate(zip(declared_arguments, table_arguments)):
-                    if kind(theirs) != kind(ours):
-                        problems.append("argument %d is '%s', the table says '%s'" % (index + 1, theirs, ours))
-        except ValueError as error:
-            problems = [str(error)]
-        if problems:
-            failures += 1
-            print("%s: %s" % (name, "; ".join(problems)))
-    print("%d functions and %d constants checked against %s: %s" % (
-        len(functions), len(constants), ", ".join(includes), "FAILED" if failures else "ok"))
-    return 1 if failures else 0
+    failures = shared.check_constants(compiler, includes, INCLUDES, constants)
+    failures += shared.check_functions(shared.preprocess(compiler, includes, INCLUDES), functions, kind)
+    return shared.summary("%d functions and %d constants" % (len(functions), len(constants)), includes, failures)
 
 
 if __name__ == "__main__":

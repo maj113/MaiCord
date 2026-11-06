@@ -18,7 +18,6 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
 #include "maicord/ui/chat/private_channel_title.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -26,7 +25,6 @@
 #include "maicord/core/utf.hpp"
 #include "messages/history_decode.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

@@ -5,6 +5,7 @@
 #else
 #include "../../support/transport_test_shared.hpp"
 #endif
+#include "../../support/tls_hello.hpp"
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
@@ -2075,32 +2076,6 @@ void test_tls_client_shared_credential() noexcept {
     }
     expect(same, "tls_credential_is_not_reacquired_after_every_client_released");
 }
-
-namespace {
-
-// The data of extension `type` in the ClientHello record `hello`, or an empty slice.
-ConstSlice<u8> hello_extension(ConstSlice<u8> hello, u16 type) noexcept {
-    const auto u16_at = [&](u32 at) noexcept { return static_cast<u32>(hello.data[at] << 8 | hello.data[at + 1]); };
-    // Record header (5), handshake header (4), version (2), random (32).
-    u32 at = 5 + 4 + 2 + 32;
-    if (hello.count < at + 1 || hello.data[0] != 22 || hello.data[5] != 1) return {};
-    at += 1 + hello.data[at];  // session id
-    if (hello.count < at + 2) return {};
-    at += 2 + u16_at(at);  // cipher suites
-    if (hello.count < at + 1) return {};
-    at += 1 + hello.data[at];  // compression methods
-    if (hello.count < at + 2) return {};
-    const u32 end = at + 2 + u16_at(at);
-    for (at += 2; end <= hello.count && at + 4 <= end;) {
-        const u32 bytes = u16_at(at + 2);
-        if (at + 4 + bytes > end) return {};
-        if (u16_at(at) == type) return {hello.data + at + 4, bytes};
-        at += 4 + bytes;
-    }
-    return {};
-}
-
-} // namespace
 
 // A client that asks for it offers ALPN "http/1.1"; the others send no ALPN extension.
 void test_tls_client_alpn() noexcept {

@@ -1,6 +1,7 @@
 #include "maicord/app/chat/messages/send_tracker.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {

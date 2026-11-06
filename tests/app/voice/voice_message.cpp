@@ -10,12 +10,13 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/protocol/media/attachment_upload.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
+#include "../../support/ogg_page_fixture.hpp"
 #include "maicord/protocol/http/https_upload.hpp"
 #include "maicord/protocol/messages/create.hpp"
 #include "../../fixtures/opus_voice_signal.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/gateway/message_data.hpp"
 
 namespace maicord {
 namespace {
@@ -43,16 +44,6 @@ u32 le32(const u8* p) noexcept {
 u64 le64(const u8* p) noexcept {
     return le32(p) | (u64{le32(p + 4)} << 32);
 }
-// Independent RFC 3533 CRC (bitwise, polynomial 0x04c11db7, no reflection).
-u32 reference_crc(const u8* page, u32 bytes) noexcept {
-    u32 crc = 0;
-    for (u32 i = 0; i < bytes; ++i) {
-        crc ^= u32{i >= 22 && i < 26 ? u8{0} : page[i]} << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            crc = crc & 0x80000000u ? (crc << 1) ^ 0x04c11db7u : crc << 1;
-    }
-    return crc;
-}
 struct PageWalk {
     u32 pages, packets, bos_pages, eos_pages, bad_crc, bad_sequence, bad_serial, decreasing_granule;
     u64 last_granule;
@@ -75,7 +66,7 @@ PageWalk walk(ConstSlice<u8> stream) noexcept {
         const u32 bytes = 27 + segments + body;
         if (offset + bytes > stream.count)
             break;
-        w.bad_crc += reference_crc(p, bytes) != le32(p + 22) || ogg_page_checksum({p, bytes}) != le32(p + 22);
+        w.bad_crc += ogg_page_crc(p, bytes) != le32(p + 22) || ogg_page_checksum({p, bytes}) != le32(p + 22);
         w.bad_sequence += le32(p + 18) != w.pages;
         if (!w.pages)
             serial = le32(p + 14);

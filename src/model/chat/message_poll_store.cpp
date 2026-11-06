@@ -5,7 +5,6 @@
 #include "maicord/model/chat/sorted_search.hpp"
 #include "message_poll_owned_storage.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

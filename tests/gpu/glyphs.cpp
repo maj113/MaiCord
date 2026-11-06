@@ -9,6 +9,7 @@
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "../support/test_output.hpp"
+#include "capture_io.hpp"
 #include "glyph_scene.hpp"
 
 namespace maicord {
@@ -39,21 +40,6 @@ u32 g_failures = 0;
 
 void check(bool condition, const char* label) noexcept {
     test_check(&g_failures, condition, label);
-}
-
-void dump(const char* prefix, const char* suffix, const void* data, u32 bytes) noexcept {
-    char path[512];
-    u32 at = 0;
-    for (const char* c = prefix; *c && at < 500; ++c)
-        path[at++] = *c;
-    for (const char* c = suffix; *c; ++c)
-        path[at++] = *c;
-    path[at] = 0;
-    const long file = sys_open(path, kOpenWriteOnly | kOpenCreate | kOpenTruncate, 0644);
-    if (file < 0)
-        return;
-    sys_write(static_cast<int>(file), data, bytes);
-    sys_close(static_cast<int>(file));
 }
 
 // One dispatch of a batch: its raw bytes through a dynamic raw buffer (the production path), the atlas as the
@@ -237,8 +223,8 @@ void run() noexcept {
 
         const char* dump_prefix = environment_get("MAICORD_GPU_GLYPH_DUMP");
         if (dump_prefix && dump_prefix[0]) {
-            dump(dump_prefix, ".atlas", g_atlas, sizeof(g_atlas));
-            dump(dump_prefix, ".draw", g_frame, sizeof(g_frame));
+            capture_io::dump(dump_prefix, ".atlas", g_atlas, sizeof(g_atlas));
+            capture_io::dump(dump_prefix, ".draw", g_frame, sizeof(g_frame));
         }
         const bool decoded = png_golden::decode({kAtlasGolden, sizeof(kAtlasGolden)}, glyph_scene::kAtlasWidth,
                                                 glyph_scene::kAtlasHeight, 1, g_atlas_golden) &&

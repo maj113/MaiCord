@@ -1,5 +1,4 @@
 #include "maicord/protocol/messages/forum_post.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -7,7 +6,6 @@
 #include "../encoding/json_field_lists.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_command_writer.hpp"
-#include "../encoding/json_write.hpp"
 
 namespace maicord {
 static_assert(kForumPostMaximumResponseBytes == kThreadCreationForumMaximumResponseBytes);

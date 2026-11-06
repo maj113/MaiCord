@@ -6,6 +6,7 @@
 // a failure with WSAEMSGSIZE and the bytes that fit (the voice code drops it); a zero-length datagram is a valid
 // receive. Closing delivers one cancelled completion for every read that was still waiting.
 #include "internal.hpp"
+#include "maicord/core/win32_error.hpp"
 
 namespace maicord {
 namespace {

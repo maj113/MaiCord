@@ -31,6 +31,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_openssl_abi as shared  # noqa: E402  (its declaration parsing is not OpenSSL specific)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VA_HEADER = os.path.join(ROOT, "include", "maicord", "platform", "decode", "vaapi", "abi.hpp")
 SOFTWARE_HEADER = os.path.join(ROOT, "include", "maicord", "platform", "decode", "software", "abi.hpp")
@@ -162,14 +165,6 @@ def includes_text(headers):
     return "".join("#include <%s>\n" % h for h in headers)
 
 
-def preprocess(cc, includes, headers):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "check.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            handle.write(includes_text(headers))
-        return run([cc, "-E", "-P"] + ["-I" + d for d in includes] + [source]).stdout
-
-
 def read_constants(path):
     text = open(path, encoding="utf-8").read()
     constants = []
@@ -183,22 +178,8 @@ def read_functions(text, table):
     body = body[:body.index("\n\n")]
     rows = []
     for match in re.finditer(r"F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)", body):
-        rows.append((match["name"], match["ret"].strip(), split_arguments(match["args"])))
+        rows.append((match["name"], match["ret"].strip(), shared.split_arguments(match["args"])))
     return rows
-
-
-def split_arguments(text):
-    parts, depth, current = [], 0, ""
-    for character in text:
-        depth += {"(": 1, "[": 1, ")": -1, "]": -1}.get(character, 0)
-        if character == "," and depth == 0:
-            parts.append(current.strip())
-            current = ""
-        else:
-            current += character
-    if current.strip():
-        parts.append(current.strip())
-    return [] if parts == ["void"] else parts
 
 
 def kind(text):
@@ -213,67 +194,6 @@ def kind(text):
     if re.fullmatch(r"(Dav1d|VA|DECODING)\w*(Type|State|Layout|Type|Flags|Mode|Frame)\w*", text):
         return 4  # an enumeration
     raise ValueError("cannot classify the type '%s'" % text)
-
-
-def parameter_type(parameter):
-    parameter = parameter.strip()
-    if parameter.endswith("]"):
-        return re.sub(r"\s*\w+\s*\[[^\]]*\]$", " *", parameter)
-    match = re.match(r"^(.*?[\s\*])(\w+)$", parameter)
-    if match and not re.match(r"^(void|int|long|unsigned|char|size_t|short)$", parameter):
-        return match.group(1)
-    return parameter
-
-
-def find_declaration(text, name):
-    for match in re.finditer(r"(?P<ret>[^;{}()]*?)\b%s\s*\(" % re.escape(name), text):
-        start = match.end()
-        depth, index = 1, start
-        while index < len(text) and depth:
-            depth += {"(": 1, ")": -1}.get(text[index], 0)
-            index += 1
-        if depth:
-            continue
-        following = text[index:index + 64].lstrip()
-        if not (following.startswith(";") or following.startswith("__attribute__")):
-            continue
-        ret = match["ret"].strip().split(";")[-1].strip()
-        ret = re.sub(r"\b(extern|static|inline|__inline__|__attribute__\(\(.*?\)\))\b", " ", ret).strip()
-        return ret, [parameter_type(p) for p in split_arguments(text[start:index - 1])]
-    return None
-
-
-def compare_function(text, name, ret, arguments):
-    declared = find_declaration(text, name)
-    if not declared:
-        return "%s: not declared by the headers" % name
-    declared_ret, declared_arguments = declared
-    try:
-        if len(declared_arguments) != len(arguments):
-            return "%s: %d arguments declared, %d in the table" % (name, len(declared_arguments), len(arguments))
-        if kind(declared_ret) != kind(ret):
-            return "%s: returns %s, the table says %s" % (name, declared_ret, ret)
-        for index, (theirs, ours) in enumerate(zip(declared_arguments, arguments)):
-            if kind(theirs) != kind(ours):
-                return "%s: argument %d is '%s', the table says '%s'" % (name, index + 1, theirs, ours)
-    except ValueError as error:
-        return "%s: %s" % (name, error)
-    return None
-
-
-def check_constants(cc, includes, headers, constants):
-    with tempfile.TemporaryDirectory() as directory:
-        source = os.path.join(directory, "constants.c")
-        with open(source, "w", encoding="utf-8") as handle:
-            handle.write("#include <stddef.h>\n#include <stdint.h>\n" + includes_text(headers))
-            for macro, value in constants:
-                handle.write("_Static_assert((unsigned long long)(%s) == (unsigned long long)(%s), \"%s\");\n"
-                             % (macro, value, macro))
-        result = run([cc, "-fsyntax-only"] + ["-I" + d for d in includes] + [source], check=False)
-        if result.returncode:
-            print(result.stderr)
-            return 1
-    return 0
 
 
 def library_numbers(cc, includes, headers, expressions):
@@ -355,12 +275,12 @@ def main():
     parser.add_argument("--cxx", default=os.environ.get("CXX", "clang++"))
     arguments = parser.parse_args()
     includes = arguments.include or ["/usr/include"]
-    failures, checked = 0, 0
+    failures = 0
 
     # ---- VA-API ----
     va_header, va_constants = read_constants(VA_HEADER)
-    failures += check_constants(arguments.compiler, includes, VA_INCLUDES, va_constants)
-    va_text = preprocess(arguments.compiler, includes, VA_INCLUDES + ("va/va_drm.h",))
+    failures += shared.check_constants(arguments.compiler, includes, VA_INCLUDES, va_constants)
+    va_text = shared.preprocess(arguments.compiler, includes, VA_INCLUDES + ("va/va_drm.h",))
     expressions = ["sizeof(%s)" % real for real in VA_STRUCTS.values()]
     expressions += ["offsetof(%s, %s)" % (VA_STRUCTS[s], VA_FIELDS.get((s, f), f)) for s, f in VA_OFFSETS]
     numbers = library_numbers(arguments.compiler, includes, VA_INCLUDES, expressions)
@@ -369,19 +289,15 @@ def main():
                  "offsetof(%s, %s)" % (s, f)) for s, f in VA_OFFSETS]
     failures += check_declarations(arguments.cxx, VA_HEADER, "vaapi", asserts)
     failures += check_bit_fields(va_text, va_header)
-    for table in ("MAICORD_VA_FUNCTIONS", "MAICORD_VA_DRM_FUNCTIONS"):
-        for name, ret, table_arguments in read_functions(va_header, table):
-            problem = compare_function(va_text, name, ret, table_arguments)
-            checked += 1
-            if problem:
-                failures += 1
-                print(problem)
-    print("VA-API: %d constants, %d layouts and %d functions checked" % (len(va_constants), len(asserts), checked))
+    functions = [row for table in ("MAICORD_VA_FUNCTIONS", "MAICORD_VA_DRM_FUNCTIONS")
+                 for row in read_functions(va_header, table)]
+    failures += shared.check_functions(va_text, functions, kind)
+    print("VA-API: %d constants, %d layouts and %d functions checked" % (len(va_constants), len(asserts), len(functions)))
 
     # ---- libdav1d ----
     software_header, software_constants = read_constants(SOFTWARE_HEADER)
     dav1d_constants = [c for c in software_constants if c[0].startswith(("DAV1D_", "EAGAIN"))]
-    failures += check_constants(arguments.compiler, includes, DAV1D_INCLUDES, dav1d_constants)
+    failures += shared.check_constants(arguments.compiler, includes, DAV1D_INCLUDES, dav1d_constants)
     expressions = ["sizeof(%s)" % real for real in DAV1D_STRUCTS.values()]
     expressions += ["offsetof(%s, %s)" % (s, e) for s, _, e in DAV1D_OFFSETS]
     numbers = library_numbers(arguments.compiler, includes, DAV1D_INCLUDES, expressions)
@@ -392,19 +308,14 @@ def main():
     asserts += [("__builtin_offsetof(%s, %s) == %d" % (s, f, numbers["offsetof(%s, %s)" % (s, e)]), "offsetof(%s, %s)" % (s, f))
                 for s, f, e in DAV1D_OFFSETS]
     failures += check_declarations(arguments.cxx, SOFTWARE_HEADER, "software", asserts)
-    dav1d_text = preprocess(arguments.compiler, includes, DAV1D_INCLUDES)
-    count = 0
-    for name, ret, table_arguments in read_functions(software_header, "MAICORD_DAV1D_FUNCTIONS"):
-        problem = compare_function(dav1d_text, name, ret, table_arguments)
-        count += 1
-        if problem:
-            failures += 1
-            print(problem)
-    print("libdav1d: %d constants, %d layouts and %d functions checked" % (len(dav1d_constants), len(asserts), count))
+    dav1d_text = shared.preprocess(arguments.compiler, includes, DAV1D_INCLUDES)
+    functions = read_functions(software_header, "MAICORD_DAV1D_FUNCTIONS")
+    failures += shared.check_functions(dav1d_text, functions, kind)
+    print("libdav1d: %d constants, %d layouts and %d functions checked" % (len(dav1d_constants), len(asserts), len(functions)))
 
     # ---- libopenh264 ----
     openh264_constants = [c for c in software_constants if not c[0].startswith(("DAV1D_", "EAGAIN"))]
-    failures += check_constants(arguments.compiler, includes, OPENH264_INCLUDES, openh264_constants)
+    failures += shared.check_constants(arguments.compiler, includes, OPENH264_INCLUDES, openh264_constants)
     expressions = ["sizeof(%s)" % real for real in OPENH264_STRUCTS.values()]
     expressions += ["offsetof(%s, %s)" % (s, e) for s, _, e in OPENH264_OFFSETS]
     expressions += ["offsetof(ISVCDecoderVtbl, %s)" % member for member in OPENH264_TABLE]
@@ -416,23 +327,19 @@ def main():
     asserts += [("__builtin_offsetof(IsvcDecoderTable, %s) == %d" % (m, numbers["offsetof(ISVCDecoderVtbl, %s)" % m]),
                  "ISVCDecoderVtbl.%s" % m) for m in OPENH264_TABLE]
     failures += check_declarations(arguments.cxx, SOFTWARE_HEADER, "software", asserts)
-    openh264_text = preprocess(arguments.compiler, includes, OPENH264_INCLUDES)
-    for name, ret, table_arguments in (("WelsCreateDecoder", "long", ["ISVCDecoder**"]),
-                                       ("WelsDestroyDecoder", "void", ["ISVCDecoder*"])):
-        problem = compare_function(openh264_text, name, ret, table_arguments)
-        if problem:
-            failures += 1
-            print(problem)
+    openh264_text = shared.preprocess(arguments.compiler, includes, OPENH264_INCLUDES)
+    failures += shared.check_functions(openh264_text, (("WelsCreateDecoder", "long", ["ISVCDecoder**"]),
+                                                       ("WelsDestroyDecoder", "void", ["ISVCDecoder*"])), kind)
     # The table's member signatures: argument counts and kinds, in the library's own spelling.
     vtable = struct_body(openh264_text, "ISVCDecoderVtbl", r"struct %s\s*{")
     ours = {}
     for match in re.finditer(r"^\s*(?P<ret>[\w ]+?)\s*\(\*(?P<name>\w+)\)\s*\((?P<args>[^;]*)\);", software_header, re.M):
-        ours[match["name"]] = (match["ret"], split_arguments(match["args"]))
+        ours[match["name"]] = (match["ret"], shared.split_arguments(match["args"]))
     for match in re.finditer(r"(?P<ret>[\w ]+?)\s*\(\*\s*(?P<name>\w+)\)\s*\((?P<args>.*?)\)\s*;", vtable or "", re.S):
         name = match["name"]
         if name not in ours:
             continue
-        theirs = [parameter_type(a) for a in split_arguments(match["args"])]
+        theirs = [shared.parameter_type(a) for a in shared.split_arguments(match["args"])]
         try:
             same = len(theirs) == len(ours[name][1]) and kind(match["ret"].strip()) == kind(ours[name][0]) and all(
                 kind(a) == kind(b) for a, b in zip(theirs, ours[name][1]))

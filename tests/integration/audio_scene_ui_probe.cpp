@@ -4,7 +4,6 @@
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/core/scene.hpp"

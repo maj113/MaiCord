@@ -9,6 +9,8 @@
 #include "maicord/media/image/jpeg.hpp"
 
 #include "maicord/media/core/asset.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/gpu/api.hpp"
 
 namespace maicord {
 namespace {
@@ -78,10 +80,6 @@ MediaAtlasGpuResult ensure_preview_media_gpu(D3D11Renderer* renderer, const Medi
     return initialized;
 }
 
-MediaAtlasGpuResult ensure_upload_preview_gpu(D3D11Renderer* renderer, bool preview, const MediaAtlas* atlas) noexcept {
-    return preview ? ensure_preview_media_gpu(renderer, *atlas) : MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
-}
-
 // Codec shaders/buffers are shared, but each atlas owns its canvas and
 // disposal backup. Borrow the chosen surface for one synchronous render-thread
 // operation. This swaps metadata only: no texture copies, allocation or AddRef.
@@ -136,10 +134,9 @@ AtlasUpload atlas_upload(F* function) noexcept {
 MediaAtlasGpuResult run_atlas_upload(D3D11Renderer* renderer, bool preview,
                                      MediaAtlas* atlas, u32 width, u32 height, const char* failure_event,
                                      const AtlasUpload& upload) noexcept {
-    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
+    const MediaAtlasGpuResult initialized =
+        preview ? ensure_preview_media_gpu(renderer, *atlas) : ensure_primary_media_gpu(renderer);
     if (!initialized.ok()) return initialized;
-    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
-    if (!preview_initialized.ok()) return preview_initialized;
     const MediaAtlasGpuResult uploaded = upload.run(upload.context, atlas);
     if (!uploaded.ok()) {
         log_media_upload_failure(uploaded, failure_event);
@@ -188,12 +185,9 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
     if (call && !renderer->preview_media_atlas) return kRejectedMediaRequest;
     const bool preview = call || uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
-    const MediaAtlasGpuResult primary = ensure_primary_media_gpu(renderer);
-    if (!primary.ok()) return primary;
-    if (preview) {
-        const MediaAtlasGpuResult ready = ensure_preview_media_gpu(renderer, *atlas);
-        if (!ready.ok()) return ready;
-    }
+    const MediaAtlasGpuResult ready =
+        preview ? ensure_preview_media_gpu(renderer, *atlas) : ensure_primary_media_gpu(renderer);
+    if (!ready.ok()) return ready;
     // Local draft video keys are composer posters: a thumbnail, not playback.
     // A GIF picker tile (a VIDEO favourite) plays at the same small extent.
     const u32 extent = key.kind == MediaAssetKind::local_draft_preview ||
@@ -218,10 +212,14 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
 }
 
 // Media atlases are virtual surfaces up to 16384 rows; their pages are backed as they fill.
+static bool media_atlas_bindable(const MediaAtlas* atlas) noexcept {
+    return atlas && atlas->entries && atlas->allocations.entries && atlas->allocations.width >= 16 &&
+           atlas->allocations.height >= 16 && atlas->allocations.width <= 4'096 &&
+           atlas->allocations.height <= 16'384;
+}
+
 bool renderer_bind_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexcept {
-    if (!renderer || !atlas || renderer->media_atlas || !atlas->entries || !atlas->allocations.entries ||
-        atlas->allocations.width < 16 || atlas->allocations.height < 16 ||
-        atlas->allocations.width > 4'096 || atlas->allocations.height > 16'384) {
+    if (!renderer || renderer->media_atlas || !media_atlas_bindable(atlas)) {
         return false;
     }
     renderer->media_atlas = atlas;
@@ -231,9 +229,8 @@ bool renderer_bind_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexc
 }
 
 bool renderer_bind_preview_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexcept {
-    if (!renderer || !atlas || !renderer->media_atlas || renderer->preview_media_atlas || !atlas->entries ||
-        !atlas->allocations.entries || atlas->allocations.width < 16 || atlas->allocations.height < 16 ||
-        atlas->allocations.width > 4'096 || atlas->allocations.height > 16'384) {
+    if (!renderer || !renderer->media_atlas || renderer->preview_media_atlas ||
+        !media_atlas_bindable(atlas)) {
         return false;
     }
     renderer->preview_media_atlas = atlas;
@@ -246,15 +243,7 @@ void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept {
     if (!renderer) {
         return;
     }
-    media_atlas_gpu_release(&renderer->media_gpu);
-    animation_frame_cache_gpu_reset(&renderer->animation_gpu);
-    animation_frame_cache_gpu_reset(&renderer->preview_animation_gpu);
-    if (renderer->media_atlas) {
-        media_atlas_reset(renderer->media_atlas);
-    }
-    if (renderer->preview_media_atlas) {
-        media_atlas_reset(renderer->preview_media_atlas);
-    }
+    renderer_release_media_surfaces(renderer);
     renderer->media_atlas = nullptr;
     renderer->preview_media_atlas = nullptr;
     renderer->media_quad_count = 0;
@@ -680,27 +669,9 @@ bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<
 
 namespace {
 
-// Drops all media surfaces and residency (as on unbind): lazy initialization
-// recreates them. Visible media is requested again by its owners.
-void release_media_surfaces(D3D11Renderer* renderer) noexcept {
-    media_atlas_gpu_release(&renderer->media_gpu);
-    animation_frame_cache_gpu_reset(&renderer->animation_gpu);
-    animation_frame_cache_gpu_reset(&renderer->preview_animation_gpu);
-    MediaAtlas* const atlases[] = {renderer->media_atlas, renderer->preview_media_atlas};
-    for (MediaAtlas* atlas : atlases) {
-        if (atlas) {
-            media_atlas_reset(atlas);
-        }
-    }
-    presentation_damage_invalidate_full(&renderer->presentation_damage);
-}
-
-GpuPagedTexture* disposal_backup(const D3D11Renderer& renderer, bool preview) noexcept {
-    return preview ? renderer.media_gpu.preview_backup : renderer.media_gpu.backup;
-}
-
 u64 backup_release_deadline(const D3D11Renderer& renderer, const MediaAtlas* atlas, bool preview) noexcept {
-    return atlas && disposal_backup(renderer, preview) ? atlas->disposal_backup_used_ms + kMediaAtlasIdleTrimMs : 0;
+    const GpuPagedTexture* backup = preview ? renderer.media_gpu.preview_backup : renderer.media_gpu.backup;
+    return atlas && backup ? atlas->disposal_backup_used_ms + kMediaAtlasIdleTrimMs : 0;
 }
 
 // Idle trim drops what nothing shows and returns its rows' memory; nothing
@@ -730,9 +701,19 @@ bool trim_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas, bool preview, 
 }
 } // namespace
 
+// Drops all media surfaces and residency (as on unbind): lazy initialization
+// recreates them. Visible media is requested again by its owners.
 void renderer_release_media_surfaces(D3D11Renderer* renderer) noexcept {
-    if (renderer)
-        release_media_surfaces(renderer);
+    if (!renderer)
+        return;
+    media_atlas_gpu_release(&renderer->media_gpu);
+    animation_frame_cache_gpu_reset(&renderer->animation_gpu);
+    animation_frame_cache_gpu_reset(&renderer->preview_animation_gpu);
+    if (renderer->media_atlas)
+        media_atlas_reset(renderer->media_atlas);
+    if (renderer->preview_media_atlas)
+        media_atlas_reset(renderer->preview_media_atlas);
+    presentation_damage_invalidate_full(&renderer->presentation_damage);
 }
 
 bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {

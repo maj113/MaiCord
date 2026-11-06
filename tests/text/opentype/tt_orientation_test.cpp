@@ -1,6 +1,5 @@
 #include "maicord/text/opentype/tt_orientation.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/orientation_fixture.inc"

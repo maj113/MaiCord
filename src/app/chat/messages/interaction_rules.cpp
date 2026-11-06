@@ -8,22 +8,11 @@
 
 namespace maicord {
 namespace {
-
-
-Utf8View trim(Utf8View text) noexcept {
-    u32 first = 0, last = text.bytes;
-    while (first < last && ascii_is_space(text.data[first]))
-        ++first;
-    while (last > first && ascii_is_space(text.data[last - 1]))
-        --last;
-    return {text.data + first, last - first};
-}
-
 // Optional argument after the command word; nullptr data means no match.
 bool command_argument(Utf8View text, Utf8View command, Utf8View* argument) noexcept {
     if (!utf8_starts_with(text, command) || (text.bytes > command.bytes && !ascii_is_space(text.data[command.bytes])))
         return false;
-    *argument = trim({text.data + command.bytes, text.bytes - command.bytes});
+    *argument = ascii_trim({text.data + command.bytes, text.bytes - command.bytes});
     return true;
 }
 
@@ -40,11 +29,11 @@ Utf8View message_text(Utf8View argument) noexcept {
            !utf8_starts_with({argument.data + end, argument.bytes - end},
                              Utf8View{kCommandOptionEnd, kCommandOptionEndBytes}))
         ++end;
-    return trim({argument.data + key.bytes, end - key.bytes});
+    return ascii_trim({argument.data + key.bytes, end - key.bytes});
 }
 
 float smooth(float t) noexcept {
-    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    t = clamp_unit(t);
     return t * t * (3 - 2 * t);
 }
 
@@ -59,7 +48,7 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
     ComposerTextCommand command{};
     if (!raw.data || !raw.bytes)
         return command;
-    const Utf8View text = trim(raw);
+    const Utf8View text = ascii_trim(raw);
     struct Rewrite {
         Utf8View name, suffix;
     };
@@ -227,7 +216,7 @@ u32 message_delete_preview_format(Utf8View author, Utf8View content, bool has_at
         writer.add(author);
         writer.add(": ");
     }
-    content = trim(content);
+    content = ascii_trim(content);
     if (!content.bytes) {
         writer.add(has_attachments ? utf8_literal("Attachment") : utf8_literal("Empty message"));
         return writer.ok ? writer.used : 0;

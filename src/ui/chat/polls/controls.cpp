@@ -255,10 +255,6 @@ bool owner_current(UiWidgetReference owner) noexcept {
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
     return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
 }
-bool contains(const UiRect& rectangle, UiPoint point) noexcept {
-    return ui_rect_has_area(rectangle) && point.x >= rectangle.left && point.x < rectangle.right &&
-           point.y >= rectangle.top && point.y < rectangle.bottom;
-}
 bool scene_current(const UiPollScene& scene) noexcept {
     return scene.active && owner_current(scene.owner);
 }
@@ -594,7 +590,7 @@ UiPollTarget ui_poll_controls_hit(const UiPollProjection& projection, UiPoint po
     const auto count = targets(projection, candidates);
     for (u32 i = 0; i < count; ++i)
         if (ui_poll_target_enabled(projection, candidates[i]) &&
-            contains(ui_poll_target_rectangle(projection, candidates[i]), point))
+            ui_rect_contains(ui_poll_target_rectangle(projection, candidates[i]), point.x, point.y))
             return candidates[i];
     return {};
 }
@@ -702,7 +698,7 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
     return true;
 }
 UiPollTarget ui_poll_scene_hit(const UiPollScene& scene, UiPoint point) noexcept {
-    return scene_current(scene) && contains(scene.clip, point)
+    return scene_current(scene) && ui_rect_contains(scene.clip, point.x, point.y)
                ? ui_poll_controls_hit(scene.projection, point)
                : UiPollTarget{};
 }

@@ -226,8 +226,7 @@ cmake --build BUILD
   `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` is for a clang that cannot link a hosted program on its own.
 * **BUILD is outside SRC** (`generate_unicode_emoji_catalog.py` refuses to write into the source tree).
 * **Shader tools.** None: the client's shaders are hand-written GLSL (`src/render/shaders/gles`) that the build packs with python, so
-  a client or test build fetches and compiles nothing for them (`tools/linux_shader_toolchain.json`, `MAICORD_DXC` and
-  `MAICORD_SPIRV_CROSS_PREFIX` no longer exist; DXC, SPIRV-Cross and `mc_shadertool` serve plugin effects only). The GPU tests of
+  a client or test build fetches and compiles nothing for them. The GPU tests of
   `tests/gpu` (`sync`, `clear_readback`, `shader_pack`, `ui_quads`, `glyphs`, `media`, `effects`, `bitmap_glyph`) pass on Mesa's
   llvmpipe in a sandbox.
 * **Version and updater.** Set `MAICORD_UPDATE_VERSION=X.Y.Z` in the environment of the configure step (there is no git checkout to

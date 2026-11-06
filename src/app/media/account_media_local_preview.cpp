@@ -4,7 +4,6 @@
 #include "maicord/media/image/png_stream.hpp"
 #include "maicord/media/image/webp_thumbnail.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

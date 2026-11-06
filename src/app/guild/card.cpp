@@ -22,7 +22,6 @@
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "../account/account_ui_runtime.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

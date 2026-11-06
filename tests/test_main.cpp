@@ -1,6 +1,6 @@
+#include "support/application_downloads_inactive.hpp"
 #include "support/test_main_shared.hpp"
 
-#include "support/application_downloads_inactive.hpp"
 #include "support/test_output.hpp"
 #include "maicord/core/win32_exception.hpp"
 

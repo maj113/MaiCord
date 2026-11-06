@@ -2,7 +2,6 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/slice.hpp"
-#include "maicord/core/utf.hpp"
 #include <stddef.h>
 
 #include "maicord/core/win32_types.hpp"

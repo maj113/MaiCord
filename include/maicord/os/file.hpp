@@ -4,7 +4,6 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/os/path.hpp"
 #include "maicord/os/wait.hpp"
 
 // Files, directories and file mappings (D17): open, read, write, atomic replace, identity, enumeration,
@@ -173,13 +172,9 @@ bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read) noexcept;
 bool file_read_at(FileHandle file, u64 offset, void* buffer, u32 bytes, u32* read) noexcept;
 // Writes all `bytes` at the current position (the end, for FileAccess::append). *written is the count.
 bool file_write(FileHandle file, const void* buffer, u32 bytes, u32* written) noexcept;
-// The same at `offset`, for a handle without the overlapped flag; the position afterwards is unspecified.
-bool file_write_at(FileHandle file, u64 offset, const void* buffer, u32 bytes, u32* written) noexcept;
 // Moves the position; *position (optional) receives the new one.
 bool file_seek(FileHandle file, i64 offset, FileSeek origin, u64* position = nullptr) noexcept;
 bool file_size(FileHandle file, u64* bytes) noexcept;
-// Sets the length of the file, truncating or extending it with zeros; the position afterwards is unspecified.
-bool file_set_size(FileHandle file, u64 bytes) noexcept;
 // Writes the file's data and metadata to the storage (FlushFileBuffers / fsync).
 bool file_flush(FileHandle file) noexcept;
 
@@ -208,8 +203,6 @@ bool file_mark_delete_on_close(FileHandle file) noexcept;
 // A second handle on the same open file that can read it and be marked for deletion, and cannot write: the owner of
 // the first may then keep writing while the sealed one is handed on. Linux reopens the descriptor read-only.
 bool file_duplicate_sealed(FileHandle file, FileHandle* sealed) noexcept;
-// The path the system reports for the open file; *length excludes the terminator. Windows adds the \\?\ prefix.
-bool file_final_path(FileHandle file, wchar_t* output, u32 capacity, u32* length) noexcept;
 
 // Directory enumeration: dir_next fills the next entry and returns false at the end (thread_last_error() is then
 // ERROR_NO_MORE_FILES) or on failure.

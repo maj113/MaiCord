@@ -1,6 +1,5 @@
 #include "maicord/protocol/messages/thread_creation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::thread_creation_test {

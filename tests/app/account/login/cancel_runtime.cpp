@@ -9,10 +9,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 

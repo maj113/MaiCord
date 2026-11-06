@@ -3,7 +3,6 @@
 #include "maicord/core/base.hpp"
 #include "maicord/ui/account/login_scene.hpp"
 
-#include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
 
 namespace maicord::app_detail {

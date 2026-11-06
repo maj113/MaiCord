@@ -6,6 +6,7 @@
 #include "../encoding/json_helpers.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/http/rest.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

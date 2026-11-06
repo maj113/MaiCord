@@ -17,6 +17,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/sdk/maicord_plugin.h"
+#include "maicord/core/utf.hpp"
 
 namespace maicord::app_detail {
 namespace {

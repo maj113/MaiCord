@@ -4,6 +4,7 @@
 #include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/http/http_response_stream.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord { namespace {
 HttpHeadResult rejected(AttachmentDownloadResponsePolicy* p,

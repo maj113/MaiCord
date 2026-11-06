@@ -19,7 +19,7 @@
 #include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
-#include "../shell/content_point.hpp"
+#include "../shell/window_state.hpp"
 
 namespace maicord::app_detail {
 
@@ -209,7 +209,7 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
     if (backend == SettingBackend::account)
         return application_account_settings_project(binding, control, presentation);
     if (backend == SettingBackend::keybinds)
-        return application_keybinds_settings_project(binding, control, presentation);
+        return application_keybinds_settings_project(binding, control);
     auto preferences = g_app.preferences;
     if (theme_binding(binding))
         preferences.gradient = gradient_edit_base();

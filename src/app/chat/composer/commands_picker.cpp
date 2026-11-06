@@ -4,7 +4,9 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
-#include "../../account/account_access.hpp"
+#include "../../account/account_ui_runtime.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/model/guild/member_store.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -416,7 +418,7 @@ u32 typed_options(const Utf8View& input, Slice<CommandArgumentSpan> spans) noexc
 }
 // The chip the caret is in (up to its end marker), or no_option: after the
 // marker the caret is outside.
-u32 chip_at(const Utf8View&, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
+u32 chip_at(const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
     for (u32 n = 0; n < count; ++n)
         if (caret >= spans[n].value_first && caret <= spans[n].value_last)
             return n;
@@ -431,7 +433,7 @@ bool option_end_at(const Utf8View& input, u32 at) noexcept {
 Utf8View caret_word(Utf8View input, u32 caret) noexcept {
     const u32 floor = commands->selected.command->name.bytes + 1;
     u32 first = minimum(caret, input.bytes);
-    while (first > floor && !command_space(input.data[first - 1]) &&
+    while (first > floor && !ascii_is_space(input.data[first - 1]) &&
            !(first >= kCommandOptionEndBytes && option_end_at(input, first - kCommandOptionEndBytes)))
         --first;
     return {input.data + first, minimum(caret, input.bytes) - first};
@@ -485,7 +487,7 @@ void update_focus(Utf8View input) noexcept {
     c.focused_revision = g_app.message_composer.revision;
     CommandArgumentSpan spans[25];
     const u32 count = typed_options(input, {spans, 25});
-    const u32 chip = chip_at(input, spans, count, g_app.message_composer.caret);
+    const u32 chip = chip_at(spans, count, g_app.message_composer.caret);
     reset_value(&c.focused_option);
     c.focused_slot = no_option;
     if (chip != no_option) {
@@ -513,9 +515,9 @@ Utf8View focused_query() noexcept {
     if (!c.focused_option.source.bytes || c.value_begin > c.value_end || c.value_end > input.bytes)
         return {};
     u32 first = c.value_begin, last = c.value_end;
-    while (first < last && command_space(input.data[first]))
+    while (first < last && ascii_is_space(input.data[first]))
         ++first;
-    while (last > first && command_space(input.data[last - 1]))
+    while (last > first && ascii_is_space(input.data[last - 1]))
         --last;
     return {input.data + first, last - first};
 }

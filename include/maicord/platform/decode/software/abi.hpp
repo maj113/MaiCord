@@ -57,9 +57,7 @@ struct Dav1dPicture {
     u8 rest[352];
 };
 
-inline constexpr i32 kDav1dLayoutI400 = 0; // DAV1D_PIXEL_LAYOUT_I400
 inline constexpr i32 kDav1dLayoutI420 = 1; // DAV1D_PIXEL_LAYOUT_I420
-inline constexpr i32 kDav1dMatrixIdentity = 0; // DAV1D_MC_IDENTITY
 inline constexpr i32 kDav1dEagain = 11; // EAGAIN, returned negated
 
 #define MAICORD_DAV1D_FUNCTIONS(F)                                                                                     \
@@ -116,7 +114,6 @@ struct IsvcDecoderTable {
 };
 
 // DECODING_STATE bits
-inline constexpr i32 kDsFramePending = 0x01;     // dsFramePending
 inline constexpr i32 kDsRefLost = 0x02;          // dsRefLost
 inline constexpr i32 kDsBitstreamError = 0x04;   // dsBitstreamError
 inline constexpr i32 kDsDepLayerLost = 0x08;     // dsDepLayerLost
@@ -127,8 +124,6 @@ inline constexpr i32 kDsOutOfMemory = 0x4000;    // dsOutOfMemory
 inline constexpr i32 kErrorConcealmentDisable = 0; // ERROR_CON_DISABLE
 inline constexpr i32 kBitstreamAvc = 0;            // VIDEO_BITSTREAM_AVC
 inline constexpr i32 kVideoFormatI420 = 23;        // videoFormatI420
-inline constexpr i32 kDecoderOptionErrorConIdc = 8; // DECODER_OPTION_ERROR_CON_IDC
-inline constexpr i32 kDecoderOptionNumOfThreads = 19; // DECODER_OPTION_NUM_OF_THREADS
 
 struct OpenH264Api {
     long (*WelsCreateDecoder)(IsvcDecoder**);

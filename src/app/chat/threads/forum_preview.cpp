@@ -47,8 +47,7 @@ bool visible(u64 id) noexcept {
         if (list.rows[i].id == id && !list.rows[i].spoiler) {
             UiRect clip{};
             const auto rect = ui_attachment_draft_list_preview(list, i, &clip);
-            return maximum(rect.left, clip.left) < minimum(rect.right, clip.right) &&
-                   maximum(rect.top, clip.top) < minimum(rect.bottom, clip.bottom);
+            return ui_rect_intersects(rect, clip);
         }
     return false;
 }

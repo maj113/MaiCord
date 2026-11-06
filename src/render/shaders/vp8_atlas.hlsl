@@ -19,16 +19,7 @@ cbuffer Vp8AtlasConstants : register(b0) {
 
 ByteAddressBuffer vp8_yuv : register(t0);
 ByteAddressBuffer vp8_alpha : register(t1);
-#if defined(__spirv__)
-// ES 3.1 images of this format are either read-only or write-only: the atlas is bound twice, and the
-// over-blend reads through the second view.
-[[vk::image_format("rgba8")]]
 RWTexture2D<unorm float4> media_atlas : register(u0);
-[[vk::image_format("rgba8")]]
-RWTexture2D<unorm float4> media_atlas_read : register(u1);
-#else
-RWTexture2D<unorm float4> media_atlas : register(u0);
-#endif
 
 uint load_yuv(uint plane, uint stride, uint x, uint y) {
     return vp8_yuv.Load((plane + y * stride + x) * 4u);
@@ -122,11 +113,7 @@ void vp8_to_atlas(uint3 dispatch_id : SV_DispatchThreadID) {
         uint2(destination_x + x, destination_y + y);
     float4 result = float4(float3(rgb), float(alpha)) / 255.0f;
     [branch] if (over && alpha != 255u) {
-#if defined(__spirv__)
-        result += media_atlas_read[destination] * (1.0f - result.a);
-#else
         result += media_atlas[destination] * (1.0f - result.a);
-#endif
     }
     media_atlas[destination] = result;
 }

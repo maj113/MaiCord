@@ -37,19 +37,12 @@ const Api* library() noexcept {
         log_write(LogLevel::warning, "speech", "libspeechd.so.2 is not installed: text-to-speech is unavailable");
         return nullptr;
     }
-    const char* missing = nullptr;
+    SharedLibraryResolver resolve{g_library, nullptr};
     Api api{};
-#define MAICORD_SPEECHD_RESOLVE(result, name, arguments)                                                               \
-    if (!missing) {                                                                                                    \
-        void* address = shared_library_symbol(g_library, #name);                                                       \
-        if (address)                                                                                                   \
-            api.name = reinterpret_cast<decltype(api.name)>(address);                                                  \
-        else                                                                                                           \
-            missing = #name;                                                                                           \
-    }
+#define MAICORD_SPEECHD_RESOLVE(result, name, arguments) resolve(&api.name, #name);
     MAICORD_SPEECHD_FUNCTIONS(MAICORD_SPEECHD_RESOLVE)
 #undef MAICORD_SPEECHD_RESOLVE
-    if (missing) {
+    if (const char* missing = resolve.missing) {
         // libspeechd lacks a function: text-to-speech is unavailable.
         LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "speech");
         shared_library_close(&g_library);

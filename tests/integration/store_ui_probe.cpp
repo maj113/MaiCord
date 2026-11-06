@@ -20,7 +20,6 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
-#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/theme/background_surface.hpp"

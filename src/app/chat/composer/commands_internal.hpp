@@ -1,17 +1,10 @@
 #pragma once
 // Shared by commands.cpp and its parts (commands_*.cpp); private to them.
 #include "maicord/app/chat/composer/command_autocomplete.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../shell/state.hpp"
 #include "composer.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
-#include "builtin_commands.hpp"
 #include "plugin_commands.hpp"
-#include "maicord/core/ascii.hpp"
-#include "maicord/core/utf.hpp"
-#include "maicord/model/user/activity.hpp"
-#include "maicord/model/user/profile.hpp"
-#include "maicord/core/time.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {}
@@ -194,7 +187,6 @@ void advance_channel_index_epoch(Commands& c) noexcept;
 bool retired_text(const Utf8View& text, const Arena& storage) noexcept;
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
                     const Slice<char>& scratch) noexcept;
-bool command_space(char value) noexcept;
 Utf8View copy_label(char* out, u32 capacity, const Utf8View& a, const Utf8View& b = {},
                     const Utf8View& c = {}, const Utf8View& d = {}) noexcept;
 void close_popup() noexcept;
@@ -238,7 +230,7 @@ OptionList command_options() noexcept;
 bool option_flag(JsonValue option, const char* key) noexcept;
 u64 option_type(const CommandIndex& index, JsonValue option) noexcept;
 u32 typed_options(const Utf8View& input, Slice<CommandArgumentSpan> spans) noexcept;
-u32 chip_at(const Utf8View&, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept;
+u32 chip_at(const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept;
 bool option_end_at(const Utf8View& input, u32 at) noexcept;
 Utf8View caret_word(Utf8View input, u32 caret) noexcept;
 ConstSlice<CommandAcceptedChoice> accepted_choices() noexcept;

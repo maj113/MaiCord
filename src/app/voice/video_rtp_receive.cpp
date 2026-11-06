@@ -7,7 +7,6 @@
 #include "maicord/media/video/rtp_h264.hpp"
 #include "maicord/media/video/rtp_h265.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

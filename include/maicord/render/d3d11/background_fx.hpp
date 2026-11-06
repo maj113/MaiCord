@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/render/effects/background_fx_data.hpp"
 #include "maicord/ui/core/geometry.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/gpu/gpu.hpp"
 
 namespace maicord {

@@ -22,7 +22,6 @@ enum class MessageType : u8 { invalid = 0, method_call = 1, method_return = 2, e
 enum MessageFlag : u8 {
     flag_no_reply_expected = 1,
     flag_no_auto_start = 2,
-    flag_allow_interactive_authorization = 4,
 };
 
 // Builder ------------------------------------------------------------------------------------------------------------

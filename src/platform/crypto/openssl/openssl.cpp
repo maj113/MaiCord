@@ -1,6 +1,5 @@
 #include "openssl.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/sys/linux/calls.hpp"
 

@@ -2,7 +2,6 @@
 // Only account transport, accepted Search authority, and final UI selection are mocked.
 #include "../../../../src/app/chat/search/navigation.cpp"
 #include "../../../support/model_store_fixtures.hpp"
-#include "maicord/core/memory.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"

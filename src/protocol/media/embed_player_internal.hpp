@@ -2,9 +2,7 @@
 
 #include "maicord/protocol/media/embed_player.hpp"
 #include "../encoding/json_field_lists.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 
 namespace maicord {

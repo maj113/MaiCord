@@ -3,8 +3,6 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
-#include "maicord/model/user/store.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 
@@ -376,9 +374,8 @@ bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, co
     } else
         return false;
     const UiRect rectangle = destination_tile(s.row_rectangles[slot]);
-    const UiRect clip{maximum(rectangle.left, s.body.left), maximum(rectangle.top, s.body.top),
-                      minimum(rectangle.right, s.body.right), minimum(rectangle.bottom, s.body.bottom)};
-    if (clip.left >= clip.right || clip.top >= clip.bottom)
+    const UiRect clip = ui_rect_overlap(rectangle, s.body);
+    if (!ui_rect_has_area(clip))
         return false;
     *output = {key, hash, rectangle, clip, circle ? 0.f : kDestinationTileRadius, circle};
     return true;

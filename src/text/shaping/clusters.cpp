@@ -1,6 +1,5 @@
 #include "maicord/text/shaping/clusters.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/base.hpp"
 #include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {

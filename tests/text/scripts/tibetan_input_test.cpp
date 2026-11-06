@@ -1,5 +1,4 @@
 #include "maicord/text/scripts/tibetan_input.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
 namespace maicord {namespace {

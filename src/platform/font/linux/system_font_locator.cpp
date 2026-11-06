@@ -15,22 +15,6 @@ namespace {
 constexpr const char kLibrary[] = "libfontconfig.so.1";
 constexpr u32 kSortedFontLimit = 64;
 
-struct Resolver {
-    const SharedLibrary& library;
-    const char* missing;
-
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (missing)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            missing = name;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
-
 struct PatternGuard {
     const fc::Api& api;
     fc::Pattern* pattern;
@@ -81,7 +65,7 @@ bool open_fontconfig(SystemFontLocator* locator) noexcept {
         locator->state = 3;
         return false;
     }
-    Resolver resolve{library, nullptr};
+    SharedLibraryResolver resolve{library, nullptr};
     fc::Api api{};
     resolve(&api.init, "FcInit");
     resolve(&api.fini, "FcFini");
@@ -130,18 +114,10 @@ const char* string_property(const fc::Api& api, const fc::Pattern* pattern, cons
     return reinterpret_cast<const char*>(value);
 }
 
-bool equal_text(const char* a, const char* b) noexcept {
-    while (*a && *a == *b) {
-        ++a;
-        ++b;
-    }
-    return *a == *b;
-}
-
 // Only formats the text engine reads: TrueType and OpenType-CFF outlines (a Type 1 or bitmap font is skipped).
 bool readable_format(const fc::Api& api, const fc::Pattern* pattern) noexcept {
     const char* format = string_property(api, pattern, "fontformat", 0);
-    return format && (equal_text(format, "TrueType") || equal_text(format, "CFF"));
+    return format && (c_string_equal(format, "TrueType") || c_string_equal(format, "CFF"));
 }
 
 // The pattern every lookup starts from: the family, the language and, for a request, the weight and slant.
@@ -284,7 +260,7 @@ const char* language_variable() noexcept {
     const char* const names[] = {"LC_ALL", "LC_MESSAGES", "LANG"};
     for (const char* name : names) {
         const char* value = environment_get(name);
-        if (value && *value && !equal_text(value, "C") && !equal_text(value, "POSIX"))
+        if (value && *value && !c_string_equal(value, "C") && !c_string_equal(value, "POSIX"))
             return value;
     }
     return nullptr;

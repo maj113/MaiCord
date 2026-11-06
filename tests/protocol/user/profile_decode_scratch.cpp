@@ -1,5 +1,4 @@
 #include "../../../src/app/chat/messages/history_decode.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {

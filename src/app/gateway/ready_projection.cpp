@@ -210,7 +210,7 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
         utf8_literal("CHANNEL_CREATE"), 0, false};
     envelope.sequence = pass.sequence; envelope.opcode = 0;
     envelope.has_sequence = envelope.has_event_name = true;
-    GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    GatewayClientEvent event; ConstSlice<u8> payload;
     JsonValue members{};
     bool bad_members = false;
     if (pass.kind == RecordKind::guild && pass.ready->merged_members.source.data) {
@@ -293,7 +293,7 @@ bool run(Pass& pass) noexcept {
     const auto& ready = *pass.ready;
     pass.result.failure_stage = GatewayClientFailureStage::ready_route;
     if (!allowed(pass)) return false;
-    GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    GatewayClientEvent event; ConstSlice<u8> payload;
     do {
         reset_value(&event); reset_value(&payload);
         pass.result.route = gateway_client_route_ready(ready, pass.scratch.arrays, pass.scratch.records,

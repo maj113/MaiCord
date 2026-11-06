@@ -2,7 +2,6 @@
 
 #include "maicord/core/base.hpp"
 
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 

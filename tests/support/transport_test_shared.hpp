@@ -1,8 +1,8 @@
 #pragma once
 
-// What the transport fixtures of tests/protocol/http/core_transport.cpp take from the core test executable's shared
-// header (tests/support/test_main_shared.hpp) when they run on their own on Linux: the expectation sink and the byte
-// helpers. The sink is defined by the entry of tests/protocol/http/linux_main.cpp.
+// The expectation sink and byte helpers the parts of the core test executable (tests/support/test_main_shared.hpp,
+// which includes this header) and the Linux transport executable share. The sink is defined by test_main.cpp, or by
+// the entry of tests/protocol/http/linux_main.cpp.
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"

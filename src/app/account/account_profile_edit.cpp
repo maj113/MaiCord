@@ -2,7 +2,6 @@
 
 #include "maicord/app/net/original_md5.hpp"
 #include "maicord/app/net/request_body_bank.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 static_assert(kProfileEditMaximumTargetBytes <= kRestClientMaximumTargetBytes);

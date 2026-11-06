@@ -13,7 +13,6 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/app/gateway/client_event.hpp"

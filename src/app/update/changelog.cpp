@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/time.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

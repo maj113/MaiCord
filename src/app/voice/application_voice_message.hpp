@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/ui/core/input_router.hpp"
