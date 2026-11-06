@@ -1941,6 +1941,12 @@ maicord_ui_probe_test(maicord_startup_glyph_atlas_probe STARTUP_GLYPH_ATLAS_PROB
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_startup_glyph_atlas_warp_probe STARTUP_GLYPH_ATLAS_PROBE BOOTSTRAP WARP TIMEOUT 15
     LABELS native-ui display)
+# The full app shell (chat, member list) fills the glyph atlas, then the account signs out and the sign-in screen
+# replaces it, followed by the loop's maintenance and an idle trim: the sign-in quads stay resident and drawn.
+maicord_ui_probe_test(maicord_signout_glyph_atlas_probe SIGNOUT_GLYPH_ATLAS_PROBE BOOTSTRAP TIMEOUT 15
+    LABELS native-ui display RESOURCE_LOCK native_gpu)
+maicord_ui_probe_test(maicord_signout_glyph_atlas_warp_probe SIGNOUT_GLYPH_ATLAS_PROBE BOOTSTRAP WARP TIMEOUT 15
+    LABELS native-ui display)
 # Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.

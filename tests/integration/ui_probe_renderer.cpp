@@ -699,6 +699,28 @@ RendererLoginView probe_login_view(RendererLoginStatus status, bool visible) noe
                              login_mfa_capability_none, 0, false, nullptr, false, false, false, visible};
 }
 
+// A presented frame whose resident glyphs all have coverage and whose quads are all resident and drawn.
+bool glyph_frame(const char* atlas_stage, const char* quad_stage) noexcept {
+    return probe_present(&g_probe.renderer, kDefaultTheme) && blank_glyphs(atlas_stage) == 0 &&
+           undrawn_quads(quad_stage) == 0;
+}
+
+// The main loop's first turn of media and glyph maintenance, which keeps every glyph, then an idle trim past the
+// delay, which keeps what the sign-in screen draws; a checked frame after each.
+bool glyph_maintenance(const char* loop_atlas, const char* loop_quads, const char* idle_atlas,
+                       const char* idle_quads) noexcept {
+    auto& r = g_probe.renderer;
+    const u64 entries = r.glyph_text.allocator.entry_count;
+    renderer_media_maintain(&r, clock_monotonic_milliseconds());
+    if (r.glyph_text.allocator.entry_count != entries || !glyph_frame(loop_atlas, loop_quads))
+        return false;
+    const u32 evicted = r.glyph_text.allocator.evicted_entries;
+    renderer_media_maintain(&r, clock_monotonic_milliseconds() + kRendererGlyphIdleTrimMs + kRendererGlyphProtectMs);
+    LogEvent(idle_atlas).field("evicted", r.glyph_text.allocator.evicted_entries - evicted)
+        .field("entries", r.glyph_text.allocator.entry_count).write(LogLevel::info, "probe");
+    return r.glyph_text.allocator.entry_count && glyph_frame(idle_atlas, idle_quads);
+}
+
 } // namespace
 
 // The sign-in screen as the client starts it: the first frame under the caption bar (the glyph atlas just adopted
@@ -709,9 +731,7 @@ RendererLoginView probe_login_view(RendererLoginStatus status, bool visible) noe
 // and an idle trim evicted the glyphs of the retained sign-in quads, leaving the screen blank.
 bool probe_startup_glyph_atlas() noexcept {
     auto& r = g_probe.renderer;
-    const auto frame = [&](const char* atlas_stage, const char* quad_stage) noexcept {
-        return probe_present(&r, kDefaultTheme) && blank_glyphs(atlas_stage) == 0 && undrawn_quads(quad_stage) == 0;
-    };
+    const auto frame = glyph_frame;
     const u32 caption = static_cast<u32>(ui_caption_bar_height(kDefaultTheme) * r.dpi / 96.0f + .5f);
     renderer_set_caption_height(&r, caption);
     const UiCaptionBarState signin{UiCaptionPart::none, UiCaptionPart::none, false, false, UiCaptionUpdate::hidden,
@@ -728,17 +748,57 @@ bool probe_startup_glyph_atlas() noexcept {
     if (!renderer_set_caption(&r, shown, utf8_literal("MaiCord")) || !set_probe_login_view(focused) ||
         !set_probe_login_view(focused) || !frame("startup_glyph_atlas_shown", "startup_glyph_quads_shown"))
         return false;
-    const u64 entries = r.glyph_text.allocator.entry_count;
-    renderer_media_maintain(&r, clock_monotonic_milliseconds());
-    if (r.glyph_text.allocator.entry_count != entries ||
-        !frame("startup_glyph_atlas_loop", "startup_glyph_quads_loop"))
+    return glyph_maintenance("startup_glyph_atlas_loop", "startup_glyph_quads_loop", "startup_glyph_atlas_idle",
+                             "startup_glyph_quads_idle");
+}
+
+// The full app shell (guilds, channels, a page of varied messages, the member list) fills the glyph atlas; then the
+// account signs out as ui_runtime.cpp releases it (message presentation, content text and navigation unbound) and the
+// sign-in screen takes its place, followed by the main loop's maintenance and an idle trim. Every frame's sign-in
+// quads are resident and drawn, and every resident glyph reads back with coverage.
+bool probe_signout_glyph_atlas() noexcept {
+    auto& r = g_probe.renderer;
+    static constexpr const char* kLines[]{
+        "The quick brown fox jumps over the lazy dog 0123456789",
+        "PACK MY BOX WITH FIVE DOZEN LIQUOR JUGS!?",
+        "Sphinx of black quartz, judge my vow: (a+b)*[c-d]/{e%f}",
+        "**Bold** _italic_ `code` ~~strike~~ #general @Mai",
+        "Mr. Jock, TV quiz PhD, bags few lynx; 2024-11-07 13:45 #atlas-debug",
+        "Glib jocks quiz nymph to vex dwarf | ^ ~ $ \\ ' \" ; : , .",
+        "Jackdaws love my big sphinx of quartz; waltz, bad nymph, for quick jigs vex",
+        "How vexingly quick daft zebras jump & 42 > 17 < 99 = true",
+    };
+    for (u32 i = 0; i < sizeof(kLines) / sizeof(kLines[0]); ++i) {
+        u32 bytes = 0;
+        while (kLines[i][bytes])
+            ++bytes;
+        if (!add_message(1'270'000'000'000'000'100ull + i, Utf8View{kLines[i], bytes}))
+            return false;
+    }
+    if (!message_view_runtime_reindex(&g_probe.message_view,
+                                      ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+             .ok())
         return false;
-    // Idle past the trim delay on the same screen: the trim runs and keeps what the screen draws.
-    const u32 evicted = r.glyph_text.allocator.evicted_entries;
-    renderer_media_maintain(&r, clock_monotonic_milliseconds() + kRendererGlyphIdleTrimMs + kRendererGlyphProtectMs);
-    LogEvent("startup_glyph_atlas_idle").field("evicted", r.glyph_text.allocator.evicted_entries - evicted)
-        .field("entries", r.glyph_text.allocator.entry_count).write(LogLevel::info, "probe");
-    return r.glyph_text.allocator.entry_count && frame("startup_glyph_atlas_idle", "startup_glyph_quads_idle");
+    // The shell at several scales (the window moved across monitors) fills several bands of the atlas.
+    static constexpr u32 kDpis[]{96, 144, 192, 240};
+    for (const u32 dpi : kDpis) {
+        renderer_set_dpi(&r, dpi);
+        if (!synchronize_probe_shell_layout() || !rebuild_probe_content_text() ||
+            !probe_present(&r, kDefaultTheme) || blank_glyphs("signout_glyph_atlas_shell") != 0)
+            return false;
+    }
+    const u64 shell_bytes = gpu_paged_texture_bytes(r.glyph_text.gpu.surface);
+    log_u64(LogLevel::info, "probe", "signout_glyph_atlas_shell_bytes", shell_bytes);
+    if (shell_bytes < 2 * 256 * 1024)
+        return false;
+    renderer_unbind_message_text_presentation(&r);
+    renderer_unbind_text_storage(&r);
+    renderer_unbind_navigation_view(&r);
+    if (!set_probe_login_view(probe_login_view(RendererLoginStatus::signed_out, true)) ||
+        !glyph_frame("signout_glyph_atlas_signin", "signout_glyph_quads_signin"))
+        return false;
+    return glyph_maintenance("signout_glyph_atlas_loop", "signout_glyph_quads_loop", "signout_glyph_atlas_idle",
+                             "signout_glyph_quads_idle");
 }
 
 bool probe_long_embed_text() noexcept {

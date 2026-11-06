@@ -235,6 +235,7 @@ bool run_resize_stress() noexcept;
 bool initialize_probe_renderer() noexcept;
 bool probe_bootstrap_title() noexcept;
 bool probe_startup_glyph_atlas() noexcept;
+bool probe_signout_glyph_atlas() noexcept;
 bool probe_long_embed_text() noexcept;
 bool probe_embed_code_block() noexcept;
 
