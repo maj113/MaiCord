@@ -13,7 +13,7 @@ bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
     // Both factors are u32; their full product always fits the x64 usize.
     const usize reserve_bytes = static_cast<usize>(reserved_capacity) * element_bytes;
     reset_value<StableStorage>(storage);
-    if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {
+    if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024, ArenaTag::storage)) {
         return false;
     }
     storage->reserved_capacity = reserved_capacity;

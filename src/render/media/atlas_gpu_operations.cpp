@@ -12,81 +12,78 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent) noexcept {
     if (!gpu || !atlas || !device || !context || !media_asset_key_valid(key) ||
-        !frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height)) {
-        return failure(MediaAtlasGpuError::invalid_input);
-    }
-    const auto [target, uav, width, height] = upload_surface(gpu, preview);
-    if (!uav || !target || width != atlas->allocations.width || height != atlas->allocations.height) {
+        !frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height) ||
+        !surface_ready(gpu, *atlas, preview)) {
         return failure(MediaAtlasGpuError::invalid_input);
     }
     // A poster entry holds only the reduced picture, never the native frame,
     // already turned upright for a rotated container track.
     const u32 step = gpu_video_frame_reduction(frame.width, frame.height, maximum_extent);
-    const MediaAtlasResult allocation = allocate_and_clear_surface(gpu, atlas, context, target,
-        width, height, key, static_cast<u16>(gpu_video_frame_output_width(frame, step)),
-        static_cast<u16>(gpu_video_frame_output_height(frame, step)), false);
+    MediaAtlasResult local{};
+    const MediaAtlasResult allocation = allocate_and_clear_surface(gpu, atlas, context, preview, key,
+        static_cast<u16>(gpu_video_frame_output_width(frame, step)),
+        static_cast<u16>(gpu_video_frame_output_height(frame, step)), &local, false);
     if (!allocation.ok()) return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
-    const GpuStatus status = video_frame_gpu_present(&gpu->video, device, context, frame, uav,
-                                                   allocation.x, allocation.y, step);
+    const GpuStatus status = video_frame_gpu_present(&gpu->video, device, context, frame, gpu->texture_uav,
+                                                   local.x, local.y, step);
     return SUCCEEDED(status) ? MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none}
                               : failure(MediaAtlasGpuError::device_failure, status, allocation);
 }
 
 MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, GpuDevice* device,
-                                               GpuContext1* context, u16 width,
-                                               u16 height) noexcept {
-    if (!gpu || !device || !context || !dimensions_valid(width, height) || gpu->texture) {
+                                               const MediaAtlas& atlas) noexcept {
+    if (!gpu || !device || gpu->surface || !dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input);
     }
-    const GpuStatus result = create_media_surface(device, context, width, height, &gpu->texture,
-                                                &gpu->texture_view, &gpu->target, &gpu->texture_uav);
-
+    const GpuStatus result = create_media_surface(device, atlas, &gpu->surface, &gpu->texture_view);
     if (FAILED(result)) {
         media_atlas_gpu_release(gpu);
         return failure(MediaAtlasGpuError::device_failure, result);
     }
-    gpu->width = width;
-    gpu->height = height;
+    gpu->width = atlas.allocations.width;
+    gpu->height = atlas.allocations.height;
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
 }
 
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, GpuDevice* device,
-                                                       GpuContext1* context, u16 width,
-                                                       u16 height) noexcept {
-    if (!gpu || !device || !context || !gpu->texture || !dimensions_valid(width, height) ||
-        gpu->preview_texture) {
+                                                       const MediaAtlas& atlas) noexcept {
+    if (!gpu || !device || !gpu->surface || gpu->preview_surface ||
+        !dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    const GpuStatus result =
-        create_media_surface(device, context, width, height, &gpu->preview_texture,
-                             &gpu->preview_texture_view, &gpu->preview_target, &gpu->preview_texture_uav);
+    const GpuStatus result = create_media_surface(device, atlas, &gpu->preview_surface, &gpu->preview_texture_view);
     if (FAILED(result)) {
-        gpu_release(gpu->preview_texture_uav);
-        gpu_release(gpu->preview_target);
-        gpu_release(gpu->preview_texture_view);
-        gpu_release(gpu->preview_texture);
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
-    gpu->preview_width = width;
-    gpu->preview_height = height;
+    gpu->preview_width = atlas.allocations.width;
+    gpu->preview_height = atlas.allocations.height;
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
+}
+
+bool media_atlas_gpu_sync(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview) noexcept {
+    GpuPagedTexture* surface = gpu ? (preview ? gpu->preview_surface : gpu->surface) : nullptr;
+    if (!surface || !context) {
+        return false;
+    }
+    bool ok = true;
+    for (u32 page = 0; page < atlas.allocations.page_count; ++page) {
+        ok = gpu_ok(gpu_paged_texture_commit(context, surface, page, atlas.allocations.pages[page].committed)) && ok;
+    }
+    return ok;
 }
 
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
     GpuContext1* context, MediaAssetKey key, u16 width, u16 height,
     u32 row_pitch, ConstSlice<u8> straight_rgba8, bool preview) noexcept {
-    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
     const u64 minimum_pitch = static_cast<u64>(width) * 4;
     const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
-        !texture_uav ||
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
+        !surface_ready(gpu, *atlas, preview) ||
         !media_asset_key_valid(key) || width == 0 || height == 0 ||
         width > kPngDimensionMaximum || height > kPngDimensionMaximum || row_pitch < minimum_pitch ||
         required > straight_rgba8.count || (!straight_rgba8.data && straight_rgba8.count != 0) ||
-        surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
-        static_cast<u32>(width) + atlas->allocations.padding * 2u > atlas->allocations.width ||
-        static_cast<u32>(height) + atlas->allocations.padding * 2u > atlas->allocations.height) {
+        !image_fits(*atlas, width, height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
@@ -96,14 +93,15 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
-    const MediaAtlasResult allocation = allocate_and_clear_surface(
-        gpu, atlas, context, target, surface_width, surface_height, key, width, height);
+    MediaAtlasResult local{};
+    const MediaAtlasResult allocation =
+        allocate_and_clear_surface(gpu, atlas, context, preview, key, width, height, &local);
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
-    const PngAtlasConstants constants{row_pitch, width, height, 8, 7, allocation.x, allocation.y, 0,
+    const PngAtlasConstants constants{row_pitch, width, height, 8, 7, local.x, local.y, 0,
                                        0,         0,     0,      0, {}};
-    dispatch_png_shader(gpu, context, constants, texture_uav, width, height);
+    dispatch_png_shader(gpu, context, constants, gpu->texture_uav, width, height);
 
     ++gpu->straight_rgba8_uploads;
     saturating_accumulate(gpu->straight_rgba8_uploaded_bytes, required);
@@ -114,13 +112,10 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
                                                GpuContext1* context, MediaAssetKey key,
                                                const PngImage& image, ConstSlice<u8> reconstructed_scanlines,
                                                bool preview) noexcept {
-    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
-        !texture_uav || !media_asset_key_valid(key) ||
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
+        !surface_ready(gpu, *atlas, preview) || !media_asset_key_valid(key) ||
         !png_format_valid(image) || !png_scanlines_reconstructed(image, reconstructed_scanlines) ||
-        surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
-        image.width + atlas->allocations.padding * 2u > atlas->allocations.width ||
-        image.height + atlas->allocations.padding * 2u > atlas->allocations.height) {
+        !image_fits(*atlas, image.width, image.height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const GpuStatus result = upload_png_inputs(gpu, device, context, image, reconstructed_scanlines);
@@ -128,9 +123,10 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
+    MediaAtlasResult local{};
     const MediaAtlasResult allocation =
-        allocate_and_clear_surface(gpu, atlas, context, target, surface_width, surface_height, key,
-                                   static_cast<u16>(image.width), static_cast<u16>(image.height));
+        allocate_and_clear_surface(gpu, atlas, context, preview, key, static_cast<u16>(image.width),
+                                   static_cast<u16>(image.height), &local);
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
@@ -140,8 +136,8 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
         image.height,
         image.bit_depth,
         image.color_type,
-        allocation.x,
-        allocation.y,
+        local.x,
+        local.y,
         image.palette_count,
         image.transparent_gray,
         image.transparent_red,
@@ -149,7 +145,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
         image.transparent_blue,
         {},
     };
-    dispatch_png_shader(gpu, context, constants, texture_uav, image.width, image.height);
+    dispatch_png_shader(gpu, context, constants, gpu->texture_uav, image.width, image.height);
 
     ++gpu->png_uploads;
     saturating_accumulate(gpu->png_uploaded_bytes, image.inflated_bytes);
@@ -163,15 +159,9 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
                                                 const JpegImage& image,
                                                 const JpegCoefficientWorkspace& coefficients,
                                                 bool preview) noexcept {
-    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
-        !texture_uav || !media_asset_key_valid(key) ||
-        !jpeg_image_valid(image) || surface_width != atlas->allocations.width ||
-        surface_height != atlas->allocations.height ||
-        static_cast<u32>(jpeg_display_width(image)) + atlas->allocations.padding * 2u >
-            atlas->allocations.width ||
-        static_cast<u32>(jpeg_display_height(image)) + atlas->allocations.padding * 2u >
-            atlas->allocations.height) {
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
+        !surface_ready(gpu, *atlas, preview) || !media_asset_key_valid(key) || !jpeg_image_valid(image) ||
+        !image_fits(*atlas, jpeg_display_width(image), jpeg_display_height(image))) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
@@ -256,8 +246,9 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
 
     const u16 display_width = jpeg_display_width(image);
     const u16 display_height = jpeg_display_height(image);
-    const MediaAtlasResult allocation = allocate_and_clear_surface(
-        gpu, atlas, context, target, surface_width, surface_height, key, display_width, display_height);
+    MediaAtlasResult local{};
+    const MediaAtlasResult allocation = allocate_and_clear_surface(gpu, atlas, context, preview, key, display_width,
+                                                                   display_height, &local);
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
@@ -270,8 +261,8 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
 
     atlas_constants.image_width = image.width;
     atlas_constants.image_height = image.height;
-    atlas_constants.destination_x = allocation.x;
-    atlas_constants.destination_y = allocation.y;
+    atlas_constants.destination_x = local.x;
+    atlas_constants.destination_y = local.y;
     atlas_constants.color_transform_orientation =
         static_cast<u8>(image.color_transform) | static_cast<u32>(static_cast<u8>(image.orientation)) << 8u;
     atlas_constants.maximum_horizontal_sampling = image.maximum_horizontal_sampling;
@@ -316,7 +307,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     }
     gpu_update_buffer(context, gpu->jpeg_atlas_constants, &atlas_constants, sizeof(atlas_constants));
     bind_compute_2srv(context, gpu->jpeg_atlas_shader, gpu->jpeg_atlas_constants,
-                      gpu->vp8_yuv_view, gpu->vp8_mode_view, texture_uav);
+                      gpu->vp8_yuv_view, gpu->vp8_mode_view, gpu->texture_uav);
     gpu_dispatch(context, (display_width + 7u) / 8u, (display_height + 7u) / 8u, 1);
     unbind_compute(context);
 
@@ -329,112 +320,9 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-namespace {
-
-struct SurfaceSlot {
-    GpuTexture** texture;
-    GpuSrv** view;
-    GpuRtv** target;
-    GpuUav** uav;
-    GpuTexture** backup;
-    u16* width;
-    u16* height;
-};
-
-SurfaceSlot surface_slot(MediaAtlasGpu* gpu, bool preview) noexcept {
-    return preview ? SurfaceSlot{&gpu->preview_texture, &gpu->preview_texture_view, &gpu->preview_target,
-                                 &gpu->preview_texture_uav, &gpu->preview_animation_backup_texture,
-                                 &gpu->preview_width, &gpu->preview_height}
-                   : SurfaceSlot{&gpu->texture, &gpu->texture_view, &gpu->target, &gpu->texture_uav,
-                                 &gpu->apng_backup_texture, &gpu->width, &gpu->height};
-}
-
-// Old -> new rows: the kept prefix, then each trim move (sources and
-// destinations already checked against both heights by the caller).
-void copy_rows(GpuContext1* context, GpuTexture* destination, GpuTexture* source, u32 width,
-               u32 prefix, ConstSlice<GlyphAtlasRowMove> moves, u32 source_height, u32 destination_height) noexcept {
-    if (prefix) {
-        gpu_copy_region(context, destination, 0, 0, source, {0, 0, width, prefix});
-    }
-    for (u32 index = 0; index < moves.count; ++index) {
-        const GlyphAtlasRowMove& move = moves[index];
-        if (static_cast<u32>(move.source_y) + move.height > source_height ||
-            static_cast<u32>(move.destination_y) + move.height > destination_height) {
-            continue;
-        }
-        gpu_copy_region(context, destination, 0, move.destination_y, source,
-                        {0, move.source_y, width, static_cast<u32>(move.source_y + move.height)});
-    }
-}
-
-} // namespace
-
-MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, GpuDevice* device,
-                                           GpuContext1* context, bool preview, u16 height,
-                                           ConstSlice<GlyphAtlasRowMove> moves) noexcept {
-    if (!gpu || !device || !context || (!moves.data && moves.count)) {
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    const SurfaceSlot slot = surface_slot(gpu, preview);
-    if (!*slot.texture) {
-        return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none}; // Created lazily at the atlas height.
-    }
-    const u16 width = *slot.width;
-    const u16 old_height = *slot.height;
-    if (height == old_height && moves.count == 0) {
-        return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
-    }
-    if (!dimensions_valid(width, height)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    GpuTexture* texture = nullptr;
-    GpuSrv* view = nullptr;
-    GpuRtv* target = nullptr;
-    GpuUav* uav = nullptr;
-    const GpuStatus result = create_media_surface(device, context, width, height, &texture, &view, &target, &uav);
-    if (FAILED(result)) {
-        gpu_release(uav);
-        gpu_release(target);
-        gpu_release(view);
-        gpu_release(texture);
-        return reject(gpu, MediaAtlasGpuError::device_failure, result);
-    }
-    unbind_apng_atlas(context);
-    copy_rows(context, texture, *slot.texture, width, minimum<u32>(old_height, height), moves, old_height, height);
-    if (*slot.backup) {
-        GpuTextureInfo info{};
-        gpu_texture_info(*slot.backup, &info);
-        const u32 backup_height = gpu_texture_info_height(info);
-        u32 next_height = minimum<u32>(backup_height, height);
-        for (u32 index = 0; index < moves.count; ++index) {
-            if (static_cast<u32>(moves[index].source_y) + moves[index].height <= backup_height)
-                next_height = maximum<u32>(next_height, static_cast<u32>(moves[index].destination_y) + moves[index].height);
-        }
-        next_height = minimum<u32>(next_height, height);
-        GpuTexture* backup = nullptr;
-        if (next_height && SUCCEEDED(gpu_texture_create_from_info(device, info, next_height, false, &backup))) {
-            copy_rows(context, backup, *slot.backup, width, minimum(backup_height, next_height), moves, backup_height,
-                      next_height);
-        }
-        // A failed backup allocation only loses one pending previous-disposal state.
-        gpu_release(*slot.backup);
-        *slot.backup = backup;
-    }
-    gpu_release(*slot.uav);
-    gpu_release(*slot.target);
-    gpu_release(*slot.view);
-    gpu_release(*slot.texture);
-    *slot.texture = texture;
-    *slot.view = view;
-    *slot.target = target;
-    *slot.uav = uav;
-    *slot.height = height;
-    return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
-}
-
 void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept {
     if (gpu) {
-        gpu_release(*surface_slot(gpu, preview).backup);
+        gpu_paged_texture_release(preview ? &gpu->preview_backup : &gpu->backup);
     }
 }
 

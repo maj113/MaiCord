@@ -103,7 +103,7 @@ struct __declspec(uuid("3d3e0379-f9de-4d58-bb6c-18d62992f1a6")) __declspec(novta
 struct __declspec(uuid("2411e7e1-12ac-4ccf-bd14-9798e8534dc0")) __declspec(novtable) IDXGIAdapter : IDXGIObject {
     MAICORD_COM_UNUSED(EnumOutputs);
     virtual HRESULT __stdcall GetDesc(DXGI_ADAPTER_DESC* pDesc) = 0;
-    MAICORD_COM_UNUSED(CheckInterfaceSupport);
+    virtual HRESULT __stdcall CheckInterfaceSupport(const GUID& InterfaceName, LARGE_INTEGER* pUMDVersion) = 0;
 };
 struct __declspec(uuid("ae02eedb-c735-4690-8d52-5a8dc20213aa")) __declspec(novtable) IDXGIOutput : IDXGIObject {
     virtual HRESULT __stdcall GetDesc(DXGI_OUTPUT_DESC* pDesc) = 0;

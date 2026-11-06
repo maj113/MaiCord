@@ -200,8 +200,8 @@ jobs:
 
   # The Linux port: one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the same
   # tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested with Mesa's
-  # llvmpipe for the GPU cases. The shader toolchain (DXC, SPIRV-Cross, mc_shadertool) is cached by the pins that name it, so
-  # only a change of pin builds SPIRV-Cross again. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
+  # llvmpipe for the GPU cases; the shaders are GLSL the build packs with python, so no shader compiler is fetched or
+  # built. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
   # are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. The
   # portable subset of the built tests goes to the distros job as a one-day artifact of this run. Neither job gates the preview
   # channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also packages a master build's
@@ -230,20 +230,6 @@ jobs:
       - name: Install the toolchain and the test packages
         run: bash tools/install_linux_toolchain.sh --integration
 
-      - name: Shader toolchain cache key
-        id: shader-key
-        run: >-
-          echo "key=maicord-shader-toolchain-$(c++ --version | head -n 1 | sha256sum | cut -c1-16)-${{
-          hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py')
-          }}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the shader toolchain
-        id: shader-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/maicord-toolchain
-          key: ${{ steps.shader-key.outputs.key }}
-
       # Configures into ~/mc-build in place (the checkout is on a native file system), builds, runs tools/audit_elf.py on
       # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner. A build
       # with tests also compiles the test-only environment switches, so what ships is built again below.
@@ -255,13 +241,6 @@ jobs:
           MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
           MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: bash tools/build_linux.sh --test --keep --timeout-scale 3
-
-      - name: Cache the shader toolchain
-        if: steps.shader-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/maicord-toolchain
-          key: ${{ steps.shader-key.outputs.key }}
 
       # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
       # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev).

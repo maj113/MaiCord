@@ -32,20 +32,38 @@ struct MediaAtlas {
     u32 free_cursor;
     u32 insertions;
     u32 stale_entries;
-    u32 compactions;
     u64 next_allocation_key;
-    // Height growth/idle trim (zero maximum: fixed size). The renderer resizes
-    // the GPU surface whenever allocations.height changes.
-    GlyphAtlasGrowth growth;
-    // The last use of the previous-disposal backup; the backup texture is
+    // The last use of the previous-disposal backup; the backup's pages are
     // released once unused for kMediaAtlasIdleTrimMs.
     u64 disposal_backup_used_ms;
 };
 
-// Rows used within this window are kept (and the atlas grows instead) while
-// below capacity; trim runs once after this much allocation idleness.
+// Idle trim runs once allocation has been idle this long and drops what was
+// neither visible nor used within kMediaAtlasProtectMs.
 inline constexpr u32 kMediaAtlasProtectMs = 8'000;
 inline constexpr u32 kMediaAtlasIdleTrimMs = 10'000;
+
+// The two media surfaces. Identity media (avatars, emoji, stickers, icons,
+// profile pictures): 2048 x 8 pages of 1024 rows (8 MiB a page), 8 MiB of
+// rows kept beyond the visible ones, and the profile pools below. Large
+// previews and call video: 2064 x 4 pages of 2176 rows (17 MiB a page: the
+// px2048 tier with its padding, in whole 128-row tile bands), one page kept
+// beyond the visible ones.
+enum class MediaAtlasSurface : u8 { identity, preview };
+inline constexpr u16 kMediaAtlasExtent = 2'048;
+inline constexpr u16 kMediaAtlasPageRows = 1'024;
+inline constexpr u16 kPreviewMediaAtlasExtent = 2'064;
+inline constexpr u16 kPreviewMediaAtlasPageRows = 2'176;
+// Profile media the CDN serves at fixed sizes, each in pages of its own (a
+// slot's padded size; memory of a full pool on Direct3D 11's 128-row bands):
+//  - effect layers 450x880, four a row: two cards of four layers (2 rows, 14 MiB);
+//  - banners 600x211 still and 512 wide animated, three a row: 8 (3 rows, 6 MiB);
+//  - nameplates 448x84, four a row: a member list screen of 24 (6 rows, 5 MiB).
+inline constexpr GlyphAtlasPool kMediaAtlasProfilePools[] = {
+    {450, 880, 8, 0},
+    {600, 240, 8, 0},
+    {448, 84, 24, 0},
+};
 
 enum class MediaAtlasError : u8 {
     none,
@@ -73,11 +91,16 @@ struct MediaAtlasResult {
 };
 
 // zeroed: every array is freshly committed zero pages and is left untouched.
+// The atlas is then a fixed one of `height` rows (tests);
+// media_atlas_configure_surface makes it one of the client's virtual surfaces.
 bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
                             u16 padding, Slice<MediaAtlasEntry> entries,
                             Slice<u32> buckets,
                             Slice<GlyphAtlasEntry> allocations,
                             Slice<GlyphAtlasRow> rows, bool zeroed = false) noexcept;
+// Right after initialization, on an atlas initialized at the surface's width:
+// its pages, the backend's commit unit, its budget and (identity) the pools.
+bool media_atlas_configure_surface(MediaAtlas* atlas, MediaAtlasSurface surface) noexcept;
 void media_atlas_reset(MediaAtlas* atlas) noexcept;
 void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept;
 MediaAtlasResult media_atlas_find(MediaAtlas* atlas,
@@ -85,15 +108,12 @@ MediaAtlasResult media_atlas_find(MediaAtlas* atlas,
 // Cache admission is not visibility; speculative lookups must not pin shelves.
 MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, const MediaAssetKey& key) noexcept;
 bool media_atlas_unpin(MediaAtlas* atlas, const MediaAssetKey& key) noexcept;
-// Visible decorative media (member nameplates and avatar decorations) gives
-// way to a foreground image that found no room: their pins for this
-// visibility epoch drop, so allocation may evict shelves holding nothing else
-// visible. Returns how many resident keys were unpinned.
-u32 media_atlas_yield(MediaAtlas* atlas, ConstSlice<MediaAssetKey> decorative) noexcept;
 // Drops a resident identity so the key can be allocated at another size (a
-// video whose reduced picture changed extent). Its physical rows become stale
-// and are reclaimed by normal LRU eviction. False when the key was not resident.
+// video whose reduced picture changed extent); its slot is reused. False when
+// the key was not resident.
 bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept;
+// A key the profile pools hold: their index + 1, else 0 (the general region).
+u8 media_atlas_pool(const MediaAtlas& atlas, const MediaAssetKey& key, u16 width, u16 height) noexcept;
 MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
                                       u16 width, u16 height) noexcept;
 bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
@@ -108,50 +128,11 @@ bool media_atlas_decoded_animation(const MediaAtlas& atlas, MediaAtlasHandle han
 bool media_atlas_resolve_visible(MediaAtlas* atlas, MediaAtlasHandle handle,
                                  MediaAtlasResult* result) noexcept;
 
-// Growable atlases start at initial_height and grow by `step` up to the
-// initialized height. Call right after initialization.
-bool media_atlas_configure_growth(MediaAtlas* atlas, u16 initial_height, u16 step,
-                                  u32 protect_ms = kMediaAtlasProtectMs) noexcept;
 void media_atlas_observe_time(MediaAtlas* atlas, u64 now_ms) noexcept;
-// Largest height the atlas can reach (requests are validated against it).
-u16 media_atlas_capacity_height(const MediaAtlas& atlas) noexcept;
-// Before allocating: grows allocations.height when the request needs it.
-// True means the owner must resize its texture before writing pixels.
-bool media_atlas_prepare(MediaAtlas* atlas, MediaAssetKey key, u16 width, u16 height) noexcept;
-// Undo a prepare whose texture resize failed (no allocation happened since).
-void media_atlas_revert_growth(MediaAtlas* atlas, u16 height) noexcept;
 // Zero when no trim is pending; otherwise the earliest time it may run.
 u64 media_atlas_trim_deadline(const MediaAtlas& atlas) noexcept;
-// Idle trim; returns the row moves the owner must copy (old -> new texture).
-u32 media_atlas_trim(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, bool* resized) noexcept;
-// After media_atlas_reset with the GPU surface released: back to initial height.
-void media_atlas_reset_growth(MediaAtlas* atlas) noexcept;
-// A request no shelf could take (allocate returned no_capacity) while the
-// visible shelves are scattered: packs them to the top and evicts the rest
-// (see glyph_atlas_compact). The owner copies `moves` on its surface before
-// retrying. False when packing would free nothing.
-bool media_atlas_compact(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept;
-// Whether a request of this size can be placed now, by packing, or by growth.
-// False means the visible set itself leaves no room, so asking again before
-// it changes only repeats a decode that cannot be uploaded.
-bool media_atlas_can_place(const MediaAtlas& atlas, u16 width, u16 height) noexcept;
-
-// Occupancy for diagnostics (cold path: walks every shelf and entry).
-struct MediaAtlasPressure {
-    u32 entries;
-    u32 rows;
-    u32 pinned_rows;
-    u32 pinned_entries;
-    u32 height;
-    u32 maximum_height;
-    // Share of the surface taken by the shelves (permille of height * width),
-    // and by pixels of live entries.
-    u32 shelf_permille;
-    u32 pixel_permille;
-    // Height of the shelves holding a pinned (visible) entry: what packing cannot reclaim.
-    u32 pinned_height;
-};
-MediaAtlasPressure media_atlas_pressure(const MediaAtlas& atlas) noexcept;
+// Idle trim (glyph_atlas_trim); the owner then returns the decommitted rows.
+u32 media_atlas_trim(MediaAtlas* atlas) noexcept;
 
 static_assert(sizeof(MediaAtlasEntry) == 24);
 

@@ -67,7 +67,6 @@ void application_local_preview_frame_uploaded(const AccountMediaFrame& frame) no
     application_forum_preview_frame_uploaded(frame);
 }
 void application_local_preview_rejected(MediaAssetKey key) noexcept { application_forum_preview_rejected(key); }
-void application_local_preview_deferred(MediaAssetKey, u64) noexcept {}
 ApplicationSearchSourceView fixture_search_source{};
 bool fixture_search_current;
 u32 fixture_search_dimension_publications;
@@ -532,20 +531,6 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
               last_identity_size == cdn_image_size(kCdnIdentityDisplayDips, g_app.renderer.dpi) &&
               last_identity_size <= kCdnIdentityDefaultSize && (last_identity_size & (last_identity_size - 1)) == 0,
           "avatar admission: the CDN size matches the 40-DIP avatar extent at the renderer DPI");
-    // The atlas refused this avatar's upload (the decoded frame is gone): asking again decodes the same
-    // frame again, so the key waits instead of costing a decode per pump pass, and only then retries.
-    const u32 before_refusal = identity_requests;
-    g_app.media_deferrals = {};
-    media_capacity_defer(&g_app.media_deferrals, avatar, 32, 32, 1'000);
-    for (u32 pass = 0; pass < 64; ++pass)
-        valid = pump.pass(1'000 + pass, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
-                valid;
-    const bool held_back = identity_requests == before_refusal && g_app.media_deferrals.waited == 64;
-    valid = pump.pass(2'100, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) && valid;
-    check(valid && held_back && identity_requests == before_refusal + 1 &&
-              g_app.media_deferrals.released == 1 && !media_capacity_waiting_count(g_app.media_deferrals),
-          "avatar admission: an atlas-refused key is held back for its backoff, then asks once");
-
     GuildRecord guild{};
     guild.id = 600;
     guild.occupied = true;
@@ -1201,10 +1186,7 @@ void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
                          utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567")) &&
               last_profile_type == CdnImageType::jpeg && last_profile_proxy_width == 0,
           "profile activity art: the visible card requests its album art as JPEG from i.scdn.co");
-    const auto unrelated = media_asset_custom_emoji(77, false);
-    check(pump.media_key_is_current(art) && pump.yield_decorative_media(art) == 0 &&
-              pump.yield_decorative_media(unrelated) == 0,
-          "profile activity art: without member rows nothing yields, and other media never claims ornaments");
+    check(pump.media_key_is_current(art), "profile activity art: the visible card's art is current media");
     watched_profile_key = {};
     g_app.profile = previous;
     profile_scene_release(&profile->scene);

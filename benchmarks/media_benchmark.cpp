@@ -750,7 +750,7 @@ int run() noexcept {
 
     media_atlas_reset(&atlas);
     MediaAtlasGpu gpu{};
-    if (!media_atlas_gpu_initialize(&gpu, device, context1, kAtlasExtent, kAtlasExtent).ok()) {
+    if (!media_atlas_gpu_initialize(&gpu, device, atlas).ok()) {
         com_release(context1);
         com_release(context);
         com_release(device);
@@ -1642,7 +1642,7 @@ int run() noexcept {
     if (FAILED(result)) {
         return 21;
     }
-    context->CopyResource(staging, gpu.texture);
+    context->CopyResource(staging, gpu.surface->texture);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     result = context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(result)) {
@@ -2226,7 +2226,7 @@ int run() noexcept {
         gpu.apng_source_blends == kApngSequenceIterations * 3u &&
         gpu.apng_over_blends == kApngSequenceIterations &&
         gpu.apng_background_disposals == kApngSequenceIterations &&
-        gpu.apng_previous_disposals == kApngSequenceIterations && gpu.apng_backup_texture &&
+        gpu.apng_previous_disposals == kApngSequenceIterations && gpu.backup &&
         apng_pixels_exact && apng_pixel_checksum != 0 && gpu.gif_frames == kGifSequenceIterations * 4u &&
         gpu.gif_uploaded_bytes == static_cast<u64>(kGifSequenceIterations) * 29u &&
         gpu.gif_dispatched_pixels == static_cast<u64>(kGifSequenceIterations) * 29u &&

@@ -35,14 +35,18 @@ struct MediaDrawBatch {
 
 // Stable-address, page-committed per-frame media draw scratch. Address space
 // covers kRendererMediaQuadCapacity quads; pages commit only as a frame needs them.
+// `binding_data` is the page binding each quad samples (GpuPage::binding of its
+// surface): draws split where it changes (never on Direct3D 11).
 struct RendererMediaDrawStorage {
     StableStorage quads;
     StableStorage handles;
     StableStorage domains;
+    StableStorage bindings;
     StableStorage batches;
     MediaQuad* quad_data;
     MediaAtlasHandle* handle_data;
     u8* domain_data;
+    u8* binding_data;
     MediaDrawBatch* batch_data;
     u32 quad_capacity;
     u32 batch_capacity;

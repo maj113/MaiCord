@@ -205,6 +205,48 @@ MAICORD_GPU_INLINE GpuStatus gpu_blend_create(GpuDevice* device, const GpuBlendD
 // Solid fill, no culling, scissor test on.
 MAICORD_GPU_INLINE GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster);
 
+// A paged texture: `width` x `page_rows * pages` texels whose rows are backed by memory page by page and never move,
+// so an atlas takes new rows without copying anything and returns rows it no longer uses. Direct3D 11 makes one tiled
+// texture and backs it a band of gpu_paged_commit_rows rows (one row of 64 KiB tiles) at a time from a tile pool;
+// OpenGL ES makes one texture per page, its whole height, when the page is first backed. Writes, copies and samples go
+// through gpu_paged_texture_page: its texture and views hold the page in rows starting at `first_row`, `rows` rows
+// high (on Direct3D 11 every page is the one texture: first_row 0, every row). A draw samples one page binding at a
+// time: quads take v in the page's rows ((y - first_row) / rows) and the draw binds the page's `view`; quads of
+// different `binding`s need separate draws (on Direct3D 11 the binding is always 0, so nothing splits). Newly backed
+// rows of a render target are transparent black; other contents are undefined until written. Rows must be backed
+// before they are written or sampled.
+struct GpuPagedTextureDesc {
+    u32 width;
+    u32 page_rows; // a multiple of gpu_paged_commit_rows (where it is nonzero)
+    u32 pages;     // at most kGpuPagedTextureMaximumPages
+    GpuFormat format;
+    u8 bind; // GpuBind bits; none makes a copy source and destination only
+};
+struct GpuPage {
+    GpuTexture* texture;
+    GpuUav* uav;
+    GpuRtv* target;
+    GpuSrv* view;
+    u32 first_row;
+    u32 rows;
+    u32 binding;
+};
+GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc& desc, GpuPagedTexture** texture);
+// Releases the texture, its views and its memory, and clears the handle; null is fine.
+void gpu_paged_texture_release(GpuPagedTexture** texture);
+// Backs rows [0, rows) of `page` and returns the memory of the rest. `rows` is a multiple of gpu_paged_commit_rows
+// (or the page's rows), and 0 or the page's rows where that is 0. Doing nothing when the page is already so.
+GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* texture, u32 page, u32 rows);
+// The page holding virtual row `row`; its texture is null while that page is not backed (OpenGL ES).
+MAICORD_GPU_INLINE GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32 row);
+// The texture's own view, owned by it (not counted: never released by the caller): what tells that the surface exists.
+// Direct3D 11 samples every page through it; on OpenGL ES it binds nothing (draws bind gpu_paged_texture_page views).
+MAICORD_GPU_INLINE GpuSrv* gpu_paged_texture_view(const GpuPagedTexture* texture);
+// The view a draw binds for quads of page binding `binding` (GpuPage::binding); null while that page is not backed.
+MAICORD_GPU_INLINE GpuSrv* gpu_paged_texture_binding_view(const GpuPagedTexture* texture, u32 binding);
+// Bytes of memory the texture holds now.
+u64 gpu_paged_texture_bytes(const GpuPagedTexture* texture);
+
 // The built-in shaders by ShaderId. A vertex shader creates its input layout from `elements` (empty: none, for
 // programs that read only the vertex id; the layout output may then be null); *layout_failed (optional) tells which
 // of the two creations failed.

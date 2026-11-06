@@ -94,6 +94,8 @@ struct WindowMetrics {
     u32 width_px, height_px, scale_120, dpi;
 };
 WindowMetrics window_metrics(Window window) noexcept;
+// The displays the system has (Wayland: the outputs the compositor announced), for diagnostics; 0 when unknown.
+u32 window_display_count() noexcept;
 
 // Presentation. Wayland: queues one frame callback on the surface (answered through the frame listener when the compositor
 // wants the next frame); it rides the next commit, which the GPU backend's buffer swap makes. Nothing on Windows.

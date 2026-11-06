@@ -72,7 +72,7 @@ void check(bool passed, const char* name, u64 detail = 0) noexcept {
 
 // Copies the allocation's RGBA8 texels from the atlas texture.
 bool read_surface(const MediaAtlasResult& allocation) noexcept {
-    g_context->CopyResource(g_staging, g->gpu.texture);
+    g_context->CopyResource(g_staging, g->gpu.surface->texture);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(g_context->Map(g_staging, 0, D3D11_MAP_READ, 0, &mapped))) {
         return false;
@@ -357,11 +357,11 @@ int run() noexcept {
     D3D11_TEXTURE2D_DESC description{};
     if (!media_atlas_initialize(&g->atlas, kAtlasExtent, kAtlasExtent, 1, {g->entries, 16}, {g->buckets, 32},
                                 {g->allocations, 16}, {g->rows, 16}) ||
-        !media_atlas_gpu_initialize(&g->gpu, g_device, g_context, kAtlasExtent, kAtlasExtent).ok()) {
+        !media_atlas_gpu_initialize(&g->gpu, g_device, g->atlas).ok()) {
         test_write_text("media gpu reference: atlas initialization failed\r\n");
         return 3;
     }
-    g->gpu.texture->GetDesc(&description);
+    g->gpu.surface->texture->GetDesc(&description);
     description.BindFlags = 0;
     description.MiscFlags = 0;
     description.Usage = D3D11_USAGE_STAGING;

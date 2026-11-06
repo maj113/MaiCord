@@ -94,8 +94,9 @@ void run() noexcept {
           "an allocation past the atlas is refused");
     check(colr_paint_upload_pixels(&gpu, context, first, kAtlas, kAtlas, kPadding, small.pixels, &arena),
           "the first tile uploads");
-    check(gpu.texture && gpu.width == kAtlas && gpu.height == kAtlas, "the atlas texture is made at the atlas size");
-    check(read_atlas(device, context, gpu.texture) && tile_in_atlas(first, small, written, 0),
+    check(gpu.surface && gpu.width == kAtlas && gpu.height == kAtlas, "the atlas surface is made at the atlas size");
+    check(read_atlas(device, context, gpu_paged_texture_page(gpu.surface, 0).texture) &&
+              tile_in_atlas(first, small, written, 0),
           "the first tile is in the atlas, its gutter clear, the rest untouched");
     for (u32 y = first.y - kPadding; y < first.y + first.height + kPadding; ++y)
         for (u32 x = first.x - kPadding; x < first.x + first.width + kPadding; ++x)
@@ -104,7 +105,8 @@ void run() noexcept {
     const GlyphAtlasAllocation second = allocation(20, 30, large.width, large.height);
     check(colr_paint_upload_pixels(&gpu, context, second, kAtlas, kAtlas, kPadding, large.pixels, &arena),
           "the second tile uploads into the existing texture");
-    check(read_atlas(device, context, gpu.texture) && tile_in_atlas(second, large, written, 0),
+    check(read_atlas(device, context, gpu_paged_texture_page(gpu.surface, 0).texture) &&
+              tile_in_atlas(second, large, written, 0),
           "the second tile is in the atlas");
     // The first tile is intact.
     bool first_intact = true;

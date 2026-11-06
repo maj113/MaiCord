@@ -81,7 +81,7 @@ def main():
             raise RuntimeError(side + ': missing successful probe or leaked font ownership')
         if ('native_outline_decodes=' in text) != (side == 'native'):
             raise RuntimeError(side + ': wrong renderer build supplied')
-        counters = {key: int(value) for key, value in re.findall(r'\b(native_\w+)=(\d+)(?=\r?$)', text, re.MULTILINE)}
+        counters = {key: int(value) for key, value in re.findall(r'\b(native_\w+)=(\d+)\b', text)}
         color_builds = counters.get('native_colr_builds', 0)
         # The profile includes shell/composer emoji at additional sizes. Field
         # fixtures retain their exact two-build contract; both require COLRv1.

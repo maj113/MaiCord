@@ -297,13 +297,17 @@ add_test(NAME maicord_theme_literals COMMAND "${Python3_EXECUTABLE}" -B tools/ch
 add_test(NAME maicord_theme_example COMMAND "${Python3_EXECUTABLE}" -B tools/generate_theme_example.py --check
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(maicord_theme_literals maicord_theme_example PROPERTIES TIMEOUT 10)
-# HLSL cbuffer layouts agree between HLSL packing (fxc, the host structs) and std140 (the DXC -> SPIR-V -> GLSL ES
-# path of the Linux build), and the checker itself flags the known divergences.
+# HLSL cbuffer layouts agree between HLSL packing (fxc, the host structs) and std140 (the GLSL twins of the Linux client
+# and the plugin effects' DXC -> SPIR-V path), and the checker itself flags the known divergences.
 add_test(NAME maicord_cbuffer_layout COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME maicord_cbuffer_layout_self_test COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py --self-test
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(maicord_cbuffer_layout maicord_cbuffer_layout_self_test PROPERTIES TIMEOUT 10)
+# The Linux client's hand-written GLSL twins record the hash of the HLSL they were written against.
+add_test(NAME maicord_shader_twins COMMAND "${Python3_EXECUTABLE}" -B tools/check_shader_twins.py
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+set_tests_properties(maicord_shader_twins PROPERTIES TIMEOUT 10)
 add_test(NAME maicord_build_output_guard COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
     -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_output_guard.ps1")
 set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
@@ -332,6 +336,12 @@ maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     TIMEOUT 15 TEST maicord_update_client)
 maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry SOURCES tests/app/update/changelog.cpp
     BUNDLE MaiCordAppUnitTests TIMEOUT 10 TEST maicord_update_changelog)
+# The startup record a session's log begins with: its lines and fields, and no user name, path or token.
+maicord_test(MaiCordStartupRecordTests ENTRY maicord_startup_record_entry
+    SOURCES tests/app/shell/startup_record.cpp src/app/shell/startup_record.cpp src/core/log.cpp
+    LIBS maicord_core maicord_window_null kernel32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_startup_record)
 # Startup: the DLLs MaiCord.exe maps before its entry point (static imports)
 # and those it delay-loads (MAICORD_CLIENT_DELAY_LOADS in cmake/client.cmake).
 list(JOIN MAICORD_CLIENT_DELAY_LOADS "," maicord_client_delay_load_list)
@@ -1150,6 +1160,11 @@ maicord_test(MaiCordGpuGlyphsProbe ENTRY maicord_gpu_glyphs_windows_entry
 maicord_test(MaiCordGpuMediaProbe ENTRY maicord_gpu_media_windows_entry
     SOURCES tests/gpu/media_windows.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_media)
+# The Direct3D 11 paged texture (src/gpu/d3d11/paged_texture.cpp) on WARP: tiled creation, tile band mappings from the
+# pool, unmapped rows reading zero, decommits returning pool memory and recommitted bands starting transparent.
+maicord_test(MaiCordGpuPagedTextureProbe ENTRY maicord_gpu_paged_texture_entry
+    SOURCES tests/gpu/paged_texture_windows.cpp
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu TEST maicord_gpu_paged_texture)
 # Every sample effect and Silk Waves (tests/gpu/effects/*.mcfx, interface 4) through the real pass executor on Direct3D 11:
 # the same source runs on Linux against what this captures (tools/update_gpu_goldens.py --scene effects).
 maicord_test(MaiCordGpuEffectsProbe ENTRY maicord_gpu_effects_entry

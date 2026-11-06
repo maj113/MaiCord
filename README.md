@@ -154,7 +154,8 @@ install. [`packaging/README.md`](packaging/README.md) has every format and its d
 **Windows**
 - Windows 10 or 11, 64-bit
 - A CPU with AVX and AES-NI
-- A GPU with Direct3D 11 support
+- A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2); MaiCord refuses to start
+  on a GPU or driver without it and says so
 
 **Linux**
 - x86-64 with AVX and AES-NI, and Linux 6.1 or newer: the network loop runs on io_uring, so a system
@@ -258,9 +259,9 @@ afterwards.
 
 You need Ubuntu 22.04+, Debian 12+ or a similar system (WSL2 works), with clang, lld and llvm 23, CMake 3.28 or newer,
 Ninja, Python 3, git and rsync. `tools/install_linux_toolchain.sh` installs them from apt.llvm.org on Debian and
-Ubuntu; `tools/build_linux.sh` refuses any other clang major. The first build also fetches and builds the shader
-toolchain (DXC and SPIRV-Cross, pinned in `tools/linux_shader_toolchain.json`) into `~/.cache/maicord-toolchain`, which
-needs git, CMake, a C++ compiler and network access.
+Ubuntu; `tools/build_linux.sh` refuses any other clang major. The shaders are hand-written GLSL that the build packs with
+Python, so the build fetches no shader compiler (only a plugin effect's GLSL section needs DXC and SPIRV-Cross, which
+`maicord-plugin effect build --glsl` fetches and builds into `~/.cache/maicord-toolchain` on first use).
 
 ```sh
 git clone https://github.com/maj113/MaiCord.git

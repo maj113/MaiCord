@@ -484,6 +484,7 @@ struct Bench {
     bool exhausted_newer;
     u32 failure;         // nonzero: where the harness stopped
     u32 scene_width_dips, scene_height_dips;
+    u32 still_draw_calls; // draw calls of the last forced full repaint
 };
 Bench g_b{};
 Theme g_theme;
@@ -746,6 +747,7 @@ bool still_frame(FrameTimes* times) noexcept {
     times->laid_out = times->shaped = clock_now();
     if (!renderer_present(&f.renderer, g_theme))
         return false;
+    g_b.still_draw_calls = f.renderer.draw_calls_last_frame;
     times->painted = clock_now();
     return true;
 }
@@ -1589,6 +1591,7 @@ int run() noexcept {
     field("resident_messages", f->view.store.count, 0);
     field("view_width_dips", g_b.scene_width_dips, 0);
     field("view_height_dips", g_b.scene_height_dips, 0);
+    field("still_draw_calls", g_b.still_draw_calls, 0);
     field("dpi", f->renderer.dpi, 0);
     field("scene_rows", f->scene.count, 0);
     field("text_quads", f->text.quad_count, 0);

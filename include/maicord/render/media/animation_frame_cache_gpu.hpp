@@ -14,9 +14,13 @@ inline constexpr u32 kAnimationFrameCacheGpuEntryCapacity = 4'096;
 inline constexpr u32 kAnimationFrameCacheGpuBucketCapacity =
     kAnimationFrameCacheGpuEntryCapacity * 2;
 inline constexpr u32 kAnimationFrameCacheGpuRowCapacity = 128;
-inline constexpr u16 kAnimationFrameCacheGpuExtent = 2'048;
-inline constexpr u16 kAnimationFrameCacheGpuMaximumFrameExtent = 128;
 inline constexpr u32 kAnimationFrameCacheGpuInitialEntryCapacity = 128;
+// Frame tiles live in a paged surface 2048 wide, in pages of 1024 rows (8 MiB): two pages for identity frames
+// (up to 128 pixels), four for previews (up to 512). One page of rows is kept beyond the frames shown.
+inline constexpr u16 kAnimationFrameCacheGpuExtent = 2'048;
+inline constexpr u16 kAnimationFrameCacheGpuPageRows = 1'024;
+inline constexpr u16 kAnimationFrameCacheGpuMaximumFrameExtent = 128;
+inline constexpr u16 kAnimationFrameCacheGpuPreviewFrameExtent = 512;
 
 struct AnimationFramePresentation {
     GlyphAtlasHandle frame;
@@ -34,8 +38,8 @@ struct AnimationFrameCacheGpuStorage {
 
 struct AnimationFrameCacheGpu {
     AnimationFrameCache cache;
-    GpuTexture* texture;
-    GpuSrv* texture_view;
+    GpuPagedTexture* surface;
+    GpuSrv* texture_view; // the surface's view, owned by it
     AnimationFrameCacheGpuStorage storage;
     GlyphAtlasRow rows[kAnimationFrameCacheGpuRowCapacity];
     u64 captures;
@@ -43,35 +47,22 @@ struct AnimationFrameCacheGpu {
     u64 copied_pixels;
     u32 failures;
     u16 maximum_frame_extent;
-    // Height growth by recently replayed frames, released when idle.
-    GlyphAtlasGrowth growth;
 };
 
-// Frames replayed within this window keep their tiles (the cache grows
-// instead); a cache unused for kAnimationFrameCacheGpuIdleMs is released.
+// Frames neither shown nor replayed within this window go at idle trim, once
+// the cache has made no new frame for kAnimationFrameCacheGpuIdleMs.
 inline constexpr u32 kAnimationFrameCacheGpuProtectMs = 8'000;
 inline constexpr u32 kAnimationFrameCacheGpuIdleMs = 10'000;
-inline constexpr u16 kAnimationFrameCacheGpuGrowthStep = 256;
 
-// Preview cache capacity: two viewports of RGBA frame tiles (physical
-// pixels) in a 4096-wide texture, 512..2048 rows (8..32 MiB).
-constexpr u16 animation_frame_cache_gpu_preview_height(u32 viewport_width, u32 viewport_height) noexcept {
-    const u64 rows = (u64{viewport_width} * viewport_height * 2u + 4'095u) / 4'096u;
-    const u64 stepped = (rows + kAnimationFrameCacheGpuGrowthStep - 1u) / kAnimationFrameCacheGpuGrowthStep *
-                        kAnimationFrameCacheGpuGrowthStep;
-    return static_cast<u16>(stepped < 512u ? 512u : stepped > 2'048u ? 2'048u : stepped);
-}
-
-bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu,
-    u16 width = kAnimationFrameCacheGpuExtent, u16 height = kAnimationFrameCacheGpuExtent,
-    u16 maximum_frame_extent = kAnimationFrameCacheGpuMaximumFrameExtent) noexcept;
-// Starts the (empty) cache at initial_height rows; it grows by whole steps.
-bool animation_frame_cache_gpu_configure_growth(AnimationFrameCacheGpu* gpu, u16 initial_height) noexcept;
+// The identity cache, or (`preview`) the large-preview one.
+bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, bool preview = false) noexcept;
 void animation_frame_cache_gpu_observe_time(AnimationFrameCacheGpu* gpu, u64 now_ms) noexcept;
-// Zero when nothing is resident; otherwise when the idle release may run.
+// Zero when nothing is pending; otherwise when the idle trim may run.
 u64 animation_frame_cache_gpu_trim_deadline(const AnimationFrameCacheGpu& gpu) noexcept;
-// Releases the texture and every frame when idle past the deadline.
-bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, u64 now_ms) noexcept;
+// Idle trim: drops what is neither shown nor recently replayed and returns
+// the memory of rows that empty.
+bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, GpuContext1* context, u64 now_ms) noexcept;
+
 bool animation_frame_cache_gpu_reserve(AnimationFrameCacheGpu* gpu,
                                        u32 required_capacity) noexcept;
 void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept;
@@ -80,7 +71,7 @@ void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noe
 bool animation_frame_cache_gpu_capture(
     AnimationFrameCacheGpu* gpu, GpuDevice* device,
     GpuContext1* context, MediaAtlas* media_atlas,
-    GpuTexture* media_texture,
+    GpuPagedTexture* media_surface,
     const AnimationFrameCacheDescriptor& descriptor,
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_restore(
@@ -89,7 +80,7 @@ bool animation_frame_cache_gpu_restore(
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_materialize(
     AnimationFrameCacheGpu* gpu, GpuContext1* context,
-    MediaAtlas* media_atlas, GpuTexture* media_texture,
+    MediaAtlas* media_atlas, GpuPagedTexture* media_surface,
     MediaAssetKey key) noexcept;
 bool animation_frame_cache_gpu_resolve(
     AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,

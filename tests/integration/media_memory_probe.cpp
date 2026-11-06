@@ -1,8 +1,8 @@
 // GPU memory of the media atlases, their disposal backups, the animation
 // frame caches and one live H.264 or H.265 stream, measured with DXGI video-memory
 // queries around synthetic workloads on the probe renderer. Every scenario
-// starts from released media resources and production-sized atlases; pixels
-// written before any atlas growth, relocation or trim are read back afterwards.
+// starts from released media resources and the client's paged atlases; pixels
+// written before an idle trim are read back afterwards at the same place.
 // MAICORD_MEDIA_MEMORY_REPORT=<path> appends a plain-text report (no captures).
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/media/image/png.hpp"
@@ -16,11 +16,10 @@
 namespace maicord {
 namespace {
 
-// Production geometry (src/app/account/account_ui_runtime.hpp).
-constexpr u16 kPrimaryExtent = 2'048;
-constexpr u16 kPreviewExtent = 4'096;
+// The client's atlas records (src/app/account/account_ui_runtime.hpp); the
+// geometry is MediaAtlasSurface's.
 constexpr u32 kPrimaryEntries = 4'096;
-constexpr u32 kPrimaryRows = 64;
+constexpr u32 kPrimaryRows = 128;
 constexpr u32 kPreviewEntries = 512;
 constexpr u32 kPreviewRows = 128;
 
@@ -102,21 +101,12 @@ Usage usage(IDXGIAdapter3* adapter, ID3D11DeviceContext* context) noexcept {
     return {local.CurrentUsage, remote.CurrentUsage};
 }
 
-u64 texture_bytes(ID3D11Texture2D* texture) noexcept {
-    if (!texture)
-        return 0;
-    D3D11_TEXTURE2D_DESC description{};
-    texture->GetDesc(&description);
-    const u64 pixels = u64{description.Width} * description.Height * description.ArraySize;
-    return description.Format == DXGI_FORMAT_NV12 ? pixels * 3u / 2u : pixels * 4u;
-}
-
-// Bytes owned by the renderer's media surfaces (atlases, backups, caches).
+// Bytes of memory backing the renderer's media surfaces (atlases, backups, caches).
 u64 media_bytes(const D3D11Renderer& r) noexcept {
-    return texture_bytes(r.media_gpu.texture) + texture_bytes(r.media_gpu.preview_texture) +
-           texture_bytes(r.media_gpu.apng_backup_texture) +
-           texture_bytes(r.media_gpu.preview_animation_backup_texture) + texture_bytes(r.animation_gpu.texture) +
-           texture_bytes(r.preview_animation_gpu.texture);
+    return gpu_paged_texture_bytes(r.media_gpu.surface) + gpu_paged_texture_bytes(r.media_gpu.preview_surface) +
+           gpu_paged_texture_bytes(r.media_gpu.backup) + gpu_paged_texture_bytes(r.media_gpu.preview_backup) +
+           gpu_paged_texture_bytes(r.animation_gpu.surface) +
+           gpu_paged_texture_bytes(r.preview_animation_gpu.surface);
 }
 
 constexpr u8 pattern(u32 seed, u32 x, u32 y, u32 channel) noexcept {
@@ -163,8 +153,10 @@ bool upload_png(D3D11Renderer& r, MediaAssetKey key, u32 seed, u16 width, u16 he
 }
 
 // Samples a sparse grid of one resident allocation through a staging copy.
-bool resident_matches(D3D11Renderer& r, MediaAtlas* atlas, ID3D11Texture2D* texture, MediaAssetKey key, u32 seed) noexcept {
+bool resident_matches(D3D11Renderer& r, MediaAtlas* atlas, const GpuPagedTexture* surface, MediaAssetKey key,
+                      u32 seed) noexcept {
     const MediaAtlasResult a = media_atlas_peek(atlas, key);
+    ID3D11Texture2D* texture = surface ? surface->texture : nullptr;
     if (!a.ok() || !texture)
         return false;
     D3D11_TEXTURE2D_DESC description{};
@@ -194,30 +186,23 @@ bool resident_matches(D3D11Renderer& r, MediaAtlas* atlas, ID3D11Texture2D* text
     return ok;
 }
 
-// Growable mode is the shipping configuration. Fixed mode reproduces the
-// pre-M156 capacities on the same code: full-height atlases allocated on first
-// use and fixed 2048x2048 / 4096x2048 animation frame caches.
-bool bind_production_atlases(D3D11Renderer& r, bool growable) noexcept {
+// The client's surfaces, empty: both atlases and both animation frame caches.
+bool bind_production_atlases(D3D11Renderer& r) noexcept {
     renderer_unbind_media_atlas(&r);
     auto& f = g_memory;
+    animation_frame_cache_gpu_release(&r.animation_gpu);
     animation_frame_cache_gpu_release(&r.preview_animation_gpu);
-    GlyphAtlasGrowth& identity = r.animation_gpu.growth;
-    if (identity.maximum_height) {
-        r.animation_gpu.cache.allocations.height = identity.maximum_height;
-        identity = GlyphAtlasGrowth{};
-    }
-    bool ok = growable ? animation_frame_cache_gpu_configure_growth(&r.animation_gpu, kAnimationFrameCacheGpuGrowthStep)
-                       : animation_frame_cache_gpu_initialize(&r.preview_animation_gpu, 4'096, 2'048, 512);
-    ok = ok &&
-         media_atlas_initialize(&f.primary, kPrimaryExtent, kPrimaryExtent, 1, {f.primary_entries, kPrimaryEntries},
-                                {f.primary_buckets, kPrimaryEntries * 2}, {f.primary_allocations, kPrimaryEntries},
-                                {f.primary_rows, kPrimaryRows}) &&
-         media_atlas_initialize(&f.preview, kPreviewExtent, kPreviewExtent, 1, {f.preview_entries, kPreviewEntries},
-                                {f.preview_buckets, kPreviewEntries * 2}, {f.preview_allocations, kPreviewEntries},
-                                {f.preview_rows, kPreviewRows});
-    if (ok && growable)
-        ok = media_atlas_configure_growth(&f.primary, 512, 256) && media_atlas_configure_growth(&f.preview, 512, 512);
-    return ok && renderer_bind_media_atlas(&r, &f.primary) && renderer_bind_preview_media_atlas(&r, &f.preview);
+    return animation_frame_cache_gpu_initialize(&r.animation_gpu) &&
+           animation_frame_cache_gpu_initialize(&r.preview_animation_gpu, true) &&
+           media_atlas_initialize(&f.primary, kMediaAtlasExtent, kMediaAtlasPageRows, 1,
+                                  {f.primary_entries, kPrimaryEntries}, {f.primary_buckets, kPrimaryEntries * 2},
+                                  {f.primary_allocations, kPrimaryEntries}, {f.primary_rows, kPrimaryRows}) &&
+           media_atlas_configure_surface(&f.primary, MediaAtlasSurface::identity) &&
+           media_atlas_initialize(&f.preview, kPreviewMediaAtlasExtent, kPreviewMediaAtlasPageRows, 1,
+                                  {f.preview_entries, kPreviewEntries}, {f.preview_buckets, kPreviewEntries * 2},
+                                  {f.preview_allocations, kPreviewEntries}, {f.preview_rows, kPreviewRows}) &&
+           media_atlas_configure_surface(&f.preview, MediaAtlasSurface::preview) &&
+           renderer_bind_media_atlas(&r, &f.primary) && renderer_bind_preview_media_atlas(&r, &f.preview);
 }
 
 GifPalette gray_palette(u32 shift) noexcept {
@@ -369,29 +354,17 @@ bool media_memory_probe(D3D11Renderer& r) noexcept {
     auto* old_primary = r.media_atlas;
     auto* old_preview = r.preview_media_atlas;
     char name[96];
-    const auto label = [&name](const char* mode, const char* metric) noexcept -> const char* {
+    const auto label = [&name](const char* metric) noexcept -> const char* {
         u32 n = 0;
-        const char* const parts[] = {"media_memory_", mode, "_", metric};
+        const char* const parts[] = {"media_memory_paged_", metric};
         for (const char* part : parts)
             for (u32 i = 0; part[i] && n < 95; ++i)
                 name[n++] = part[i];
         name[n] = 0;
         return name;
     };
-    // Fixed mode reports the pre-M156 previous-disposal backup (a full copy
-    // of each surface that used one) instead of the on-demand one.
-    const auto legacy_backup_extra = [&r]() noexcept -> u64 {
-        u64 extra = 0;
-        if (r.media_gpu.apng_backup_texture)
-            extra += texture_bytes(r.media_gpu.texture) - texture_bytes(r.media_gpu.apng_backup_texture);
-        if (r.media_gpu.preview_animation_backup_texture)
-            extra += texture_bytes(r.media_gpu.preview_texture) -
-                     texture_bytes(r.media_gpu.preview_animation_backup_texture);
-        return extra;
-    };
-    const auto measure = [&](const char* mode, const char* scenario, Usage start, bool fixed) noexcept {
+    const auto measure = [&](const char* scenario, Usage start) noexcept {
         const Usage now = usage(adapter, r.graphics.context1);
-        const u64 extra = fixed ? legacy_backup_extra() : 0;
         char metric[64];
         u32 n = 0;
         const char* const delta_parts[] = {scenario, "_local_delta"};
@@ -399,163 +372,178 @@ bool media_memory_probe(D3D11Renderer& r) noexcept {
             for (u32 i = 0; part[i] && n < 63; ++i)
                 metric[n++] = part[i];
         metric[n] = 0;
-        report.line(label(mode, metric), (now.local > start.local ? now.local - start.local : 0) + extra);
+        report.line(label(metric), now.local > start.local ? now.local - start.local : 0);
         n = 0;
         const char* const owned_parts[] = {scenario, "_owned"};
         for (const char* part : owned_parts)
             for (u32 i = 0; part[i] && n < 63; ++i)
                 metric[n++] = part[i];
         metric[n] = 0;
-        report.line(label(mode, metric), media_bytes(r) + extra);
+        report.line(label(metric), media_bytes(r));
+    };
+    // Per surface: the identity and preview atlases, their backups, the two frame caches.
+    const auto surfaces = [&](const char* scenario) noexcept {
+        const GpuPagedTexture* const owned[] = {r.media_gpu.surface,   r.media_gpu.preview_surface,
+                                                r.media_gpu.backup,    r.media_gpu.preview_backup,
+                                                r.animation_gpu.surface, r.preview_animation_gpu.surface};
+        const char* const names[] = {"_identity", "_preview", "_identity_backup", "_preview_backup",
+                                     "_identity_frames", "_preview_frames"};
+        for (u32 index = 0; index < 6; ++index) {
+            char metric[64];
+            u32 n = 0;
+            const char* const parts[] = {scenario, names[index]};
+            for (const char* part : parts)
+                for (u32 i = 0; part[i] && n < 63; ++i)
+                    metric[n++] = part[i];
+            metric[n] = 0;
+            report.line(label(metric), gpu_paged_texture_bytes(owned[index]));
+        }
     };
 
     u64 clock = 10'000'000; // Synthetic monotonic milliseconds for recency and idle trims.
-    for (u32 pass = 0; ok && pass < 2; ++pass) {
-        const bool fixed = pass == 0;
-        const char* mode = fixed ? "fixed" : "growable";
-        // (a) Bound but unused atlases: the login screen and an empty account.
-        ok = bind_production_atlases(r, !fixed);
+    // (a) Bound but unused atlases: the login screen and an empty account.
+    ok = ok && bind_production_atlases(r);
+    renderer_media_maintain(&r, clock += 1'000);
+    Usage start = ok ? usage(adapter, r.graphics.context1) : Usage{};
+    if (ok)
+        measure("idle", start);
+
+    // (b) A timeline: avatars, emoji, still previews and GIFs (one with
+    // previous-disposal) plus their animation frame captures.
+    for (u32 i = 0; ok && i < 48; ++i)
+        ok = upload(r, media_asset_user_avatar(5'000 + i, i + 1, false), i, 80, 80);
+    for (u32 i = 0; ok && i < 24; ++i)
+        ok = upload(r, media_asset_custom_emoji(6'000 + i, false), 100 + i, 48, 48);
+    for (u32 i = 0; ok && i < 10; ++i)
+        ok = upload(r, media_asset_attachment(7'000 + i, MediaAttachmentFormat::png, MediaResolutionTier::px512),
+                    200 + i, 512, 288);
+    for (u32 i = 0; ok && i < 3; ++i)
+        ok = play_gif(r, media_asset_attachment(8'000 + i, MediaAttachmentFormat::gif, MediaResolutionTier::px512),
+                      498, 280, i == 0 ? GifDispose::previous : GifDispose::background, 8);
+    for (u32 i = 0; ok && i < 4; ++i)
+        ok = play_gif(r, media_asset_custom_emoji(9'000 + i, true), 48, 48,
+                      i == 0 ? GifDispose::previous : GifDispose::none, 8);
+    if (ok) {
+        measure("timeline", start);
+        surfaces("timeline");
+    }
+    bool pixels = ok;
+    for (u32 i = 0; pixels && i < 48; i += 7)
+        pixels = resident_matches(r, &g_memory.primary, r.media_gpu.surface,
+                                  media_asset_user_avatar(5'000 + i, i + 1, false), i);
+    for (u32 i = 0; pixels && i < 10; ++i)
+        pixels = resident_matches(r, &g_memory.preview, r.media_gpu.preview_surface,
+                                  media_asset_attachment(7'000 + i, MediaAttachmentFormat::png, MediaResolutionTier::px512),
+                                  200 + i);
+    report.line(label("timeline_pixels"), pixels ? 1 : 0);
+    ok = ok && pixels;
+
+    if (ok) {
+        // Idle trim with the last three previews and eight avatars still on screen: everything else goes,
+        // what stays keeps its place and the rows that empty return their memory.
         renderer_media_maintain(&r, clock += 1'000);
-        Usage start = ok ? usage(adapter, r.graphics.context1) : Usage{};
-        if (ok)
-            measure(mode, "idle", start, fixed);
-
-        // (b) A timeline: avatars, emoji, still previews and GIFs (one with
-        // previous-disposal) plus their animation frame captures.
-        for (u32 i = 0; ok && i < 48; ++i)
-            ok = upload(r, media_asset_user_avatar(5'000 + i, i + 1, false), i, 80, 80);
-        for (u32 i = 0; ok && i < 24; ++i)
-            ok = upload(r, media_asset_custom_emoji(6'000 + i, false), 100 + i, 48, 48);
-        for (u32 i = 0; ok && i < 10; ++i)
-            ok = upload(r, media_asset_attachment(7'000 + i, MediaAttachmentFormat::png, MediaResolutionTier::px512),
-                        200 + i, 512, 288);
-        for (u32 i = 0; ok && i < 3; ++i)
-            ok = play_gif(r, media_asset_attachment(8'000 + i, MediaAttachmentFormat::gif, MediaResolutionTier::px512),
-                          498, 280, i == 0 ? GifDispose::previous : GifDispose::background, 8);
-        for (u32 i = 0; ok && i < 4; ++i)
-            ok = play_gif(r, media_asset_custom_emoji(9'000 + i, true), 48, 48,
-                          i == 0 ? GifDispose::previous : GifDispose::none, 8);
-        if (ok)
-            measure(mode, "timeline", start, fixed);
-        // Pixels written before every later growth step must survive it.
-        bool pixels = ok;
-        for (u32 i = 0; pixels && i < 48; i += 7)
-            pixels = resident_matches(r, &g_memory.primary, r.media_gpu.texture,
-                                      media_asset_user_avatar(5'000 + i, i + 1, false), i);
-        for (u32 i = 0; pixels && i < 10; ++i)
+        media_atlas_begin_visibility(&g_memory.primary);
+        media_atlas_begin_visibility(&g_memory.preview);
+        // No animation frame is on screen any more.
+        animation_frame_cache_gpu_begin_visibility(&r.animation_gpu);
+        animation_frame_cache_gpu_begin_visibility(&r.preview_animation_gpu);
+        for (u32 i = 7; i < 10; ++i)
+            media_atlas_find(&g_memory.preview, media_asset_attachment(7'000 + i, MediaAttachmentFormat::png,
+                                                                       MediaResolutionTier::px512));
+        for (u32 i = 40; i < 48; ++i)
+            media_atlas_find(&g_memory.primary, media_asset_user_avatar(5'000 + i, i + 1, false));
+        const u64 before = media_bytes(r);
+        const u64 due = renderer_media_next_trim_ms(r);
+        clock += 30'000;
+        const bool trimmed = due && due <= clock && renderer_media_maintain(&r, clock);
+        const u64 frames =
+            gpu_paged_texture_bytes(r.animation_gpu.surface) + gpu_paged_texture_bytes(r.preview_animation_gpu.surface);
+        const bool evicted = !media_atlas_peek(&g_memory.preview, media_asset_attachment(7'000, MediaAttachmentFormat::png,
+                                                                                          MediaResolutionTier::px512))
+                                  .ok();
+        report.line(label("trim_ran"), trimmed);
+        report.line(label("trim_frame_bytes"), frames);
+        report.line(label("trim_backups"), (r.media_gpu.backup ? 1u : 0u) + (r.media_gpu.preview_backup ? 2u : 0u));
+        pixels = trimmed && media_bytes(r) < before && !frames && !r.media_gpu.backup && !r.media_gpu.preview_backup &&
+                 evicted;
+        for (u32 i = 7; pixels && i < 10; ++i)
             pixels = resident_matches(
-                r, &g_memory.preview, r.media_gpu.preview_texture,
+                r, &g_memory.preview, r.media_gpu.preview_surface,
                 media_asset_attachment(7'000 + i, MediaAttachmentFormat::png, MediaResolutionTier::px512), 200 + i);
-        report.line(label(mode, "timeline_pixels"), pixels ? 1 : 0);
-        ok = ok && pixels;
-
-        if (ok && !fixed) {
-            // Idle trim with the last three previews and eight avatars still on
-            // screen: everything else is evicted, the visible tail rows move up
-            // and the atlases shrink; moved pixels must be intact.
-            renderer_media_maintain(&r, clock += 1'000);
-            media_atlas_begin_visibility(&g_memory.primary);
-            media_atlas_begin_visibility(&g_memory.preview);
-            for (u32 i = 7; i < 10; ++i)
-                media_atlas_find(&g_memory.preview, media_asset_attachment(7'000 + i, MediaAttachmentFormat::png,
-                                                                           MediaResolutionTier::px512));
-            for (u32 i = 40; i < 48; ++i)
-                media_atlas_find(&g_memory.primary, media_asset_user_avatar(5'000 + i, i + 1, false));
-            const u16 preview_before = g_memory.preview.allocations.height;
-            const u16 primary_before = g_memory.primary.allocations.height;
-            const u64 due = renderer_media_next_trim_ms(r);
-            clock += 30'000;
-            const bool trimmed = due && due <= clock && renderer_media_maintain(&r, clock);
-            pixels = trimmed && g_memory.preview.allocations.height < preview_before &&
-                     g_memory.primary.allocations.height <= primary_before &&
-                     r.media_gpu.preview_height == g_memory.preview.allocations.height &&
-                     r.media_gpu.height == g_memory.primary.allocations.height && !r.animation_gpu.texture &&
-                     !r.preview_animation_gpu.texture && !r.media_gpu.apng_backup_texture &&
-                     !r.media_gpu.preview_animation_backup_texture &&
-                     !media_atlas_peek(&g_memory.preview,
-                                       media_asset_attachment(7'000, MediaAttachmentFormat::png,
-                                                              MediaResolutionTier::px512))
-                          .ok();
-            for (u32 i = 7; pixels && i < 10; ++i)
-                pixels = resident_matches(
-                    r, &g_memory.preview, r.media_gpu.preview_texture,
-                    media_asset_attachment(7'000 + i, MediaAttachmentFormat::png, MediaResolutionTier::px512),
-                    200 + i);
-            for (u32 i = 40; pixels && i < 48; ++i)
-                pixels = resident_matches(r, &g_memory.primary, r.media_gpu.texture,
-                                          media_asset_user_avatar(5'000 + i, i + 1, false), i);
-            report.line("media_memory_growable_trim_pixels", pixels ? 1 : 0);
-            report.line("media_memory_growable_trim_preview_rows", g_memory.preview.allocations.height);
-            report.line("media_memory_growable_trim_primary_rows", g_memory.primary.allocations.height);
-            if (pixels) {
-                measure(mode, "trimmed", start, fixed);
-                // The driver keeps freed heaps for reuse; IDXGIDevice3::Trim
-                // returns them (diagnostic only, the client does not call it).
-                IDXGIDevice3* trimmable = nullptr;
-                if (SUCCEEDED(r.graphics.device->QueryInterface(__uuidof(IDXGIDevice3),
-                                                                reinterpret_cast<void**>(&trimmable)))) {
-                    trimmable->Trim();
-                    trimmable->Release();
-                    measure(mode, "trimmed_dxgi_trim", start, fixed);
-                }
+        for (u32 i = 40; pixels && i < 48; ++i)
+            pixels = resident_matches(r, &g_memory.primary, r.media_gpu.surface,
+                                      media_asset_user_avatar(5'000 + i, i + 1, false), i);
+        report.line(label("trim_pixels"), pixels ? 1 : 0);
+        report.line(label("trim_preview_rows"), glyph_atlas_committed_rows(g_memory.preview.allocations));
+        report.line(label("trim_primary_rows"), glyph_atlas_committed_rows(g_memory.primary.allocations));
+        if (pixels) {
+            measure("trimmed", start);
+            surfaces("trimmed");
+            // The driver keeps freed heaps for reuse; IDXGIDevice3::Trim
+            // returns them (diagnostic only, the client does not call it).
+            IDXGIDevice3* trimmable = nullptr;
+            if (SUCCEEDED(r.graphics.device->QueryInterface(__uuidof(IDXGIDevice3),
+                                                            reinterpret_cast<void**>(&trimmable)))) {
+                trimmable->Trim();
+                trimmable->Release();
+                measure("trimmed_dxgi_trim", start);
             }
-            ok = pixels && renderer_media_next_trim_ms(r) == 0;
         }
-
-        // (c) Media viewer: one 4K image decoded at the 2048 px viewer tier.
-        ok = ok && bind_production_atlases(r, !fixed);
-        start = ok ? usage(adapter, r.graphics.context1) : Usage{};
-        const MediaAssetKey viewer =
-            media_asset_attachment(10'000, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
-        ok = ok && upload_png(r, viewer, 300, 2'048, 1'152);
-        if (ok)
-            measure(mode, "viewer", start, fixed);
-        pixels = ok && resident_matches(r, &g_memory.preview, r.media_gpu.preview_texture, viewer, 300);
-        report.line(label(mode, "viewer_pixels"), pixels ? 1 : 0);
-        ok = ok && pixels;
-
-        // (d) One synthetic 1080p camera stream presented as a call tile
-        // (WebRTC-style restricted SPS, then the adaptive-reorder variant).
-        // (e) The same stream in H.265 when the GPU decodes it.
-        constexpr const char* kStreams[] = {"stream", "stream_unrestricted", "stream_hevc"};
-        constexpr const char* kSurfaces[] = {"stream_surfaces", "stream_unrestricted_surfaces",
-                                             "stream_hevc_surfaces"};
-        constexpr const char* kDecoderBytes[] = {"stream_decoder_bytes", "stream_unrestricted_decoder_bytes",
-                                                 "stream_hevc_decoder_bytes"};
-        for (u32 variant = 0; ok && variant < 3; ++variant) {
-            ok = bind_production_atlases(r, !fixed);
-            start = ok ? usage(adapter, r.graphics.context1) : Usage{};
-            StreamCapture capture{};
-            GpuStreamDecoder* decoder = !ok           ? nullptr
-                                        : variant < 2 ? start_stream(r, &capture, variant == 0)
-                                                      : start_hevc_stream(r, &capture);
-            if (!decoder) {
-                log_write(LogLevel::warning, "probe", "media_memory_stream_skipped");
-                break;
-            }
-            const auto stats = gpu_stream_decoder_stats(decoder);
-            measure(mode, kStreams[variant], start, fixed);
-            const Usage active = usage(adapter, r.graphics.context1);
-            report.line(label(mode, kSurfaces[variant]), stats.surfaces);
-            if (!fixed && variant == 0) {
-                // Hidden call view: the decoder releases its DXVA objects.
-                const bool released = gpu_stream_decoder_release_idle(decoder);
-                const Usage idle = usage(adapter, r.graphics.context1);
-                report.line("media_memory_growable_stream_hidden_freed",
-                            active.local > idle.local ? active.local - idle.local : 0);
-                ok = released && gpu_stream_decoder_stats(decoder).surfaces == 0;
-            }
-            gpu_stream_decoder_destroy(decoder);
-            const Usage gone = usage(adapter, r.graphics.context1);
-            report.line(label(mode, kDecoderBytes[variant]), active.local > gone.local ? active.local - gone.local : 0);
-        }
+        ok = pixels && renderer_media_next_trim_ms(r) == 0;
     }
 
-    ok = ok && bind_production_atlases(r, true) && video_display_extent_probe(r);
+    // (c) Media viewer: one 4K image decoded at the 2048 px viewer tier.
+    ok = ok && bind_production_atlases(r);
+    start = ok ? usage(adapter, r.graphics.context1) : Usage{};
+    const MediaAssetKey viewer =
+        media_asset_attachment(10'000, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
+    ok = ok && upload_png(r, viewer, 300, 2'048, 1'152);
+    if (ok) {
+        measure("viewer", start);
+        surfaces("viewer");
+    }
+    pixels = ok && resident_matches(r, &g_memory.preview, r.media_gpu.preview_surface, viewer, 300);
+    report.line(label("viewer_pixels"), pixels ? 1 : 0);
+    ok = ok && pixels;
+
+    // (d) One synthetic 1080p camera stream presented as a call tile
+    // (WebRTC-style restricted SPS, then the adaptive-reorder variant).
+    // (e) The same stream in H.265 when the GPU decodes it.
+    constexpr const char* kStreams[] = {"stream", "stream_unrestricted", "stream_hevc"};
+    constexpr const char* kSurfaces[] = {"stream_surfaces", "stream_unrestricted_surfaces", "stream_hevc_surfaces"};
+    constexpr const char* kDecoderBytes[] = {"stream_decoder_bytes", "stream_unrestricted_decoder_bytes",
+                                             "stream_hevc_decoder_bytes"};
+    for (u32 variant = 0; ok && variant < 3; ++variant) {
+        ok = bind_production_atlases(r);
+        start = ok ? usage(adapter, r.graphics.context1) : Usage{};
+        StreamCapture capture{};
+        GpuStreamDecoder* decoder = !ok           ? nullptr
+                                    : variant < 2 ? start_stream(r, &capture, variant == 0)
+                                                  : start_hevc_stream(r, &capture);
+        if (!decoder) {
+            log_write(LogLevel::warning, "probe", "media_memory_stream_skipped");
+            break;
+        }
+        const auto stats = gpu_stream_decoder_stats(decoder);
+        measure(kStreams[variant], start);
+        const Usage active = usage(adapter, r.graphics.context1);
+        report.line(label(kSurfaces[variant]), stats.surfaces);
+        if (variant == 0) {
+            // Hidden call view: the decoder releases its DXVA objects.
+            const bool released = gpu_stream_decoder_release_idle(decoder);
+            const Usage idle = usage(adapter, r.graphics.context1);
+            report.line(label("stream_hidden_freed"), active.local > idle.local ? active.local - idle.local : 0);
+            ok = released && gpu_stream_decoder_stats(decoder).surfaces == 0;
+        }
+        gpu_stream_decoder_destroy(decoder);
+        const Usage gone = usage(adapter, r.graphics.context1);
+        report.line(label(kDecoderBytes[variant]), active.local > gone.local ? active.local - gone.local : 0);
+    }
+
+    ok = ok && bind_production_atlases(r) && video_display_extent_probe(r);
     // Leave the renderer in its shipping configuration for later probes.
-    bind_production_atlases(r, true);
+    bind_production_atlases(r);
     renderer_unbind_media_atlas(&r);
-    animation_frame_cache_gpu_release(&r.preview_animation_gpu);
     if (old_primary)
         renderer_bind_media_atlas(&r, old_primary);
     if (old_preview)

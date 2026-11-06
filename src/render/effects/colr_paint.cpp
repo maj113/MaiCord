@@ -8,20 +8,22 @@ namespace maicord {
 namespace {
 // Resources are created once per atlas: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool initialize(ColrPaintGpu* g, GpuDevice* device, u16 extent, u16 height, bool surface) noexcept {
+// A one-page atlas of extent x height, backed whole (`surface`), and the shared job constants.
+bool initialize(ColrPaintGpu* g, GpuContext* context, GpuDevice* device, u16 extent, u16 height,
+                bool surface) noexcept {
     g->append_upload = gpu_caps(device).map_no_overwrite_on_srv;
-    if ((surface && !g->texture &&
-         (FAILED(gpu_texture_create(device, {extent, height, GpuFormat::rgba8, GpuUsage::default_, gpu_bind_srv | gpu_bind_uav},
-                                    nullptr, &g->texture)) ||
-          FAILED(gpu_srv_create(device, g->texture, {GpuViewKind::texture, GpuFormat::rgba8}, &g->view)) ||
-          FAILED(gpu_uav_create(device, g->texture, &g->uav)))) ||
+    if ((surface && !g->surface &&
+         (FAILED(gpu_paged_texture_create(device, {extent, height, 1, GpuFormat::rgba8, gpu_bind_srv | gpu_bind_uav},
+                                          &g->surface)) ||
+          FAILED(gpu_paged_texture_commit(context, g->surface, 0, height)))) ||
         (!g->constants &&
          FAILED(gpu_buffer_create(device, {sizeof(ColrPaintJob) * kColrPaintBatchJobs, GpuUsage::dynamic, gpu_bind_constant, false},
                                   nullptr, &g->constants)))) {
         colr_paint_gpu_release(g);
         return false;
     }
-    if (g->texture && !g->width) {
+    if (g->surface && !g->width) {
+        g->view = gpu_paged_texture_view(g->surface);
         g->width = extent;
         g->height = height;
     }
@@ -102,14 +104,14 @@ void unbind_colr(GpuContext* context) noexcept {
 }
 GpuComputeShader* ensure_colr(ColrPaintGpu* g,GpuContext* context,u32 bytes,bool general,u16 extent,u16 height,bool external_target=false,bool layers=false) noexcept {
     auto** shader = layers ? &g->layers_shader : general ? &g->wide_shader : &g->shader;
-    const bool initialize_resources = !g->constants || (!external_target && !g->texture);
+    const bool initialize_resources = !g->constants || (!external_target && !g->surface);
     const bool resize = initialize_resources || bytes > g->capacity || !*shader;
     GpuDevice* device = nullptr;
     if (resize)
         device = gpu_context_device(context);
     bool ok = !resize || device;
     if (ok && initialize_resources)
-        ok = initialize(g, device, extent, height, !external_target);
+        ok = initialize(g, context, device, extent, height, !external_target);
     if (ok && bytes > g->capacity) {
         // Retain upload slack without doubling a large paint's entire buffer.
         // Programs are bounded by the eight-MiB compilation arena.
@@ -164,7 +166,7 @@ bool ColrPaintBatch::flush() noexcept {
     const u32 count = pending;
     pending = 0;
     bound = true;
-    return dispatch_jobs(gpu, context, shader, jobs, count, gpu->uav);
+    return dispatch_jobs(gpu, context, shader, jobs, count, output);
 }
 void ColrPaintBatch::reset() noexcept {
     flush();
@@ -186,7 +188,11 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
     const u32 plan_capacity=layers?layer_plan_capacity(p,bounds,padding,layer_nodes):0;
     const u32 bytes = static_cast<u32>(p.storage.offset)+plan_capacity;
     const bool general = !layers && p.peak_stack > 8;
-    ColrPaintJob job{static_cast<u32>(a.x - padding), static_cast<u32>(a.y - padding),
+    // Without a target the job writes the page of the atlas holding it, in that page's rows.
+    const GpuPage page = target ? GpuPage{nullptr, target, nullptr, 0}
+                         : g->surface ? gpu_paged_texture_page(g->surface, a.y)
+                                      : GpuPage{};
+    ColrPaintJob job{static_cast<u32>(a.x - padding), static_cast<u32>(a.y - padding) - page.first_row,
                      static_cast<u32>(a.width + 2 * padding), static_cast<u32>(a.height + 2 * padding),
                      static_cast<float>(bounds.left), static_cast<float>(bounds.top), scale, p.first, padding, p.nodes, 0,
                      plan_capacity ? static_cast<u32>(p.storage.offset) : 0};
@@ -197,7 +203,7 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
     if (batch && batch->pending) {
         const auto* kernel = layers ? &g->layers_shader : general ? &g->wide_shader : &g->shader;
         bool flush = batch->gpu != g || batch->shader != *kernel || batch->pending == kColrPaintBatchJobs ||
-                     !g->append_upload || bytes > g->capacity - g->upload_cursor;
+                     batch->output != page.uav || !g->append_upload || bytes > g->capacity - g->upload_cursor;
         for (u32 i = 0; !flush && i < batch->pending; ++i) {
             const auto& queued = batch->jobs[i];
             flush = job.x < queued.x + queued.width && queued.x < job.x + job.width && job.y < queued.y + queued.height &&
@@ -208,6 +214,10 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
     }
     auto* shader=ensure_colr(g,context,bytes,general,extent,target_height,target!=nullptr,layers);
     if(!shader)return false;
+    // A one-page atlas made just now: its page.
+    const GpuUav* output = page.uav ? page.uav : gpu_paged_texture_page(g->surface, a.y).uav;
+    if (!output)
+        return false;
     // Append disjoint ranges until full. DISCARD renames the entire resource,
     // so doing it for every tiny glyph after a large one wastes driver memory.
     if (!g->append_upload || bytes > g->capacity - g->upload_cursor)
@@ -228,17 +238,18 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
         batch->jobs[batch->pending++] = job;
         batch->gpu = g;
         batch->shader = shader;
+        batch->output = const_cast<GpuUav*>(output);
         return true;
     }
-    const bool dispatched = dispatch_jobs(g, context, shader, &job, 1, target ? target : g->uav);
+    const bool dispatched = dispatch_jobs(g, context, shader, &job, 1, const_cast<GpuUav*>(output));
     unbind_colr(context);
     return dispatched;
 }
 bool colr_paint_rasterize(ColrPaintGpu* g, GpuContext* context, const ColrPaintProgram& p,
     const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation, float scale,
     u16 atlas_width, u16 atlas_height, u16 padding, ColrPaintBatch* batch) noexcept {
-    // A texture made at another size must be resized first (glyph_atlas_texture_resize).
-    if (g && g->texture && (g->width != atlas_width || g->height != atlas_height))
+    // An atlas made at another size cannot take it.
+    if (g && g->surface && (g->width != atlas_width || g->height != atlas_height))
         return false;
     return rasterize_colr(g,context,p,bounds,allocation,scale,atlas_width,atlas_height,padding,batch,nullptr);
 }
@@ -250,10 +261,10 @@ bool colr_paint_upload_pixels(ColrPaintGpu* g, GpuContext* context, const GlyphA
         a.x + a.width + padding > atlas_width || a.y + a.height + padding > atlas_height ||
         (batch && batch->context != context))
         return false;
-    if (g->texture && (g->width != atlas_width || g->height != atlas_height))
+    if (g->surface && (g->width != atlas_width || g->height != atlas_height))
         return false;
     GpuDevice* device = gpu_context_device(context);
-    if (!g->texture && !initialize(g, device, atlas_width, atlas_height, true))
+    if (!g->surface && !initialize(g, context, device, atlas_width, atlas_height, true))
         return false;
     // Queued paint jobs write this texture too.
     if (batch && batch->pending && !batch->flush())
@@ -271,8 +282,10 @@ bool colr_paint_upload_pixels(ColrPaintGpu* g, GpuContext* context, const GlyphA
     const bool created =
         !FAILED(gpu_texture_create(device, {width, height, GpuFormat::rgba8, GpuUsage::immutable, gpu_bind_srv}, &initial,
                                    &staged));
-    if (created)
-        gpu_copy_region(context, g->texture, a.x - padding, a.y - padding, staged, {0, 0, width, height});
+    const GpuPage page = gpu_paged_texture_page(g->surface, a.y);
+    if (created && page.texture)
+        gpu_copy_region(context, page.texture, a.x - padding, a.y - padding - page.first_row, staged,
+                        {0, 0, width, height});
     gpu_release(staged);
     arena_rewind(scratch, mark);
     return created;
@@ -288,6 +301,20 @@ bool colr_paint_rasterize_target(ColrPaintGpu* g, GpuContext* context,
         return false;
     return rasterize_colr(g,context,p,bounds,allocation,scale,target_width,target_height,padding,nullptr,target);
 }
+bool colr_paint_attach_surface(ColrPaintGpu* g, GpuDevice* device, const GlyphAtlasAllocator& atlas) noexcept {
+    if (!g || !device)
+        return false;
+    if (!g->surface) {
+        if (FAILED(gpu_paged_texture_create(
+                device, {atlas.width, atlas.page_rows, atlas.page_count, GpuFormat::rgba8, gpu_bind_srv | gpu_bind_uav},
+                &g->surface)))
+            return false;
+        g->view = gpu_paged_texture_view(g->surface);
+        g->width = atlas.width;
+        g->height = atlas.height;
+    }
+    return true;
+}
 void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     if (!g)
         return;
@@ -297,9 +324,8 @@ void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     gpu_release(g->constants);
     gpu_release(g->program_view);
     gpu_release(g->program);
-    gpu_release(g->uav);
-    gpu_release(g->view);
-    gpu_release(g->texture);
+    g->view = nullptr; // The surface's own view.
+    gpu_paged_texture_release(&g->surface);
     reset_value(g);
 }
 #pragma clang attribute pop

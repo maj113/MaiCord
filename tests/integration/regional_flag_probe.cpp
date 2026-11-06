@@ -62,13 +62,13 @@ bool readback_flags(D3D11Renderer& renderer, const MediaAtlasResult (&allocation
     auto* context=renderer.graphics.context;
     ID3D11Texture2D* staging=nullptr;
     struct Release {ID3D11Texture2D*& texture;~Release() noexcept {com_release(texture);}} release{staging};
-    D3D11_TEXTURE2D_DESC description{};renderer.media_gpu.texture->GetDesc(&description);
+    D3D11_TEXTURE2D_DESC description{};renderer.media_gpu.surface->texture->GetDesc(&description);
     if (description.Format!=DXGI_FORMAT_R8G8B8A8_UNORM || description.Width!=width || description.Height!=height)
         return false;
     description.Usage=D3D11_USAGE_STAGING;description.BindFlags=description.MiscFlags=0;
     description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
     if (FAILED(renderer.graphics.device->CreateTexture2D(&description,nullptr,&staging))) return false;
-    context->CopyResource(staging,renderer.media_gpu.texture);
+    context->CopyResource(staging,renderer.media_gpu.surface->texture);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(context->Map(staging,0,D3D11_MAP_READ,0,&mapped))) return false;
     bool valid=true;
@@ -169,7 +169,7 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
     const DWORD chars=GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY",directory,1000);
     if (!chars) return true;
     if (chars>=1000 || !capture || !renderer.graphics.device || !renderer.graphics.context1 ||
-        renderer.media_atlas || renderer.preview_media_atlas || renderer.media_gpu.texture ||
+        renderer.media_atlas || renderer.preview_media_atlas || renderer.media_gpu.surface ||
         renderer.content_text || scene.owned_storage.base || scene.items.data || scene.widgets.storage.data ||
         renderer.media_quad_count || renderer.media_batch_count || !colr_compute_bindings_empty(renderer.graphics.context))
         return fail(__LINE__);
@@ -239,7 +239,7 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
     // later flag rows extend below y=128. The same shared program/shader owner
     // must bake every tile into the actual 128x512 caller texture identically.
     renderer_unbind_media_atlas(&renderer);release.bound=false;
-    if (atlas.entry_count || renderer.media_gpu.texture ||
+    if (atlas.entry_count || renderer.media_gpu.surface ||
         !media_atlas_initialize(&atlas,128,512,1,{entries,8},{buckets,16},{allocations_storage,8},{rows,8}) ||
         !renderer_bind_media_atlas(&renderer,&atlas)) return fail(__LINE__);
     release.bound=true;
@@ -264,7 +264,7 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
     renderer.popup_scene=saved_popup;renderer.ui_scene=saved_scene;
     renderer_unbind_media_atlas(&renderer);release.bound=false;
     popup_scene_release(&scene);release.initialized=false;
-    if (renderer.media_atlas || renderer.media_gpu.texture || renderer.media_gpu.texture_view ||
+    if (renderer.media_atlas || renderer.media_gpu.surface || renderer.media_gpu.texture_view ||
         renderer.media_gpu.texture_uav || atlas.entry_count || scene.owned_storage.base || scene.items.data ||
         !colr_compute_bindings_empty(renderer.graphics.context)) return fail(__LINE__);
     log_write(LogLevel::info,"probe","regional_flag_four_assets_rgba_popup_commands_three_dpi_native_draw_and_release_passed");

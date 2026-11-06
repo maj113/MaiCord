@@ -1,9 +1,9 @@
-"""HLSL to GLSL ES 3.10 with the pinned toolchain (DXC to SPIR-V, then tools/shadertool/mc_shadertool), shared by the
-built-in shader pack (tools/build_gles_shader_pack.py) and the effect packages (tools/maicord-plugin/mcfx_tool.py,
-section GLSL of .mcfx interface 4).
+"""HLSL to GLSL ES 3.10 with the pinned toolchain (DXC to SPIR-V, then tools/shadertool/mc_shadertool) for the effect
+packages (tools/maicord-plugin/mcfx_tool.py, section GLSL of .mcfx interface 4). The client's own shaders are
+hand-written GLSL (src/render/shaders/gles, tools/build_gles_shader_pack.py) and do not come through here.
 
-The translation conventions are those of the pack (design: DXC with the register shifts below, vertex output flipped
-and clip space fixed up and bindings assigned by mc_shadertool). Stdlib only.
+The translation conventions are those the hand-written GLSL follows too (design: DXC with the register shifts below,
+vertex output flipped and clip space fixed up and bindings assigned by mc_shadertool). Stdlib only.
 """
 import pathlib
 import shutil

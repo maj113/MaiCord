@@ -135,36 +135,23 @@ void dispatch_animated_webp(MediaAtlasGpu* gpu, GpuContext1* context,
 }
 
 GpuStatus ensure_apng_backup(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
-                             MediaAtlas* atlas, u32 required_bottom) noexcept {
-    if (atlas) {
-        atlas->disposal_backup_used_ms = atlas->growth.now_ms;
+                             MediaAtlas* atlas, const MediaAtlasResult& allocation) noexcept {
+    atlas->disposal_backup_used_ms = atlas->allocations.now_ms;
+    const GlyphAtlasAllocator& pages = atlas->allocations;
+    if (!gpu->backup) {
+        const GpuStatus created = gpu_paged_texture_create(
+            device, {pages.width, pages.page_rows, pages.page_count, GpuFormat::rgba8, gpu_bind_srv}, &gpu->backup);
+        if (FAILED(created)) {
+            return created;
+        }
     }
-    u32 current = 0;
-    GpuTextureInfo info{};
-    if (gpu->apng_backup_texture) {
-        gpu_texture_info(gpu->apng_backup_texture, &info);
-        current = gpu_texture_info_height(info);
-    }
-    if (current >= required_bottom) {
-        return S_OK;
-    }
-    gpu_texture_info(gpu->texture, &info);
-    const u32 height = minimum<u32>(gpu_texture_info_height(info), (required_bottom + 255u) & ~255u);
-    if (height < required_bottom) {
-        return E_INVALIDARG;
-    }
-    GpuTexture* replacement = nullptr;
-    const GpuStatus result = gpu_texture_create_from_info(device, info, height, true, &replacement);
-    if (FAILED(result)) {
-        return result;
-    }
-    if (current) {
-        gpu_copy_region(context, replacement, 0, 0, gpu->apng_backup_texture,
-                        {0, 0, gpu_texture_info_width(info), current});
-    }
-    gpu_release(gpu->apng_backup_texture);
-    gpu->apng_backup_texture = replacement;
-    return S_OK;
+    // The backup backs what the atlas backs of the pages whose animations
+    // dispose to the previous frame, and only until the backup goes idle.
+    const u32 page = allocation.y / pages.page_rows;
+    const GpuStatus status = gpu_paged_texture_commit(
+        context, gpu->backup, page, gpu_paged_commit_rows(4) ? pages.pages[page].committed : pages.page_rows);
+    gpu->backup_texture = gpu_paged_texture_page(gpu->backup, allocation.y).texture;
+    return status;
 }
 
 void unbind_apng_atlas(GpuContext1* context) noexcept {

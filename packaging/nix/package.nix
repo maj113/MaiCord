@@ -1,8 +1,8 @@
 # MaiCord built from source: the recipe of nixpkgs' pkgs/by-name/ma/maicord/package.nix, which differs from this file only in
 # where the source and version come from (src and version are arguments here, fetchFromGitHub of the tag there) and in the
 # maintainers. Keep the two in step (packaging/README.md, "Nix (nix/) and nixpkgs"). The decisions are explained beside the
-# lines they concern: LLVM 23 as the project's contract wants it, nixpkgs' DXC and SPIRV-Cross for the shaders (no downloads),
-# the run-time libraries on the program's run path, and the tarball's layout without the self-updater's marker.
+# lines they concern: LLVM 23 as the project's contract wants it, the run-time libraries on the program's run path, and
+# the tarball's layout without the self-updater's marker. The shaders need no tools beyond python.
 {
   lib,
   callPackage,
@@ -16,8 +16,6 @@
   llvmPackages_23,
   autoPatchelfHook,
   addDriverRunpath,
-  directx-shader-compiler,
-  spirv-cross,
   versionCheckHook,
   nix-update-script,
   # Opened with dlopen at run time, by soname: see "runtimeDependencies" below.
@@ -86,10 +84,8 @@ stdenv.mkDerivation (finalAttrs: {
     (lib.cmakeFeature "CMAKE_RANLIB" "${llvm.llvm}/bin/llvm-ranlib")
     # The unwrapped clang cannot link a hosted program: the compiler check only needs to compile.
     (lib.cmakeFeature "CMAKE_TRY_COMPILE_TARGET_TYPE" "STATIC_LIBRARY")
-    # The shaders are HLSL, translated at build time with DXC and SPIRV-Cross from nixpkgs instead of the pinned
-    # downloads of tools/linux_shader_toolchain.json (mc_shadertool is compiled against this SPIRV-Cross).
-    (lib.cmakeFeature "MAICORD_DXC" (lib.getExe' directx-shader-compiler "dxc"))
-    (lib.cmakeFeature "MAICORD_SPIRV_CROSS_PREFIX" "${spirv-cross}")
+    # (no shader toolchain flags: the client's shaders are hand-written GLSL, packed with python; DXC and SPIRV-Cross are
+    # for plugin effects only)
   ];
 
   env = {
@@ -102,8 +98,7 @@ stdenv.mkDerivation (finalAttrs: {
     # The generated sources must not land inside the source tree, so the build directory is beside it.
     cmakeDir=$PWD
     cmakeBuildDir=$NIX_BUILD_TOP/build
-    # The shader tool is compiled here: its cache must be writable (the default is under $HOME).
-    export MAICORD_TOOLCHAIN_CACHE=$NIX_BUILD_TOP/maicord-toolchain
+    # Nothing else to prepare: the shaders are GLSL the build packs with python (no DXC, SPIRV-Cross or downloads).
   '';
 
   # Upstream's audit of the image (no GLIBC_ symbol above 2.34, libc.so.6 the only DT_NEEDED entry, no run path, no test

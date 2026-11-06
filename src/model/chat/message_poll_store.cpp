@@ -61,7 +61,7 @@ bool ensure_storage(MessagePollStore& store, u32 required) noexcept {
             return false;
         if (!stable_storage_initialize(&storage->records, store.capacity, 0, sizeof(MessagePollRecord),
                                        alignof(MessagePollRecord)) ||
-            !arena_initialize(storage->text_banks, store.text_capacity, 0, 4096)) {
+            !arena_initialize(storage->text_banks, store.text_capacity, 0, 4096, ArenaTag::model)) {
             stable_storage_release(&storage->records);
             arena_release(storage->text_banks);
             pages_release(storage, sizeof(MessagePollOwnedStorage));
@@ -93,7 +93,7 @@ bool prepare_text(MessagePollStore& store, u32 required, u64 replaced_id) noexce
     if (live > store.text_capacity || required > store.text_capacity - live)
         return false;
     auto& next = storage.text_banks[storage.active_bank ^ 1];
-    if (!next.base && !arena_initialize(&next, store.text_capacity, 0, 4096))
+    if (!next.base && !arena_initialize(&next, store.text_capacity, 0, 4096, ArenaTag::model))
         return false;
     arena_reset(&next);
     if (live + required && !arena_allocate(&next, live + required, 1))

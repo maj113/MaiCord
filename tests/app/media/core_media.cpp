@@ -3594,12 +3594,12 @@ void test_media_atlas_allocator() noexcept {
     expect(media_atlas_find(&atlas, media_asset_attachment(70)).ok(), "media_atlas_lru_touch");
     const MediaAtlasResult replacement =
         media_atlas_allocate(&atlas, media_asset_custom_emoji(99, false), 8, 8);
-    expect(replacement.ok() && replacement.evicted_entries == 2 &&
-               media_atlas_find(&atlas, emoji).error == MediaAtlasError::not_found &&
+    // A full atlas gives the least recently used slot that is not visible (the sticker) to the request.
+    expect(replacement.ok() && replacement.evicted_entries == 1 &&
                media_atlas_find(&atlas, sticker).error == MediaAtlasError::not_found &&
-               media_atlas_find(&atlas, media_asset_attachment(70)).ok() &&
-               !media_atlas_validate(atlas, first.handle) && atlas.entry_count == 3,
-           "media_atlas_row_lru_eviction_and_stale_handle");
+               media_atlas_find(&atlas, emoji).ok() && media_atlas_find(&atlas, media_asset_attachment(70)).ok() &&
+               !media_atlas_validate(atlas, second.handle) && atlas.entry_count == 4,
+           "media_atlas_slot_lru_eviction_and_stale_handle");
 
     MediaAtlasEntry protected_entries[4]{};
     u32 protected_buckets[8]{};
@@ -3799,9 +3799,11 @@ void test_animation_frame_cache() noexcept {
     AnimationFrameCacheDescriptor pressure = descriptors[0];
     pressure.key = AnimationFrameCacheKey{media_asset_custom_emoji(702, true), 0, 1, 0};
     const AnimationFrameCacheResult replacement = animation_frame_cache_allocate(&cache, pressure);
-    expect(replacement.ok() && cache.counters.evictions == 2 &&
+    expect(replacement.ok() && cache.counters.evictions == 1 &&
+               animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 0, 3, 0}).error ==
+                   AnimationFrameCacheError::not_found &&
                animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 2, 3, 0}).ok(),
-           "animation_frame_cache_row_eviction_preserves_visible_frame");
+           "animation_frame_cache_slot_eviction_preserves_visible_frame");
 
     AnimationFrameCacheEntry grow_entries[8]{};
     u32 grow_buckets[16]{};

@@ -107,6 +107,8 @@ try {
             if ([IO.Path]::GetFullPath($running.Path) -eq $client) { throw "Close MaiCord before rebuilding $client." }
         }
     }
+    # The Linux client's hand-written GLSL (src/render/shaders/gles) must have been reviewed against every HLSL change.
+    Invoke-Native python @("$PSScriptRoot\check_shader_twins.py")
     # Ninja's default worker count, capped at one per free GiB of commit past the first.
     $freeCommit = [long](Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory * 1KB
     $jobs = [string][Math]::Max(1, [Math]::Min([Math]::Min(32, [Environment]::ProcessorCount + 2), [Math]::Floor($freeCommit / 1GB) - 1))

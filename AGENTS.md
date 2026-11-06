@@ -112,6 +112,10 @@ Linux:
   calls `gpu_*` only and releases handles with `gpu_release`.
 - Renderer, effects, Lottie geometry: `src/render` (shared). Text input: `ui/text/secure_text_store.hpp` (Windows TSF, Linux
   text-input-v3 in `src/ui/text/linux`).
+- Client shaders: HLSL in `src/render/shaders` is the Windows source; its hand-written GLSL ES 3.10 twin in `src/render/shaders/gles`
+  (README there) is what the Linux client packs, with no shader compiler in the build. Change both in one commit: the twin's first
+  line records the HLSL's hash, `tools/check_shader_twins.py` (build scripts, suite) fails naming the twin when the HLSL changed
+  alone, and `--stamp <twin>` records the hash after you reviewed the pair. DXC and SPIRV-Cross are for plugin effects only.
 - Audio: Windows WASAPI/SAPI, Linux `src/platform/audio/pulse` and `speechd`. Video: Windows DXVA/Media Foundation, Linux
   `src/platform/decode/{vaapi,software,linux}` behind `gpu_stream_decoder.hpp` (VA-API dma-buf to EGLImage, dav1d/openh264 software
   tier, MP4; planes in `src/gpu/gles/video_planes.cpp`; see its README); AAC in-house on Linux.

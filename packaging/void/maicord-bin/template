@@ -1,6 +1,6 @@
 # Template file for 'maicord-bin': the release tarball (packaging/build_tarball.py) of MaiCord, for a void-packages checkout or
-# your own xbps repository. The program is built upstream with LLVM 23 and a shader toolchain that void-packages' builders
-# do not have, so this installs the release's program as it is (glibc, and for x86_64-musl the musl retarget of the same
+# your own xbps repository. The program is built upstream with LLVM 23 under the project's freestanding contract, which
+# void-packages' builders do not offer, so this installs the release's program as it is (glibc, and for x86_64-musl the musl retarget of the same
 # program); the official repository takes source builds, so this is for a personal repository. The tarball's
 # .maicord-portable marker is left out: xbps owns these files, so the program does not update itself.
 #

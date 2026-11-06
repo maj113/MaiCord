@@ -37,7 +37,7 @@ SfntStatus prepare_substitution(SfntGsubLookupSource* source,u16 index) noexcept
 SfntStatus deferred_substitutions(const SfntLayout& layout,const SfntGdef& gdef,u32 limit,u32 work,usize bytes,Arena*& pool,SfntGsubProgram& program) noexcept {
     program={{},gdef,limit};if(!layout.lookup_count)return SfntStatus::ok;
     if(layout.lookup_count>work)return SfntStatus::resource_limit;
-    if(!pool){Arena memory{};if(!arena_initialize(&memory,16*1024*1024,0,4096))return SfntStatus::resource_limit;
+    if(!pool){Arena memory{};if(!arena_initialize(&memory,16*1024*1024,0,4096,ArenaTag::text))return SfntStatus::resource_limit;
         auto* stored=arena_allocate<Arena>(&memory);if(!stored){arena_release(&memory);return SfntStatus::resource_limit;}*stored=memory;pool=stored;}
     const auto mark=arena_mark(pool);auto* owner=arena_allocate_zero<GsubOwner>(pool);if(!owner)return SfntStatus::resource_limit;
     owner->pool=pool;owner->limit=bytes;owner->prepare=prepare_substitution;owner->layout=layout;owner->work=work;

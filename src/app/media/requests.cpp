@@ -320,8 +320,7 @@ bool ApplicationMediaPump::request_catalog_previews() noexcept {
             continue;
         if (visibility_only)
             continue;
-        if (uploads >= kMessageMediaUploadBudget ||
-            !message_media_controller_preview_ready(&application.message_media, now_ms))
+        if (uploads >= kMessageMediaUploadBudget)
             return true;
         // A VIDEO favourite's tile decodes on the presenting device.
         request.video_device = application.renderer.graphics.device;
@@ -388,36 +387,6 @@ MediaAtlas* ApplicationMediaPump::upload_atlas(const MediaAssetKey& key) noexcep
     return preview ? application.renderer.preview_media_atlas : application.renderer.media_atlas;
 }
 
-bool ApplicationMediaPump::capacity_waiting(const MediaAssetKey& key) noexcept {
-    const MediaAtlas* atlas = upload_atlas(key);
-    u64 wake_ms = 0;
-    if (!atlas || !media_capacity_waiting(&application.media_deferrals, *atlas, key, now_ms, &wake_ms))
-        return false;
-    message_media_controller_observe_retry(&application.message_media, wake_ms);
-    return true;
-}
-
-u32 ApplicationMediaPump::yield_decorative_media(const MediaAssetKey& key) noexcept {
-    // Only the identity atlas holds member row ornaments, and they are decoration: an image the
-    // reader looks at (avatar, emoji, server icon, the open card's pictures) takes their shelves.
-    if (!application.member_list_scene.active || upload_atlas(key) != application.renderer.media_atlas)
-        return 0;
-    static constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::nameplate_still,
-                                             MemberMedia::decoration, MemberMedia::decoration_still};
-    MediaAssetKey decorative[256];
-    u32 count = 0;
-    const auto& members = application.member_list_scene;
-    for (u32 i = 0; i < members.count && count + 4 <= 256; ++i)
-        for (const MemberMedia layer : layers) {
-            MemberMediaPlacement placed{};
-            if (member_media_place(members, i, layer, &placed))
-                decorative[count++] = placed.key;
-        }
-    for (u32 i = 0; i < count; ++i)
-        if (media_asset_key_equal(decorative[i], key))
-            return 0; // An ornament never takes another's room.
-    return media_atlas_yield(application.renderer.media_atlas, {decorative, count});
-}
 bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexcept {
     if (application.login.visible)
         return false;
@@ -816,8 +785,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
         if (!forum_channel_thumbnail_resolve(scene, slot, application.renderer.dpi, &media) ||
             media_atlas_find(application.renderer.preview_media_atlas, media.key).ok())
             continue;
-        if (message_media_controller_upload_budget_reached(&application.message_media, uploads) ||
-            !message_media_controller_preview_ready(&application.message_media, now_ms)) {
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
             *stop = true;
             return true;
         }

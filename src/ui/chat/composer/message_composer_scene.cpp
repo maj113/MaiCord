@@ -38,7 +38,7 @@ inline constexpr usize kMessageComposerSceneStorageBytes =
     alignof(UiWidget) + alignof(UiLayoutNode);
 
 inline bool initialize_owned_storage(MessageComposerScene* scene) noexcept {
-    if (!arena_initialize(&scene->owned_storage, kMessageComposerSceneStorageBytes, 0, 4 * 1024)) {
+    if (!arena_initialize(&scene->owned_storage, kMessageComposerSceneStorageBytes, 0, 4 * 1024, ArenaTag::ui)) {
         return false;
     }
     scene->owns_storage = true;

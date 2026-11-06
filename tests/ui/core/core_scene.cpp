@@ -3157,12 +3157,13 @@ void test_glyph_atlas_allocator() noexcept {
                lru.evicted_rows == 1,
            "glyph_atlas_row_lru_eviction");
 
+    // Two shelves holding nothing visible become one for a taller glyph; no full reset.
     const GlyphAtlasHandle stale_live = live_row.handle;
     const GlyphAtlasAllocation reset_allocation = glyph_atlas_allocate(&lru, 4, 16, 16);
-    expect(reset_allocation.ok() && reset_allocation.atlas_reset && reset_allocation.evicted_entries == 2 &&
-               lru.full_resets == 1 && !glyph_atlas_validate(lru, stale_live) &&
+    expect(reset_allocation.ok() && !reset_allocation.atlas_reset && reset_allocation.evicted_entries == 2 &&
+               lru.full_resets == 0 && lru.row_count == 1 && !glyph_atlas_validate(lru, stale_live) &&
                glyph_atlas_validate(lru, reset_allocation.handle),
-           "glyph_atlas_fragmentation_reset_generation");
+           "glyph_atlas_invisible_shelves_merge_without_reset");
 
     GlyphAtlasEntry pinned_entries[4]{};
     GlyphAtlasRow pinned_rows[2]{};
@@ -3185,9 +3186,9 @@ void test_glyph_atlas_allocator() noexcept {
            "glyph_atlas_pinned_row_blocks_destructive_reset");
     glyph_atlas_clear_pins(&pinned);
     const GlyphAtlasAllocation pressure_after_visibility = glyph_atlas_allocate(&pinned, 13, 16, 16);
-    expect(pressure_after_visibility.ok() && pressure_after_visibility.atlas_reset &&
-               pinned.full_resets == 1 && !glyph_atlas_validate(pinned, pinned_live.handle),
-           "glyph_atlas_unpinned_fragmentation_can_reset");
+    expect(pressure_after_visibility.ok() && !pressure_after_visibility.atlas_reset &&
+               pinned.full_resets == 0 && !glyph_atlas_validate(pinned, pinned_live.handle),
+           "glyph_atlas_unpinned_shelves_are_reclaimed_without_reset");
 
     GlyphAtlasEntry epoch_entries[8]{};
     GlyphAtlasRow epoch_rows[2]{};
@@ -3224,15 +3225,15 @@ void test_glyph_atlas_allocator() noexcept {
     lru.clock = ~0ull;
     lru.rows[0].last_used = 1;
     const GlyphAtlasAllocation wrapped = glyph_atlas_find(&lru, 4);
-    expect(clock_wrap_pin && wrapped.ok() && lru.clock == 2 && lru.rows[0].last_used == 2 &&
+    expect(clock_wrap_pin && wrapped.ok() && lru.clock == 1 && lru.rows[0].last_used == 1 &&
                glyph_atlas_is_pinned(lru, reset_allocation.handle) &&
                lru.rows[lru.entries[reset_allocation.handle.slot].row].pinned_entries == 1,
-           "glyph_atlas_clock_rebase_preserves_current_visibility");
+           "glyph_atlas_clock_restart_preserves_current_visibility");
 
     const GlyphAtlasHandle before_reset = reset_allocation.handle;
     glyph_atlas_reset(&lru);
     expect(!glyph_atlas_validate(lru, before_reset) && lru.entry_count == 0 && lru.row_count == 0 &&
-               lru.full_resets == 2,
+               lru.full_resets == 1,
            "glyph_atlas_explicit_reset");
 
     // The key index must agree with the linear scan through fill, row
@@ -3272,6 +3273,7 @@ void test_glyph_atlas_allocator() noexcept {
                glyph_atlas_find_indexed(&indexed, &index, 7).ok();
     expect(index_ok, "glyph_atlas_key_index_matches_linear_lookup_through_eviction_and_reset");
 
+    // A full shelf hands out its least recently used slot, one at a time, in order.
     GlyphAtlasEntry wrap_entries[3]{};
     GlyphAtlasRow wrap_row[1]{};
     GlyphAtlasAllocator wrap{};
@@ -3280,10 +3282,10 @@ void test_glyph_atlas_allocator() noexcept {
         const auto allocation = glyph_atlas_allocate_unique(&wrap, i + 1, 1, 1);
         cursor_wrapped = allocation.ok() && allocation.handle.slot == i % 3 &&
                          allocation.handle.generation == i / 3 + 1 && allocation.x == i % 3 &&
-                         allocation.evicted_entries == (i && i % 3 == 0 ? 3u : 0u) &&
-                         wrap.free_cursor == (i + 1) % 3;
+                         allocation.evicted_entries == (i >= 3 ? 1u : 0u) && wrap.entry_count == minimum(i + 1, 3u) &&
+                         (i >= 3 || wrap.free_cursor == (i + 1) % 3);
     }
-    expect(cursor_wrapped, "glyph_atlas_free_cursor_wraps_non_power_of_two_capacity_after_row_eviction");
+    expect(cursor_wrapped, "glyph_atlas_full_shelf_reuses_least_recent_slots_in_order");
 }
 
 void test_glyph_raster_bounds() noexcept {

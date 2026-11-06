@@ -371,7 +371,7 @@ bool glyph_text_owner_empty(const D3D11GlyphTextOwner& owner) noexcept {
     return !owner.color_batch && !owner.storage.base && !owner.system.native_text && !owner.system.native_fonts &&
            owner.system.em_size == 0.0f && !owner.color_glyphs && !owner.title.glyphs &&
            !owner.title.runs && !owner.title.clusters && !owner.allocator.entries &&
-           !owner.allocator.rows && !owner.gpu.texture && !owner.gpu.texture_view &&
+           !owner.allocator.rows && !owner.gpu.texture && !owner.gpu.surface && !owner.gpu.texture_view &&
            !owner.gpu.texture_uav && !owner.gpu.command_buffer && !owner.gpu.command_view &&
            !owner.gpu.raster_shader && owner.gpu.dispatched_pixels == 0 &&
            owner.gpu.dispatched_commands == 0 && owner.gpu.dispatch_count == 0 &&
@@ -384,8 +384,8 @@ bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
     return owner.storage.base && owner.utf16 && owner.glyphs && owner.runs && owner.clusters &&
            owner.path_commands && owner.atlas_entries && owner.atlas_rows && owner.title_quads &&
            owner.font_faces && system_ready && owner.title.glyphs && owner.title.runs &&
-           owner.title.clusters && owner.allocator.entries && owner.allocator.rows && owner.gpu.texture &&
-           owner.gpu.texture_view && owner.gpu.texture_uav && owner.gpu.command_buffer &&
+           owner.title.clusters && owner.allocator.entries && owner.allocator.rows && owner.gpu.surface &&
+           owner.gpu.texture_view && owner.gpu.command_buffer &&
            owner.gpu.command_view && owner.gpu.raster_shader && owner.ready;
 }
 

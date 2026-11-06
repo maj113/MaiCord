@@ -45,7 +45,6 @@
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
-#include "../shell/log_fields.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
@@ -100,9 +99,9 @@ void log_member_presentation() noexcept {
                           scene.count,
                           visible_members,
                           visible_named};
-    trace_fields(trace, "same_guild\0same_list\0thread_mode\0authoritative\0awaiting_sync\0logical_count\0"
-                        "resident_count\0scene_active\0pane_has_area\0scene_rows\0visible_members\0"
-                        "visible_named_profiles",
+    trace.fields("same_guild\0same_list\0thread_mode\0authoritative\0awaiting_sync\0logical_count\0"
+                 "resident_count\0scene_active\0pane_has_area\0scene_rows\0visible_members\0"
+                 "visible_named_profiles",
                  fields);
     trace.write("member_hydration");
 }
@@ -653,32 +652,26 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
                               ui.message_text.failure_item_index,
                               static_cast<u64>(ui.message_text.failure_flow_error),
                               ui.message_text.rich.skipped_components};
-        log_u64_fields(LogLevel::error, "ui",
-                       "message_text_coordinator_error\0message_text_coordinator_scene_error\0"
-                       "message_text_coordinator_presentation_error\0message_text_coordinator_passes\0"
-                       "message_text_failure_message_id\0message_text_failure_source_index\0"
-                       "message_text_failure_stage\0message_text_failure_operation\0"
-                       "message_text_failure_item_index\0message_text_failure_flow_error\0"
-                       "message_text_skipped_components",
-                       failed);
+        LogEvent("message_text_coordinator_failed")
+            .fields("error\0scene_error\0presentation_error\0passes\0failure_message_id\0failure_source_index\0"
+                    "failure_stage\0failure_operation\0failure_item_index\0failure_flow_error\0skipped_components",
+                    failed)
+            .write(LogLevel::error, "ui");
         for (u32 pass = 0; pass < trace.count; ++pass) {
             const MessageTextCoordinatorPass& item = trace.passes[pass];
             const u64 values[] = {pass + 1u,      item.flags,         item.scroll_units, item.total_units,
                                   item.first,     item.count,         item.command_count, item.measurement_count};
-            log_u64_fields(LogLevel::error, "ui",
-                           "message_text_trace_pass\0message_text_trace_flags\0message_text_trace_scroll_units\0"
-                           "message_text_trace_total_units\0message_text_trace_first\0message_text_trace_count\0"
-                           "message_text_trace_commands\0message_text_trace_measurements",
-                           values);
+            LogEvent("message_text_trace")
+                .fields("pass\0flags\0scroll_units\0total_units\0first\0count\0commands\0measurements", values)
+                .write(LogLevel::error, "ui");
         }
         const u64 render[] = {static_cast<u64>(ui.renderer_text.last_error),
-                              static_cast<u64>(ui.renderer_text.last_shape_error),
-                              static_cast<u64>(static_cast<u32>(ui.renderer_text.native_error)),
-                              ui.renderer_text.quad_count, ui.renderer_text.batch_count};
-        log_u64_fields(LogLevel::error, "render",
-                       "content_text_build_error\0content_text_shape_error\0content_text_native_error\0"
-                       "content_text_quads\0content_text_batches",
-                       render);
+                              static_cast<u64>(ui.renderer_text.last_shape_error), ui.renderer_text.quad_count,
+                              ui.renderer_text.batch_count};
+        LogEvent("content_text_build_failed")
+            .fields("build_error\0shape_error\0quads\0batches", render)
+            .error("native_error", static_cast<u32>(ui.renderer_text.native_error))
+            .write(LogLevel::error, "render");
         const bool fallback_built = renderer_rebuild_shell_text(&g_app.renderer, application_theme());
         log_u64(fallback_built ? LogLevel::warning : LogLevel::error, "render",
                 "content_text_shell_fallback", fallback_built ? 1u : 0u);

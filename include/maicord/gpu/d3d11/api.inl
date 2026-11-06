@@ -223,6 +223,21 @@ __forceinline GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster)
     return device->CreateRasterizerState(&description, raster);
 }
 
+// Every page is the one tiled texture, addressed and sampled by virtual rows: one binding.
+__forceinline GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32) {
+    return GpuPage{texture->texture, texture->uav,  texture->target,
+                   texture->view,    0,             texture->page_rows * texture->pages,
+                   0};
+}
+
+__forceinline GpuSrv* gpu_paged_texture_binding_view(const GpuPagedTexture* texture, u32) {
+    return texture->view;
+}
+
+__forceinline GpuSrv* gpu_paged_texture_view(const GpuPagedTexture* texture) {
+    return texture->view;
+}
+
 // ---- Commands --------------------------------------------------------------------------------------------
 
 // One view with a null entry unbinds the slot, as binding no target does.

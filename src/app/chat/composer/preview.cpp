@@ -110,11 +110,6 @@ void application_composer_preview_rejected(MediaAssetKey key) noexcept {
         changed();
 }
 
-void application_composer_preview_deferred(MediaAssetKey key, u64 retry_at_ms) noexcept {
-    if (auto* entry = find(key); entry && !entry->ready && !entry->failed && retry_at_ms > entry->poll_at)
-        entry->poll_at = retry_at_ms;
-}
-
 bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
     if (!now || !unix_now)
         return true;

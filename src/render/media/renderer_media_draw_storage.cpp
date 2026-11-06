@@ -30,6 +30,9 @@ bool renderer_media_draw_storage_initialize(
             &storage->domains, kRendererMediaQuadCapacity,
             kRendererMediaInitialQuadCapacity, sizeof(u8), alignof(u8)) ||
         !stable_storage_initialize(
+            &storage->bindings, kRendererMediaQuadCapacity,
+            kRendererMediaInitialQuadCapacity, sizeof(u8), alignof(u8)) ||
+        !stable_storage_initialize(
             &storage->batches, kRendererMediaBatchCapacity,
             kRendererMediaInitialBatchCapacity, sizeof(MediaDrawBatch),
             alignof(MediaDrawBatch))) {
@@ -40,6 +43,7 @@ bool renderer_media_draw_storage_initialize(
     storage->handle_data =
         stable_storage_data<MediaAtlasHandle>(storage->handles);
     storage->domain_data = stable_storage_data<u8>(storage->domains);
+    storage->binding_data = stable_storage_data<u8>(storage->bindings);
     storage->batch_data =
         stable_storage_data<MediaDrawBatch>(storage->batches);
     storage->quad_capacity = storage->quads.capacity;
@@ -65,15 +69,19 @@ bool renderer_media_draw_storage_reserve_quads(
     const ArenaMark quad_mark = arena_mark(&storage->quads.arena);
     const ArenaMark handle_mark = arena_mark(&storage->handles.arena);
     const ArenaMark domain_mark = arena_mark(&storage->domains.arena);
+    const ArenaMark binding_mark = arena_mark(&storage->bindings.arena);
     if (!stable_storage_reserve(&storage->quads, capacity) ||
         !stable_storage_reserve(&storage->handles, capacity) ||
-        !stable_storage_reserve(&storage->domains, capacity)) {
+        !stable_storage_reserve(&storage->domains, capacity) ||
+        !stable_storage_reserve(&storage->bindings, capacity)) {
         arena_rewind(&storage->quads.arena, quad_mark);
         arena_rewind(&storage->handles.arena, handle_mark);
         arena_rewind(&storage->domains.arena, domain_mark);
+        arena_rewind(&storage->bindings.arena, binding_mark);
         storage->quads.capacity = previous;
         storage->handles.capacity = previous;
         storage->domains.capacity = previous;
+        storage->bindings.capacity = previous;
         return false;
     }
     storage->quad_capacity = capacity;
@@ -109,6 +117,7 @@ void renderer_media_draw_storage_release(
     stable_storage_release(&storage->quads);
     stable_storage_release(&storage->handles);
     stable_storage_release(&storage->domains);
+    stable_storage_release(&storage->bindings);
     stable_storage_release(&storage->batches);
     reset_value<RendererMediaDrawStorage>(storage);
 }

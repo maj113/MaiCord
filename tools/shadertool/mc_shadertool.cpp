@@ -1,6 +1,7 @@
 // mc_shadertool: SPIR-V from DXC to GLSL ES 3.10 plus the binding manifest of the GLES backend. A host build tool
-// (it links SPIRV-Cross and the C++ library, so it is not part of any MaiCord image); tools/build_gles_shader_pack.py
-// runs it once per shader. The conventions are those of design-gpu.md section 4.3:
+// (it links SPIRV-Cross and the C++ library, so it is not part of any MaiCord image); tools/glsl_translate.py runs it
+// once per shader of a plugin effect (the client's own shaders are hand-written GLSL, src/render/shaders/gles). The
+// conventions are those of design-gpu.md section 4.3, and the hand-written GLSL follows the same ones:
 //
 //   * DXC is told to put each register class in its own binding range (-fvk-t-shift 32, -fvk-s-shift 64,
 //     -fvk-u-shift 96; b registers keep their number), which is how this tool tells a texture from a buffer.

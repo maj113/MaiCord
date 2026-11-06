@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Fetches and builds the pinned shader toolchain of the Linux build into a cache directory.
+"""Fetches and builds the pinned shader toolchain of the Linux plugin-effect path into a cache directory.
 
-tools/linux_shader_toolchain.json pins what the GLSL shader pack is made with:
+The client's own shaders are hand-written GLSL (src/render/shaders/gles) and need none of this. What needs it is the GLSL
+section of a plugin effect (tools/glsl_translate.py, tools/maicord-plugin/mcfx_tool.py effect build --glsl). tools/linux_shader_toolchain.json
+pins what that translation is made with:
 
   * DXC, the release tarball of microsoft/DirectXShaderCompiler (size and SHA-256 checked, extracted once);
   * SPIRV-Cross, built from the pinned tag (the commit is checked) as static libraries, and
     tools/shadertool/mc_shadertool.cpp, the host tool that links them.
 
-Everything lives under $MAICORD_TOOLCHAIN_CACHE (default ~/.cache/maicord-toolchain), outside the build directory,
-so a clean build does not fetch again; CI caches that directory by the pins. A step that is already done is skipped:
+Everything lives under $MAICORD_TOOLCHAIN_CACHE (default ~/.cache/maicord-toolchain), outside any build directory,
+so a second run does not fetch again. A step that is already done is skipped:
 the directories are named by the pin they hold and carry a .ready marker written last. Needs git, cmake, a C++17
 compiler (CXX, else c++) and, for the first run, network access. Stdlib only.
 
-A distribution that builds offline from its own packages names them instead of the pins, and nothing is fetched or
+A distribution that builds effects offline from its own packages names them instead of the pins, and nothing is fetched or
 built but mc_shadertool: MAICORD_DXC is the dxc executable and MAICORD_SPIRV_CROSS the prefix of an installed
 SPIRV-Cross (include/spirv_cross/spirv_glsl.hpp and lib/libspirv-cross-glsl.a, lib/libspirv-cross-core.a), both or
-neither (cmake/linux_gpu.cmake passes them from the CMake variables of the same names). The pack then comes from
-those versions' output, which is the pinned one's only when they emit the same GLSL (packaging/README.md).
+neither. The translation then comes from those versions' output.
 
   fetch_linux_shader_toolchain.py          make sure the toolchain exists and print its paths as JSON
 """

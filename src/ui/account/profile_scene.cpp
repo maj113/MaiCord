@@ -196,7 +196,7 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
                         u64 self_id, const UiRect& anchor, const UiRect& viewport) noexcept {
     if (!s || !p || !p->user_id || !ui_rect_has_area(viewport))
         return false;
-    if (!s->storage.base && !arena_initialize(&s->storage, sizeof(Storage), sizeof(Storage), 4096))
+    if (!s->storage.base && !arena_initialize(&s->storage, sizeof(Storage), sizeof(Storage), 4096, ArenaTag::ui))
         return false;
     auto* storage = reinterpret_cast<Storage*>(s->storage.base);
     if (!ui_widget_manager_initialize(&s->widgets, {storage->widgets, kWidgets}, {storage->nodes, kWidgets}))

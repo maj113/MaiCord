@@ -1,4 +1,4 @@
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/test_hook.hpp"
 #include "maicord/os/thread.hpp"
@@ -253,8 +253,7 @@ GpuStatus check_error(const char* where) noexcept {
         const gl::Enum error = d.gl.glGetError();
         if (error == gl::kNoError)
             break;
-        log_write(LogLevel::error, "gpu", where);
-        log_u64(LogLevel::error, "gpu", "gl_error", error);
+        LogEvent(where).hex("gl_error", error).write(LogLevel::error, "gpu");
         if (error == kContextLost) {
             d.lost = true;
             result = kGpuDeviceLost;
@@ -324,8 +323,8 @@ u32 texture_framebuffer(GpuTexture* texture) noexcept {
     d.gl.glFramebufferTexture2D(gl::kFramebuffer, gl::kColorAttachment0, gl::kTexture2d, texture->name, 0);
     const gl::Enum status = d.gl.glCheckFramebufferStatus(gl::kFramebuffer);
     if (status != gl::kFramebufferComplete) {
-        log_write(LogLevel::error, "gpu", "a texture cannot be a render target");
-        log_u64(LogLevel::error, "gpu", "framebuffer_status", status);
+        // A texture cannot be a render target.
+        LogEvent("framebuffer_incomplete").hex("status", status).write(LogLevel::error, "gpu");
         d.gl.glDeleteFramebuffers(1, &name);
         c.applied_draw_framebuffer = 0xFFFFFFFFu;
         return 0;

@@ -257,6 +257,11 @@ WindowMetrics window_metrics(Window window) noexcept {
     return {static_cast<u32>(client.right), static_cast<u32>(client.bottom), dpi * 120 / 96, dpi};
 }
 
+u32 window_display_count() noexcept {
+    const int count = GetSystemMetrics(SM_CMONITORS);
+    return count > 0 ? static_cast<u32>(count) : 0;
+}
+
 u32 window_state(Window window) noexcept {
     const HWND hwnd = win32_hwnd(window);
     u32 state = 0;

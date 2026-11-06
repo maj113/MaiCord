@@ -126,6 +126,8 @@ enum D3D11_CPU_ACCESS_FLAG {
 enum D3D11_RESOURCE_MISC_FLAG {
     D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS = 0x20L,
     D3D11_RESOURCE_MISC_BUFFER_STRUCTURED = 0x40L,
+    D3D11_RESOURCE_MISC_TILE_POOL = 0x20000L,
+    D3D11_RESOURCE_MISC_TILED = 0x40000L,
 };
 enum D3D11_MAP {
     D3D11_MAP_READ = 1,
@@ -458,6 +460,7 @@ struct __declspec(uuid("a6cd7faa-b0b7-4a2f-9436-8662a65797cb")) __declspec(novta
 };
 enum D3D11_FEATURE {
     D3D11_FEATURE_D3D11_OPTIONS = 5,
+    D3D11_FEATURE_D3D11_OPTIONS1 = 10,
 };
 struct D3D11_FEATURE_DATA_D3D11_OPTIONS {
     BOOL OutputMergerLogicOp;
@@ -474,6 +477,32 @@ struct D3D11_FEATURE_DATA_D3D11_OPTIONS {
     BOOL SAD4ShaderInstructions;
     BOOL ExtendedDoublesShaderInstructions;
     BOOL ExtendedResourceSharing;
+};
+enum D3D11_TILED_RESOURCES_TIER {
+    D3D11_TILED_RESOURCES_NOT_SUPPORTED = 0,
+    D3D11_TILED_RESOURCES_TIER_1 = 1,
+};
+struct D3D11_FEATURE_DATA_D3D11_OPTIONS1 {
+    D3D11_TILED_RESOURCES_TIER TiledResourcesTier;
+    BOOL MinMaxFiltering;
+    BOOL ClearViewAlsoSupportsDepthOnlyFormats;
+    BOOL MapOnDefaultBuffers;
+};
+struct D3D11_TILED_RESOURCE_COORDINATE {
+    UINT X;
+    UINT Y;
+    UINT Z;
+    UINT Subresource;
+};
+struct D3D11_TILE_REGION_SIZE {
+    UINT NumTiles;
+    BOOL bUseBox;
+    UINT Width;
+    UINT16 Height;
+    UINT16 Depth;
+};
+enum D3D11_TILE_RANGE_FLAG {
+    D3D11_TILE_RANGE_NULL = 0x1,
 };
 struct __declspec(uuid("c0bfa96c-e089-44fb-8eaf-26f8796190da")) __declspec(novtable) ID3D11DeviceContext : ID3D11DeviceChild {
     virtual void __stdcall VSSetConstantBuffers(UINT StartSlot, UINT NumBuffers,
@@ -760,7 +789,7 @@ struct __declspec(uuid("db6f6ddb-ac77-4e88-8253-819df9bbf140")) __declspec(novta
     MAICORD_COM_UNUSED(GetPrivateData);
     MAICORD_COM_UNUSED(SetPrivateData);
     virtual HRESULT __stdcall SetPrivateDataInterface(const GUID& guid, const IUnknown* pData) = 0;
-    MAICORD_COM_UNUSED(GetFeatureLevel);
+    virtual D3D_FEATURE_LEVEL __stdcall GetFeatureLevel() = 0;
     MAICORD_COM_UNUSED(GetCreationFlags);
     virtual HRESULT __stdcall GetDeviceRemovedReason() = 0;
     virtual void __stdcall GetImmediateContext(ID3D11DeviceContext** ppImmediateContext) = 0;
@@ -815,11 +844,14 @@ struct __declspec(uuid("a04bfb29-08ef-43d6-a49c-a9bdbdcbe686")) __declspec(novta
 };
 // <d3d11_2.h>
 struct __declspec(uuid("420d5b32-b90c-4da4-bef0-359f6a24a83a")) __declspec(novtable) ID3D11DeviceContext2 : ID3D11DeviceContext1 {
-    MAICORD_COM_UNUSED(UpdateTileMappings);
+    virtual HRESULT __stdcall UpdateTileMappings(ID3D11Resource* pTiledResource, UINT NumTiledResourceRegions,
+        const D3D11_TILED_RESOURCE_COORDINATE* pTiledResourceRegionStartCoordinates,
+        const D3D11_TILE_REGION_SIZE* pTiledResourceRegionSizes, ID3D11Buffer* pTilePool, UINT NumRanges,
+        const UINT* pRangeFlags, const UINT* pTilePoolStartOffsets, const UINT* pRangeTileCounts, UINT Flags) = 0;
     MAICORD_COM_UNUSED(CopyTileMappings);
     MAICORD_COM_UNUSED(CopyTiles);
     MAICORD_COM_UNUSED(UpdateTiles);
-    MAICORD_COM_UNUSED(ResizeTilePool);
+    virtual HRESULT __stdcall ResizeTilePool(ID3D11Buffer* pTilePool, UINT64 NewSizeInBytes) = 0;
     MAICORD_COM_UNUSED(TiledResourceBarrier);
     MAICORD_COM_UNUSED(IsAnnotationEnabled);
     MAICORD_COM_UNUSED(SetMarkerInt);

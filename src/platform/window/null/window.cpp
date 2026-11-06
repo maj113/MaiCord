@@ -342,6 +342,10 @@ WindowMetrics window_metrics(Window) noexcept {
     return g.metrics;
 }
 
+u32 window_display_count() noexcept {
+    return 1;
+}
+
 u32 window_state(Window) noexcept {
     return (g.probe.shown ? static_cast<u32>(state_visible) : 0u) | (g.probe.fullscreen ? static_cast<u32>(state_fullscreen) : 0u);
 }

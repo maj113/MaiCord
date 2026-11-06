@@ -2,7 +2,7 @@
   description = "MaiCord, a lightweight native Discord client (unofficial)";
 
   # This flake lives in packaging/nix and builds the repository around it:
-  #   nix build github:maj113/MaiCord?dir=packaging/nix              the source build (LLVM 23, nixpkgs' shader tools)
+  #   nix build github:maj113/MaiCord?dir=packaging/nix              the source build (LLVM 23, no shader tools)
   #   nix build github:maj113/MaiCord?dir=packaging/nix#maicord-bin  the release tarball
   #   nix build github:maj113/MaiCord?dir=packaging/nix#gpu-tests     the GPU golden tests on llvmpipe (a build with tests)
   #   nix run   github:maj113/MaiCord?dir=packaging/nix
@@ -40,8 +40,8 @@
       packages.${system} = {
         default = maicord;
         inherit maicord maicord-bin;
-        # The tests of tests/gpu on Mesa's llvmpipe, built from this source with the shader pack of nixpkgs' DXC and
-        # SPIRV-Cross; the result is only their log, a build with tests is never installed.
+        # The tests of tests/gpu on Mesa's llvmpipe, built from this source; the result is only their log, a build with
+        # tests is never installed.
         gpu-tests = maicord.tests.gpu;
       };
 

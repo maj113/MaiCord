@@ -219,32 +219,11 @@ jobs:
       - name: Install the toolchain
         run: bash tools/install_linux_toolchain.sh
 
-      - name: Shader toolchain cache key
-        id: shader-key
-        run: >-
-          echo "key=maicord-shader-toolchain-$(c++ --version | head -n 1 | sha256sum | cut -c1-16)-${{
-          hashFiles('tools/linux_shader_toolchain.json', 'tools/shadertool/mc_shadertool.cpp', 'tools/fetch_linux_shader_toolchain.py')
-          }}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the shader toolchain
-        id: shader-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/maicord-toolchain
-          key: ${{ steps.shader-key.outputs.key }}
-
       # The same build and suite as ci.yml.
       - name: Build, audit and test
         env:
           MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
         run: bash tools/build_linux.sh --test --keep --timeout-scale 3
-
-      - name: Cache the shader toolchain
-        if: steps.shader-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/maicord-toolchain
-          key: ${{ steps.shader-key.outputs.key }}
 
       # The client that ships: a build without the tests (no test-only environment switches), in a directory of its own;
       # build_linux.sh audits it (tools/audit_elf.py --no-test-hooks), and build_tarball.py audits it again.

@@ -212,8 +212,8 @@ SystemFontScan* build(SystemFontLocator* locator) noexcept {
         locator->scan_failed = true;
         return nullptr;
     }
-    if (!arena_initialize(&scan->faces, kFaceLimit * sizeof(ScanFace), 0, 64 * 1024) ||
-        !arena_initialize(&scan->strings, kStringReserve, 0, 256 * 1024)) {
+    if (!arena_initialize(&scan->faces, kFaceLimit * sizeof(ScanFace), 0, 64 * 1024, ArenaTag::platform) ||
+        !arena_initialize(&scan->strings, kStringReserve, 0, 256 * 1024, ArenaTag::platform)) {
         arena_release(&scan->faces);
         pages_unmap(scan, sizeof(SystemFontScan));
         locator->scan_failed = true;
@@ -221,7 +221,7 @@ SystemFontScan* build(SystemFontLocator* locator) noexcept {
     }
     scan->entries = reinterpret_cast<ScanFace*>(scan->faces.base);
     Arena roots_arena{};
-    if (arena_initialize(&roots_arena, 4u * 1024u * 1024u, 0, 64 * 1024)) {
+    if (arena_initialize(&roots_arena, 4u * 1024u * 1024u, 0, 64 * 1024, ArenaTag::platform)) {
         FontRoots* roots = static_cast<FontRoots*>(arena_allocate_zero(&roots_arena, sizeof(FontRoots), alignof(FontRoots)));
         if (roots) {
             font_roots_collect(&roots_arena, roots);

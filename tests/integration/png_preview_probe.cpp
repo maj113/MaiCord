@@ -60,7 +60,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
             break;
         const u32 x = first.x + width / 2, y = first.y + height / 2;
         const D3D11_BOX pixel{x, y, 0, x + 1, y + 1, 1};
-        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, gpu.preview_texture, 0, &pixel);
+        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, gpu.preview_surface->texture, 0, &pixel);
         r.graphics.context1->End(ready);
         r.graphics.context1->Flush();
         const u64 deadline = GetTickCount64() + 1000;
@@ -138,8 +138,8 @@ bool png_preview_probe(D3D11Renderer& r) noexcept {
         png_image_configure(&image, 2048, 16, 8, 6) &&
         media_atlas_initialize(&atlas, 4096, 64, 1, {entries, 4}, {buckets, 8}, {allocations, 4},
                                {rows, 4}) &&
-        media_atlas_gpu_initialize(&gpu, r.graphics.device, r.graphics.context1, 16, 16).ok() &&
-        media_atlas_gpu_initialize_preview(&gpu, r.graphics.device, r.graphics.context1, 4096, 64).ok();
+        media_atlas_gpu_initialize(&gpu, r.graphics.device, atlas).ok() &&
+        media_atlas_gpu_initialize_preview(&gpu, r.graphics.device, atlas).ok();
     auto* scanlines = static_cast<u8*>(
         VirtualAlloc(nullptr, image.inflated_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     ok = ok && scanlines;
@@ -171,7 +171,7 @@ bool png_preview_probe(D3D11Renderer& r) noexcept {
     ok = ok && item.ok() && SUCCEEDED(r.graphics.device->CreateTexture2D(&description, nullptr, &readback));
     if (ok) {
         const D3D11_BOX box{item.x, item.y, 0, item.x + image.width, item.y + image.height, 1};
-        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, gpu.preview_texture, 0, &box);
+        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, gpu.preview_surface->texture, 0, &box);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         ok = SUCCEEDED(r.graphics.context1->Map(readback, 0, D3D11_MAP_READ, 0, &mapped));
         if (ok) {

@@ -12,6 +12,7 @@
 #include "maicord/app/gateway/wake_coalescing.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/module.hpp"
+#include "maicord/core/os_text.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
@@ -79,6 +80,8 @@
 #include "background.hpp"
 #include "load_trace.hpp"
 #include "perf_mark.hpp"
+#include "memory_summary.hpp"
+#include "startup_record.hpp"
 #include "../voice/voice.hpp"
 #include "../voice/application_voice_message.hpp"
 
@@ -203,6 +206,7 @@ int run_application() noexcept {
     g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;
     g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
     log_open();
+    application_log_start_record();
     MAICORD_PERF_MARK("log_open");
     application_preferences_initialize();
     MAICORD_PERF_MARK("preferences");
@@ -253,6 +257,7 @@ int run_application() noexcept {
     application_desktop_window_created();
 #endif
     application_trace_load_stage("window_created");
+    application_log_start_display(g_app.window);
     MAICORD_PERF_MARK("window_created");
     // Text services attach to the window, not the renderer: activate them while
     // the prestart worker is still creating the GPU device (the main thread
@@ -268,7 +273,9 @@ int run_application() noexcept {
     if (!renderer_initialize(&g_app.renderer, renderer_window_surface(g_app.window), application_account_prestart_pending())) {
         renderer_prestart_cancel();
         window_fatal_message(utf8_literal("Direct3D 11 unavailable"),
-                             utf8_literal("MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime."));
+                             MAICORD_OS_TEXT("MaiCord requires a Direct3D 11 GPU with Tiled Resources Tier 1 or "
+                                             "higher and the D3D11.1 runtime.",
+                                             "MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime."));
         application_release_login_ui();
         window_destroy(g_app.window);
         application_account_prestart_cancel();
@@ -279,6 +286,7 @@ int run_application() noexcept {
     g_app.renderer_ready = true;
     g_app.renderer.zoom_lens = &g_app.image_zoom.lens;
     application_trace_load_stage("renderer_ready");
+    application_log_start_gpu(g_app.renderer.graphics.device);
     MAICORD_PERF_MARK("renderer_ready");
     if (!initialize_ui_runtime()) {
         application_release_login_ui();
@@ -318,6 +326,7 @@ int run_application() noexcept {
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_updates_initialize(application_update_build_config(), application_update_build_commit());
+    application_log_start_install();
     application_catalog_initialize_default();
 #endif
 
@@ -699,6 +708,7 @@ int run_application() noexcept {
             }
         }
 #endif
+        application_memory_summary_tick(restart_now_ms);
         // Relative timestamps are visual: a minimized window refreshes them on restore.
         if (!window_hidden && !application_refresh_relative_timestamps_if_due()) {
             log_write(LogLevel::error, "ui", "relative_timestamp_refresh_failed");

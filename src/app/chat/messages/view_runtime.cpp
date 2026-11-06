@@ -28,9 +28,9 @@ bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
         runtime->text_storage = text_storage;
     } else {
         reset_value<MessageViewRuntime>(runtime);
-        if (!arena_initialize(&runtime->storage,
-                              sizeof(MessageViewStorage), 0, 4 * 1024) ||
-            !arena_initialize(&runtime->text_storage, kMessageViewTextCapacity, 0, kMessageStoreTextCommitStep)) {
+        if (!arena_initialize(&runtime->storage, sizeof(MessageViewStorage), 0, 4 * 1024, ArenaTag::messages) ||
+            !arena_initialize(&runtime->text_storage, kMessageViewTextCapacity, 0, kMessageStoreTextCommitStep,
+                              ArenaTag::messages)) {
             arena_release(&runtime->storage);
             return false;
         }

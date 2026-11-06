@@ -40,7 +40,7 @@ inline bool storage_valid(const ReactionPickerModel* picker) noexcept {
 bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state,
                         MessageComposer* borrowed_search) noexcept {
     reset_value<ReactionPickerModel>(picker);
-    if (!arena_initialize(&picker->storage, kReactionPickerStorageBytes, 0, 4 * 1024)) {
+    if (!arena_initialize(&picker->storage, kReactionPickerStorageBytes, 0, 4 * 1024, ArenaTag::ui)) {
         return false;
     }
     const u32 emoji_capacity =

@@ -4,7 +4,7 @@
 // without a speech engine answers false (the caller logs "speech_unavailable"). The voice, rate and language are the
 // user's: speech-dispatcher's own configuration (and a per-client section for "maicord"), as SAPI takes the voice and the
 // rate of the Windows speech settings.
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/utf.hpp"
@@ -50,8 +50,8 @@ const Api* library() noexcept {
     MAICORD_SPEECHD_FUNCTIONS(MAICORD_SPEECHD_RESOLVE)
 #undef MAICORD_SPEECHD_RESOLVE
     if (missing) {
-        log_write(LogLevel::warning, "speech", "libspeechd lacks a function: text-to-speech is unavailable");
-        log_write(LogLevel::warning, "speech", missing);
+        // libspeechd lacks a function: text-to-speech is unavailable.
+        LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "speech");
         shared_library_close(&g_library);
         return nullptr;
     }

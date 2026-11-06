@@ -1,5 +1,6 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/gpu/gpu.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/core/slot_index.hpp"
 
@@ -120,9 +121,7 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
     atlas->free_cursor = 0;
     atlas->insertions = 0;
     atlas->stale_entries = 0;
-    atlas->compactions = 0;
     atlas->next_allocation_key = 0;
-    reset_value<GlyphAtlasGrowth>(&atlas->growth);
     atlas->disposal_backup_used_ms = 0;
     if (zeroed)
         return true; // kSlotIndexEmpty is zero
@@ -133,6 +132,20 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
         buckets[index] = kSlotIndexEmpty;
     }
     return true;
+}
+
+bool media_atlas_configure_surface(MediaAtlas* atlas, MediaAtlasSurface surface) noexcept {
+    const bool identity = surface == MediaAtlasSurface::identity;
+    const u16 rows = identity ? kMediaAtlasPageRows : kPreviewMediaAtlasPageRows;
+    const u16 commit_rows = gpu_paged_commit_rows(4);
+    // One page of rows is kept beyond the visible ones as cache.
+    const GlyphAtlasPaging paging{rows, static_cast<u8>(identity ? 8 : 4), commit_rows == 0, commit_rows, rows,
+                                  kMediaAtlasProtectMs, false, {}};
+    return atlas && atlas->entries && atlas->entry_count == 0 &&
+           atlas->allocations.width == (identity ? kMediaAtlasExtent : kPreviewMediaAtlasExtent) &&
+           glyph_atlas_configure_paging(&atlas->allocations, paging,
+                                        identity ? ConstSlice<GlyphAtlasPool>{kMediaAtlasProfilePools, 3}
+                                                 : ConstSlice<GlyphAtlasPool>{});
 }
 
 void media_atlas_reset(MediaAtlas* atlas) noexcept {
@@ -190,19 +203,6 @@ bool media_atlas_unpin(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     return result.ok() && glyph_atlas_unpin(&atlas->allocations, atlas->entries[result.handle.slot].allocation);
 }
 
-u32 media_atlas_yield(MediaAtlas* atlas, ConstSlice<MediaAssetKey> decorative) noexcept {
-    u32 unpinned = 0;
-    for (u32 i = 0; atlas && i < decorative.count; ++i) {
-        const auto found = media_atlas_peek(atlas, decorative[i]);
-        if (!found.ok())
-            continue;
-        const auto allocation = atlas->entries[found.handle.slot].allocation;
-        if (glyph_atlas_is_pinned(atlas->allocations, allocation))
-            unpinned += glyph_atlas_unpin(&atlas->allocations, allocation);
-    }
-    return unpinned;
-}
-
 bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     if (!atlas || !atlas->entries || !media_asset_key_valid(key))
         return false;
@@ -210,9 +210,22 @@ bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     if (bucket == 0xFFFFFFFFu)
         return false;
     const u32 slot = atlas->buckets[bucket] - 1u;
-    glyph_atlas_unpin(&atlas->allocations, atlas->entries[slot].allocation);
+    glyph_atlas_release(&atlas->allocations, atlas->entries[slot].allocation);
     erase_entry(atlas, slot, bucket);
     return true;
+}
+
+u8 media_atlas_pool(const MediaAtlas& atlas, const MediaAssetKey& key, u16 width, u16 height) noexcept {
+    if (key.kind != MediaAssetKind::profile_image)
+        return 0;
+    // A pool takes what fills at least half of its slot.
+    for (u32 index = 0; index < atlas.allocations.pool_count; ++index) {
+        const GlyphAtlasPool& pool = atlas.allocations.pools[index];
+        if (width <= pool.slot_width && height <= pool.slot_height &&
+            u32{width} * height * 2u > u32{pool.slot_width} * pool.slot_height)
+            return static_cast<u8>(index + 1);
+    }
+    return 0;
 }
 
 MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
@@ -240,18 +253,8 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
         media_atlas_reset(atlas);
     }
     const u64 allocation_key = ++atlas->next_allocation_key;
-    // Below capacity, recently used rows are not reclaimed: prepare already
-    // grew the atlas when nothing stale could hold the request. If the
-    // protected attempt still fails (bookkeeping limits), fall back to plain LRU.
-    const bool protect = atlas->growth.maximum_height != 0 &&
-                         atlas->allocations.height < atlas->growth.maximum_height;
-    atlas->allocations.protect_after = protect ? glyph_atlas_growth_protect_after(atlas->growth) : 0;
-    GlyphAtlasAllocation allocation = glyph_atlas_allocate_unique(
-        &atlas->allocations, allocation_key, width, height);
-    atlas->allocations.protect_after = 0;
-    if (!allocation.ok() && protect && allocation.error == GlyphAtlasError::no_capacity) {
-        allocation = glyph_atlas_allocate_unique(&atlas->allocations, allocation_key, width, height);
-    }
+    const GlyphAtlasAllocation allocation = glyph_atlas_allocate_unique(
+        &atlas->allocations, allocation_key, width, height, media_atlas_pool(*atlas, key, width, height));
     if (!allocation.ok())
         return rejected_allocation(allocation, width, height, static_cast<MediaAtlasError>(allocation.error));
 
@@ -282,128 +285,30 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     }
     ++atlas->entry_count;
     ++atlas->insertions;
-    glyph_atlas_growth_note_activity(&atlas->growth);
     return result_from(entry, slot, allocation, false);
-}
-
-bool media_atlas_configure_growth(MediaAtlas* atlas, u16 initial_height, u16 step, u32 protect_ms) noexcept {
-    return atlas && atlas->entries && atlas->entry_count == 0 &&
-           glyph_atlas_growth_configure(&atlas->growth, &atlas->allocations, initial_height, step, protect_ms);
 }
 
 void media_atlas_observe_time(MediaAtlas* atlas, u64 now_ms) noexcept {
     if (atlas) {
-        glyph_atlas_growth_observe(&atlas->growth, atlas->allocations, now_ms);
+        glyph_atlas_observe_time(&atlas->allocations, now_ms);
     }
 }
 
-u16 media_atlas_capacity_height(const MediaAtlas& atlas) noexcept {
-    return atlas.growth.maximum_height ? atlas.growth.maximum_height : atlas.allocations.height;
-}
-
-bool media_atlas_can_place(const MediaAtlas& atlas, u16 width, u16 height) noexcept {
-    return glyph_atlas_can_place(atlas.allocations, width, height, media_atlas_capacity_height(atlas));
-}
-
-bool media_atlas_compact(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept {
-    if (!atlas || !atlas->entries) {
-        if (move_count) {
-            *move_count = 0;
-        }
-        return false;
-    }
-    const u32 evicted_before = atlas->allocations.evicted_entries;
-    if (!glyph_atlas_compact(&atlas->allocations, moves, move_count)) {
-        return false;
-    }
-    ++atlas->compactions;
-    if (atlas->allocations.evicted_entries != evicted_before) {
-        rebuild_buckets_and_clear_stale(atlas);
-    }
-    return true;
-}
-
-MediaAtlasPressure media_atlas_pressure(const MediaAtlas& atlas) noexcept {
-    MediaAtlasPressure pressure{};
-    const GlyphAtlasAllocator& allocator = atlas.allocations;
-    pressure.entries = atlas.entry_count;
-    pressure.rows = allocator.row_count;
-    pressure.height = allocator.height;
-    pressure.maximum_height = media_atlas_capacity_height(atlas);
-    u64 pixels = 0;
-    for (u32 index = 0, live = allocator.entry_count; allocator.entries && index < allocator.entry_capacity && live;
-         ++index) {
-        const GlyphAtlasEntry& entry = allocator.entries[index];
-        if (!entry.occupied) {
-            continue;
-        }
-        --live;
-        pixels += static_cast<u64>(entry.width) * entry.height;
-        pressure.pinned_entries += entry.visibility_epoch == allocator.visibility_epoch;
-    }
-    for (u32 index = 0; allocator.rows && index < allocator.row_count; ++index) {
-        const GlyphAtlasRow& row = allocator.rows[index];
-        if (row.visibility_epoch == allocator.visibility_epoch && row.pinned_entries != 0) {
-            ++pressure.pinned_rows;
-            pressure.pinned_height += row.height;
-        }
-    }
-    const u64 surface = static_cast<u64>(allocator.width) * maximum<u32>(pressure.maximum_height, 1);
-    pressure.shelf_permille = static_cast<u32>(static_cast<u64>(allocator.next_y) * allocator.width * 1000 / surface);
-    pressure.pixel_permille = static_cast<u32>(pixels * 1000 / surface);
-    return pressure;
-}
-
-bool media_atlas_prepare(MediaAtlas* atlas, MediaAssetKey key, u16 width, u16 height) noexcept {
-    if (!atlas || !atlas->entries || !atlas->growth.maximum_height || !media_asset_key_valid(key)) {
-        return false;
-    }
-    // A resident identity needs no space; peek does not pin it.
-    const u32 bucket = find_bucket(atlas, key);
-    if (bucket != 0xFFFFFFFFu &&
-        glyph_atlas_validate(atlas->allocations, atlas->entries[atlas->buckets[bucket] - 1u].allocation)) {
-        return false;
-    }
-    return glyph_atlas_growth_prepare(&atlas->growth, &atlas->allocations, width, height);
-}
-
-void media_atlas_revert_growth(MediaAtlas* atlas, u16 height) noexcept {
-    if (atlas && atlas->growth.maximum_height && height >= atlas->allocations.next_y &&
-        height < atlas->allocations.height) {
-        atlas->allocations.height = height;
-        if (atlas->growth.growths) {
-            --atlas->growth.growths;
-        }
-    }
-}
-
-// Idle trim and the growth reset run per atlas pass: compiled for size.
-#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 u64 media_atlas_trim_deadline(const MediaAtlas& atlas) noexcept {
-    return glyph_atlas_growth_trim_deadline(atlas.growth, kMediaAtlasIdleTrimMs);
+    return glyph_atlas_trim_deadline(atlas.allocations, kMediaAtlasIdleTrimMs);
 }
 
-u32 media_atlas_trim(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, bool* resized) noexcept {
-    if (resized) {
-        *resized = false;
-    }
-    if (!atlas || !atlas->entries || !atlas->growth.maximum_height) {
+// Idle trim runs per atlas pass: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+u32 media_atlas_trim(MediaAtlas* atlas) noexcept {
+    if (!atlas || !atlas->entries) {
         return 0;
     }
-    const u32 evicted_before = atlas->allocations.evicted_entries;
-    const u32 moved = glyph_atlas_growth_trim(&atlas->growth, &atlas->allocations, moves, resized);
-    if (atlas->allocations.evicted_entries != evicted_before) {
+    const u32 evicted = glyph_atlas_trim(&atlas->allocations);
+    if (evicted != 0) {
         rebuild_buckets_and_clear_stale(atlas);
     }
-    return moved;
-}
-
-void media_atlas_reset_growth(MediaAtlas* atlas) noexcept {
-    if (atlas && atlas->growth.maximum_height && atlas->allocations.row_count == 0) {
-        atlas->allocations.height = atlas->growth.minimum_height;
-        atlas->allocations.next_y = 0;
-        atlas->growth.trim_pending = false;
-    }
+    return evicted;
 }
 #pragma clang attribute pop
 

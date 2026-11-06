@@ -108,7 +108,7 @@ bool ui_fixed_widget_storage_initialize(UiFixedWidgetStorageOwner* storage, u32 
         append_storage_bytes(&reserve_bytes, sidecar_bytes, sidecar_alignment);
     }
     reset_value<UiFixedWidgetStorageOwner>(storage);
-    if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {
+    if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024, ArenaTag::ui)) {
         return false;
     }
     UiWidget* widgets = arena_allocate_zero<UiWidget>(&storage->arena, capacity);

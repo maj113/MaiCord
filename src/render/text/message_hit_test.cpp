@@ -16,7 +16,7 @@ namespace maicord {
 namespace {
 
 bool initialize_storage(MessageHitTestCacheOwner& owner) noexcept {
-    return owner.storage.base||arena_initialize(&owner.storage,512*1024,0,4096);
+    return owner.storage.base||arena_initialize(&owner.storage,512*1024,0,4096,ArenaTag::text);
 }
 struct NativeMessageGeometry {NativeParagraphHits hits;TextMeasureResult measure;float* widths;u16* bytes;};
 template<class T> Slice<T> message_take(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
@@ -41,7 +41,7 @@ void compact_geometry(Arena& arena,NativeMessageGeometry& geometry) noexcept {
     }
     const usize keep=(arena.offset+arena.commit_step-1)&~(arena.commit_step-1);
     // Release large temporary/high-water tails on cold rebuilds, never on hits.
-    if(arena.committed>=keep+16*1024&&pages_decommit(arena.base+keep, arena.committed-keep))arena.committed=keep;
+    if(arena.committed>=keep+16*1024)arena_trim(&arena,arena.offset);
 }
 // The styles that move glyphs, validated against the text and packed into `arena`.
 bool take_position_spans(Arena& arena,const MessageTextCommand& command,ConstSlice<TextStyleSpan>* styles) noexcept {

@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/app/chat/composer/message_draft_persistence.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
 
@@ -96,9 +96,11 @@ void apply_result(MessageDraftSession& session, const MessageDraftStore& drafts,
     }
     ++session.persist_failures;
     session.persist_at_ms = now_ms + retry_delay(session.persist_failures);
-    log_u64(LogLevel::warning, "draft", "save_error", static_cast<u64>(saved.error));
-    log_u64(LogLevel::warning, "draft", "save_native_error", saved.native_error);
-    log_u64(LogLevel::warning, "draft", "save_retry_at_ms", session.persist_at_ms);
+    LogEvent("save_failed")
+        .field("error", static_cast<u64>(saved.error))
+        .error("native_error", static_cast<u32>(saved.native_error))
+        .field("retry_at_ms", session.persist_at_ms)
+        .write(LogLevel::warning, "draft");
 }
 
 // Applies a finished background save. With a timeout, waits for it first.
@@ -230,9 +232,8 @@ bool message_draft_session_configure(MessageDraftSession& session, MessageDraftS
     if (loaded.ok()) {
         session.persisted_revision = drafts.revision;
         session.cleanup_required = loaded.discarded != 0;
-        log_u64(LogLevel::info, "draft", "loaded_records", loaded.records);
-        log_u64(LogLevel::info, "draft", "discarded_blank_records", loaded.discarded);
-        log_u64(LogLevel::info, "draft", "loaded_bytes", loaded.bytes);
+        const u64 counts[] = {loaded.records, loaded.discarded, loaded.bytes};
+        LogEvent("loaded").fields("records\0discarded_blank_records\0bytes", counts).write(LogLevel::info, "draft");
         message_draft_session_observe(session, drafts, now_ms);
         return true;
     }
@@ -243,8 +244,10 @@ bool message_draft_session_configure(MessageDraftSession& session, MessageDraftS
         message_draft_session_observe(session, drafts, now_ms);
         return true;
     }
-    log_u64(LogLevel::warning, "draft", "load_error", static_cast<u64>(loaded.error));
-    log_u64(LogLevel::warning, "draft", "load_native_error", loaded.native_error);
+    LogEvent("load_failed")
+        .field("error", static_cast<u64>(loaded.error))
+        .error("native_error", static_cast<u32>(loaded.native_error))
+        .write(LogLevel::warning, "draft");
     message_draft_session_observe(session, drafts, now_ms);
     return true;
 }

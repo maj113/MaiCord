@@ -2,7 +2,7 @@
 # Distributed under the terms of the GNU General Public License v2
 
 # maicord-bin: the release tarball (packaging/build_tarball.py) of MaiCord, for the GURU overlay (net-im/maicord-bin) or a
-# personal overlay. The program is built upstream with LLVM 23 and a shader toolchain Gentoo does not package, so the
+# personal overlay. The program is built upstream with LLVM 23 under the project's freestanding contract, so the
 # release's program is installed as it is. The tarball's .maicord-portable marker is not installed: portage owns these files,
 # so the program does not update itself. Per release: copy this file to maicord-bin-<new version>.ebuild and `pkgdev manifest`.
 

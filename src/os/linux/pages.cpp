@@ -134,17 +134,22 @@ void* pages_range_base(const void* address) noexcept {
     return found;
 }
 
-bool system_memory_low() noexcept {
+namespace {
+// The listed /proc/meminfo fields, in kibibytes (0 for one that is missing or unreadable).
+void meminfo_fields(const char* const* names, u64* values, u32 count) noexcept {
+    for (u32 index = 0; index < count; ++index)
+        values[index] = 0;
     const long file = sys_open("/proc/meminfo", kOpenReadOnly);
     if (syscall_failed(file))
-        return false;
+        return;
     char text[1024];
     const long got = sys_read(static_cast<int>(file), text, sizeof(text) - 1);
     sys_close(static_cast<int>(file));
     if (syscall_failed(got) || got <= 0)
-        return false;
+        return;
     text[got] = 0;
-    const auto field = [&](const char* name) noexcept -> u64 {
+    for (u32 index = 0; index < count; ++index) {
+        const char* name = names[index];
         for (long at = 0; at < got; ++at) {
             long match = 0;
             while (name[match] && text[at + match] == name[match])
@@ -155,13 +160,26 @@ bool system_memory_low() noexcept {
             for (long digit = at + match; digit < got && text[digit] != '\n'; ++digit)
                 if (text[digit] >= '0' && text[digit] <= '9')
                     value = value * 10 + static_cast<u64>(text[digit] - '0');
-            return value; // kibibytes
+            values[index] = value;
+            break;
         }
-        return 0;
-    };
-    const u64 total = field("MemTotal:");
-    const u64 available = field("MemAvailable:");
+    }
+}
+} // namespace
+
+bool system_memory_low() noexcept {
+    static constexpr const char* names[] = {"MemTotal:", "MemAvailable:"};
+    u64 values[2];
+    meminfo_fields(names, values, 2);
+    const u64 total = values[0], available = values[1];
     return total != 0 && (available < total / 33 || available < 256 * 1024);
+}
+
+u64 system_memory_total_kib() noexcept {
+    static constexpr const char* names[] = {"MemTotal:"};
+    u64 value;
+    meminfo_fields(names, &value, 1);
+    return value;
 }
 
 } // namespace maicord

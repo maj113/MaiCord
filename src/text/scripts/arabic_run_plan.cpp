@@ -59,7 +59,7 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
 #endif
     if(limit<page || limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
-    if(!arena_initialize(&state,limit,0,page))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
+    if(!arena_initialize(&state,limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);
     arena_reset(scratch);const auto status=prepare(*store->runs,run,*data,state,*scratch,work);if(status!=SfntStatus::ok)return failure(status);
 #if defined(_WIN32)

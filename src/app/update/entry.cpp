@@ -76,10 +76,20 @@ UpdateServiceConfig application_update_build_config() noexcept {
 Utf8View application_update_build_commit() noexcept {
     return {commit, sizeof(commit) == 41 ? kApplicationUpdatesCommitChars : 0u};
 }
-#if !defined(_WIN32)
 u32 application_update_build_version_text(Slice<char> output) noexcept {
     return update_build_version_text(installed_version, application_update_build_commit(), output);
 }
+
+const char* application_update_install_kind() noexcept {
+#if defined(_WIN32)
+    return "portable";
+#else
+    wchar_t path[4096];
+    if (desktop_appimage_path(path, 4096))
+        return "appimage";
+    const u32 count = executable_path(path, 4096);
+    return count && count < 4096 && update_portable_install({path, count}) ? "portable" : "package";
 #endif
+}
 
 } // namespace maicord::app_detail

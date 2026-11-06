@@ -361,7 +361,7 @@ bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) n
     if (!scan.ok())
         return false;
     ReportMenu menu{};
-    if (!arena_initialize(&menu.storage, static_cast<usize>(body.bytes) * 3 + 256 * 1024, 0, 4096))
+    if (!arena_initialize(&menu.storage, static_cast<usize>(body.bytes) * 3 + 256 * 1024, 0, 4096, ArenaTag::protocol))
         return false;
     char* retained = arena_allocate<char>(&menu.storage, body.bytes);
     u32* positions = arena_allocate<u32>(&menu.storage, maximum(1u, scan.count));

@@ -19,10 +19,6 @@ bool application_composer_preview_key_current(MediaAssetKey) noexcept;
 bool application_composer_preview_frame_current(const AccountMediaFrame&) noexcept;
 void application_composer_preview_frame_uploaded(const AccountMediaFrame&) noexcept;
 void application_composer_preview_rejected(MediaAssetKey) noexcept;
-// The decoded thumbnail found no preview atlas room (every entry pinned by
-// visible media): wait until retry_at_ms instead of re-decoding on the next
-// 100 ms poll. A ready or failed tile is unaffected.
-void application_composer_preview_deferred(MediaAssetKey, u64 retry_at_ms) noexcept;
 // Retires one draft's preview (0: all) and makes its atlas entry evictable.
 void application_composer_preview_retire(u64 draft_id = 0) noexcept;
 void application_composer_preview_release() noexcept;
@@ -34,5 +30,4 @@ bool application_local_preview_key_current(const MediaAssetKey&) noexcept;
 bool application_local_preview_frame_current(const AccountMediaFrame&) noexcept;
 void application_local_preview_frame_uploaded(const AccountMediaFrame&) noexcept;
 void application_local_preview_rejected(MediaAssetKey) noexcept;
-void application_local_preview_deferred(MediaAssetKey, u64 retry_at_ms) noexcept;
 } // namespace maicord::app_detail

@@ -305,7 +305,8 @@ bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, flo
         MediaAtlasResult visible{};
         bool changed = false;
         if (domain > 1 || !media_atlas_resolve_visible(atlas, renderer->media_draw.handle_data[i], &visible) ||
-            !update_media_quad_source(renderer, visible, domain, &renderer->media_draw.quad_data[i], &changed))
+            !update_media_quad_source(renderer, visible, domain, &renderer->media_draw.quad_data[i],
+                                      &renderer->media_draw.binding_data[i], &changed))
             return abandon();
     }
     *regions = ShellPresentationRegions{segment.message_view, segment.member_sidebar,

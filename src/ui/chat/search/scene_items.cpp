@@ -110,7 +110,7 @@ bool bind_rich(UiSearchScene& s) noexcept {
         (!s.source->rich_order.count && timeline->store->count != s.source->count))
         return false;
     if (!s.rich_projection) {
-        if (!arena_initialize(&s.rich_projection_storage, sizeof(UiSearchRichProjection), 0, 4096))
+        if (!arena_initialize(&s.rich_projection_storage, sizeof(UiSearchRichProjection), 0, 4096, ArenaTag::ui))
             return false;
         s.rich_projection = arena_allocate_zero<UiSearchRichProjection>(&s.rich_projection_storage);
         if (!s.rich_projection)

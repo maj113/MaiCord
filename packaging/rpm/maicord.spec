@@ -1,6 +1,6 @@
 # MaiCord from the release tarball (packaging/build_tarball.py), for Fedora COPR and the openSUSE Build Service (one spec for
-# both, and for other rpm distributions the Build Service targets). The program is built upstream with LLVM 23 and the DXC /
-# SPIRV-Cross shader toolchain, which a distribution builder does not offer, so this package installs the release's program
+# both, and for other rpm distributions the Build Service targets). The program is built upstream with LLVM 23 under the
+# project's freestanding contract, which a distribution builder does not offer, so this package installs the release's program
 # as it is and compiles nothing. The tarball's .maicord-portable marker is left out: the package manager owns the files, so
 # the program does not update itself.
 #

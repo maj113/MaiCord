@@ -113,8 +113,10 @@ bool synchronize_selected_channel() noexcept {
         application_trace_load_stage("snapshot_restored");
     }
     ui.observed_selection_revision = state.selection_revision;
-    log_u64(LogLevel::info, "model", "selected_guild_id", state.selected_guild_id);
-    log_u64(LogLevel::info, "model", "selected_channel_id", state.selected_channel_id);
+    LogEvent("selected")
+        .field("guild_id", state.selected_guild_id)
+        .field("channel_id", state.selected_channel_id)
+        .write(LogLevel::info, "model");
     return synchronize_member_subscription(now_ms);
 }
 

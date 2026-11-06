@@ -557,7 +557,8 @@ maicord_library(maicord_message_media
 # The Direct3D 11 backend of include/maicord/gpu/api.hpp. deflate.cpp checks gzip members with png_crc32 from
 # maicord_media_codec.
 maicord_library(maicord_gpu_d3d11
-    src/gpu/d3d11/shader_pack.cpp src/gpu/d3d11/device.cpp src/gpu/d3d11/surface.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
+    src/gpu/d3d11/shader_pack.cpp src/gpu/d3d11/device.cpp src/gpu/d3d11/surface.cpp src/gpu/d3d11/paged_texture.cpp
+    "${MAICORD_SHADER_PACK_INCLUDE}"
     LIBS maicord_core maicord_compression maicord_media_codec d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 

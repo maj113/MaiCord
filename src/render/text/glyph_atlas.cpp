@@ -4,101 +4,129 @@
 namespace maicord {
 namespace {
 
-__declspec(noinline) void renumber_row_clocks(GlyphAtlasAllocator* atlas) noexcept {
-    u32 maximum_rank = 0;
+constexpr u32 kNone = 0xFFFFFFFFu;
+
+// Clock wrap is astronomically rare: recency restarts (LRU order is lost once).
+__declspec(noinline) void restart_clock(GlyphAtlasAllocator* atlas) noexcept {
     for (u32 index = 0; index < atlas->row_count; ++index) {
-        u32 rank = 1;
-#pragma clang loop vectorize(disable) interleave(disable)
-        for (u32 other = 0; other < atlas->row_count; ++other) {
-            if (atlas->rows[other].last_used < atlas->rows[index].last_used) {
-                ++rank;
-            }
-        }
-        // Clock wrap is astronomically rare. Reuse the row pin counter as
-        // bounded scratch, then reconstruct current-epoch pin counts from
-        // entries before allocation can observe them.
-        atlas->rows[index].pinned_entries = rank;
-        maximum_rank = maximum(maximum_rank, rank);
-    }
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        atlas->rows[index].last_used = atlas->rows[index].pinned_entries;
-        atlas->rows[index].pinned_entries = 0;
+        atlas->rows[index].last_used = 0;
     }
     for (u32 index = 0; index < atlas->entry_capacity; ++index) {
-        const GlyphAtlasEntry& entry = atlas->entries[index];
-        if (entry.occupied && entry.row < atlas->row_count &&
-            entry.visibility_epoch == atlas->visibility_epoch) {
-            ++atlas->rows[entry.row].pinned_entries;
-        }
+        atlas->entries[index].last_used = 0;
     }
-    atlas->clock = maximum_rank;
-    atlas->protect_after = 0; // Row clocks were renumbered.
+    atlas->clock = 0;
+    atlas->protect_after = atlas->protect_ms ? 1 : 0;
 }
 
 // Lookups inline only the increment.
 __forceinline u64 atlas_tick(GlyphAtlasAllocator* atlas) noexcept {
     if (atlas->clock == ~0ull) {
-        renumber_row_clocks(atlas);
+        restart_clock(atlas);
     }
     return ++atlas->clock;
 }
 
-bool row_has_pinned_entry(const GlyphAtlasAllocator& atlas,
-                          u32 row_index) noexcept {
-    if (row_index >= atlas.row_count) {
-        return false;
-    }
+// Visible: pinned in this epoch, or (`protect`) used within the protection window.
+bool entry_visible(const GlyphAtlasAllocator& atlas, const GlyphAtlasEntry& entry, bool protect) noexcept {
+    return entry.visibility_epoch == atlas.visibility_epoch ||
+           (protect && atlas.protect_ms && entry.last_used >= atlas.protect_after);
+}
+
+bool row_visible(const GlyphAtlasAllocator& atlas, u32 row_index, bool protect) noexcept {
     const GlyphAtlasRow& row = atlas.rows[row_index];
     return (row.visibility_epoch == atlas.visibility_epoch && row.pinned_entries != 0) ||
-           (atlas.protect_after != 0 && row.occupied_entries != 0 && row.last_used >= atlas.protect_after);
+           (protect && atlas.protect_ms && row.occupied_entries != 0 && row.last_used >= atlas.protect_after);
 }
 
-bool atlas_has_pinned_entry(const GlyphAtlasAllocator& atlas) noexcept {
-    for (u32 index = 0; index < atlas.row_count; ++index) {
-        if (row_has_pinned_entry(atlas, index)) {
-            return true;
-        }
-    }
-    return false;
+bool allocation_protects(const GlyphAtlasAllocator& atlas) noexcept {
+    return atlas.protect_allocations && atlas.protect_ms;
 }
 
-u32 invalidate_row(GlyphAtlasAllocator* atlas, u32 row_index) noexcept {
-    if (row_has_pinned_entry(*atlas, row_index)) {
-        return 0;
+u32 page_of(const GlyphAtlasAllocator& atlas, u32 y) noexcept {
+    return y / atlas.page_rows;
+}
+
+u32 page_base(const GlyphAtlasAllocator& atlas, u32 page) noexcept {
+    return page * atlas.page_rows;
+}
+
+u32 commit_units(const GlyphAtlasAllocator& atlas, u32 rows) noexcept {
+    return atlas.whole_pages ? (rows != 0) : (rows + atlas.commit_rows - 1u) / atlas.commit_rows;
+}
+
+// Backs (or returns) memory so that exactly the rows [0, used) of the page are covered.
+void commit_to(GlyphAtlasAllocator* atlas, GlyphAtlasPage* page) noexcept {
+    const u32 units = commit_units(*atlas, page->used);
+    const u32 current = commit_units(*atlas, page->committed);
+    if (units > current) {
+        atlas->commits += units - current;
+    } else {
+        atlas->decommits += current - units;
     }
-    u32 evicted = 0;
-    u32 first_freed = atlas->entry_capacity;
+    page->committed = static_cast<u16>(
+        atlas->whole_pages ? (units ? atlas->page_rows : 0u)
+                           : minimum<u32>(units * atlas->commit_rows, atlas->page_rows));
+}
+
+// Rows stay sorted by y, so a page's shelves are one run; entries follow
+// their shelf's index.
+void renumber_rows(GlyphAtlasAllocator* atlas, u32 from, i32 delta) noexcept {
     for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
         GlyphAtlasEntry& entry = atlas->entries[index];
         live -= entry.occupied;
-        if (entry.occupied && entry.row == row_index) {
-            entry.occupied = false;
-            entry.visibility_epoch = 0;
-            first_freed = minimum(first_freed, index);
-            ++evicted;
+        if (entry.occupied && entry.row >= from) {
+            entry.row = static_cast<u8>(entry.row + delta);
         }
     }
-    atlas->entry_count -= evicted;
-    atlas->evicted_entries += evicted;
-    if (evicted != 0) {
-        ++atlas->evicted_rows;
-        atlas->free_cursor = first_freed;
+}
+
+u32 insert_row(GlyphAtlasAllocator* atlas, const GlyphAtlasRow& row) noexcept {
+    u32 index = atlas->row_count;
+    while (index != 0 && atlas->rows[index - 1].y > row.y) {
+        atlas->rows[index] = atlas->rows[index - 1];
+        --index;
     }
-    atlas->rows[row_index].cursor_x = 0;
-    atlas->rows[row_index].occupied_entries = 0;
-    atlas->rows[row_index].pinned_entries = 0;
-    atlas->rows[row_index].visibility_epoch = 0;
-    atlas->rows[row_index].last_used = atlas_tick(atlas);
-    return evicted;
+    if (index != atlas->row_count) {
+        renumber_rows(atlas, index, 1);
+    }
+    atlas->rows[index] = row;
+    ++atlas->row_count;
+    return index;
+}
+
+// The shelf holds no entry.
+void remove_row(GlyphAtlasAllocator* atlas, u32 index) noexcept {
+    for (u32 next = index + 1; next < atlas->row_count; ++next) {
+        atlas->rows[next - 1] = atlas->rows[next];
+    }
+    reset_value<GlyphAtlasRow>(&atlas->rows[--atlas->row_count]);
+    if (index != atlas->row_count) {
+        renumber_rows(atlas, index + 1, -1);
+    }
+}
+
+void evict_entry(GlyphAtlasAllocator* atlas, u32 slot) noexcept {
+    GlyphAtlasEntry& entry = atlas->entries[slot];
+    GlyphAtlasRow& row = atlas->rows[entry.row];
+    if (entry.visibility_epoch == atlas->visibility_epoch && row.visibility_epoch == atlas->visibility_epoch &&
+        row.pinned_entries) {
+        --row.pinned_entries;
+    }
+    entry.occupied = false;
+    entry.visibility_epoch = 0;
+    if (--row.occupied_entries == 0) {
+        ++atlas->evicted_rows;
+    }
+    --atlas->entry_count;
+    ++atlas->evicted_entries;
+    atlas->free_cursor = minimum(atlas->free_cursor, slot);
 }
 
 u32 find_empty_entry(GlyphAtlasAllocator* atlas) noexcept {
-    // At full occupancy the caller evicts a row; scanning every slot first
-    // would make each eviction-driven allocation O(capacity).
     if (atlas->entry_count >= atlas->entry_capacity) {
-        return atlas->entry_capacity;
+        return kNone;
     }
-    u32 index = atlas->free_cursor;
+    u32 index = atlas->free_cursor < atlas->entry_capacity ? atlas->free_cursor : 0;
     for (u32 offset = 0; offset < atlas->entry_capacity; ++offset) {
         if (!atlas->entries[index].occupied) {
             atlas->free_cursor = index + 1 == atlas->entry_capacity ? 0 : index + 1;
@@ -107,83 +135,201 @@ u32 find_empty_entry(GlyphAtlasAllocator* atlas) noexcept {
         if (++index == atlas->entry_capacity)
             index = 0;
     }
-    return atlas->entry_capacity;
+    return kNone;
 }
 
-u32 find_lru_row(const GlyphAtlasAllocator& atlas, u16 minimum_height) noexcept {
-    u64 oldest = ~0ull;
-    u32 result = atlas.row_capacity;
+u32 pool_slots(const GlyphAtlasAllocator& atlas, u8 pool, u32 span) noexcept {
+    u32 slots = 0;
+    for (u32 index = 0; index < atlas.row_count; ++index) {
+        if (atlas.rows[index].pool == pool) {
+            slots += atlas.rows[index].cursor_x / span;
+        }
+    }
+    return slots;
+}
+
+// Free space at the end of a shelf: the shortest that fits (pools: their own).
+u32 find_shelf(const GlyphAtlasAllocator& atlas, u32 width, u32 height, u8 pool) noexcept {
+    u32 found = kNone;
+    u32 best_height = 0xFFFFFFFFu;
     for (u32 index = 0; index < atlas.row_count; ++index) {
         const GlyphAtlasRow& row = atlas.rows[index];
-        if (row.height >= minimum_height && row.last_used < oldest &&
-            !row_has_pinned_entry(atlas, index)) {
-            oldest = row.last_used;
-            result = index;
+        if (row.pool == pool && row.height >= height && row.height < best_height &&
+            static_cast<u32>(row.cursor_x) + width <= atlas.width) {
+            found = index;
+            best_height = row.height;
         }
     }
-    return result;
+    return found;
 }
 
-u32 find_lru_populated_row(const GlyphAtlasAllocator& atlas) noexcept {
-    u64 oldest = ~0ull;
-    u32 result = atlas.row_capacity;
-    for (u32 row_index = 0; row_index < atlas.row_count; ++row_index) {
-        const GlyphAtlasRow& row = atlas.rows[row_index];
-        if (row.occupied_entries != 0 && row.last_used < oldest &&
-            !row_has_pinned_entry(atlas, row_index)) {
-            oldest = row.last_used;
-            result = row_index;
-        }
+// A new shelf at the end of a page the region already owns, else of a free
+// page; only within committed rows unless `commit`.
+u32 open_shelf(GlyphAtlasAllocator* atlas, u32 height, u8 pool, bool commit) noexcept {
+    if (atlas->row_count >= atlas->row_capacity) {
+        return kNone;
     }
-    return result;
-}
-
-// Reclaiming spans and resetting the atlas run under atlas pressure only: compiled for size.
-#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-// Different-height media cannot reuse a shorter shelf. Reclaim a contiguous
-// unpinned span instead of requiring a destructive whole-atlas reset. Handles
-// and pixel coordinates of every surviving (including pinned) entry stay valid.
-u32 reclaim_unpinned_span(GlyphAtlasAllocator* atlas, u16 height) noexcept {
-    u32 first = 0;
-    while (first < atlas->row_count) {
-        if (row_has_pinned_entry(*atlas, first)) { ++first; continue; }
-        u32 end = first;
-        while (end < atlas->row_count && !row_has_pinned_entry(*atlas, end)) ++end;
-        const u32 y = atlas->rows[first].y;
-        const u32 bottom = end == atlas->row_count ? atlas->height : atlas->rows[end].y;
-        if (bottom - y < height) { first = end; continue; }
-        const u32 old_bottom = atlas->rows[end - 1].y + atlas->rows[end - 1].height;
-        const u16 merged_height = static_cast<u16>(maximum<u32>(height, old_bottom - y));
-        const u32 removed_rows = end - first - 1;
-        u32 evicted = 0;
-        u32 first_freed = atlas->entry_capacity;
-        for (u32 i = 0, live = atlas->entry_count; i < atlas->entry_capacity && live; ++i) {
-            auto& entry = atlas->entries[i];
-            if (!entry.occupied) continue;
-            --live;
-            if (entry.row >= first && entry.row < end) {
-                entry.occupied = false;
-                entry.visibility_epoch = 0;
-                ++evicted;
-                first_freed = minimum(first_freed, i);
-            } else if (entry.row >= end) {
-                entry.row = static_cast<u16>(entry.row - removed_rows);
+    for (u32 pass = 0; pass < 2; ++pass) {
+        for (u32 index = 0; index < atlas->page_count; ++index) {
+            GlyphAtlasPage& page = atlas->pages[index];
+            const bool owned = page.used != 0 && page.owner == pool;
+            const u32 bottom = static_cast<u32>(page.used) + height;
+            if ((pass == 0 ? !owned : page.used != 0) || bottom > atlas->page_rows ||
+                (!commit && bottom > page.committed)) {
+                continue;
             }
+            page.owner = pool;
+            page.used = static_cast<u16>(bottom);
+            if (bottom > page.committed) {
+                commit_to(atlas, &page);
+            }
+            return insert_row(atlas, GlyphAtlasRow{atlas_tick(atlas),
+                                                   static_cast<u16>(page_base(*atlas, index) + bottom - height),
+                                                   static_cast<u16>(height), 0, 0, 0, 0, pool, {}});
         }
-        atlas->entry_count -= evicted;
-        atlas->evicted_entries += evicted;
-        for (u32 i = first; i < end; ++i)
-            if (atlas->rows[i].occupied_entries) ++atlas->evicted_rows;
-        if (evicted) atlas->free_cursor = first_freed;
-        for (u32 i = end; i < atlas->row_count; ++i) atlas->rows[i - removed_rows] = atlas->rows[i];
-        const u32 old_count = atlas->row_count;
-        atlas->row_count -= removed_rows;
-        for (u32 i = atlas->row_count; i < old_count; ++i) reset_value(&atlas->rows[i]);
-        atlas->rows[first] = GlyphAtlasRow{atlas_tick(atlas), static_cast<u16>(y), merged_height, 0, 0, 0, 0};
-        if (end == old_count) atlas->next_y = static_cast<u16>(y + merged_height);
-        return first;
     }
-    return atlas->row_capacity;
+    return kNone;
+}
+
+// The general region may back more rows while what it keeps beyond its
+// visible shelves stays within the budget.
+bool general_commit_allowed(const GlyphAtlasAllocator& atlas, u32 height, bool protect) noexcept {
+    if (atlas.budget_rows == 0) {
+        return true;
+    }
+    u32 committed = 0;
+    for (u32 index = 0; index < atlas.page_count; ++index) {
+        if (atlas.pages[index].owner == 0) {
+            committed += atlas.pages[index].committed;
+        }
+    }
+    u32 visible = 0;
+    for (u32 index = 0; index < atlas.row_count; ++index) {
+        if (atlas.rows[index].pool == 0 && row_visible(atlas, index, protect)) {
+            visible += atlas.rows[index].height;
+        }
+    }
+    const u32 extra = atlas.whole_pages ? atlas.page_rows : commit_units(atlas, height) * atlas.commit_rows;
+    return committed + extra <= atlas.budget_rows + visible;
+}
+
+// The least recently used entry that is not visible. With `any`, wherever it
+// is (only its record is wanted); otherwise its slot must take the request:
+// a shelf of the region at least as tall (general shelves at most twice as
+// tall, the request's size class) and a slot at least as wide.
+u32 find_lru_entry(const GlyphAtlasAllocator& atlas, u32 width, u32 height, u8 pool, bool protect,
+                   bool any) noexcept {
+    u32 found = kNone;
+    u64 oldest = ~0ull;
+    for (u32 index = 0, live = atlas.entry_count; index < atlas.entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas.entries[index];
+        if (!entry.occupied) {
+            continue;
+        }
+        --live;
+        const GlyphAtlasRow& row = atlas.rows[entry.row];
+        if (entry.last_used >= oldest || entry_visible(atlas, entry, protect) ||
+            (!any && (row.pool != pool || row.height < height || entry.span < width ||
+                      (pool == 0 && row.height > height * 2u)))) {
+            continue;
+        }
+        oldest = entry.last_used;
+        found = index;
+    }
+    return found;
+}
+
+// The least recently used shelf of the region that holds nothing visible and
+// could take the request (general shelves at most twice as tall), emptied:
+// every entry on it is evicted and it fills again from its left.
+u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 pool, bool protect) noexcept {
+    u32 found = kNone;
+    u64 oldest = ~0ull;
+    for (u32 index = 0; index < atlas->row_count; ++index) {
+        const GlyphAtlasRow& row = atlas->rows[index];
+        if (row.pool != pool || row.height < height || (pool == 0 && row.height > height * 2u) ||
+            width > atlas->width || row.last_used >= oldest || row_visible(*atlas, index, protect)) {
+            continue;
+        }
+        found = index;
+        oldest = row.last_used;
+    }
+    if (found == kNone) {
+        return kNone;
+    }
+    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        live -= entry.occupied;
+        if (entry.occupied && entry.row == found) {
+            evict_entry(atlas, index);
+        }
+    }
+    atlas->rows[found].cursor_x = 0;
+    return found;
+}
+
+bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
+    for (u32 index = 0; index < atlas.row_count; ++index) {
+        if (row_visible(atlas, index, protect)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Making room under pressure and resetting run rarely: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// A run of general shelves of one page holding nothing visible becomes one
+// shelf for the request (the least recently used run that fits, within the
+// committed rows). Handles and pixels of every other entry stay as they are.
+u32 reclaim_span(GlyphAtlasAllocator* atlas, u32 height, bool protect) noexcept {
+    u32 best = kNone, best_end = 0;
+    u64 best_age = ~0ull;
+    for (u32 first = 0; first < atlas->row_count;) {
+        if (atlas->rows[first].pool != 0 || row_visible(*atlas, first, protect)) {
+            ++first;
+            continue;
+        }
+        const u32 page = page_of(*atlas, atlas->rows[first].y);
+        u32 end = first;
+        u64 newest = 0;
+        while (end < atlas->row_count && page_of(*atlas, atlas->rows[end].y) == page &&
+               !row_visible(*atlas, end, protect)) {
+            newest = maximum(newest, atlas->rows[end].last_used);
+            ++end;
+        }
+        const bool tail = end == atlas->row_count || page_of(*atlas, atlas->rows[end].y) != page;
+        const u32 bottom = tail ? page_base(*atlas, page) + atlas->pages[page].committed : atlas->rows[end].y;
+        if (bottom - atlas->rows[first].y >= height && newest < best_age) {
+            best = first;
+            best_end = end;
+            best_age = newest;
+        }
+        first = end;
+    }
+    if (best == kNone) {
+        return kNone;
+    }
+    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        live -= entry.occupied;
+        if (entry.occupied && entry.row >= best && entry.row < best_end) {
+            evict_entry(atlas, index);
+        }
+    }
+    const u32 page = page_of(*atlas, atlas->rows[best].y);
+    const bool tail = best_end == atlas->row_count || page_of(*atlas, atlas->rows[best_end].y) != page;
+    const u32 y = atlas->rows[best].y;
+    const u32 bottom = tail ? page_base(*atlas, page) + atlas->pages[page].committed : atlas->rows[best_end].y;
+    for (u32 index = best_end; index-- > best + 1;) {
+        remove_row(atlas, index);
+    }
+    if (tail) {
+        atlas->pages[page].used = static_cast<u16>(y + height - page_base(*atlas, page));
+    }
+    atlas->rows[best] = GlyphAtlasRow{atlas_tick(atlas), static_cast<u16>(y),
+                                      static_cast<u16>(tail ? height : bottom - y), 0, 0, 0, 0, 0, {}};
+    return best;
 }
 
 void invalidate_all(GlyphAtlasAllocator* atlas) noexcept {
@@ -198,9 +344,11 @@ void invalidate_all(GlyphAtlasAllocator* atlas) noexcept {
     for (u32 index = 0; index < atlas->row_capacity; ++index) {
         reset_value<GlyphAtlasRow>(&atlas->rows[index]);
     }
+    for (u32 index = 0; index < atlas->page_count; ++index) {
+        atlas->pages[index].used = 0;
+    }
     atlas->entry_count = 0;
     atlas->row_count = 0;
-    atlas->next_y = 0;
     atlas->free_cursor = 0;
     atlas->evicted_entries += evicted;
     ++atlas->full_resets;
@@ -222,13 +370,17 @@ __forceinline GlyphAtlasAllocation allocation_from_entry(const GlyphAtlasEntry& 
     };
 }
 
+GlyphAtlasAllocation rejected(u16 width, u16 height, u32 evicted, GlyphAtlasError error) noexcept {
+    return GlyphAtlasAllocation{{}, 0, 0, width, height, evicted, error, false, false};
+}
+
 } // namespace
 
 bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u16 padding,
                             Slice<GlyphAtlasEntry> entries,
                             Slice<GlyphAtlasRow> rows, bool zeroed) noexcept {
     if (!atlas || width == 0 || height == 0 || !entries.data || entries.count == 0 ||
-        entries.count > 65'535 || !rows.data || rows.count == 0 || rows.count > 65'535 ||
+        entries.count > 65'535 || !rows.data || rows.count == 0 || rows.count > 256 ||
         padding > width / 2 || padding > height / 2) {
         return false;
     }
@@ -240,6 +392,10 @@ bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u
     atlas->width = width;
     atlas->height = height;
     atlas->padding = padding;
+    atlas->page_rows = height;
+    atlas->commit_rows = height;
+    atlas->page_count = 1;
+    atlas->whole_pages = true;
     atlas->visibility_epoch = 1;
     if (zeroed)
         return true;
@@ -252,12 +408,118 @@ bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u
     return true;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+bool glyph_atlas_configure_paging(GlyphAtlasAllocator* atlas, const GlyphAtlasPaging& paging,
+                                  ConstSlice<GlyphAtlasPool> pools) noexcept {
+    const u32 height = static_cast<u32>(paging.page_rows) * paging.page_count;
+    if (!atlas || !atlas->entries || atlas->row_count != 0 || atlas->entry_count != 0 || paging.page_count == 0 ||
+        paging.page_count > kGlyphAtlasMaximumPages || height == 0 || height > 0xFFFFu ||
+        atlas->padding * 2u >= paging.page_rows || (!paging.whole_pages && paging.commit_rows == 0) ||
+        pools.count > 15 || (pools.count && !pools.data)) {
+        return false;
+    }
+    for (u32 index = 0; index < pools.count; ++index) {
+        const GlyphAtlasPool& pool = pools[index];
+        if (pool.capacity == 0 || pool.slot_width + atlas->padding * 2u > atlas->width ||
+            pool.slot_height + atlas->padding * 2u > paging.page_rows) {
+            return false;
+        }
+    }
+    atlas->height = static_cast<u16>(height);
+    atlas->page_rows = paging.page_rows;
+    atlas->page_count = paging.page_count;
+    atlas->whole_pages = paging.whole_pages;
+    atlas->commit_rows = paging.whole_pages ? paging.page_rows : paging.commit_rows;
+    atlas->budget_rows = paging.budget_rows;
+    atlas->protect_ms = paging.protect_ms;
+    atlas->protect_allocations = paging.protect_allocations;
+    atlas->protect_after = paging.protect_ms ? 1 : 0;
+    atlas->pools = pools.data;
+    atlas->pool_count = static_cast<u8>(pools.count);
+    for (GlyphAtlasPage& page : atlas->pages) {
+        reset_value<GlyphAtlasPage>(&page);
+    }
+    return true;
+}
+
 void glyph_atlas_reset(GlyphAtlasAllocator* atlas) noexcept {
     if (!atlas || !atlas->entries || !atlas->rows) {
         return;
     }
     invalidate_all(atlas);
+    // The owner released (or will recreate) its surface: nothing stays backed.
+    for (u32 index = 0; index < atlas->page_count; ++index) {
+        commit_to(atlas, &atlas->pages[index]);
+    }
+    atlas->trim_pending = false;
 }
+
+u32 glyph_atlas_trim(GlyphAtlasAllocator* atlas) noexcept {
+    if (!atlas || !atlas->entries || !atlas->rows) {
+        return 0;
+    }
+    atlas->trim_pending = false;
+    const u32 evicted_before = atlas->evicted_entries;
+    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        live -= entry.occupied;
+        if (entry.occupied && !entry_visible(*atlas, entry, true)) {
+            evict_entry(atlas, index);
+        }
+    }
+    // Empty shelves at the end of a page go; the others start over.
+    for (u32 index = atlas->row_count; index-- > 0;) {
+        GlyphAtlasRow& row = atlas->rows[index];
+        if (row.occupied_entries != 0) {
+            continue;
+        }
+        row.cursor_x = 0;
+        GlyphAtlasPage& page = atlas->pages[page_of(*atlas, row.y)];
+        const u32 top = row.y - page_base(*atlas, page_of(*atlas, row.y));
+        if (top + row.height == page.used) {
+            page.used = static_cast<u16>(top);
+            remove_row(atlas, index);
+        }
+    }
+    for (u32 index = 0; index < atlas->page_count; ++index) {
+        commit_to(atlas, &atlas->pages[index]);
+    }
+    return atlas->evicted_entries - evicted_before;
+}
+
+void glyph_atlas_observe_time(GlyphAtlasAllocator* atlas, u64 now_ms) noexcept {
+    if (!atlas) {
+        return;
+    }
+    atlas->now_ms = now_ms;
+    const u64 time_clock = now_ms << kGlyphAtlasClockTimeShift;
+    if (atlas->clock < time_clock) {
+        atlas->clock = time_clock;
+    }
+    // Ticks taken since now - protect_ms are recent.
+    if (atlas->protect_ms) {
+        atlas->protect_after = now_ms > atlas->protect_ms
+                                   ? maximum<u64>((now_ms - atlas->protect_ms) << kGlyphAtlasClockTimeShift, 1)
+                                   : 1;
+    }
+}
+
+u32 glyph_atlas_committed_rows(const GlyphAtlasAllocator& atlas) noexcept {
+    u32 rows = 0;
+    for (u32 index = 0; index < atlas.page_count; ++index) {
+        rows += atlas.pages[index].committed;
+    }
+    return rows;
+}
+
+u32 glyph_atlas_visible_rows(const GlyphAtlasAllocator& atlas) noexcept {
+    u32 rows = 0;
+    for (u32 index = 0; index < atlas.row_count; ++index) {
+        rows += row_visible(atlas, index, false) ? atlas.rows[index].height : 0u;
+    }
+    return rows;
+}
+#pragma clang attribute pop
 
 void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept {
     if (!atlas || !atlas->entries || !atlas->rows) {
@@ -301,7 +563,7 @@ bool glyph_atlas_pin(GlyphAtlasAllocator* atlas,
         entry.visibility_epoch = atlas->visibility_epoch;
         ++row.pinned_entries;
     }
-    row.last_used = atlas_tick(atlas);
+    row.last_used = entry.last_used = atlas_tick(atlas);
     return true;
 }
 
@@ -330,8 +592,7 @@ bool glyph_atlas_is_pinned(const GlyphAtlasAllocator& atlas,
 
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept {
     if (!atlas || !atlas->entries || !atlas->rows) {
-        return GlyphAtlasAllocation{{}, 0, 0, 0, 0, 0, GlyphAtlasError::invalid_input, false,
-                                    false};
+        return rejected(0, 0, 0, GlyphAtlasError::invalid_input);
     }
     // Stop once every live entry has been seen; capacity usually exceeds the
     // working set.
@@ -344,19 +605,18 @@ GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexc
         }
         --remaining;
         if (entry.key == key) {
-            atlas->rows[entry.row].last_used = atlas_tick(atlas);
+            atlas->rows[entry.row].last_used = entry.last_used = atlas_tick(atlas);
             return allocation_from_entry(entry, index, true);
         }
     }
-    return GlyphAtlasAllocation{{}, 0, 0, 0, 0, 0, GlyphAtlasError::not_found, false, false};
+    return rejected(0, 0, 0, GlyphAtlasError::not_found);
 }
 
 static GlyphAtlasAllocation glyph_atlas_allocate_internal(
-    GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height,
+    GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height, u8 pool,
     bool check_cached) noexcept {
-    if (!atlas || !atlas->entries || !atlas->rows || width == 0 || height == 0) {
-        return GlyphAtlasAllocation{{}, 0, 0, width, height, 0,
-                                    GlyphAtlasError::invalid_input, false, false};
+    if (!atlas || !atlas->entries || !atlas->rows || width == 0 || height == 0 || pool > atlas->pool_count) {
+        return rejected(width, height, 0, GlyphAtlasError::invalid_input);
     }
     if (check_cached) {
         GlyphAtlasAllocation cached = glyph_atlas_find(atlas, key);
@@ -368,108 +628,135 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
         }
     }
 
-    const u32 padded_width = static_cast<u32>(width) + static_cast<u32>(atlas->padding) * 2;
-    const u32 padded_height = static_cast<u32>(height) + static_cast<u32>(atlas->padding) * 2;
-    if (padded_width > atlas->width || padded_height > atlas->height) {
-        return GlyphAtlasAllocation{{}, 0, 0, width, height, 0, GlyphAtlasError::too_large,
-                                    false, false};
+    const u32 padding = atlas->padding * 2u;
+    u32 padded_width = width + padding;
+    u32 padded_height = height + padding;
+    bool below_capacity = true;
+    if (pool) {
+        // A pool's slots are all one size.
+        const GlyphAtlasPool& slots = atlas->pools[pool - 1];
+        if (width > slots.slot_width || height > slots.slot_height) {
+            return rejected(width, height, 0, GlyphAtlasError::invalid_input);
+        }
+        padded_width = slots.slot_width + padding;
+        padded_height = slots.slot_height + padding;
+        below_capacity = pool_slots(*atlas, pool, padded_width) < slots.capacity;
+    }
+    if (padded_width > atlas->width || padded_height > atlas->page_rows) {
+        return rejected(width, height, 0, GlyphAtlasError::too_large);
     }
 
     const u32 evicted_before = atlas->evicted_entries;
-    u32 evicted = 0;
-    bool atlas_reset = false;
-    u32 slot = find_empty_entry(atlas);
-    if (slot == atlas->entry_capacity) {
-        const u32 lru = find_lru_populated_row(*atlas);
-        if (lru != atlas->row_capacity) {
-            evicted += invalidate_row(atlas, lru);
-            slot = find_empty_entry(atlas);
+    const bool protect = allocation_protects(*atlas);
+    bool reset = false;
+    u32 slot = kNone; // an evicted entry whose slot (and record) the new one takes
+    u32 row_index = kNone;
+    if (below_capacity) {
+        row_index = find_shelf(*atlas, padded_width, padded_height, pool);
+        if (row_index == kNone)
+            row_index = open_shelf(atlas, padded_height, pool, false);
+        if (row_index == kNone && (pool || general_commit_allowed(*atlas, padded_height, protect)))
+            row_index = open_shelf(atlas, padded_height, pool, true);
+    }
+    // Room from what is not visible: a slot (media: one picture gives way, its slot reused by one no wider) or,
+    // where allocations count recent use as visible (glyphs), a whole shelf, so a burst of new glyphs costs one
+    // eviction per shelf rather than one per glyph.
+    const auto make_room = [&](bool guard) noexcept {
+        if (atlas->protect_allocations) {
+            row_index = empty_lru_row(atlas, padded_width, padded_height, pool, guard);
+        } else {
+            slot = find_lru_entry(*atlas, padded_width, padded_height, pool, guard, false);
+            if (slot != kNone) {
+                row_index = atlas->entries[slot].row;
+                evict_entry(atlas, slot);
+            }
         }
-    }
-
-    u32 row_index = atlas->row_capacity;
-    u16 best_height = 0xFFFF;
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        const GlyphAtlasRow& row = atlas->rows[index];
-        if (row.height >= padded_height &&
-            static_cast<u32>(row.cursor_x) + padded_width <= atlas->width &&
-            row.height < best_height) {
-            row_index = index;
-            best_height = row.height;
-        }
-    }
-    if (row_index == atlas->row_capacity && atlas->row_count < atlas->row_capacity &&
-        static_cast<u32>(atlas->next_y) + padded_height <= atlas->height) {
-        row_index = atlas->row_count++;
-        atlas->rows[row_index] = GlyphAtlasRow{atlas_tick(atlas), atlas->next_y,
-                                               static_cast<u16>(padded_height), 0, 0, 0, 0};
-        atlas->next_y = static_cast<u16>(atlas->next_y + padded_height);
-    }
-    if (row_index == atlas->row_capacity) {
-        row_index = find_lru_row(*atlas, static_cast<u16>(padded_height));
-        if (row_index != atlas->row_capacity) {
-            evicted += invalidate_row(atlas, row_index);
-        }
-    }
-    if (row_index == atlas->row_capacity && atlas_has_pinned_entry(*atlas)) {
-        row_index = reclaim_unpinned_span(atlas, static_cast<u16>(padded_height));
-        if (slot == atlas->entry_capacity) slot = find_empty_entry(atlas);
-    }
-    if (row_index == atlas->row_capacity || slot == atlas->entry_capacity) {
-        // A visible media allocation is never collateral damage for a new
-        // size class. The caller may retry after the next visibility epoch,
-        // when off-screen rows become evictable.
-        if (atlas_has_pinned_entry(*atlas)) {
-            return GlyphAtlasAllocation{{}, 0, 0, width, height,
-                                        atlas->evicted_entries - evicted_before,
-                                        GlyphAtlasError::no_capacity, false,
-                                        false};
-        }
+        if (row_index == kNone && pool == 0)
+            row_index = reclaim_span(atlas, padded_height, guard);
+    };
+    if (row_index == kNone)
+        make_room(protect);
+    // What is visible needs more room than the policy keeps.
+    if (row_index == kNone)
+        row_index = find_shelf(*atlas, padded_width, padded_height, pool);
+    if (row_index == kNone)
+        row_index = open_shelf(atlas, padded_height, pool, true);
+    // Out of virtual space: recently used entries give way too; only pinned ones stay.
+    if (row_index == kNone && protect)
+        make_room(false);
+    if (row_index == kNone && !any_visible(*atlas, false)) {
         invalidate_all(atlas);
-        atlas_reset = true;
-        evicted = atlas->evicted_entries - evicted_before;
-        row_index = 0;
-        atlas->row_count = 1;
-        atlas->rows[0] = GlyphAtlasRow{atlas_tick(atlas), 0,
-                                      static_cast<u16>(padded_height), 0, 0, 0, 0};
-        atlas->next_y = static_cast<u16>(padded_height);
-        slot = find_empty_entry(atlas);
+        reset = true;
+        row_index = open_shelf(atlas, padded_height, pool, true);
     }
-    if (slot == atlas->entry_capacity) {
-        return GlyphAtlasAllocation{{}, 0, 0, width, height, evicted,
-                                    GlyphAtlasError::no_capacity, false, atlas_reset};
+    u32 record = slot;
+    if (row_index != kNone && record == kNone) {
+        record = find_empty_entry(atlas);
+        if (record == kNone) {
+            // Out of entry records: the least recently used invisible entry
+            // gives up its record (its pixels stay unused until its shelf empties).
+            record = find_lru_entry(*atlas, 0, 0, 0, protect, true);
+            if (record == kNone && protect)
+                record = find_lru_entry(*atlas, 0, 0, 0, false, true);
+            if (record != kNone)
+                evict_entry(atlas, record);
+        }
+    }
+    if (row_index == kNone || record == kNone) {
+        GlyphAtlasAllocation refused =
+            rejected(width, height, atlas->evicted_entries - evicted_before, GlyphAtlasError::no_capacity);
+        refused.atlas_reset = reset;
+        return refused;
     }
 
     GlyphAtlasRow& row = atlas->rows[row_index];
-    GlyphAtlasEntry& entry = atlas->entries[slot];
+    GlyphAtlasEntry& entry = atlas->entries[record];
+    u32 left = row.cursor_x;
+    u32 span = padded_width;
+    if (slot != kNone) {
+        left = entry.x - atlas->padding;
+        span = entry.span;
+    } else {
+        row.cursor_x = static_cast<u16>(row.cursor_x + padded_width);
+    }
     entry.key = key;
-    entry.x = static_cast<u16>(row.cursor_x + atlas->padding);
+    entry.x = static_cast<u16>(left + atlas->padding);
     entry.y = static_cast<u16>(row.y + atlas->padding);
     entry.width = width;
     entry.height = height;
-    entry.row = static_cast<u16>(row_index);
+    entry.row = static_cast<u8>(row_index);
+    entry.span = static_cast<u16>(span);
     entry.generation = next_generation(entry.generation);
     entry.occupied = true;
     entry.visibility_epoch = 0;
-    row.cursor_x = static_cast<u16>(row.cursor_x + padded_width);
-    row.last_used = atlas_tick(atlas);
+    row.last_used = entry.last_used = atlas_tick(atlas);
     ++row.occupied_entries;
     ++atlas->entry_count;
+    atlas->last_activity_ms = atlas->now_ms;
+    atlas->trim_pending = true;
 
-    GlyphAtlasAllocation result = allocation_from_entry(entry, slot, false);
+    GlyphAtlasAllocation result = allocation_from_entry(entry, record, false);
     result.evicted_entries = atlas->evicted_entries - evicted_before;
-    result.atlas_reset = atlas_reset;
+    result.atlas_reset = reset;
     return result;
 }
 
 GlyphAtlasAllocation glyph_atlas_allocate(GlyphAtlasAllocator* atlas, u64 key,
                                            u16 width, u16 height) noexcept {
-    return glyph_atlas_allocate_internal(atlas, key, width, height, true);
+    return glyph_atlas_allocate_internal(atlas, key, width, height, 0, true);
 }
 
 GlyphAtlasAllocation glyph_atlas_allocate_unique(
-    GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height) noexcept {
-    return glyph_atlas_allocate_internal(atlas, key, width, height, false);
+    GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height, u8 pool) noexcept {
+    return glyph_atlas_allocate_internal(atlas, key, width, height, pool, false);
+}
+
+bool glyph_atlas_release(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) noexcept {
+    if (!atlas || !glyph_atlas_validate(*atlas, handle)) {
+        return false;
+    }
+    evict_entry(atlas, handle.slot);
+    return true;
 }
 
 namespace {
@@ -559,14 +846,14 @@ GlyphAtlasAllocation glyph_atlas_find_indexed(GlyphAtlasAllocator* atlas, GlyphA
         }
         const u32 slot = bucket - 1u;
         if (slot < atlas->entry_capacity) {
-            const GlyphAtlasEntry& entry = atlas->entries[slot];
+            GlyphAtlasEntry& entry = atlas->entries[slot];
             if (entry.occupied && entry.key == key) {
-                atlas->rows[entry.row].last_used = atlas_tick(atlas);
+                atlas->rows[entry.row].last_used = entry.last_used = atlas_tick(atlas);
                 return allocation_from_entry(entry, slot, true);
             }
         }
     }
-    return GlyphAtlasAllocation{{}, 0, 0, 0, 0, 0, GlyphAtlasError::not_found, false, false};
+    return rejected(0, 0, 0, GlyphAtlasError::not_found);
 }
 
 GlyphAtlasAllocation glyph_atlas_allocate_unique_indexed(GlyphAtlasAllocator* atlas,
@@ -593,294 +880,5 @@ bool glyph_atlas_validate(const GlyphAtlasAllocator& atlas, GlyphAtlasHandle han
     }
     return true;
 }
-
-// Growth and trim run when the atlas resizes, not per glyph: compiled for size.
-#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-namespace {
-
-constexpr u32 kGrowthSamples = 16; // GlyphAtlasGrowth::sample_ms
-
-u16 round_up_step(u32 value, u16 step) noexcept {
-    const u32 rounded = (value + step - 1u) / step * step;
-    return static_cast<u16>(minimum<u32>(rounded, 0xFFFFu));
-}
-
-bool row_protected(const GlyphAtlasRow& row, u64 protect_after) noexcept {
-    return protect_after != 0 && row.occupied_entries != 0 && row.last_used >= protect_after;
-}
-
-} // namespace
-
-bool glyph_atlas_growth_configure(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas, u16 initial_height,
-                                  u16 step, u32 protect_ms) noexcept {
-    if (!growth || !atlas || !atlas->entries || !atlas->rows || step == 0 || initial_height == 0 ||
-        atlas->row_count != 0 || atlas->entry_count != 0 || protect_ms < 8) {
-        return false;
-    }
-    reset_value<GlyphAtlasGrowth>(growth);
-    growth->maximum_height = atlas->height;
-    growth->minimum_height = minimum(initial_height, atlas->height);
-    growth->step = step;
-    growth->protect_ms = protect_ms;
-    atlas->height = growth->minimum_height;
-    return true;
-}
-
-void glyph_atlas_growth_observe(GlyphAtlasGrowth* growth, const GlyphAtlasAllocator& atlas, u64 now_ms) noexcept {
-    if (!growth) {
-        return;
-    }
-    growth->now_ms = now_ms; // Also the clock of fixed-size owners (backup ages).
-    if (!growth->maximum_height) {
-        return;
-    }
-    constexpr u32 capacity = kGrowthSamples;
-    const u32 newest = (growth->sample_head + capacity - 1u) % capacity;
-    // Sixteen samples spaced protect_ms/8 apart cover twice the protection window.
-    if (growth->sample_count != 0 && now_ms < growth->sample_ms[newest] + growth->protect_ms / 8u) {
-        return;
-    }
-    growth->sample_ms[growth->sample_head] = now_ms;
-    growth->sample_tick[growth->sample_head] = atlas.clock;
-    growth->sample_head = (growth->sample_head + 1u) % capacity;
-    if (growth->sample_count < capacity) {
-        ++growth->sample_count;
-    }
-}
-
-u64 glyph_atlas_growth_protect_after(const GlyphAtlasGrowth& growth) noexcept {
-    if (!growth.maximum_height) {
-        return 0;
-    }
-    constexpr u32 capacity = kGrowthSamples;
-    for (u32 offset = 1; offset <= growth.sample_count; ++offset) {
-        const u32 index = (growth.sample_head + capacity - offset) % capacity;
-        if (growth.sample_ms[index] + growth.protect_ms <= growth.now_ms) {
-            return growth.sample_tick[index] + 1u;
-        }
-    }
-    // Every observation is younger than the window (or none exists yet): all
-    // populated shelves count as recently used.
-    return 1;
-}
-
-bool glyph_atlas_growth_prepare(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas, u16 width,
-                                u16 height) noexcept {
-    if (!growth || !atlas || !atlas->rows || !growth->maximum_height || atlas->height >= growth->maximum_height ||
-        width == 0 || height == 0 || atlas->entry_count >= atlas->entry_capacity) {
-        return false;
-    }
-    const u32 padded_width = static_cast<u32>(width) + atlas->padding * 2u;
-    const u32 padded_height = static_cast<u32>(height) + atlas->padding * 2u;
-    if (padded_width > atlas->width || padded_height > growth->maximum_height) {
-        return false;
-    }
-    const u64 protect_after = glyph_atlas_growth_protect_after(*growth);
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        const GlyphAtlasRow& row = atlas->rows[index];
-        if (row.height >= padded_height && row.cursor_x + padded_width <= atlas->width) {
-            return false; // Free space on an existing shelf.
-        }
-    }
-    if (atlas->row_count >= atlas->row_capacity) {
-        return false; // A taller texture cannot add a shelf record.
-    }
-    if (static_cast<u32>(atlas->next_y) + padded_height <= atlas->height) {
-        return false;
-    }
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        const GlyphAtlasRow& row = atlas->rows[index];
-        if (row.height >= padded_height && !row_has_pinned_entry(*atlas, index) &&
-            !row_protected(row, protect_after)) {
-            return false; // A stale off-screen shelf is reclaimed instead.
-        }
-    }
-    const u32 required = static_cast<u32>(atlas->next_y) + padded_height;
-    const u16 grown = minimum<u16>(growth->maximum_height,
-                                   round_up_step(maximum<u32>(required, atlas->height + growth->step), growth->step));
-    if (grown < required || grown <= atlas->height) {
-        return false;
-    }
-    atlas->height = grown;
-    ++growth->growths;
-    return true;
-}
-
-u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas, Slice<GlyphAtlasRowMove> moves,
-                            bool* resized) noexcept {
-    if (resized) {
-        *resized = false;
-    }
-    if (!growth || !atlas || !atlas->rows || !atlas->entries || !growth->maximum_height) {
-        return 0;
-    }
-    growth->trim_pending = false;
-    const u64 protect_after = glyph_atlas_growth_protect_after(*growth);
-    // 1. Off-screen shelves not used within the protection window.
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        const GlyphAtlasRow& row = atlas->rows[index];
-        if (row.occupied_entries != 0 && !row_has_pinned_entry(*atlas, index) &&
-            !row_protected(row, protect_after)) {
-            invalidate_row(atlas, index);
-        }
-    }
-    // 2. Move live tail shelves into the highest empty shelf that fits. Pixel
-    //    rows are copied by the owner; handles stay valid with new coordinates.
-    u32 moved = 0;
-    for (u32 source = atlas->row_count; source-- > 0;) {
-        GlyphAtlasRow& tail = atlas->rows[source];
-        if (tail.occupied_entries == 0) {
-            continue;
-        }
-        u32 target = atlas->row_capacity;
-        for (u32 index = 0; index < source; ++index) {
-            if (atlas->rows[index].occupied_entries == 0 && atlas->rows[index].height >= tail.height) {
-                target = index;
-                break;
-            }
-        }
-        if (target == atlas->row_capacity || moved >= moves.count) {
-            break;
-        }
-        GlyphAtlasRow& head = atlas->rows[target];
-        const i32 delta = static_cast<i32>(head.y) - static_cast<i32>(tail.y);
-        for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
-            GlyphAtlasEntry& entry = atlas->entries[index];
-            live -= entry.occupied;
-            if (entry.occupied && entry.row == source) {
-                entry.row = static_cast<u16>(target);
-                entry.y = static_cast<u16>(static_cast<i32>(entry.y) + delta);
-            }
-        }
-        moves[moved++] = GlyphAtlasRowMove{tail.y, head.y, tail.height, 0};
-        head.last_used = tail.last_used;
-        head.cursor_x = tail.cursor_x;
-        head.visibility_epoch = tail.visibility_epoch;
-        head.occupied_entries = tail.occupied_entries;
-        head.pinned_entries = tail.pinned_entries;
-        tail.cursor_x = 0;
-        tail.occupied_entries = 0;
-        tail.pinned_entries = 0;
-        tail.visibility_epoch = 0;
-    }
-    // 3. Drop empty tail shelves and shrink to the step covering the rest.
-    while (atlas->row_count != 0 && atlas->rows[atlas->row_count - 1u].occupied_entries == 0) {
-        reset_value<GlyphAtlasRow>(&atlas->rows[--atlas->row_count]);
-    }
-    atlas->next_y = atlas->row_count == 0
-                        ? 0
-                        : static_cast<u16>(atlas->rows[atlas->row_count - 1u].y +
-                                           atlas->rows[atlas->row_count - 1u].height);
-    const u16 target_height =
-        minimum<u16>(atlas->height, maximum<u16>(growth->minimum_height, round_up_step(atlas->next_y, growth->step)));
-    if (target_height < atlas->height) {
-        atlas->height = target_height;
-        if (resized) {
-            *resized = true;
-        }
-    }
-    return moved;
-}
-
-bool glyph_atlas_can_place(const GlyphAtlasAllocator& atlas, u16 width, u16 height, u16 limit_height) noexcept {
-    const u32 padded_width = static_cast<u32>(width) + static_cast<u32>(atlas.padding) * 2;
-    const u32 padded_height = static_cast<u32>(height) + static_cast<u32>(atlas.padding) * 2;
-    const u32 limit = maximum<u32>(limit_height, atlas.height);
-    if (!atlas.rows || padded_width > atlas.width || padded_height > limit) {
-        return true; // Not a capacity miss: the allocator rejects the size on its own terms.
-    }
-    u32 pinned_height = 0;
-    u32 pinned_rows = 0;
-    for (u32 index = 0; index < atlas.row_count; ++index) {
-        const GlyphAtlasRow& row = atlas.rows[index];
-        if (row.height >= padded_height && static_cast<u32>(row.cursor_x) + padded_width <= atlas.width) {
-            return true;
-        }
-        if (row_has_pinned_entry(atlas, index)) {
-            pinned_height += row.height;
-            ++pinned_rows;
-        }
-    }
-    return pinned_rows < atlas.row_capacity && pinned_height + padded_height <= limit;
-}
-
-bool glyph_atlas_compact(GlyphAtlasAllocator* atlas, Slice<GlyphAtlasRowMove> moves, u32* move_count) noexcept {
-    if (move_count) {
-        *move_count = 0;
-    }
-    if (!atlas || !atlas->entries || !atlas->rows || (!moves.data && moves.count)) {
-        return false;
-    }
-    u32 needed = 0;
-    u32 packed = 0;
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        if (row_has_pinned_entry(*atlas, index)) {
-            needed += atlas->rows[index].y != packed;
-            packed += atlas->rows[index].height;
-        }
-    }
-    if (packed >= atlas->next_y || needed > moves.count) {
-        return false;
-    }
-    const u32 old_count = atlas->row_count;
-    u32 target = 0;
-    u32 y = 0;
-    u32 moved = 0;
-    u32 evicted = 0;
-    u32 evicted_rows = 0;
-    u32 first_freed = atlas->entry_capacity;
-    for (u32 index = 0; index < old_count; ++index) {
-        GlyphAtlasRow row = atlas->rows[index];
-        const bool keep = row_has_pinned_entry(*atlas, index);
-        const i32 delta = keep ? static_cast<i32>(y) - static_cast<i32>(row.y) : 0;
-        // Surviving entries only ever move to a lower row index, so a relabelled
-        // entry never matches a later shelf.
-        for (u32 slot = 0, live = atlas->entry_count; slot < atlas->entry_capacity && live; ++slot) {
-            GlyphAtlasEntry& entry = atlas->entries[slot];
-            if (!entry.occupied) {
-                continue;
-            }
-            --live;
-            if (entry.row != index) {
-                continue;
-            }
-            if (keep) {
-                entry.row = static_cast<u16>(target);
-                entry.y = static_cast<u16>(static_cast<i32>(entry.y) + delta);
-            } else {
-                entry.occupied = false;
-                entry.visibility_epoch = 0;
-                first_freed = minimum(first_freed, slot);
-                ++evicted;
-            }
-        }
-        if (keep) {
-            if (delta != 0) {
-                moves[moved++] = GlyphAtlasRowMove{row.y, static_cast<u16>(y), row.height, 0};
-            }
-            row.y = static_cast<u16>(y);
-            atlas->rows[target++] = row;
-            y += row.height;
-        } else if (row.occupied_entries != 0) {
-            ++evicted_rows;
-        }
-    }
-    for (u32 index = target; index < old_count; ++index) {
-        reset_value<GlyphAtlasRow>(&atlas->rows[index]);
-    }
-    atlas->row_count = target;
-    atlas->next_y = static_cast<u16>(y);
-    atlas->entry_count -= evicted;
-    atlas->evicted_entries += evicted;
-    atlas->evicted_rows += evicted_rows;
-    if (evicted != 0) {
-        atlas->free_cursor = first_freed;
-    }
-    if (move_count) {
-        *move_count = moved;
-    }
-    return true;
-}
-#pragma clang attribute pop
 
 } // namespace maicord

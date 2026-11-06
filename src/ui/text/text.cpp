@@ -1,7 +1,7 @@
 #include "maicord/ui/text/text.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/text/fonts/session.hpp"
 #include "maicord/text/fonts/run.hpp"
@@ -180,11 +180,9 @@ void text_system_release(TextSystem* system) noexcept {
     native_text_context_release(&system->native_text);
     system->native_format=0;
     if(system->native_fonts){const auto stats=native_font_session_stats(system->native_fonts);
-        log_u64(LogLevel::info,"text","native_font_peak_files",stats.peak_files);
-        log_u64(LogLevel::info,"text","native_font_peak_faces",stats.peak_faces);
-        log_u64(LogLevel::info,"text","native_font_peak_instances",stats.peak_instances);
-        log_u64(LogLevel::info,"text","native_font_peak_mapped_bytes",stats.peak_mapped_bytes);
-        log_u64(LogLevel::info,"text","native_font_metadata_commit",stats.metadata_committed);
+        const u64 peaks[]={stats.peak_files,stats.peak_faces,stats.peak_instances,stats.peak_mapped_bytes,stats.metadata_committed};
+        LogEvent("native_fonts_released").fields("native_font_peak_files\0native_font_peak_faces\0native_font_peak_instances\0"
+            "native_font_peak_mapped_bytes\0native_font_metadata_commit",peaks).write(LogLevel::info,"text");
         if(!native_font_session_release(&system->native_fonts))log_write(LogLevel::error,"text","native_font_session_has_live_handles");}
     system->em_size = 0.0f;
     system->typography = nullptr;
@@ -314,8 +312,7 @@ void log_native_fallback(u32 stage,u32 bytes) noexcept {
     static u32 logged=0;
     if(logged>=32)return;
     ++logged;
-    log_u64(LogLevel::warning,"text","native_fallback_stage",stage);
-    log_u64(LogLevel::warning,"text","native_fallback_bytes",bytes);
+    LogEvent("native_fallback").field("stage",stage).field("bytes",bytes).write(LogLevel::warning,"text");
 }
 } // namespace
 TextNativeFallback::~TextNativeFallback() noexcept {if(heap_)heap_free(heap_);}

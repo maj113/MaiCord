@@ -1,5 +1,5 @@
 #include "auth_internal.hpp"
-#include "../../shell/log_fields.hpp"
+#include "maicord/core/trace_record.hpp"
 #include "browser_auth.hpp"
 #include "captcha_auth.hpp"
 #include "geometry.hpp"
@@ -494,8 +494,7 @@ bool webauthn_finish(WebAuthnFlight& flight, bool asserted_ok, u64 error, u32 na
         return true;
     }
     if (!asserted_ok) {
-        log_u64(LogLevel::error, "auth", "webauthn_platform_error", error);
-        log_u64(LogLevel::error, "auth", "webauthn_hresult", native);
+        LogEvent("webauthn_failed").field("error", error).error("hr", native).write(LogLevel::error, "auth");
         secure_buffer_release(&flight.credential);
         return webauthn_failed();
     }
@@ -962,22 +961,17 @@ bool application_login_pump() noexcept {
                          static_cast<u64>(status.remote_ticket_content_type),
                          static_cast<u64>(status.remote_ticket_content_encoding),
                          static_cast<u64>(status.remote_ticket_body_kind)};
-    log_u64_fields(LogLevel::info, "auth",
-                   "login_phase\0login_http_status\0login_error\0login_coordinator_error\0"
-                   "login_coordinator_decode_error\0login_coordinator_decode_error_offset\0"
-                   "login_coordinator_scan_error\0login_coordinator_read_error\0"
-                   "login_coordinator_transport_error\0login_coordinator_transition_error\0"
-                   "login_coordinator_response_bytes\0login_coordinator_response_kind\0"
-                   "login_coordinator_content_type\0login_coordinator_content_encoding\0"
-                   "login_coordinator_body_kind\0login_native_error\0login_error_code\0login_remote_event\0"
-                   "login_remote_error\0login_remote_handshake_error\0login_remote_handshake_stage\0"
-                   "login_remote_protocol_error\0login_remote_crypto_error\0login_remote_base64_error\0"
-                   "login_remote_ticket_response_bytes\0login_remote_ticket_response_kind\0"
-                   "login_remote_ticket_decode_error\0login_remote_ticket_decode_error_offset\0"
-                   "login_remote_ticket_scan_error\0login_remote_ticket_read_error\0"
-                   "login_remote_ticket_error_code\0login_remote_ticket_content_type\0"
-                   "login_remote_ticket_content_encoding\0login_remote_ticket_body_kind",
-                   trace);
+    LogEvent("login_status")
+        .fields("phase\0http_status\0error\0coord_error\0coord_decode_error\0coord_decode_offset\0coord_scan_error\0"
+                "coord_read_error\0coord_transport_error\0coord_transition_error\0coord_response_bytes\0"
+                "coord_response_kind\0coord_content_type\0coord_content_encoding\0coord_body_kind\0native_error\0"
+                "error_code\0remote_event\0remote_error\0remote_handshake_error\0remote_handshake_stage\0"
+                "remote_protocol_error\0remote_crypto_error\0remote_base64_error\0ticket_response_bytes\0"
+                "ticket_response_kind\0ticket_decode_error\0ticket_decode_offset\0ticket_scan_error\0"
+                "ticket_read_error\0ticket_error_code\0ticket_content_type\0ticket_content_encoding\0"
+                "ticket_body_kind",
+                trace)
+        .write(LogLevel::info, "auth");
     if (host.login_status.phase == AccountLoginPhase::authenticated && host.login_status.profile_saved) {
         if (application_account_logout_locked())
             return true;

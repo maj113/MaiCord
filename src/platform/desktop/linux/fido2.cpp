@@ -1,6 +1,6 @@
 // libfido2 behind the security-key ceremony of Linux: the dlopen and the assertion, whose steps follow what the key says.
 #include "fido2.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/time.hpp"
@@ -259,8 +259,8 @@ const Api* library() noexcept {
     MAICORD_FIDO2_FUNCTIONS(MAICORD_FIDO2_RESOLVE)
 #undef MAICORD_FIDO2_RESOLVE
     if (missing) {
-        log_write(LogLevel::warning, "fido2", "libfido2 lacks a function: security keys are unavailable");
-        log_write(LogLevel::warning, "fido2", missing);
+        // libfido2 lacks a function: security keys are unavailable.
+        LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "fido2");
         shared_library_close(&g_library);
         return nullptr;
     }

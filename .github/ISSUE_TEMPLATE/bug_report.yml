@@ -82,6 +82,9 @@ body:
     id: gpu
     attributes:
       label: GPU, driver and display scaling
+      description: >-
+        Windows needs Direct3D 11 with Tiled Resources Tier 1; a GPU without it gets "Direct3D 11 unavailable" at
+        startup. Linux needs OpenGL ES 3.1.
       placeholder: NVIDIA RTX 3060, 150% scaling, two monitors; or AMD RX 7800 XT, Mesa 25.2, 125% scaling
   - type: checkboxes
     id: regression

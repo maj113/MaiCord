@@ -361,7 +361,7 @@ NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) no
     auto* runtime = commit_pages<Runtime>();
     if (!runtime) return NativeFilePickerError::memory;
     picker->runtime = runtime; runtime->maximum_files = maximum_files;
-    if (!arena_initialize(&runtime->paths, static_cast<usize>(maximum_files) * (kNativeFilePickerMaximumPathUnits + 1) * sizeof(wchar_t), 0, 4096)) {
+    if (!arena_initialize(&runtime->paths, static_cast<usize>(maximum_files) * (kNativeFilePickerMaximumPathUnits + 1) * sizeof(wchar_t), 0, 4096, ArenaTag::platform)) {
         destroy(picker); return NativeFilePickerError::memory;
     }
     picker->notification = CreateEventW(nullptr, TRUE, FALSE, nullptr);

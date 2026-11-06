@@ -461,7 +461,7 @@ bool grow_animated_webp_frames(AnimatedWebpWorkspace* workspace, u32 required) n
     Arena* arena = &owner->frame_arena;
     if (!arena->base &&
         !arena_initialize(arena, static_cast<usize>(kAnimatedWebpFrameCapacity) * sizeof(AnimatedWebpFrame),
-                          0, 4096))
+                          0, 4096, ArenaTag::media))
         return false;
     const u32 capacity =
         minimum(kAnimatedWebpFrameCapacity,

@@ -1,7 +1,6 @@
 #include "requests_internal.hpp"
 #include "maicord/os/text.hpp"
 #include "../shell/load_trace.hpp"
-#include "../shell/log_fields.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #if !defined(_WIN32)
@@ -28,7 +27,7 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
             return true;
     } else if (resident)
         return true;
-    if (visibility_only || capacity_waiting(key))
+    if (visibility_only)
         return true;
     const AccountMediaAttachmentRequest request{media.url.view(),
                                                 key,
@@ -56,7 +55,7 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
         const FrameTake taken = take_ready_frame(*this, key, false, true);
         if (taken == FrameTake::failed)
             return false;
-        // The atlas refused it (capacity_waiting holds the key back): the rest of the scan,
+        // A frame the renderer did not take (no longer current, or rejected): the rest of the scan,
         // other sizes included, still gets its turn.
         if (taken == FrameTake::deferred)
             return true;
@@ -76,8 +75,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
     if (visibility_only)
         return true;
     if (!force_request && media_atlas_find(application.renderer.media_atlas, key).ok())
-        return true;
-    if (capacity_waiting(key))
         return true;
     return settle_media_request(
         application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
@@ -129,8 +126,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
     const auto resident = media_atlas_find(application.renderer.media_atlas, key);
     if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
                                                 *application.renderer.media_atlas, resident.handle)))
-        return true;
-    if (capacity_waiting(key))
         return true;
     const AccountMediaGuildIconRequest request{icon_hash, key, {0, 0}};
     return settle_media_request(application.account.api.media_guild_icon_request(
@@ -200,8 +195,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
     if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
                                                 *application.renderer.media_atlas, resident.handle)))
         return true;
-    if (capacity_waiting(key))
-        return true;
     // The account ABI keeps this historical name, but the request is the
     // generic hash-addressed CDN asset path. The asset key selects
     // /avatars or /channel-icons rather than /icons in the account module;
@@ -225,35 +218,34 @@ __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
                   failure.state != AccountMediaRequestState::unsupported)) {
         return;
     }
-    log_write(LogLevel::warning, "media", item);
     const u64 request[] = {static_cast<u64>(key.kind),
                            key.id,
                            static_cast<u64>(failure.state),
                            static_cast<u64>(failure.error),
                            static_cast<u64>(failure.client_error),
                            static_cast<u64>(failure.http_error),
-                           static_cast<u64>(failure.attachment_url_error)};
-    log_u64_fields(LogLevel::warning, "media", "asset_kind\0asset_id\0request_state\0request_error\0client_error\0"
-                   "http_error\0attachment_url_error",
-                   request);
-    if (failure.attachment_query_error != AttachmentQueryError::none)
-        log_u64(LogLevel::warning, "media", "attachment_query_error",
-                static_cast<u64>(failure.attachment_query_error));
-    if (failure.video_failure != AccountMediaVideoFailure::none)
-        log_u64(LogLevel::warning, "media", "video_decode_failure",
-                static_cast<u64>(failure.video_failure));
-    const u64 results[] = {static_cast<u64>(failure.media_url_error), static_cast<u64>(failure.target_error),
-                           static_cast<u64>(failure.png_error), static_cast<u64>(failure.webp_error),
+                           static_cast<u64>(failure.attachment_url_error),
+                           static_cast<u64>(failure.media_url_error),
+                           static_cast<u64>(failure.target_error),
+                           static_cast<u64>(failure.png_error),
+                           static_cast<u64>(failure.webp_error),
                            static_cast<u64>(failure.jpeg_error)};
-    log_u64_fields(LogLevel::warning, "media", "media_url_error\0target_error\0png_error\0webp_error\0jpeg_error",
-                   results);
-    if (failure.gif_error != GifError::none)
-        log_u64(LogLevel::warning, "media", "gif_error", static_cast<u64>(failure.gif_error));
-    if (failure.animated_webp_error != AnimatedWebpError::none)
-        log_u64(LogLevel::warning, "media", "animated_webp_error",
-                static_cast<u64>(failure.animated_webp_error));
-    if (failure.lossy_webp_error != LossyWebpError::none)
-        log_u64(LogLevel::warning, "media", "lossy_webp_error", static_cast<u64>(failure.lossy_webp_error));
+    LogEvent line(item);
+    line.fields("asset_kind\0asset_id\0request_state\0request_error\0client_error\0http_error\0attachment_url_error\0"
+                "media_url_error\0target_error\0png_error\0webp_error\0jpeg_error",
+                request);
+    // The rarer decoders' errors only when they failed.
+    const u64 details[] = {static_cast<u64>(failure.attachment_query_error), static_cast<u64>(failure.video_failure),
+                           static_cast<u64>(failure.gif_error), static_cast<u64>(failure.animated_webp_error),
+                           static_cast<u64>(failure.lossy_webp_error)};
+    const char* keys = "attachment_query_error\0video_decode_failure\0gif_error\0animated_webp_error\0lossy_webp_error";
+    for (const u64 value : details) {
+        if (value)
+            line.field(keys, value);
+        while (*keys++) {
+        }
+    }
+    line.write(LogLevel::warning, "media");
 }
 
 __declspec(noinline) void ApplicationMediaPump::trace_first_media_upload() noexcept {
@@ -465,8 +457,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
         return true;
     if (visibility_only)
         return true;
-    if (!message_media_controller_preview_ready(&application.message_media, now_ms))
-        return true;
     const Utf8View signed_url = message_rich_store_string(store, attachment.url);
     if (signed_url.bytes == 0) {
         return true;
@@ -610,8 +600,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
                                    rich.embeds[embed_index].type != GatewayMessageEmbedType::gifv))
         return true;
     if (visibility_only)
-        return true;
-    if (!message_media_controller_preview_ready(&application.message_media, now_ms))
         return true;
     Utf8View request_source = selected.source;
     u8 validated_target[kCdnMaximumTargetBytes];

@@ -152,19 +152,31 @@ MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, GpuStat
 
 bool dimensions_valid(u16 width, u16 height) noexcept;
 
-// The atlas texture and its views exist and match the allocation grid.
-inline bool animation_target_ready(const MediaAtlasGpu* gpu, const MediaAtlas* atlas, GpuDevice* device,
-                                   GpuContext1* context, MediaAssetKey key) noexcept {
-    return gpu && atlas && device && context && gpu->texture && gpu->texture_view && gpu->target &&
-           gpu->texture_uav && media_asset_key_valid(key) && gpu->width == atlas->allocations.width &&
-           gpu->height == atlas->allocations.height;
+// The surface of `preview` (the primary one otherwise) exists for this atlas's geometry.
+inline bool surface_ready(const MediaAtlasGpu* gpu, const MediaAtlas& atlas, bool preview) noexcept {
+    return gpu && (preview ? gpu->preview_surface && gpu->preview_width == atlas.allocations.width &&
+                                 gpu->preview_height == atlas.allocations.height
+                           : gpu->surface && gpu->width == atlas.allocations.width &&
+                                 gpu->height == atlas.allocations.height);
 }
 
-// A first frame's canvas is non-empty and fits the grid with its padding.
+// The atlas texture exists and matches the allocation grid.
+inline bool animation_target_ready(const MediaAtlasGpu* gpu, const MediaAtlas* atlas, GpuDevice* device,
+                                   GpuContext1* context, MediaAssetKey key) noexcept {
+    return atlas && device && context && surface_ready(gpu, *atlas, false) && media_asset_key_valid(key);
+}
+
+// A first frame's canvas is non-empty and fits a page with its padding.
 inline bool animation_canvas_fits(const MediaAtlas& atlas, u16 canvas_width, u16 canvas_height) noexcept {
     return canvas_width != 0 && canvas_height != 0 &&
            static_cast<u32>(canvas_width) + atlas.allocations.padding * 2u <= atlas.allocations.width &&
-           static_cast<u32>(canvas_height) + atlas.allocations.padding * 2u <= atlas.allocations.height;
+           static_cast<u32>(canvas_height) + atlas.allocations.padding * 2u <= atlas.allocations.page_rows;
+}
+
+// An image of this size fits a page with its padding.
+inline bool image_fits(const MediaAtlas& atlas, u32 width, u32 height) noexcept {
+    return width + atlas.allocations.padding * 2u <= atlas.allocations.width &&
+           height + atlas.allocations.padding * 2u <= atlas.allocations.page_rows;
 }
 
 bool png_format_valid(const PngImage& image) noexcept;
@@ -200,29 +212,12 @@ bool vp8_filter_header_valid(const Vp8ControlHeader& header) noexcept;
 
 i32 vp8_macroblock_filter_level(const Vp8ControlHeader& header, const Vp8MacroblockMode& mode) noexcept;
 
-struct UploadSurface {
-    GpuRtv* target;
-    GpuUav* texture_uav;
-    u16 width, height;
-};
-
-// The primary or preview surface; empty for a null owner (callers then reject).
-inline UploadSurface upload_surface(const MediaAtlasGpu* gpu, bool preview) noexcept {
-    if (!gpu)
-        return {};
-    return preview ? UploadSurface{gpu->preview_target, gpu->preview_texture_uav, gpu->preview_width,
-                                   gpu->preview_height}
-                   : UploadSurface{gpu->target, gpu->texture_uav, gpu->width, gpu->height};
-}
-
+// Allocates `key` on the chosen surface, selects its page and clears the slot with its padding (opaque full-frame
+// video skips a cached one). Returns the allocation in virtual rows and `local` in its page's rows.
 MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                            GpuContext1* context, GpuRtv* target,
-                                            u16 surface_width, u16 surface_height, MediaAssetKey key,
-                                            u16 width, u16 height,
+                                            GpuContext1* context, bool preview, MediaAssetKey key,
+                                            u16 width, u16 height, MediaAtlasResult* local,
                                             bool clear_cached = true) noexcept;
-
-MediaAtlasResult allocate_and_clear(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuContext1* context,
-                                    MediaAssetKey key, u16 width, u16 height) noexcept;
 
 bool apng_control_valid(const ApngFrame& frame, u16 canvas_width, u16 canvas_height) noexcept;
 
@@ -287,10 +282,9 @@ void dispatch_gif(MediaAtlasGpu* gpu, GpuContext1* context, const GifFrame& fram
 void dispatch_animated_webp(MediaAtlasGpu* gpu, GpuContext1* context,
                             const AnimatedWebpFrame& frame, u32 destination_x, u32 destination_y) noexcept;
 
-// Previous-disposal backup covering atlas rows [0, required_bottom); grows in
-// 256-row steps (keeping its content) and is never larger than the surface.
+// That page of the previous-disposal backup is backed (the backup is made on first use) and selected.
 GpuStatus ensure_apng_backup(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
-                           MediaAtlas* atlas, u32 required_bottom) noexcept;
+                           MediaAtlas* atlas, const MediaAtlasResult& allocation) noexcept;
 
 void unbind_apng_atlas(GpuContext1* context) noexcept;
 
@@ -328,9 +322,7 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, GpuContext1* context, const Vp8Keyfr
                         ConstSlice<u8> alpha, u32 destination_x, u32 destination_y,
                         bool blend_over, GpuUav* texture_uav) noexcept;
 
-GpuStatus create_media_surface(GpuDevice* device, GpuContext1* context, u16 width, u16 height,
-                               GpuTexture** texture, GpuSrv** texture_view,
-                               GpuRtv** target,
-                               GpuUav** texture_uav) noexcept;
+GpuStatus create_media_surface(GpuDevice* device, const MediaAtlas& atlas, GpuPagedTexture** surface,
+                               GpuSrv** view) noexcept;
 
 } // namespace maicord::media_atlas_gpu_detail

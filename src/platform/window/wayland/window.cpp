@@ -1,7 +1,7 @@
 // The Wayland window: the connection, the registry, xdg-shell, the frame callback and the window service of
 // maicord/platform/window/window.hpp. Input is in pointer.cpp and keyboard.cpp, the loop in pump.cpp, the integration
 // protocols in extras.cpp; the shared state is in backend.hpp. The window has no buffers: the GPU backend's EGL surface commits.
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/resource.hpp"
 #include "maicord/core/time.hpp"
@@ -496,9 +496,10 @@ void connection_check() noexcept {
     const Interface* interface = nullptr;
     u32 id = 0;
     const u32 code = g_client.display_get_protocol_error(g.display, &interface, &id);
+    LogEvent line("connection_failed");
     if (code != 0 && interface)
-        log_write(LogLevel::error, "wayland", interface->name);
-    log_write(LogLevel::error, "wayland", "the compositor connection failed");
+        line.field("interface", interface->name).field("protocol_error", code).field("object", id);
+    line.write(LogLevel::error, "wayland");
 }
 
 bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept {
@@ -885,6 +886,13 @@ WindowMetrics window_metrics(Window window) noexcept {
     metrics.dpi = g.window.dpi;
     metrics.scale_120 = g.window.dpi * 120 / 96;
     return metrics;
+}
+
+u32 window_display_count() noexcept {
+    u32 count = 0;
+    for (const wl_output* output : g.extras.outputs)
+        count += output != nullptr;
+    return count;
 }
 
 u32 window_state(Window window) noexcept {

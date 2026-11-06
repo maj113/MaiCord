@@ -187,7 +187,7 @@ bool seed_fixture(Application& application, AccountUiRuntime& ui, AnimationUiFix
 
 bool preview_pixels_equal(D3D11Renderer& renderer, MediaAssetKey key, u32 expected) noexcept {
     const auto allocation = media_atlas_find(renderer.preview_media_atlas, key);
-    if (!allocation.ok() || !renderer.media_gpu.preview_texture)
+    if (!allocation.ok() || !renderer.media_gpu.preview_surface)
         return false;
     D3D11_TEXTURE2D_DESC description{};
     description.Width = description.Height = 4;
@@ -205,7 +205,7 @@ bool preview_pixels_equal(D3D11Renderer& renderer, MediaAssetKey key, u32 expect
                         static_cast<UINT>(allocation.y + 4),
                         1};
     renderer.graphics.context1->CopySubresourceRegion(staging, 0, 0, 0, 0,
-                                                      renderer.media_gpu.preview_texture, 0, &box);
+                                                      renderer.media_gpu.preview_surface->texture, 0, &box);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     bool valid = SUCCEEDED(renderer.graphics.context1->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
     if (valid) {

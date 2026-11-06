@@ -544,7 +544,7 @@ def cost_hint(counts: dict) -> str:
 
 
 # ---- the GLSL payload (interface 4) ------------------------------------------------------------------------
-# The translation lives in tools/glsl_translate.py of a MaiCord checkout (it is also the Linux shader pack's); the
+# The translation lives in tools/glsl_translate.py of a MaiCord checkout; the
 # toolchain is the pinned DXC and tools/shadertool/mc_shadertool.
 TOOLS_DIRECTORY = Path(__file__).resolve().parents[1]
 

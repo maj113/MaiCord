@@ -1,7 +1,7 @@
 #include "va.hpp"
 
 #include "maicord/core/interlocked.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/shared_library.hpp"
@@ -414,9 +414,11 @@ const Driver* driver(GpuDevice* gpu) noexcept {
                         open = false;
                     }
                     if (open) {
-                        log_u64(LogLevel::info, "video", "vaapi_codecs", g_driver.codecs);
-                        log_u64(LogLevel::info, "video", "vaapi_features",
-                                (g_driver.ten_bit != 0) | u64{g_driver.timed_sync} << 1 | u64{g_driver.stable_exports} << 2);
+                        LogEvent("vaapi_ready")
+                            .field("codecs", g_driver.codecs)
+                            .hex("features", (g_driver.ten_bit != 0) | u64{g_driver.timed_sync} << 1 |
+                                                 u64{g_driver.stable_exports} << 2)
+                            .write(LogLevel::info, "video");
                     } else {
                         close_node(&g_driver);
                         shared_library_close(&g_libva_drm);

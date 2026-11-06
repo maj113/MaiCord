@@ -35,6 +35,16 @@ maicord_test(MaiCordOsFileTests ENTRY maicord_os_file_entry SOURCES tests/os/fil
 maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 
+# The hand-written GLSL twins record the hash of the HLSL they were written against, and their uniform blocks agree with
+# the HLSL cbuffers (std140 against HLSL packing).
+add_test(NAME maicord_shader_twins COMMAND "${Python3_EXECUTABLE}" -B tools/check_shader_twins.py
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME maicord_cbuffer_layout COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME maicord_cbuffer_layout_self_test COMMAND "${Python3_EXECUTABLE}" -B tools/check_cbuffer_layout.py --self-test
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+set_tests_properties(maicord_shader_twins maicord_cbuffer_layout maicord_cbuffer_layout_self_test PROPERTIES TIMEOUT 10)
+
 # The runtime: process entry state, the pinned libc imports, the library search and the XDG data path.
 maicord_test(MaiCordLinuxRuntimeTests ENTRY maicord_linux_runtime_entry SOURCES tests/core/linux_runtime.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_linux_runtime)

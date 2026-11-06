@@ -7,10 +7,12 @@
 
 namespace maicord {
 
+// The colour atlas is a paged surface (gpu_paged_texture_*): the renderer's shares the glyph allocator's pages
+// (colr_paint_attach_surface, backed as the allocator commits); otherwise the first raster makes a one-page atlas of
+// the size it names, backed whole.
 struct ColrPaintGpu {
-    GpuTexture* texture;
-    GpuSrv* view;
-    GpuUav* uav;
+    GpuPagedTexture* surface;
+    GpuSrv* view; // the surface's view, owned by it
     GpuBuffer* program;
     GpuSrv* program_view;
     GpuBuffer* constants;
@@ -19,7 +21,7 @@ struct ColrPaintGpu {
     GpuComputeShader* layers_shader;
     u32 capacity, dispatches, upload_cursor;
     u32 spatial_jobs;
-    u16 width, height; // The owned atlas texture.
+    u16 width, height; // The atlas surface.
     bool append_upload;
 };
 
@@ -44,6 +46,7 @@ struct ColrPaintBatch {
     GpuContext* context;
     ColrPaintGpu* gpu=nullptr;
     GpuComputeShader* shader=nullptr;
+    GpuUav* output=nullptr; // the queued jobs' page
     u32 pending=0;
     bool bound=false;
     ColrPaintJob jobs[kColrPaintBatchJobs];
@@ -56,6 +59,9 @@ struct ColrPaintBatch {
     bool flush() noexcept;
     void reset() noexcept;
 };
+
+// The colour atlas takes `atlas`'s pages (the glyph allocator's); its rows are backed with gpu_paged_texture_commit.
+bool colr_paint_attach_surface(ColrPaintGpu* gpu, GpuDevice* device, const GlyphAtlasAllocator& atlas) noexcept;
 
 bool colr_paint_rasterize(ColrPaintGpu* gpu, GpuContext* context, const ColrPaintProgram& program,
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation,

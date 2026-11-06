@@ -55,7 +55,7 @@
 #include "../../voice/soundboard.hpp"
 #include "../../shell/startup_history.hpp"
 
-#include "../../shell/log_fields.hpp"
+#include "maicord/core/trace_record.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/messages/typing.hpp"
@@ -957,10 +957,9 @@ static bool pump_message_history_main(bool admit) noexcept {
                                           static_cast<u64>(controller.last_transport_error),
                                           static_cast<u64>(controller.last_decode_error),
                                           controller.last_decode_offset};
-                    log_u64_fields(LogLevel::warning, "reaction_viewer",
-                                   "response_error\0http_status\0transport_error\0decode_error\0"
-                                   "decode_error_offset",
-                                   failed);
+                    LogEvent("response_failed")
+                        .fields("error\0http_status\0transport_error\0decode_error\0decode_error_offset", failed)
+                        .write(LogLevel::warning, "reaction_viewer");
                 } else if (accepted.stale) {
                     log_write(LogLevel::info, "reaction_viewer", "stale_response_discarded");
                 }
@@ -1101,15 +1100,13 @@ static bool pump_message_history_main(bool admit) noexcept {
                     if (accepted.accepted() && accepted.apply.ok() &&
                         accepted.disposition == MessageHistoryRestDisposition::applied) {
                         // Degraded but loaded: one diagnostic per affected page.
-                        if (accepted.decode.degraded_messages)
-                            log_u64(LogLevel::warning, "rest", "message_history_rich_decode_degraded",
-                                    accepted.decode.degraded_messages);
-                        if (accepted.apply.skipped)
-                            log_u64(LogLevel::warning, "rest", "message_history_messages_skipped",
-                                    accepted.apply.skipped);
-                        if (accepted.apply.rich_skipped)
-                            log_u64(LogLevel::warning, "rest", "message_history_rich_skipped",
-                                    accepted.apply.rich_skipped);
+                        if (accepted.decode.degraded_messages || accepted.apply.skipped || accepted.apply.rich_skipped) {
+                            const u64 degraded[] = {accepted.decode.degraded_messages, accepted.apply.skipped,
+                                                    accepted.apply.rich_skipped};
+                            LogEvent("message_history_degraded")
+                                .fields("rich_decode_degraded\0messages_skipped\0rich_skipped", degraded)
+                                .write(LogLevel::warning, "rest");
+                        }
                         // Counts only: a page that leaves decoded messages out of the window.
                         if (accepted.apply.inserted + accepted.apply.resident < accepted.decode.page.count) {
                             TraceRecord shortfall("history_shortfall");
@@ -1118,8 +1115,8 @@ static bool pump_message_history_main(bool admit) noexcept {
                             const u64 fields[] = {accepted.decode.page.count, accepted.apply.inserted,
                                                   accepted.apply.resident, accepted.apply.skipped,
                                                   accepted.apply.evicted};
-                            trace_fields(shortfall, "decoded\0inserted\0resident\0skipped\0evicted", fields);
-                            log_write(LogLevel::warning, "rest", shortfall.text);
+                            shortfall.fields("decoded\0inserted\0resident\0skipped\0evicted", fields);
+                            shortfall.write(LogLevel::warning, "rest");
                         }
                         MessagePollPageInput inputs[kMessageHistoryRequestLimit];
                         MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
@@ -1191,30 +1188,26 @@ static bool pump_message_history_main(bool admit) noexcept {
                                           static_cast<u64>(accepted.decode.message_error),
                                           static_cast<u64>(accepted.decode.read_error),
                                           static_cast<u64>(accepted.decode.scan_error),
-                                          accepted.decode.error_offset};
-                    log_u64_fields(LogLevel::error, "rest",
-                                   "message_history_error\0message_history_apply_error\0"
-                                   "message_history_decode_error\0message_history_message_error\0"
-                                   "message_history_read_error\0message_history_scan_error\0"
-                                   "message_history_error_offset",
-                                   failed);
+                                          accepted.decode.error_offset,
+                                          static_cast<u64>(response.error),
+                                          response.status_code};
+                    LogEvent line("message_history_failed");
+                    line.fields("error\0apply_error\0decode_error\0message_error\0read_error\0scan_error\0"
+                                "error_offset\0transport_error\0http_status",
+                                failed)
+                        .error("native_error", static_cast<u32>(response.native_error));
                     if (accepted.decode.schema_field[0])
-                        log_write(LogLevel::error, "message_schema_field", accepted.decode.schema_field);
-                    const u64 transport[] = {static_cast<u64>(response.error), response.native_error,
-                                             response.status_code};
-                    log_u64_fields(LogLevel::error, "rest",
-                                   "message_history_transport_error\0message_history_native_error\0"
-                                   "message_history_http_status",
-                                   transport);
+                        line.field("schema_field", accepted.decode.schema_field);
+                    line.write(LogLevel::error, "rest");
                     return false;
                 } else if (accepted.disposition == MessageHistoryRestDisposition::retry_scheduled) {
                     // One diagnostic per completed attempt, never per frame or pump.
-                    const u64 retry[] = {static_cast<u64>(response.error), response.native_error,
-                                         response.status_code, response.reused_connection};
-                    log_u64_fields(LogLevel::warning, "rest",
-                                   "message_history_retry_transport_error\0message_history_retry_native_error\0"
-                                   "message_history_retry_http_status\0message_history_retry_reused_connection",
-                                   retry);
+                    const u64 retry[] = {static_cast<u64>(response.error), response.status_code,
+                                         response.reused_connection};
+                    LogEvent("message_history_retry")
+                        .fields("transport_error\0http_status\0reused_connection", retry)
+                        .error("native_error", static_cast<u32>(response.native_error))
+                        .write(LogLevel::warning, "rest");
                 } else if (accepted.disposition == MessageHistoryRestDisposition::applied && g_app.window) {
                     if (owner == MessageHistoryRequestOwner::catchup ||
                         owner == MessageHistoryRequestOwner::message_jump) {
@@ -1308,10 +1301,10 @@ static bool pump_message_history_main(bool admit) noexcept {
         if (!submitted.ok()) {
             const ReactionViewerControllerResult failed =
                 reaction_viewer_controller_submit_failed(&g_app.reaction_viewer_controller, now_ms);
-            log_u64(LogLevel::warning, "reaction_viewer", "submit_error",
-                    static_cast<u64>(submitted.error));
-            log_u64(LogLevel::warning, "reaction_viewer", "submit_failure_state",
-                    static_cast<u64>(failed.error));
+            LogEvent("submit_failed")
+                .field("error", static_cast<u64>(submitted.error))
+                .field("failure_state", static_cast<u64>(failed.error))
+                .write(LogLevel::warning, "reaction_viewer");
             return true;
         }
         const ReactionViewerControllerResult marked = reaction_viewer_controller_mark_submitted(

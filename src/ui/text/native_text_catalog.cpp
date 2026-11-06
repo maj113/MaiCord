@@ -1,7 +1,7 @@
 #include "maicord/ui/text/native_text_catalog.hpp"
 #include "maicord/core/memory.hpp"
 #include "native_text_catalog_owner.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
@@ -91,7 +91,7 @@ bool coverage_ready(NativeTextCatalogs& owner,NativeFontSession* session) noexce
 bool native_text_catalogs_initialize(NativeTextCatalogs* owner) noexcept {
     if(!owner||owner->storage.base||owner->count)return false;
     owner->scopes.entries[0]=&owner->scopes.system;
-    if(!arena_initialize(&owner->storage,2*1024*1024,0,4096)){native_text_catalogs_release(owner);return false;}
+    if(!arena_initialize(&owner->storage,2*1024*1024,0,4096,ArenaTag::text)){native_text_catalogs_release(owner);return false;}
     owner->count=1;
 #if !defined(_WIN32)
     owner->fallback_locale=fallback_locale_for_language();
@@ -100,9 +100,9 @@ bool native_text_catalogs_initialize(NativeTextCatalogs* owner) noexcept {
 }
 void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
     if(!owner)return;
-    log_u64(LogLevel::info,"text","native_catalog_builds",owner->builds);log_u64(LogLevel::info,"text","native_catalog_selections",owner->selections);
-    log_u64(LogLevel::info,"text","native_catalog_unsupported",owner->unsupported);log_u64(LogLevel::info,"text","native_catalog_failures",owner->failures);
-    log_u64(LogLevel::info,"text","native_catalog_build_ticks",owner->build_ticks);log_u64(LogLevel::info,"text","native_catalog_commit",owner->storage.committed);
+    const u64 counts[]={owner->builds,owner->selections,owner->unsupported,owner->failures,owner->build_ticks,owner->storage.committed};
+    LogEvent("native_catalog_released").fields("native_catalog_builds\0native_catalog_selections\0native_catalog_unsupported\0"
+        "native_catalog_failures\0native_catalog_build_ticks\0native_catalog_commit",counts).write(LogLevel::info,"text");
     native_font_coverage_release(&owner->coverage);
 #if defined(_WIN32)
     if(owner->locator)owner->locator->release();

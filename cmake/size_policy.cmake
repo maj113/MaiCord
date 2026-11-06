@@ -194,7 +194,7 @@ maicord_compact_sources(
     SOURCES
         src/core/data_path.cpp src/platform/crypto/random.cpp src/platform/window/win32/caption_frame.cpp
         src/platform/window/win32/main_window.cpp src/platform/window/win32/post.cpp src/gpu/d3d11/device.cpp
-        src/gpu/d3d11/surface.cpp src/platform/net/socket.cpp
+        src/gpu/d3d11/surface.cpp src/gpu/d3d11/paged_texture.cpp src/platform/net/socket.cpp
         src/platform/window/win32/translate.cpp src/platform/window/win32/window_proc.cpp src/platform/window/win32/window.cpp
         src/platform/window/win32/pump.cpp src/platform/window/win32/settings.cpp src/platform/window/win32/icon.cpp
         src/platform/window/win32/create_icon.cpp src/platform/window/win32/drop.cpp src/platform/window/win32/keys.cpp

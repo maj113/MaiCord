@@ -29,6 +29,14 @@ maicord_test(MaiCordClientIdentityTests ENTRY maicord_client_identity_entry
     INCLUDES src/app tests
     TIMEOUT 20 TEST maicord_client_identity)
 
+# The startup record a session's log begins with: its lines and fields, and no user name, path or token.
+maicord_test(MaiCordStartupRecordTests ENTRY maicord_startup_record_entry
+    SOURCES tests/app/shell/startup_record.cpp src/app/shell/startup_record.cpp
+    LIBS maicord_app_net maicord_net maicord_crypto maicord_desktop_system maicord_protocol maicord_compression
+        maicord_media_codec maicord_window_null maicord_core
+    INCLUDES src/app tests
+    TIMEOUT 10 TEST maicord_startup_record)
+
 # The Gateway client's self-status and typed-settings fixture: client.cpp built into the test with its test hook, over
 # the rest of the client from maicord_app_net (the executable's own client.cpp wins over the library's).
 maicord_test(MaiCordGatewaySelfStatusRuntimeTests ENTRY maicord_gateway_self_status_runtime_entry

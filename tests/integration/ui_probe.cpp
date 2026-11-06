@@ -506,8 +506,8 @@ bool rebuild_probe_content_text(bool overwrite_response) noexcept {
                                           ? (g_probe.renderer.glyph_text.allocator.entry_count ==
                                                      g_probe.renderer.glyph_text.allocator.entry_capacity
                                                  ? 100u
-                                             : g_probe.renderer.glyph_text.allocator.next_y >=
-                                                     g_probe.renderer.glyph_text.allocator.height
+                                             : g_probe.renderer.glyph_text.allocator.row_count >=
+                                                     g_probe.renderer.glyph_text.allocator.row_capacity
                                                  ? 101u
                                                  : 102u)
                                           : 90u + static_cast<u32>(g_probe.text.last_error)
@@ -1293,7 +1293,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     g_probe.failure_stage = 15;
     const MediaAtlasGpuResult rejected_upload = renderer_upload_media_rgba8(
         &g_probe.renderer, MediaAssetKey{0, 0, MediaAssetKind::none, 0}, 0, 0, 0, ConstSlice<u8>{});
-    if (rejected_upload.ok() || g_probe.renderer.media_gpu.texture) {
+    if (rejected_upload.ok() || g_probe.renderer.media_gpu.surface) {
         return false;
     }
     PngFixtureResult png_fixture{};
@@ -1529,7 +1529,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         g_probe.failure_stage = 60;
         return false;
     }
-    if (!jpeg_uploaded.ok() || !g_probe.renderer.media_gpu.preview_texture) {
+    if (!jpeg_uploaded.ok() || !g_probe.renderer.media_gpu.preview_surface) {
         g_probe.failure_stage = 61;
         return false;
     }
@@ -3286,7 +3286,7 @@ int run_probe() noexcept {
         g_probe.renderer.media_gpu.jpeg_reconstructed_pixels != 9'152 ||
         g_probe.renderer.media_gpu.jpeg_idct_dispatches != 20 ||
         g_probe.renderer.media_gpu.jpeg_atlas_dispatches != 20 ||
-        !g_probe.renderer.media_gpu.apng_backup_texture) {
+        !g_probe.renderer.media_gpu.backup) {
         log_u64(LogLevel::error, "probe", "media_draws_last_frame",
                 g_probe.renderer.media_draws_last_frame);
         log_u64(LogLevel::error, "probe", "media_uploads", g_probe_rgba8_uploads);

@@ -8,7 +8,7 @@
 #include "maicord/ui/chat/threads/forum_channel_media.hpp"
 #include "maicord/ui/chat/inbox_avatar_media.hpp"
 #include "maicord/ui/chat/polls/voters_avatar_media.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
@@ -324,7 +324,7 @@ PresentationDamageRect media_batch_clip(const MediaDrawBatch& batch) noexcept {
 
 
 bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& allocation, u8 domain,
-                              MediaQuad* quad, bool* changed) noexcept {
+                              MediaQuad* quad, u8* binding, bool* changed) noexcept {
     const bool preview = domain == 1;
     if (!allocation.ok() || domain > 1 ||
         (preview ? (!renderer->preview_media_atlas || !renderer->media_gpu.preview_texture_view)
@@ -335,21 +335,23 @@ bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& a
     const bool cached_animation =
         !preview && animation_frame_cache_gpu_resolve(&renderer->animation_gpu, allocation, &cached_frame);
     const float source_x = cached_animation ? cached_frame.x : allocation.x;
-    const float source_y = cached_animation ? cached_frame.y : allocation.y;
+    const u32 source_y = cached_animation ? cached_frame.y : allocation.y;
     const float source_width = cached_animation ? cached_frame.width : allocation.width;
     const float source_height = cached_animation ? cached_frame.height : allocation.height;
-    // Atlas and frame-cache heights change at runtime (growth/idle trim);
-    // UVs always use the current surface extent.
+    // v is in the rows of the page the draw binds (the whole surface on Direct3D 11).
+    const GpuPage page = gpu_paged_texture_page(cached_animation ? renderer->animation_gpu.surface
+                                                : preview        ? renderer->media_gpu.preview_surface
+                                                                 : renderer->media_gpu.surface,
+                                                source_y);
     const float inverse_width = 1.0f / (cached_animation ? renderer->animation_gpu.cache.allocations.width
                                         : preview        ? renderer->media_gpu.preview_width
                                                          : renderer->media_gpu.width);
-    const float inverse_height = 1.0f / (cached_animation ? renderer->animation_gpu.cache.allocations.height
-                                         : preview        ? renderer->media_gpu.preview_height
-                                                          : renderer->media_gpu.height);
+    const float inverse_height = 1.0f / static_cast<float>(page.rows);
+    const float local_y = static_cast<float>(source_y - page.first_row);
     float u0 = (source_x + 0.5f) * inverse_width;
-    float v0 = (source_y + 0.5f) * inverse_height;
+    float v0 = (local_y + 0.5f) * inverse_height;
     float u1 = (source_x + source_width - 0.5f) * inverse_width;
-    float v1 = (source_y + source_height - 0.5f) * inverse_height;
+    float v1 = (local_y + source_height - 0.5f) * inverse_height;
     if (cached_animation) {
         u0 = -(u0 + 1.0f);
         u1 = -(u1 + 1.0f);
@@ -357,11 +359,13 @@ bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& a
         v0 = -(v0 + 1.0f);
         v1 = -(v1 + 1.0f);
     }
-    *changed = quad->u0 != u0 || quad->v0 != v0 || quad->u1 != u1 || quad->v1 != v1;
+    *changed = quad->u0 != u0 || quad->v0 != v0 || quad->u1 != u1 || quad->v1 != v1 ||
+               *binding != page.binding;
     quad->u0 = u0;
     quad->v0 = v0;
     quad->u1 = u1;
     quad->v1 = v1;
+    *binding = static_cast<u8>(page.binding);
     return true;
 }
 
@@ -400,8 +404,8 @@ bool refresh_media_quad_sources(D3D11Renderer* renderer, bool* changed) noexcept
                 return false;
             }
             bool source_changed = false;
-            if (!update_media_quad_source(renderer, allocation, domain,
-                                          &renderer->media_draw.quad_data[index], &source_changed)) {
+            if (!update_media_quad_source(renderer, allocation, domain, &renderer->media_draw.quad_data[index],
+                                          &renderer->media_draw.binding_data[index], &source_changed)) {
                 return false;
             }
             if ((source_changed &&
@@ -472,8 +476,9 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
         0.0f, 0.0f, 0.0f, 0.0f, style.opacity, radius, style.clip_radius, style.blur, style.rounded_clip,
     };
     bool source_changed = false;
+    renderer->media_draw.binding_data[quad_index] = 0;
     if (!update_media_quad_source(renderer, allocation, domain, &renderer->media_draw.quad_data[quad_index],
-                                  &source_changed)) {
+                                  &renderer->media_draw.binding_data[quad_index], &source_changed)) {
         return false;
     }
     renderer->media_draw.handle_data[quad_index] = allocation.handle;
@@ -2195,13 +2200,11 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
             saturating_increment(layout_failures);
             if ((layout_failures & (layout_failures - 1u)) == 0) {
                 const auto& paint = renderer->paint_stream;
-                log_write(LogLevel::error, "ui", "semantic_scene_layout_failed");
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_failures", layout_failures);
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_failed_line", g_layout_failed_line);
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_paint_quads", paint.count);
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_paint_clips", paint.clip_count);
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_paint_batches", paint.batch_count);
-                log_u64(LogLevel::error, "ui", "semantic_scene_layout_paint_rejected", paint.rejected);
+                const u64 values[] = {layout_failures, g_layout_failed_line, paint.count,
+                                      paint.clip_count, paint.batch_count, paint.rejected};
+                LogEvent("semantic_scene_layout_failed")
+                    .fields("failures\0failed_line\0paint_quads\0paint_clips\0paint_batches\0paint_rejected", values)
+                    .write(LogLevel::error, "ui");
             }
             return false;
         }

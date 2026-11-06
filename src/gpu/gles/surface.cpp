@@ -1,5 +1,5 @@
 #include "maicord/core/heap.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "gpu/gles/internal.hpp"
 
@@ -142,8 +142,8 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
         s.surface = device->egl.eglCreateWindowSurface(device->display, device->config, s.window,
                                                        device->present_opaque ? opaque_attributes : nullptr);
         if (!s.surface) {
-            log_write(LogLevel::error, "gpu", "eglCreateWindowSurface failed");
-            log_u64(LogLevel::error, "gpu", "egl_error", static_cast<u32>(device->egl.eglGetError()));
+            LogEvent("eglCreateWindowSurface_failed").hex("egl_error", static_cast<u32>(device->egl.eglGetError()))
+                .write(LogLevel::error, "gpu");
             release_window(device, &s);
             s = {};
             return kGpuFail;
@@ -302,8 +302,7 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
         ++s.history_count;
     s.needs_full = false;
     if (!swapped) {
-        log_write(LogLevel::error, "gpu", "eglSwapBuffers failed");
-        log_u64(LogLevel::error, "gpu", "egl_error", static_cast<u32>(d.egl.eglGetError()));
+        LogEvent("eglSwapBuffers_failed").hex("egl_error", static_cast<u32>(d.egl.eglGetError())).write(LogLevel::error, "gpu");
         s.needs_full = true;
         return kGpuFail;
     }

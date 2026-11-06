@@ -5,7 +5,7 @@
 #include "video.hpp"
 #include "catalog_preview_log.hpp"
 
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/media/image/jpeg.hpp"
@@ -213,80 +213,37 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
         }
         return true;
     };
-    const auto capacity_miss = [&]() noexcept {
-        return uploaded.error == MediaAtlasGpuError::atlas_failure &&
-               uploaded.allocation.error == MediaAtlasError::no_capacity;
-    };
     if (!upload())
         return reject_source();
-    // Any image the reader looks at takes shelves from visible member-list ornaments.
-    const u32 yielded = capacity_miss() ? yield_decorative_media(frame.key) : 0;
-    if (yielded && !upload())
-        return reject_source();
     if (!uploaded.ok()) {
-        if (capacity_miss()) {
-            const u64 now_ms = clock_monotonic_milliseconds();
-            // The decoded frame is dropped here, so this key must not be requested again until the
-            // atlas can take its size (capacity_waiting): decoding it on every pump pass starved
-            // everything behind it in the scan and kept the codec lanes busy for nothing.
-            const u32 canvas_width = frame.canvas_width ? frame.canvas_width : frame.width;
-            const u32 canvas_height = frame.canvas_height ? frame.canvas_height : frame.height;
-            media_capacity_defer(&application.media_deferrals, frame.key,
-                                 static_cast<u16>(minimum<u32>(canvas_width, 0xFFFFu)),
-                                 static_cast<u16>(minimum<u32>(canvas_height, 0xFFFFu)), now_ms);
-            // Composer thumbnails back off with the rest instead of re-decoding every poll.
-            if (frame.key.kind == MediaAssetKind::local_draft_preview) {
-                const u64 retry_at_ms = now_ms + 1'000u;
-                message_media_controller_observe_retry(&application.message_media, retry_at_ms);
-                application_local_preview_deferred(frame.key, retry_at_ms);
-            }
-            if (media_asset_large_preview(frame.key))
-                message_media_controller_defer_preview(&application.message_media, now_ms);
+        // The atlases are virtual surfaces that keep what is visible and evict the rest: a request
+        // only finds no room when the visible set alone fills the whole surface.
+        const u64 now_ms = clock_monotonic_milliseconds();
+        if (uploaded.error == MediaAtlasGpuError::atlas_failure &&
+            uploaded.allocation.error == MediaAtlasError::no_capacity) {
             if (message_media_controller_should_log_capacity(&application.message_media, now_ms)) {
-                log_write(LogLevel::warning, "media", "visible_media_working_set_full_deferred");
-                log_u64(LogLevel::warning, "media", "asset_kind", static_cast<u64>(frame.key.kind));
-                log_u64(LogLevel::warning, "media", "asset_id", frame.key.id);
-                log_u64(LogLevel::warning, "media", "frame_kind", static_cast<u64>(frame.kind));
-                log_u64(LogLevel::warning, "media", "frame_width", frame.width);
-                log_u64(LogLevel::warning, "media", "frame_height", frame.height);
-                log_u64(LogLevel::warning, "media", "canvas_width", canvas_width);
-                log_u64(LogLevel::warning, "media", "canvas_height", canvas_height);
-                log_u64(LogLevel::warning, "media", "ornaments_yielded", yielded);
                 const auto* atlas = upload_atlas(frame.key);
+                LogEvent line("media_atlas_out_of_virtual_space");
+                line.field("asset_kind", static_cast<u64>(frame.key.kind))
+                    .field("frame_width", frame.width)
+                    .field("frame_height", frame.height);
                 if (atlas) {
-                    // What fills the atlas: how much of it the visible shelves hold (packing cannot
-                    // reclaim those) against what stale entries hold, and how often packing ran.
-                    const MediaAtlasPressure pressure = media_atlas_pressure(*atlas);
-                    log_u64(LogLevel::warning, "media", "atlas_entries", atlas->entry_count);
-                    log_u64(LogLevel::warning, "media", "atlas_evictions",
-                            atlas->allocations.evicted_entries);
-                    log_u64(LogLevel::warning, "media", "atlas_full_resets",
-                            atlas->allocations.full_resets);
-                    log_u64(LogLevel::warning, "media", "atlas_compactions", atlas->compactions);
-                    log_u64(LogLevel::warning, "media", "atlas_height", pressure.height);
-                    log_u64(LogLevel::warning, "media", "atlas_max_height", pressure.maximum_height);
-                    log_u64(LogLevel::warning, "media", "atlas_rows", pressure.rows);
-                    log_u64(LogLevel::warning, "media", "atlas_pinned_rows", pressure.pinned_rows);
-                    log_u64(LogLevel::warning, "media", "atlas_pinned_entries", pressure.pinned_entries);
-                    log_u64(LogLevel::warning, "media", "atlas_pinned_height", pressure.pinned_height);
-                    log_u64(LogLevel::warning, "media", "atlas_shelf_permille", pressure.shelf_permille);
-                    log_u64(LogLevel::warning, "media", "atlas_pixel_permille", pressure.pixel_permille);
+                    line.field("atlas_entries", atlas->entry_count)
+                        .field("atlas_committed_rows", glyph_atlas_committed_rows(atlas->allocations))
+                        .field("atlas_visible_rows", glyph_atlas_visible_rows(atlas->allocations));
                 }
-                const auto& deferrals = application.media_deferrals;
-                log_u64(LogLevel::warning, "media", "deferred_waiting", media_capacity_waiting_count(deferrals));
-                log_u64(LogLevel::warning, "media", "deferred_refused_total", deferrals.refused);
-                log_u64(LogLevel::warning, "media", "deferred_held_back_total", deferrals.waited);
-                log_u64(LogLevel::warning, "media", "deferred_released_total", deferrals.released);
+                line.write(LogLevel::warning, "media");
             }
             return MediaFrameUploadResult::deferred;
         }
-        log_u64(LogLevel::error, "media", "asset_upload_error", static_cast<u64>(uploaded.error));
-        log_u64(LogLevel::error, "media", "asset_upload_native_error",
-                static_cast<u64>(uploaded.native_error));
-        log_u64(LogLevel::error, "media", "asset_kind", static_cast<u64>(frame.key.kind));
-        log_u64(LogLevel::error, "media", "frame_kind", static_cast<u64>(frame.kind));
-        log_u64(LogLevel::error, "media", "frame_width", frame.width);
-        log_u64(LogLevel::error, "media", "frame_height", frame.height);
+        LogEvent("asset_upload_failed")
+            .field("error", static_cast<u64>(uploaded.error))
+            .error("hr", static_cast<u32>(uploaded.native_error))
+            .field("asset_kind", static_cast<u64>(frame.key.kind))
+            .field("frame_kind", static_cast<u64>(frame.kind))
+            .field("frame_width", frame.width)
+            .field("frame_height", frame.height)
+            .write(LogLevel::error, "media");
         if (uploaded.error == MediaAtlasGpuError::invalid_input)
             return reject_source();
         return MediaFrameUploadResult::failed;

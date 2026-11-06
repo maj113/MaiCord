@@ -62,7 +62,7 @@ GpuStatus prepare_vp8_tiles(MediaAtlasGpu* gpu, GpuDevice* device,
 MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context, const Vp8Keyframe& frame,
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients) noexcept {
-    if (!gpu || !device || !context || !gpu->texture ||
+    if (!gpu || !device || !context || !gpu->surface ||
         !vp8_reconstruction_valid(frame, modes, coefficients)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
@@ -238,13 +238,9 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
     GpuContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
     ConstSlice<u8> alpha, bool preview) noexcept {
-    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
-        !texture_uav ||
-        !vp8_atlas_frame_ready(gpu, frame, alpha) ||
-        surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
-        static_cast<u32>(frame.width) + atlas->allocations.padding * 2u > atlas->allocations.width ||
-        static_cast<u32>(frame.height) + atlas->allocations.padding * 2u > atlas->allocations.height) {
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
+        !surface_ready(gpu, *atlas, preview) || !vp8_atlas_frame_ready(gpu, frame, alpha) ||
+        !image_fits(*atlas, frame.width, frame.height)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
@@ -253,12 +249,13 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
-    const MediaAtlasResult allocation = allocate_and_clear_surface(
-        gpu, atlas, context, target, surface_width, surface_height, key, frame.width, frame.height);
+    MediaAtlasResult local{};
+    const MediaAtlasResult allocation =
+        allocate_and_clear_surface(gpu, atlas, context, preview, key, frame.width, frame.height, &local);
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
-    dispatch_vp8_atlas(gpu, context, frame, alpha, allocation.x, allocation.y, false, texture_uav);
+    dispatch_vp8_atlas(gpu, context, frame, alpha, local.x, local.y, false, gpu->texture_uav);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
@@ -279,14 +276,15 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded);
     }
     unbind_apng_atlas(context);
+    MediaAtlasResult local{};
     const MediaAtlasResult allocation =
-        allocate_and_clear(gpu, atlas, context, key, canvas_width, canvas_height);
+        allocate_and_clear_surface(gpu, atlas, context, false, key, canvas_width, canvas_height, &local);
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
-    clear_animated_webp_canvas(gpu, context, allocation, background_rgba);
-    dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, allocation.x + animation_frame.x_offset,
-                       allocation.y + animation_frame.y_offset,
+    clear_animated_webp_canvas(gpu, context, local, background_rgba);
+    dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
+                       local.y + animation_frame.y_offset,
                        animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
     account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
@@ -305,17 +303,21 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
         !vp8_atlas_frame_ready(gpu, vp8_frame, alpha)) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
-    const GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
+    MediaAtlasResult local = allocation;
+    GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
+    if (SUCCEEDED(uploaded) && !media_atlas_gpu_select(gpu, context, *atlas, false, &local)) {
+        uploaded = E_OUTOFMEMORY;
+    }
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded, allocation);
     }
     unbind_apng_atlas(context);
     if (previous_frame.dispose == AnimatedWebpDispose::background) {
-        clear_animated_webp_region(gpu, context, allocation, previous_frame, background_rgba);
+        clear_animated_webp_region(gpu, context, local, previous_frame, background_rgba);
         ++gpu->animated_webp_background_disposals;
     }
-    dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, allocation.x + animation_frame.x_offset,
-                       allocation.y + animation_frame.y_offset,
+    dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
+                       local.y + animation_frame.y_offset,
                        animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
     account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
@@ -353,16 +355,16 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
     gpu_release(gpu->png_palette_buffer);
     gpu_release(gpu->png_scanline_view);
     gpu_release(gpu->png_scanline_buffer);
-    gpu_release(gpu->apng_backup_texture);
-    gpu_release(gpu->preview_texture_uav);
-    gpu_release(gpu->preview_target);
-    gpu_release(gpu->preview_texture_view);
-    gpu_release(gpu->preview_texture);
-    gpu_release(gpu->preview_animation_backup_texture);
-    gpu_release(gpu->texture_uav);
-    gpu_release(gpu->target);
-    gpu_release(gpu->texture_view);
-    gpu_release(gpu->texture);
+    gpu_paged_texture_release(&gpu->backup);
+    gpu_paged_texture_release(&gpu->preview_backup);
+    gpu_paged_texture_release(&gpu->preview_surface);
+    gpu_paged_texture_release(&gpu->surface);
+    gpu->texture_view = nullptr;
+    gpu->preview_texture_view = nullptr;
+    gpu->texture = nullptr;
+    gpu->target = nullptr;
+    gpu->texture_uav = nullptr;
+    gpu->backup_texture = nullptr;
     gpu->width = 0;
     gpu->height = 0;
     gpu->preview_width = 0;

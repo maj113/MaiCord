@@ -1,7 +1,7 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
@@ -37,9 +37,9 @@ bool create_glyph_instance_buffer(D3D11Renderer* renderer, u32 capacity) noexcep
     const D3D11DrawPipelineResult reserved = d3d11_draw_pipeline_reserve_glyph_instances(
         &renderer->pipeline, renderer->graphics.device, sizeof(GlyphQuad), capacity);
     if (!reserved.ok()) {
-        log_write(LogLevel::error, "render", "glyph_instance_buffer_growth_failed");
-        log_u64(LogLevel::error, "render", "glyph_instance_native_error",
-                static_cast<u32>(reserved.native_error));
+        LogEvent("glyph_instance_buffer_growth_failed")
+            .error("hr", static_cast<u32>(reserved.native_error))
+            .write(LogLevel::error, "render");
         return false;
     }
     renderer->uploaded_text_storage = nullptr;
@@ -53,11 +53,10 @@ bool create_gpu_text_resources(D3D11Renderer* renderer, GlyphAtlasGpu* prestarte
         d3d11_glyph_text_initialize(&renderer->glyph_text, renderer->graphics.device,
                                     renderer->graphics.context, renderer->dpi, prestarted_atlas);
     if (!initialized.ok()) {
-        log_write(LogLevel::error, "render", "gpu_text_resources_creation_failed");
-        log_u64(LogLevel::error, "render", "gpu_text_initialize_stage",
-                static_cast<u64>(initialized.error));
-        log_u64(LogLevel::error, "render", "gpu_text_initialize_native_error",
-                static_cast<u32>(initialized.native_error));
+        LogEvent("gpu_text_resources_creation_failed")
+            .field("stage", static_cast<u64>(initialized.error))
+            .error("hr", static_cast<u32>(initialized.native_error))
+            .write(LogLevel::error, "render");
         return false;
     }
     return true;
@@ -80,8 +79,9 @@ GlyphAtlasGpu g_prestarted_glyph_atlas{};
 GpuDevice* g_prestarted_glyph_atlas_device = nullptr;
 
 void prestart_objects(GpuDevice* device, GpuContext* context) noexcept {
-    if (glyph_atlas_gpu_initialize(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
-                                   kRendererGlyphAtlasExtent, kRendererPathCapacity)
+    if (glyph_atlas_gpu_initialize_paged(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
+                                         kRendererGlyphAtlasPageRows, kRendererGlyphAtlasPages,
+                                         kRendererPathCapacity)
             .ok())
         g_prestarted_glyph_atlas_device = device;
     if (d3d11_draw_pipeline_create(&g_prestarted_pipeline, device, kPipelineConfig).ok()) {
@@ -221,10 +221,8 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     if (!renderer || !renderer_media_draw_storage_initialize(&renderer->media_draw)) {
         return false;
     }
-    // Identity animation frames (<= 128 px): start at 256 rows (2 MiB) and
-    // grow by replayed working set up to 2048 rows.
-    if (!animation_frame_cache_gpu_initialize(&renderer->animation_gpu) ||
-        !animation_frame_cache_gpu_configure_growth(&renderer->animation_gpu, kAnimationFrameCacheGpuGrowthStep)) {
+    // Identity animation frames (<= 128 px), backed as frames are cached.
+    if (!animation_frame_cache_gpu_initialize(&renderer->animation_gpu)) {
         animation_frame_cache_gpu_release(&renderer->animation_gpu);
         renderer_media_draw_storage_release(&renderer->media_draw);
         return false;
@@ -248,22 +246,12 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     // The surface is the caller's: its window handle (null for an offscreen surface where the backend has them), size and DPI.
     const D3D11DeviceOwnerResult graphics = d3d11_device_owner_initialize(&renderer->graphics, surface);
     if (!graphics.ok()) {
-        switch (graphics.error) {
-        case D3D11DeviceOwnerError::hardware_device:
-            log_write(LogLevel::error, "render", "hardware_d3d11_device_unavailable");
-            break;
-        case D3D11DeviceOwnerError::context_11_1:
-            log_write(LogLevel::error, "render", "d3d11_1_context_unavailable");
-            break;
-        case D3D11DeviceOwnerError::surface:
-            // The backend logged the step that failed.
-            break;
-        default:
-            log_write(LogLevel::error, "render", "d3d11_device_owner_initialization_failed");
-            break;
-        }
-        log_u64(LogLevel::error, "render", "d3d11_device_native_error",
-                static_cast<u32>(graphics.native_error));
+        // The backend logged the step that failed when it was the surface.
+        const char* event = graphics.error == D3D11DeviceOwnerError::hardware_device ? "hardware_d3d11_device_unavailable"
+                            : graphics.error == D3D11DeviceOwnerError::context_11_1  ? "d3d11_1_context_unavailable"
+                            : graphics.error == D3D11DeviceOwnerError::surface       ? "d3d11_surface_failed"
+                                                                                     : "d3d11_device_owner_initialization_failed";
+        LogEvent(event).error("hr", static_cast<u32>(graphics.native_error)).write(LogLevel::error, "render");
         renderer_shutdown(renderer);
         return false;
     }
@@ -289,10 +277,10 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     // The prestart worker's pipeline, or one built here when it did not run.
     const D3D11DrawPipelineResult pipeline = initialize_pipeline(renderer);
     if (!pipeline.ok()) {
-        log_write(LogLevel::error, "render", "d3d11_draw_pipeline_initialization_failed");
-        log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_stage", static_cast<u32>(pipeline.error));
-        log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_native_error",
-                static_cast<u32>(pipeline.native_error));
+        LogEvent("d3d11_draw_pipeline_initialization_failed")
+            .field("stage", static_cast<u64>(pipeline.error))
+            .error("hr", static_cast<u32>(pipeline.native_error))
+            .write(LogLevel::error, "render");
         renderer_shutdown(renderer);
         return false;
     }
@@ -301,8 +289,8 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     if (content_text)
         d3d11_draw_pipeline_reserve_glyph_instances(&renderer->pipeline, renderer->graphics.device,
                                                     sizeof(GlyphQuad), kRendererContentGlyphCapacity);
-    log_u64(LogLevel::info, "render", "startup_prestart", renderer->startup_prestart);
-    log_write(LogLevel::info, "render", "hardware_d3d11_instanced_ui_ready");
+    LogEvent("hardware_d3d11_instanced_ui_ready").field("startup_prestart", renderer->startup_prestart)
+        .write(LogLevel::info, "render");
     return true;
 }
 
@@ -530,7 +518,7 @@ bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept {
         sizeof(TextHitSpan) + sizeof(TextHitRegion) * 2 + sizeof(TextDecoration) +
         sizeof(MessageTextSemantic);
     Arena arena{};
-    if (!arena_initialize(&arena, bytes, 0, 4 * 1024))
+    if (!arena_initialize(&arena, bytes, 0, 4 * 1024, ArenaTag::ui))
         return false;
     auto* owned = arena_allocate_zero<RendererLoginFormTextStorage>(&arena);
     if (!owned) {
@@ -682,11 +670,13 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
     if (!measured.ok()) {
         storage->last_shape_error = measured.error;
         storage->native_error = measured.native_error;
-        log_u64(LogLevel::error, "text", "measure_owner", request.key.source_id);
-        log_u64(LogLevel::error, "text", "measure_text_bytes", request.text.bytes);
-        log_u64(LogLevel::error, "text", "measure_style_count", request.styles.count);
-        log_u64(LogLevel::error, "text", "measure_utf16_units", measured.utf16_units);
-        log_u64(LogLevel::error, "text", "measure_shape_error", static_cast<u32>(measured.error));
+        LogEvent("measure_failed")
+            .field("owner", request.key.source_id)
+            .field("text_bytes", request.text.bytes)
+            .field("style_count", request.styles.count)
+            .field("utf16_units", measured.utf16_units)
+            .field("shape_error", static_cast<u64>(measured.error))
+            .write(LogLevel::error, "text");
         return false;
     }
     *value = UiTextMeasureValue{UiSize{measured.width_including_trailing_whitespace, measured.height},

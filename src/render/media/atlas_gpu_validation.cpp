@@ -215,11 +215,18 @@ i32 vp8_macroblock_filter_level(const Vp8ControlHeader& header, const Vp8Macrobl
 }
 
 MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                            GpuContext1* context, GpuRtv* target,
-                                            u16 surface_width, u16 surface_height, MediaAssetKey key,
-                                            u16 width, u16 height, bool clear_cached) noexcept {
-    const MediaAtlasResult allocation = media_atlas_allocate(atlas, key, width, height);
+                                            GpuContext1* context, bool preview, MediaAssetKey key,
+                                            u16 width, u16 height, MediaAtlasResult* local,
+                                            bool clear_cached) noexcept {
+    MediaAtlasResult allocation = media_atlas_allocate(atlas, key, width, height);
     if (!allocation.ok()) {
+        return allocation;
+    }
+    *local = allocation;
+    if (!media_atlas_gpu_select(gpu, context, *atlas, preview, local)) {
+        // The rows could not be backed: nothing may sample or write them.
+        media_atlas_forget(atlas, key);
+        allocation.error = MediaAtlasError::no_capacity;
         return allocation;
     }
     // Opaque full-frame video overwrites every pixel, and cached allocation
@@ -229,22 +236,16 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
     }
     const LONG padding = atlas->allocations.padding;
     const GpuRect rectangle{
-        maximum<LONG>(0, static_cast<LONG>(allocation.x) - padding),
-        maximum<LONG>(0, static_cast<LONG>(allocation.y) - padding),
-        minimum<LONG>(surface_width, static_cast<LONG>(allocation.x + allocation.width) + padding),
-        minimum<LONG>(surface_height, static_cast<LONG>(allocation.y + allocation.height) + padding),
+        maximum<LONG>(0, static_cast<LONG>(local->x) - padding),
+        maximum<LONG>(0, static_cast<LONG>(local->y) - padding),
+        static_cast<LONG>(local->x + local->width) + padding,
+        static_cast<LONG>(local->y + local->height) + padding,
     };
     const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     unbind_media_pixel_resources(context);
-    gpu_clear_rtv_rect(context, target, transparent, rectangle);
+    gpu_clear_rtv_rect(context, gpu->target, transparent, rectangle);
     ++gpu->cleared_regions;
     return allocation;
-}
-
-MediaAtlasResult allocate_and_clear(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuContext1* context,
-                                    MediaAssetKey key, u16 width, u16 height) noexcept {
-    return allocate_and_clear_surface(gpu, atlas, context, gpu->target, gpu->width, gpu->height, key, width,
-                                      height);
 }
 
 // A non-empty frame rectangle inside the canvas.

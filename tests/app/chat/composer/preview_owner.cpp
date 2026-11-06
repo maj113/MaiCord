@@ -135,22 +135,8 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
         application_composer_preview_rejected(submitted.key);
         check(requests == 3 && application_composer_preview_view(rejected_id).failed,
               "an unsupported codec or failed decode falls back to the video file icon");
-        // Atlas pressure: a deferred thumbnail waits for the shared retry
-        // deadline rather than re-decoding on every 100 ms poll.
-        u64 deferred_id = 0;
-        message_attachment_drafts_add(&state->drafts, 7, {&movie, 1}, {&deferred_id, 1});
-        application_composer_preview_request(1500, 5);
-        const u32 deferred_requests = requests;
-        application_composer_preview_deferred(submitted.key, 2500);
-        application_composer_preview_request(1700, 5);
-        const bool waited = requests == deferred_requests;
-        application_composer_preview_request(2500, 5);
-        check(deferred_requests == 4 && waited && requests == deferred_requests + 1 &&
-                  !application_composer_preview_view(deferred_id).failed,
-              "a thumbnail deferred for atlas room retries at the shared deadline, not every poll");
         application_composer_preview_release();
-        check(!application_composer_preview_view(webm_id).failed && !application_composer_preview_view(deferred_id).failed &&
-                  !application_composer_preview_next_wake(),
+        check(!application_composer_preview_view(webm_id).failed && !application_composer_preview_next_wake(),
               "composer preview owner releases every entry");
         message_attachment_drafts_release(&state->drafts);
     }

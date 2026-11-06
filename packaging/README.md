@@ -197,29 +197,27 @@ library, OpenSSL, the Wayland client libraries, xkbcommon, EGL and GLESv2), ever
   (owner checklist). `maicord-bin` takes the tarball (Arch's rule: prebuilt means `-bin`, [AUR submission
   guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)); tested with `makepkg`, `namcap`, `pacman -U` and `-R` in
   `archlinux`. `maicord` builds from source with Arch's own clang, lld and llvm (23.1.x:
-  [llvm](https://archlinux.org/packages/extra/x86_64/llvm/), [clang](https://archlinux.org/packages/extra/x86_64/clang)): DXC and
-  SPIRV-Cross come from the pinned sources of `tools/linux_shader_toolchain.json` (`prepare()` fills the build script's cache and
-  refuses mismatching pins); it breaks the day Arch moves to another LLVM major until the project follows, `-bin` does not. Per release:
+  [llvm](https://archlinux.org/packages/extra/x86_64/llvm/), [clang](https://archlinux.org/packages/extra/x86_64/clang)); it breaks the
+  day Arch moves to another LLVM major until the project follows, `-bin` does not. Per release:
   `pkgver`, `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push.
 * **Alpine, Void, Gentoo.** `alpine/APKBUILD` and `void/maicord-bin/template` take the musl tarball; the ebuild takes the glibc one
   (`net-im/maicord-bin` in the GURU overlay). They are set up for a personal repository: all three distributions build official packages
-  from source, and none has LLVM 23 and DXC.
+  from source, and none has LLVM 23.
 * **Flatpak (`flatpak/`).** For a self-hosted repository or a `.flatpak` bundle, not Flathub (below).
 * **Nix (`nix/`) and nixpkgs.** `nix/package.nix` is the recipe that nixpkgs' `pkgs/by-name/ma/maicord/package.nix` is made from (the
   two differ only in where `src` and `version` come from (arguments here, `fetchFromGitHub` there) and in `maintainers`) and
   `nix/gpu-tests.nix` is its `passthru.tests.gpu`; the flake adds `-bin` and a `gpu-tests` output. Both build with `llvmPackages_23`
-  and translate the shaders with nixpkgs' own `directx-shader-compiler` and `spirv-cross` (below). Keep the two copies in step:
+  and need no shader tools. Keep the two copies in step:
   `diff packaging/nix/package.nix <nixpkgs>/pkgs/by-name/ma/maicord/package.nix` shows only those lines.
 
 ### Building from source in a distribution
 
-`tools/build_linux.sh` is the project's own entry (it refuses any LLVM major but 23 and expects the pinned downloads); a
+`tools/build_linux.sh` is the project's own entry (it refuses any LLVM major but 23); a
 distribution that builds offline from its own packages calls CMake directly, which is all the Nix recipe does:
 
 ```
 cmake -S SRC -B BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_AR=llvm-ar -DCMAKE_RANLIB=llvm-ranlib \
-    -DMAICORD_DXC=/path/to/dxc -DMAICORD_SPIRV_CROSS_PREFIX=/prefix/of/spirv-cross
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_AR=llvm-ar -DCMAKE_RANLIB=llvm-ranlib
 cmake --build BUILD
 ```
 
@@ -227,15 +225,11 @@ cmake --build BUILD
   plain compilers, not a distribution wrapper that adds libc paths, hardening flags and a program interpreter at link time.
   `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` is for a clang that cannot link a hosted program on its own.
 * **BUILD is outside SRC** (`generate_unicode_emoji_catalog.py` refuses to write into the source tree).
-* **Shader tools.** `MAICORD_DXC` (the `dxc` executable) and `MAICORD_SPIRV_CROSS_PREFIX` (an install with
-  `include/spirv_cross/spirv_glsl.hpp`, `lib/libspirv-cross-glsl.a` and `-core.a`) are set together and replace the pins of
-  `tools/linux_shader_toolchain.json`: nothing is fetched, and only `mc_shadertool` is compiled, against that SPIRV-Cross, with
-  the hosted C++ compiler named by `$CXX` (not the freestanding clang) into `$MAICORD_TOOLCHAIN_CACHE` (a writable directory;
-  the default is under `$HOME`). With nixpkgs' DXC 1.10.2605.37 and SPIRV-Cross 1.4.363.0 (the pinned SPIRV-Cross version) the GLSL
-  pack is the pinned toolchain's, byte for byte (the `tools/deflate_cache.txt` stream is found), and the GPU tests of `tests/gpu`
-  (`sync`, `clear_readback`, `shader_pack`, `ui_quads`, `glyphs`, `media`, `effects`, `bitmap_glyph`) pass on Mesa's llvmpipe in a
-  sandbox. Another version that emits other GLSL still works (the pack is deflated with zlib instead, and a warning says so); run
-  the GPU tests with it.
+* **Shader tools.** None: the client's shaders are hand-written GLSL (`src/render/shaders/gles`) that the build packs with python, so
+  a client or test build fetches and compiles nothing for them (`tools/linux_shader_toolchain.json`, `MAICORD_DXC` and
+  `MAICORD_SPIRV_CROSS_PREFIX` no longer exist; DXC, SPIRV-Cross and `mc_shadertool` serve plugin effects only). The GPU tests of
+  `tests/gpu` (`sync`, `clear_readback`, `shader_pack`, `ui_quads`, `glyphs`, `media`, `effects`, `bitmap_glyph`) pass on Mesa's
+  llvmpipe in a sandbox.
 * **Version and updater.** Set `MAICORD_UPDATE_VERSION=X.Y.Z` in the environment of the configure step (there is no git checkout to
   number the build from; `MaiCord --version` prints it), and leave `MAICORD_LINUX_RELEASES` unset: the build then never enables the
   self-updater, which in any case needs the `.maicord-portable` marker only the tarball has.
@@ -260,11 +254,11 @@ hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the porta
 | apt, dnf and pacman repositories on Pages | no (`.deb`/`.rpm`/`.pkg.tar.zst` of the release) | automation; owner makes the GPG key once | done | `repo/` |
 | AUR `maicord-bin`, `maicord` | `-bin` no; `maicord` yes (Arch has LLVM 23.1) | owner: AUR account and SSH key, push per release (a bot such as `KSXGitHub/github-actions-deploy-aur` can, with the key as a secret); deferred, registration is closed and the pacman repository serves Arch meanwhile | small | `aur/` |
 | Arch `extra` | yes | a Package Maintainer must adopt it, normally once the AUR package is popular ([moving packages from the AUR](https://wiki.archlinux.org/title/Package_Maintainer_guidelines)) | not in our hands | - |
-| Launchpad PPA | no: a PPA builder takes build-dependencies from the Ubuntu archive and PPAs ([building a source package](https://ubuntu.com/docs/launchpad/user/reference/packaging/ppas/building-a-source-package)) and has no LLVM 23 or DXC, so the source package wraps the tarball | owner: Launchpad account, key, `debsign` + `dput` per series and release | medium | `debian/` |
-| Debian, Ubuntu archives | needs a sponsor or a Debian Developer, free-software build from source (LLVM 23, DXC, SPIRV-Cross are not packaged) | not realistic now | - | - |
+| Launchpad PPA | no: a PPA builder takes build-dependencies from the Ubuntu archive and PPAs ([building a source package](https://ubuntu.com/docs/launchpad/user/reference/packaging/ppas/building-a-source-package)) and has no LLVM 23, so the source package wraps the tarball | owner: Launchpad account, key, `debsign` + `dput` per series and release | medium | `debian/` |
+| Debian, Ubuntu archives | needs a sponsor or a Debian Developer, free-software build from source (LLVM 23 is not packaged) | not realistic now | - | - |
 | Fedora COPR | `-bin` as the spec is (COPR builds have no network unless enabled; the SRPM step downloads the tarball) | owner: COPR account and project, webhook or manual build per release | small | `rpm/` |
 | openSUSE Build Service | `-bin`; OBS builds `.rpm` for openSUSE, Fedora and others from one spec, and `.deb` from a `debian/` ([OBS Debian builds](https://en.opensuse.org/openSUSE:Build_Service_Debian_builds)); `download_url` service fetches the tarball | owner: OBS account and project | small | `rpm/` |
-| nixpkgs | yes: `nix/package.nix` is the recipe, with nixpkgs' own `directx-shader-compiler` and `spirv-cross`, a `--version` check and `passthru.tests.gpu` (the GPU golden tests on llvmpipe) | owner (a person): the [Automation/AI policy](https://github.com/NixOS/nixpkgs/blob/master/CONTRIBUTING.md) requires a responsible person who reviews the change and an `Assisted-by:` trailer, naming the tool and the primary model, on any commit made with AI tools; `hash` after tagging (`nix-update maicord --version v0.6.7` or `nix-prefetch-github`) | medium | `nix/` |
+| nixpkgs | yes: `nix/package.nix` is the recipe, with a `--version` check and `passthru.tests.gpu` (the GPU golden tests on llvmpipe) | owner (a person): the [Automation/AI policy](https://github.com/NixOS/nixpkgs/blob/master/CONTRIBUTING.md) requires a responsible person who reviews the change and an `Assisted-by:` trailer, naming the tool and the primary model, on any commit made with AI tools; `hash` after tagging (`nix-update maicord --version v0.6.7` or `nix-prefetch-github`) | medium | `nix/` |
 | Flathub | must build from source with no network and the manifest must be written and submitted by a person (the owner's rule: none is written here) | owner only | large | `flatpak/` is for a self-hosted repo |
 | Snap Store | `-bin` from the tarball in a strict snap (`wayland`, `opengl`, `audio-playback`, `audio-record`, `network`, `desktop`, `password-manager-service` plugs; libraries from `core24` and `stage-packages`; the GPU driver from the graphics content snap) | owner: Snap Store account, name registration, review for the plugs that need approval | medium and ongoing; not done: a second sandbox to keep working (fonts, tray, Secret Service, VA-API, io_uring under snapd's seccomp) for few users | - |
 | Homebrew on Linux | no | not planned | - | - |

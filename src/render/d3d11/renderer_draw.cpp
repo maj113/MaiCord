@@ -6,7 +6,7 @@
 #include "renderer_caption.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/render/d3d11/draw_submission.hpp"
 #include "maicord/render/d3d11/raster_clip.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
@@ -327,6 +327,53 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
     const RunTarget target{renderer, submission, DrawPipeline::media, ~0u, 0, 0};
     DrawRun run{};
+    if constexpr (kGpuPagedBindings) {
+        // Each page is its own texture: a run binds one page of each atlas (identity, frame cache, preview),
+        // and ends where a quad samples another page of an atlas the run already binds.
+        constexpr u8 kUnbound = 0xFF;
+        u8 pages[3]{kUnbound, kUnbound, kUnbound};
+        const GpuPagedTexture* const surfaces[3]{renderer->media_gpu.surface, renderer->animation_gpu.surface,
+                                                 renderer->media_gpu.preview_surface};
+        const auto bind = [&]() noexcept {
+            select_pipeline(renderer, submission, DrawPipeline::media);
+            GpuSrv* views[3]{};
+            for (u32 slot = 0; slot < 3; ++slot)
+                views[slot] = pages[slot] != kUnbound && surfaces[slot]
+                                  ? gpu_paged_texture_binding_view(surfaces[slot], pages[slot])
+                                  : nullptr;
+            gpu_set_srvs(renderer->graphics.context, GpuStage::pixel, 0, 3, views);
+        };
+        for (u32 index = first_batch; index < end_batch; ++index) {
+            const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
+            RasterClipRect scissor{}, pixels{};
+            if (!batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor, &pixels))
+                continue;
+            widen_scissor(*renderer, damage, renderer->media_draw.quad_data + batch.first_quad, sizeof(MediaQuad),
+                          batch.quad_count, pixels, pixel_scale, kDrawQuadNoSign, &scissor);
+            const u32 end = batch.first_quad + batch.quad_count;
+            u32 first = batch.first_quad;
+            for (u32 quad = first; quad < end; ++quad) {
+                const MediaQuad& source = renderer->media_draw.quad_data[quad];
+                const u32 slot = source.u0 < 0 ? 1u : source.v0 < 0 ? 2u : 0u;
+                const u8 page = renderer->media_draw.binding_data[quad];
+                if (pages[slot] != kUnbound && pages[slot] != page) {
+                    bind();
+                    append_run(target, &run, scissor, first, quad);
+                    draw_run(target, run);
+                    run = {};
+                    pages[0] = pages[1] = pages[2] = kUnbound;
+                    first = quad;
+                }
+                pages[slot] = page;
+            }
+            bind();
+            append_run(target, &run, scissor, first, end);
+            renderer->media_draws_last_frame += batch.quad_count;
+        }
+        bind();
+        draw_run(target, run);
+        return true;
+    }
     for (u32 index = first_batch; index < end_batch; ++index) {
         const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
         RasterClipRect scissor{}, pixels{};
@@ -394,8 +441,17 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
         if (mode == GpuMap::discard)
             ++renderer->text_ring_epoch;
         GlyphQuad* destination = static_cast<GlyphQuad*>(mapped) + first;
-        if (content) {
+        // OpenGL ES (kGpuPagedBindings): the quads keep v in the whole surface and are written in their page's
+        // rows. Each quad is finished before it is stored: mapped memory may be write-combined, never read back.
+        const u32 pages = renderer->glyph_text.allocator.page_count;
+        if (content && !kGpuPagedBindings) {
             CopyMemory(destination, text->quads + reused, static_cast<usize>(count) * sizeof(GlyphQuad));
+        } else if (content) {
+            for (u32 index = 0; index < count; ++index) {
+                GlyphQuad quad = text->quads[reused + index];
+                glyph_quad_in_page(&quad, pages);
+                destination[index] = quad;
+            }
         } else {
             const UiLayoutNode* title =
                 renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
@@ -410,14 +466,17 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
             const float origin_x = renderer->login_visible ? 0.0f : title_content.left;
             const float origin_y = renderer->login_visible ? 0.0f : title_content.top;
             for (u32 index = 0; index < quad_count; ++index) {
-                destination[index] = renderer->glyph_text.title_quads[index];
-                destination[index].left += origin_x;
-                destination[index].right += origin_x;
-                destination[index].top += origin_y;
-                destination[index].bottom += origin_y;
+                GlyphQuad quad = renderer->glyph_text.title_quads[index];
+                quad.left += origin_x;
+                quad.right += origin_x;
+                quad.top += origin_y;
+                quad.bottom += origin_y;
                 if (!renderer->login_visible) {
-                    destination[index].color = theme.text_primary;
+                    quad.color = theme.text_primary;
                 }
+                if constexpr (kGpuPagedBindings)
+                    glyph_quad_in_page(&quad, pages);
+                destination[index] = quad;
             }
         }
         gpu_unmap(renderer->graphics.context, renderer->pipeline.glyph_instance_buffer);
@@ -458,6 +517,18 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
     const RunTarget target{renderer, submission, DrawPipeline::glyph, prefix, prefix_base, suffix_base};
     DrawRun run{};
+    // OpenGL ES: a run binds one page of the coverage and colour surfaces and ends where a glyph lies in another.
+    [[maybe_unused]] const GlyphQuad* const quads =
+        content ? renderer->content_text->quads : renderer->glyph_text.title_quads;
+    [[maybe_unused]] u32 page = kGlyphQuadNoPage;
+    [[maybe_unused]] const auto bind = [&]() noexcept {
+        select_pipeline(renderer, submission, DrawPipeline::glyph);
+        const u32 binding = page == kGlyphQuadNoPage ? 0u : page;
+        const GpuPagedTexture* color = d3d11_glyph_text_color_surface(renderer->glyph_text);
+        GpuSrv* views[2]{gpu_paged_texture_binding_view(renderer->glyph_text.gpu.surface, binding),
+                         color ? gpu_paged_texture_binding_view(color, binding) : nullptr};
+        gpu_set_srvs(renderer->graphics.context, GpuStage::pixel, 0, 2, views);
+    };
     for (u32 index = first_batch; index < end_batch; ++index) {
         const GlyphDrawBatch batch =
             content ? renderer->content_text->batches[index]
@@ -477,9 +548,31 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
                 widen_scissor(*renderer, damage, renderer->content_text->quads + batch.first_quad, sizeof(GlyphQuad),
                               batch.quad_count, pixels, pixel_scale, __builtin_offsetof(GlyphQuad, color.red),
                               &scissor);
-            append_run(target, &run, scissor, batch.first_quad, batch.first_quad + batch.quad_count);
+            const u32 end = batch.first_quad + batch.quad_count;
+            if constexpr (kGpuPagedBindings) {
+                u32 first = batch.first_quad;
+                for (u32 quad = first; quad < end; ++quad) {
+                    const u32 quad_page = glyph_quad_page(quads[quad], renderer->glyph_text.allocator.page_count);
+                    if (quad_page == kGlyphQuadNoPage)
+                        continue;
+                    if (page != kGlyphQuadNoPage && page != quad_page) {
+                        bind();
+                        append_run(target, &run, scissor, first, quad);
+                        draw_run(target, run);
+                        run = {};
+                        first = quad;
+                    }
+                    page = quad_page;
+                }
+                bind();
+                append_run(target, &run, scissor, first, end);
+            } else {
+                append_run(target, &run, scissor, batch.first_quad, end);
+            }
         }
     }
+    if constexpr (kGpuPagedBindings)
+        bind();
     draw_run(target, run);
     return true;
 }
@@ -974,9 +1067,9 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             d3d11_draw_pipeline_reserve_ui_instances(&renderer->pipeline, renderer->graphics.device,
                                                      sizeof(PaintQuad), renderer->paint_stream.count);
         if (!reserved.ok()) {
-            log_write(LogLevel::error, "render", "ui_instance_buffer_growth_failed");
-            log_u64(LogLevel::error, "render", "ui_instance_native_error",
-                    static_cast<u32>(reserved.native_error));
+            LogEvent("ui_instance_buffer_growth_failed")
+                .error("hr", static_cast<u32>(reserved.native_error))
+                .write(LogLevel::error, "render");
             return false;
         }
         GpuStatus map_result = kGpuOk;

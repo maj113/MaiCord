@@ -463,21 +463,20 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<u8>{runtime->message_rich_text, kMessageRichTextCapacity}) ||
         !message_poll_store_initialize_owned(&runtime->message_poll_store) ||
         !media_atlas_initialize(
-            &runtime->media_atlas, kMediaAtlasExtent, kMediaAtlasExtent, 1,
+            &runtime->media_atlas, kMediaAtlasExtent, kMediaAtlasPageRows, 1,
             Slice<MediaAtlasEntry>{runtime->media_atlas_entries, kMediaAtlasEntryCapacity},
             Slice<u32>{runtime->media_atlas_buckets, kMediaAtlasEntryCapacity * 2},
             Slice<GlyphAtlasEntry>{runtime->media_atlas_allocations, kMediaAtlasEntryCapacity},
             Slice<GlyphAtlasRow>{runtime->media_atlas_rows, kMediaAtlasRowCapacity}, true) ||
-        !media_atlas_configure_growth(&runtime->media_atlas, kMediaAtlasInitialHeight, kMediaAtlasGrowthStep) ||
+        !media_atlas_configure_surface(&runtime->media_atlas, MediaAtlasSurface::identity) ||
         !media_atlas_initialize(
-            &runtime->preview_media_atlas, kPreviewMediaAtlasExtent, kPreviewMediaAtlasExtent, 1,
+            &runtime->preview_media_atlas, kPreviewMediaAtlasExtent, kPreviewMediaAtlasPageRows, 1,
             Slice<MediaAtlasEntry>{runtime->preview_media_atlas_entries, kPreviewMediaAtlasEntryCapacity},
             Slice<u32>{runtime->preview_media_atlas_buckets, kPreviewMediaAtlasEntryCapacity * 2},
             Slice<GlyphAtlasEntry>{runtime->preview_media_atlas_allocations,
                                    kPreviewMediaAtlasEntryCapacity},
             Slice<GlyphAtlasRow>{runtime->preview_media_atlas_rows, kPreviewMediaAtlasRowCapacity}, true) ||
-        !media_atlas_configure_growth(&runtime->preview_media_atlas, kPreviewMediaAtlasInitialHeight,
-                                      kPreviewMediaAtlasGrowthStep) ||
+        !media_atlas_configure_surface(&runtime->preview_media_atlas, MediaAtlasSurface::preview) ||
         !message_view_runtime_bind_rich_store(&application.message_view, &runtime->message_rich_store)
              .ok() ||
         !navigation_view_initialize(

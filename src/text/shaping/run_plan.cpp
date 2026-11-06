@@ -175,7 +175,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
         available=0;while(available<store->slots.count&&(store->slots[available].references||store->slots[available].generation==0xffffffffu))++available;
         if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};}
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
-    if(!arena_initialize(&state,bold?page:limit,0,page))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
+    if(!arena_initialize(&state,bold?page:limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);data->kind=kind;
     SubstitutionScope substitutions{store->substitutions};
     if(bold){const auto& base=*reinterpret_cast<const PlanData*>(store->slots[parent.slot-1].state.base);

@@ -118,6 +118,16 @@ __forceinline bool system_memory_low() noexcept {
 bool system_memory_low() noexcept;
 #endif
 
+// The physical memory the system has, in kibibytes: the page count of KUSER_SHARED_DATA (the page every Windows process
+// maps at 0x7FFE0000) on Windows, MemTotal of /proc/meminfo on Linux. 0 when unknown.
+#if defined(_WIN32)
+__forceinline u64 system_memory_total_kib() noexcept {
+    return u64{*reinterpret_cast<const volatile u32*>(0x7FFE02E8ull)} * 4; // NumberOfPhysicalPages, 4 KiB pages
+}
+#else
+u64 system_memory_total_kib() noexcept;
+#endif
+
 // Zeroed pages, reserved and committed in one call; null when the system refuses.
 __forceinline void* pages_allocate(usize bytes) noexcept {
 #if defined(_WIN32)

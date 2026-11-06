@@ -33,16 +33,11 @@ pkgbase = maicord
 	optdepends = gnome-keyring: Secret Service to keep the sign-in key (KeePassXC and KWallet work too)
 	provides = maicord
 	conflicts = maicord-bin
-	noextract = dxc-1.9.2609.5.tar.gz
 	options = !buildflags
 	options = !strip
 	options = !debug
 	options = !lto
 	source = git+https://github.com/maj113/MaiCord.git#tag=v0.6.6
-	source = dxc-1.9.2609.5.tar.gz::https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz
-	source = git+https://github.com/KhronosGroup/SPIRV-Cross.git#commit=f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7
-	sha256sums = SKIP
-	sha256sums = 96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1
 	sha256sums = SKIP
 
 pkgname = maicord

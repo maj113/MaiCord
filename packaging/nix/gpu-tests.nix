@@ -6,8 +6,8 @@
 }:
 
 # The GPU tests of the client (tests/gpu: the shader pack, the ui quads, glyph, media and effect scenes against the
-# pictures Direct3D 11 made), run on Mesa's llvmpipe in the sandbox. They are the check that the GLSL pack made from
-# nixpkgs' DXC and SPIRV-Cross renders like the one made from the toolchain upstream pins.
+# pictures Direct3D 11 made), run on Mesa's llvmpipe in the sandbox. They are the check that the hand-written GLSL pack
+# renders like the HLSL it is the twin of.
 #
 # A build with tests defines test-only switches (MAICORD_TEST_HOOKS), so this is never the package that is installed:
 # the result is only the log of the run.

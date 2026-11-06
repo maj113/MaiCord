@@ -173,10 +173,10 @@ void add_extremes(Bounds& bounds, const double (&x)[4], const double (&y)[4]) no
 
 bool factory_create(Factory** out) noexcept {
     Arena permanent{};
-    if (!arena_initialize(&permanent, permanent_reserve, 0, commit_step))
+    if (!arena_initialize(&permanent, permanent_reserve, 0, commit_step, ArenaTag::render))
         return false;
     auto* factory = arena_allocate_zero<Factory>(&permanent);
-    if (!factory || !arena_initialize(&factory->scratch, scratch_reserve, 0, commit_step)) {
+    if (!factory || !arena_initialize(&factory->scratch, scratch_reserve, 0, commit_step, ArenaTag::render)) {
         arena_release(&permanent);
         return false;
     }

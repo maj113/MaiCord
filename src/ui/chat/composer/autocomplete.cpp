@@ -20,7 +20,7 @@ bool ensure_suggestion_storage(ComposerAutocomplete* autocomplete) noexcept {
         return true;
     }
     constexpr usize bytes = sizeof(ComposerAutocompleteSuggestion) * kComposerAutocompleteCapacity;
-    if (!arena_initialize(&autocomplete->storage, bytes, 0, 4 * 1024)) {
+    if (!arena_initialize(&autocomplete->storage, bytes, 0, 4 * 1024, ArenaTag::ui)) {
         return false;
     }
     // This owner has just reserved new, zero-filled pages.

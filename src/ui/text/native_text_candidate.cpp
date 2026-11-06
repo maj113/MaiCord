@@ -34,7 +34,7 @@
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/unicode/grapheme.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/ui/text/native_text_catalog.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/sys/simd.hpp"
@@ -596,7 +596,7 @@ bool native_text_context_initialize(NativeTextContext** output,NativeFontSession
     owner->bindings=reinterpret_cast<Binding*>(reserved+sizeof(NativeTextContext));
     owner->store={native_font_session_instances(fonts),{reinterpret_cast<NativeRunPlanSlot*>(reserved+binding_region_bytes),0}};
     owner->arabic_store={&owner->store,{reinterpret_cast<NativeArabicPlanSlot*>(reserved+binding_region_bytes+plan_region_bytes),0}};
-    if(!arena_initialize(&owner->scratch,32*1024*1024,0,4096)||!native_text_catalogs_initialize(&owner->catalogs)||!native_font_session_retain(fonts)){
+    if(!arena_initialize(&owner->scratch,32*1024*1024,0,4096,ArenaTag::text)||!native_text_catalogs_initialize(&owner->catalogs)||!native_font_session_retain(fonts)){
         native_text_catalogs_release(&owner->catalogs);arena_release(&owner->scratch);pages_release(owner);return false;}
     owner->fonts=fonts;*output=owner;return true;
 }
@@ -650,12 +650,11 @@ ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const
 }
 namespace {
 void release_context_contents(NativeTextContext* o) noexcept {
-    log_u64(LogLevel::info,"text","native_lines_shaped",o->shaped);log_u64(LogLevel::info,"text","native_lines_measured",o->measured);
-    log_u64(LogLevel::info,"text","native_line_prepare_failures",o->prepare_failed);log_u64(LogLevel::info,"text","native_line_execute_failures",o->execute_failed);
-    log_u64(LogLevel::info,"text","native_line_storage_retries",o->storage_retries);
-    log_u64(LogLevel::info,"text","native_arabic_lines_shaped",o->arabic_shaped);log_u64(LogLevel::info,"text","native_arabic_lines_measured",o->arabic_measured);
-    log_u64(LogLevel::info,"text","native_paragraphs_shaped",o->paragraphs_shaped);log_u64(LogLevel::info,"text","native_paragraphs_measured",o->paragraphs_measured);
-    log_u64(LogLevel::info,"text","native_latin_lines_shaped",o->latin_shaped);log_u64(LogLevel::info,"text","native_latin_lines_measured",o->latin_measured);
+    const u64 counts[]={o->shaped,o->measured,o->prepare_failed,o->execute_failed,o->storage_retries,o->arabic_shaped,o->arabic_measured,
+                        o->paragraphs_shaped,o->paragraphs_measured,o->latin_shaped,o->latin_measured};
+    LogEvent("native_text_released").fields("native_lines_shaped\0native_lines_measured\0native_line_prepare_failures\0native_line_execute_failures\0"
+        "native_line_storage_retries\0native_arabic_lines_shaped\0native_arabic_lines_measured\0native_paragraphs_shaped\0"
+        "native_paragraphs_measured\0native_latin_lines_shaped\0native_latin_lines_measured",counts).write(LogLevel::info,"text");
     for(auto* sign=o->omission_signs;sign;sign=sign->next)native_font_run_release(native_font_session_runs(o->fonts),sign->font);
     for(u32 i=0;i<o->binding_count;++i){auto& slot=o->bindings[i];if(slot.font_flags!=emoji_font_flag&&slot.arabic.slot)native_arabic_plan_release(&o->arabic_store,slot.arabic);if(slot.plan.slot)native_run_plan_release(&o->store,slot.plan);if(slot.font.slot)native_font_run_release(native_font_session_runs(o->fonts),slot.font);}
     if(!native_font_session_release(&o->fonts))log_write(LogLevel::error,"text","native_line_session_has_live_handles");

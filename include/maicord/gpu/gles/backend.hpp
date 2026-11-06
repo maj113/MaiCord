@@ -29,6 +29,15 @@ struct GpuInputLayout;
 struct GpuSampler;
 struct GpuBlend;
 struct GpuRaster;
+// One texture per page, made at the page's full height when the page is first backed (src/gpu/gles/resources.cpp).
+struct GpuPagedTexture;
+inline constexpr u32 kGpuPagedTextureMaximumPages = 8;
+// A page is backed whole: there is no smaller unit.
+constexpr u16 gpu_paged_commit_rows(u32) noexcept {
+    return 0;
+}
+// Each page is its own texture: quads of different page bindings need separate draws.
+inline constexpr bool kGpuPagedBindings = true;
 
 struct GpuQuery;
 struct GpuFence;

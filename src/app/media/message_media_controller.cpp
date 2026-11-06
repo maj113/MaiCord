@@ -1,5 +1,4 @@
 #include "maicord/app/media/message_media_controller.hpp"
-#include "maicord/app/media/capacity_deferral.hpp"
 #include "maicord/app/media/account_media.hpp"
 
 #include "maicord/core/deadline.hpp"
@@ -405,14 +404,11 @@ void message_media_controller_release(MessageMediaController* controller) noexce
     reset_value<MessageMediaController>(controller);
 }
 
-void message_media_controller_begin_pump(MessageMediaController* controller, u64 view_signature) noexcept {
+void message_media_controller_begin_pump(MessageMediaController* controller) noexcept {
     if (!controller_valid(controller)) {
         return;
     }
     controller->scan_pending = false;
-    if (controller->preview_view_signature != view_signature)
-        controller->preview_retry_at_ms = 0;
-    controller->preview_view_signature = view_signature;
     controller->retry_at_ms = 0;
     controller->row_count = 0;
     message_media_controller_begin_asset_scan(controller);
@@ -466,22 +462,6 @@ void message_media_controller_begin_asset_scan(MessageMediaController* controlle
         }
         controller->asset_mark_epoch = 1;
     }
-}
-
-bool message_media_controller_preview_ready(MessageMediaController* controller, u64 now_ms) noexcept {
-    if (!controller_valid(controller))
-        return false;
-    if (now_ms >= controller->preview_retry_at_ms)
-        return true;
-    message_media_controller_observe_retry(controller, controller->preview_retry_at_ms);
-    return false;
-}
-
-void message_media_controller_defer_preview(MessageMediaController* controller, u64 now_ms) noexcept {
-    if (!controller_valid(controller))
-        return;
-    controller->preview_retry_at_ms = deadline_after(now_ms, 1000);
-    message_media_controller_observe_retry(controller, controller->preview_retry_at_ms);
 }
 
 bool message_media_primary_visible(const MessageScene& scene, u64 message_id, MediaAssetKey key) noexcept {
@@ -813,76 +793,6 @@ MessageMediaControllerResult message_media_controller_visit_asset(
         return failure(controller, MessageMediaControllerError::callback, 0, candidates);
     saturating_accumulate(controller->decoration_candidates, candidates);
     return {0, candidates, MessageMediaControllerError::none, stopped};
-}
-
-void media_capacity_defer(MediaCapacityDeferrals* deferrals, MediaAssetKey key, u16 width, u16 height,
-                          u64 now_ms) noexcept {
-    if (!deferrals || !media_asset_key_valid(key)) {
-        return;
-    }
-    saturating_increment(deferrals->refused);
-    MediaCapacityDeferral* slot = nullptr;
-    for (auto& entry : deferrals->entries) {
-        if (entry.retry_at_ms != 0 && media_asset_key_equal(entry.key, key)) {
-            slot = &entry;
-            break;
-        }
-    }
-    if (!slot) {
-        for (auto& entry : deferrals->entries) {
-            if (entry.retry_at_ms == 0) {
-                slot = &entry;
-                break;
-            }
-        }
-    }
-    if (!slot) {
-        // Every slot waits: the oldest refusal is replaced.
-        slot = &deferrals->entries[deferrals->cursor++ % kMediaCapacityDeferralCapacity];
-    }
-    slot->key = key;
-    slot->width = width;
-    slot->height = height;
-    slot->retry_at_ms = deadline_after(now_ms, kMediaCapacityDeferralSafetyMs);
-    slot->earliest_ms = deadline_after(now_ms, kMediaCapacityDeferralMinimumMs);
-}
-
-bool media_capacity_waiting(MediaCapacityDeferrals* deferrals, const MediaAtlas& atlas, MediaAssetKey key,
-                            u64 now_ms, u64* wake_ms) noexcept {
-    if (!deferrals) {
-        return false;
-    }
-    for (auto& entry : deferrals->entries) {
-        if (entry.retry_at_ms == 0 || !media_asset_key_equal(entry.key, key)) {
-            continue;
-        }
-        if (now_ms < entry.earliest_ms) {
-            saturating_increment(deferrals->waited);
-            if (wake_ms) {
-                *wake_ms = entry.earliest_ms;
-            }
-            return true;
-        }
-        if (now_ms < entry.retry_at_ms && !media_atlas_can_place(atlas, entry.width, entry.height)) {
-            saturating_increment(deferrals->waited);
-            if (wake_ms) {
-                *wake_ms = entry.retry_at_ms;
-            }
-            return true;
-        }
-        reset_value<MediaCapacityDeferral>(&entry);
-        saturating_increment(deferrals->released);
-        return false;
-    }
-    return false;
-}
-
-u32 media_capacity_waiting_count(const MediaCapacityDeferrals& deferrals) noexcept {
-    u32 count = 0;
-    for (const auto& entry : deferrals.entries) {
-        count += entry.retry_at_ms != 0;
-    }
-    return count;
 }
 
 } // namespace maicord

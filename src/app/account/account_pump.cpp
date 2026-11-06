@@ -44,7 +44,7 @@
 #include "maicord/app/account/user_account_coordinator.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "../shell/log_fields.hpp"
+#include "maicord/core/trace_record.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::app_detail {
@@ -74,12 +74,12 @@ void log_skipped_events(const MessageEventPumpDrainResult& drained) noexcept {
     const auto& failure = drained.failure;
     TraceRecord trace("event_skipped");
     const u64 identity[] = {static_cast<u64>(failure.kind), static_cast<u64>(failure.dispatch_kind)};
-    trace_fields(trace, "event_kind\0dispatch_kind", identity);
+    trace.fields("event_kind\0dispatch_kind", identity);
     trace.field("reason", message_event_pump_reject_reason_name(failure.reason));
     const u64 detail[] = {failure.detail,      failure.payload_bytes, failure.sequence,
                           drained.apply_failures, g_sync.skipped,     drained.state_incomplete};
-    trace_fields(trace, "detail\0payload_bytes\0sequence\0in_drain\0session_total\0state_incomplete", detail);
-    log_write(LogLevel::error, "account", trace.text);
+    trace.fields("detail\0payload_bytes\0sequence\0in_drain\0session_total\0state_incomplete", detail);
+    trace.write(LogLevel::error, "account");
 }
 
 // True when the notice changed.

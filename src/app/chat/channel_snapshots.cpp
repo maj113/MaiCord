@@ -4,6 +4,7 @@
 
 #include "channel_authority.hpp"
 #include "../shell/state.hpp"
+#include "../shell/memory_summary.hpp"
 #include "messages/history_decode.hpp"
 
 #include "maicord/core/log.hpp"
@@ -46,6 +47,8 @@ void application_channel_snapshot_capture(u64 channel_id) noexcept {
         return;
     MessageSnapshotCache& cache = snapshots();
     if (memory_low()) {
+        // The summary is rate-limited: a minute at least between two.
+        application_memory_summary("memory_low");
         message_snapshot_cache_release(&cache);
         return;
     }

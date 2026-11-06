@@ -20,7 +20,7 @@
 #include "user_settings.hpp"
 #include "account_settings.hpp"
 #include "maicord/app/account/login/oauth_account.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -386,8 +386,10 @@ void application_preferences_poll() noexcept {
     g_app.preferences_save_pending = false;
     g_app.preferences_save_failed = !result.ok();
     if (!result.ok()) {
-        log_u64(LogLevel::warning, "preferences", "save_failed", static_cast<u64>(result.error));
-        log_u64(LogLevel::warning, "preferences", "save_native_error", result.native_error);
+        LogEvent("save_failed")
+            .field("error", static_cast<u64>(result.error))
+            .error("native_error", static_cast<u32>(result.native_error))
+            .write(LogLevel::warning, "preferences");
     }
     if (g_app.settings) {
         // Only the retry row reads the save flags, and it exists while a save has failed.

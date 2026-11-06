@@ -6,6 +6,7 @@
 #include "policy.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/core/log_event.hpp"
 
 namespace maicord::app_detail {
 
@@ -186,18 +187,16 @@ bool application_video_pump(bool* repaint) noexcept {
           current_playback.native_error != prior_native_error)) ||
         (current_playback.rejected_error != AccountVideoError::none &&
          current_playback.rejected_error != prior_rejected_error)) {
-        log_write(LogLevel::warning, "media", "video_playback_status_failed");
-        log_u64(LogLevel::warning, "media", "video_playback_error",
-                static_cast<u64>(current_playback.error));
-        log_u64(LogLevel::warning, "media", "video_native_error", current_playback.native_error);
-        log_u64(LogLevel::warning, "media", "video_rejected_error",
-                static_cast<u64>(current_playback.rejected_error));
-        log_u64(LogLevel::warning, "media", "video_position_seconds",
-                current_playback.position_100ns > 0
-                    ? static_cast<u64>(current_playback.position_100ns / 10000000)
-                    : 0);
-        log_u64(LogLevel::warning, "media", "video_has_audio", current_playback.has_audio);
-        log_u64(LogLevel::warning, "media", "video_selected", video->status.selected);
+        LogEvent("video_playback_status_failed")
+            .field("error", static_cast<u64>(current_playback.error))
+            .error("native_error", static_cast<u32>(current_playback.native_error))
+            .field("rejected_error", static_cast<u64>(current_playback.rejected_error))
+            .field("position_seconds", current_playback.position_100ns > 0
+                                           ? static_cast<u64>(current_playback.position_100ns / 10000000)
+                                           : 0)
+            .field("has_audio", static_cast<u64>(current_playback.has_audio))
+            .field("selected", static_cast<u64>(video->status.selected))
+            .write(LogLevel::warning, "media");
     }
     return project_video_scene(video, positioned, visible, repaint);
 }

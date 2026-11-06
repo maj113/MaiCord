@@ -79,6 +79,33 @@ struct GpuTimer {
     GpuQuery* end;
 };
 
+inline constexpr u32 kGpuPagedTextureMaximumPages = 8;
+// Rows a paged texture backs at a time: one row of 64 KiB tiles (128 x 128 texels of 4 bytes, 256 x 256 of 1 byte).
+constexpr u16 gpu_paged_commit_rows(u32 texel_bytes) noexcept {
+    return texel_bytes == 1 ? 256 : 128;
+}
+// Every page samples through the one tiled texture: draws never split per page.
+inline constexpr bool kGpuPagedBindings = false;
+
+// A tiled texture (D3D11_RESOURCE_MISC_TILED) with its views and the tile pool backing it: each tile band of the
+// texture maps one band of pool tiles (band_slot holds that band + 1, 0 for none). The pool grows by ResizeTilePool
+// and shrinks when its last bands are free; a band takes the lowest free one.
+struct GpuPagedTexture {
+    GpuTexture* texture;
+    GpuSrv* view;
+    GpuUav* uav;
+    GpuRtv* target;
+    GpuBuffer* pool;
+    u32 width;
+    u32 page_rows;
+    u32 band_rows;
+    u32 tiles_across;
+    u32 pool_bands;
+    u32 pages;
+    u16 committed[kGpuPagedTextureMaximumPages];
+    u8 band_slot[128];
+};
+
 // Releases the reference and clears the handle; null is fine.
 template <typename T> inline void gpu_release(T*& handle) noexcept {
     com_release(handle);

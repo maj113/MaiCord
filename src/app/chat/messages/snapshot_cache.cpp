@@ -57,7 +57,7 @@ MessageSnapshotEntry* find_entry(MessageSnapshotCache* cache, u64 channel_id) no
 bool pool_reserve(MessageSnapshotCache* cache, u32 used) noexcept {
     if (used > cache->budget)
         return false;
-    if (!cache->pool.base && !arena_initialize(&cache->pool, cache->budget, 0, 64 * 1024))
+    if (!cache->pool.base && !arena_initialize(&cache->pool, cache->budget, 0, 64 * 1024, ArenaTag::messages))
         return false;
     if (used > cache->pool.offset && !arena_allocate(&cache->pool, used - cache->pool.offset, 1))
         return false;
@@ -174,7 +174,7 @@ MessageInput row_input(const MessageSnapshotRow& row, u64 channel_id) noexcept {
 MessageSnapshotScratch* scratch(MessageSnapshotCache* cache) noexcept {
     if (cache->scratch)
         return cache->scratch;
-    if (!arena_initialize(&cache->scratch_arena, sizeof(MessageSnapshotScratch), 0, 64 * 1024))
+    if (!arena_initialize(&cache->scratch_arena, sizeof(MessageSnapshotScratch), 0, 64 * 1024, ArenaTag::messages))
         return nullptr;
     auto* value = arena_allocate<MessageSnapshotScratch>(&cache->scratch_arena);
     if (!value || !message_store_initialize(&value->store, {value->records, 1}, {value->order, 1},

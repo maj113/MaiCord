@@ -13,6 +13,9 @@ struct GlyphAtlasGpu {
     GpuTexture* texture;
     GpuSrv* texture_view;
     GpuUav* texture_uav;
+    // The renderer's glyph atlas is a paged surface (glyph_atlas_gpu_initialize_paged): rasters write its pages and
+    // texture_view is its view; texture and texture_uav stay null.
+    GpuPagedTexture* surface;
     GpuBuffer* command_buffer;
     GpuSrv* command_view;
     GpuComputeShader* raster_shader;
@@ -26,7 +29,7 @@ struct GlyphAtlasGpu {
     u16 width;
     u16 height;
 };
-static_assert(sizeof(GlyphAtlasGpu)==88);
+static_assert(sizeof(GlyphAtlasGpu)==96);
 
 enum class GlyphAtlasGpuError : u8 {
     none,
@@ -58,10 +61,12 @@ static_assert(glyph_raster_header_bytes+128*sizeof(GlyphPathCommand)<=4096);
 // least this wide or tall, and for any raster of at least glyph_raster_culling_commands
 // commands; below both, its per-command test costs more than it skips.
 constexpr u32 glyph_raster_culling_extent=64,glyph_raster_culling_commands=32;
-// Finish before atlas reads; canceled jobs require caller cache invalidation.
+// Finish before atlas reads; canceled jobs require caller cache invalidation. One dispatch writes one page, so a
+// job on another page dispatches the queued ones first.
 struct GlyphRasterBatch {
     GlyphAtlasGpu* owner;GpuContext* context;
     u8* mapped=nullptr;
+    GpuUav* target=nullptr; // the queued jobs' page
     u32 jobs[glyph_raster_batch_limit][7];
     u32 count=0,cursor=0,groups_x=0,groups_y=0,peak_commands=0;
     // `large`: some job reaches glyph_raster_culling_extent. `stroked`: some job strokes; the
@@ -85,13 +90,10 @@ struct GlyphRasterBatch {
 GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, GpuDevice* device,
                                                u16 width, u16 height,
                                                u32 command_capacity) noexcept;
+// An atlas whose texture is a paged surface (R8) of `width` x `pages` pages of `page_rows` rows; its rows are backed
+// with gpu_paged_texture_commit as the allocator commits them.
+GlyphAtlasGpuResult glyph_atlas_gpu_initialize_paged(GlyphAtlasGpu* gpu, GpuDevice* device, u16 width, u16 page_rows,
+                                                     u8 pages, u32 command_capacity) noexcept;
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept;
-// Recreates an atlas texture (the glyph or COLR atlas, with its shader
-// resource and unordered access views) `height` rows tall: copies the rows
-// below min(old, new) and `moves` from the old texture, then releases the old
-// resources. Unchanged on failure.
-GpuStatus glyph_atlas_texture_resize(GpuDevice* device, GpuContext* context, GpuTexture** texture,
-                                   GpuSrv** view, GpuUav** uav, u16 height,
-                                   ConstSlice<GlyphAtlasRowMove> moves) noexcept;
 
 } // namespace maicord

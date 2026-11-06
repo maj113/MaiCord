@@ -1,4 +1,4 @@
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "gpu/gles/internal.hpp"
 
 namespace maicord {
@@ -203,10 +203,11 @@ u32 graphics_program(GpuContext* context) noexcept {
         gl::Sizei length = 0;
         gl.glGetProgramInfoLog(program, sizeof(log) - 1, &length, log);
         log[length < 0 ? 0 : length] = 0;
-        log_write(LogLevel::error, "gpu", "a shader pair did not link");
-        log_u64(LogLevel::error, "gpu", "vertex_slot", static_cast<u64>(vertex - d.vertex_shaders.items));
-        log_u64(LogLevel::error, "gpu", "pixel_slot", static_cast<u64>(pixel - d.pixel_shaders.items));
-        log_write(LogLevel::error, "gpu", log);
+        LogEvent("shader_pair_link_failed")
+            .field("vertex_slot", static_cast<u64>(vertex - d.vertex_shaders.items))
+            .field("pixel_slot", static_cast<u64>(pixel - d.pixel_shaders.items))
+            .quoted("log", log)
+            .write(LogLevel::error, "gpu");
         gl.glDeleteProgram(program);
     }
     // A failed pair is remembered with name 0 so it is not relinked on every draw.
@@ -321,9 +322,11 @@ void gpu_draw_instanced(GpuContext* context, u32 vertices, u32 instances, u32 fi
     api().glDrawArraysInstanced(gl::kTriangleStrip, static_cast<gl::Int>(first_vertex),
                                 static_cast<gl::Sizei>(vertices), static_cast<gl::Sizei>(instances));
     if (gles::device().debug_checks && !gpu_ok(check_error("draw"))) {
-        log_u64(LogLevel::error, "gpu", "framebuffer_status", api().glCheckFramebufferStatus(gl::kFramebuffer));
-        log_u64(LogLevel::error, "gpu", "target_format", static_cast<u32>(context->target->texture->format));
-        log_u64(LogLevel::error, "gpu", "target_width", context->target->texture->width);
+        LogEvent("draw_failed")
+            .hex("framebuffer_status", api().glCheckFramebufferStatus(gl::kFramebuffer))
+            .field("target_format", static_cast<u64>(context->target->texture->format))
+            .field("target_width", context->target->texture->width)
+            .write(LogLevel::error, "gpu");
     }
 }
 

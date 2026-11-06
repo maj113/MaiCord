@@ -88,7 +88,7 @@ bool atlas_pixels_exact(const MediaAtlasResult& allocation, bool preview, u32 wi
     const D3D11_BOX box{allocation.x, allocation.y, 0, allocation.x + width, allocation.y + height, 1};
     g_probe.renderer.graphics.context->CopySubresourceRegion(
         readback.staging, 0, 0, 0, 0,
-        preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture, 0, &box);
+        (preview ? g_probe.renderer.media_gpu.preview_surface : g_probe.renderer.media_gpu.surface)->texture, 0, &box);
     return rgba_pixels_exact(readback, 0, 0, width, height, expected);
 }
 
@@ -151,7 +151,7 @@ template<class Expected>
 bool atlas_rgb_error(const MediaAtlasResult& allocation, u32 width, u32 height, Expected expected,
                      u32* maximum_error) noexcept {
     ProbeTargetReadback readback;
-    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.surface->texture))
         return false;
     bool opaque = true;
     *maximum_error = 0;
@@ -475,7 +475,7 @@ void vp8_test_rgb(u8 y, u8 u, u8 v, u8 output[3]) noexcept {
 bool vp8_atlas_row_exact(const MediaAtlasResult& allocation, u32 origin_x, const u8* expected_gray,
                          u32 count) noexcept {
     ProbeTargetReadback readback;
-    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.surface->texture))
         return false;
     const u8* row = atlas_row(readback, allocation, 0) + origin_x * 4u;
     for (u32 x = 0; x < count; ++x) {
@@ -493,7 +493,7 @@ bool vp8_alpha_atlas_exact(const MediaAtlasResult& allocation) noexcept {
     };
     constexpr u8 expected_u[7] = {124, 126, 130, 127, 133, 128, 126};
     ProbeTargetReadback readback;
-    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.surface->texture))
         return false;
     for (u32 index = 0; index < 7; ++index) {
         const u32 x = positions[index][0];
@@ -532,7 +532,7 @@ bool media_surface_rgba_exact(ID3D11Texture2D* texture, const MediaAtlasResult& 
 }
 
 bool vp8_atlas_rgba_exact(const MediaAtlasResult& allocation, ConstSlice<u8> expected_rgba) noexcept {
-    return media_surface_rgba_exact(g_probe.renderer.media_gpu.texture, allocation, expected_rgba);
+    return media_surface_rgba_exact(g_probe.renderer.media_gpu.surface->texture, allocation, expected_rgba);
 }
 
 bool vp8_atlas_rgba_hash(const MediaAtlasResult& allocation, u64* output) noexcept {
@@ -540,7 +540,7 @@ bool vp8_atlas_rgba_hash(const MediaAtlasResult& allocation, u64* output) noexce
         return false;
     }
     ProbeTargetReadback readback;
-    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.surface->texture))
         return false;
     u64 hash = 1'469'598'103'934'665'603ull;
     for (u32 y = 0; y < allocation.height; ++y) {
@@ -901,7 +901,7 @@ bool vp8_real_fixture_gpu_exact() noexcept {
         &g_probe.renderer, preview_vp8_key, frame, header, g_probe.vp8_modes, g_probe.vp8_coefficients, {});
     if (!preview_vp8.ok() || !media_atlas_find(&g_probe.preview_media_atlas, preview_vp8_key).ok() ||
         media_atlas_find(&g_probe.media_atlas, preview_vp8_key).ok() ||
-        !media_surface_rgba_exact(g_probe.renderer.media_gpu.preview_texture, preview_vp8.allocation,
+        !media_surface_rgba_exact(g_probe.renderer.media_gpu.preview_surface->texture, preview_vp8.allocation,
                                   ConstSlice<u8>{expected_rgba, sizeof(expected_rgba)})) {
         return false;
     }
@@ -914,7 +914,7 @@ bool vp8_real_fixture_gpu_exact() noexcept {
     if (!preview_lossless.ok() ||
         !media_atlas_find(&g_probe.preview_media_atlas, preview_lossless_key).ok() ||
         media_atlas_find(&g_probe.media_atlas, preview_lossless_key).ok() ||
-        !media_surface_rgba_exact(g_probe.renderer.media_gpu.preview_texture, preview_lossless.allocation,
+        !media_surface_rgba_exact(g_probe.renderer.media_gpu.preview_surface->texture, preview_lossless.allocation,
                                   ConstSlice<u8>{expected_rgba, sizeof(expected_rgba)})) {
         return false;
     }

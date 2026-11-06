@@ -51,14 +51,6 @@ struct ApplicationMediaPump {
     bool request_inline_flags() noexcept;
     bool request_catalog_previews() noexcept;
     bool media_key_is_current(const MediaAssetKey& key) noexcept;
-    // An essential image (anything but the member rows' own nameplates and avatar decorations)
-    // that found the atlas full unpins those decorations, so the allocation may evict shelves
-    // that hold nothing else visible; returns how many (zero for a decoration itself or when
-    // none were pinned). The caller retries its upload when nonzero.
-    u32 yield_decorative_media(const MediaAssetKey& key) noexcept;
-    // True while `key`'s last upload was refused for room and the atlas still cannot take its
-    // size: asking the account again would decode a frame that cannot be uploaded.
-    bool capacity_waiting(const MediaAssetKey& key) noexcept;
     // The atlas that holds `key`: the preview atlas for large downscaled previews.
     MediaAtlas* upload_atlas(const MediaAssetKey& key) noexcept;
     // True when an animated key is resident and its timeline is observed (play) or merely present (held

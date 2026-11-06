@@ -140,23 +140,27 @@ in `api.inl` and out of line in `src/gpu/gles`; a wrapper must compile to the ca
 commit, not whole executables, since LTO moves code). The enumerators of `GpuFormat`, `GpuUsage`, `GpuBind`, `GpuBlendFactor`,
 `GpuFilter` and `GpuAddress` carry Direct3D 11's values, buffer views carry their element count, and resizing a texture goes through
 `gpu_texture_info` and `gpu_texture_create_from_info`. On Linux the backend is OpenGL ES 3.1 over EGL, both opened with `dlopen`
-(`src/gpu/gles`, tests `tests/gpu`; see its README). Shaders stay HLSL: `tools/build_gles_shader_pack.py` turns the packed shaders of
-`cmake/generated_sources.cmake` into a deflate-packed GLSL ES 3.10 pack with DXC and SPIRV-Cross, pinned in
-`tools/linux_shader_toolchain.json` and built or fetched into `~/.cache/maicord-toolchain` (`MAICORD_TOOLCHAIN_CACHE`) by
-`tools/fetch_linux_shader_toolchain.py` (a build offline from a distribution's packages names its own DXC and SPIRV-Cross instead: the
-CMake variables `MAICORD_DXC` and `MAICORD_SPIRV_CROSS_PREFIX`, see `packaging/README.md`). A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under
-`tests/gpu/golden` from Direct3D 11 with `tools/update_gpu_goldens.py`, and a change to a shader needs `tools/deflate_cache.txt` to carry the
-new pack's stream (`MAICORD_UPDATE_DEFLATE_CACHE=1 python3 tools/build_gles_shader_pack.py`; CI is strict); the Linux renders must match
-the goldens within the tolerances of the
-scene headers (`tests/gpu/*_scene.hpp`, `png_golden.hpp`). HLSL constant buffers keep their HLSL layout and Linux reads them as std140
-(see Code guidelines).
+(`src/gpu/gles`, tests `tests/gpu`; see its README). The client's own GLES shaders are hand-written GLSL ES 3.10, one twin per HLSL file in
+`src/render/shaders/gles` (rules in its README); the HLSL stays the Windows source and the reference of every number.
+`tools/build_gles_shader_pack.py` prunes the twins for the packed shaders of `cmake/generated_sources.cmake`, strips them and deflate-packs
+them with python alone: a client or test build needs no shader compiler. **A change to an HLSL shader changes its GLSL twin in the same
+commit:** the first line of a twin records the SHA-256 of the HLSL it was written against, `tools/check_shader_twins.py` (run by `build.ps1`,
+`build_linux.sh` and the suite) fails naming the twin when the HLSL changed alone, and `--stamp <twin>` records the new hash once the pair was
+read side by side. A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under `tests/gpu/golden` from Direct3D 11
+with `tools/update_gpu_goldens.py`, and a change to a shader needs `tools/deflate_cache.txt` to carry the new pack's stream
+(`MAICORD_UPDATE_DEFLATE_CACHE=1 python3 tools/build_gles_shader_pack.py`; CI is strict); the Linux renders must match the goldens within the
+tolerances of the scene headers (`tests/gpu/*_scene.hpp`, `png_golden.hpp`). DXC, SPIRV-Cross and `tools/shadertool/mc_shadertool.cpp`
+(`tools/linux_shader_toolchain.json`, fetched and built into `~/.cache/maicord-toolchain` (`MAICORD_TOOLCHAIN_CACHE`) by
+`tools/fetch_linux_shader_toolchain.py`) are for plugin effects only: `tools/glsl_translate.py` and `maicord-plugin effect build --glsl` turn an
+effect's HLSL into the GLSL section of its package, and rebuilding `tests/gpu/effects/*.mcfx` needs them. HLSL constant buffers keep their HLSL
+layout and Linux reads them as std140 (see Code guidelines).
 
 **Where the details are.** Each area keeps its current design and test notes in a README beside its code:
 
 | Area | Notes |
 | --- | --- |
 | Wayland window, input, clipboard, IME | `src/platform/window/wayland/README.md`, `third_party/wayland/README.md` |
-| GLES backend, EGL surface, shader pack | `src/gpu/gles/README.md` |
+| GLES backend, EGL surface, shader pack | `src/gpu/gles/README.md`, `src/render/shaders/gles/README.md` (the GLSL twins) |
 | Renderer, effects (`.mcfx` GLSL), Lottie geometry | `src/render/README.md` |
 | Video (VA-API, software tier, MP4) | `src/platform/decode/README.md` |
 | Audio (PulseAudio, speech-dispatcher, AAC) | `src/platform/audio/README.md` |
@@ -297,6 +301,40 @@ maicord_test(MaiCordFooTests ENTRY maicord_foo_tests_entry
 Source order in `libraries.cmake` is the archive member order, so append new
 files instead of re-sorting the lists.
 
+### The log
+
+The client writes `maicord.log` (Windows `%LOCALAPPDATA%\MaiCord\logs`, Linux `$XDG_STATE_HOME/maicord/logs`; 16 MiB,
+then it moves to `maicord.previous.log`). A line is `YYYY-MM-DD HH:MM:SS.mmm [L] [component] event key=value ...`, `L`
+one of `T I W E`. An event and its details are one line: build it with `LogEvent` (`core/log_event.hpp`) —
+`.field`, `.hex`, `.quoted` for values with spaces, `.fields` for a group of numbers, `.error` for a Win32 error,
+HRESULT or Linux native error (named when common: `hr=0x887A0005 DXGI_ERROR_DEVICE_REMOVED`) — and `write` it once,
+never one `log_u64` per value. Each line is one copy into the log's buffer under one lock; warning and error lines reach
+the file before the call returns (so they survive a crash), others within milliseconds.
+
+Each session starts with its record under `[start]` (a Linux run under WSL; the display, GPU and install lines follow
+once the window, the device and the updater exist):
+
+```
+[I] [start] ==== MaiCord 0.6.6 start ====
+[I] [start] build version=0.6.6 commit=unknown flavour=release test_hooks=1
+[I] [start] system os=Linux kernel=6.18.58.1-microsoft-standard-WSL2 distro="Ubuntu 24.04.5 LTS" libc=glibc glibc=2.39 runtime=native
+[I] [start] machine cpu="AMD Ryzen 7 5800X 8-Core Processor" cores=16 ram_mib=15947 locale=en-US pid=24931
+[I] [start] display count=1 dpi=96 scale_percent=100
+[I] [start] gpu backend=gles description="Microsoft Corporation | D3D12 (AMD Radeon RX 9070 XT) | OpenGL ES 3.1 Mesa 25.2.8-0ubuntu0.24.04.4" wsl_d3d12=1
+[I] [start] install kind=package channel=stable updates=off
+```
+
+On Windows the system line has the Windows build and the GPU line the adapter, PCI ids, driver and D3D11 feature
+level. The record never holds user names, paths, tokens or account ids.
+
+`[memory] summary` is one line at the first frame, every ten minutes and when the system runs short of memory (at most
+once a minute): the arenas' totals and the four largest tags as `tag:committed_kib/peak_kib`, then the GPU atlases.
+Arenas count under the `ArenaTag` their owner passes to `arena_initialize` (`other` when none):
+
+```
+[I] [memory] summary reason=startup arenas=57 committed_kib=624 reserved_kib=113764 top=storage:236/236,other:188/188,ui:84/84,text:64/64 gpu_atlas_kib=1024
+```
+
 ## Code guidelines
 
 - For Discord API, authentication and Gateway work, use
@@ -338,7 +376,8 @@ files instead of re-sorting the lists.
 - HLSL constant buffers keep the layout their C++ struct has under HLSL packing, and the Linux build reads the same
   buffers as std140 uniform blocks (a `float3` or `uint2` that straddles a register, or a `packoffset` gap, differs).
   Wherever the two differ, name the bytes with scalars and the gaps with `_unused_` members inside
-  `#if defined(__spirv__)`; `tools/check_cbuffer_layout.py` (part of the suite) rejects a divergent cbuffer.
+  `#if defined(__spirv__)` (the spelling the GLSL twin's block copies and plugin effects compile with);
+  `tools/check_cbuffer_layout.py` (part of the suite) rejects a divergent cbuffer or a twin block whose members are elsewhere.
 - Public headers in `include/maicord/` document ownership and failure
   behavior; keep those comments accurate when behavior changes.
 - **Source layout.** Each module (`app`, `ui`, `render`, `gpu`, `protocol`, `model`,

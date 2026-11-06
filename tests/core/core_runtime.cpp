@@ -270,6 +270,44 @@ void test_trace_record() noexcept {
         overlapping = overlapping && fixture.record.text[index] == "abc"[index % 3];
     expect(overlapping && fixture.record.text[fixture.record.used] == 0,
            "trace_record_overlapping_text_append");
+
+    // An event and its fields are one line: no newline inside, the values after their keys, error codes named.
+    const auto same = [](const LogEvent& event, const char* expected) noexcept {
+        const u32 length = c_string_length(expected);
+        return event.used == length && maicord::bytes_equal(event.text, expected, length) && event.text[length] == 0;
+    };
+    LogEvent event("visible_media_deferred");
+    event.field("asset_kind", u64{7})
+        .field("frame", "450x880")
+        .hex("mask", 0x1Fu)
+        .error("hr", 0x887A0005u)
+        .error("native_error", 5)
+        .error("other", 1234)
+        .quoted("cpu", "AMD \"Ryzen\" 9");
+    const u64 values[] = {1, 2, 3};
+    LogEvent group("group");
+    group.fields("a\0b\0c", values);
+    expect(same(event, "visible_media_deferred asset_kind=7 frame=450x880 mask=0x1F hr=0x887A0005 "
+                       "DXGI_ERROR_DEVICE_REMOVED native_error=5 ERROR_ACCESS_DENIED other=1234 cpu=\"AMD 'Ryzen' 9\"") &&
+               same(group, "group a=1 b=2 c=3"),
+           "log_event_formats_one_line");
+
+    // The common codes only: an HRESULT_FROM_WIN32 value by its Win32 name, anything unlisted unnamed.
+    const auto named = [](u32 code, const char* expected) noexcept {
+        const char* name = log_error_name(code);
+        return expected ? name && maicord::bytes_equal(name, expected, c_string_length(expected) + 1) : !name;
+    };
+    bool table = named(2, "ERROR_FILE_NOT_FOUND") && named(1460, "ERROR_TIMEOUT") && named(10054, "WSAECONNRESET") &&
+                 named(0x80070005u, "ERROR_ACCESS_DENIED") && named(0x8007000Eu, "ERROR_OUTOFMEMORY") &&
+                 named(0x80004005u, "E_FAIL") && named(0x887A0006u, "DXGI_ERROR_DEVICE_HUNG") &&
+                 named(0x887A0020u, "DXGI_ERROR_DRIVER_INTERNAL_ERROR") && named(0, nullptr) &&
+                 named(0x80070001u, nullptr) && named(0x887A0002u, nullptr);
+#if !defined(_WIN32)
+    table = table && named(0x40000068u, "ECONNRESET") && named(0x4000001Cu, "ENOSPC") && named(0x40000001u, nullptr);
+#else
+    table = table && named(0x40000068u, nullptr);
+#endif
+    expect(table, "log_error_names_common_codes");
 }
 
 void test_byte_queue() noexcept {
@@ -336,6 +374,27 @@ void test_byte_queue() noexcept {
     expect(ordered, "byte_queue_fragmented_copy_boundaries");
 }
 
+// What one event with five fields costs the open log, against the same five values as five lines (how call sites
+// logged before LogEvent): one line, one file write and one prefix, where the split form takes five of each. Both are
+// warnings, which reach the file before the call returns, so each line is its own write. `newline` is 2 for "\r\n".
+bool log_write_counts_match(u32 newline) noexcept {
+    constexpr u32 prefix = 35; // "YYYY-MM-DD HH:MM:SS.mmm [W] [test] "
+    const u64 values[] = {1, 2, 3, 4, 5};
+    const LogCounters start = log_counters();
+    LogEvent("deferred").fields("a\0b\0c\0d\0e", values).write(LogLevel::warning, "test");
+    const LogCounters event = log_counters();
+    const char* keys = "a\0b\0c\0d\0e";
+    for (const u64 value : values) {
+        log_u64(LogLevel::warning, "test", keys, value);
+        keys += 2;
+    }
+    const LogCounters split = log_counters();
+    return event.lines - start.lines == 1 && event.file_writes - start.file_writes == 1 &&
+           event.file_bytes - start.file_bytes == prefix + c_string_length("deferred a=1 b=2 c=3 d=4 e=5") + newline &&
+           split.lines - event.lines == 5 && split.file_writes - event.file_writes == 5 &&
+           split.file_bytes - event.file_bytes == 5 * (prefix + 3 + newline);
+}
+
 #if defined(_WIN32)
 // Buffered logging: ordinary lines reach the file through the deferred flush
 // without further log traffic, error lines flush synchronously, order is kept.
@@ -367,7 +426,7 @@ void test_log_buffered_flush() noexcept {
         output[read] = 0;
         return read;
     };
-    char text[512]{};
+    char text[1024]{};
     log_write(LogLevel::info, "test", "buffered_line");
     const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
     u32 bytes = 0;
@@ -378,6 +437,7 @@ void test_log_buffered_flush() noexcept {
     const bool deferred = bytes != 0;
     log_u64(LogLevel::info, "test", "pending", 7);
     log_write(LogLevel::error, "test", "error_line");
+    const bool counted = ok && log_write_counts_match(2);
     bytes = file_text(text, sizeof(text));
     log_close();
     const auto find = [&](const char* needle) noexcept -> u32 {
@@ -394,6 +454,9 @@ void test_log_buffered_flush() noexcept {
                first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
                text[23] == ' ',
            "log_buffers_lines_flushes_deferred_and_errors_in_order");
+    const u32 event_line = find("[W] [test] deferred a=1 b=2 c=3 d=4 e=5\r\n");
+    expect(counted && event_line != ~0u && event_line > third,
+           "log_event_is_one_line_one_write_and_warnings_reach_the_file_at_once");
     DeleteFileW(file);
     RemoveDirectoryW(logs_dir);
     RemoveDirectoryW(maicord_dir);
@@ -426,7 +489,7 @@ void test_log_buffered_flush() noexcept {
         output[count] = 0;
         return count;
     };
-    char text[512]{};
+    char text[1024]{};
     log_write(LogLevel::info, "test", "buffered_line");
     const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
     u32 bytes = 0;
@@ -438,6 +501,7 @@ void test_log_buffered_flush() noexcept {
     const bool deferred = bytes != 0;
     log_u64(LogLevel::info, "test", "pending", 7);
     log_write(LogLevel::error, "test", "error_line");
+    const bool counted = ok && log_write_counts_match(1);
     bytes = file_text(text, sizeof(text));
     log_close();
     const auto find = [&](const char* needle) noexcept -> u32 {
@@ -454,6 +518,9 @@ void test_log_buffered_flush() noexcept {
                first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
                text[23] == ' ',
            "log_buffers_lines_flushes_deferred_and_errors_in_order");
+    const u32 event_line = find("[W] [test] deferred a=1 b=2 c=3 d=4 e=5\n");
+    expect(counted && event_line != ~0u && event_line > third,
+           "log_event_is_one_line_one_write_and_warnings_reach_the_file_at_once");
     // Remove the file, then the logs and MaiCord directories above it.
     sys_unlink(path);
     for (u32 directories = 0; ok && directories < 2; ++directories) {
@@ -577,6 +644,35 @@ void test_arena() noexcept {
     }
     expect(bounds, "arena_zero_and_secure_rewind_preserve_unaligned_guards");
     arena_release(&dirty);
+
+    // The per-tag account is the arenas' own commits at every step: initialization, growth, trim and release.
+    const ArenaAccount base = arena_account(ArenaTag::platform);
+    Arena first_tagged{}, second_tagged{};
+    const auto account_is = [&](i64 arenas, i64 reserved, i64 committed) noexcept {
+        const ArenaAccount now = arena_account(ArenaTag::platform);
+        return now.arenas == base.arenas + arenas && now.reserved == base.reserved + reserved &&
+               now.committed == base.committed + committed && now.peak_committed >= now.committed;
+    };
+    bool accounted = arena_initialize(&first_tagged, 1024 * 1024, 4096, 64 * 1024, ArenaTag::platform) &&
+                     arena_initialize(&second_tagged, 256 * 1024, 0, 4096, ArenaTag::platform) &&
+                     first_tagged.tag == ArenaTag::platform;
+    const auto sum = [&](usize Arena::*member) noexcept {
+        return static_cast<i64>(first_tagged.*member + second_tagged.*member);
+    };
+    accounted = accounted && account_is(2, sum(&Arena::reserved), sum(&Arena::committed));
+    accounted = accounted && arena_allocate(&first_tagged, 200 * 1024, 16) && arena_allocate(&second_tagged, 5000, 8) &&
+                first_tagged.committed == 256 * 1024 && second_tagged.committed == 8192 &&
+                account_is(2, sum(&Arena::reserved), sum(&Arena::committed));
+    const i64 high = base.committed + sum(&Arena::committed);
+    accounted = accounted && arena_account(ArenaTag::platform).peak_committed == maximum(base.peak_committed, high);
+    accounted = accounted && arena_trim(&first_tagged, 0) && first_tagged.committed == 0 &&
+                account_is(2, sum(&Arena::reserved), sum(&Arena::committed)) &&
+                arena_account(ArenaTag::platform).peak_committed == maximum(base.peak_committed, high);
+    arena_release(&second_tagged);
+    accounted = accounted && account_is(1, static_cast<i64>(first_tagged.reserved), 0);
+    arena_release(&first_tagged);
+    accounted = accounted && account_is(0, 0, 0);
+    expect(accounted, "arena_account_matches_commits_across_growth_trim_and_release");
 }
 
 void test_stable_storage() noexcept {

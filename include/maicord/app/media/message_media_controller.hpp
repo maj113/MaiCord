@@ -112,8 +112,6 @@ struct MessageMediaController {
     bool asset_marks_saturated;
     bool initialized;
     u64 retry_at_ms;
-    u64 preview_retry_at_ms;
-    u64 preview_view_signature;
     u64 interacting_message_id; // hovered or focused message for interaction-only animation
     u64 avatar_message_id;      // group head whose author avatar plays (on group hover)
     u64 avatar_hover_message_id; // message whose avatar is under the pointer
@@ -134,8 +132,7 @@ static_assert(sizeof(MessageMediaController) < 384);
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept;
 void message_media_controller_release(MessageMediaController* controller) noexcept;
-void message_media_controller_begin_pump(MessageMediaController* controller,
-                                         u64 view_signature = 0) noexcept;
+void message_media_controller_begin_pump(MessageMediaController* controller) noexcept;
 // A complete visibility pass and the later bounded admission pass have
 // independent duplicate suppression, while sharing the existing mark bank.
 void message_media_controller_begin_asset_scan(MessageMediaController* controller) noexcept;
@@ -152,8 +149,6 @@ bool message_media_controller_set_avatar_interaction(MessageMediaController*, u6
 // The message whose author avatar is under the pointer; a hovered avatar
 // plays even when GIFs do not autoplay. Schedules a scan when it changed.
 bool message_media_controller_set_avatar_hover(MessageMediaController*, u64 message_id) noexcept;
-bool message_media_controller_preview_ready(MessageMediaController* controller, u64 now_ms) noexcept;
-void message_media_controller_defer_preview(MessageMediaController* controller, u64 now_ms) noexcept;
 bool message_media_primary_visible(const MessageScene& scene, u64 message_id, MediaAssetKey key) noexcept;
 void message_media_controller_defer_scan(MessageMediaController* controller) noexcept;
 void message_media_controller_observe_retry(MessageMediaController* controller, u64 retry_at_ms) noexcept;

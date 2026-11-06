@@ -27,90 +27,38 @@ void unbind_media_resources(GpuContext1* context) noexcept {
     gpu_set_uavs(context, 0, 1, &null_uav);
 }
 
-void copy_tile(GpuContext1* context, GpuTexture* to, u32 to_x, u32 to_y, GpuTexture* from,
+// Copies a tile with its padding texel between two paged surfaces, each in its own page's rows.
+void copy_tile(GpuContext1* context, GpuPagedTexture* to, u32 to_x, u32 to_y, GpuPagedTexture* from,
                u32 x, u32 y, u32 width, u32 height, u32 padding) noexcept {
     unbind_media_resources(context);
+    const GpuPage destination = gpu_paged_texture_page(to, to_y);
+    const GpuPage source = gpu_paged_texture_page(from, y);
+    if (!destination.texture || !source.texture) {
+        return;
+    }
+    y -= source.first_row;
     const GpuBox box{x - padding, y - padding, x + width + padding, y + height + padding};
-    gpu_copy_region(context, to, to_x - padding, to_y - padding, from, box);
+    gpu_copy_region(context, destination.texture, to_x - padding, to_y - destination.first_row - padding,
+                    source.texture, box);
 }
 
-bool ensure_texture(AnimationFrameCacheGpu* gpu, GpuDevice* device) noexcept {
-    if (gpu->texture && gpu->texture_view) {
-        return true;
-    }
-    GpuStatus result = gpu_texture_create(device,
-                                          {gpu->cache.allocations.width, gpu->cache.allocations.height, GpuFormat::rgba8,
-                                           GpuUsage::default_, gpu_bind_srv},
-                                          nullptr, &gpu->texture);
-    if (SUCCEEDED(result)) {
-        result = gpu_srv_create(device, gpu->texture, {GpuViewKind::texture, GpuFormat::rgba8}, &gpu->texture_view);
-    }
-    if (FAILED(result)) {
-        gpu_release(gpu->texture_view);
-        gpu_release(gpu->texture);
-        animation_frame_cache_reset(&gpu->cache);
-        return false;
-    }
-    return true;
-}
-
-// Taller cache texture keeping rows [0, old_height); frame handles and
-// coordinates are unchanged, so no presentation needs refreshing.
-bool grow_texture(AnimationFrameCacheGpu* gpu, GpuDevice* device, GpuContext1* context,
-                  u16 old_height) noexcept {
-    if (!gpu->texture) {
-        return true;
-    }
-    GpuTextureInfo info{};
-    gpu_texture_info(gpu->texture, &info);
-    GpuTexture* texture = nullptr;
-    GpuSrv* view = nullptr;
-    GpuStatus result = gpu_texture_create_from_info(device, info, gpu->cache.allocations.height, false, &texture);
-    if (SUCCEEDED(result)) {
-        result = gpu_srv_create(device, texture, {GpuViewKind::texture, GpuFormat::rgba8, 0}, &view);
-    }
-    if (FAILED(result)) {
-        gpu_release(view);
-        gpu_release(texture);
-        return false;
-    }
-    unbind_media_resources(context);
-    gpu_copy_region(context, texture, 0, 0, gpu->texture, {0, 0, gpu_texture_info_width(info), old_height});
-    gpu_release(gpu->texture_view);
-    gpu_release(gpu->texture);
-    gpu->texture = texture;
-    gpu->texture_view = view;
-    return true;
-}
-
-// Allocation that keeps recently replayed frames: below capacity, a request
-// that could only evict recent tiles grows the texture instead.
-AnimationFrameCacheResult allocate_frame(AnimationFrameCacheGpu* gpu, GpuDevice* device,
-                                         GpuContext1* context,
-                                         const AnimationFrameCacheDescriptor& descriptor) noexcept {
-    GlyphAtlasAllocator& allocations = gpu->cache.allocations;
-    for (u32 attempt = 0;; ++attempt) {
-        const bool protect = gpu->growth.maximum_height != 0 && allocations.height < gpu->growth.maximum_height;
-        allocations.protect_after = protect ? glyph_atlas_growth_protect_after(gpu->growth) : 0;
-        AnimationFrameCacheResult result = animation_frame_cache_allocate(&gpu->cache, descriptor);
-        allocations.protect_after = 0;
-        if (result.ok() || !protect ||
-            (result.error != AnimationFrameCacheError::no_capacity &&
-             result.error != AnimationFrameCacheError::too_large) ||
-            attempt != 0) {
-            if (!result.ok() && protect && result.error == AnimationFrameCacheError::no_capacity)
-                result = animation_frame_cache_allocate(&gpu->cache, descriptor);
-            return result;
+// The surface is made on the first frame and backs the rows the cache allocated.
+bool sync_surface(AnimationFrameCacheGpu* gpu, GpuDevice* device, GpuContext1* context) noexcept {
+    const GlyphAtlasAllocator& pages = gpu->cache.allocations;
+    if (!gpu->surface) {
+        if (FAILED(gpu_paged_texture_create(
+                device, {pages.width, pages.page_rows, pages.page_count, GpuFormat::rgba8, gpu_bind_srv},
+                &gpu->surface))) {
+            animation_frame_cache_reset(&gpu->cache);
+            return false;
         }
-        const u16 old_height = allocations.height;
-        if (!glyph_atlas_growth_prepare(&gpu->growth, &allocations, descriptor.width, descriptor.height)) {
-            return animation_frame_cache_allocate(&gpu->cache, descriptor);
-        }
-        if (!grow_texture(gpu, device, context, old_height)) {
-            allocations.height = old_height;
-            return result;
-        }
+        gpu->texture_view = gpu_paged_texture_view(gpu->surface);
     }
+    bool ok = true;
+    for (u32 page = 0; page < pages.page_count; ++page) {
+        ok = gpu_ok(gpu_paged_texture_commit(context, gpu->surface, page, pages.pages[page].committed)) && ok;
+    }
+    return ok;
 }
 
 bool publish_presentation(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,
@@ -129,13 +77,13 @@ bool publish_presentation(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& m
 
 } // namespace
 
-bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, u16 width, u16 height,
-                                          u16 maximum_frame_extent) noexcept {
-    if (!gpu || width < 3 || height < 3 || maximum_frame_extent == 0) {
+bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, bool preview) noexcept {
+    if (!gpu) {
         return false;
     }
     reset_value<AnimationFrameCacheGpu>(gpu);
-    gpu->maximum_frame_extent = maximum_frame_extent;
+    gpu->maximum_frame_extent = preview ? kAnimationFrameCacheGpuPreviewFrameExtent
+                                        : kAnimationFrameCacheGpuMaximumFrameExtent;
     if (!stable_storage_initialize(&gpu->storage.entries, kAnimationFrameCacheGpuEntryCapacity,
                                    kAnimationFrameCacheGpuInitialEntryCapacity,
                                    sizeof(AnimationFrameCacheEntry), alignof(AnimationFrameCacheEntry),
@@ -153,15 +101,20 @@ bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, u16 width
         release_storage(&gpu->storage);
         return false;
     }
+    const u16 commit_rows = gpu_paged_commit_rows(4);
+    const GlyphAtlasPaging paging{kAnimationFrameCacheGpuPageRows, static_cast<u8>(preview ? 4 : 2), commit_rows == 0,
+                                  commit_rows, kAnimationFrameCacheGpuPageRows, kAnimationFrameCacheGpuProtectMs,
+                                  false, {}};
     if (animation_frame_cache_initialize(
-            &gpu->cache, width, height, 1,
+            &gpu->cache, kAnimationFrameCacheGpuExtent, kAnimationFrameCacheGpuPageRows, 1,
             Slice<AnimationFrameCacheEntry>{
                 stable_storage_data<AnimationFrameCacheEntry>(gpu->storage.entries),
                 gpu->storage.entries.capacity},
             Slice<u32>{stable_storage_data<u32>(gpu->storage.buckets), gpu->storage.buckets.capacity},
             Slice<GlyphAtlasEntry>{stable_storage_data<GlyphAtlasEntry>(gpu->storage.allocations),
                                    gpu->storage.allocations.capacity},
-            Slice<GlyphAtlasRow>{gpu->rows, kAnimationFrameCacheGpuRowCapacity})) {
+            Slice<GlyphAtlasRow>{gpu->rows, kAnimationFrameCacheGpuRowCapacity}) &&
+        glyph_atlas_configure_paging(&gpu->cache.allocations, paging)) {
         return true;
     }
     release_storage(&gpu->storage);
@@ -169,33 +122,26 @@ bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, u16 width
     return false;
 }
 
-bool animation_frame_cache_gpu_configure_growth(AnimationFrameCacheGpu* gpu, u16 initial_height) noexcept {
-    return gpu && gpu->storage.entries.arena.base && !gpu->texture && gpu->cache.entry_count == 0 &&
-           glyph_atlas_growth_configure(&gpu->growth, &gpu->cache.allocations, initial_height,
-                                        kAnimationFrameCacheGpuGrowthStep, kAnimationFrameCacheGpuProtectMs);
-}
-
 void animation_frame_cache_gpu_observe_time(AnimationFrameCacheGpu* gpu, u64 now_ms) noexcept {
     if (gpu) {
-        glyph_atlas_growth_observe(&gpu->growth, gpu->cache.allocations, now_ms);
+        glyph_atlas_observe_time(&gpu->cache.allocations, now_ms);
     }
 }
 
 u64 animation_frame_cache_gpu_trim_deadline(const AnimationFrameCacheGpu& gpu) noexcept {
-    return gpu.texture ? glyph_atlas_growth_trim_deadline(gpu.growth, kAnimationFrameCacheGpuIdleMs) : 0;
+    return gpu.surface ? glyph_atlas_trim_deadline(gpu.cache.allocations, kAnimationFrameCacheGpuIdleMs) : 0;
 }
 
-bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, u64 now_ms) noexcept {
+bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, GpuContext1* context, u64 now_ms) noexcept {
     const u64 deadline = gpu ? animation_frame_cache_gpu_trim_deadline(*gpu) : 0;
     if (!deadline || now_ms < deadline) {
         return false;
     }
-    // Every replay refreshes the deadline, so nothing on screen is animating
-    // from this cache: drop all frames and the texture, restart small.
-    animation_frame_cache_gpu_reset(gpu);
-    gpu->cache.allocations.height = gpu->growth.minimum_height;
-    gpu->growth.trim_pending = false;
-    return true;
+    const u32 evicted = animation_frame_cache_trim(&gpu->cache);
+    for (u32 page = 0; page < gpu->cache.allocations.page_count; ++page) {
+        gpu_paged_texture_commit(context, gpu->surface, page, gpu->cache.allocations.pages[page].committed);
+    }
+    return evicted != 0;
 }
 
 bool animation_frame_cache_gpu_reserve(AnimationFrameCacheGpu* gpu, u32 required_capacity) noexcept {
@@ -242,8 +188,8 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
     if (!gpu) {
         return;
     }
-    gpu_release(gpu->texture_view);
-    gpu_release(gpu->texture);
+    gpu_paged_texture_release(&gpu->surface);
+    gpu->texture_view = nullptr;
     animation_frame_cache_reset(&gpu->cache);
     AnimationFramePresentation* values = presentations(gpu);
     for (u32 index = 0; values && index < gpu->storage.presentations.capacity; ++index) {
@@ -255,8 +201,7 @@ void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept {
     if (!gpu) {
         return;
     }
-    gpu_release(gpu->texture_view);
-    gpu_release(gpu->texture);
+    gpu_paged_texture_release(&gpu->surface);
     release_storage(&gpu->storage);
     reset_value<AnimationFrameCacheGpu>(gpu);
 }
@@ -269,13 +214,13 @@ void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noe
 
 bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* device,
                                        GpuContext1* context, MediaAtlas* media_atlas,
-                                       GpuTexture* media_texture,
+                                       GpuPagedTexture* media_surface,
                                        const AnimationFrameCacheDescriptor& descriptor,
                                        MediaAtlasHandle* presented_media) noexcept {
     if (presented_media) {
         reset_value<MediaAtlasHandle>(presented_media);
     }
-    if (!gpu || !device || !context || !media_atlas || !media_texture || descriptor.width == 0 ||
+    if (!gpu || !device || !context || !media_atlas || !media_surface || descriptor.width == 0 ||
         descriptor.height == 0 || descriptor.width > gpu->maximum_frame_extent ||
         descriptor.height > gpu->maximum_frame_extent) {
         return false;
@@ -295,19 +240,14 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* d
         ++gpu->failures;
         return false;
     }
-    const AnimationFrameCacheResult destination = allocate_frame(gpu, device, context, descriptor);
-    if (!destination.ok()) {
-        ++gpu->failures;
-        return false;
-    }
-    glyph_atlas_growth_note_activity(&gpu->growth);
-    if (!ensure_texture(gpu, device)) {
+    const AnimationFrameCacheResult destination = animation_frame_cache_allocate(&gpu->cache, descriptor);
+    if (!destination.ok() || !sync_surface(gpu, device, context)) {
         ++gpu->failures;
         return false;
     }
     if (!destination.cached) {
         // Includes the atlas's padding texel, so linear filtering never samples a neighbouring tile.
-        copy_tile(context, gpu->texture, destination.allocation.x, destination.allocation.y, media_texture,
+        copy_tile(context, gpu->surface, destination.allocation.x, destination.allocation.y, media_surface,
                   source.x, source.y, source.width, source.height,
                   media_atlas->allocations.padding != 0 ? 1u : 0u);
         ++gpu->captures;
@@ -347,7 +287,6 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
         return false;
     }
     ++gpu->restores;
-    glyph_atlas_growth_note_activity(&gpu->growth);
     *result = source;
     if (presented_media) {
         *presented_media = destination.handle;
@@ -378,15 +317,16 @@ bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaA
 }
 
 bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuContext1* context,
-                                           MediaAtlas* media_atlas, GpuTexture* media_texture,
+                                           MediaAtlas* media_atlas, GpuPagedTexture* media_surface,
                                            MediaAssetKey key) noexcept {
-    if (!gpu || !context || !media_atlas || !media_texture) {
+    if (!gpu || !context || !media_atlas || !media_surface) {
         return false;
     }
-    if (!gpu->texture) {
+    if (!gpu->surface) {
         return true;
     }
-    const MediaAtlasResult destination = media_atlas_find(media_atlas, key);
+    // Materializing shows nothing: neither the entry nor its frame is pinned.
+    const MediaAtlasResult destination = media_atlas_peek(media_atlas, key);
     if (!destination.ok() || destination.handle.slot >= gpu->storage.presentations.capacity) {
         ++gpu->failures;
         return false;
@@ -396,13 +336,14 @@ bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuConte
         return true;
     }
     GlyphAtlasAllocation source{};
-    if (!animation_frame_cache_gpu_resolve(gpu, destination, &source) ||
+    if (!glyph_atlas_validate(gpu->cache.allocations, presentation.frame, &source) ||
         source.width != destination.width || source.height != destination.height) {
+        reset_value<AnimationFramePresentation>(&presentation);
         ++gpu->failures;
         return false;
     }
     // Includes the atlas's padding texel, so linear filtering never samples a neighbouring tile.
-    copy_tile(context, media_texture, destination.x, destination.y, gpu->texture, source.x, source.y,
+    copy_tile(context, media_surface, destination.x, destination.y, gpu->surface, source.x, source.y,
               source.width, source.height, media_atlas->allocations.padding != 0 ? 1u : 0u);
     presentation.materialized = true;
     saturating_accumulate(gpu->copied_pixels, u64{source.width} * source.height);

@@ -266,6 +266,17 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
     cache->free_cursor = 0;
     cache->next_allocation_key = 0;
 }
+
+u32 animation_frame_cache_trim(AnimationFrameCache* cache) noexcept {
+    if (!cache || !cache->entries || !cache->buckets) {
+        return 0;
+    }
+    const u32 evicted = glyph_atlas_trim(&cache->allocations);
+    if (evicted != 0) {
+        clear_stale(cache);
+    }
+    return evicted;
+}
 #pragma clang attribute pop
 
 void animation_frame_cache_begin_visibility(

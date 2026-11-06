@@ -29,6 +29,7 @@ constexpr u32 kAtlasBytes = media_scene::kAtlasWidth * media_scene::kAtlasHeight
 constexpr u32 kFrameBytes = media_scene::kFrameWidth * media_scene::kFrameHeight * 4;
 
 u8 g_atlas[kAtlasBytes];
+u8 g_copy[kAtlasBytes];
 u8 g_frame[kFrameBytes];
 u8 g_atlas_golden[kAtlasBytes];
 u8 g_frame_golden[kFrameBytes];
@@ -130,17 +131,28 @@ void run() noexcept {
               gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_atlas, &jpeg_atlas)),
           "the decode shaders");
 
-    GpuTexture* atlas = nullptr;
-    GpuSrv* atlas_view = nullptr;
-    GpuRtv* atlas_target = nullptr;
-    GpuUav* atlas_uav = nullptr;
-    check(gpu_ok(gpu_texture_create(device,
-                                    {media_scene::kAtlasWidth, media_scene::kAtlasHeight, GpuFormat::rgba8,
-                                     GpuUsage::default_, gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav},
-                                    nullptr, &atlas)) &&
-              gpu_ok(gpu_srv_create(device, atlas, {GpuViewKind::texture, GpuFormat::rgba8}, &atlas_view)) &&
-              gpu_ok(gpu_rtv_create(device, atlas, &atlas_target)) && gpu_ok(gpu_uav_create(device, atlas, &atlas_uav)),
-          "the atlas");
+    // The atlas is a paged surface of 8 pages (the media shaders' t0): the decoders write page 2, which is copied to
+    // page 5, and the quads sample both pages in one draw. Only the two backed pages hold memory.
+    constexpr u32 kAtlasPages = 8, kScenePage = 2, kCopyPage = 5;
+    GpuPagedTexture* paged = nullptr;
+    check(gpu_ok(gpu_paged_texture_create(device,
+                                          {media_scene::kAtlasWidth, media_scene::kAtlasHeight, kAtlasPages,
+                                           GpuFormat::rgba8, gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav},
+                                          &paged)) &&
+              gpu_ok(gpu_paged_texture_commit(context, paged, kScenePage, media_scene::kAtlasHeight)) &&
+              gpu_ok(gpu_paged_texture_commit(context, paged, kCopyPage, media_scene::kAtlasHeight)) &&
+              gpu_paged_texture_bytes(paged) == 2ull * kAtlasBytes && !gpu_paged_texture_page(paged, 0).texture,
+          "the paged atlas backs only its committed pages");
+    const GpuPage scene_page = paged ? gpu_paged_texture_page(paged, kScenePage * media_scene::kAtlasHeight) : GpuPage{};
+    const GpuPage copy_page = paged ? gpu_paged_texture_page(paged, kCopyPage * media_scene::kAtlasHeight) : GpuPage{};
+    GpuTexture* atlas = scene_page.texture;
+    GpuRtv* atlas_target = scene_page.target;
+    GpuUav* atlas_uav = scene_page.uav;
+    GpuSrv* atlas_view = paged ? gpu_paged_texture_view(paged) : nullptr;
+    check(atlas && atlas_target && atlas_uav && atlas_view && copy_page.texture &&
+              scene_page.first_row == kScenePage * media_scene::kAtlasHeight &&
+              scene_page.rows == media_scene::kAtlasHeight && scene_page.binding == kScenePage,
+          "the atlas pages");
 
     media_scene::build(&g_data);
     GpuBuffer* palette = nullptr;
@@ -176,15 +188,25 @@ void run() noexcept {
                                     nullptr, &target)) &&
               gpu_ok(gpu_rtv_create(device, target, &view)),
           "render target");
+    // The animation cache (t1, 2 pages) and the preview atlas (t2, 4 pages) hold their picture in their last page.
+    constexpr u32 kSidePages[2] = {2, 4};
     GpuTexture* side[2] = {};
+    GpuPagedTexture* side_paged[2] = {};
     GpuSrv* side_views[2] = {};
     for (u32 i = 0; i < 2; ++i) {
         media_scene::side_picture(i, g_side[i]);
         const GpuInitialData initial{g_side[i], 64};
-        check(gpu_ok(gpu_texture_create(device, {16, 16, GpuFormat::rgba8, GpuUsage::immutable, gpu_bind_srv}, &initial,
-                                        &side[i])) &&
-                  gpu_ok(gpu_srv_create(device, side[i], {GpuViewKind::texture, GpuFormat::rgba8}, &side_views[i])),
-              "a side atlas");
+        const bool made =
+            gpu_ok(gpu_texture_create(device, {16, 16, GpuFormat::rgba8, GpuUsage::immutable, gpu_bind_srv}, &initial,
+                                      &side[i])) &&
+            gpu_ok(gpu_paged_texture_create(device, {16, 16, kSidePages[i], GpuFormat::rgba8, gpu_bind_srv},
+                                            &side_paged[i])) &&
+            gpu_ok(gpu_paged_texture_commit(context, side_paged[i], kSidePages[i] - 1, 16));
+        GpuTexture* page = made ? gpu_paged_texture_page(side_paged[i], (kSidePages[i] - 1) * 16).texture : nullptr;
+        if (page)
+            gpu_copy_region(context, page, 0, 0, side[i], {0, 0, 16, 16});
+        side_views[i] = made ? gpu_paged_texture_view(side_paged[i]) : nullptr;
+        check(page && side_views[i], "a side atlas");
     }
     GpuBuffer* instances = nullptr;
     check(gpu_ok(gpu_buffer_create(device, {sizeof(media_scene::kQuads), GpuUsage::dynamic, gpu_bind_vertex, false},
@@ -263,7 +285,17 @@ void run() noexcept {
         check(gpu_ok(gpu_readback(device, context, atlas, {0, 0, media_scene::kAtlasWidth, media_scene::kAtlasHeight},
                                   g_atlas, media_scene::kAtlasWidth * 4)),
               "atlas readback");
+        gpu_copy_region(context, copy_page.texture, 0, 0, atlas,
+                        {0, 0, media_scene::kAtlasWidth, media_scene::kAtlasHeight});
+        check(gpu_ok(gpu_readback(device, context, copy_page.texture,
+                                  {0, 0, media_scene::kAtlasWidth, media_scene::kAtlasHeight}, g_copy,
+                                  media_scene::kAtlasWidth * 4)) &&
+                  bytes_equal(g_copy, g_atlas, kAtlasBytes),
+              "the copy page holds the scene page");
 
+        // The quads keep the scene's uv: on OpenGL ES v is in the rows of the page a draw binds. Atlas quads
+        // alternate between the scene page and the copy page, so the draw splits per quad as the renderer does
+        // where consecutive quads change page; the side atlases sample their last page.
         void* mapped = gpu_map(context, instances, GpuMap::discard, nullptr);
         check(mapped != nullptr, "instance map");
         if (mapped) {
@@ -281,15 +313,19 @@ void run() noexcept {
         gpu_set_blend(context, blend, no_factor);
         GpuBuffer* constants[1] = {frame};
         gpu_set_constants(context, GpuStage::vertex, 0, 1, constants);
-        GpuSrv* views[3] = {atlas_view, side_views[0], side_views[1]};
-        gpu_set_srvs(context, GpuStage::pixel, 0, 3, views);
         GpuSampler* samplers[1] = {sampler};
         gpu_set_samplers(context, GpuStage::pixel, 0, 1, samplers);
         gpu_set_input_layout(context, layout);
         gpu_set_vertex_buffer(context, instances, sizeof(media_scene::Quad), 0);
         gpu_set_shader(context, vertex_shader);
         gpu_set_shader(context, pixel_shader);
-        gpu_draw_instanced(context, 4, media_scene::kQuadCount, 0, 0);
+        for (u32 i = 0; i < media_scene::kQuadCount; ++i) {
+            GpuSrv* views[3] = {gpu_paged_texture_binding_view(paged, i & 1 ? kCopyPage : kScenePage),
+                                gpu_paged_texture_binding_view(side_paged[0], kSidePages[0] - 1),
+                                gpu_paged_texture_binding_view(side_paged[1], kSidePages[1] - 1)};
+            gpu_set_srvs(context, GpuStage::pixel, 0, 3, views);
+            gpu_draw_instanced(context, 4, 1, 0, i);
+        }
         check(gpu_ok(gpu_readback(device, context, target, {0, 0, media_scene::kFrameWidth, media_scene::kFrameHeight},
                                   g_frame, media_scene::kFrameWidth * 4)),
               "frame readback");
@@ -328,6 +364,14 @@ void run() noexcept {
             check(png_golden::within(frame_difference, media_scene::kFrameTolerance),
                   "the frame matches tests/gpu/golden/media_draw.png");
         }
+        // Returning a page returns its memory; the other page keeps its pixels.
+        check(gpu_ok(gpu_paged_texture_commit(context, paged, kCopyPage, 0)) &&
+                  gpu_paged_texture_bytes(paged) == kAtlasBytes &&
+                  !gpu_paged_texture_page(paged, kCopyPage * media_scene::kAtlasHeight).texture &&
+                  gpu_ok(gpu_readback(device, context, atlas, {0, 0, media_scene::kAtlasWidth, media_scene::kAtlasHeight},
+                                      g_copy, media_scene::kAtlasWidth * 4)) &&
+                  bytes_equal(g_copy, g_atlas, kAtlasBytes),
+              "a decommitted page returns its memory and leaves the other page intact");
     }
     gpu_release(raster);
     gpu_release(blend);
@@ -338,7 +382,7 @@ void run() noexcept {
     gpu_release(frame);
     gpu_release(instances);
     for (u32 i = 0; i < 2; ++i) {
-        gpu_release(side_views[i]);
+        gpu_paged_texture_release(&side_paged[i]);
         gpu_release(side[i]);
     }
     gpu_release(view);
@@ -352,10 +396,7 @@ void run() noexcept {
     release_input(&yuv);
     gpu_release(palette_view);
     gpu_release(palette);
-    gpu_release(atlas_uav);
-    gpu_release(atlas_target);
-    gpu_release(atlas_view);
-    gpu_release(atlas);
+    gpu_paged_texture_release(&paged);
     gpu_release(jpeg_atlas);
     gpu_release(jpeg_idct);
     gpu_release(vp8);

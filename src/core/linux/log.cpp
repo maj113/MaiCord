@@ -3,9 +3,12 @@
 // UTC when none is readable), as on Windows. The file is <state directory>/logs/maicord.log (D19:
 // $XDG_STATE_HOME/maicord, see state_path in data_path.hpp).
 //
-// Lines are formatted in place after the buffered bytes, under the lock. Error lines, a full buffer and close
-// write synchronously; everything else reaches the file within kFlushDelayMilliseconds through one flush thread
-// (started with the first buffered line), so external log readers still see lines without further log traffic.
+// Lines are formatted in place after the buffered bytes, under the lock: one lock and one copy per line, whatever its
+// fields (core/log_event.hpp builds a multi-field event on the caller's stack first). Warning and error lines, a full
+// buffer and close write synchronously, so the lines before a crash are in the file (the process's own buffer dies
+// with it, the page cache does not); everything else reaches the file within kFlushDelayMilliseconds through one
+// flush thread (started with the first buffered line), so external log readers still see lines without further log
+// traffic.
 #include "maicord/core/log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/decimal.hpp"
@@ -60,6 +63,7 @@ struct LogState {
     bool flush_thread_started;
     bool stopping;
     u64 stamp_second;
+    LogCounters counters;
     u32 buffered;
     char stamp[kStampCharacters];
     char buffer[kBufferBytes];
@@ -136,9 +140,11 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
 // Caller holds the lock.
 void flush_locked() noexcept {
     if (g_log.buffered != 0 && log_file() >= 0) {
+        ++g_log.counters.file_writes;
         const long written = sys_write(log_file(), g_log.buffer, g_log.buffered);
         if (!syscall_failed(written)) {
             g_log.file_bytes += static_cast<u64>(written);
+            g_log.counters.file_bytes += static_cast<u64>(written);
         }
     }
     g_log.buffered = 0;
@@ -206,7 +212,8 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
             g_log.buffered += length;
-            if (level == LogLevel::error) {
+            ++g_log.counters.lines;
+            if (level >= LogLevel::warning) {
                 flush_locked();
             } else if (!__atomic_load_n(&g_log.flush_wanted, __ATOMIC_ACQUIRE)) {
                 if (start_flush_thread_locked()) {
@@ -329,6 +336,13 @@ void log_u64(LogLevel level, const char* component, const char* key, u64 value) 
     line.put(key ? key : "value");
     line.put(text);
     commit_line(line, level);
+}
+
+LogCounters log_counters() noexcept {
+    g_log.lock.acquire();
+    const LogCounters counters = g_log.counters;
+    g_log.lock.release();
+    return counters;
 }
 
 } // namespace maicord

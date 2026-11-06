@@ -16,7 +16,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/app/voice/connection.hpp"
 #include "maicord/core/log.hpp"
-#include "../shell/log_fields.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/app/voice/push_to_talk_binding.hpp"
@@ -157,14 +157,15 @@ void refresh_view() noexcept {
         next.hovered = UiVoiceControl::none;
     if (next.state != voice.view.state) {
         // The panel's "Couldn't connect" state, with the worker's reasons.
-        log_u64(next.state == UiVoicePanelState::failed ? LogLevel::error : LogLevel::info, "voice", "panel_state",
-                static_cast<u64>(next.state));
-        if (next.state == UiVoicePanelState::failed && s) {
-            const u64 failed[] = {static_cast<u64>(s->error), static_cast<u64>(s->connection_error), s->voice_close_code,
-                                  static_cast<u64>(s->udp_error)};
-            log_u64_fields(LogLevel::error, "voice", "gateway_voice_error\0connection_error\0close_code\0udp_error",
-                           failed);
+        LogEvent line("panel_state");
+        line.field("state", static_cast<u64>(next.state));
+        const bool failed = next.state == UiVoicePanelState::failed;
+        if (failed && s) {
+            const u64 reasons[] = {static_cast<u64>(s->error), static_cast<u64>(s->connection_error), s->voice_close_code,
+                                   static_cast<u64>(s->udp_error)};
+            line.fields("gateway_voice_error\0connection_error\0close_code\0udp_error", reasons);
         }
+        line.write(failed ? LogLevel::error : LogLevel::info, "voice");
     }
     const bool layout = next.state != voice.view.state &&
                         (next.state == UiVoicePanelState::hidden || voice.view.state == UiVoicePanelState::hidden);

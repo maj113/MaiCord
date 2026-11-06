@@ -323,7 +323,7 @@ bool word_gap_error(D3D11Renderer& renderer, Utf8View word, u32 flags, float ori
     }
     ProbeTargetReadback atlas{};
     D3D11_TEXTURE2D_DESC description{};
-    if (atlas.read(renderer, owner.gpu.texture, description))
+    if (atlas.read(renderer, owner.gpu.surface->texture, description))
         return false;
     float previous = 0;
     *worst = 0;

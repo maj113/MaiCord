@@ -22,7 +22,7 @@ MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, GpuStat
 }
 
 bool dimensions_valid(u16 width, u16 height) noexcept {
-    return width >= 16 && height >= 16 && width <= 4'096 && height <= 4'096;
+    return width >= 16 && height >= 16 && width <= 4'096 && height <= 16'384;
 }
 
 // Upload resources grow geometrically: exact-size growth would allocate a new
@@ -249,35 +249,34 @@ GpuStatus create_jpeg_resources(MediaAtlasGpu* gpu, GpuDevice* device) noexcept 
                                                         &gpu->jpeg_atlas_constants, &gpu->jpeg_atlas_shader);
 }
 
-
-GpuStatus create_media_surface(GpuDevice* device, GpuContext1* context, u16 width, u16 height,
-                               GpuTexture** texture, GpuSrv** texture_view,
-                               GpuRtv** target,
-                               GpuUav** texture_uav) noexcept {
-    GpuStatus result = gpu_format_check(device, GpuFormat::rgba8,
-                                        static_cast<u8>(gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav));
-    if (!gpu_ok(result)) {
-        return result == kGpuUnsupported ? kGpuFail : result;
-    }
-    result = gpu_texture_create(
-        device, {width, height, GpuFormat::rgba8, GpuUsage::default_, gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav},
-        nullptr, texture);
-    if (SUCCEEDED(result)) {
-        result = gpu_srv_create(device, *texture, {GpuViewKind::texture, GpuFormat::rgba8}, texture_view);
-    }
-    if (SUCCEEDED(result)) {
-        result = gpu_rtv_create(device, *texture, target);
-    }
-    if (SUCCEEDED(result)) {
-        result = gpu_uav_create(device, *texture, texture_uav);
-    }
-    if (SUCCEEDED(result)) {
-        const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        gpu_clear_rtv(context, *target, transparent);
-    }
+GpuStatus create_media_surface(GpuDevice* device, const MediaAtlas& atlas, GpuPagedTexture** surface,
+                               GpuSrv** view) noexcept {
+    const GlyphAtlasAllocator& pages = atlas.allocations;
+    const GpuStatus result = gpu_paged_texture_create(
+        device,
+        {pages.width, pages.page_rows, pages.page_count, GpuFormat::rgba8,
+         static_cast<u8>(gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav)},
+        surface);
+    *view = SUCCEEDED(result) ? gpu_paged_texture_view(*surface) : nullptr;
     return result;
 }
 
 } // namespace media_atlas_gpu_detail
+
+bool media_atlas_gpu_select(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview,
+                            MediaAtlasResult* allocation) noexcept {
+    if (!media_atlas_gpu_sync(gpu, context, atlas, preview)) {
+        return false;
+    }
+    GpuPagedTexture* backup = preview ? gpu->preview_backup : gpu->backup;
+    const GpuPage page = gpu_paged_texture_page(preview ? gpu->preview_surface : gpu->surface, allocation->y);
+    gpu->texture = page.texture;
+    gpu->target = page.target;
+    gpu->texture_uav = page.uav;
+    gpu->backup_texture = backup ? gpu_paged_texture_page(backup, allocation->y).texture : nullptr;
+    allocation->y = static_cast<u16>(allocation->y - page.first_row);
+    return page.texture != nullptr;
+}
+
 } // namespace maicord
 #pragma clang attribute pop

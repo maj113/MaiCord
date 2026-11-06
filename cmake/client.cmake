@@ -52,7 +52,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/chat/composer/edit_menu.cpp src/app/chat/composer/spellcheck.cpp
     src/app/chat/composer/attachments.cpp src/app/media/attachment_allowance.cpp
     src/app/media/upload_lane.cpp src/app/shell/content_input.cpp src/app/chat/application_link_trust.cpp
-    src/app/media/image_viewer.cpp src/app/media/image_zoom.cpp src/app/shell/frame_presentation.cpp
+    src/app/media/image_viewer.cpp src/app/media/image_zoom.cpp src/app/shell/frame_presentation.cpp src/app/shell/memory_summary.cpp
+    src/app/shell/startup_record.cpp src/app/shell/startup_gpu.cpp
     src/app/chat/unread_banner.cpp src/app/chat/messages/intro.cpp
     src/app/guild/folders.cpp src/app/shell/navigation_drag.cpp
     src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp src/app/account/profile_editor_preview.cpp

@@ -18,13 +18,29 @@ the scene library `maicord_ui` and the theme in `maicord_theme`). The GPU backen
   scenes check theme colours, counts and repeat-draw identity.
 - GPU handles are released with `gpu_release`, never `com_release` (a handle is a COM object on Windows only).
 
+## Atlases
+
+Every growable GPU surface (the identity and preview media atlases, both animation frame caches, the glyph coverage and colour atlases)
+is a paged surface (`gpu_paged_texture_*`, `include/maicord/gpu/api.hpp`) under one shelf allocator (`text/glyph_atlas.cpp`): a
+virtual height of up to eight fixed pages that shelves never cross. Rows are backed as shelves open (Direct3D 11: 128 or 256-row bands
+of 64 KiB tiles of one tiled texture; OpenGL ES: a whole texture per page) and returned at idle trim, so a surface never grows,
+compacts or copies, and nothing visible is evicted or moved to make room. What the allocator keeps beyond the visible set is bounded
+(`GlyphAtlasPaging::budget_rows`): past it, the least recently used slot that is not visible takes the request. Fixed-size profile media
+(effect layers, banners, nameplates) have pools of their own pages (`kMediaAtlasProfilePools`), reused in ring order. Out of virtual
+space (every page full of visible pictures) an upload is refused and logged (`media_atlas_out_of_virtual_space`).
+
+Quads sample a page at a time where pages are separate textures (`kGpuPagedBindings`, OpenGL ES): media quads carry v in their page's
+rows and their page in `RendererMediaDrawStorage::binding_data`; glyph quads keep v in the whole surface and the upload turns it into
+their page's rows. Draws split where consecutive quads change page and bind that page's view; Direct3D 11 never splits.
+
 ## Background effects
 
 Effects run through the shared pass executor (`d3d11/effect_renderer.cpp`, built into `maicord_effect_host`). A package of `.mcfx`
 interface 4 carries a GLSL section (type 10, one entry per DXBC shader: `include/maicord/gpu/glsl_shader.hpp`) next to the DXBC, which
 Windows ignores and Linux runs through `gpu_*_shader_create_blob`. `tools/maicord-plugin/mcfx_tool.py effect build --glsl auto|yes|no
-[--dxbc-from PACKAGE]` makes it with `tools/glsl_translate.py` (the shader pack's DXC and SPIRV-Cross chain;
-`MAICORD_GLSL_TOOLCHAIN=<dir>` names a prebuilt one). MaiCord-plugins' `scripts/build_universal.py` makes the catalog package from the
+[--dxbc-from PACKAGE]` makes it with `tools/glsl_translate.py` (DXC and SPIRV-Cross, pinned in `tools/linux_shader_toolchain.json`; the
+client's own shaders are hand-written GLSL, `src/render/shaders/gles`, and use none of it;
+`MAICORD_GLSL_TOOLCHAIN=<dir>` names a prebuilt toolchain). MaiCord-plugins' `scripts/build_universal.py` makes the catalog package from the
 Windows build, and `plugin_index.py` (`check_source`, `check_universal`) checks it.
 
 `tests/gpu/effects.cpp` (one source for both systems) renders every `samples/effects` effect and Silk Waves (`tests/gpu/effects/*.mcfx`)

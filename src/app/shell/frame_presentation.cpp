@@ -66,7 +66,8 @@
 #include "../account/profile.hpp"
 #include "../account/dm_profile.hpp"
 
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
+#include "memory_summary.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
@@ -213,12 +214,11 @@ void record_first_present() noexcept {
     if (!g_app.first_present_recorded) {
         g_app.first_present_recorded = true;
         application_updates_ready();
-        log_u64(LogLevel::info, "startup", "first_present_us", application_now_us());
-        log_u64(LogLevel::info, "render", "first_frame_quads", g_app.renderer.paint_stream.count);
-        log_u64(LogLevel::info, "render", "first_frame_draw_calls", g_app.renderer.draw_calls_last_frame);
-        log_u64(LogLevel::info, "render", "first_frame_glyph_quads",
-                g_app.renderer.glyph_text.title_quad_count);
-        log_u64(LogLevel::info, "render", "first_frame_cpu_us", g_app.renderer.first_frame_cpu_us);
+        const u64 first[] = {application_now_us(), g_app.renderer.paint_stream.count,
+                             g_app.renderer.draw_calls_last_frame, g_app.renderer.glyph_text.title_quad_count,
+                             g_app.renderer.first_frame_cpu_us};
+        LogEvent("first_present").fields("us\0quads\0draw_calls\0glyph_quads\0cpu_us", first).write(LogLevel::info, "startup");
+        application_memory_summary("startup");
     }
 }
 
@@ -479,11 +479,12 @@ void application_record_presentation_failure(const char* stage) noexcept {
     saturating_increment(g_app.presentation_failures);
     const u32 count = g_app.presentation_failures;
     if (count == 1u || (count & (count - 1u)) == 0u) {
-        log_write(LogLevel::error, "render", stage);
-        log_u64(LogLevel::error, "render", "presentation_failures", count);
+        LogEvent line(stage);
+        line.field("presentation_failures", count);
         // The frame step that rejected (call, panels, renderer, ...).
         if (g_present_rejected_stage[0])
-            log_write(LogLevel::error, "render_stage", g_present_rejected_stage);
+            line.field("stage", g_present_rejected_stage);
+        line.write(LogLevel::error, "render");
     }
     // A layout transition (the call's chat split closing, a pane change) can
     // leave a published scene inconsistent until something relayouts it. Try

@@ -105,10 +105,11 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         if(colr_paint_rasterize(&gpu,context,program,rectangle,invalid,16,32,32,1,&batch))return fail(5);
     }
     if(!colr_compute_bindings_empty(context))return fail(6);
-    D3D11_TEXTURE2D_DESC description{};gpu.texture->GetDesc(&description);
-    description.Usage=D3D11_USAGE_STAGING;description.BindFlags=0;description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+    D3D11_TEXTURE2D_DESC description{};gpu.surface->texture->GetDesc(&description);
+    description.Usage=D3D11_USAGE_STAGING;description.BindFlags=description.MiscFlags=0;
+    description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
     if(FAILED(device->CreateTexture2D(&description,nullptr,&staging)))return fail(7);
-    context->CopyResource(staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
+    context->CopyResource(staging,gpu.surface->texture);D3D11_MAPPED_SUBRESOURCE mapped{};
     if(FAILED(context->Map(staging,0,D3D11_MAP_READ,0,&mapped)))return fail(8);
     bool exact=true;
     for(u32 tile=0;tile<4;++tile)for(u32 y=0;y<4;++y)for(u32 x=0;x<4;++x)for(u32 c=0;c<4;++c){

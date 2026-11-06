@@ -21,7 +21,7 @@ bool atlas_pressure_pixels(D3D11Renderer& r) noexcept {
     const auto key = [](u64 id) noexcept { return media_asset_attachment(id, MediaAttachmentFormat::gif); };
     const u16 heights[] = {32, 32, 64, 32, 64, 32};
     bool ok = media_atlas_initialize(&atlas, 128, 256, 0, {entries, 16}, {buckets, 32}, {allocations, 16}, {rows, 8}) &&
-        media_atlas_gpu_initialize(&gpu, r.graphics.device, r.graphics.context1, 128, 256).ok();
+        media_atlas_gpu_initialize(&gpu, r.graphics.device, atlas).ok();
     for (u32 i = 0; ok && i < 6; ++i) {
         const u32 color = i == 0 ? 0xff0000ff : i == 5 ? 0xff00ff00 : 0xffffffff;
         for (auto& pixel : pixels) pixel = color;
@@ -52,7 +52,7 @@ bool atlas_pressure_pixels(D3D11Renderer& r) noexcept {
     ID3D11Texture2D* readback = nullptr;
     ok = ok && SUCCEEDED(r.graphics.device->CreateTexture2D(&description, nullptr, &readback));
     if (ok) {
-        r.graphics.context1->CopyResource(readback, gpu.texture);
+        r.graphics.context1->CopyResource(readback, gpu.surface->texture);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         ok = SUCCEEDED(r.graphics.context1->Map(readback, 0, D3D11_MAP_READ, 0, &mapped));
         if (ok) {
@@ -75,8 +75,8 @@ bool atlas_pressure_pixels(D3D11Renderer& r) noexcept {
 bool animation_preview_probe(D3D11Renderer& r) noexcept {
     if (!png_preview_probe(r)) return false;
     if (!r.preview_media_atlas) return false;
-    auto* identity_texture = r.media_gpu.texture;
-    auto* identity_backup = r.media_gpu.apng_backup_texture;
+    auto* identity_surface = r.media_gpu.surface;
+    auto* identity_backup = r.media_gpu.backup;
     const u32 identity_entries = r.media_atlas->entry_count;
     const u32 layouts = r.paint_stream_builds;
     const u32 text_builds = r.content_text_retention.builds;
@@ -92,7 +92,7 @@ bool animation_preview_probe(D3D11Renderer& r) noexcept {
         const auto item = media_atlas_find(r.preview_media_atlas, key);
         if (!item.ok() || media_atlas_find(r.media_atlas, key).ok()) return false;
         const D3D11_BOX box{item.x, item.y, 0, static_cast<UINT>(item.x + 4), static_cast<UINT>(item.y + 4), 1};
-        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, r.media_gpu.preview_texture, 0, &box);
+        r.graphics.context1->CopySubresourceRegion(readback, 0, 0, 0, 0, r.media_gpu.preview_surface->texture, 0, &box);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(r.graphics.context1->Map(readback, 0, D3D11_MAP_READ, 0, &mapped))) return false;
         bool equal = true;
@@ -133,7 +133,7 @@ bool animation_preview_probe(D3D11Renderer& r) noexcept {
     ok = ok && renderer_advance_animated_webp(&r, webp, 0, webp_frame, webp_frame,
         {reinterpret_cast<const u8*>(rgba), sizeof(rgba)}).ok() && pixels_equal(webp, rgba[0]);
     readback->Release();
-    ok = ok && r.media_gpu.texture == identity_texture && r.media_gpu.apng_backup_texture == identity_backup &&
+    ok = ok && r.media_gpu.surface == identity_surface && r.media_gpu.backup == identity_backup &&
          r.media_atlas->entry_count == identity_entries && r.paint_stream_builds == layouts &&
          r.content_text_retention.builds == text_builds;
     // These test images are resident but are not in the scene. A full layout

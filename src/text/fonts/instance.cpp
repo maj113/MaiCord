@@ -47,7 +47,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     required=(required+4095)&~usize{4095}; // Pages are 4 KiB on every supported target.
     if(required>state_limit)return result(NativeFontError::font,SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& a;~Cleanup() noexcept {arena_release(&a);}} cleanup{state};
-    if(required&&!arena_initialize(&state,required,required,4096))return result(NativeFontError::capacity,SfntStatus::ok,thread_last_error());
+    if(required&&!arena_initialize(&state,required,required,4096,ArenaTag::text))return result(NativeFontError::capacity,SfntStatus::ok,thread_last_error());
     NativeFontInstance instance{handle,{&geometry,nullptr},nullptr};
     if(axes){auto* variation=arena_allocate<SfntGvarInstance>(&state);auto coordinates=array<double>(state,axes),scalars=array<double>(state,geometry.gvar.shared_count);
         if(!variation||!coordinates.data||(scalars.count&&!scalars.data))return result(NativeFontError::capacity);

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Check that every HLSL cbuffer the client ships has the same layout on Direct3D and under SPIR-V.
+"""Check that every HLSL cbuffer the client ships has the same layout on Direct3D and under std140.
 
 The host fills each constant buffer as a C++ struct laid out by HLSL packing (fxc: a float3 or uint2 may sit at any
-4-byte offset inside a 16-byte register, packoffset leaves gaps). The Linux build compiles the same HLSL with DXC to
-SPIR-V and SPIRV-Cross turns it into a GLSL ES uniform block, which only accepts std140: a vec3 starts on 16, a vec2
-on 8, and nothing may leave a gap. A cbuffer where the two disagree reads the wrong bytes on Linux without any
-diagnostic from fxc, so this check simulates both packings.
+4-byte offset inside a 16-byte register, packoffset leaves gaps). The Linux build reads them as GLSL ES uniform blocks,
+which only accept std140: a vec3 starts on 16, a vec2 on 8, and nothing may leave a gap. A cbuffer where the two
+disagree reads the wrong bytes on Linux without any diagnostic from fxc, so this check simulates both packings.
 
 For every file under src/render/shaders and the plugin header include/maicord/sdk/background.hlsli, and for every
-combination of the macros its #if conditions name (with and without __spirv__, which DXC defines and fxc does not):
+combination of the macros its #if conditions name (with and without __spirv__, which DXC defines and fxc does not; the
+plugin effects still go through DXC):
 
   * with __spirv__ defined, each cbuffer member must sit at the same offset in HLSL packing and in std140, and
     arrays and structs must have the same stride and size;
   * the layout under __spirv__ must occupy the same bytes as the layout without it: a divergent cbuffer is fixed
     inside `#if defined(__spirv__)` by naming the bytes with scalars (float3 -> three floats) and by naming gaps with
-    members whose name contains `_unused_`.
+    members whose name contains `_unused_`;
+  * the std140 blocks of the hand-written GLSL twin of a client shader (src/render/shaders/gles/<x>.glsl) must put
+    every member at the offset the same-named member has in that spelling (padding members, `_unused_`, are free).
 
 Stdlib only.
 
@@ -368,6 +370,66 @@ def check_source(label, source, list_layouts=False):
     return errors, len({name for name, _, _ in seen}), guarded
 
 
+# ---- The GLSL twins ----------------------------------------------------------------------------------------------
+
+GLSL_DIRECTORY = ROOT / 'src' / 'render' / 'shaders' / 'gles'
+
+
+def glsl_as_hlsl(text):
+    """GLSL declaration text with its vector types spelled the HLSL way (vec3 -> float3, uvec2 -> uint2)."""
+    kinds = {'': 'float', 'i': 'int', 'u': 'uint'}
+    return re.sub(r'\b([iu]?)vec([234])\b', lambda m: kinds[m.group(1)] + m.group(2), text)
+
+
+def check_glsl_twin(hlsl_path):
+    """Errors of the std140 blocks of the GLSL twin of one HLSL file: every member that is not padding (a name with
+    `_unused_`) must sit at the offset std140 gives the member of the same path of the cbuffer of the same name (or
+    the name without a Vs/Ps suffix) in the HLSL's __spirv__ spelling, which the check above ties to HLSL packing."""
+    twin = GLSL_DIRECTORY / (hlsl_path.stem + '.glsl')
+    if not twin.is_file():
+        return []
+    label = twin.relative_to(ROOT).as_posix()
+    glsl = join_continuations(strip_comments(twin.read_text()))
+    macros = {}
+    for match in re.finditer(r'(?m)^\s*#\s*define\s+(\w+)\s+(\d+)\s*$', glsl):
+        macros[match.group(1)] = int(match.group(2))
+    body = glsl_as_hlsl(re.sub(r'(?m)^\s*#.*$', '', glsl))
+    structs = parse_structs(body, macros)
+    hlsl = join_continuations(strip_comments(hlsl_path.read_text(encoding='utf-8')))
+    named, defined = condition_macros(hlsl)
+    toggles = sorted(named - defined)
+    if len(toggles) > MAXIMUM_MACROS:
+        raise LayoutError('%d conditional macros; raise MAXIMUM_MACROS' % len(toggles))
+    # The cbuffers of every combination of the HLSL's macros (a file with several entry points declares each one's under
+    # its own #if): name -> layouts, one per distinct spelling.
+    spellings = {}
+    for combination in itertools.product((0, 1), repeat=len(toggles)):
+        toggled = dict(zip(toggles, combination))
+        toggled[SPIRV] = 1
+        hlsl_text, hlsl_macros = preprocess(hlsl, toggled)
+        hlsl_structs = parse_structs(hlsl_text, hlsl_macros)
+        for name, _, source in cbuffers(hlsl_text):
+            leaves, _, _ = std140_layout(parse_members(source, hlsl_structs), hlsl_structs, hlsl_macros)
+            spellings.setdefault(name, []).append({path: offset for offset, _, path in leaves})
+    errors = []
+    for match in re.finditer(r'\blayout\s*\(\s*std140[^)]*\)\s*uniform\s+(\w+)\s*\{([^{}]*)\}', body):
+        name = match.group(1)
+        candidates = spellings.get(name) or spellings.get(re.sub(r'(Vs|Ps)$', '', name))
+        if candidates is None:
+            errors.append('%s: block %s names no cbuffer of %s' % (label, name, hlsl_path.name))
+            continue
+        got, _, _ = std140_layout(parse_members(match.group(2), structs), structs, macros)
+        problems = []
+        for wanted in candidates:
+            problems = ['%s: block %s has %s at std140 offset %d but the cbuffer of %s has it at %s'
+                        % (label, name, path, offset, hlsl_path.name, wanted.get(path))
+                        for offset, _, path in got if '_unused_' not in path and wanted.get(path) != offset]
+            if not problems:
+                break
+        errors.extend(problems)
+    return errors
+
+
 def self_macros(toggled):
     on = [name for name, value in toggled.items() if value and name != SPIRV]
     return ' [%s]' % ', '.join(on) if on else ''
@@ -432,6 +494,10 @@ def main(argv):
         if len(found) > MAXIMUM_REPORTED:
             errors.append('%s: %d more divergent members' % (label, len(found) - MAXIMUM_REPORTED))
         guarded.extend('%s:%s' % (path.name, name) for name in sorted(changed))
+        try:
+            errors.extend(check_glsl_twin(path))
+        except LayoutError as error:
+            errors.append('%s (GLSL twin): %s' % (label, error))
     for error in errors:
         print('FAIL %s' % error)
     if errors:

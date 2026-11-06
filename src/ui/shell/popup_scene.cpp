@@ -459,7 +459,7 @@ bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<Ui
     reset_value<PopupScene>(scene);
     scene->selected_index = ~0u;
     if (!ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes) ||
-        !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024)) {
+        !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024, ArenaTag::ui)) {
         reset_value<PopupScene>(scene);
         return false;
     }

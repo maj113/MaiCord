@@ -280,7 +280,8 @@ UiMarkdown* ui_markdown_bank_block(UiMarkdownBank** slot, u64 owner) noexcept {
         Arena arena{};
         // The bank is the arena's first allocation: freeing the arena frees everything. Pages commit on first touch,
         // so a block costs memory only once it holds a parse.
-        if (!arena_initialize(&arena, sizeof(UiMarkdownBank) + kBlock * kUiMarkdownBankBlocks + kScratch + 4096, 0, 4096))
+        if (!arena_initialize(&arena, sizeof(UiMarkdownBank) + kBlock * kUiMarkdownBankBlocks + kScratch + 4096, 0, 4096,
+                              ArenaTag::ui))
             return nullptr;
         auto* bank = arena_allocate_zero<UiMarkdownBank>(&arena);
         bool ok = bank != nullptr;

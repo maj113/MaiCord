@@ -37,9 +37,12 @@ bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 reco
     if (!store || !records || !recipients || records > 65'535 || recipients > 1'000'000 ||
         store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base) return false;
     reset_value(store);
-    if (!arena_initialize(&store->record_backing, static_cast<usize>(records) * sizeof(PrivateChannelRecord), 0, 4096) ||
-        !arena_initialize(&store->recipient_backing, static_cast<usize>(recipients) * sizeof(u64), 0, 4096) ||
-        !arena_initialize(&store->nickname_backing, static_cast<usize>(recipients) * sizeof(PrivateNicknameRecord), 0, 4096)) {
+    if (!arena_initialize(&store->record_backing, static_cast<usize>(records) * sizeof(PrivateChannelRecord), 0, 4096,
+                          ArenaTag::model) ||
+        !arena_initialize(&store->recipient_backing, static_cast<usize>(recipients) * sizeof(u64), 0, 4096,
+                          ArenaTag::model) ||
+        !arena_initialize(&store->nickname_backing, static_cast<usize>(recipients) * sizeof(PrivateNicknameRecord), 0,
+                          4096, ArenaTag::model)) {
         private_channel_store_release(store);
         return false;
     }

@@ -3,7 +3,7 @@
 #include "maicord/render/text/glyph_font_limits.hpp"
 #include "maicord/text/fonts/instance.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/render/effects/colr_source.hpp"
 
@@ -36,7 +36,7 @@ static_assert(sizeof(NativeGlyphOutlines)<=4096); // Fits one committed page.
 static_assert(is_trivial_v<NativeGlyphOutlines>); // Fresh VirtualAlloc storage is already zeroed.
 namespace {
 template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
-bool failed(NativeGlyphOutlines& o,u32 stage,u32 error) noexcept {++o.failures;log_u64(LogLevel::error,"render","native_outline_stage",stage);log_u64(LogLevel::error,"render","native_outline_error",error);return false;}
+bool failed(NativeGlyphOutlines& o,u32 stage,u32 error) noexcept {++o.failures;LogEvent("native_outline_failed").field("stage",stage).error("error",error).write(LogLevel::error,"render");return false;}
 bool bind(NativeGlyphOutlines& o,u32 index,NativeFontRunHandle run,bool instructions=false) noexcept {
     bool oblique=false,bold=false;NativeFontResult result{};NativeFontInstanceHandle prepared{};
     result=native_font_run_prepare(native_font_session_runs(o.fonts),run,&o.scratch,&prepared,&oblique,&bold,instructions);
@@ -69,7 +69,7 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
 bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;
     if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(commit_pages(sizeof(NativeGlyphOutlines)));if(!o)return false;
-        if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){pages_release(o);return false;}
+        if(!arena_initialize(&o->scratch,4*1024*1024,0,4096,ArenaTag::text)){pages_release(o);return false;}
         if(!native_font_session_retain(fonts)){arena_release(&o->scratch);pages_release(o);return false;}
         o->fonts=fonts;*pointer=o;}
     auto& o=**pointer;if(fonts!=o.fonts)return false;const u32 index=face_id-1;if(!o.bindings[index].slot&&!bind(o,index,run))return false;
@@ -118,7 +118,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     if(!o.color){
         auto* color=static_cast<NativeColorState*>(commit_pages(sizeof(NativeColorState)));
         if(!color)return failed(o,21,GetLastError());
-        if(!arena_initialize(&color->scalars,1024*1024,0,4096)||!arena_initialize(&color->stops,2*1024*1024,0,4096)){
+        if(!arena_initialize(&color->scalars,1024*1024,0,4096,ArenaTag::text)||!arena_initialize(&color->stops,2*1024*1024,0,4096,ArenaTag::text)){
             arena_release(&color->scalars);arena_release(&color->stops);pages_release(color);return failed(o,22,0);}
         o.color=color;
     }
@@ -173,8 +173,10 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
 }
 void native_glyph_outlines_release(NativeGlyphOutlines** pointer) noexcept {
     if(!pointer||!*pointer)return;auto* o=*pointer;
-    log_u64(LogLevel::info,"render","native_outline_decodes",o->decodes);log_u64(LogLevel::info,"render","native_outline_failures",o->failures);
-    if(o->color){auto* c=o->color;log_u64(LogLevel::info,"render","native_colr_builds",c->builds);
+    LogEvent line("native_outlines_released");line.field("native_outline_decodes",o->decodes).field("native_outline_failures",o->failures);
+    if(o->color)line.field("native_colr_builds",o->color->builds);
+    line.write(LogLevel::info,"render");
+    if(o->color){auto* c=o->color;
         if(c->outlines)pages_release(c->outlines);
         arena_release(&c->scalars);arena_release(&c->stops);pages_release(c);}
     for(auto h:o->bindings)if(h.slot)native_font_instance_release(native_font_session_instances(o->fonts),h);

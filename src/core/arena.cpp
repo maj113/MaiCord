@@ -3,14 +3,39 @@
 #include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/interlocked.hpp"
-#if defined(_WIN32)
 #include "maicord/core/win32_kernel.hpp"
-#else
+#if !defined(_WIN32)
 #include "maicord/sys/linux/process.hpp"
 #endif
 
 namespace maicord {
 namespace {
+// The per-tag totals arena_account reports. Only commits, decommits, initialization and release touch them (one
+// interlocked add each), never an allocation that fits the committed pages.
+struct AccountCounters {
+    volatile LONG64 arenas;
+    volatile LONG64 reserved;
+    volatile LONG64 committed;
+    volatile LONG64 peak_committed;
+};
+AccountCounters g_accounts[static_cast<u32>(ArenaTag::count)];
+
+AccountCounters& account_of(const Arena* arena) noexcept {
+    const u32 tag = static_cast<u32>(arena->tag);
+    return g_accounts[tag < static_cast<u32>(ArenaTag::count) ? tag : 0];
+}
+
+void account_commit(const Arena* arena, i64 bytes) noexcept {
+    AccountCounters& account = account_of(arena);
+    const i64 committed = InterlockedAdd64(&account.committed, bytes);
+    // A racing commit may raise the peak first; the loop only ever raises it.
+    for (i64 peak = account.peak_committed; committed > peak;) {
+        const i64 seen = InterlockedCompareExchange64(&account.peak_committed, committed, peak);
+        if (seen == peak)
+            break;
+        peak = seen;
+    }
+}
 #if defined(_WIN32)
 volatile LONG g_page_size;
 
@@ -77,6 +102,7 @@ void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
     if (!pages_commit(address, target - arena->committed)) {
         return nullptr;
     }
+    account_commit(arena, static_cast<i64>(target - arena->committed));
     arena->committed = target;
     ++arena->commit_count;
     return place(arena, aligned_offset, end);
@@ -84,8 +110,8 @@ void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
 
 } // namespace
 
-bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_bytes,
-                      usize commit_step_bytes) noexcept {
+bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_bytes, usize commit_step_bytes,
+                      ArenaTag tag) noexcept {
     if (!arena || arena->base || reserve_bytes == 0) {
         return false;
     }
@@ -118,8 +144,12 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
     }
 
     *arena = Arena{
-        base, reserved, initial_commit, 0, 0, commit_step, initial_commit == 0 ? 0u : 1u,
+        base, reserved, initial_commit, 0, 0, commit_step, initial_commit == 0 ? 0u : 1u, tag,
     };
+    AccountCounters& account = account_of(arena);
+    InterlockedIncrement64(&account.arenas);
+    InterlockedAdd64(&account.reserved, static_cast<i64>(reserved));
+    account_commit(arena, static_cast<i64>(initial_commit));
     return true;
 }
 
@@ -129,6 +159,10 @@ void arena_release(Arena* arena) noexcept {
     }
     if (arena->base) {
         pages_release(arena->base, arena->reserved);
+        AccountCounters& account = account_of(arena);
+        InterlockedAdd64(&account.arenas, -1);
+        InterlockedAdd64(&account.reserved, -static_cast<i64>(arena->reserved));
+        InterlockedAdd64(&account.committed, -static_cast<i64>(arena->committed));
     }
     reset_value<Arena>(arena);
 }
@@ -198,6 +232,7 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
         if (!pages_decommit(arena->base + keep, arena->committed - keep)) {
             return false;
         }
+        account_commit(arena, -static_cast<i64>(arena->committed - keep));
         arena->committed = keep;
     }
     arena->offset = offset;
@@ -206,5 +241,12 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
     return true;
 }
 
+ArenaAccount arena_account(ArenaTag tag) noexcept {
+    const AccountCounters& account = g_accounts[static_cast<u32>(tag) < static_cast<u32>(ArenaTag::count)
+                                                    ? static_cast<u32>(tag)
+                                                    : 0];
+    return ArenaAccount{read_acquire(&account.arenas), read_acquire(&account.reserved), read_acquire(&account.committed),
+                        read_acquire(&account.peak_committed)};
+}
 } // namespace maicord
 

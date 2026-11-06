@@ -79,31 +79,12 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
                                                  ? application.message_action_bar.message_id
                                                  : application.message_scene.focused_message_id);
     message_media_controller_set_avatar_interaction(&application.message_media, animated_avatar_message(application));
-    const bool chat_visible =
-        content_media_visible() && application.account_ui &&
-        application_channel_readable(application, application.account_ui->active_channel_id);
     // Editor preview exposes the main canvas without cancelling Settings' scope
     // or read-ack barrier. Media uses the same rendering predicate as paint:
     // a modal or dialog keeps the shell beneath it visible and animating.
     const bool settings_visible = renderer_settings_page_visible(application.renderer);
     const bool shell_hidden = renderer_settings_hides_shell(application.renderer);
-    const auto& view = application.message_view.timeline;
-    u64 view_signature =
-        chat_visible ? hash64_mix(view.scroll_units / ui_extent_units(128.0f), view.viewport_units) : 0;
-    if (chat_visible) {
-        view_signature =
-            hash64_mix(view_signature, ui_extent_units(ui_rect_width(application.message_scene.viewport)));
-        view_signature = hash64_mix(view_signature, application.account_ui->active_channel_id);
-    } else if (application.renderer.friends_requests_scene &&
-               application.renderer.friends_requests_scene->active)
-        view_signature = hash64_mix(application.renderer.friends_requests_scene->revision,
-                                    application.renderer.friends_requests_scene->source_revision);
-    else if (application.renderer.friends_scene)
-        view_signature = hash64_mix(application.renderer.friends_scene->revision,
-                                    application.renderer.friends_scene->source_revision);
-    if (d3d11_renderer_search_visible(application.renderer))
-        view_signature = hash64_mix(view_signature, application.renderer.search_scene->revision);
-    message_media_controller_begin_pump(&application.message_media, view_signature);
+    message_media_controller_begin_pump(&application.message_media);
     uploads = 0;
     const u64 visibility_now_us =
         clock_microseconds(application.clock, application.process_start, clock_now());
@@ -202,9 +183,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
                 *repaint = true;
             continue;
         }
-        if (media_asset_large_preview(pending.key) &&
-            !message_media_controller_preview_ready(&application.message_media, now_ms))
-            continue;
         const MediaFrameUploadResult upload = upload_account_media_frame(pending);
         if (upload == MediaFrameUploadResult::failed) {
             return false;

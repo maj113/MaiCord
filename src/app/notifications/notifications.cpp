@@ -25,7 +25,7 @@
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "../shell/log_fields.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/app/gateway/client.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
@@ -185,7 +185,7 @@ bool audio_capacity(const ApplicationNotifications& n,u32 needed) noexcept {
 }
 void audio_error(ApplicationNotifications& n,NotificationAudioResult result) noexcept {
     if(result.ok()) return;
-    log_u64_pair(LogLevel::warning,"notifications","audio_error\0audio_native_error",static_cast<u32>(result.error),result.native_error);
+    LogEvent("audio_failed").field("error",static_cast<u64>(result.error)).error("native_error",static_cast<u32>(result.native_error)).write(LogLevel::warning,"notifications");
     // Terminal backend/launch failures disable only audio, never the Gateway.
     n.audio_failed=true;
     notification_sound_throttle_cancel(&n.sound_throttle);
@@ -200,7 +200,7 @@ void audio_observe(ApplicationNotifications& n) noexcept {
     // A request can fail on the worker after submit accepted it.
     if(state.failed>n.audio_failures_logged) {
         n.audio_failures_logged=state.failed;
-        log_u64_pair(LogLevel::warning,"notifications","audio_worker_error\0audio_worker_native_error",static_cast<u32>(state.error),state.native_error);
+        LogEvent("audio_worker_failed").field("error",static_cast<u64>(state.error)).error("native_error",static_cast<u32>(state.native_error)).write(LogLevel::warning,"notifications");
     }
     if(state.worker_exited || state.stopping) audio_error(n,{NotificationAudioError::stopped,state.native_error});
 }
@@ -540,8 +540,8 @@ bool application_notifications_setup(Application* a) noexcept {
             n->status=MAICORD_OS_TEXT("Windows didn't accept MaiCord's notification registration. Try again.",
                                       "Your desktop didn't accept MaiCord's notification registration. Try again."); break;
         }
-        const u64 failed[] = {static_cast<u32>(checked.error), checked.native_error, checked.registry_created};
-        log_u64_fields(LogLevel::warning,"notifications","identity_error\0identity_native_error\0identity_registry_created",failed);
+        LogEvent("identity_failed").field("error",static_cast<u64>(checked.error)).error("native_error",static_cast<u32>(checked.native_error))
+            .field("registry_created",static_cast<u64>(checked.registry_created)).write(LogLevel::warning,"notifications");
         return false;
     }
     log_u64(LogLevel::info,"notifications","identity_ready",checked.registry_created);

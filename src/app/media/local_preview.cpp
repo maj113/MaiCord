@@ -18,9 +18,6 @@ void application_local_preview_frame_uploaded(const AccountMediaFrame& frame) no
     application_composer_preview_frame_uploaded(frame);
     application_profile_editor_frame_uploaded(frame.key);
 }
-void application_local_preview_deferred(MediaAssetKey key, u64 retry_at_ms) noexcept {
-    application_composer_preview_deferred(key, retry_at_ms);
-}
 void application_local_preview_rejected(MediaAssetKey key) noexcept {
     application_forum_preview_rejected(key);
     application_composer_preview_rejected(key);

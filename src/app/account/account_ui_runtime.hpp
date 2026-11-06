@@ -55,21 +55,13 @@ inline constexpr u32 kMemberListViewCapacity = kGuildMemberCapacity + 256;
 inline constexpr u32 kMessageHistoryRequestLimit = 25;
 inline constexpr u32 kMessageRichTextCapacity = 256 * 1024;
 inline constexpr u32 kMediaAtlasEntryCapacity = 4'096;
-inline constexpr u32 kMediaAtlasRowCapacity = 64;
+// Shelves of the general region plus the profile pools' slot rows.
+inline constexpr u32 kMediaAtlasRowCapacity = 128;
 inline constexpr u32 kMessageDraftCapacity = 64;
 inline constexpr u32 kMessageDraftTextCapacity = 64 * 1024;
 inline constexpr u32 kMessageRequestTextCapacity = 64 * 1024;
 
-// Identity media has a 16 MiB budget. The lazy preview texture has 64 MiB
-// capacity, enough for 2048-pixel PNGs plus atlas padding independently.
-// Both textures start small and grow by whole steps: 4 MiB + 2 MiB
-// steps for identity media, 8 MiB + 8 MiB steps for previews and call video.
-inline constexpr u16 kMediaAtlasExtent = 2'048;
-inline constexpr u16 kPreviewMediaAtlasExtent = 4'096;
-inline constexpr u16 kMediaAtlasInitialHeight = 512;
-inline constexpr u16 kMediaAtlasGrowthStep = 256;
-inline constexpr u16 kPreviewMediaAtlasInitialHeight = 512;
-inline constexpr u16 kPreviewMediaAtlasGrowthStep = 512;
+// The media atlases' geometry and memory policy are the renderer's (MediaAtlasSurface in render/media/atlas.hpp).
 inline constexpr u32 kPreviewMediaAtlasEntryCapacity = 512;
 inline constexpr u32 kPreviewMediaAtlasRowCapacity = 128;
 inline constexpr u32 kMessageHistoryPageStructuralCount = 64 * 1024;
@@ -298,8 +290,12 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // counters, its send tracker two more and the draft store three (the - 24 term); the poll receipt
 // sequence guard shrank from eight sources to one (the - 56 term); the member media cache's sixth layer
 // (the hovered nameplate's still) moved the alignment padding after it by 16 (the last + 16 term).
+// The paged media atlases: allocations of 24 bytes became 32 (recency), the identity atlas has 128 shelves
+// (was 64), the allocator holds its pages (was 80 bytes) and MediaAtlas lost its growth state (the - 608 term).
 static_assert(kAccountUiFixedBytes ==
               4'261'068 + 16 + 8 - 8 - 24 - 56 + 16 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+                  (kMediaAtlasEntryCapacity + kPreviewMediaAtlasEntryCapacity) * (sizeof(GlyphAtlasEntry) - 24) +
+                  (kMediaAtlasRowCapacity - 64) * sizeof(GlyphAtlasRow) + 2 * (sizeof(GlyphAtlasAllocator) - 80) - 608 +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

@@ -1,5 +1,5 @@
 #include "maicord/core/heap.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/media/compression/deflate.hpp"
 #include "gpu/gles/internal.hpp"
 
@@ -131,8 +131,7 @@ void log_info(const gl::Api& gl, bool program, u32 object, const char* what) noe
     else
         gl.glGetShaderInfoLog(object, sizeof(text) - 1, &length, text);
     text[length < 0 ? 0 : length] = 0;
-    log_write(LogLevel::error, "gpu", what);
-    log_write(LogLevel::error, "gpu", text);
+    LogEvent(what).field("info", text).write(LogLevel::error, "gpu");
 }
 
 } // namespace

@@ -2,12 +2,11 @@
 #
 # maicord: MaiCord built from source. The project is written for LLVM 23 (tools/build_linux.sh refuses any other major), which
 # is what Arch ships today (clang, lld and llvm 23.1); when Arch moves to another major this package fails to build until
-# the project does, and maicord-bin is the package that keeps working. The shader toolchain (DXC and SPIRV-Cross, pinned in
-# tools/linux_shader_toolchain.json) comes from the sources below instead of the build's own download: the cache the build
-# script keeps is filled in prepare() with what the pins name, and the script finds it ready.
+# the project does, and maicord-bin is the package that keeps working. No shader toolchain is needed: the client's shaders are
+# hand-written GLSL that the build packs with python (a release before the one that did this also needs the DXC and SPIRV-Cross
+# pins of its tools/linux_shader_toolchain.json: build it with the PKGBUILD of its own tag).
 #
-# Per release: set pkgver, and when tools/linux_shader_toolchain.json changed, the DXC and SPIRV-Cross pins below (prepare()
-# refuses a build whose pins differ); `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push to the AUR repository.
+# Per release: set pkgver; `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push to the AUR repository.
 pkgname=maicord
 pkgver=0.6.6
 pkgrel=1
@@ -39,55 +38,11 @@ conflicts=('maicord-bin')
 # tables, its own headers): makepkg's compiler flags and stripping do not apply.
 options=('!buildflags' '!strip' '!debug' '!lto')
 
-_dxc_version=1.9.2609.5
-_dxc_url='https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz'
-_dxc_sha256=96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1
-_spirv_cross_tag=vulkan-sdk-1.4.363.0
-_spirv_cross_commit=f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7
-
-source=("git+https://github.com/maj113/MaiCord.git#tag=v$pkgver"
-        "dxc-$_dxc_version.tar.gz::$_dxc_url"
-        "git+https://github.com/KhronosGroup/SPIRV-Cross.git#commit=$_spirv_cross_commit")
-noextract=("dxc-$_dxc_version.tar.gz")
-sha256sums=('SKIP'
-            "$_dxc_sha256"
-            'SKIP')
-
-prepare() {
-    cd MaiCord
-    python - "$_dxc_sha256" "$_dxc_version" "$_spirv_cross_tag" "$_spirv_cross_commit" <<'PINS'
-import json, sys
-pins = json.load(open('tools/linux_shader_toolchain.json'))
-found = (pins['dxc']['sha256'], pins['dxc']['version'], pins['spirv_cross']['tag'], pins['spirv_cross']['commit'])
-if tuple(sys.argv[1:]) != found:
-    sys.exit('the shader toolchain pins of this PKGBUILD differ from tools/linux_shader_toolchain.json: %s' % (found,))
-PINS
-
-    # The cache the build script keeps: directories named by their pin, each with a .ready marker written last.
-    local cache="$srcdir/toolchain" dxc="$srcdir/toolchain/dxc-${_dxc_sha256:0:12}"
-    local cross="$srcdir/toolchain/spirv-cross-${_spirv_cross_commit:0:12}"
-    mkdir -p "$dxc" "$cross"
-    bsdtar -xf "$srcdir/dxc-$_dxc_version.tar.gz" -C "$dxc"
-    chmod +x "$dxc/bin/dxc"
-    printf '%s' "$_dxc_version" >"$dxc/.ready"
-
-    # SPIRV-Cross as static libraries with the options tools/fetch_linux_shader_toolchain.py configures it with.
-    cmake -S "$srcdir/SPIRV-Cross" -B "$cross/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ \
-        -DCMAKE_INSTALL_PREFIX="$cross/install" -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_CLI=OFF \
-        -DSPIRV_CROSS_STATIC=ON -DSPIRV_CROSS_SHARED=OFF -DSPIRV_CROSS_ENABLE_GLSL=ON -DSPIRV_CROSS_ENABLE_HLSL=OFF \
-        -DSPIRV_CROSS_ENABLE_MSL=OFF -DSPIRV_CROSS_ENABLE_CPP=OFF -DSPIRV_CROSS_ENABLE_REFLECT=OFF \
-        -DSPIRV_CROSS_ENABLE_C_API=OFF -DSPIRV_CROSS_ENABLE_UTIL=OFF -DSPIRV_CROSS_SKIP_INSTALL=OFF
-    cmake --build "$cross/build"
-    cmake --install "$cross/build"
-    rm -rf "$cross/build"
-    printf '%s' "$_spirv_cross_commit" >"$cross/.ready"
-}
+source=("git+https://github.com/maj113/MaiCord.git#tag=v$pkgver")
+sha256sums=('SKIP')
 
 build() {
     cd MaiCord
-    export MAICORD_TOOLCHAIN_CACHE="$srcdir/toolchain"
-    # The compiler that builds the host tool is part of its cache key: the same one in prepare()'s environment and here.
-    export CXX=c++
     # The generated sources must be outside the source tree: the build directory is beside it.
     cmake -S . -B "$srcdir/build" -G Ninja \
         -DCMAKE_C_COMPILER=clang \

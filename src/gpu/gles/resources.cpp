@@ -1,5 +1,5 @@
 #include "maicord/core/heap.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "gpu/gles/internal.hpp"
 #include "gpu/gles/video_planes_internal.hpp"
 
@@ -84,9 +84,10 @@ GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc& desc, const 
     if (desc.bytes == 0 || ((desc.bind & gpu_bind_constant) && (desc.bind & ~gpu_bind_constant) != 0))
         return kGpuInvalidArgument;
     if ((desc.bind & gpu_bind_constant) && desc.bytes > device->caps.max_uniform_block_bytes) {
-        log_write(LogLevel::error, "gpu", "a constant buffer is larger than the driver's uniform block limit");
-        log_u64(LogLevel::error, "gpu", "bytes", desc.bytes);
-        log_u64(LogLevel::error, "gpu", "limit", device->caps.max_uniform_block_bytes);
+        LogEvent("constant_buffer_over_uniform_block_limit")
+            .field("bytes", desc.bytes)
+            .field("limit", device->caps.max_uniform_block_bytes)
+            .write(LogLevel::error, "gpu");
         return kGpuUnsupported;
     }
     if ((desc.raw || (desc.bind & (gpu_bind_srv | gpu_bind_uav))) && (desc.bytes & 3u) != 0)
@@ -456,6 +457,107 @@ void gpu_release(GpuRtv*& handle) noexcept {
     gles::device().rtvs.release(view);
     drop_texture(texture);
 }
+
+// Paged textures: a texture per page, made at the page's full height when it is first backed and released when it
+// is returned, never resized. Creation and commits run per atlas page: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+namespace {
+
+void release_page(GpuPagedTexture* paged, u32 page) noexcept {
+    gpu_release(paged->targets[page]);
+    gpu_release(paged->uavs[page]);
+    gpu_release(paged->views[page]);
+    gpu_release(paged->textures[page]);
+}
+
+} // namespace
+
+GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc& desc, GpuPagedTexture** texture) {
+    *texture = nullptr;
+    if (!device || desc.width == 0 || desc.width > device->caps.max_texture_size || desc.page_rows == 0 ||
+        desc.page_rows > device->caps.max_texture_size || desc.pages == 0 || desc.pages > kGpuPagedTextureMaximumPages)
+        return kGpuInvalidArgument;
+    const GpuStatus supported = gpu_format_check(device, desc.format, desc.bind);
+    if (!gpu_ok(supported))
+        return supported;
+    auto* paged = static_cast<GpuPagedTexture*>(heap_allocate(sizeof(GpuPagedTexture), true));
+    if (!paged)
+        return kGpuOutOfMemory;
+    paged->view.kind = GpuViewKind::texture;
+    paged->width = desc.width;
+    paged->page_rows = desc.page_rows;
+    paged->pages = desc.pages;
+    paged->format = desc.format;
+    paged->bind = desc.bind;
+    *texture = paged;
+    return kGpuOk;
+}
+
+void gpu_paged_texture_release(GpuPagedTexture** texture) {
+    GpuPagedTexture* paged = *texture;
+    if (!paged)
+        return;
+    GpuContext& c = gles::context();
+    forget_pointer(c.srvs[0], &paged->view);
+    forget_pointer(c.srvs[1], &paged->view);
+    forget_pointer(c.srvs[2], &paged->view);
+    for (u32 page = 0; page < paged->pages; ++page)
+        release_page(paged, page);
+    heap_free(paged);
+    *texture = nullptr;
+}
+
+GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, u32 page, u32 rows) {
+    if (!context || !paged || page >= paged->pages || (rows != 0 && rows != paged->page_rows))
+        return kGpuInvalidArgument;
+    if (!rows) {
+        release_page(paged, page);
+        return kGpuOk;
+    }
+    if (paged->textures[page])
+        return kGpuOk;
+    GpuDevice* device = &gles::device();
+    GpuStatus status = gpu_texture_create(
+        device, {paged->width, paged->page_rows, paged->format, GpuUsage::default_, paged->bind}, nullptr,
+        &paged->textures[page]);
+    if (gpu_ok(status) && (paged->bind & gpu_bind_srv))
+        status = gpu_srv_create(device, paged->textures[page], {GpuViewKind::texture, paged->format}, &paged->views[page]);
+    if (gpu_ok(status) && (paged->bind & gpu_bind_uav))
+        status = gpu_uav_create(device, paged->textures[page], &paged->uavs[page]);
+    if (gpu_ok(status) && (paged->bind & gpu_bind_rtv)) {
+        status = gpu_rtv_create(device, paged->textures[page], &paged->targets[page]);
+        // A new page of a render target starts transparent.
+        if (gpu_ok(status)) {
+            const float transparent[4]{};
+            gpu_clear_rtv(context, paged->targets[page], transparent);
+        }
+    }
+    if (!gpu_ok(status))
+        release_page(paged, page);
+    return status;
+}
+
+u64 gpu_paged_texture_bytes(const GpuPagedTexture* texture) {
+    u64 bytes = 0;
+    for (u32 page = 0; texture && page < texture->pages; ++page)
+        bytes += texture->textures[page] ? u64{texture->width} * texture->page_rows * gpu_texel_bytes(texture->format) : 0;
+    return bytes;
+}
+
+GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32 row) {
+    const u32 page = minimum(row / texture->page_rows, texture->pages - 1u);
+    return GpuPage{texture->textures[page], texture->uavs[page], texture->targets[page], texture->views[page],
+                   page * texture->page_rows, texture->page_rows, page};
+}
+
+GpuSrv* gpu_paged_texture_binding_view(const GpuPagedTexture* texture, u32 binding) {
+    return binding < texture->pages ? texture->views[binding] : nullptr;
+}
+
+GpuSrv* gpu_paged_texture_view(const GpuPagedTexture* texture) {
+    return const_cast<GpuSrv*>(&texture->view);
+}
+#pragma clang attribute pop
 
 void gpu_release(GpuSampler*& handle) noexcept {
     GpuSampler* sampler = handle;

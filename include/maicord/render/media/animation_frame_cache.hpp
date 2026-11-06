@@ -110,6 +110,8 @@ bool animation_frame_cache_grow_storage(
     AnimationFrameCache* cache, Slice<AnimationFrameCacheEntry> entries,
     Slice<u32> buckets, Slice<GlyphAtlasEntry> allocations) noexcept;
 void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept;
+// Idle trim (glyph_atlas_trim): frames neither shown nor replayed recently go.
+u32 animation_frame_cache_trim(AnimationFrameCache* cache) noexcept;
 void animation_frame_cache_begin_visibility(
     AnimationFrameCache* cache) noexcept;
 AnimationFrameCacheResult animation_frame_cache_find(
@@ -132,6 +134,6 @@ static_assert(offsetof(AnimationFrameCacheEntry, kind) == 84);
 static_assert(offsetof(AnimationFrameCacheEntry, occupied) == 85);
 static_assert(offsetof(AnimationFrameCacheEntry, reserved) == 86);
 static_assert(sizeof(AnimationFrameCacheCounters) == 8);
-static_assert(sizeof(AnimationFrameCache) == 128);
+static_assert(sizeof(AnimationFrameCache) == 240);
 
 } // namespace maicord

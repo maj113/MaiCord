@@ -37,6 +37,8 @@ struct RendererCaption {
     CaptionLine tooltip_line;
     // Title glyphs, then the tooltip's.
     GlyphQuad glyphs[kCaptionGlyphCapacity * 2];
+    // OpenGL ES (kGpuPagedBindings): the glyph page each quad samples; the uploaded quads hold v in its rows.
+    u8 glyph_pages[kCaptionGlyphCapacity * 2];
     char title[kCaptionTitleCapacity];
     GpuBuffer* paint_buffer;
     GpuBuffer* glyph_buffer;
@@ -49,6 +51,7 @@ struct RendererCaption {
     UiIcon title_glyph;
     MediaAssetKey title_image;
     GpuBuffer* image_quad;
+    GpuSrv* image_view; // the page of the identity atlas the image lies in (not owned)
     bool image_drawn;
     UiCaptionBarState state;
     u64 stamp;
@@ -308,16 +311,19 @@ bool upload_image_quad(D3D11Renderer* renderer, RendererCaption* caption, UiRect
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
     box = {snap_pixel(box.left, scale), snap_pixel(box.top, scale), snap_pixel(box.right, scale),
            snap_pixel(box.bottom, scale)};
+    // v in the rows of the image's page, which the draw binds.
+    const GpuPage page = gpu_paged_texture_page(renderer->media_gpu.surface, image.y);
     const float width = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.width, 1));
-    const float height = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.height, 1));
+    const float height = 1.0f / static_cast<float>(maximum<u32>(page.rows, 1));
+    const float top = static_cast<float>(image.y - page.first_row);
     const MediaQuad quad{box.left,
                          box.top,
                          box.right,
                          box.bottom,
                          (static_cast<float>(image.x) + .5f) * width,
-                         (static_cast<float>(image.y) + .5f) * height,
+                         (top + .5f) * height,
                          (static_cast<float>(image.x + image.width) - .5f) * width,
-                         (static_cast<float>(image.y + image.height) - .5f) * height,
+                         (top + static_cast<float>(image.height) - .5f) * height,
                          1,
                          radius,
                          0,
@@ -325,8 +331,25 @@ bool upload_image_quad(D3D11Renderer* renderer, RendererCaption* caption, UiRect
                          box};
     if (!upload(renderer->graphics.context, caption->image_quad, &quad, static_cast<u32>(sizeof(quad))))
         return false;
-    caption->image_drawn = true;
+    caption->image_view = page.view;
+    caption->image_drawn = page.view != nullptr;
     return true;
+}
+
+// The title and tooltip glyphs. Where pages are separate textures the uploaded quads hold v in their page's rows
+// and glyph_pages names each one's page.
+bool upload_glyphs(D3D11Renderer* renderer, RendererCaption* caption, u32 count) noexcept {
+    if (!count)
+        return true;
+    if constexpr (kGpuPagedBindings) {
+        const u32 pages = renderer->glyph_text.allocator.page_count;
+        for (u32 i = 0; i < count; ++i) {
+            caption->glyph_pages[i] = static_cast<u8>(glyph_quad_page(caption->glyphs[i], pages));
+            glyph_quad_in_page(&caption->glyphs[i], pages);
+        }
+    }
+    return upload(renderer->graphics.context, caption->glyph_buffer, caption->glyphs,
+                  count * static_cast<u32>(sizeof(GlyphQuad)));
 }
 
 // The content repaints the pixels a tooltip leaves; before the frame's
@@ -555,9 +578,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
             !upload_paint(renderer, caption, ui_icon_theme_weight(theme)) ||
             !upload_icon_quad(renderer, caption, layout) ||
             !upload_image_quad(renderer, caption, image, theme.scale.radius_sm) ||
-            (glyph_count + tooltip_glyphs &&
-             !upload(context, caption->glyph_buffer, caption->glyphs,
-                     (glyph_count + tooltip_glyphs) * static_cast<u32>(sizeof(GlyphQuad))))) {
+            !upload_glyphs(renderer, caption, glyph_count + tooltip_glyphs)) {
             log_write(LogLevel::error, "render", "caption_build_failed");
             return false;
         }
@@ -649,16 +670,34 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     if (caption->icon_view)
         draw_media_quad(caption->icon_quad, caption->icon_view);
     if (caption->image_drawn && renderer->media_gpu.texture_view)
-        draw_media_quad(caption->image_quad, renderer->media_gpu.texture_view);
-    GpuSrv* glyph_views[]{renderer->glyph_text.gpu.texture_view,
-                                            d3d11_glyph_text_color_view(renderer->glyph_text)};
+        draw_media_quad(caption->image_quad, caption->image_view);
     const auto draw_glyphs = [&](u32 first_glyph, u32 count) noexcept {
         gpu_set_input_layout(context, pipeline.glyph_input_layout);
         gpu_set_vertex_buffer(context, caption->glyph_buffer, sizeof(GlyphQuad), 0);
         gpu_set_shader(context, pipeline.glyph_vertex_shader);
         gpu_set_shader(context, pipeline.glyph_pixel_shader);
-        gpu_set_srvs(context, GpuStage::pixel, 0, 2, glyph_views);
-        gpu_draw_instanced(context, 4, count, 0, first_glyph);
+        const GpuPagedTexture* color = d3d11_glyph_text_color_surface(renderer->glyph_text);
+        const auto bind = [&](u32 page) noexcept {
+            GpuSrv* views[2]{gpu_paged_texture_binding_view(renderer->glyph_text.gpu.surface, page),
+                             color ? gpu_paged_texture_binding_view(color, page) : nullptr};
+            gpu_set_srvs(context, GpuStage::pixel, 0, 2, views);
+        };
+        // One draw per run of glyphs on one page (one draw on Direct3D 11).
+        u32 first = first_glyph, page = kGlyphQuadNoPage;
+        for (u32 glyph = first_glyph; kGpuPagedBindings && glyph < first_glyph + count; ++glyph) {
+            const u32 glyph_page = caption->glyph_pages[glyph];
+            if (glyph_page == kGlyphQuadNoPage)
+                continue;
+            if (page != kGlyphQuadNoPage && page != glyph_page) {
+                bind(page);
+                gpu_draw_instanced(context, 4, glyph - first, 0, first);
+                ++renderer->draw_calls_last_frame;
+                first = glyph;
+            }
+            page = glyph_page;
+        }
+        bind(page == kGlyphQuadNoPage ? 0u : page);
+        gpu_draw_instanced(context, 4, first_glyph + count - first, 0, first);
         ++renderer->draw_calls_last_frame;
     };
     if (glyph_count)

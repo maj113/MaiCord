@@ -184,7 +184,7 @@ bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* outpu
         return false;
     CommandIndex index{};
     const usize reserve = static_cast<usize>(body.bytes) * 8 + 65536;
-    if (!arena_initialize(&index.storage, reserve, 0, 4096))
+    if (!arena_initialize(&index.storage, reserve, 0, 4096, ArenaTag::protocol))
         return false;
     char* retained = arena_allocate<char>(&index.storage, body.bytes);
     u32* positions = arena_allocate<u32>(&index.storage, scan.count);
@@ -945,7 +945,7 @@ bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_
     if (!json_value_to_u64_or_string(field(document, root, "nonce"), &nonce) || nonce != expected_nonce)
         return false;
     CommandSuggestions candidate{};
-    if (!arena_initialize(&candidate.storage, static_cast<usize>(body.bytes) * 2 + 4096, 0, 4096))
+    if (!arena_initialize(&candidate.storage, static_cast<usize>(body.bytes) * 2 + 4096, 0, 4096, ArenaTag::protocol))
         return false;
     char* bytes = arena_allocate<char>(&candidate.storage, body.bytes);
     if (!bytes) {

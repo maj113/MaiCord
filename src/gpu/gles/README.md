@@ -11,7 +11,7 @@ draw or dispatch happens.
 | `device.cpp` | display and config choice, context, caps probe, prestart worker, `GALLIUM_DRIVER=d3d12` on WSL |
 | `resources.cpp` | buffers, textures, views, samplers, map/update/copy/readback |
 | `draw.cpp` | program cache (one link per vertex/pixel pair), resource binding from the shader manifests, draws, dispatches |
-| `shader_pack.cpp` | the GLSL pack (`tools/build_gles_shader_pack.py`: DXC, SPIRV-Cross, one solid zlib stream), shader and compute-program creation |
+| `shader_pack.cpp` | the GLSL pack (`tools/build_gles_shader_pack.py` over the hand-written `src/render/shaders/gles`, one solid zlib stream), shader and compute-program creation |
 | `surface.cpp` | the offscreen frame texture, the damage blit into the EGL window, buffer age, the frame clock |
 | `sync.cpp` | timer queries, fences |
 | `video_*.cpp` | dma-buf EGLImage import and the video frame conversion |
@@ -24,7 +24,8 @@ draw or dispatch happens.
   `gpu_surface_format(nullptr)` (the frame's own format). The warm-up must use the format and state real draws use: a driver
   that compiles on the first draw (d3d12 pipeline states, llvmpipe's LLVM) compiles again on the first frame otherwise.
 - The pack order is `ShaderId` order (`MAICORD_SHADER_ORDER`); backend-only variants go after it (`GLES_VARIANTS`). Compute
-  programs are shared per pack entry (`GlesComputeProgram`): creating the same shader twice costs one compile.
+  programs are shared per pack entry (`GlesComputeProgram`): creating the same shader twice costs one compile. The manifest
+  rows a shader is bound by come from its source (`layout(binding = N)` and the `//!` register comments), never from a table.
 - Requirements: ES 3.1 with `glCopyImageSubData` (ES 3.2, `GL_OES_copy_image` or `GL_EXT_copy_image`) and
   `GL_EXT_blend_func_extended` (the background-effect composite blends with a second fragment output); device creation refuses a
   driver without either. Every Mesa driver (radeonsi, iris, freedreno, panfrost, llvmpipe, d3d12, zink) and NVIDIA has both.

@@ -19,14 +19,16 @@ inline constexpr u32 kRendererTextRunCapacity = 32;
 inline constexpr u32 kRendererPathCapacity = 2048;
 // A scrolling emoji picker can show 63 emoji including partial rows, and one
 // COLR emoji cell is about 88 px at 192 DPI: a 1024x1024 atlas holds ~130 of
-// them, so a short scroll back re-rasterizes every one. The atlas is 1024
-// wide and starts 1024 high; it grows by whole steps up to the maximum height
-// (about 500 emoji at 192 DPI) only while glyphs used in the last
-// kRendererGlyphProtectMs would otherwise be evicted, and shrinks after idling.
+// them, so a short scroll back re-rasterizes every one. The atlas is a paged
+// surface 1024 wide, four pages of 1024 rows (about 500 emoji at 192 DPI);
+// a page is backed as glyphs need it. 1024 rows are kept beyond the glyphs
+// used in the last kRendererGlyphProtectMs, which are never evicted; idle trim
+// returns what nothing used for that long.
 // Color glyphs use several entries, and complex layers need more than 512
 // outline commands. Keep metadata capacity independent of the R8 texture.
 inline constexpr u16 kRendererGlyphAtlasExtent = 1024;
-inline constexpr u16 kRendererGlyphAtlasMaximumHeight = 4096;
+inline constexpr u16 kRendererGlyphAtlasPageRows = 1024;
+inline constexpr u8 kRendererGlyphAtlasPages = 4;
 inline constexpr u32 kRendererGlyphProtectMs = 2'000;
 inline constexpr u32 kRendererGlyphIdleTrimMs = 10'000;
 inline constexpr u32 kRendererAtlasEntryCapacity = 2048;
@@ -138,6 +140,25 @@ bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origi
                                    const Color& color, GlyphQuad* output, u32 capacity,
                                    u32* count) noexcept;
 GpuSrv* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept;
+// The colour glyph surface (null until a colour glyph is rasterized).
+GpuPagedTexture* d3d11_glyph_text_color_surface(const D3D11GlyphTextOwner& owner) noexcept;
+
+// Glyph quads keep v in the whole virtual surface. Where pages are separate textures (kGpuPagedBindings), the upload
+// turns it into the rows of the quad's page and draws bind that page; quads with a negative u sample nothing.
+inline constexpr u32 kGlyphQuadNoPage = 0xFFu;
+inline u32 glyph_quad_page(const GlyphQuad& quad, u32 pages) noexcept {
+    if (quad.u0 < 0.0f)
+        return kGlyphQuadNoPage;
+    const float middle = (quad.v0 + quad.v1) * 0.5f * static_cast<float>(pages);
+    return middle <= 0.0f ? 0u : minimum(static_cast<u32>(middle), pages - 1u);
+}
+inline void glyph_quad_in_page(GlyphQuad* quad, u32 pages) noexcept {
+    const u32 page = glyph_quad_page(*quad, pages);
+    if (page == kGlyphQuadNoPage)
+        return;
+    quad->v0 = quad->v0 * static_cast<float>(pages) - static_cast<float>(page);
+    quad->v1 = quad->v1 * static_cast<float>(pages) - static_cast<float>(page);
+}
 struct ColrPaintProgram;
 // Programs compiled by the account module's media worker (Lottie stickers at
 // 128 px, regional flags at 64 px), rasterized on the owning render thread.
@@ -162,6 +183,6 @@ void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept;
 
 // Size limit for the owner, including TextSystem's 8-byte typography pointer
 // and the allocator's 8-byte recency threshold.
-static_assert(sizeof(D3D11GlyphTextOwner) <= 496);
+static_assert(sizeof(D3D11GlyphTextOwner) <= 632);
 
 } // namespace maicord

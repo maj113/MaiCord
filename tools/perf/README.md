@@ -281,7 +281,8 @@ is projected again every frame, as a resize or a new page does; the figure to se
 time), `layout_ms_p50`/`text_ms_p50`/`paint_ms_p50` (and the `text` and `paint` tails) splitting the scroll frame, `page_decode_ms_mean`
 and `page_apply_ms_mean` (per history page: `decode_message_history_page`, then the store and index update), `pages`,
 `pages_evicted`, `jump_fetches`, `resident_messages`, `scene_rows`, `text_quads` and `paint_quads` (what was on screen at the end,
-a check that frames are not empty), `view_*_dips` and `dpi`. The time the harness spends writing a page's JSON (it plays the
+a check that frames are not empty), `still_draw_calls` (the draw calls of the last forced repaint; on OpenGL ES a draw also ends
+where consecutive quads sample different atlas pages), `view_*_dips` and `dpi`. The time the harness spends writing a page's JSON (it plays the
 server) is left out of every frame time, jump time and the CPU figure.
 
 `tools\benchmark_chat_list.ps1 -Profile -Sizes 1000000 -Seconds 25` runs one process with a sampler: a thread reads the UI thread's

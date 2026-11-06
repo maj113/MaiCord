@@ -28,6 +28,7 @@ constexpr u32 kAtlasBytes = glyph_scene::kAtlasWidth * glyph_scene::kAtlasHeight
 constexpr u32 kFrameBytes = glyph_scene::kFrameWidth * glyph_scene::kFrameHeight * 4;
 
 u8 g_atlas[kAtlasBytes];
+u8 g_copy[kAtlasBytes];
 u8 g_frame[kFrameBytes];
 u8 g_atlas_golden[kAtlasBytes];
 u8 g_frame_golden[kFrameBytes];
@@ -103,16 +104,23 @@ void run() noexcept {
           "an R8 atlas can be a sampled storage image");
     check(gpu_caps(device).max_compute_invocations >= 64, "the compute group fits an 8 x 8 tile");
 
-    GpuTexture* atlas = nullptr;
-    GpuSrv* atlas_view = nullptr;
-    GpuUav* atlas_uav = nullptr;
-    check(gpu_ok(gpu_texture_create(device,
-                                    {glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight, GpuFormat::r8,
-                                     GpuUsage::default_, gpu_bind_srv | gpu_bind_uav},
-                                    nullptr, &atlas)) &&
-              gpu_ok(gpu_srv_create(device, atlas, {GpuViewKind::texture, GpuFormat::r8}, &atlas_view)) &&
-              gpu_ok(gpu_uav_create(device, atlas, &atlas_uav)),
-          "the atlas");
+    // The atlas is a paged surface of 4 pages (the glyph shaders' t0): the rasters write page 1, which is copied to
+    // page 3, and the quads sample both pages in one draw.
+    constexpr u32 kAtlasPages = 4, kScenePage = 1, kCopyPage = 3;
+    GpuPagedTexture* paged = nullptr;
+    check(gpu_ok(gpu_paged_texture_create(device,
+                                          {glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight, kAtlasPages,
+                                           GpuFormat::r8, gpu_bind_srv | gpu_bind_uav},
+                                          &paged)) &&
+              gpu_ok(gpu_paged_texture_commit(context, paged, kScenePage, glyph_scene::kAtlasHeight)) &&
+              gpu_ok(gpu_paged_texture_commit(context, paged, kCopyPage, glyph_scene::kAtlasHeight)),
+          "the paged atlas");
+    const GpuPage scene_page = paged ? gpu_paged_texture_page(paged, kScenePage * glyph_scene::kAtlasHeight) : GpuPage{};
+    const GpuPage copy_page = paged ? gpu_paged_texture_page(paged, kCopyPage * glyph_scene::kAtlasHeight) : GpuPage{};
+    GpuTexture* atlas = scene_page.texture;
+    GpuUav* atlas_uav = scene_page.uav;
+    GpuSrv* atlas_view = paged ? gpu_paged_texture_view(paged) : nullptr;
+    check(atlas && atlas_uav && atlas_view && copy_page.texture, "the atlas pages");
     GpuComputeShader* plain = nullptr;
     GpuComputeShader* culled = nullptr;
     check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &plain)), "glyph_compute");
@@ -183,7 +191,17 @@ void run() noexcept {
                                   g_atlas, glyph_scene::kAtlasWidth)),
               "atlas readback");
 
-        // The draw reads the atlas the compute just wrote: the backend orders them.
+        gpu_copy_region(context, copy_page.texture, 0, 0, atlas,
+                        {0, 0, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight});
+        check(gpu_ok(gpu_readback(device, context, copy_page.texture,
+                                  {0, 0, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight}, g_copy,
+                                  glyph_scene::kAtlasWidth)) &&
+                  bytes_equal(g_copy, g_atlas, kAtlasBytes),
+              "the copy page holds the scene page");
+
+        // The draw reads the atlas the compute just wrote: the backend orders them. The quads keep the scene's uv:
+        // v is in the rows of the page a draw binds, and the quads alternate between the scene page and the copy
+        // page, so the draw splits per quad as the renderer does where consecutive glyphs change page.
         void* mapped = gpu_map(context, instances, GpuMap::discard, nullptr);
         check(mapped != nullptr, "instance map");
         if (mapped) {
@@ -202,15 +220,17 @@ void run() noexcept {
         GpuBuffer* constants[2] = {frame, effects};
         gpu_set_constants(context, GpuStage::vertex, 0, 2, constants);
         gpu_set_constants(context, GpuStage::pixel, 0, 2, constants);
-        GpuSrv* views[2] = {atlas_view, blank_view};
-        gpu_set_srvs(context, GpuStage::pixel, 0, 2, views);
         GpuSampler* samplers[1] = {sampler};
         gpu_set_samplers(context, GpuStage::pixel, 0, 1, samplers);
         gpu_set_input_layout(context, layout);
         gpu_set_vertex_buffer(context, instances, sizeof(glyph_scene::Quad), 0);
         gpu_set_shader(context, vertex_shader);
         gpu_set_shader(context, pixel_shader);
-        gpu_draw_instanced(context, 4, glyph_scene::kQuadCount, 0, 0);
+        for (u32 i = 0; i < glyph_scene::kQuadCount; ++i) {
+            GpuSrv* views[2] = {gpu_paged_texture_binding_view(paged, i & 1 ? kCopyPage : kScenePage), blank_view};
+            gpu_set_srvs(context, GpuStage::pixel, 0, 2, views);
+            gpu_draw_instanced(context, 4, 1, 0, i);
+        }
         check(gpu_ok(gpu_readback(device, context, target, {0, 0, glyph_scene::kFrameWidth, glyph_scene::kFrameHeight},
                                   g_frame, glyph_scene::kFrameWidth * 4)),
               "frame readback");
@@ -261,9 +281,7 @@ void run() noexcept {
     gpu_release(target);
     gpu_release(culled);
     gpu_release(plain);
-    gpu_release(atlas_uav);
-    gpu_release(atlas_view);
-    gpu_release(atlas);
+    gpu_paged_texture_release(&paged);
     gpu_device_destroy(&device, &context);
 }
 

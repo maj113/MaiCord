@@ -21,16 +21,21 @@ constexpr i64 kFlushDelay = -100ll * 10'000ll;
 constexpr u32 kStampCharacters = 19; // "YYYY-MM-DD HH:MM:SS"
 constexpr u32 kPrefixCharacters = kStampCharacters + 10; // stamp, ".mmm [L] ["
 
-// Lines are formatted in place after the buffered bytes, under the lock.
-// Error lines, a full buffer and close write synchronously; everything else
-// reaches the file within kFlushDelay through one thread-pool timer, so
-// external log readers still see lines without further log traffic.
+// Lines are formatted in place after the buffered bytes, under the lock: one
+// lock and one copy per line, whatever its fields (core/log_event.hpp builds a
+// multi-field event on the caller's stack first). Warning and error lines, a
+// full buffer and close write synchronously, so the lines before a crash are in
+// the file (the process's own buffer dies with it, the system's file cache does
+// not); everything else reaches the file within kFlushDelay through one
+// thread-pool timer, so external log readers still see lines without further
+// log traffic.
 struct LogState {
     HANDLE file;
     SRWLOCK lock;
     u64 file_bytes;
     PTP_TIMER flush_timer;
     u64 stamp_second;
+    LogCounters counters;
     u32 buffered;
     bool flush_armed;
     char stamp[kStampCharacters];
@@ -104,8 +109,10 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
 void flush_locked() noexcept {
     if (g_log.buffered != 0 && g_log.file && g_log.file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
+        ++g_log.counters.file_writes;
         if (WriteFile(g_log.file, g_log.buffer, g_log.buffered, &written, nullptr)) {
             g_log.file_bytes += written;
+            g_log.counters.file_bytes += written;
         }
     }
     g_log.buffered = 0;
@@ -156,7 +163,8 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
             g_log.buffered += length;
-            if (level == LogLevel::error) {
+            ++g_log.counters.lines;
+            if (level >= LogLevel::warning) {
                 flush_locked();
             } else if (!g_log.flush_armed) {
                 if (!g_log.flush_timer) {
@@ -267,6 +275,13 @@ void log_u64(LogLevel level, const char* component, const char* key, u64 value) 
     line.put(key ? key : "value");
     line.put(text);
     commit_line(line, level);
+}
+
+LogCounters log_counters() noexcept {
+    AcquireSRWLockExclusive(&g_log.lock);
+    const LogCounters counters = g_log.counters;
+    ReleaseSRWLockExclusive(&g_log.lock);
+    return counters;
 }
 
 } // namespace maicord

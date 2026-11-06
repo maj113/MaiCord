@@ -61,8 +61,9 @@ LayoutScratch* layout_scratch(D3D11Renderer* renderer) noexcept;
 MediaAssetKey emoji_key(const MessageTextSemantic& semantic) noexcept;
 UiRect emoji_cell(const TextHitRegion& region, bool flag) noexcept;
 UiRect fit_in(const UiRect& tile, u32 width, u32 height, bool cover) noexcept;
+// The quad's uv (v in the rows of the page it samples) and that page's binding (GpuPage::binding).
 bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& allocation, u8 domain,
-                              MediaQuad* quad, bool* changed) noexcept;
+                              MediaQuad* quad, u8* binding, bool* changed) noexcept;
 bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& rectangle,
                       const UiRect& clip, bool rounded_mask = false, bool force_new_batch = false,
                       const MediaQuadStyle& style = kPlainMediaQuad) noexcept;

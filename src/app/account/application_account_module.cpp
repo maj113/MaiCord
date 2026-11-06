@@ -74,7 +74,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/d3d11/renderer_settings_visibility.hpp"
 #include "maicord/core/win32_error.hpp"
-#include "../shell/log_fields.hpp"
+#include "maicord/core/trace_record.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
@@ -99,8 +99,7 @@ void log_member_source_binding(const GatewayClientEvent& event) noexcept {
                           event.member_list.member_record_count,
                           event.member_list.group_count,
                           event.member_list.logical_count};
-    trace_fields(trace,
-                 "selected_guild_channel\0same_guild\0derived_list_available\0incoming_list_present\0same_list\0"
+    trace.fields("selected_guild_channel\0same_guild\0derived_list_available\0incoming_list_present\0same_list\0"
                  "member_records\0group_summaries\0logical_count",
                  fields);
     trace.write("member_hydration");
@@ -606,9 +605,7 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     if (event->kind == GatewayClientEventKind::dispatch &&
         event->dispatch_kind == GatewayClientDispatchKind::guild_emojis_update) {
         const u64 values[] = {event->state.guild_id, event->state.emoji_count, event->state.emoji_role_count};
-        log_u64_fields(LogLevel::info, "gateway",
-                       "guild_emojis_update_guild_id\0guild_emojis_update_count\0guild_emojis_update_role_ids",
-                       values);
+        LogEvent("guild_emojis_update").fields("guild_id\0count\0role_ids", values).write(LogLevel::info, "gateway");
     }
     application_log_gateway_event(*event);
     return popped;
@@ -625,14 +622,16 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
     case GatewayClientEventKind::reconnecting:
     case GatewayClientEventKind::closed:
     case GatewayClientEventKind::failed:
-    case GatewayClientEventKind::stopped:
-        log_u64(LogLevel::info, "gateway", "event_kind", static_cast<u64>(event.kind));
+    case GatewayClientEventKind::stopped: {
+        LogEvent line("gateway_event");
+        line.field("kind", static_cast<u64>(event.kind));
+        LogLevel level = LogLevel::info;
         if (event.close_code != 0) {
-            log_u64(LogLevel::warning, "gateway", "close_code", event.close_code);
+            line.field("close_code", event.close_code);
+            level = LogLevel::warning;
         }
         if (event.error != GatewayClientError::none) {
             const u64 values[] = {static_cast<u64>(event.error),
-                                  event.native_error,
                                   static_cast<u64>(event.failure_stage),
                                   static_cast<u64>(event.session_error),
                                   static_cast<u64>(event.handshake_error),
@@ -645,20 +644,22 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
                                   static_cast<u64>(event.json_read_error),
                                   event.route_error_offset,
                                   event.route_detail};
-            log_u64_fields(LogLevel::error, "gateway",
-                           "event_error\0event_native_error\0failure_stage\0session_error\0handshake_error\0"
-                           "websocket_error\0gateway_decode_error\0event_decode_error\0compression_error\0"
-                           "etf_error\0json_scan_error\0json_read_error\0route_error_offset\0route_detail",
-                           values);
+            line.fields("error\0failure_stage\0session_error\0handshake_error\0websocket_error\0"
+                        "gateway_decode_error\0event_decode_error\0compression_error\0etf_error\0json_scan_error\0"
+                        "json_read_error\0route_error_offset\0route_detail",
+                        values)
+                .error("native_error", static_cast<u32>(event.native_error));
+            level = LogLevel::error;
         }
+        line.write(level, "gateway");
         break;
+    }
     default:
         if (event.kind == GatewayClientEventKind::dispatch &&
             event.dispatch_kind == GatewayClientDispatchKind::guild_member_list_update) {
             const u64 values[] = {event.member_list.record_count, event.member_list.member_record_count,
                                   event.member_list.list_id};
-            log_u64_fields(LogLevel::info, "gateway", "member_list_records\0member_list_members\0member_list_id",
-                           values);
+            LogEvent("member_list_update").fields("records\0members\0list_id", values).write(LogLevel::info, "gateway");
         }
         if (event.kind == GatewayClientEventKind::dispatch &&
             event.event_decode_error != GatewayEventDecodeError::none) {
@@ -669,28 +670,28 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
                                    static_cast<u64>(event.dispatch_kind),
                                    event.dispatch_payload_bytes,
                                    event.sequence,
-                                   event.event_name_bytes};
-            log_u64_fields(LogLevel::warning, "gateway",
-                           "dispatch_decode_skipped\0dispatch_scan_error\0dispatch_read_error\0"
-                           "dispatch_error_offset\0dispatch_kind\0dispatch_payload_bytes\0dispatch_sequence\0"
-                           "dispatch_event_name_bytes",
-                           skipped);
+                                   event.event_name_bytes,
+                                   event.route_detail};
+            LogEvent line("dispatch_decode_skipped");
+            line.fields("decode_error\0scan_error\0read_error\0error_offset\0kind\0payload_bytes\0sequence\0"
+                        "event_name_bytes\0route_detail",
+                        skipped);
             if (event.dispatch_kind == GatewayClientDispatchKind::unknown && event.event_name_bytes &&
                 event.event_name_bytes < kGatewayClientEventNameCapacity) {
                 // Protocol event names only ([A-Z0-9_]); anything else is dropped, never echoed.
-                char line[24 + kGatewayClientEventNameCapacity] = "dispatch_event_name=";
-                u32 used = sizeof("dispatch_event_name=") - 1;
+                char name[kGatewayClientEventNameCapacity];
+                u32 used = 0;
                 for (u32 i = 0; i < event.event_name_bytes; ++i) {
                     const char c = event.event_name[i];
                     if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
-                        line[used++] = c;
+                        name[used++] = c;
                 }
-                line[used] = 0;
-                log_write(LogLevel::warning, "gateway", line);
+                name[used] = 0;
+                line.field("event_name", name);
             }
-            log_u64(LogLevel::warning, "gateway", "dispatch_route_detail", event.route_detail);
             if (event.failure_stage == GatewayClientFailureStage::ready_guild_route)
-                log_u64(LogLevel::warning, "gateway", "ready_guilds_unavailable", event.native_error);
+                line.error("ready_guilds_unavailable", static_cast<u32>(event.native_error));
+            line.write(LogLevel::warning, "gateway");
         }
         break;
     }
@@ -699,12 +700,11 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
 void application_log_account_observations(const AccountModuleStatus& status, u32 observations) noexcept {
     if ((observations & account_host_observation_phase) != 0) {
         const u64 values[] = {status.coordinator_phase, status.coordinator_error, status.rest_error,
-                              status.gateway_error,     status.native_error,
-                              static_cast<u64>(status.required_action)};
-        log_u64_fields(LogLevel::info, "account",
-                       "coordinator_phase\0coordinator_error\0rest_error\0gateway_error\0native_error\0"
-                       "required_action",
-                       values);
+                              status.gateway_error, static_cast<u64>(status.required_action)};
+        LogEvent("account_phase")
+            .fields("coordinator_phase\0coordinator_error\0rest_error\0gateway_error\0required_action", values)
+            .error("native_error", static_cast<u32>(status.native_error))
+            .write(LogLevel::info, "account");
     }
     if ((observations & account_host_observation_ready) != 0) {
         log_u64(LogLevel::info, "account", "gateway_ready", status.gateway_ready);
@@ -713,8 +713,10 @@ void application_log_account_observations(const AccountModuleStatus& status, u32
         log_u64(LogLevel::info, "account", "session_saves", status.session_saves);
     }
     if ((observations & account_host_observation_session_save_failures) != 0) {
-        const u64 values[] = {status.session_save_failures, status.session_native_error};
-        log_u64_fields(LogLevel::warning, "account", "session_save_failures\0session_native_error", values);
+        LogEvent("session_save_failed")
+            .field("failures", status.session_save_failures)
+            .error("native_error", static_cast<u32>(status.session_native_error))
+            .write(LogLevel::warning, "account");
     }
 }
 
@@ -799,8 +801,10 @@ void application_account_stop_observed(const AccountHostStopResult& stopped, boo
         }
     }
     if (!stopped.ok()) {
-        log_u64_pair(LogLevel::error, "account", "host_stop_error\0host_stop_native_error",
-                     static_cast<u64>(stopped.error), stopped.native_error);
+        LogEvent("host_stop_failed")
+            .field("error", static_cast<u64>(stopped.error))
+            .error("native_error", static_cast<u32>(stopped.native_error))
+            .write(LogLevel::error, "account");
         return;
     }
     // The joined stop cleared the account instance. The host can now release
@@ -918,8 +922,10 @@ bool application_account_module_load() noexcept {
     const i64 trace_start = clock_now();
     const AccountHostResult loaded = account_host_load(&g_app.account);
     if (!loaded.ok()) {
-        log_u64_pair(LogLevel::error, "account", "host_load_error\0host_load_native_error",
-                     static_cast<u64>(loaded.error), loaded.native_error);
+        LogEvent("host_load_failed")
+            .field("error", static_cast<u64>(loaded.error))
+            .error("native_error", static_cast<u32>(loaded.native_error))
+            .write(LogLevel::error, "account");
     }
     if (loaded.ok() && !g_app.account.instance && !g_app.account.login_instance)
         g_app.account.api.set_rest_trace([](const char* record) noexcept {
@@ -947,8 +953,10 @@ void application_account_module_release() noexcept {
     if (!g_app.account.instance && !g_app.account.login_instance) {
         const AccountHostResult released = account_host_release(&g_app.account);
         if (!released.ok()) {
-            log_u64_pair(LogLevel::error, "account", "host_release_error\0host_release_native_error",
-                         static_cast<u64>(released.error), released.native_error);
+            LogEvent("host_release_failed")
+                .field("error", static_cast<u64>(released.error))
+                .error("native_error", static_cast<u32>(released.native_error))
+                .write(LogLevel::error, "account");
         }
     }
 }
@@ -978,9 +986,11 @@ AccountModuleStartResult start_account_worker(const AccountPaths& paths) noexcep
     start_trace.field("session_loaded", static_cast<u64>(started.session_loaded));
     start_trace.write("load_trace");
     if (!started.ok()) {
-        const u64 failed[] = {static_cast<u64>(started.error), started.profile_error, started.native_error};
-        log_u64_fields(LogLevel::error, "account", "module_start_error\0profile_error\0module_start_native_error",
-                       failed);
+        LogEvent("module_start_failed")
+            .field("error", static_cast<u64>(started.error))
+            .field("profile_error", static_cast<u64>(started.profile_error))
+            .error("native_error", static_cast<u32>(started.native_error))
+            .write(LogLevel::error, "account");
     }
     return started;
 }
@@ -1013,11 +1023,15 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
         application_trace_load_stage("startup_shell_released");
         MAICORD_PERF_MARK("startup_shell_released");
     }
-    log_u64_pair(LogLevel::info, "account", "profile_id\0session_loaded", started.status.profile_id,
-                 started.session_loaded ? u64{1} : u64{0});
+    LogEvent("account_started")
+        .field("profile_id", started.status.profile_id)
+        .field("session_loaded", started.session_loaded ? u64{1} : u64{0})
+        .write(LogLevel::info, "account");
     if (!started.session_loaded && !win32_error_is_missing_file(started.status.session_native_error)) {
-        log_u64_pair(LogLevel::warning, "account", "session_load_error\0session_load_native_error",
-                     started.session_error, started.status.session_native_error);
+        LogEvent("session_load_failed")
+            .field("error", static_cast<u64>(started.session_error))
+            .error("native_error", static_cast<u32>(started.status.session_native_error))
+            .write(LogLevel::warning, "account");
     }
 }
 } // namespace
@@ -1129,8 +1143,10 @@ bool application_account_attach_if_present() noexcept {
     AccountPaths paths{};
     const AccountPathsResult resolved = account_paths_resolve(&paths);
     if (!resolved.ok()) {
-        log_u64_pair(LogLevel::warning, "account", "path_error\0path_native_error", static_cast<u64>(resolved.error),
-                     resolved.native_error);
+        LogEvent("account_paths_failed")
+            .field("error", static_cast<u64>(resolved.error))
+            .error("native_error", static_cast<u32>(resolved.native_error))
+            .write(LogLevel::warning, "account");
         application_account_logout_prepare_startup();
         return true;
     }

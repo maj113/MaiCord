@@ -1030,7 +1030,7 @@ bool probe_media_gallery(bool favorites) noexcept {
     // ordinary codec fixtures still initialize32 entries in256x256 pixels.
     constexpr u16 gallery_preview_extent = 512;
     if (renderer.preview_media_atlas != &g_probe.preview_media_atlas ||
-        renderer.media_gpu.preview_texture || g_probe.preview_media_atlas.entry_count ||
+        renderer.media_gpu.preview_surface || g_probe.preview_media_atlas.entry_count ||
         !media_atlas_initialize(&g_probe.preview_media_atlas, gallery_preview_extent,
                                 gallery_preview_extent, 1,
                                 {g_probe.preview_media_entries, kProbeGalleryMediaEntryCapacity},
@@ -1217,8 +1217,7 @@ bool probe_media_gallery(bool favorites) noexcept {
                 log_u64(LogLevel::error, "probe", "media_gallery_upload_preview_gpu_width",
                         renderer.media_gpu.preview_width);
                 log_u64(LogLevel::error, "probe", "media_gallery_upload_preview_gpu_ready",
-                        renderer.media_gpu.preview_texture && renderer.media_gpu.preview_target &&
-                            renderer.media_gpu.preview_texture_uav);
+                        renderer.media_gpu.preview_surface != nullptr);
                 return false;
             }
         }
@@ -3069,7 +3068,8 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
             atlas.allocations.row_capacity > kProbeMediaRowCapacity)
             return false;
         // An upload needing the whole atlas, taken by a copy of the allocator
-        // so the probe's atlas stays intact.
+        // so the probe's atlas stays intact: true when it displaced every
+        // other picture (by reclaiming their shelves or a reset).
         GlyphAtlasEntry entries[kProbeMediaEntryCapacity]{};
         GlyphAtlasRow rows[kProbeMediaRowCapacity]{};
         GlyphAtlasAllocator trial{};
@@ -3079,9 +3079,10 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
             trial = atlas.allocations;
             trial.entries = entries;
             trial.rows = rows;
-            return glyph_atlas_allocate(&trial, ~u64{0} - 7, static_cast<u16>(trial.width - 2 * trial.padding),
-                                        static_cast<u16>(trial.height - 2 * trial.padding))
-                .atlas_reset;
+            const GlyphAtlasAllocation whole =
+                glyph_atlas_allocate(&trial, ~u64{0} - 7, static_cast<u16>(trial.width - 2 * trial.padding),
+                                     static_cast<u16>(trial.page_rows - 2 * trial.padding));
+            return whole.atlas_reset || (whole.ok() && trial.entry_count == 1);
         };
         // How every modal-only frame left the shell's media before: unpinned,
         // so the upload resets the atlas beneath the backdrop.

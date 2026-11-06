@@ -672,7 +672,6 @@ void dump_spin_state() noexcept {
     line.kv("frame_pending", g_app.frame_pending);
     line.kv("scan_pending", g_app.message_media.scan_pending);
     line.kv("media_retry", relative(g_app.message_media.retry_at_ms));
-    line.kv("preview_retry", relative(g_app.message_media.preview_retry_at_ms));
     line.kv("account_wake", relative(g_app.account.status.next_wake_at_ms));
     line.kv("media_trim", relative(renderer_media_next_trim_ms(g_app.renderer)));
     line.kv("timeline_ms", animation_timeline_wait_timeout_ms(&g_app.animations.timeline, now_us));

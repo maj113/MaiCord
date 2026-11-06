@@ -1,6 +1,7 @@
 #include "maicord/gpu/api.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/d3d11.hpp"
 
@@ -39,6 +40,16 @@ HardwareDevice create_hardware_device() noexcept {
     if (SUCCEEDED(hardware.result)) {
         multithread->SetMultithreadProtected(TRUE);
         multithread->Release();
+    }
+    // Atlases are tiled textures (gpu_paged_texture_*): the device floor is Tiled Resources Tier 1. A device below
+    // it is refused with DXGI_ERROR_UNSUPPORTED, which the renderer logs and the shell names to the user.
+    if (SUCCEEDED(hardware.result)) {
+        D3D11_FEATURE_DATA_D3D11_OPTIONS1 options{};
+        if (FAILED(hardware.device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS1, &options, sizeof(options))) ||
+            options.TiledResourcesTier < D3D11_TILED_RESOURCES_TIER_1) {
+            log_write(LogLevel::error, "gpu", "d3d11_device_lacks_tiled_resources_tier_1");
+            hardware.result = DXGI_ERROR_UNSUPPORTED;
+        }
     }
     if (FAILED(hardware.result)) {
         com_release(hardware.context);

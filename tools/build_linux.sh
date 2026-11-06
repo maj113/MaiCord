@@ -173,6 +173,9 @@ if [ "$keep" = 0 ] && [ -d "$build_directory" ]; then
     find "$build_directory" -mindepth 1 -delete
 fi
 
+# The hand-written GLSL (src/render/shaders/gles) must have been reviewed against every HLSL change.
+python3 -B "$source_directory/tools/check_shader_twins.py"
+
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAKE_CXX_COMPILER="$(command -v clang++)" \
     -DCMAKE_AR="$llvm_ar" -DCMAKE_RANLIB="$llvm_ranlib" \

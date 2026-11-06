@@ -31,7 +31,10 @@ inline bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner, D3D
             output->buffer_bytes += d.ByteWidth;
         }
     };
-    if (!texture(owner.gpu.texture, DXGI_FORMAT_R8_UNORM, 1))
+    // A paged atlas counts the memory backing it now.
+    if (owner.gpu.surface)
+        output->texture_bytes += gpu_paged_texture_bytes(owner.gpu.surface);
+    else if (!texture(owner.gpu.texture, DXGI_FORMAT_R8_UNORM, 1))
         return false;
     buffer(owner.gpu.command_buffer);
     output->mono_pixels = owner.gpu.dispatched_pixels;
@@ -39,8 +42,7 @@ inline bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner, D3D
     output->mono_dispatches = owner.gpu.raster_count;
     if (owner.color) {
         const auto& g = owner.color->gpu;
-        if (!texture(g.texture, DXGI_FORMAT_R8G8B8A8_UNORM, 4))
-            return false;
+        output->texture_bytes += gpu_paged_texture_bytes(g.surface);
         buffer(g.program);
         buffer(g.constants);
         output->color_dispatches = g.dispatches;

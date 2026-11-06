@@ -69,6 +69,20 @@ struct GpuUav {
 struct GpuRtv {
     GpuTexture* texture;
 };
+// One texture per backed page, with its views. `view` (never counted, no texture) only stands for the surface: draws
+// bind a page's own view.
+struct GpuPagedTexture {
+    GpuSrv view;
+    GpuTexture* textures[kGpuPagedTextureMaximumPages];
+    GpuSrv* views[kGpuPagedTextureMaximumPages];
+    GpuUav* uavs[kGpuPagedTextureMaximumPages];
+    GpuRtv* targets[kGpuPagedTextureMaximumPages];
+    u32 width;
+    u32 page_rows;
+    u32 pages;
+    GpuFormat format;
+    u8 bind;
+};
 struct GpuSampler {
     u32 name;
     u32 nearest_name; // a linear sampler's point twin: float32 textures are not filtered without float_linear

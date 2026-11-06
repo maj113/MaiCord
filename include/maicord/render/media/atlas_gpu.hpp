@@ -20,18 +20,24 @@ struct GifPalette;
 struct JpegCoefficientWorkspace;
 struct JpegImage;
 
+// The primary and preview surfaces are paged textures (gpu_paged_texture_*) of their atlases' geometry, so they
+// never grow, move or copy: each upload backs the pages its atlas allocated and writes the page holding it.
 struct MediaAtlasGpu {
     VideoFrameGpu video;
-    GpuTexture* texture;
-    GpuTexture* preview_texture;
-    GpuTexture* apng_backup_texture;
-    GpuTexture* preview_animation_backup_texture;
+    GpuPagedTexture* surface;
+    GpuPagedTexture* preview_surface;
+    // Previous-disposal backups: copy-only paged textures of the same pages, backed page by page as animations
+    // need them and released when unused for kMediaAtlasIdleTrimMs.
+    GpuPagedTexture* backup;
+    GpuPagedTexture* preview_backup;
+    // What draws sample: the surfaces' views (owned by the surfaces).
     GpuSrv* texture_view;
     GpuSrv* preview_texture_view;
+    // The page an upload writes and that page of the backup (select_page), in the page's own rows.
+    GpuTexture* texture;
     GpuRtv* target;
-    GpuRtv* preview_target;
     GpuUav* texture_uav;
-    GpuUav* preview_texture_uav;
+    GpuTexture* backup_texture;
     GpuBuffer* png_scanline_buffer;
     GpuSrv* png_scanline_view;
     GpuBuffer* png_palette_buffer;
@@ -138,14 +144,20 @@ struct MediaAtlasGpuResult {
     }
 };
 
+// Creates the primary surface for `atlas`'s pages (rows are backed as the atlas allocates them).
 MediaAtlasGpuResult media_atlas_gpu_initialize(
-    MediaAtlasGpu* gpu, GpuDevice* device,
-    GpuContext1* context, u16 width, u16 height) noexcept;
-// Adds a second texture owner that shares the decoder shaders, upload buffers
+    MediaAtlasGpu* gpu, GpuDevice* device, const MediaAtlas& atlas) noexcept;
+// Adds a second surface that shares the decoder shaders, upload buffers
 // and workspaces, so large previews cannot evict small identity media.
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(
-    MediaAtlasGpu* gpu, GpuDevice* device,
-    GpuContext1* context, u16 width, u16 height) noexcept;
+    MediaAtlasGpu* gpu, GpuDevice* device, const MediaAtlas& atlas) noexcept;
+// Backs or returns the surface's rows to match the atlas's pages (after a trim).
+bool media_atlas_gpu_sync(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview) noexcept;
+// Backs the rows the atlas allocated on the primary surface (`preview`: the preview one), points texture, target,
+// texture_uav and backup_texture at the page holding `allocation` and turns it into that page's rows. False when
+// the rows could not be backed: the caller then forgets the key, which nothing may sample.
+bool media_atlas_gpu_select(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview,
+                            MediaAtlasResult* allocation) noexcept;
 // The straight RGBA8, PNG, JPEG and VP8 keyframe uploads target the primary
 // surface, or the preview surface (large-preview keys only) when `preview` is set.
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
@@ -224,13 +236,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     GpuContext1* context, MediaAssetKey key,
     const Vp8Keyframe& frame, ConstSlice<u8> alpha, bool preview = false) noexcept;
 void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept;
-// Recreates the primary or preview surface at `height` (its atlas changed
-// height): rows [0, min(old, new)) are copied, then each trim move from the old
-// surface. The previous-disposal backup follows the same moves and never
-// grows here; it only covers rows that actually needed it.
-MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, GpuDevice* device,
-    GpuContext1* context, bool preview, u16 height,
-    ConstSlice<GlyphAtlasRowMove> moves = {}) noexcept;
 // Releases one surface's disposal backup (idle trim when unused).
 void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept;
 // maximum_extent > 0 reduces the frame on the GPU so its longer side fits
