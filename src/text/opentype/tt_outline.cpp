@@ -26,6 +26,9 @@ SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* o
     const auto status=declared_sizes(face,&maxp,&cvt);if(status!=SfntStatus::ok)return status;
     *output={byte_load_be16(maxp.data+24),byte_load_be16(maxp.data+18),cvt.count/2,byte_load_be16(maxp.data+20),byte_load_be16(maxp.data+16)};return SfntStatus::ok;
 }
+// The font and CVT programs run once per font instance, before any glyph program: compiled for size (tt_execute
+// stays at full speed).
+__attribute__((minsize))
 SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter* buffers,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
     if(output)reset_value(output);if(execution)reset_value(execution);if(!buffers || !output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};

@@ -208,6 +208,8 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
 
 } // namespace cff_detail
 
+// Once per face, before any outline: compiled for size.
+__attribute__((minsize))
 SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     if (!font) return SfntStatus::invalid_input;
     reset_value(font);

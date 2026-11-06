@@ -372,6 +372,8 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
 
 } // namespace
 
+// The chunk walk runs once per image, before the decode: compiled for size.
+__attribute__((minsize))
 WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
     WebpParseResult result{};
     if (!image || (!encoded.data && encoded.count != 0)) {

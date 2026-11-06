@@ -81,6 +81,8 @@ bool assemble(void* opaque, ConstSlice<u8> bytes) noexcept {
 
 } // namespace
 
+// The chunk walk runs once per image, before the rows: compiled for size (png_crc32 stays at full speed).
+__attribute__((minsize))
 PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStreamLayout* layout) noexcept {
     PngParseResult result{};
     if (!image || !layout || !encoded.data || encoded.count > 0x7FFFFFFFu)

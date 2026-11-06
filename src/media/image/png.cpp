@@ -168,6 +168,8 @@ bool validate_palette_indices(const PngImage& image,
 
 } // namespace
 
+// The chunk walk runs once per image, before the inflate: compiled for size (png_crc32 stays at full speed).
+__attribute__((minsize))
 PngParseResult png_parse(ConstSlice<u8> encoded,
                          PngImage* image) noexcept {
     PngParseResult result{};

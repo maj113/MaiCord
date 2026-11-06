@@ -376,6 +376,8 @@ GlyphAtlasAllocation rejected(u16 width, u16 height, u32 evicted, GlyphAtlasErro
 
 } // namespace
 
+// Once per atlas: compiled for size (allocation and lookup stay at full speed).
+__attribute__((minsize))
 bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u16 padding,
                             Slice<GlyphAtlasEntry> entries,
                             Slice<GlyphAtlasRow> rows, bool zeroed) noexcept {

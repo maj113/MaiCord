@@ -42,6 +42,9 @@ i16 to_pcm16(float sample) noexcept {
     return static_cast<i16>(scaled < 0 ? scaled - 0.5f : scaled + 0.5f);
 }
 
+// Decoding and probing run once per clip or picked file, before any mixing: compiled for size. The cache and the
+// mixer below stay at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // MP3: decode every packet to float at the source rate, then resample
 // linearly to 48 kHz stereo.
 SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
@@ -259,6 +262,7 @@ SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noe
         return nullptr;
     }
 }
+#pragma clang attribute pop
 
 void soundboard_clip_retain(SoundboardClip* clip) noexcept {
     if (clip)

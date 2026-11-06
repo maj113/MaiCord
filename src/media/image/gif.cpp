@@ -273,6 +273,8 @@ bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* pal
 
 } // namespace
 
+// The block walk runs once per image, before the frame decodes: compiled for size.
+__attribute__((minsize))
 GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* workspace) noexcept {
     GifParseResult result{};
     if (!image || !workspace || (!encoded.data && encoded.count != 0)) {

@@ -1117,6 +1117,8 @@ Vp8ParseResult vp8_parse_keyframe_bounded(ConstSlice<u8> payload, u32 maximum_by
                           u64{kVp8DimensionMaximum} * kVp8DimensionMaximum);
 }
 
+// Once per frame, before the macroblock rows: compiled for size.
+__attribute__((minsize))
 Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const Vp8Keyframe& frame,
                                                     const Vp8ControlHeader& header,
                                                     Slice<Vp8TokenContext> top_context,

@@ -745,6 +745,8 @@ void filter_row(Decoder* d, u32 mb_y, const FilterStrength (*strengths)[2], bool
 
 } // namespace
 
+// The chunk walk runs once per image, before the decode: compiled for size.
+__attribute__((minsize))
 WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLayout* layout) noexcept {
     if (!layout || !encoded.data)
         return WebpThumbnailError::invalid_input;

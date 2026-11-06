@@ -219,6 +219,8 @@ __declspec(noinline) SfntStatus variation(const SfntCmap& cmap, u32 scalar, u32 
 
 } // namespace
 
+// Once per face, before any lookup: compiled for size.
+__attribute__((minsize))
 SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
     if (!cmap) return SfntStatus::invalid_input;
     reset_value(cmap);

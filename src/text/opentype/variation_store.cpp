@@ -56,6 +56,8 @@ SfntStatus item_variation_data(const ItemVariationStore& store,u16 outer,ItemVar
     result.deltas=view(store.table,start,result.item_count*result.stride);
     *output=result;return SfntStatus::ok;
 }
+// Once per table of a variable font, before any delta: compiled for size.
+__attribute__((minsize))
 SfntStatus item_variation_store_open(ConstSlice<u8> table,u32 at,ItemVariationStore* output,u32 work,u32* work_used) noexcept {
     WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;reset_value(output);

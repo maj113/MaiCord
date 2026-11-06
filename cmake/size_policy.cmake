@@ -219,6 +219,15 @@ maicord_compact_sources(
         src/app/shell/app_icon.cpp src/app/media/local_preview_thumbnail.cpp
         src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp
         src/render/effects/regional_flag_program.cpp)
+# Once per sound, file, packet or GPU device: the MP3 path (stream framing, seek index and the C decoder, the one codec
+# compiled for size), the notification sound unpacking and the D3D11 shader pack inflate. The decoder at -Oz decodes
+# a 5 s 128 kbit/s stereo clip in 0.035% of its duration (0.026% at /O2) and a 30 s 64 kbit/s mono one in 0.021%
+# (0.015%).
+maicord_compact_sources(
+    SOURCES
+        src/media/audio/mp3_stream.cpp src/media/audio/notification_pcm.cpp src/app/notifications/sound_assets.cpp
+        src/gpu/d3d11/shader_pack.cpp)
+set_property(SOURCE src/media/audio/mp3_decoder.c APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 # The Linux client. Its application sources are one library (maicord_app_client; the Windows build spreads them over
 # MaiCord, the account module and maicord_app_core, and compacts the first two and the listed units of the third), so
 # the application is cold except what the Windows build leaves at -O2: Gateway dispatch and payload decode, the media
@@ -283,7 +292,7 @@ endforeach()
 # the Windows window, GPU and socket backends, the desktop services, the crypto setup and the image encoders. Sources
 # that grew with /Ob2 keep /Ob1: the message stores (model/chat), the Gateway and HTTP encoders (protocol/encoding,
 # protocol/http), the glyph and media renderers (render/text, render/media) and the OpenType tables; model/voice
-# gained nothing.
+# gained nothing. The D3D11 shader pack keeps /Ob1 so its shader creation stays out of the per-frame video present.
 function(maicord_fold_helpers)
     cmake_parse_arguments(ARG "" "" "INCLUDE;EXCLUDE" ${ARGN})
     get_property(targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
@@ -319,7 +328,7 @@ maicord_fold_helpers(
     INCLUDE "(^|/)src/(protocol|model|render|text)/" "(^|/)src/platform/(window/(win32|wayland)|desktop|crypto|dbus)/"
         "(^|/)src/gpu/(d3d11|gles)/" "(^|/)src/platform/net/(linux/)?socket\\.cpp$" "(^|/)src/media/image/"
     EXCLUDE "(^|/)src/model/(chat|voice)/" "(^|/)src/protocol/(encoding|http)/" "(^|/)src/render/(text|media)/"
-        "(^|/)src/text/opentype/")
+        "(^|/)src/text/opentype/" "(^|/)src/gpu/d3d11/shader_pack\\.cpp$")
 # The Linux client's third tier. It carries what the Windows one gets from the operating system (the D-Bus and AT-SPI
 # services, the TLS and crypto wrappers over OpenSSL, the Wayland and EGL backends, the in-house AAC decoder, the Lottie
 # geometry, the ELF plugin loader), and with the lists above it stayed over the Windows client's size cap
