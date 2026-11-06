@@ -303,20 +303,41 @@ void run() noexcept {
     check(gateway_client_self_status_snapshot(&client).available &&
               gateway_client_self_status_snapshot(&client).status == GatewayUserStatus::dnd,
           "self status runtime: resumed client retains authoritative desired DND");
-    check(!gateway_self_status_test_observe(
+    check(gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":1,\"proto\":\"WgA=\"},\"partial\":true}")) &&
-              !gateway_client_self_status_snapshot(&client).authoritative,
+              !gateway_client_self_status_snapshot(&client).authoritative &&
+              gateway_client_self_status_snapshot(&client).settings_known,
           "self status runtime: present empty partial group replaces old desired status with unknown");
     check(
         gateway_self_status_test_observe(&client, observation(GatewayUserStatus::invisible, json)) &&
             gateway_client_self_status_snapshot(&client).confirmed_status == GatewayUserStatus::invisible,
         "self status runtime: full saved settings can restore authoritative Invisible after invalidation");
     check(
-        !gateway_self_status_test_observe(&client,
-                                          observation(GatewayUserStatus::online, json, false, true)) &&
+        gateway_self_status_test_observe(&client, observation(GatewayUserStatus::online, json, false, true)) &&
             !gateway_client_self_status_snapshot(&client).authoritative &&
+            gateway_client_self_status_snapshot(&client).settings_known &&
+            gateway_client_self_status_snapshot(&client).last_error == GatewaySelfStatusError::none &&
             gateway_self_status_test_group_bytes(&client) == 0,
         "self status runtime: full READY-style missing status never keeps previous account desired status");
+    // No saved status (Userdoccers: "unknown" by default): the user's choice is still saved, which makes it known.
+    const u32 unknown_before = submissions;
+    SelfStatusSettingsProjection chosen{};
+    check(gateway_client_self_status_submit(&client, &rest, 7, 9, SelfStatusSettingsOperation::update,
+                                            GatewayUserStatus::dnd, 7, 125)
+                  .ok() &&
+              submissions == unknown_before + 1 && submitted_method == RestMethod::patch && submitted_bytes > 15 &&
+              self_status_settings_decode_base64(
+                  {reinterpret_cast<const char*>(submitted_body + 13), submitted_bytes - 15},
+                  {group, sizeof(group)}, &chosen) == SelfStatusSettingsError::none &&
+              chosen.known && chosen.status == GatewayUserStatus::dnd &&
+              !gateway_client_self_status_snapshot(&client).authoritative,
+          "self status runtime: a status chosen while the saved status is unknown is submitted");
+    response.request_id = 7;
+    check(gateway_client_self_status_complete(&client, 7, 9, 7, &response,
+                                              observation(GatewayUserStatus::dnd, json, false, false, true)) &&
+              gateway_client_self_status_snapshot(&client).authoritative &&
+              gateway_client_self_status_snapshot(&client).confirmed_status == GatewayUserStatus::dnd,
+          "self status runtime: the saved choice becomes the known status");
     check(gateway_self_status_test_destroy(&client) == kSelfStatusSettingsMaximumGroupBytes &&
               !client.runtime,
           "self status runtime: cancellation retires request and wipes/releases onUse settings bank");

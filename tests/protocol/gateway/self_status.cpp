@@ -87,6 +87,24 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
               !owner.authoritative && gateway_self_status_bind(&owner, 9) &&
               !gateway_self_status_request(&owner, 7, 9, GatewayUserStatus::invisible),
           "self status: Identify seed never masquerades as saved desired status");
+    // Saved settings without a status (Userdoccers: "unknown" by default) confirm nothing, but the user's
+    // choice is still taken and saved from an empty group.
+    GatewaySelfStatusOwner unsaved{};
+    const bool seeded = gateway_self_status_initialize(&unsaved, 7, {0, GatewayUserStatus::online, false, false}) &&
+                        gateway_self_status_bind(&unsaved, 9);
+    unsaved.settings_known = true;
+    u8 empty_scratch[128]{}, empty_patch[256]{}, chosen_group[64]{};
+    const auto chosen = self_status_settings_write_patch({group, 0}, GatewayUserStatus::dnd, 5,
+                                                         {empty_scratch, sizeof(empty_scratch)},
+                                                         {empty_patch, sizeof(empty_patch)});
+    SelfStatusSettingsProjection saved{};
+    check(seeded && gateway_self_status_request(&unsaved, 7, 9, GatewayUserStatus::dnd) && !unsaved.authoritative &&
+              unsaved.desired.status == GatewayUserStatus::dnd && chosen.ok() &&
+              self_status_settings_decode_base64(
+                  {reinterpret_cast<const char*>(empty_patch + 13), chosen.bytes - 15},
+                  {chosen_group, sizeof(chosen_group)}, &saved) == SelfStatusSettingsError::none &&
+              saved.known && saved.status == GatewayUserStatus::dnd,
+          "self status: an unknown saved status still takes and saves the user's choice");
     gateway_self_status_observe(&owner, GatewayUserStatus::idle);
     check(owner.authoritative && owner.confirmed_status == GatewayUserStatus::idle &&
               !gateway_self_status_bind(&owner, 10) &&

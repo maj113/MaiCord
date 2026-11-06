@@ -841,8 +841,8 @@ bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value
         return true;
     ++owner.settings_revision;
     ++owner.revision_serial;
-    if (!decoded || !projection.present || !projection.known) {
-        owner.authoritative = false;
+    if (!decoded) {
+        owner.authoritative = owner.settings_known = false;
         runtime->self_status_error = GatewaySelfStatusError::settings;
         runtime->self_status_group_bytes = 0;
         return false;
@@ -850,7 +850,7 @@ bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value
     if (!runtime->self_status_group)
         runtime->self_status_group = static_cast<u8*>(commit_pages(kSelfStatusSettingsMaximumGroupBytes));
     if (!runtime->self_status_group) {
-        owner.authoritative = false;
+        owner.authoritative = owner.settings_known = false;
         runtime->self_status_error = GatewaySelfStatusError::unavailable;
         return false;
     }
@@ -870,8 +870,13 @@ bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value
          (shared_before != shared_after && runtime->local_presence.game)) &&
         ++owner.revision == 0)
         owner.revision = 1;
-    gateway_self_status_observe(&owner, projection.status);
+    owner.settings_known = true;
     runtime->self_status_error = GatewaySelfStatusError::none;
+    // No saved status (Userdoccers: "unknown" by default) stays unconfirmed, never a fabricated Online.
+    if (!projection.present || !projection.known)
+        owner.authoritative = false;
+    else
+        gateway_self_status_observe(&owner, projection.status);
     return true;
 }
 

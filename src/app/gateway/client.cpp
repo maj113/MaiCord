@@ -263,6 +263,7 @@ GatewayClientSelfStatusSnapshot gateway_client_self_status_snapshot(const Gatewa
     result.confirmed_status = owner.confirmed_status;
     result.last_error = runtime->self_status_error;
     result.authoritative = owner.authoritative;
+    result.settings_known = owner.settings_known;
     result.available = owner.self_user_id && load_phase(client) == GatewayClientPhase::ready;
     result.pending = owner.request_id || (owner.authoritative && gateway_self_status_pending(owner));
     result.revision =
@@ -363,7 +364,7 @@ RestClientSubmitResult gateway_client_self_status_submit(GatewayClient* client,
     auto& owner = runtime->self_status;
     if (load_phase(client) != GatewayClientPhase::ready || owner.profile_id != profile ||
         owner.self_user_id != self || owner.request_id ||
-        (operation == SelfStatusSettingsOperation::update && !owner.authoritative)) {
+        (operation == SelfStatusSettingsOperation::update && !owner.authoritative && !owner.settings_known)) {
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         return invalid;
     }

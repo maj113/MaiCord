@@ -80,7 +80,8 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     if (identity.developer_mode)
         model->items[model->count++] = action(utf8_literal("Copy user ID"), UiAccountMenuAction::copy_user_id,
                                               UiIcon::identifier, popup_item_separator_before);
-    if (identity.status_available && identity.presence != UiPresence::unknown) {
+    // An unknown status lists the rows with none checked: choosing one saves it.
+    if (identity.status_available) {
         constexpr const char* labels[] = {"Online", "Idle", "Do Not Disturb", "Invisible"};
         static constexpr u32 bytes[] = {6, 4, 14, 9};
         for (u32 i = 0; i < 4; ++i) {

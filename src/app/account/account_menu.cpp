@@ -120,8 +120,10 @@ UiAccountMenuIdentity identity(u64 self_user, u32* revision, u64* status_revisio
     const auto status = application_self_status_snapshot();
     *status_revision = status.revision;
     if (status.profile_id == g_app.account.status.profile_id && status.self_user_id == self_user &&
-        status.authoritative && status.status <= GatewayUserStatus::invisible) {
-        result.presence = static_cast<UiPresence>(static_cast<u8>(status.status) + 1);
+        (status.authoritative || status.settings_known)) {
+        // An unsaved status stays unknown (no row checked) until the user's choice makes it known.
+        if (status.authoritative && status.status <= GatewayUserStatus::invisible)
+            result.presence = static_cast<UiPresence>(static_cast<u8>(status.status) + 1);
         result.status_available = status.available;
         result.status_pending = status.pending;
     }
@@ -289,7 +291,8 @@ bool application_account_menu_action(u32 value) noexcept {
     const u32 first_status = static_cast<u32>(UiAccountMenuAction::status_online);
     if (value >= first_status && value <= static_cast<u32>(UiAccountMenuAction::status_invisible)) {
         const auto status = application_self_status_snapshot();
-        if (!status.available || !status.authoritative || status.profile_id != owner->profile_id ||
+        if (!status.available || !(status.authoritative || status.settings_known) ||
+            status.profile_id != owner->profile_id ||
             status.self_user_id != owner->self_user) {
             application_account_menu_clear();
             return refresh_account_frame(true);

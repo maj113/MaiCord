@@ -50,7 +50,8 @@ void application_self_status_synchronize() noexcept {
     // REST completions still need to drain the backend request while offline.
     if (!snapshot.available)
         return;
-    if (!snapshot.authoritative && !request.request_id && !request.queued && !request.fetch_failed) {
+    if (!snapshot.authoritative && !snapshot.settings_known && !request.request_id && !request.queued &&
+        !request.fetch_failed) {
         request.operation = SelfStatusSettingsOperation::fetch;
         request.retry_at_ms = 1;
     }
@@ -79,8 +80,8 @@ bool application_self_status_request(GatewayUserStatus status) noexcept {
     if (!request.revision)
         ++request.revision;
     if (!request.request_id) {
-        request.operation = snapshot.authoritative ? SelfStatusSettingsOperation::update
-                                                   : SelfStatusSettingsOperation::fetch;
+        request.operation = snapshot.authoritative || snapshot.settings_known ? SelfStatusSettingsOperation::update
+                                                                              : SelfStatusSettingsOperation::fetch;
         request.retry_at_ms = 1;
     }
     application_request_frame();

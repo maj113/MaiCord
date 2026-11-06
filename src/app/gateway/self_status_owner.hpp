@@ -16,6 +16,9 @@ struct GatewaySelfStatusOwner {
     u64 settings_revision, revision_serial, request_id, request_settings_revision;
     GatewayUserStatus confirmed_status;
     bool authoritative;
+    // Saved settings were read but name no status (Userdoccers: the default is "unknown"): nothing is
+    // confirmed, yet the user's own choice may be saved, which makes it known.
+    bool settings_known;
 };
 static_assert(sizeof(GatewaySelfStatusOwner) <= 160);
 inline bool gateway_self_status_initialize(GatewaySelfStatusOwner* owner, u64 profile_id,
@@ -36,7 +39,8 @@ inline bool gateway_self_status_bind(GatewaySelfStatusOwner* owner, u64 self_use
 inline bool gateway_self_status_request(GatewaySelfStatusOwner* owner, u64 profile_id,
     u64 self_user_id, GatewayUserStatus status) noexcept {
     if (!profile_id || profile_id != owner->profile_id || !self_user_id ||
-        self_user_id != owner->self_user_id || !owner->authoritative || status > GatewayUserStatus::invisible) return false;
+        self_user_id != owner->self_user_id || !(owner->authoritative || owner->settings_known) ||
+        status > GatewayUserStatus::invisible) return false;
     if (owner->desired.status == status) return true;
     // Manual Idle is not automatic inactivity. since=null and afk=false match
     // the status-only selection; automatic idle detection remains separate.

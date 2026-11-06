@@ -126,7 +126,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     if (gateway_self_status_bind(&runtime->self_status, event.ready.user_id))
         self_settings_observe_locked(runtime, event.ready.user_settings_proto, false);
     else {
-        runtime->self_status.authoritative = false;
+        runtime->self_status.authoritative = runtime->self_status.settings_known = false;
         runtime->self_status_error = GatewaySelfStatusError::settings;
         ++runtime->self_status.revision_serial;
     }

@@ -33,6 +33,8 @@ struct GatewayClientSelfStatusSnapshot {
     GatewayUserStatus status, confirmed_status;
     GatewaySelfStatusError last_error;
     bool available, authoritative, pending;
+    // Saved settings without a status: unconfirmed, but a status choice may be saved.
+    bool settings_known;
 };
 GatewayClientSelfStatusSnapshot gateway_client_self_status_snapshot(const GatewayClient*) noexcept;
 RestClientSubmitResult gateway_client_self_status_submit(GatewayClient*, RestClient*,

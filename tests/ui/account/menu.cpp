@@ -190,13 +190,19 @@ void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {
         ui_account_menu_action_enabled(authorized, static_cast<u32>(UiAccountMenuAction::status_invisible));
     check(
         ui_account_menu_build(&model,
-                              {9, utf8_literal("Native"), {}, 0, false, UiPresence::unknown, true}) &&
+                              {9, utf8_literal("Native"), {}, 0, false, UiPresence::unknown, false}) &&
             model.count == 5 &&
             !ui_account_menu_action_enabled(model, static_cast<u32>(UiAccountMenuAction::status_online)) &&
             !ui_account_menu_action_enabled(model, static_cast<u32>(UiAccountMenuAction::log_out)) &&
             logout_revealed && disabled_rejected && withdrawn,
         "account menu: authorized logout keyboard reveals in clipped native popup; disabled or withdrawn "
         "authority rejects logout while existing actions remain and unavailable controls stay hidden");
+    bool unchecked =
+        ui_account_menu_build(&model, {9, utf8_literal("Native"), {}, 0, false, UiPresence::unknown, true}) &&
+        model.count == 9 && ui_account_menu_action_enabled(model, static_cast<u32>(UiAccountMenuAction::status_online));
+    for (u32 i = 0; unchecked && i < model.count; ++i)
+        unchecked = !(model.items[i].flags & popup_item_checked);
+    check(unchecked, "account menu: an unknown but settable status lists every status row with none checked");
     UiAccountMenuIdentity plain{9, utf8_literal("Native"), utf8_literal("native.user"), 0, false,
                                 UiPresence::online, true};
     plain.developer_mode = false;
