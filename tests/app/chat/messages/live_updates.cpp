@@ -211,7 +211,8 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
     const auto before_refresh = f.timeline.scroll_units;
     accepted = message_history_reply_accept_rest(&refresh, &f.timeline, nullptr, response, body, scratch);
     rich = message_rich_store_find(f.rich, 109);
-    check(accepted.accepted() && rich && rich->reference.state == GatewayMessageReferenceState::available &&
+    check(accepted.accepted() && accepted.apply.resident == 1 && accepted.apply.inserted == 0 && rich &&
+              rich->reference.state == GatewayMessageReferenceState::available &&
               utf8_equal(message_rich_store_string(f.rich, rich->reference.author_name),
                          utf8_literal("Wren042")) &&
               f.timeline.scroll_units == before_refresh &&

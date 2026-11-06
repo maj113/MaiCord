@@ -935,9 +935,14 @@ MessageHistoryRestResult message_history_reply_accept_rest(
         const auto found = message_store_find(*timeline->store, source.id);
         const auto* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
         const auto* rich = message_rich_store_find(*timeline->rich_store, source.id);
-        if (!record || record->channel_id != refresh->channel_id || !rich ||
-            rich->message_revision != record->revision || rich->reference.message_id != refresh->reference_id ||
-            rich->reference.state != GatewayMessageReferenceState::unknown) break;
+        if (!record || record->channel_id != refresh->channel_id)
+            break;
+        // The page is the shown message itself: it is resident and only its quote is refreshed.
+        result.apply.resident = 1;
+        if (!rich || rich->message_revision != record->revision ||
+            rich->reference.message_id != refresh->reference_id ||
+            rich->reference.state != GatewayMessageReferenceState::unknown)
+            break;
         GatewayMessageEvent quote{};
         quote.id = source.id;
         quote.fields = gateway_message_field_message_reference | gateway_message_field_referenced_message;
