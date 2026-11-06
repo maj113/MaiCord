@@ -12,10 +12,14 @@ plugin catalog (tools/catalog_site_server.py's job) is served on --catalog-host 
 The guild also has a voice channel and a stage; joining either answers the voice state and server updates, and the voice
 server (us-qa.discord.media: the voice gateway v9 and UDP 50001) accepts the stage's transport-only session (no DAVE, which
 the voice channel demands) and echoes the client's Opus packets back as another participant.
+On Windows a client built with tools/build.ps1 -TestHooks needs no hosts file: MAICORD_TEST_SERVER=127.0.0.1:PORT answers
+every name lookup with this server (--port PORT) and MAICORD_TEST_CA_FILE=CERT.pem is the only certificate trust (CERT must
+cover discord.com, gateway.discord.gg, cdn.discordapp.com and media.discordapp.net); see CONTRIBUTING.md.
 
 Nothing here is Discord's protocol beyond what the client reads; an unknown request answers 404 and is logged as
 "<status> <method> <path>" to --log, which is how a missing route shows. Standard library only (voice needs the `cryptography`
-package for AES-GCM); prints "ready".
+package for AES-GCM); prints "ready". MAICORD_FAKE_WORLD=DIR swaps the QA guild for a fuller made-up world (several guilds,
+people with avatars and profiles, a member list, direct messages): see tools/fake_discord_world.py.
 """
 import argparse
 import hashlib
@@ -31,6 +35,8 @@ import threading
 import time
 import socket
 import zlib
+
+import fake_discord_world
 
 UID, OTHER = 100000000000000001, 100000000000000002
 GID, CID, MEDIA, CAT = 200000000000000001, 300000000000000001, 300000000000000002, 300000000000000003
@@ -177,6 +183,15 @@ def seed_extra() -> None:
 seed()
 seed_extra()
 GATEWAYS = []  # one dispatch function per open user gateway connection
+
+
+def broadcast(op, data=None, name=None) -> None:
+    for push in list(GATEWAYS):
+        push(op, data, name)
+
+
+# MAICORD_FAKE_WORLD=DIR: a fuller made-up world (tools/fake_discord_world.py) answers instead of the QA guild.
+WORLD = fake_discord_world.load(lambda text: log_line(text))
 
 
 def mention(dispatch) -> None:
@@ -445,7 +460,7 @@ VOICE = {"key": None, "received": 0, "bad": 0, "sent": 0, "counter": 0, "sock": 
 
 def log_line(text: str) -> None:
     if Handler.options.log:
-        with Handler.lock, open(Handler.options.log, "a") as handle:
+        with Handler.lock, open(Handler.options.log, "a", encoding="utf-8") as handle:
             handle.write(f"{text}\n")
 
 
@@ -540,7 +555,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def note(self, status):
         if self.options.log:
-            with self.lock, open(self.options.log, "a") as handle:
+            with self.lock, open(self.options.log, "a", encoding="utf-8") as handle:
                 handle.write(f"{status} {self.command} {self.path}\n")
 
     # -- the catalog ------------------------------------------------------------------------------------------------
@@ -577,8 +592,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = re.sub(r"^/api/v\d+", "", path)
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
+        if WORLD:
+            query = dict(part.split("=", 1) for part in (self.path.split("?", 1)[1:] or [""])[0].split("&") if "=" in part)
+            answer = WORLD.api(self.command, path, query, body, broadcast)
+            if answer:
+                status, value = answer
+                return self.reply(status, b"") if value is None else self.reply(status, json.dumps(value).encode())
         if self.command == "POST" and path == "/auth/login":
-            return self.json(200, {"user_id": str(UID), "token": "QA.fake.token", "user_settings": {"locale": "en-US", "theme": "dark"}})
+            return self.json(200, {"user_id": str(WORLD.me["id"] if WORLD else UID), "token": "QA.fake.token",
+                                   "user_settings": {"locale": "en-US", "theme": "dark"}})
         if self.command == "GET" and path == "/users/@me":
             return self.json(200, dict(user_object(UID), email="qa@example.invalid", verified=True, locale="en-US"))
         if self.command == "GET" and path == "/gateway":
@@ -602,7 +624,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.command == "POST" and match:
             sent = json.loads(body or b"{}")
             if self.options.log:
-                with self.lock, open(self.options.log, "a") as handle:
+                with self.lock, open(self.options.log, "a", encoding="utf-8") as handle:
                     handle.write(f"sent {sent.get('content', '')!r}\n")
             channel = int(match.group(1))
             message = post(channel, UID, sent.get("content", ""))
@@ -624,7 +646,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.headers.get("Upgrade", "").lower() == "websocket":
             return self.gateway()
         if host.startswith("cdn.") or host.startswith("media."):
-            found = FILES.get(self.path.split("?", 1)[0])
+            found = (WORLD and WORLD.file(self.path)) or FILES.get(self.path.split("?", 1)[0])
             return self.reply(200, found[1], found[0]) if found else self.reply(404, b"", "text/plain")
         self.api()
 
@@ -679,8 +701,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 continue
             op = message.get("op")
             if self.options.log:
-                with self.lock, open(self.options.log, "a") as handle:
+                with self.lock, open(self.options.log, "a", encoding="utf-8") as handle:
                     handle.write(f"ws op {op} at {time.time() - START:.1f}s (ws opcode {opcode})\n")
+            if WORLD and WORLD.gateway(op, message.get("d"), dispatch):
+                continue
             if op in (1, 40):  # the user gateway's heartbeat is op 40
                 dispatch(11)
             elif op == 6:

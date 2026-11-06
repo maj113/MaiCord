@@ -15,7 +15,24 @@ review and the client small and fast.
 
 ## Building and testing
 
-Follow [Building from source](README.md#building-from-source). In short, on Windows:
+[Building from source](README.md#building-from-source) has the short version. You need:
+
+- **Windows**: the MaiCord LLVM toolchain (clang-cl, lld-link and llvm-lib from a
+  [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release, which the build fetches on first use; see
+  below), **Visual Studio 2026** (version 18) or its Build Tools with the *Desktop development with C++* workload
+  (Windows SDK, MASM, CMake and Ninja), **Python 3.10+** on `PATH` and **Windows PowerShell 5.1** (included with
+  Windows). `tools\build.ps1` finds Visual Studio and the toolchain, builds `MaiCord.exe` into the sibling directory
+  `..\MaiCord-build\Release` and audits it. Close MaiCord before rebuilding.
+- **Linux**: Ubuntu 22.04+, Debian 12+ or a similar system (WSL2 works), with clang, lld and llvm 23, CMake 3.28 or
+  newer, Ninja, Python 3, git and rsync. `tools/install_linux_toolchain.sh` installs them from apt.llvm.org on Debian and
+  Ubuntu; `tools/build_linux.sh` refuses any other clang major. The shaders are hand-written GLSL that the build packs
+  with Python, so the build fetches no shader compiler (only a plugin effect's GLSL section needs DXC and SPIRV-Cross,
+  which `maicord-plugin effect build --glsl` fetches and builds into `~/.cache/maicord-toolchain` on first use). The
+  script builds in `~/mc-build` on a Linux file system (a checkout on a Windows or network mount is copied there first),
+  audits the images with `tools/audit_elf.py` and leaves `~/mc-build/MaiCord` with its `fonts/` and `licenses/`. From
+  Windows, `tools\build_linux.ps1` runs it inside WSL. A build with `--test` is not a shipping build.
+
+In short, on Windows:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1         # client only
@@ -47,6 +64,21 @@ tools/build_linux.sh --test   # client + the Linux test suite
   `-Test` run; otherwise the script refuses to rebuild over it.
 - `.\tools\build.ps1 -Test -TestNames name1,name2`, run from a PowerShell
   prompt, runs only the named CTest cases while you iterate.
+- `.\tools\build.ps1 -TestHooks` builds the client alone with the test-only environment switches
+  (`include/maicord/core/test_hook.hpp`); it replaces the shipping client in the build directory, so rebuild without it before
+  measuring or shipping (`audit_pe.ps1 -ForbidTestHooks` rejects the image). Two switches point it at
+  `tools/fake_discord_server.py`, the Windows counterpart of the Linux harness's private hosts file and `SSL_CERT_FILE`
+  (`include/maicord/platform/net/test_server.hpp`): `MAICORD_TEST_SERVER=127.0.0.1:PORT` answers every name lookup (API,
+  gateway, CDN, catalog) with that address and port, and `MAICORD_TEST_CA_FILE=cert.pem` replaces Schannel's validation with
+  a chain check against only the certificates in that file (a private chain engine over an in-memory store: no change to the
+  system or user store). The server's certificate must cover the names (`discord.com`, `gateway.discord.gg`,
+  `cdn.discordapp.com`, `media.discordapp.net`, ...). A hooks client given only one of the two switches, a value that does not
+  parse or a CA file it cannot use exits at startup (status 3, reason in the log, component `test_hooks`) instead of reaching
+  the real network. `tools\run_fake_server_client.ps1 [-Executable PATH] [-World DIR]` does it all: refuses a client without
+  hooks, copies it with its assets, makes the certificate, starts `tools/fake_discord_server.py` (`MAICORD_FAKE_WORLD=DIR` for
+  the made-up world), launches the client with a private `LOCALAPPDATA` and returns once the server has logged the client's first
+  request (`-Stop` ends both; run it with its output redirected to a file, not a pipe, as the processes it starts keep the
+  pipe open). Sign in with any e-mail and password.
 - MaiCord builds only with the LLVM fork at
   [maj113/llvm-pe](https://github.com/maj113/llvm-pe): clang-cl, lld-link and
   llvm-lib from `-LlvmBin`, else `MAICORD_LLVM_BIN`, else the release pinned
@@ -200,7 +232,9 @@ re-applies the output scale; never judge a screenshot from a bare `grim`. Signed
 `tools/fake_discord_server.py`, a fake Discord (REST and the user gateway in ETF with one zstd frame per message, over TLS in a private
 user, network and mount namespace) serving one account, a guild with two channels, messages with markdown, emoji, reactions, an embed, a
 picture, an MP4 and a file (`MAICORD_FAKE_MENTION_AFTER=N` adds a mention of the account, `MAICORD_FAKE_EXTRA_MESSAGES=FILE` more
-messages). Sign in with any e-mail and password. `--site` serves a catalog site on the catalog host too (Plugins and Themes stores,
+messages; `MAICORD_FAKE_WORLD=DIR` replaces the QA guild with a fuller made-up world: several guilds, people with avatars, banners and
+profiles, roles, presences, the member list, direct messages and scripted live events, described in `tools/fake_discord_world.py`).
+Sign in with any e-mail and password. `--site` serves a catalog site on the catalog host too (Plugins and Themes stores,
 consent dialog, install; `--root` makes the namespace with sudo so the plugin loader's ownership check sees real root); `--dbus` starts the
 desktop mocks and a swaybar hosting the tray and prints the notifications and portal calls (`desktop-calls.txt`). The fake answers only what
 the client reads (an unknown request is 404 and logged), and its READY must stay faithful to what the client's decoders require (the
@@ -341,6 +375,98 @@ Arenas count under the `ArenaTag` their owner passes to `arena_initialize` (`oth
 ```
 [I] [memory] summary reason=startup arenas=57 committed_kib=624 reserved_kib=113764 top=storage:236/236,other:188/188,ui:84/84,text:64/64 gpu_atlas_kib=1024
 ```
+
+## Project layout
+
+```
+include/maicord/   public headers; each module's folders mirror its src/ folders
+                   (sdk/ holds the plugin API, sys/ the Win32 and Linux system
+                   declarations, os/ and gpu/ the per-system seams)
+src/app/           the client: shell (window, input, startup), chat (messages,
+                   composer, threads, polls, search), voice (calls, streams,
+                   DAVE/MLS), account (login), guild, media, settings,
+                   notifications, gateway, net, plugins, store (catalog
+                   pages), packages (theme/effect/link install), effects,
+                   update, accessibility
+src/core/          freestanding runtime: memory, strings, JSON, containers
+src/model/         chat state: chat, guild, user, voice, notifications
+src/protocol/      Discord wire formats: gateway, http, auth, encoding,
+                   messages, guild, user, media, voice
+src/ui/            framework (core, layout, kit, widgets, controls, theme,
+                   text) and scenes by feature (chat, voice, account, store, ...)
+src/render/        renderer: d3d11, text, media atlases, effects, shaders
+src/gpu/           GPU backends: d3d11 (Windows), gles (Linux, OpenGL ES over EGL)
+src/os/            Linux system layer behind include/maicord/os
+src/text/          text engine: unicode, opentype, fonts, shaping, scripts,
+                   layout
+src/media/         decoders: image, video, audio, containers, compression
+src/platform/      per-system services: desktop, net (TLS), crypto, audio,
+                   decode (GPU), window (Win32, Wayland), uia and atspi
+                   (accessibility), dbus, font, time
+tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
+                   support/, fixtures/, generated/ data and integration/ probes
+samples/           example plugins (plugins/) and background effects (effects/)
+cmake/             build modules included by CMakeLists.txt
+config/            application manifest and resource scripts
+tools/             build (Windows and Linux), PE and ELF audits, perf harness,
+                   release scripts and the maicord-plugin tool
+packaging/         Linux packages, AppImage, installer and repositories
+third_party/       Opus, Lucide icons, Wayland protocol XML
+assets/            fonts, icons, flags, sounds, the example theme and license
+                   notices
+```
+
+## Themes, effects and plugins
+
+**Themes** are JSON files (up to 64 KiB). A theme starts from the Dark, Light or AMOLED base and can override any design
+token; an optional `background` member can name an installed effect and its knob values. See
+[`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json). A theme can change with the
+time of day: `variants` holds up to four phases (`night`, `dawn`, `day`, `dusk`), each with a `base`, core `colors` and
+an optional `months` list of twelve colour sets (each turning toward the next month's from the 5th to the 30th, as the
+Silk Waves sky does). MaiCord holds each phase around its hours (night 23–01, dawn 05–07, day 11–13, dusk 17–19, the
+Silk Waves schedule), mixes the colours across the hours between, shows the nearer phase whole where the base changes
+(gliding there, at once with reduced motion), and lets the theme alone decide an effect's day and night. A phase starts
+from its base's built-in colours, so it is light or dark on its own (the root's `semantic` overrides don't apply to it;
+its colours may name the root's `palette`); the root's typography, metrics, scale, motion, components and background
+apply to every phase. MaiCord before 0.6.4 skips `variants` as an unknown member and shows the root look. Such a theme
+can follow knobs of its effect (`background.follow`: a month knob and a phase knob with the phase each option holds), so
+a month or a day or night picked on the effect's knob page holds the theme there too while that effect is the
+background; see [`samples/effects/README.md`](samples/effects/README.md#time-of-day-and-appearance).
+
+**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
+pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a
+preview. Linux runs the GLSL ES that a package of interface 4 carries next to the bytecode, so one file serves both
+systems. They are data, not code: MaiCord checks the container and asks Direct3D (Windows) or the OpenGL ES driver
+(Linux) to build the shaders, and caps the GPU time an effect may use. Themes and effects come from the catalog, from a
+link (`https://…`), from a file or from a drop onto the install dialog. Anything that is not from the catalog is shown
+as *not reviewed* with a live preview before you install it, and never updates on its own.
+
+`maicord://install/<theme|effect|plugin>/<slug>` links open the catalog entry in MaiCord. Registering MaiCord for these
+links is optional: it is asked once, when you first open the catalog, and only writes
+`HKEY_CURRENT_USER\Software\Classes\maicord` on Windows, and a desktop entry and the default for the scheme in
+`mimeapps.list` on Linux.
+
+**Plugins** are native code from the catalog, built by its CI from reviewed source and listed in a signed index: a DLL
+on Windows and a freestanding shared object (`.so`) on Linux, built from the same source. MaiCord checks each
+download's size and SHA-256 against the index and its declared permissions and network hosts against its listing, asks
+you to approve them, and loads it without running any of its code until you agree. Updates that need nothing new apply
+on their own; the previous version is kept for one-click rollback, and a plugin the catalog revokes is turned off at
+once. Loading your own DLL or `.so` needs Developer Mode.
+
+**Catalog.** At v0.6.7 it lists 27 plugins, 9 themes and 8 effects, browsable in Settings and on
+[maicord.com/plugins](https://maicord.com/plugins/), [/themes](https://maicord.com/themes/) and
+[/effects](https://maicord.com/effects/). Entries come from the
+[MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository. A plugin version published before Linux
+support has no shared object and is listed for Windows only until its plugin is next released.
+
+**Writing your own.** The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp) over the C ABI in
+[`maicord_plugin.h`](include/maicord/sdk/maicord_plugin.h); see
+[`include/maicord/sdk/README.md`](include/maicord/sdk/README.md). Samples: [`samples/plugins`](samples/plugins) and
+[`samples/effects`](samples/effects). [`tools/maicord-plugin`](tools/maicord-plugin) creates, builds, checks and packs
+plugins (Python 3.9+; on Windows it needs no Visual Studio, on Linux clang and ld.lld) and builds effects (on Windows;
+see the effects guide for Linux), and with Developer Mode on, MaiCord reloads them each time you rebuild. Guides:
+[maicord.com/plugins/develop](https://maicord.com/plugins/develop/) and
+[maicord.com/effects/develop](https://maicord.com/effects/develop/).
 
 ## Code guidelines
 

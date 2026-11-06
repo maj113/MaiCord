@@ -1,37 +1,51 @@
 <div align="center">
 
-<img src=".github/assets/banner.svg" alt="MaiCord — a native Discord client for Windows and Linux" width="100%">
+<img src=".github/assets/banner.svg" alt="MaiCord, a native Discord client for Windows and Linux" width="100%">
 
-**A lightweight, native Discord client for Windows and Linux, written in C++ with Direct3D 11 and OpenGL ES.**<br>
-No Electron, no browser engine. One ~6.5 MB executable on each system.
+**Written from scratch in C++ and drawn on the GPU.**<br>
+No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
-[![CI](https://github.com/maj113/MaiCord/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/maj113/MaiCord/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/maj113/MaiCord/total)](https://github.com/maj113/MaiCord/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20x86--64-0078D6)](#requirements)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-informational)](#requirements)
 [![License](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
+[![CI](https://github.com/maj113/MaiCord/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/maj113/MaiCord/actions/workflows/ci.yml)
 
-[Website](https://maicord.com/) ·
-[Download](https://github.com/maj113/MaiCord/releases/latest) ·
-[Install](#install) ·
-[Features](#features) ·
-[Build from source](#building-from-source) ·
-[Plugins and themes](#plugins-and-themes) ·
-[Contributing](CONTRIBUTING.md)
+**[<kbd> <br> Download <br> </kbd>](https://github.com/maj113/MaiCord/releases/latest)**
+**[<kbd> <br> Install <br> </kbd>](#install)**
+**[<kbd> <br> Website <br> </kbd>](https://maicord.com/)**
+**[<kbd> <br> Themes, effects and plugins <br> </kbd>](https://maicord.com/plugins/)**
+
+<br>
+
+<img src=".github/assets/hero.webp" alt="MaiCord in motion: scrolling a developers' chat channel with a poll, replies and a code block, over the animated Silk Waves background" width="100%">
+
+<sub>Every name, message and image on screen is made-up demo content.</sub>
 
 </div>
 
+<!--
+  Launch video: GitHub plays a video inline only when it is an upload. Drag introducing-maicord.mp4 (H.264, at most
+  10 MB on a free plan) into a new issue or PR comment box, wait for the https://github.com/user-attachments/assets/…
+  link, copy it, discard the comment, and replace the line below with that link alone on its own line.
+-->
+> **Introducing MaiCord**: the launch video is coming soon.
+
 > [!WARNING]
-> MaiCord is an **unofficial** third-party client. It is not affiliated with,
-> endorsed by or supported by Discord Inc. Using third-party clients may
-> violate [Discord's Terms of Service](https://discord.com/terms) and could put
-> your account at risk. Use it at your own discretion.
+> MaiCord is an **unofficial** third-party client. It is not affiliated with, endorsed by or supported by Discord Inc.
+> Using third-party clients may violate [Discord's Terms of Service](https://discord.com/terms) and could put your
+> account at risk. Use it at your own discretion. See the [FAQ](#faq).
 
 ## Why MaiCord
 
-The official desktop app is a web page in Electron. MaiCord is written from
-scratch in freestanding C++23 (no STL, CRT, exceptions or RTTI), shapes and
-rasterizes its own text, and draws its own interface on the GPU.
+- **Native.** Freestanding C++23 (no STL, CRT, exceptions or RTTI). MaiCord shapes and rasterizes its own text and
+  draws its own interface with Direct3D 11 on Windows and OpenGL ES on Wayland.
+- **Small.** One executable of about 6.5 MB on each system, and a download of 5.3 MB on Windows.
+- **Quiet.** Nothing redraws while nothing changes: no CPU time measured over 20 s of idle.
+- **Yours.** Themes, GPU background effects and native plugins, from a reviewed catalog or your own files.
+
+<details>
+<summary><b>Measured numbers</b></summary>
 
 | | Windows | Linux |
 | --- | --- | --- |
@@ -40,31 +54,91 @@ rasterizes its own text, and draws its own interface on the GPU.
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.7 s (Mesa d3d12) to ~1.0 s (llvmpipe, software) |
-| Idle | no CPU time measured over 20 s: nothing redraws while nothing changes | the same: 0.00% CPU, under one wakeup a second |
+| Idle | no CPU time measured over 20 s | the same: 0.00% CPU, under one wakeup a second |
 | Memory at the login screen | 54 MB working set | ~165 MB resident, mostly the GPU driver's libraries; the program's own image and heap are ~13 MB |
 
-Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build of the current tree on Windows, and
-the Linux build in WSL2 under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over
-20 seconds. Sizes are the 0.6.6 Windows zip and the Linux 0.6.7 files. Other machines and drivers differ, Linux
-memory most of all.
+Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
+under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. Sizes are
+the 0.6.6 Windows zip and the Linux 0.6.7 files. Other machines and drivers differ, Linux memory most of all.
+
+</details>
 
 ## Features
 
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset=".github/assets/screens/chat-light.webp">
+        <img src=".github/assets/screens/chat.webp" alt="A developers' server: a release checklist with reactions, a reply, a poll with votes, voice channels showing who is in them, and the member list by role" width="100%">
+      </picture><br>
+      <b>Chat.</b> Markdown, replies, reactions, polls, threads and forums; voice channels show who's in them.
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/profile.webp" alt="A profile card open beside the chat, with a banner, bio, mutual friends and role, over the member list grouped by role" width="100%"><br>
+      <b>Profiles.</b> Profile cards with banners, bios and roles; member lists with activities.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/servers.webp" alt="An art server's gallery channel with two pixel-art night scenes, reactions and members' activities" width="100%"><br>
+      <b>Servers and media.</b> Image posts, reactions, member activities and unread badges.
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/themes.webp" alt="Settings, Appearance: Light, Dark and AMOLED bases, gradient colour themes, and buttons to browse themes and effects" width="100%"><br>
+      <b>Appearance.</b> Light, dark and AMOLED bases, gradient themes and a theme editor.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/themes-store.webp" alt="Settings, Themes: catalog themes such as Deep Ocean, Fjord, High Contrast, Neon Grid, Obsidian and Rose Dusk with previews and Install buttons" width="100%"><br>
+      <b>Themes.</b> Colours, type, spacing and motion; themes can follow the time of day.
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/effects.webp" alt="Settings, Effects: animated backgrounds such as ASCII rain, Aurora, Plasma, Silk Waves and Soft bokeh with previews and Install buttons" width="100%"><br>
+      <b>Background effects.</b> Animated GPU backgrounds behind the whole window.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/plugins.webp" alt="Settings, Plugins: catalog plugins with descriptions, an access level for each, and Install buttons" width="100%"><br>
+      <b>Plugins.</b> Native plugins from a signed, reviewed catalog; permissions you approve.
+    </td>
+    <td width="50%" valign="top">
+      <b>Voice.</b> End-to-end encrypted voice (DAVE), push-to-talk, soundboard, and watching Go Live streams and cameras.
+      <br><br>
+      <b>Accounts.</b> Two-factor and QR sign-in, up to five saved accounts.
+      <br><br>
+      <b>Desktop.</b> Notifications, tray, spellcheck and screen readers on both systems.
+      <br><br>
+      More under <i>Everything else</i> below.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src=".github/assets/screens/linux-windows.webp" alt="The same MaiCord channel side by side, labelled Windows, Direct3D 11 and Linux, Wayland, OpenGL ES" width="100%"><br>
+      <b>Windows and Linux.</b> The same client on both: Direct3D 11 on Windows, Wayland and OpenGL ES on Linux.
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary><b>Everything else</b></summary>
+
 **Chat**
-- Discord markdown, including syntax-highlighted code blocks and
+- Discord markdown, syntax-highlighted code blocks and
   [ANSI colored text](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
 - Rich embeds with image galleries, link previews, stickers and custom emoji
 - Replies (with timestamps on the preview), forwards, pins, reactions, threads, forum posts and polls (create and vote)
 - Role colors on mentions, in voice participant lists and on typing names
-- Slash commands, including Discord's built-in ones, and app buttons, select
-  menus, modals and Components V2 layouts
+- Slash commands, including Discord's built-in ones, and app buttons, select menus, modals and Components V2 layouts
 - Record and send voice messages
 - Emoji, GIF and sticker picker that syncs your Discord favorites
 - Paste screenshots straight from the clipboard; drag and drop files
-- Image zoom: hold <kbd>Ctrl</kbd> over an image in chat, or hold the mouse button
-  on an image in the viewer, to magnify it; scroll for the zoom, <kbd>Shift</kbd>+scroll for the lens size
-- Search with `from:`, `in:`, `has:`, `mentions:` and `pinned:` filters,
-  an inbox for mentions, and a Quick Switcher on <kbd>Ctrl</kbd>+<kbd>K</kbd>
+- Image zoom: hold <kbd>Ctrl</kbd> over an image in chat, or hold the mouse button on an image in the viewer; scroll for
+  the zoom, <kbd>Shift</kbd>+scroll for the lens size
+- Search with `from:`, `in:`, `has:`, `mentions:` and `pinned:` filters, an inbox for mentions, and a Quick Switcher on
+  <kbd>Ctrl</kbd>+<kbd>K</kbd>
 
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)
@@ -72,57 +146,80 @@ memory most of all.
 - Watch Go Live streams and cameras, decoded on the GPU
 
 **Servers**
-- Server settings: roles and permissions, members, bans, audit log, emoji,
-  stickers, soundboard and invites
+- Server settings: roles and permissions, members, bans, audit log, emoji, stickers, soundboard and invites
 - Scheduled events, community onboarding, per-server profiles and privacy
 - Server folders: opening one closes the others
-- Hidden channels are listed with a lock and a summary of who can see them;
-  nothing is fetched from them
+- Hidden channels are listed with a lock and a summary of who can see them; nothing is fetched from them
 
 **Accounts**
-- Password sign-in with two-factor authentication (security keys, Windows Hello
-  on Windows, authenticator apps, backup codes, SMS), QR login and CAPTCHA support
+- Password sign-in with two-factor authentication (security keys, Windows Hello on Windows, authenticator apps, backup
+  codes, SMS), QR login and CAPTCHA support
 - Up to five saved accounts with quick switching
-- Full profile editor: avatar cropping, banner, decorations, effects and
-  profile colors
+- Full profile editor: avatar cropping, banner, decorations, effects and profile colors
 
 **System integration**
 - Native notifications, a tray icon and an unread badge: Windows toasts, the taskbar and the Win32 tray; on Linux the
   desktop portal or D-Bus, a StatusNotifier tray icon and the launcher badge
-- Spellcheck and IME input through the Windows text services; Hunspell or Enchant and the Wayland text-input protocol on Linux
+- Spellcheck and IME input through the Windows text services; Hunspell or Enchant and the Wayland text-input protocol
+  on Linux
 - Screen reader support through UI Automation on Windows and AT-SPI (Orca) on Linux
 - Signed automatic updates from GitHub releases (see [Install](#install) for what updates itself on Linux)
 
-**Make it yours**
-- Themes control colors, typography, spacing, components and animated
-  backgrounds; browse and install them, and animated background effects, from
-  Settings > Themes and Settings > Effects, from a `maicord://` link or from a
-  file. Settings > Themes lists every installed theme, and Appearance shows
-  them next to the built-in ones ("Your themes")
-- Native plugins with a stable C ABI and a header-only C++ SDK: hooks and
-  events, message decorations, buttons and menus, slash commands, settings and
-  shortcuts. Settings > Plugins installs them from a signed catalog of reviewed
-  plugins (27 at v0.6.0), and they install, update, roll back and toggle
-  without a restart
-- Developer tooling: [`tools/maicord-plugin`](tools/maicord-plugin) creates,
-  builds, checks and packs plugins and effects, and Developer Mode hot-reloads
-  them as you rebuild
+</details>
+
+## Themes, effects and plugins
+
+Browse and install them in **Settings > Themes**, **Settings > Effects** and **Settings > Plugins**, from a
+`maicord://` link, or from a file. The catalog is also on the web:
+[themes](https://maicord.com/themes/) · [effects](https://maicord.com/effects/) · [plugins](https://maicord.com/plugins/),
+with entries from the [MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository.
+
+<table>
+  <tr>
+    <td width="33%" align="center"><img src=".github/assets/effects/silk-waves.webp" alt="MaiCord with Silk Waves behind the chat: a glowing cloth ribbon folding over a night sky, with glinting flakes" width="100%"><br><b>Silk Waves</b></td>
+    <td width="33%" align="center"><img src=".github/assets/effects/aurora.webp" alt="MaiCord with Aurora behind the chat: soft curtains of light drifting across the top of the window" width="100%"><br><b>Aurora</b></td>
+    <td width="33%" align="center"><img src=".github/assets/effects/bokeh.webp" alt="MaiCord with Soft bokeh behind the chat: out-of-focus discs drifting upward in three depth layers" width="100%"><br><b>Soft bokeh</b></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src=".github/assets/effects/plasma.webp" alt="MaiCord with Plasma behind the chat: flowing bands of colour tinted toward the theme" width="100%"><br><b>Plasma</b></td>
+    <td width="33%" align="center"><img src=".github/assets/effects/starfield.webp" alt="MaiCord with Starfield behind the chat: layers of twinkling stars drifting sideways" width="100%"><br><b>Starfield</b></td>
+    <td width="33%" align="center"><img src=".github/assets/effects/wave-lines.webp" alt="MaiCord with Wave lines behind the chat: thin horizontal lines rippling down the window" width="100%"><br><b>Wave lines</b></td>
+  </tr>
+</table>
+
+- **Themes** are JSON files that start from the Dark, Light or AMOLED base and can override any design token, name an
+  animated background, and change with the time of day.
+- **Background effects** are `.mcfx` packages of shaders and textures: data, not code. MaiCord validates them and caps
+  the GPU time an effect may use. One file serves Windows and Linux.
+- **Plugins** are native code (a DLL on Windows, a shared object on Linux) with a stable C ABI and a header-only C++
+  SDK. Catalog plugins are built by CI from reviewed source and listed in a signed index; you approve each plugin's
+  permissions and network hosts before any of its code runs, and they install, update, roll back and toggle without a
+  restart. Plugins are native code, so only install ones you trust.
+- Anything not from the catalog is marked *not reviewed*, shown with a live preview first, and never updates on its own.
+
+**Make your own:** the [plugin SDK](include/maicord/sdk/README.md), [sample plugins](samples/plugins) and
+[sample effects](samples/effects), the [`maicord-plugin`](tools/maicord-plugin) tool (create, build, check and pack;
+Developer Mode hot-reloads as you rebuild), and the guides at [maicord.com/plugins/develop](https://maicord.com/plugins/develop/)
+and [maicord.com/effects/develop](https://maicord.com/effects/develop/). The theme and effect formats are described in
+[CONTRIBUTING.md](CONTRIBUTING.md#themes-effects-and-plugins).
 
 ## Install
 
-### Windows
+<details open>
+<summary><b>Windows</b></summary>
 
-1. Download `MaiCord-<version>-windows-x64.zip` from the
-   [latest release](https://github.com/maj113/MaiCord/releases/latest).
+1. Download `MaiCord-<version>-windows-x64.zip` from the [latest release](https://github.com/maj113/MaiCord/releases/latest).
 2. Extract it anywhere you can write to, for example `%LOCALAPPDATA%\Programs\MaiCord`.
 3. Run `MaiCord.exe`. No installer or admin rights are needed.
 
-MaiCord keeps its settings and saved sign-ins in `%LOCALAPPDATA%\MaiCord` and
-updates itself. Every update is checked against a signature built into the
-client before it is installed, and it replaces `MaiCord.exe` in place when you
+MaiCord keeps its settings and saved sign-ins in `%LOCALAPPDATA%\MaiCord` and updates itself. Every update is checked
+against a signature built into the client before it is installed, and it replaces `MaiCord.exe` in place when you
 choose *Restart to update*, so the folder must stay writable.
 
-### Linux
+</details>
+
+<details open>
+<summary><b>Linux</b></summary>
 
 | You | Do |
 | --- | --- |
@@ -140,106 +237,48 @@ sudo pacman-key --lsign-key 27EFAD9C252F3E39887CA28EACB877AA84964FC8
 printf '\n[maicord]\nSigLevel = Required\nServer = https://maj113.github.io/MaiCord/repo/arch/$arch\n' | sudo tee -a /etc/pacman.conf >/dev/null
 ```
 
-The release also has the `.deb`, `.rpm`, Arch package and tarballs
-(`maicord-<version>-linux-x86_64.tar.gz`, and `-musl`) with their checksums.
-The one-command installer and the tarball install update themselves from
-*Settings > Updates*, from the same signed manifests as Windows, and so does the
-glibc AppImage; a package from a repository is updated by your package manager, and
-the musl AppImage by AppImageUpdate. MaiCord keeps its data in
-`$XDG_DATA_HOME/maicord` (`~/.local/share/maicord`), the same place for every
-install. [`packaging/README.md`](packaging/README.md) has every format and its details.
+The release also has the `.deb`, `.rpm`, Arch package and tarballs (`maicord-<version>-linux-x86_64.tar.gz`, and
+`-musl`) with their checksums. The one-command installer, the tarball install and the glibc AppImage update themselves
+from *Settings > Updates*, from the same signed manifests as Windows; a package from a repository is updated by your
+package manager, and the musl AppImage by AppImageUpdate. MaiCord keeps its data in `$XDG_DATA_HOME/maicord`
+(`~/.local/share/maicord`) for every install. [`packaging/README.md`](packaging/README.md) has every format and its
+details.
+
+</details>
 
 ### Requirements
 
-**Windows**
+<details>
+<summary><b>Windows</b>: Windows 10 or 11, 64-bit, and a Direct3D 11 GPU with Tiled Resources Tier 1</summary>
+
 - Windows 10 or 11, 64-bit
 - A CPU with AVX and AES-NI
-- A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2); MaiCord refuses to start
-  on a GPU or driver without it and says so
+- A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2); MaiCord refuses to start on a
+  GPU or driver without it and says so
 
-**Linux**
-- x86-64 with AVX and AES-NI, and Linux 6.1 or newer: the network loop runs on io_uring, so a system
-  that disables it (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is refused at
-  startup with the cause named. Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
-- glibc 2.34 or newer, or musl (Alpine, Void, Chimera). The release is checked in containers of Ubuntu 22.04,
-  Debian 12, AlmaLinux 9, Fedora, Arch, NixOS, Alpine, Void and Chimera
+</details>
+
+<details>
+<summary><b>Linux</b>: x86-64, Linux 6.1+, a Wayland session, glibc 2.34+ or musl</summary>
+
+- x86-64 with AVX and AES-NI, and Linux 6.1 or newer: the network loop runs on io_uring, so a system that disables it
+  (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is refused at startup with the cause named.
+  Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
+- glibc 2.34 or newer, or musl (Alpine, Void, Chimera). The release is checked in containers of Ubuntu 22.04, Debian 12,
+  AlmaLinux 9, Fedora, Arch, NixOS, Alpine, Void and Chimera
 - A Wayland compositor: there is no X11 backend. MaiCord draws its own title bar, so it needs no server-side
   decorations. It has been run on sway and Weston
 - A GPU driver with OpenGL ES 3.1 over EGL, `GL_EXT_blend_func_extended` and image copies (Mesa, or NVIDIA)
-- OpenSSL 3 or 4, libwayland, libxkbcommon and EGL/GLES; used when present: PulseAudio or PipeWire's Pulse
-  server (voice), fontconfig, Hunspell or Enchant (spellcheck), libfido2 (security keys), VA-API (video),
-  speech-dispatcher, and the desktop portals and a Secret Service (notifications, file dialogs, saved sign-ins)
+- OpenSSL 3 or 4, libwayland, libxkbcommon and EGL/GLES; used when present: PulseAudio or PipeWire's Pulse server
+  (voice), fontconfig, Hunspell or Enchant (spellcheck), libfido2 (security keys), VA-API (video), speech-dispatcher,
+  and the desktop portals and a Secret Service (notifications, file dialogs, saved sign-ins)
 
-## Plugins and themes
-
-**Themes** are JSON files (up to 64 KiB). A theme starts from the Dark, Light or AMOLED base and can override any
-design token; an optional `background` member can name an installed effect and its knob values. See
-[`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json). A theme can change with the
-time of day: `variants` holds up to four phases (`night`, `dawn`, `day`, `dusk`), each with a `base`, core `colors`
-and an optional `months` list of twelve colour sets (each turning toward the next month's from the 5th to the 30th,
-as the Silk Waves sky does). MaiCord holds each phase around its hours (night 23–01, dawn 05–07, day 11–13, dusk
-17–19, the Silk Waves schedule), mixes the colours across the hours between, shows the nearer phase whole where the
-base changes (gliding there, at once with reduced motion), and lets the theme alone decide an
-effect's day and night. A phase starts from its base's built-in colours, so it is light or dark on its own (the
-root's `semantic` overrides don't apply to it; its colours may name the root's `palette`); the root's typography,
-metrics, scale, motion, components and background apply to every phase. MaiCord before 0.6.4 skips `variants` as an
-unknown member and shows the root look. Such a theme can follow knobs of its effect (`background.follow`: a month
-knob and a phase knob with the phase each option holds), so a month or a day or night picked on the effect's knob
-page holds the theme there too while that effect is the background; see
-[`samples/effects/README.md`](samples/effects/README.md#time-of-day-and-appearance).
-
-**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
-pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a
-preview. Linux runs the GLSL ES that a package of interface 4 carries next to the bytecode, so one file serves both
-systems. They are data, not code: MaiCord checks the container and asks Direct3D (Windows) or the OpenGL ES driver
-(Linux) to build the shaders, and caps the GPU time an effect may use. Themes and effects come from the catalog,
-from a link (`https://…`), from a file or from a drop onto the install dialog. Anything that is not from the catalog
-is shown as *not reviewed* with a live preview before you install it, and never updates on its own.
-
-`maicord://install/<theme|effect|plugin>/<slug>` links open the catalog entry in MaiCord. Registering MaiCord for
-these links is optional: it is asked once, when you first open the catalog, and only writes
-`HKEY_CURRENT_USER\Software\Classes\maicord` on Windows, and a desktop entry and the default for the scheme in
-`mimeapps.list` on Linux.
-
-**Plugins** are native code from the catalog, built by its CI from reviewed source and listed in a signed index: a DLL
-on Windows and a freestanding shared object (`.so`) on Linux, built from the same source. MaiCord checks each
-download's size and SHA-256 against the index and its declared permissions and network hosts against its listing,
-asks you to approve them, and loads it without running any of its code until you agree. Updates that need nothing
-new apply on their own; the previous version is kept for one-click rollback, and a plugin the catalog revokes is
-turned off at once. Plugins are native code, so only install ones you trust. Loading your own DLL or `.so` needs
-Developer Mode.
-
-**Catalog.** At v0.6.7 it lists 27 plugins, 9 themes and 8 effects, browsable in Settings and on
-[maicord.com/plugins](https://maicord.com/plugins/), [/themes](https://maicord.com/themes/) and
-[/effects](https://maicord.com/effects/). Entries come from the
-[MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository. A plugin version published before
-Linux support has no shared object and is listed for Windows only until its plugin is next released.
-
-**Writing your own.** The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp) over the C ABI in
-[`maicord_plugin.h`](include/maicord/sdk/maicord_plugin.h); see
-[`include/maicord/sdk/README.md`](include/maicord/sdk/README.md). Samples:
-[`samples/plugins`](samples/plugins) and [`samples/effects`](samples/effects). [`tools/maicord-plugin`](tools/maicord-plugin)
-creates, builds, checks and packs plugins (Python 3.9+; on Windows it needs no Visual Studio, on Linux clang and
-ld.lld) and builds effects (on Windows; see the effects guide for Linux), and with Developer Mode
-on, MaiCord reloads them each time you rebuild. Guides:
-[maicord.com/plugins/develop](https://maicord.com/plugins/develop/) and
-[maicord.com/effects/develop](https://maicord.com/effects/develop/).
+</details>
 
 ## Building from source
 
-### Windows
-
-You need:
-
-- **The MaiCord LLVM toolchain**: clang-cl, lld-link and llvm-lib from a
-  [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release. The
-  build fetches the release pinned in `tools/llvm_toolchain.json` on first use
-  (into `%LOCALAPPDATA%\MaiCord-toolchain`); pass another `bin` directory as
-  `-LlvmBin` (or set `MAICORD_LLVM_BIN`) to override it
-- **Visual Studio 2026** (version 18) or its Build Tools, with the
-  *Desktop development with C++* workload (Windows SDK, MASM, CMake and Ninja)
-- **Python 3.10+** on `PATH`
-- **Windows PowerShell 5.1** (included with Windows)
+**Windows** needs Visual Studio 2026 (or its Build Tools) with *Desktop development with C++*, Python 3.10+ and
+Windows PowerShell 5.1; the build fetches its pinned LLVM toolchain on first use.
 
 ```powershell
 git clone https://github.com/maj113/MaiCord.git
@@ -247,21 +286,8 @@ cd MaiCord
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-The script finds Visual Studio and the LLVM toolchain, builds `MaiCord.exe`
-into the sibling directory `..\MaiCord-build\Release`, and audits it. Close
-MaiCord before rebuilding.
-
-Run the test suite with `tools\build.ps1 -Test` (add `-TestNames <name>` for a
-single test). It finishes in under 20 seconds and removes its output
-afterwards.
-
-### Linux
-
-You need Ubuntu 22.04+, Debian 12+ or a similar system (WSL2 works), with clang, lld and llvm 23, CMake 3.28 or newer,
-Ninja, Python 3, git and rsync. `tools/install_linux_toolchain.sh` installs them from apt.llvm.org on Debian and
-Ubuntu; `tools/build_linux.sh` refuses any other clang major. The shaders are hand-written GLSL that the build packs with
-Python, so the build fetches no shader compiler (only a plugin effect's GLSL section needs DXC and SPIRV-Cross, which
-`maicord-plugin effect build --glsl` fetches and builds into `~/.cache/maicord-toolchain` on first use).
+**Linux** needs Ubuntu 22.04+, Debian 12+ or similar (WSL2 works) with clang, lld and llvm 23, CMake 3.28+, Ninja,
+Python 3, git and rsync; `tools/install_linux_toolchain.sh` installs them on Debian and Ubuntu.
 
 ```sh
 git clone https://github.com/maj113/MaiCord.git
@@ -269,77 +295,67 @@ cd MaiCord
 tools/build_linux.sh
 ```
 
-The script builds in `~/mc-build` on a Linux file system (a checkout on a Windows or network mount is copied there
-first), audits the images with `tools/audit_elf.py` and leaves `~/mc-build/MaiCord` with its `fonts/` and `licenses/`.
-From Windows, `tools\build_linux.ps1` runs it inside WSL. `tools/build_linux.sh --test` also builds and runs the Linux
-test suite (add test names to run some of them); a build with `--test` is not a shipping build.
+Add `-Test` (Windows) or `--test` (Linux) to build and run the test suite. Toolchain details, build outputs, tests and
+the project layout are in [CONTRIBUTING.md](CONTRIBUTING.md#building-and-testing).
+
+## FAQ
 
 <details>
-<summary>Project layout</summary>
+<summary><b>Is this allowed by Discord?</b></summary>
 
-```
-include/maicord/   public headers; each module's folders mirror its src/ folders
-                   (sdk/ holds the plugin API, sys/ the Win32 and Linux system
-                   declarations, os/ and gpu/ the per-system seams)
-src/app/           the client: shell (window, input, startup), chat (messages,
-                   composer, threads, polls, search), voice (calls, streams,
-                   DAVE/MLS), account (login), guild, media, settings,
-                   notifications, gateway, net, plugins, store (catalog
-                   pages), packages (theme/effect/link install), effects,
-                   update, accessibility
-src/core/          freestanding runtime: memory, strings, JSON, containers
-src/model/         chat state: chat, guild, user, voice, notifications
-src/protocol/      Discord wire formats: gateway, http, auth, encoding,
-                   messages, guild, user, media, voice
-src/ui/            framework (core, layout, kit, widgets, controls, theme,
-                   text) and scenes by feature (chat, voice, account, store, ...)
-src/render/        renderer: d3d11, text, media atlases, effects, shaders
-src/gpu/           GPU backends: d3d11 (Windows), gles (Linux, OpenGL ES over EGL)
-src/os/            Linux system layer behind include/maicord/os
-src/text/          text engine: unicode, opentype, fonts, shaping, scripts,
-                   layout
-src/media/         decoders: image, video, audio, containers, compression
-src/platform/      per-system services: desktop, net (TLS), crypto, audio,
-                   decode (GPU), window (Win32, Wayland), uia and atspi
-                   (accessibility), dbus, font, time
-tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
-                   support/, fixtures/, generated/ data and integration/ probes
-samples/           example plugins (plugins/) and background effects (effects/)
-cmake/             build modules included by CMakeLists.txt
-config/            application manifest and resource scripts
-tools/             build (Windows and Linux), PE and ELF audits, perf harness,
-                   release scripts and the maicord-plugin tool
-packaging/         Linux packages, AppImage, installer and repositories
-third_party/       Opus, Lucide icons, Wayland protocol XML
-assets/            fonts, icons, flags, sounds, the example theme and license
-                   notices
-```
+MaiCord is not made, endorsed or supported by Discord. Discord's [Terms of Service](https://discord.com/terms) (section 9,
+*Restrictions on your use of Discord's services*) forbid "using any unauthorized software designed to modify the
+services", and Discord has not authorized MaiCord. Using it may violate those terms and could put your account at risk.
+It is your choice to make; if your account matters to you, weigh that first.
 
 </details>
 
-## Roadmap
+<details>
+<summary><b>Is my token safe?</b></summary>
 
-- Sending camera video and screen share
-- An installer
+Your sign-ins stay on your computer. On Windows they are in `%LOCALAPPDATA%\MaiCord`, encrypted with Windows Data
+Protection for your Windows account. On Linux they are in `~/.local/share/maicord`, encrypted with a key held by your
+desktop's Secret Service keyring (or a private `0600` key file when there is none). MaiCord sends the token only to
+Discord. Plugins get no function that exposes tokens, credentials or cookies, but they are native code, so only install
+ones you trust. The code is all here to read, and updates are checked against a signature before they install.
+
+</details>
+
+<details>
+<summary><b>Why not Electron?</b></summary>
+
+The official desktop app is a web page running in a bundled browser. MaiCord draws its own interface on the GPU and
+only redraws what changes, so it is one small program that starts fast and sits idle without using the CPU. See the
+[measured numbers](#why-maicord).
+
+</details>
+
+<details>
+<summary><b>Which features are missing?</b></summary>
+
+- Sending camera video and screen share (you can join voice and watch streams and cameras)
+- macOS, phones, and X11 on Linux (it needs a Wayland session)
+- A Windows installer (the zip is portable)
 - More plugin APIs: on-demand Discord fetches and the voice panel
-- Remaining Discord features, tracked in
-  [issues](https://github.com/maj113/MaiCord/issues?q=is%3Aopen+label%3Aparity)
+- Other Discord features, tracked in [issues](https://github.com/maj113/MaiCord/issues?q=is%3Aopen+label%3Aparity)
+
+</details>
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome; please read
-[CONTRIBUTING.md](CONTRIBUTING.md) first. Report security problems privately
-through [GitHub security advisories](https://github.com/maj113/MaiCord/security/advisories/new).
+Bug reports, ideas and pull requests are welcome; please read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report
+security problems privately through
+[GitHub security advisories](https://github.com/maj113/MaiCord/security/advisories/new).
 
 ## License
 
-MaiCord is licensed under the [Mozilla Public License 2.0](LICENSE). Changes
-to MaiCord's own files must be shared under the MPL when you distribute them;
-plugins and themes that only use the public SDK and theme format can use any
-license.
+MaiCord is licensed under the [Mozilla Public License 2.0](LICENSE). Changes to MaiCord's own files must be shared under
+the MPL when you distribute them; plugins and themes that only use the public SDK and theme format can use any license.
 
-Bundled third-party components keep their own licenses, and release builds
-include their notices in the `licenses` and `fonts` folders:
+<details>
+<summary>Bundled third-party components</summary>
+
+Release builds include their notices in the `licenses` and `fonts` folders.
 
 | Component | License | Notice |
 | --- | --- | --- |
@@ -354,8 +370,9 @@ include their notices in the `licenses` and `fonts` folders:
 | Profile display fonts | SIL Open Font License 1.1 | [`assets/fonts/`](assets/fonts/README.md) |
 | MaiCord notification sounds (original) | CC0 1.0 | [`assets/licenses/MaiCord-sounds.txt`](assets/licenses/MaiCord-sounds.txt) |
 
+</details>
+
 ## Disclaimer
 
-MaiCord is an independent project and is not affiliated with, authorized by or
-endorsed by Discord Inc. "Discord" and related marks are trademarks of
-Discord Inc. MaiCord is provided "as is", without warranty of any kind.
+MaiCord is an independent project and is not affiliated with, authorized by or endorsed by Discord Inc. "Discord" and
+related marks are trademarks of Discord Inc. MaiCord is provided "as is", without warranty of any kind.
