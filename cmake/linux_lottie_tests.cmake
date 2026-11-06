@@ -1,5 +1,5 @@
-# The Lottie geometry of the Linux build: the in-house engine that stands in for Direct2D (cmake/linux_render.cmake),
-# checked against what Direct2D answered on Windows (tests/render/effects/golden). Neither needs a GPU.
+# The Lottie geometry engine (cmake/linux_render.cmake), checked against what Direct2D answered for the same cases and
+# against exact answers (tests/render/effects/golden). Neither test needs a GPU.
 maicord_test(MaiCordLottieGeometryTests ENTRY maicord_lottie_geometry_entry
     SOURCES tests/render/effects/lottie_geometry_test.cpp
     LIBS maicord_vector_geometry maicord_core

@@ -409,16 +409,15 @@ maicord_library(maicord_render_core
     src/render/text/glyph_raster.cpp src/render/media/atlas.cpp src/render/d3d11/presentation_damage.cpp
     LIBS maicord_core)
 
-maicord_library(maicord_paint_program
-    src/render/effects/colr_program.cpp src/render/effects/colr_source.cpp src/render/effects/regional_flag_program.cpp
-    src/render/effects/lottie_program.cpp
-    LIBS d2d1 maicord_compile_contract maicord_core maicord_render_core maicord_font maicord_media_core)
-
-# The geometry engine the Lottie compiler runs on without Direct2D (Linux). Nothing shipping on Windows links it; its
-# tests compare it with Direct2D.
+# The vector geometry engine of the Lottie compiler: paths, transforms, boolean combinations, areas and strokes.
 maicord_library(maicord_vector_geometry
     src/render/effects/vector_geometry.cpp src/render/effects/vector_overlay.cpp src/render/effects/vector_stroke.cpp
     LIBS maicord_compile_contract maicord_core)
+
+maicord_library(maicord_paint_program
+    src/render/effects/colr_program.cpp src/render/effects/colr_source.cpp src/render/effects/regional_flag_program.cpp
+    src/render/effects/lottie_program.cpp
+    LIBS maicord_vector_geometry maicord_compile_contract maicord_core maicord_render_core maicord_font maicord_media_core)
 
 maicord_library(maicord_ui
     src/ui/chat/polls/controls.cpp src/ui/chat/polls/voters.cpp src/ui/chat/polls/presentation.cpp src/ui/voice/audio_controls.cpp

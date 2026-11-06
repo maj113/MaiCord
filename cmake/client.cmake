@@ -163,7 +163,7 @@ endif()
 # through kernel32's ResolveDelayLoadedAPI and fails fast when one is missing.
 # tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
 set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole32.dll advapi32.dll
-    combase.dll d2d1.dll bcrypt.dll crypt32.dll)
+    combase.dll bcrypt.dll crypt32.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 # LTO code generation stays in one partition (lld's default). Once the machine

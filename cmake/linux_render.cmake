@@ -14,8 +14,8 @@ maicord_library(maicord_atlas_gpu
     LIBS maicord_core maicord_render_core maicord_gpu_gles
     INCLUDES src "${MAICORD_GENERATED_DIRECTORY}")
 
-# The geometry the Lottie compiler (Direct2D's job on Windows) runs on here: flattening, boolean combination, area and
-# stroke widening of paths.
+# The geometry the Lottie compiler runs on (as on Windows, cmake/libraries.cmake): flattening, boolean combination, area
+# and stroke widening of paths.
 maicord_library(maicord_vector_geometry
     src/render/effects/vector_geometry.cpp src/render/effects/vector_overlay.cpp src/render/effects/vector_stroke.cpp
     LIBS maicord_core)

@@ -1,21 +1,17 @@
 #include "maicord/render/effects/vector_geometry.hpp"
 #include "../../gpu/capture_io.hpp"
 #include "lottie_geometry_raster.hpp"
-#if defined(_WIN32)
-#include "maicord/sys/d2d1.hpp"
-#else
-#include "maicord/os/linux/d2d1.hpp"
-#endif
 
-// The geometry the Lottie compiler asks Direct2D for, against the in-house engine that replaces it off Windows.
+// The vector geometry engine of the Lottie compiler.
 //
 // A fixed list of cases (primitives, paths that cross themselves, the four boolean combinations of shapes that touch,
 // coincide and are tangent, strokes of every cap, join and width) is run on the engine and compared with what Direct2D
-// answered: the area of each result and its coverage on a grid, within the flattening tolerance. Windows runs Direct2D
-// itself and the engine and compares them; with MAICORD_LOTTIE_GEOMETRY_CAPTURE=<file> it writes what Direct2D
-// answered, and tests/render/effects/golden/lottie_geometry.bin (made that way) is what the engine is compared with
-// everywhere else. Coordinates are in 512 units, the flattening tolerances are the ones the Lottie compiler passes at
-// that size (0.1 for combines and strokes, 0.05 for areas).
+// answered for them when the compiler ran on it (tests/render/effects/golden/lottie_geometry.bin): the area of each
+// result and its coverage on a grid, within the flattening tolerance. Coordinates are in 512 units, the flattening
+// tolerances are the ones the Lottie compiler passes at that size (0.1 for combines and strokes, 0.05 for areas).
+// Then cases with exact answers: areas of combinations of rectangles that share, overlap along or touch at edges, far
+// from the origin and across a huge range; self-crossing, tangent and zero-area outlines; the identities between the
+// four combinations of curved shapes; and chains of combinations, where each takes the last result as an operand.
 namespace maicord {
 namespace {
 
@@ -309,268 +305,100 @@ void describe(u32 index, Case* c) noexcept {
     }
 }
 
-// ---- backends: the same calls on Direct2D and on the engine ------------------------------------------------------
+// ---- running the cases on the engine ------------------------------------------------------------------------------
 
-struct NativeBackend {
-    using Factory = geometry::Factory;
-    using Geometry = geometry::Geometry;
-    using PathGeometry = geometry::Geometry;
-    using EllipseGeometry = geometry::Geometry;
-    using RoundedGeometry = geometry::Geometry;
-    using RectangleGeometry = geometry::Geometry;
-    using TransformedGeometry = geometry::Geometry;
-    using GeometrySink = geometry::GeometrySink;
-    using Sink = geometry::SimplifiedGeometrySink;
-    using StrokeStyle = geometry::StrokeStyle;
-    using Point = geometry::Point;
-    using Rect = geometry::Rect;
-    using Matrix = geometry::Matrix;
-    using Bezier = geometry::BezierSegment;
-    using Ellipse = geometry::Ellipse;
-    using RoundedRect = geometry::RoundedRect;
-    using StrokeProperties = geometry::StrokeStyleProperties;
-    using FillMode = geometry::FillMode;
-    using FigureBegin = geometry::FigureBegin;
-    using FigureEnd = geometry::FigureEnd;
-    using CombineMode = geometry::CombineMode;
-    using CapStyle = geometry::CapStyle;
-    using LineJoin = geometry::LineJoin;
-    using Simplification = geometry::SimplificationOption;
-    using PathSegment = geometry::PathSegment;
-    struct SinkBase : geometry::SimplifiedGeometrySink {};
-    static bool create(Factory** factory) noexcept { return geometry::factory_create(factory); }
-    static void destroy(Factory* factory) noexcept { factory->Release(); }
-    static constexpr bool ok(HRESULT result) noexcept { return result >= 0; }
-};
+using geometry::Geometry;
+using geometry::Point;
 
-#if defined(_WIN32)
-struct D2dBackend {
-    using Factory = ID2D1Factory;
-    using Geometry = ID2D1Geometry;
-    using PathGeometry = ID2D1PathGeometry;
-    using EllipseGeometry = ID2D1EllipseGeometry;
-    using RoundedGeometry = ID2D1RoundedRectangleGeometry;
-    using RectangleGeometry = ID2D1RectangleGeometry;
-    using TransformedGeometry = ID2D1TransformedGeometry;
-    using GeometrySink = ID2D1GeometrySink;
-    using Sink = ID2D1SimplifiedGeometrySink;
-    using StrokeStyle = ID2D1StrokeStyle;
-    using Point = D2D1_POINT_2F;
-    using Rect = D2D1_RECT_F;
-    using Matrix = D2D1_MATRIX_3X2_F;
-    using Bezier = D2D1_BEZIER_SEGMENT;
-    using Ellipse = D2D1_ELLIPSE;
-    using RoundedRect = D2D1_ROUNDED_RECT;
-    using StrokeProperties = D2D1_STROKE_STYLE_PROPERTIES;
-    using FillMode = D2D1_FILL_MODE;
-    using FigureBegin = D2D1_FIGURE_BEGIN;
-    using FigureEnd = D2D1_FIGURE_END;
-    using CombineMode = D2D1_COMBINE_MODE;
-    using CapStyle = D2D1_CAP_STYLE;
-    using LineJoin = D2D1_LINE_JOIN;
-    using Simplification = D2D1_GEOMETRY_SIMPLIFICATION_OPTION;
-    using PathSegment = D2D1_PATH_SEGMENT;
-    // novtable: the base is abstract, and its own table would name _purecall, which the freestanding runtime lacks.
-    struct __declspec(novtable) SinkBase : ID2D1SimplifiedGeometrySink {
-        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
-            if (!value)
-                return E_POINTER;
-            *value = nullptr;
-            if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
-                *value = this;
-                return S_OK;
-            }
-            return E_NOINTERFACE;
-        }
-        ULONG STDMETHODCALLTYPE AddRef() noexcept override { return 1; }
-        ULONG STDMETHODCALLTYPE Release() noexcept override { return 1; }
-        void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {}
-    };
-    static bool create(Factory** factory) noexcept {
-        return SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
-                                           reinterpret_cast<void**>(factory)));
-    }
-    static void destroy(Factory* factory) noexcept { factory->Release(); }
-    static bool ok(HRESULT result) noexcept { return SUCCEEDED(result); }
-};
-#endif
-
-// The edges, lengths and command counts of whatever a Simplify gives a sink.
-template <typename B> struct Collector final : B::SinkBase {
-    lottie_raster::Edges* edges;
-    float tolerance;
-    double length;
-    u32 figures, commands, lines;
-    bool even_odd;
-    void STDMETHODCALLTYPE SetFillMode(typename B::FillMode mode) noexcept override {
-        even_odd = static_cast<i32>(mode) == 0;
-    }
-    void STDMETHODCALLTYPE BeginFigure(typename B::Point p, typename B::FigureBegin) noexcept override {
-        ++figures;
-        ++commands;
-        edges->begin(p.x, p.y);
-    }
-    void STDMETHODCALLTYPE AddLines(const typename B::Point* p, UINT32 n) noexcept override {
-        for (UINT32 i = 0; i < n; ++i) {
-            const double dx = p[i].x - edges->cx, dy = p[i].y - edges->cy;
-            length += __builtin_elementwise_sqrt(dx * dx + dy * dy);
-            edges->line(p[i].x, p[i].y);
-            ++commands;
-            ++lines;
-        }
-    }
-    void STDMETHODCALLTYPE AddBeziers(const typename B::Bezier* b, UINT32 n) noexcept override {
-        for (UINT32 i = 0; i < n; ++i) {
-            const double dx = b[i].point3.x - edges->cx, dy = b[i].point3.y - edges->cy;
-            length += __builtin_elementwise_sqrt(dx * dx + dy * dy);
-            edges->cubic(b[i].point1.x, b[i].point1.y, b[i].point2.x, b[i].point2.y, b[i].point3.x, b[i].point3.y,
-                         tolerance);
-            ++commands;
-        }
-    }
-    void STDMETHODCALLTYPE EndFigure(typename B::FigureEnd) noexcept override { edges->close(); }
-    HRESULT STDMETHODCALLTYPE Close() noexcept override { return S_OK; }
-};
-
+// What a case is compared by. The fixture holds, per case after its count, area, length, figure and command counts
+// and bounds (4 bytes each, 4 for the bounds) and the cells.
 struct Record {
     float area, length;
-    u32 figures, commands;
-    float bounds[4];
     u8 cells[kGrid * kGrid];
 };
 constexpr u32 kRecordBytes = 4 + 4 + 4 + 4 + 16 + kGrid * kGrid;
 
-template <typename B> struct Scene {
-    typename B::Factory* factory;
-    Arena* arena;
-    lottie_raster::Edge* edge_storage;
-
-    typename B::Geometry* make(const Primitive& p) noexcept {
-        typename B::Geometry* geometry = nullptr;
-        switch (p.kind) {
-        case Primitive::ellipse: {
-            typename B::EllipseGeometry* g = nullptr;
-            if (B::ok(factory->CreateEllipseGeometry(typename B::Ellipse{{p.a, p.b}, p.c, p.d}, &g)))
-                geometry = g;
-            break;
-        }
-        case Primitive::rounded: {
-            typename B::RoundedGeometry* g = nullptr;
-            if (B::ok(factory->CreateRoundedRectangleGeometry(
-                    typename B::RoundedRect{{p.a, p.b, p.c, p.d}, p.e, p.f}, &g)))
-                geometry = g;
-            break;
-        }
-        case Primitive::rectangle: {
-            typename B::RectangleGeometry* g = nullptr;
-            const typename B::Rect r{p.a, p.b, p.c, p.d};
-            if (B::ok(factory->CreateRectangleGeometry(&r, &g)))
-                geometry = g;
-            break;
-        }
-        case Primitive::path: {
-            typename B::PathGeometry* g = nullptr;
-            typename B::GeometrySink* sink = nullptr;
-            if (!B::ok(factory->CreatePathGeometry(&g)) || !B::ok(g->Open(&sink)))
-                break;
-            sink->SetFillMode(static_cast<typename B::FillMode>(1));
-            for (u32 f = 0; f < p.spec.figure_count; ++f) {
-                const Spec::Figure& figure = p.spec.figures[f];
-                sink->BeginFigure({figure.sx, figure.sy}, static_cast<typename B::FigureBegin>(0));
-                for (u32 k = 0; k < figure.count; ++k) {
-                    const float* q = p.spec.points[f][k];
-                    const typename B::Bezier segment{{q[0], q[1]}, {q[2], q[3]}, {q[4], q[5]}};
-                    sink->AddBezier(segment);
-                }
-                sink->EndFigure(static_cast<typename B::FigureEnd>(figure.closed ? 1 : 0));
-            }
-            const bool closed = B::ok(sink->Close());
-            sink->Release();
-            if (closed)
-                geometry = g;
-            break;
-        }
-        }
-        return geometry;
-    }
-
-    // Measures `geometry` into a record: its area, bounds, size and coverage.
-    bool measure(typename B::Geometry* geometry, Record* r) noexcept {
-        float area = 0;
-        typename B::Rect bounds{};
-        if (!B::ok(geometry->ComputeArea(nullptr, kAreaTolerance, &area)) || !B::ok(geometry->GetBounds(nullptr, &bounds)))
-            return false;
-        lottie_raster::Edges edges{edge_storage, 0, 1 << 20, 0, 0, 0, 0};
-        Collector<B> collector{};
-        collector.edges = &edges;
-        collector.tolerance = .02f;
-        if (!B::ok(geometry->Simplify(static_cast<typename B::Simplification>(0), nullptr, kAreaTolerance, &collector)))
-            return false;
-        lottie_raster::Coverage<kGrid> coverage;
-        if (!lottie_raster::rasterize<kGrid>(arena, edges, kExtent, collector.even_odd, &coverage))
-            return false;
-        r->area = area;
-        r->length = static_cast<float>(collector.length);
-        r->figures = collector.figures;
-        r->commands = collector.commands;
-        r->bounds[0] = bounds.left;
-        r->bounds[1] = bounds.top;
-        r->bounds[2] = bounds.right;
-        r->bounds[3] = bounds.bottom;
-        copy_bytes(r->cells, coverage.cells, sizeof(coverage.cells));
-        return true;
-    }
-
-    // A combination or stroke of geometries into a path geometry.
-    template <typename Fill> typename B::Geometry* build(Fill&& fill) noexcept {
-        typename B::PathGeometry* g = nullptr;
-        typename B::GeometrySink* sink = nullptr;
-        if (!B::ok(factory->CreatePathGeometry(&g)) || !B::ok(g->Open(&sink)))
+// A path geometry of the figures of a spec.
+Geometry* path_of(geometry::Factory* factory, const Spec& spec) noexcept {
+    Geometry* g = geometry::geometry_create(factory);
+    for (u32 f = 0; g && f < spec.figure_count; ++f) {
+        const Spec::Figure& figure = spec.figures[f];
+        if (!geometry::geometry_begin(g, {figure.sx, figure.sy}, false) ||
+            !geometry::geometry_append(g, reinterpret_cast<const Point*>(spec.points[f]), figure.count * 3))
             return nullptr;
-        const bool good = B::ok(fill(static_cast<typename B::Sink*>(sink)));
-        const bool closed = B::ok(sink->Close());
-        sink->Release();
-        return good && closed ? g : nullptr;
+        geometry::geometry_end(g, figure.closed);
     }
+    return g;
+}
 
-    bool run(const Case& c, Record* record) noexcept {
-        Primitive first, second;
-        shape(c.first, &first);
-        typename B::Geometry* a = make(first);
-        if (!a)
-            return false;
-        if (c.op == Op::shape)
-            return measure(a, record);
-        if (c.op == Op::widen) {
-            typename B::StrokeProperties props{};
-            props.startCap = props.endCap = props.dashCap = static_cast<typename B::CapStyle>(c.mode / 3);
-            props.lineJoin = static_cast<typename B::LineJoin>(c.mode % 3);
-            props.miterLimit = c.miter;
-            typename B::StrokeStyle* style = nullptr;
-            if (!B::ok(factory->CreateStrokeStyle(props, nullptr, 0, &style)))
-                return false;
-            typename B::Geometry* widened = build([&](typename B::Sink* sink) noexcept {
-                return a->Widen(c.width, style, nullptr, kCombineTolerance, sink);
-            });
-            style->Release();
-            return widened && measure(widened, record);
-        }
-        shape(c.second, &second);
-        typename B::Geometry* b = make(second);
-        if (!b)
-            return false;
-        // The second operand may be moved; the tangent pair is two circles of radius 100 instead.
-        typename B::Matrix m{c.matrix[0], c.matrix[1], c.matrix[2], c.matrix[3], c.matrix[4], c.matrix[5]};
-        typename B::TransformedGeometry* placed = nullptr;
-        if (!B::ok(factory->CreateTransformedGeometry(b, &m, &placed)))
-            return false;
-        typename B::Geometry* combined = build([&](typename B::Sink* sink) noexcept {
-            return a->CombineWithGeometry(placed, static_cast<typename B::CombineMode>(c.mode), nullptr,
-                                          kCombineTolerance, sink);
-        });
-        return combined && measure(combined, record);
+Geometry* make(geometry::Factory* factory, const Primitive& p) noexcept {
+    switch (p.kind) {
+    case Primitive::ellipse:
+        return geometry::geometry_rounded_rectangle(factory, p.a - p.c, p.b - p.d, p.a + p.c, p.b + p.d, p.c, p.d);
+    case Primitive::rounded:
+        return geometry::geometry_rounded_rectangle(factory, p.a, p.b, p.c, p.d, p.e, p.f);
+    case Primitive::rectangle:
+        return geometry::geometry_rounded_rectangle(factory, p.a, p.b, p.c, p.d, 0, 0);
+    default:
+        return path_of(factory, p.spec);
     }
-};
+}
+
+// Measures `geometry` into a record: its area, outline length, size and coverage.
+bool measure(Arena* arena, lottie_raster::Edge* storage, const Geometry* geometry, Record* r) noexcept {
+    double area = 0;
+    if (!geometry::geometry_area(geometry, nullptr, kAreaTolerance, &area))
+        return false;
+    lottie_raster::Edges edges{storage, 0, 1 << 20, 0, 0, 0, 0};
+    double length = 0;
+    const Point* p = geometry->points;
+    for (u32 f = 0; f < geometry->figure_count; ++f) {
+        const geometry::Figure& figure = geometry->figures[f];
+        edges.begin(p[figure.first].x, p[figure.first].y);
+        const u32 step = figure.polyline ? 1 : 3;
+        for (u32 at = figure.first + step; at < figure.end; at += step) {
+            const double dx = p[at].x - edges.cx, dy = p[at].y - edges.cy;
+            length += __builtin_elementwise_sqrt(dx * dx + dy * dy);
+            if (step == 1)
+                edges.line(p[at].x, p[at].y);
+            else
+                edges.cubic(p[at - 2].x, p[at - 2].y, p[at - 1].x, p[at - 1].y, p[at].x, p[at].y, .02f);
+        }
+        edges.close();
+    }
+    lottie_raster::Coverage<kGrid> coverage;
+    if (!lottie_raster::rasterize<kGrid>(arena, edges, kExtent, false, &coverage))
+        return false;
+    r->area = static_cast<float>(area);
+    r->length = static_cast<float>(length);
+    copy_bytes(r->cells, coverage.cells, sizeof(coverage.cells));
+    return true;
+}
+
+bool run_case(geometry::Factory* factory, Arena* arena, lottie_raster::Edge* storage, const Case& c,
+              Record* record) noexcept {
+    Primitive first, second;
+    shape(c.first, &first);
+    Geometry* a = make(factory, first);
+    if (!a)
+        return false;
+    if (c.op == Op::shape)
+        return measure(arena, storage, a, record);
+    if (c.op == Op::widen) {
+        const geometry::StrokeStyle style{c.width, c.miter, static_cast<geometry::CapStyle>(c.mode / 3),
+                                          static_cast<geometry::LineJoin>(c.mode % 3)};
+        Geometry* widened = geometry::geometry_stroke(a, style, kCombineTolerance);
+        return widened && measure(arena, storage, widened, record);
+    }
+    shape(c.second, &second);
+    Geometry* b = make(factory, second);
+    const geometry::Matrix m{c.matrix[0], c.matrix[1], c.matrix[2], c.matrix[3], c.matrix[4], c.matrix[5]};
+    Geometry* placed = b ? geometry::geometry_transform(b, m) : nullptr;
+    Geometry* combined =
+        placed ? geometry::geometry_combine(a, placed, static_cast<geometry::CombineMode>(c.mode), kCombineTolerance)
+               : nullptr;
+    return combined && measure(arena, storage, combined, record);
+}
 
 // ---- comparison ------------------------------------------------------------------------------------------------
 
@@ -649,136 +477,256 @@ bool environment_flag(const char* name) noexcept {
     return capture_io::environment(name, value, sizeof(value));
 }
 
-template <typename B> bool run_all(Arena* arena, lottie_raster::Edge* storage, Record* out, u32* count) noexcept {
-    typename B::Factory* factory = nullptr;
-    if (!B::create(&factory))
+bool run_all(Arena* arena, lottie_raster::Edge* storage, Record* out) noexcept {
+    geometry::Factory* factory = nullptr;
+    if (!geometry::factory_create(&factory))
         return false;
-    Scene<B> scene{factory, arena, storage};
     bool ok = true;
     for (u32 i = 0; i < kCaseCount; ++i) {
         Case c;
         describe(i, &c);
-        if (!scene.run(c, &out[i])) {
-            print_case(i, c, "the backend failed");
+        if (!run_case(factory, arena, storage, c, &out[i])) {
+            print_case(i, c, "the engine failed");
             ok = false;
         }
     }
-    *count = kCaseCount;
-    B::destroy(factory);
+    geometry::factory_release(factory);
     return ok;
 }
 
-Record g_native[kCaseCount], g_reference[kCaseCount];
+Record g_engine[kCaseCount];
 lottie_raster::Edge g_edges[1 << 20];
 
-bool unpack(u32 index, Record* r) noexcept {
+void unpack(u32 index, Record* r) noexcept {
     const u8* at = kFixture + 4 + static_cast<usize>(index) * kRecordBytes;
     copy_bytes(&r->area, at, 4);
     copy_bytes(&r->length, at + 4, 4);
-    copy_bytes(&r->figures, at + 8, 4);
-    copy_bytes(&r->commands, at + 12, 4);
-    copy_bytes(r->bounds, at + 16, 16);
     copy_bytes(r->cells, at + 32, kGrid * kGrid);
-    return true;
 }
 
-#if defined(_WIN32)
-bool pack(Arena*, const Record* records, u32 count, const char* path) noexcept {
-    static u8 bytes[4 + kCaseCount * kRecordBytes];
-    copy_bytes(bytes, &count, 4);
-    for (u32 i = 0; i < count; ++i) {
-        u8* at = bytes + 4 + static_cast<usize>(i) * kRecordBytes;
-        copy_bytes(at, &records[i].area, 4);
-        copy_bytes(at + 4, &records[i].length, 4);
-        copy_bytes(at + 8, &records[i].figures, 4);
-        copy_bytes(at + 12, &records[i].commands, 4);
-        copy_bytes(at + 16, records[i].bounds, 16);
-        copy_bytes(at + 32, records[i].cells, kGrid * kGrid);
-    }
-    return capture_io::write_file(path, bytes, sizeof(bytes));
-}
-#endif
+// ---- cases with exact answers ----------------------------------------------------------------------------------
 
-// Exact areas the engine must reproduce: shapes with a known area, and Direct2D's own answers for a stroked corner.
-bool analytic_cases() noexcept {
-    geometry::Factory* factory = nullptr;
-    if (!geometry::factory_create(&factory))
-        return false;
-    u32 failures = 0;
-    const auto near = [](double a, double b, double slack) noexcept { return (a < b ? b - a : a - b) <= slack; };
-    const auto fail = [&failures](const char* what, u32 index) noexcept {
+struct Exact {
+    geometry::Factory* factory;
+    u32 failures;
+
+    void expect(const char* what, double value, double expected, double slack) noexcept {
+        if (value >= expected - slack && value <= expected + slack)
+            return;
         ++failures;
-        test_write_text("analytic case failed: ");
-        test_write_metric(what, index);
-    };
-    // A path geometry holding one figure of the points (a corner, with its handles on its ends), or no figure.
-    const auto path_of = [&](const geometry::Point* points, u32 count, geometry::Geometry** out) noexcept {
-        geometry::GeometrySink* sink = nullptr;
-        if (factory->CreatePathGeometry(out) < 0 || (*out)->Open(&sink) < 0)
-            return false;
-        if (count) {
-            sink->BeginFigure(points[0], geometry::figure_filled);
-            for (u32 i = 1; i < count; ++i)
-                sink->AddBezier({points[i - 1], points[i], points[i]});
-        }
-        sink->EndFigure(geometry::figure_open);
-        return sink->Close() >= 0;
-    };
-    // The same, widened into a new geometry.
-    const auto widen = [&](geometry::Geometry* source, float width, geometry::CapStyle cap, geometry::LineJoin join,
-                           geometry::Geometry** out) noexcept {
-        geometry::StrokeStyle* style = nullptr;
-        geometry::GeometrySink* sink = nullptr;
-        return factory->CreateStrokeStyle({cap, cap, cap, join, 4, 0, 0}, nullptr, 0, &style) >= 0 &&
-               factory->CreatePathGeometry(out) >= 0 && (*out)->Open(&sink) >= 0 &&
-               source->Widen(width, style, nullptr, .1f, sink) >= 0 && sink->Close() >= 0;
-    };
-    geometry::Geometry *circle = nullptr, *first = nullptr, *second = nullptr;
-    float area = 0;
-    if (factory->CreateEllipseGeometry({{256, 256}, 100, 100}, &circle) < 0 || circle->ComputeArea(nullptr, .05f, &area) < 0 ||
-        !near(area, 3.14159265 * 10000, 2000 * .05 * 3.14159265 + 1))
-        fail("circle area x1000 ", static_cast<u32>(area * 1000));
-    const geometry::Rect r{0, 0, 100, 100}, s{50, 50, 150, 150};
-    if (factory->CreateRectangleGeometry(&r, &first) < 0 || factory->CreateRectangleGeometry(&s, &second) < 0) {
-        fail("rectangles ", 0);
-    } else {
-        const double expected[]{17500, 2500, 15000, 7500};
-        for (u32 mode = 0; mode < 4; ++mode) {
-            geometry::Geometry* combined = nullptr;
-            geometry::GeometrySink* sink = nullptr;
-            float result = 0;
-            if (factory->CreatePathGeometry(&combined) < 0 || combined->Open(&sink) < 0 ||
-                first->CombineWithGeometry(second, static_cast<geometry::CombineMode>(mode), nullptr, .1f, sink) < 0 ||
-                sink->Close() < 0 || combined->ComputeArea(nullptr, .05f, &result) < 0 || !near(result, expected[mode], .5))
-                fail("rectangle combination, area x1000 ", static_cast<u32>(result * 1000));
-        }
+        test_write_text("exact case failed: ");
+        test_write_line(what);
+        test_write_metric("    value x1000:    ", static_cast<u64>((value < 0 ? -value : value) * 1000));
+        test_write_metric("    expected x1000: ", static_cast<u64>((expected < 0 ? -expected : expected) * 1000));
     }
-    // D2D: the corner (10,10) (60,10) (60,60) stroked 8 wide measured 800, 846.848 and 856 square units.
-    const geometry::Point corner[]{{10, 10}, {60, 10}, {60, 60}};
-    geometry::Geometry* corner_path = nullptr;
-    if (!path_of(corner, 3, &corner_path)) {
-        fail("corner path ", 0);
-    } else {
-        const double expected[]{800, 846.848, 856};
-        const geometry::CapStyle caps[]{geometry::cap_flat, geometry::cap_round, geometry::cap_square};
-        const geometry::LineJoin joins[]{geometry::join_miter, geometry::join_round, geometry::join_bevel};
-        for (u32 i = 0; i < 3; ++i) {
-            geometry::Geometry* wide = nullptr;
-            float stroke_area = 0;
-            if (!widen(corner_path, 8, caps[i], joins[i], &wide) || wide->ComputeArea(nullptr, .05f, &stroke_area) < 0 ||
-                !near(stroke_area, expected[i], .6))
-                fail("stroked corner, area x1000 ", static_cast<u32>(stroke_area * 1000));
-        }
+    Geometry* rect(float left, float top, float right, float bottom) noexcept {
+        return geometry::geometry_rounded_rectangle(factory, left, top, right, bottom, 0, 0);
     }
+    Geometry* circle(float cx, float cy, float r) noexcept {
+        return geometry::geometry_rounded_rectangle(factory, cx - r, cy - r, cx + r, cy + r, r, r);
+    }
+    // One figure through the points, each segment a cubic with its handles on its ends.
+    Geometry* polygon(const Point* points, u32 count, bool closed) noexcept {
+        Geometry* g = geometry::geometry_create(factory);
+        if (!g || !geometry::geometry_begin(g, points[0], false))
+            return nullptr;
+        for (u32 i = 1; i < count; ++i) {
+            const Point segment[]{points[i - 1], points[i], points[i]};
+            if (!geometry::geometry_append(g, segment, 3))
+                return nullptr;
+        }
+        geometry::geometry_end(g, closed);
+        return g;
+    }
+    // NaN when there is no geometry or the engine fails, so that no expectation holds.
+    static double area(const Geometry* g, float tolerance = kAreaTolerance) noexcept {
+        double value = 0;
+        return g && geometry::geometry_area(g, nullptr, tolerance, &value) ? value : __builtin_nan("");
+    }
+    // An upper bound of the outline's length: the length of its control polygon.
+    static double outline(const Geometry* g) noexcept {
+        double length = 0;
+        for (u32 i = 1; g && i < g->point_count; ++i) {
+            const double dx = g->points[i].x - g->points[i - 1].x, dy = g->points[i].y - g->points[i - 1].y;
+            length += __builtin_elementwise_sqrt(dx * dx + dy * dy);
+        }
+        return length;
+    }
+    static Geometry* combine(const Geometry* a, const Geometry* b, u32 mode,
+                             float tolerance = kCombineTolerance) noexcept {
+        return a && b ? geometry::geometry_combine(a, b, static_cast<geometry::CombineMode>(mode), tolerance) : nullptr;
+    }
+    static Geometry* stroke(const Geometry* g, const geometry::StrokeStyle& style) noexcept {
+        return g ? geometry::geometry_stroke(g, style, kCombineTolerance) : nullptr;
+    }
+    // The areas of the union, intersection, difference either way and difference of `a` and `b`.
+    void combinations(const char* what, const Geometry* a, const Geometry* b, const double (&expected)[4], double slack,
+                      float tolerance = kCombineTolerance) noexcept {
+        for (u32 mode = 0; mode < 4; ++mode)
+            expect(what, area(combine(a, b, mode, tolerance), tolerance * .5f), expected[mode], slack);
+    }
+    // Whether `g` exists and has no figure.
+    void empty(const char* what, const Geometry* g) noexcept { expect(what, g ? g->figure_count : -1.0, 0, 0); }
+};
+
+bool exact_cases() noexcept {
+    Exact e{};
+    if (!geometry::factory_create(&e.factory))
+        return false;
+    constexpr double pi = 3.14159265358979;
+    e.expect("a circle", Exact::area(e.circle(256, 256, 100)), pi * 10000, 2000 * .05 * pi + 1);
+
+    // Rectangles: overlapping, sharing an edge, overlapping along one, equal, inside on two edges, touching at a
+    // corner, apart; far from the origin, a million units wide and a tenth of a unit wide.
+    const Geometry* square = e.rect(0, 0, 100, 100);
+    e.combinations("rectangles overlapping", square, e.rect(50, 50, 150, 150), {17500, 2500, 15000, 7500}, .5);
+    e.combinations("rectangles sharing an edge", square, e.rect(100, 0, 200, 100), {20000, 0, 20000, 10000}, .5);
+    e.combinations("rectangles overlapping along their edges", square, e.rect(50, 0, 150, 100),
+                   {15000, 5000, 10000, 5000}, .5);
+    e.combinations("equal rectangles", square, e.rect(0, 0, 100, 100), {10000, 10000, 0, 0}, .5);
+    e.combinations("a rectangle inside on two edges", square, e.rect(0, 0, 50, 50), {10000, 2500, 7500, 7500}, .5);
+    e.combinations("rectangles touching at a corner", square, e.rect(100, 100, 200, 200), {20000, 0, 20000, 10000}, .5);
+    e.combinations("rectangles apart", square, e.rect(200, 0, 300, 100), {20000, 0, 20000, 10000}, .5);
+    e.empty("the intersection of rectangles sharing an edge",
+            Exact::combine(square, e.rect(100, 0, 200, 100), geometry::combine_intersect));
+    e.empty("the intersection of rectangles apart",
+            Exact::combine(square, e.rect(200, 0, 300, 100), geometry::combine_intersect));
+    e.empty("the difference of equal rectangles",
+            Exact::combine(square, e.rect(0, 0, 100, 100), geometry::combine_xor));
+    e.combinations("rectangles far from the origin", e.rect(1e6f, 1e6f, 1e6f + 100, 1e6f + 100),
+                   e.rect(1e6f + 50, 1e6f + 50, 1e6f + 150, 1e6f + 150), {17500, 2500, 15000, 7500}, .5);
+    e.combinations("huge rectangles", e.rect(0, 0, 1e6f, 1e6f), e.rect(5e5f, 5e5f, 1.5e6f, 1.5e6f),
+                   {1.75e12, .25e12, 1.5e12, .75e12}, 1e7, 1000);
+    e.combinations("tiny rectangles", e.rect(0, 0, .1f, .1f), e.rect(.05f, .05f, .15f, .15f),
+                   {.0175, .0025, .015, .0075}, 1e-6, 1e-4f);
+
+    // Outlines that cross or run over themselves fill each point once; spikes and flat figures add nothing.
+    const Point bowtie[]{{0, 0}, {100, 100}, {100, 0}, {0, 100}};
+    e.expect("a bowtie", Exact::area(e.polygon(bowtie, 4, true)), 5000, .5);
+    const Point twice[]{{0, 0}, {100, 0}, {100, 100}, {0, 100}, {0, 0}, {100, 0}, {100, 100}, {0, 100}};
+    e.expect("a square drawn twice", Exact::area(e.polygon(twice, 8, true)), 10000, .5);
+    const Point spike[]{{0, 0}, {100, 0}, {100, 100}, {150, 100}, {100, 100}, {0, 100}};
+    const Geometry* spiked = e.polygon(spike, 6, true);
+    e.expect("a square with a spike", Exact::area(spiked), 10000, .5);
+    e.combinations("a square with a spike and the square", spiked, square, {10000, 10000, 0, 0}, .5);
+    e.empty("the difference of a square with a spike and the square",
+            Exact::combine(spiked, square, geometry::combine_xor));
+    const Point flat[]{{-50, 50}, {200, 50}, {100, 50}};
+    e.combinations("a flat figure across a square", square, e.polygon(flat, 3, true), {10000, 0, 10000, 10000}, .5);
+
+    // Tangent circles, and a circle touching a square's four sides from inside.
+    const Geometry *left = e.circle(156, 256, 100), *right = e.circle(356, 256, 100);
+    const double disc = Exact::area(left);
+    e.combinations("tangent circles", left, right, {2 * disc, 0, 2 * disc, disc}, 4 * pi * 100 * kCombineTolerance + 1);
+    const Geometry* inscribed = e.circle(50, 50, 50);
+    const double inner = Exact::area(inscribed);
+    e.combinations("a circle inscribed in a square", square, inscribed, {10000, inner, 10000 - inner, 10000 - inner},
+                   2 * pi * 50 * kCombineTolerance + 1);
+
+    // A comb of 200 teeth across a band: 400 crossings.
+    Point comb[3 + 200 * 4];
+    u32 count = 0;
+    comb[count++] = {0, 0};
+    comb[count++] = {400, 0};
+    comb[count++] = {400, 10};
+    for (u32 i = 200; i-- > 0;) {
+        const float x = 2.f * static_cast<float>(i);
+        comb[count++] = {x + 1, 10};
+        comb[count++] = {x + 1, 100};
+        comb[count++] = {x, 100};
+        comb[count++] = {x, 10};
+    }
+    e.combinations("a comb across a band", e.polygon(comb, count, true), e.rect(0, 50, 400, 60),
+                   {24000, 2000, 22000, 20000}, .5);
+
+    // The combinations of the curved cases agree with each other: |A| + |B| = |A or B| + |A and B|,
+    // |A xor B| = |A or B| - |A and B| and |A - B| = |A or B| - |B|.
+    for (u32 i = 0; i < kComboCount; ++i) {
+        Case c;
+        describe(shape_count + i * 4, &c);
+        Primitive first, second;
+        shape(c.first, &first);
+        shape(c.second, &second);
+        const Geometry* a = make(e.factory, first);
+        const Geometry* moved = make(e.factory, second);
+        const geometry::Matrix m{c.matrix[0], c.matrix[1], c.matrix[2], c.matrix[3], c.matrix[4], c.matrix[5]};
+        const Geometry* b = moved ? geometry::geometry_transform(moved, m) : nullptr;
+        double areas[4];
+        for (u32 mode = 0; mode < 4; ++mode)
+            areas[mode] = Exact::area(Exact::combine(a, b, mode));
+        const double sa = Exact::area(a), sb = Exact::area(b);
+        const double slack = 2 * kCombineTolerance * (Exact::outline(a) + Exact::outline(b)) + 1;
+        e.expect("|A| + |B| = |A or B| + |A and B|", sa + sb - areas[0] - areas[1], 0, slack);
+        e.expect("|A xor B| = |A or B| - |A and B|", areas[2] - (areas[0] - areas[1]), 0, slack);
+        e.expect("|A - B| = |A or B| - |B|", areas[3] - (areas[0] - sb), 0, slack);
+    }
+
+    // Chains where each combination takes the last result, which the engine keeps rather than builds again, against
+    // the same steps on copies it does not know: nine overlapping squares, a frame around them less them, strips cut
+    // out of them and a band across, and six overlapping circles.
+    const geometry::Matrix identity{1, 0, 0, 1, 0, 0};
+    Geometry *chain = e.rect(0, 0, 50, 50), *copy = chain;
+    for (u32 k = 1; k <= 8; ++k) {
+        const float x = 40.f * static_cast<float>(k);
+        chain = Exact::combine(chain, e.rect(x, 0, x + 50, 50), geometry::combine_union);
+        copy = copy ? Exact::combine(geometry::geometry_transform(copy, identity), e.rect(x, 0, x + 50, 50),
+                                     geometry::combine_union)
+                    : nullptr;
+    }
+    e.expect("a chain of squares", Exact::area(chain), 18500, .5);
+    e.expect("a copied chain of squares", Exact::area(copy), 18500, .5);
+    e.expect("a frame less a chain",
+             Exact::area(Exact::combine(e.rect(-10, -10, 400, 70), chain, geometry::combine_exclude)), 32800 - 18500,
+             .5);
+    for (u32 k = 0; k <= 8; ++k) {
+        const float x = 40.f * static_cast<float>(k) + 20;
+        chain = Exact::combine(chain, e.rect(x, -10, x + 10, 60), geometry::combine_exclude);
+    }
+    e.expect("a chain less strips", Exact::area(chain), 14000, .5);
+    chain = Exact::combine(chain, e.rect(0, 20, 400, 30), geometry::combine_intersect);
+    e.expect("a band of a chain less strips", Exact::area(chain), 2800, .5);
+    Geometry *circles = e.circle(60, 60, 40), *copies = circles;
+    for (u32 k = 1; k <= 5; ++k) {
+        const float x = 60 + 50.f * static_cast<float>(k);
+        circles = Exact::combine(circles, e.circle(x, 60, 40), geometry::combine_union);
+        copies = copies ? Exact::combine(geometry::geometry_transform(copies, identity), e.circle(x, 60, 40),
+                                         geometry::combine_union)
+                        : nullptr;
+    }
+    // A kept result is the split outline it was made of; a copy is flattened again, its chords not quite the same.
+    e.expect("a chain of circles", Exact::area(circles), Exact::area(copies),
+             2 * kCombineTolerance * Exact::outline(circles) + 1);
+    // Six discs of radius 40, 50 apart: each pair of neighbours overlaps by 3200 acos(5 / 8) - 25 sqrt(3900).
+    const double lens = 3200 * 0.8956647939 - 25 * 62.4499799840;
+    e.expect("a chain of circles drawn", Exact::area(circles), 6 * pi * 1600 - 5 * lens,
+             2 * kCombineTolerance * Exact::outline(circles) + 1);
+
+    // Strokes. Direct2D measured the corner (10,10) (60,10) (60,60) stroked 8 wide as 800, 846.848 and 856 square
+    // units.
+    const Point corner[]{{10, 10}, {60, 10}, {60, 60}};
+    const Geometry* corner_path = e.polygon(corner, 3, false);
+    const double corner_areas[]{800, 846.848, 856};
+    const geometry::StrokeStyle styles[]{{8, 4, geometry::cap_flat, geometry::join_miter},
+                                         {8, 4, geometry::cap_round, geometry::join_round},
+                                         {8, 4, geometry::cap_square, geometry::join_bevel}};
+    for (u32 i = 0; i < 3; ++i)
+        e.expect("a stroked corner", Exact::area(Exact::stroke(corner_path, styles[i])), corner_areas[i], .6);
+    // A path that turns back on itself, its round join half a disc past the turn; a square's outline stroked 10 wide,
+    // drawn as a path that ends away from its start (closed by a line back to it) and as the rectangle primitive.
+    const Point back[]{{10, 10}, {60, 10}, {10, 10}};
+    e.expect("a stroke turning back",
+             Exact::area(Exact::stroke(e.polygon(back, 3, false), {8, 4, geometry::cap_flat, geometry::join_round})),
+             400 + 8 * pi, 1);
+    const geometry::StrokeStyle wide{10, 4, geometry::cap_flat, geometry::join_miter};
+    const Point outline[]{{0, 0}, {100, 0}, {100, 100}, {0, 100}};
+    e.expect("a stroked square", Exact::area(Exact::stroke(e.polygon(outline, 4, true), wide)), 110 * 110 - 90 * 90,
+             .5);
+    e.expect("a stroked rectangle", Exact::area(Exact::stroke(square, wide)), 110 * 110 - 90 * 90, .5);
     // A zero-length open figure draws nothing, whatever its caps.
-    const geometry::Point dot_point[]{{30, 30}};
-    geometry::Geometry *dot = nullptr, *nothing = nullptr;
-    geometry::Rect empty{};
-    if (!path_of(dot_point, 1, &dot) || !widen(dot, 8, geometry::cap_round, geometry::join_round, &nothing) ||
-        nothing->GetBounds(nullptr, &empty) < 0 || empty.left <= empty.right)
-        fail("zero-length figure ", 0);
-    factory->Release();
-    return failures == 0;
+    const Point dot[]{{30, 30}};
+    e.expect("a stroked point", Exact::area(Exact::stroke(e.polygon(dot, 1, false), styles[1])), 0, 0);
+    geometry::factory_release(e.factory);
+    return e.failures == 0;
 }
 
 bool run() noexcept {
@@ -787,42 +735,18 @@ bool run() noexcept {
         return false;
     g_report = environment_flag("MAICORD_LOTTIE_REPORT");
     u32 failures = 0;
-    test_check(&failures, analytic_cases(), "analytic geometry cases");
-    u32 count = 0;
-#if defined(_WIN32)
-    char capture[520];
-    if (capture_io::environment("MAICORD_LOTTIE_GEOMETRY_CAPTURE", capture, sizeof(capture))) {
-        if (!run_all<D2dBackend>(&arena, g_edges, g_reference, &count) || !pack(&arena, g_reference, count, capture))
-            return false;
-        test_write_line("PASS captured the Direct2D answers");
-        return failures == 0;
-    }
-#endif
-    test_check(&failures, run_all<NativeBackend>(&arena, g_edges, g_native, &count), "the engine runs every case");
+    test_check(&failures, exact_cases(), "the cases with exact answers");
+    test_check(&failures, run_all(&arena, g_edges, g_engine), "the engine runs every case");
     const u32 stored = sizeof(kFixture) >= 4 ? *reinterpret_cast<const u32*>(kFixture) : 0;
     const bool fixture = sizeof(kFixture) == 4 + static_cast<usize>(kCaseCount) * kRecordBytes && stored == kCaseCount;
     test_check(&failures, fixture, "the fixture holds every case");
-#if defined(_WIN32)
-    // Direct2D answers again here, so the fixture is checked as well as the engine.
-    u32 live = 0;
-    test_check(&failures, run_all<D2dBackend>(&arena, g_edges, g_reference, &live), "Direct2D runs every case");
     for (u32 i = 0; i < kCaseCount && fixture; ++i) {
         Case c;
         describe(i, &c);
-        Record stored_record;
-        unpack(i, &stored_record);
-        test_check(&failures, similar(i, c, stored_record, g_reference[i], 3), "the fixture matches Direct2D");
+        Record reference;
+        unpack(i, &reference);
+        test_check(&failures, similar(i, c, reference, g_engine[i], 12), "the engine matches Direct2D");
     }
-#else
-    for (u32 i = 0; i < kCaseCount && fixture; ++i)
-        unpack(i, &g_reference[i]);
-#endif
-    if (fixture || sizeof(kFixture) > 1)
-        for (u32 i = 0; i < kCaseCount; ++i) {
-            Case c;
-            describe(i, &c);
-            test_check(&failures, similar(i, c, g_reference[i], g_native[i], 12), "the engine matches Direct2D");
-        }
     return failures == 0;
 }
 } // namespace

@@ -1,18 +1,25 @@
 #pragma once
 #include "maicord/render/effects/vector_geometry.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
 
-// What the parts of the geometry engine share: the figure table of a Geometry, the scratch containers and the
-// operations implemented outside vector_geometry.cpp.
+// What the parts of the geometry engine share: the factory, curve arithmetic, growable arrays.
 namespace maicord::geometry {
-
-// One figure: `kind_count` segments from kinds[kind_begin], over points[point_begin] (the start) followed by one point
-// per line and three per cubic. Kinds: 0 a line, 1 a cubic.
-struct Figure {
-    u32 kind_begin, kind_count, point_begin;
-    u32 closed;
+// What a combination leaves for the next ones that take its result as an operand (see vector_overlay.cpp): the
+// result's boundary edges, already split, and the curves they follow. The factory keeps two (say a clip region and
+// the leaf just clipped by it), each in an arena of its own, and replaces the one used or made least recently.
+struct Reuse {
+    const Geometry* geometry;
+    void* edges;
+    void* curves;
+    u32 edge_count, curve_count, lines, stamp;
+    double scale, tolerance;
 };
-inline constexpr u8 kind_line = 0, kind_cubic = 1;
+struct Factory {
+    Arena permanent, scratch, reused[2];
+    Reuse reuse[2];
+    u32 clock;
+};
 
 inline double root(double value) noexcept {
     return __builtin_elementwise_sqrt(value);
@@ -46,83 +53,6 @@ inline void split_cubic(const double (&in)[8], double t, double (&left)[8], doub
     }
 }
 
-// Whether a cubic stays within `tolerance` of its chord: a curve strays from it by at most three quarters of how far
-// its handles do (and a handle beyond the chord's ends counts by how far past them it is).
-inline bool cubic_flat(const double (&c)[8], double tolerance) noexcept {
-    const double vx = c[6] - c[0], vy = c[7] - c[1], square = vx * vx + vy * vy, length = root(square);
-    double worst = 0;
-    for (u32 k = 1; k <= 2; ++k) {
-        const double px = c[k * 2] - c[0], py = c[k * 2 + 1] - c[1];
-        double far;
-        if (square > 1e-18) {
-            const double along = (px * vx + py * vy) / square, across = (px * vy - py * vx) / length;
-            const double excess = along < 0 ? -along * length : along > 1 ? (along - 1) * length : 0;
-            far = root(across * across + excess * excess);
-        } else {
-            far = root(px * px + py * py);
-        }
-        worst = maximum(worst, far);
-    }
-    return .75 * worst <= tolerance;
-}
-
-// Whether a cubic's tangent turns by no more than the angle whose cosine is `min_cosine` between its two ends (a value
-// of -1 or less allows any turn).
-inline bool cubic_turn_ok(const double (&c)[8], double min_cosine) noexcept {
-    if (min_cosine <= -1)
-        return true;
-    // The start tangent is the first handle that is not on its end point, the end tangent likewise from the other side.
-    double sx = 0, sy = 0, ex = 0, ey = 0;
-    for (u32 k = 1; k <= 3; ++k)
-        if (absolute(c[k * 2] - c[0]) + absolute(c[k * 2 + 1] - c[1]) > 1e-12) {
-            sx = c[k * 2] - c[0];
-            sy = c[k * 2 + 1] - c[1];
-            break;
-        }
-    for (u32 k = 3; k-- > 0;)
-        if (absolute(c[6] - c[k * 2]) + absolute(c[7] - c[k * 2 + 1]) > 1e-12) {
-            ex = c[6] - c[k * 2];
-            ey = c[7] - c[k * 2 + 1];
-            break;
-        }
-    const double lengths = root(sx * sx + sy * sy) * root(ex * ex + ey * ey);
-    return !(lengths > 1e-24) || sx * ex + sy * ey >= min_cosine * lengths;
-}
-
-// Calls vertex(t, x, y) at the end of each piece a cubic is cut into, in order, the last at t = 1 and the cubic's own end
-// point. Pieces are halves of halves, so every t is a short binary fraction and exact in a float. A straight cubic,
-// whatever its handles, is one piece. With a `min_cosine` above -1, no piece turns by more (see cubic_turn_ok).
-template <typename Vertex>
-void flatten_cubic(const double (&curve)[8], double tolerance, Vertex&& vertex, double min_cosine = -2) noexcept {
-    struct Piece {
-        double c[8];
-        double t0, t1;
-        u32 depth;
-    };
-    Piece stack[48];
-    u32 top = 1;
-    copy_bytes(stack[0].c, curve, sizeof(curve));
-    stack[0].t0 = 0;
-    stack[0].t1 = 1;
-    stack[0].depth = 0;
-    while (top) {
-        const Piece piece = stack[--top];
-        if (piece.depth >= 16 || top + 2 >= 48 || (cubic_flat(piece.c, tolerance) && cubic_turn_ok(piece.c, min_cosine))) {
-            vertex(static_cast<float>(piece.t1), piece.c[6], piece.c[7]);
-            continue;
-        }
-        const double mid = (piece.t0 + piece.t1) * .5;
-        Piece& right = stack[top];
-        Piece& left = stack[top + 1];
-        split_cubic(piece.c, .5, left.c, right.c);
-        left.t0 = piece.t0;
-        left.t1 = right.t0 = mid;
-        right.t1 = piece.t1;
-        left.depth = right.depth = piece.depth + 1;
-        top += 2;
-    }
-}
-
 // A growable array in an arena that is rewound as a whole; T is trivially copyable.
 template <typename T> struct Vec {
     T* data;
@@ -132,24 +62,10 @@ struct Scratch {
     Arena* arena;
     bool failed;
 };
+// grow in the scratch arena; a failure marks `s`.
+bool vec_grow(Scratch& s, void** data, u32* capacity, u32 count, u32 needed, u32 size) noexcept;
 template <typename T> bool vec_reserve(Scratch& s, Vec<T>& v, u32 needed) noexcept {
-    if (needed <= v.capacity)
-        return true;
-    u32 next = v.capacity * 2;
-    if (next < needed)
-        next = needed;
-    if (next < 16)
-        next = 16;
-    T* fresh = arena_allocate<T>(s.arena, next);
-    if (!fresh) {
-        s.failed = true;
-        return false;
-    }
-    if (v.count)
-        copy_bytes(fresh, v.data, static_cast<u32>(v.count * sizeof(T)));
-    v.data = fresh;
-    v.capacity = next;
-    return true;
+    return needed <= v.capacity || vec_grow(s, reinterpret_cast<void**>(&v.data), &v.capacity, v.count, needed, sizeof(T));
 }
 template <typename T> T* vec_push(Scratch& s, Vec<T>& v) noexcept {
     if (v.count == v.capacity && !vec_reserve(s, v, v.count + 1))
@@ -157,14 +73,14 @@ template <typename T> T* vec_push(Scratch& s, Vec<T>& v) noexcept {
     return &v.data[v.count++];
 }
 
-// The outline of `a` and `b` (null: nothing) combined by `mode`, flattened to `tolerance`, into `sink` as resolved rings.
-Result overlay_combine(Factory* factory, const Geometry* a, const Matrix* a_transform, const Geometry* b,
-                       const Matrix* b_transform, CombineMode mode, float tolerance,
-                       SimplifiedGeometrySink* sink) noexcept;
-// The area of the nonzero fill of `geometry`, flattened to `tolerance`.
-Result overlay_area(Factory* factory, const Geometry* geometry, const Matrix* transform, float tolerance,
-                    double* area) noexcept;
-Result stroke_outline(Factory* factory, const Geometry* geometry, float width, const StrokeStyleProperties& style,
-                      float tolerance, SimplifiedGeometrySink* sink) noexcept;
+// The end of each piece a cubic is cut into, in order, appended to `out`: pieces that stay within `tolerance` of their
+// chords and, with a `min_cosine` above -1, turn by no more than its angle. The last is at t = 1, the cubic's own end
+// point. Pieces are halves of halves, so every t is a short binary fraction and exact in a float. A straight cubic,
+// whatever its handles, is one piece.
+struct Flat {
+    double x, y;
+    float t;
+};
+bool flatten_cubic(Scratch& s, const double (&curve)[8], double tolerance, double min_cosine, Vec<Flat>& out) noexcept;
 
 } // namespace maicord::geometry

@@ -1661,14 +1661,14 @@ maicord_test(MaiCordColrProgramTests ENTRY maicord_colr_program_tests_entry
     SOURCES tests/render/effects/colr_program_test.cpp tests/render/effects/colr_source_test.cpp
     LIBS maicord_core maicord_font maicord_paint_program kernel32
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_colr_program)
-# The geometry engine that stands in for Direct2D off Windows against Direct2D itself (and the answers the Linux build
-# compares it with: MAICORD_LOTTIE_GEOMETRY_CAPTURE=<file> writes tests/render/effects/golden/lottie_geometry.bin).
+# The Lottie geometry engine on a fixed list of shapes, combinations and strokes, against what Direct2D answered for
+# them (tests/render/effects/golden/lottie_geometry.bin), and on cases with exact answers.
 maicord_test(MaiCordLottieGeometryTests ENTRY maicord_lottie_geometry_entry
     SOURCES tests/render/effects/lottie_geometry_test.cpp
-    LIBS maicord_vector_geometry maicord_core d2d1 kernel32
+    LIBS maicord_vector_geometry maicord_core kernel32
     TIMEOUT 20 TEST maicord_lottie_geometry)
 # The Lottie compiler end to end on the generated corpus, against the digests of its compiled masks that Direct2D's
-# geometry produced (MAICORD_LOTTIE_PROGRAM_CAPTURE=<file> writes tests/render/effects/golden/lottie_program.bin).
+# geometry produced (MAICORD_LOTTIE_PROGRAM_CAPTURE=<file> writes the digests of the current build).
 maicord_test(MaiCordLottieProgramTests ENTRY maicord_lottie_program_entry
     SOURCES tests/render/effects/lottie_program_test.cpp
     LIBS maicord_core maicord_font maicord_paint_program kernel32

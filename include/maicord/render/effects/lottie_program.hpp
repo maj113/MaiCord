@@ -8,9 +8,9 @@ inline constexpr u32 kLottieMaximumBytes = 1024 * 1024;
 constexpr u32 lottie_raster_pixels(const MediaAssetKey& key) noexcept {
     return key.kind == MediaAssetKind::sticker ? 160u : 128u;
 }
-// The histogram bin of a height across an outline's bounds. A matte can leave a
-// sliver whose bounds Direct2D reports as infinite and inverted; its heights
-// are NaN here and share bin 0, which only overstates the outline's winding.
+// The histogram bin of a height across an outline's bounds. A sliver a matte
+// leaves can have no height (scale 0) or bounds that are not finite (NaN
+// here); either shares bin 0, which only overstates the outline's winding.
 constexpr i32 lottie_height_bin(float y, float top, float scale, i32 bins) noexcept {
     const float at = (y - top) * scale;
     return !(at > 0) ? 0 : at >= bins - 1 ? bins - 1 : static_cast<i32>(at);

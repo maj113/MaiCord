@@ -71,21 +71,23 @@ renews the PNGs with `tools/update_gpu_goldens.py --scene effects`. `MAICORD_GPU
 
 ## Lottie stickers
 
-`lottie_program.cpp` uses Direct2D as a CPU geometry engine (path, ellipse and rounded rectangle geometries, transforms, bounds,
-simplification, area, the four boolean combinations of mattes, masks and merge paths, and stroke widening). Windows still calls
-Direct2D, unchanged. Elsewhere the compiler gets the same method names from `include/maicord/os/linux/d2d1.hpp` (the Direct2D
-vocabulary over `include/maicord/render/effects/vector_geometry.hpp`) and the engine in `effects/`: `vector_geometry.cpp` (figures of
-cubics and lines in the arenas of one `Factory`, primitives, transforms, bounds, simplification), `vector_overlay.cpp` (flatten to a
-tolerance, snap to an integer grid, split every crossing exactly, a sheared sweep for the winding numbers, rings that keep the original
-curves between crossings: the four combinations and the area of a nonzero fill) and `vector_stroke.cpp` (caps, miter, bevel and round
-joins with the miter clip, one outline per figure or separate pieces where an inner join folds). Fills are nonzero everywhere; nothing is
-reference counted.
+`lottie_program.cpp` builds its masks with the in-house vector geometry engine on both systems
+(`include/maicord/render/effects/vector_geometry.hpp`): `vector_geometry.cpp` (figures of cubics or polylines in the arenas of one
+`Factory`, rounded rectangles and ellipses, transforms, flattening), `vector_overlay.cpp` (flatten to a tolerance, snap to an integer
+grid, split every crossing exactly, a sweep for the winding numbers, rings that keep the original curves between crossings: the four
+combinations and the area of a nonzero fill; the last two results stay split, so a chain of merges or masks that takes the last result
+as an operand does not build it again) and `vector_stroke.cpp` (caps, miter, bevel and round joins with the miter clip, polygon
+outlines, one per figure or separate pieces where an inner join folds). Fills are nonzero everywhere; nothing is reference counted.
+The factory a compile releases is kept for the next one with its arenas trimmed to their first 16 KiB, so a sticker's frames do not
+reserve and fault in fresh arenas each.
+It replaced Direct2D, whose answers the tests keep as their reference.
 
 A change is checked by `maicord_lottie_geometry` (a fixed list of shapes, combinations and strokes: areas and coverage against
-`tests/render/effects/golden/lottie_geometry.bin`, what Direct2D answered; Windows runs both and compares them) and
-`maicord_lottie_program` (the corpus `tests/render/effects/corpus` that `tools/generate_lottie_corpus.py` draws, compiled and compared
-mask by mask with `golden/lottie_program.bin`). Both write nothing and need no GPU. Renew a golden by running the test on Windows with
-`MAICORD_LOTTIE_GEOMETRY_CAPTURE` or `MAICORD_LOTTIE_PROGRAM_CAPTURE` set to the file's path. The sticker files the client shows are not
-ours to ship; to compare them anyway, list their paths in a file (`MAICORD_LOTTIE_CORPUS_LIST`), capture their digests on Windows with
-`MAICORD_LOTTIE_CORPUS_CAPTURE` and compare on Linux with `MAICORD_LOTTIE_CORPUS_COMPARE`. Not on Linux: the colour-glyph paint
-programs' tests that use Direct2D geometry.
+`tests/render/effects/golden/lottie_geometry.bin`, what Direct2D answered; and cases with exact answers: shared, collinear and touching
+edges, self-crossing, tangent and zero-area outlines, huge and tiny coordinates, chains of combinations) and `maicord_lottie_program`
+(the corpus `tests/render/effects/corpus` that `tools/generate_lottie_corpus.py` draws, compiled and compared mask by mask with
+`golden/lottie_program.bin`, what the compiler made on Direct2D). Both write nothing and need no GPU. `MAICORD_LOTTIE_PROGRAM_CAPTURE`
+set to a path writes the current build's digests instead. The sticker files the client shows are not ours to ship; to compare them
+anyway, list their paths in a file (`MAICORD_LOTTIE_CORPUS_LIST`), capture their digests with `MAICORD_LOTTIE_CORPUS_CAPTURE` and compare
+another build or system with `MAICORD_LOTTIE_CORPUS_COMPARE`. Not on Linux: the colour-glyph paint programs' tests that use Direct2D
+geometry.

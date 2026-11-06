@@ -210,7 +210,8 @@ maicord_compact_sources(
         src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
         src/platform/decode/mp4_decoder.cpp)
 # Ogg/Opus page parsing, the window icon decode, local-file thumbnails and COLR paint program building (a
-# regional flag's program too, once per flag, with the SVG path outlining it inlines).
+# regional flag's program too, once per flag, with the SVG path outlining it inlines), and the Lottie geometry
+# engine (vector_*.cpp: at -Oz it still compiles stickers faster than Direct2D did).
 # The rare-script shapers (Sinhala, Tamil, Myanmar, Khmer, Tibetan, Hebrew) stay /O2: -Oz cost them up to 6%
 # more cycles per shaped run in the text benchmark.
 maicord_compact_sources(
@@ -218,7 +219,8 @@ maicord_compact_sources(
         src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp
         src/app/shell/app_icon.cpp src/app/media/local_preview_thumbnail.cpp
         src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp
-        src/render/effects/regional_flag_program.cpp)
+        src/render/effects/regional_flag_program.cpp src/render/effects/vector_geometry.cpp
+        src/render/effects/vector_overlay.cpp src/render/effects/vector_stroke.cpp)
 # Once per sound, file, packet or GPU device: the MP3 path (stream framing, seek index and the C decoder, the one codec
 # compiled for size), the notification sound unpacking and the D3D11 shader pack inflate. The decoder at -Oz decodes
 # a 5 s 128 kbit/s stereo clip in 0.035% of its duration (0.026% at /O2) and a 30 s 64 kbit/s mono one in 0.021%
@@ -244,7 +246,7 @@ if(MAICORD_LINUX)
     # WASAPI, CNG, the Win32 file and shell services): once per window, device, connection, stream or user action, or
     # glue around the kernel's own work. Left at -O2 as on Windows: the sample, byte and frame loops (os/linux/text,
     # thread, wait and srwlock, the GLES draw, resource and video upload wrappers, the AEAD and hash wrappers, the
-    # in-house AAC decoder, the Lottie geometry, the bitmap colour glyphs).
+    # in-house AAC decoder, the bitmap colour glyphs).
     maicord_compact_sources(
         TARGETS maicord_window_wayland maicord_dbus maicord_atspi maicord_audio_pulse maicord_net maicord_desktop_system
             maicord_font_system maicord_video_vaapi maicord_video_software maicord_video_decode

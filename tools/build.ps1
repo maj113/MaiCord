@@ -92,7 +92,7 @@ function Invoke-Build([string[]]$Targets) {
         # The image keeps large zero-filled globals in .bss; 16 KiB of initialized
         # .data leaves room for small tables but not for a serialized aggregate.
         $hookAudit = @{ ForbidTestHooks = !$TestHooks; RequireTestHooks = [bool]$TestHooks }
-        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo @hookAudit -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, sspicli.dll, ole32.dll, advapi32.dll, combase.dll, d2d1.dll, bcrypt.dll, crypt32.dll
+        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo @hookAudit -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, sspicli.dll, ole32.dll, advapi32.dll, combase.dll, bcrypt.dll, crypt32.dll
         Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)"
     }
 }

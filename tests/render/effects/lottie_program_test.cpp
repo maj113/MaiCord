@@ -11,14 +11,14 @@
 // per painted shape: the outline as line segments in the document's unit square. A mask is digested as its area,
 // outline length and bounds and its coverage on a 32 x 32 grid (rasterized on a finer one), and the digests of a frame
 // are compared with the ones in tests/render/effects/golden/lottie_program.bin, within what the compiler's flattening
-// tolerance allows. Windows compiles with Direct2D (so it checks the file stays current), Linux with the in-house
-// geometry (src/render/effects/vector_geometry.cpp): there the file is what Direct2D produced.
+// tolerance allows. Both systems compile with the in-house geometry (src/render/effects/vector_geometry.cpp); the file
+// is what the compiler made when it ran on Direct2D.
 //
-// To renew it on Windows, set MAICORD_LOTTIE_PROGRAM_CAPTURE=<file> and copy the file to the golden directory.
-// To compare a directory of real files without shipping them, list their paths one per line in a file and set
-// MAICORD_LOTTIE_CORPUS_LIST=<that file>; with MAICORD_LOTTIE_CORPUS_CAPTURE=<file> a Windows run writes their digests
-// and a Linux run with MAICORD_LOTTIE_CORPUS_COMPARE=<that file> compares. MAICORD_LOTTIE_REPORT=1 prints every
-// frame's worst differences.
+// MAICORD_LOTTIE_PROGRAM_CAPTURE=<file> writes the digests of this build instead (renewing the file with them makes
+// them the reference). To compare a directory of real files without shipping them, list their paths one per line in a
+// file and set MAICORD_LOTTIE_CORPUS_LIST=<that file>; with MAICORD_LOTTIE_CORPUS_CAPTURE=<file> one run writes their
+// digests and a run with MAICORD_LOTTIE_CORPUS_COMPARE=<that file> (another build or system) compares.
+// MAICORD_LOTTIE_REPORT=1 prints every frame's worst differences.
 namespace maicord {
 namespace {
 
