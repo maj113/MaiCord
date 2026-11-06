@@ -18,7 +18,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 <br>
 
-<img src=".github/assets/hero.webp" alt="MaiCord in motion: scrolling a developers' chat channel with a poll, replies and a code block, over the animated Silk Waves background" width="100%">
+<picture><source srcset=".github/assets/hero.avif" type="image/avif"><img src=".github/assets/hero.webp" alt="MaiCord in motion: scrolling a developers' chat channel with a poll, replies and a code block, over the animated Silk Waves background" width="100%"></picture>
 
 <sub>Every name, message and image on screen is made-up demo content.</sub>
 
@@ -176,14 +176,14 @@ with entries from the [MaiCord-plugins](https://github.com/maj113/MaiCord-plugin
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src=".github/assets/effects/silk-waves.webp" alt="MaiCord with Silk Waves behind the chat: a glowing cloth ribbon folding over a night sky, with glinting flakes" width="100%"><br><b>Silk Waves</b></td>
-    <td width="33%" align="center"><img src=".github/assets/effects/aurora.webp" alt="MaiCord with Aurora behind the chat: soft curtains of light drifting across the top of the window" width="100%"><br><b>Aurora</b></td>
-    <td width="33%" align="center"><img src=".github/assets/effects/bokeh.webp" alt="MaiCord with Soft bokeh behind the chat: out-of-focus discs drifting upward in three depth layers" width="100%"><br><b>Soft bokeh</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/silk-waves.avif" type="image/avif"><img src=".github/assets/effects/silk-waves.webp" alt="MaiCord with Silk Waves behind the chat: a glowing cloth ribbon folding over a night sky, with glinting flakes" width="100%"></picture><br><b>Silk Waves</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/aurora.avif" type="image/avif"><img src=".github/assets/effects/aurora.webp" alt="MaiCord with Aurora behind the chat: soft curtains of light drifting across the top of the window" width="100%"></picture><br><b>Aurora</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/bokeh.avif" type="image/avif"><img src=".github/assets/effects/bokeh.webp" alt="MaiCord with Soft bokeh behind the chat: out-of-focus discs drifting upward in three depth layers" width="100%"></picture><br><b>Soft bokeh</b></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src=".github/assets/effects/plasma.webp" alt="MaiCord with Plasma behind the chat: flowing bands of colour tinted toward the theme" width="100%"><br><b>Plasma</b></td>
-    <td width="33%" align="center"><img src=".github/assets/effects/starfield.webp" alt="MaiCord with Starfield behind the chat: layers of twinkling stars drifting sideways" width="100%"><br><b>Starfield</b></td>
-    <td width="33%" align="center"><img src=".github/assets/effects/wave-lines.webp" alt="MaiCord with Wave lines behind the chat: thin horizontal lines rippling down the window" width="100%"><br><b>Wave lines</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/plasma.avif" type="image/avif"><img src=".github/assets/effects/plasma.webp" alt="MaiCord with Plasma behind the chat: flowing bands of colour tinted toward the theme" width="100%"></picture><br><b>Plasma</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/starfield.avif" type="image/avif"><img src=".github/assets/effects/starfield.webp" alt="MaiCord with Starfield behind the chat: layers of twinkling stars drifting sideways" width="100%"></picture><br><b>Starfield</b></td>
+    <td width="33%" align="center"><picture><source srcset=".github/assets/effects/wave-lines.avif" type="image/avif"><img src=".github/assets/effects/wave-lines.webp" alt="MaiCord with Wave lines behind the chat: thin horizontal lines rippling down the window" width="100%"></picture><br><b>Wave lines</b></td>
   </tr>
 </table>
 
