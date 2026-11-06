@@ -201,6 +201,32 @@ u32 test_trust_verify(const wchar_t* file, PCCERT_CONTEXT certificate, const wch
     return error;
 }
 
+const char* test_hooks_startup_refusal() noexcept {
+    const TestServerEndpoint* endpoint = nullptr;
+    const TestServerState server = test_server_endpoint(&endpoint);
+    wchar_t file[kTestTrustPathCapacity];
+    const TestTrustState trust = test_trust_file(file);
+    if (server == TestServerState::invalid)
+        return "MAICORD_TEST_SERVER is not HOST:PORT";
+    if (trust == TestTrustState::invalid)
+        return "MAICORD_TEST_CA_FILE is too long";
+    if (server == TestServerState::unset && trust == TestTrustState::unset)
+        return nullptr;
+    if (trust == TestTrustState::unset)
+        return "MAICORD_TEST_SERVER is set without MAICORD_TEST_CA_FILE";
+    if (server == TestServerState::unset)
+        return "MAICORD_TEST_CA_FILE is set without MAICORD_TEST_SERVER";
+    u8 data[kFileCapacity + 1];
+    const u32 bytes = read_file(file, data);
+    if (bytes == 0)
+        return "MAICORD_TEST_CA_FILE cannot be read";
+    HCERTSTORE roots = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, nullptr);
+    const bool usable = roots && add_certificates(roots, data, bytes);
+    if (roots)
+        CertCloseStore(roots, 0);
+    return usable ? nullptr : "MAICORD_TEST_CA_FILE holds no certificate";
+}
+
 } // namespace maicord
 
 #endif

@@ -82,6 +82,9 @@
 #include "startup_record.hpp"
 #include "../voice/voice.hpp"
 #include "../voice/application_voice_message.hpp"
+#if defined(MAICORD_TEST_HOOKS) && defined(_WIN32)
+#include "maicord/platform/net/test_server.hpp"
+#endif
 
 #if defined(MAICORD_PERF_PROBE)
 #include "../../../tools/perf/perf_probe.hpp"
@@ -206,6 +209,16 @@ int run_application() noexcept {
     g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
     log_open();
     application_log_start_record();
+#if defined(MAICORD_TEST_HOOKS) && defined(_WIN32)
+    // A client pointed at the fake Discord (platform/net/test_server.hpp) that is not fully pointed would reach the real
+    // one: it does not start.
+    if (const char* refusal = test_hooks_startup_refusal()) {
+        log_write(LogLevel::error, "test_hooks", refusal);
+        renderer_prestart_cancel();
+        log_close();
+        return 3;
+    }
+#endif
     MAICORD_PERF_MARK("log_open");
     application_preferences_initialize();
     MAICORD_PERF_MARK("preferences");

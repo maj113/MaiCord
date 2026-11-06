@@ -235,6 +235,27 @@ void test_trust() noexcept {
         CertFreeCertificateContext(server_b);
     if (self)
         CertFreeCertificateContext(self);
+
+    // The client does not start half-pointed at the fake server: the real network is never the fallback.
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", nullptr);
+    SetEnvironmentVariableW(L"MAICORD_TEST_CA_FILE", nullptr);
+    check(test_hooks_startup_refusal() == nullptr, "neither switch is an ordinary start");
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", L"127.0.0.1:18443");
+    check(test_hooks_startup_refusal() != nullptr, "the server without the CA file is refused");
+    SetEnvironmentVariableW(L"MAICORD_TEST_CA_FILE", only_a);
+    check(test_hooks_startup_refusal() == nullptr, "both, with a usable CA file, start");
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", nullptr);
+    check(test_hooks_startup_refusal() != nullptr, "the CA file without the server is refused");
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", L"bogus");
+    check(test_hooks_startup_refusal() != nullptr, "a server value that does not parse is refused");
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", L"127.0.0.1:18443");
+    SetEnvironmentVariableW(L"MAICORD_TEST_CA_FILE", garbage);
+    check(test_hooks_startup_refusal() != nullptr, "a CA file with no certificate is refused");
+    SetEnvironmentVariableW(L"MAICORD_TEST_CA_FILE", L"maicord-test-server-missing.pem");
+    check(test_hooks_startup_refusal() != nullptr, "a missing CA file is refused");
+    SetEnvironmentVariableW(L"MAICORD_TEST_SERVER", nullptr);
+    SetEnvironmentVariableW(L"MAICORD_TEST_CA_FILE", nullptr);
+
     const wchar_t* const files[]{only_a, only_b, both, self_signed, garbage};
     for (const wchar_t* path : files)
         DeleteFileW(path);

@@ -61,6 +61,12 @@ TestTrustState test_trust_file(wchar_t (&path)[kTestTrustPathCapacity]) noexcept
 // cannot be read or holds no certificate included). Nothing outside the file is trusted.
 u32 test_trust_verify(const wchar_t* file, PCCERT_CONTEXT certificate, const wchar_t* server_name) noexcept;
 
+// Whether a client with these hooks may start: null when neither switch is set (an ordinary run) or both are set and
+// usable, else the reason it must not. A half-configured run (MAICORD_TEST_SERVER without MAICORD_TEST_CA_FILE or the
+// reverse, a value that does not parse, a CA file that is missing or holds no certificate) would reach the real network
+// or fail every connection, so the client refuses to start (src/app/shell/main.cpp) instead of falling back.
+const char* test_hooks_startup_refusal() noexcept;
+
 } // namespace maicord
 
 #endif
