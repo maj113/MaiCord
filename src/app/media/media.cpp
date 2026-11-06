@@ -147,8 +147,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
             if (!application_local_preview_frame_current(pending))
                 continue;
             const auto upload = upload_account_media_frame(pending);
-            if (upload == MediaFrameUploadResult::failed)
-                return false;
             if (upload == MediaFrameUploadResult::deferred)
                 continue;
             application_local_preview_frame_uploaded(pending);
@@ -184,9 +182,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
             continue;
         }
         const MediaFrameUploadResult upload = upload_account_media_frame(pending);
-        if (upload == MediaFrameUploadResult::failed) {
-            return false;
-        }
         if (upload == MediaFrameUploadResult::deferred) {
             continue;
         }
@@ -1086,8 +1081,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
             d3d11_renderer_thread_browser_visible(application.renderer) &&
             application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) {
             const auto upload = upload_account_media_frame(pending);
-            if (upload == MediaFrameUploadResult::failed)
-                return false;
             if (upload == MediaFrameUploadResult::uploaded) {
                 ++uploads;
                 trace_first_media_upload();
@@ -1164,10 +1157,6 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
             continue;
         }
         const auto uploaded = pump.upload_account_media_frame(frame);
-        if (uploaded == ApplicationMediaPump::MediaFrameUploadResult::failed) {
-            result.ok = false;
-            return result;
-        }
         if (uploaded == ApplicationMediaPump::MediaFrameUploadResult::deferred)
             continue;
         if (local)

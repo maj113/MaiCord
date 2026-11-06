@@ -767,6 +767,12 @@ maicord_test(MaiCordMediaWorkerLanesTests ENTRY maicord_media_worker_lanes_entry
     LIBS maicord_account_media
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_worker_lanes)
+# Profile effect layers the CDN cannot size: the decode's area-average fit to the effect slot, still and animated.
+maicord_test(MaiCordProfileMediaFitTests ENTRY maicord_profile_media_fit_entry
+    SOURCES tests/app/media/profile_media_fit.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
+    LIBS maicord_account_media
+    BUNDLE MaiCordCodecUnitTests
+    TIMEOUT 10 TEST maicord_profile_media_fit)
 maicord_test(MaiCordGuildAdminGatewayTests ENTRY maicord_guild_admin_gateway_entry
     SOURCES tests/protocol/guild/admin_gateway.cpp
     BUNDLE MaiCordAppUnitTests TIMEOUT 15 TEST maicord_guild_admin_gateway)
@@ -1757,6 +1763,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/audio_scene_ui_probe.cpp tests/integration/tooltip_ui_probe.cpp
         tests/integration/account_menu_ui_probe.cpp tests/integration/toast_ui_probe.cpp
         tests/integration/search_ui_probe.cpp tests/integration/application_media_animation_ui_probe.cpp
+        tests/integration/profile_media_sequence_ui_probe.cpp
         src/app/media/media.cpp src/app/media/animation.cpp src/app/media/requests.cpp src/app/media/requests_message.cpp
         tests/integration/menu_row_ui_probe.cpp tests/integration/animation_preview_probe.cpp
         tests/integration/png_preview_probe.cpp tests/integration/gif_scroll_probe.cpp
@@ -1913,7 +1920,7 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
         UI_INLINE_FLAGS UI_RESIZE_TEXT
         UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_MESSAGE_HEADER_CLIP UI_PANE_GLYPH_STRESS
-        UI_PINNED_MESSAGES UI_QUICK_SWITCHER
+        UI_PINNED_MESSAGES UI_PROFILE_MEDIA_SEQUENCE UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")

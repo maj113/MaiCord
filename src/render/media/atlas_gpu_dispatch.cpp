@@ -181,7 +181,7 @@ void clear_animation_region(MediaAtlasGpu* gpu, GpuContext1* context,
         static_cast<i32>(allocation.x + x_offset + width),
         static_cast<i32>(allocation.y + y_offset + height),
     };
-    gpu_clear_rtv_rect(context, gpu->target, color, rectangle);
+    gpu_clear_uav_rect(context, gpu->texture_uav, color, rectangle);
 }
 
 void account_apng_dispatch(MediaAtlasGpu* gpu, const ApngFrame& frame, const PngImage& image) noexcept {

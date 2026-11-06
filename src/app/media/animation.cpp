@@ -113,11 +113,29 @@ __declspec(noinline) bool ApplicationMediaPump::animation_frame_kind_compatible(
     AccountMediaFrameKind left, AccountMediaFrameKind right) noexcept {
     return left == right || (animated_webp_frame_kind(left) && animated_webp_frame_kind(right));
 }
+__declspec(noinline) bool ApplicationMediaPump::asset_backed_off(const MediaAssetKey& key) const noexcept {
+    return application.media_failures.count &&
+           media_asset_failure_blocked(application.media_failures, key, clock_monotonic_milliseconds());
+}
 __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMediaPump::
     upload_account_media_frame(const AccountMediaFrame& frame) noexcept {
     if (!media_key_is_current(frame.key))
         return MediaFrameUploadResult::deferred;
-    const auto reject_source = [&]() noexcept {
+    // A frame the renderer refuses belongs to its asset alone, never to the session: the asset backs
+    // off (logged on its first refusal) and the pump goes on with the rest.
+    const auto refuse = [&](const MediaAtlasGpuResult* uploaded) noexcept {
+        if (media_asset_failure_record(&application.media_failures, frame.key, clock_monotonic_milliseconds()))
+            LogEvent("asset_upload_failed")
+                .field("error", uploaded ? static_cast<u64>(uploaded->error) : 0)
+                .error("hr", uploaded ? static_cast<u32>(uploaded->native_error) : 0)
+                .field("asset_kind", static_cast<u64>(frame.key.kind))
+                .field("frame_kind", static_cast<u64>(frame.kind))
+                .field("frame_width", frame.width)
+                .field("frame_height", frame.height)
+                .write(LogLevel::error, "media");
+        return MediaFrameUploadResult::deferred;
+    };
+    const auto reject_source = [&](const MediaAtlasGpuResult* uploaded = nullptr) noexcept {
         if (frame.key.kind == MediaAssetKind::local_draft_preview) {
             application_local_preview_rejected(frame.key);
             return MediaFrameUploadResult::deferred;
@@ -134,7 +152,7 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
                     .write();
             return MediaFrameUploadResult::deferred;
         }
-        return MediaFrameUploadResult::failed;
+        return refuse(uploaded);
     };
     const bool vp8 = frame.kind == AccountMediaFrameKind::vp8_keyframe ||
                      frame.kind == AccountMediaFrameKind::animated_webp_vp8;
@@ -236,17 +254,7 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
             }
             return MediaFrameUploadResult::deferred;
         }
-        LogEvent("asset_upload_failed")
-            .field("error", static_cast<u64>(uploaded.error))
-            .error("hr", static_cast<u32>(uploaded.native_error))
-            .field("asset_kind", static_cast<u64>(frame.key.kind))
-            .field("frame_kind", static_cast<u64>(frame.kind))
-            .field("frame_width", frame.width)
-            .field("frame_height", frame.height)
-            .write(LogLevel::error, "media");
-        if (uploaded.error == MediaAtlasGpuError::invalid_input)
-            return reject_source();
-        return MediaFrameUploadResult::failed;
+        return uploaded.error == MediaAtlasGpuError::invalid_input ? reject_source(&uploaded) : refuse(&uploaded);
     }
     // Transfer the exact lease before any later media request can reclaim its lane.
     application_media_poster_uploaded(application, frame);
@@ -288,7 +296,8 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
                                                 frame.source_message_id)},
             clock_microseconds(application.clock, application.process_start, clock_now()));
         if (!published.ok() || published.slot >= application.animations.timeline.capacity) {
-            return MediaFrameUploadResult::failed;
+            media_atlas_forget(upload_atlas(frame.key), frame.key);
+            return refuse(nullptr);
         }
         AnimationVisualState& visual = application.animations.visuals[published.slot];
         reset_value<AnimationVisualState>(&visual);
@@ -325,8 +334,11 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
                          application.renderer.preview_media_atlas;
     auto* atlas = preview ? application.renderer.preview_media_atlas : application.renderer.media_atlas;
     if (!media_atlas_set_decoded_animation(atlas, uploaded.allocation.handle,
-                                           animation_frame && frame.frame_count > 1))
-        return MediaFrameUploadResult::failed;
+                                           animation_frame && frame.frame_count > 1)) {
+        media_atlas_forget(atlas, frame.key);
+        return refuse(nullptr);
+    }
+    media_asset_failure_clear(&application.media_failures, frame.key);
     return MediaFrameUploadResult::uploaded;
 }
 

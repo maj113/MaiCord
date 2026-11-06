@@ -15,10 +15,40 @@
 
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/core/decimal.hpp"
 namespace maicord {
 namespace {
 bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {
     return a.slot == b.slot && a.generation == b.generation;
+}
+// The smallest size the CDN documents (Userdoccers, CDN parameters) covering `pixels`, at most `limit`.
+u32 documented_size(u32 pixels, u32 limit) noexcept {
+    constexpr u32 sizes[]{16,  20,  22,  24,  28,  32,  40,  44,  48,   56,   60,   64,   80,   96,   100, 128,
+                          160, 240, 256, 300, 320, 480, 512, 600, 640, 1024, 1280, 1536, 2048, 3072, 4096};
+    u32 size = sizes[0];
+    for (const u32 candidate : sizes) {
+        if (candidate > limit)
+            break;
+        size = candidate;
+        if (candidate >= pixels)
+            break;
+    }
+    return size;
+}
+// The pixels `rectangle` covers across at `dpi`.
+u32 drawn_pixels(const UiRect& rectangle, u32 dpi) noexcept {
+    return static_cast<u32>(ui_rect_width(rectangle) * static_cast<float>(dpi) / 96.f + .999f);
+}
+// `url` is `prefix` + "?size=" + size + `suffix`.
+bool sized_url(Utf8View url, Utf8View prefix, u32 size, Utf8View suffix) noexcept {
+    char text[384];
+    copy_bytes(text, prefix.data, prefix.bytes);
+    u32 bytes = prefix.bytes;
+    copy_bytes(text + bytes, "?size=", 6);
+    bytes += 6;
+    bytes += decimal_write(text + bytes, size);
+    copy_bytes(text + bytes, suffix.data, suffix.bytes);
+    return utf8_equal(url, {text, bytes + suffix.bytes});
 }
 u32 profile_slots(u32 surface, u64, u64, u64 user, u64, Slice<UiPluginSlotNode> output) noexcept {
     if (surface != kUiPluginSlotProfileSection || user != 42 || output.count < 3) return 0;
@@ -499,8 +529,8 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
             media.opacity = .75f;
             banner_found =
                 profile_media_resolve(scene, i, &media) &&
-                utf8_equal(media.url.view(), utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/"
-                                                          "banners/a_guild.webp?size=512&animated=true")) &&
+                sized_url(media.url.view(), utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/banners/a_guild.webp"),
+                          documented_size(drawn_pixels(media.rectangle, 96), 512), utf8_literal("&animated=true")) &&
                 !ui_rect_has_area(media.mask) && media.clip.bottom <= scene.banner.bottom;
             check(banner_found && media.domain == 0 && media.rotation == 0 && !media.circular &&
                       media.playback_epoch == 0 && media.opacity == 0,
@@ -509,10 +539,8 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
             profile.guild_banner = {};
             banner_found =
                 banner_found && profile_media_resolve(scene, i, &media) &&
-                utf8_equal(
-                    media.url.view(),
-                    utf8_literal(
-                        "https://cdn.discordapp.com/banners/42/a_global.webp?size=512&animated=true")) &&
+                sized_url(media.url.view(), utf8_literal("https://cdn.discordapp.com/banners/42/a_global.webp"),
+                          documented_size(drawn_pixels(media.rectangle, 96), 512), utf8_literal("&animated=true")) &&
                 guild_key.id != media.key.id;
         }
     check(banner_found, "profile_animated_banner_url_matches_decoder_and_guild_scope");
@@ -520,13 +548,15 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     check(!scene.themed && scene.has_banner_color && scene.banner_color == 16711680,
           "profile_theme_colors_need_nitro_but_still_color_the_banner");
     // Which image the card's banner part requests, whatever mix of sources the profile response carries: the
-    // member banner when set, else the user's (from user_profile or from the user object), static as PNG at
-    // 600 and animated as WebP (or the GIF fallback), with or without theme colours.
+    // member banner when set, else the user's (from user_profile or from the user object), static as PNG and
+    // animated as WebP (or the GIF fallback), with or without theme colours, at the smallest CDN size covering
+    // the width the banner is drawn at on this display.
     {
         static ProfileScene banner_scene;
         static UserProfile banner_profile;
-        const auto requested = [&](Utf8View json, bool compatibility, ProfileMedia* output) noexcept {
+        const auto requested = [&](Utf8View json, bool compatibility, ProfileMedia* output, u16 dpi = 0) noexcept {
             banner_scene = {};
+            banner_scene.media_dpi = dpi;
             if (!user_profile_decode(json, {scratch, 4096}, 42, 7, &banner_profile) ||
                 !profile_scene_open(&banner_scene, &banner_profile, nullptr, nullptr, 1, {800, 60, 1000, 104},
                                     {0, 0, 1000, 800}))
@@ -538,37 +568,65 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                            ui_rect_intersects(output->rectangle, output->clip);
             return false;
         };
+        const auto user_still = utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef"}})");
+        const auto png_user = utf8_literal("https://cdn.discordapp.com/banners/42/0123456789abcdef0123456789abcdef.png");
         ProfileMedia user_png{}, user_object{}, member_png{}, user_gif{}, themed{};
-        const auto png_user = utf8_literal(
-            "https://cdn.discordapp.com/banners/42/0123456789abcdef0123456789abcdef.png?size=600");
-        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef"}})"),
-                        false, &user_png) &&
-                  utf8_equal(user_png.url.view(), png_user) && !(user_png.key.flags & media_asset_flag_animated),
-              "profile_banner_user_still_requests_png_at_600");
+        check(requested(user_still, false, &user_png) &&
+                  sized_url(user_png.url.view(), png_user, documented_size(drawn_pixels(user_png.rectangle, 96), 1536), {}) &&
+                  !(user_png.key.flags & media_asset_flag_animated),
+              "profile_banner_user_still_requests_png_at_its_drawn_width");
         // Some responses carry the banner only on the user object.
         check(requested(utf8_literal(R"({"user":{"id":"42","username":"u","banner":"0123456789abcdef0123456789abcdef"},"user_profile":{"bio":"x"}})"),
                         false, &user_object) &&
-                  utf8_equal(user_object.url.view(), png_user) && media_asset_key_equal(user_object.key, user_png.key),
+                  utf8_equal(user_object.url.view(), user_png.url.view()) && media_asset_key_equal(user_object.key, user_png.key),
               "profile_banner_on_the_user_object_is_requested_under_the_same_key");
         check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef"},"guild_member_profile":{"banner":"fedcba9876543210fedcba9876543210"}})"),
                         false, &member_png) &&
-                  utf8_equal(member_png.url.view(),
-                             utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/banners/"
-                                          "fedcba9876543210fedcba9876543210.png?size=600")) &&
+                  sized_url(member_png.url.view(),
+                            utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/banners/"
+                                         "fedcba9876543210fedcba9876543210.png"),
+                            documented_size(drawn_pixels(member_png.rectangle, 96), 1536), {}) &&
                   !media_asset_key_equal(member_png.key, user_png.key),
               "profile_banner_member_wins_over_the_user_banner_with_its_own_key");
         check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"a_0123456789abcdef0123456789abcdef"}})"),
                         true, &user_gif) &&
-                  utf8_equal(user_gif.url.view(),
-                             utf8_literal("https://cdn.discordapp.com/banners/42/"
-                                          "a_0123456789abcdef0123456789abcdef.gif?size=600")) &&
+                  sized_url(user_gif.url.view(),
+                            utf8_literal("https://cdn.discordapp.com/banners/42/a_0123456789abcdef0123456789abcdef.gif"),
+                            documented_size(drawn_pixels(user_gif.rectangle, 96), 1536), {}) &&
                   (user_gif.key.flags & media_asset_flag_animated),
               "profile_banner_animated_falls_back_to_gif");
         // A Nitro theme (colours, accent) never replaces the picture: the colour only fills behind it.
         check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"0123456789abcdef0123456789abcdef","theme_colors":[1234,5678],"accent_color":9999},"premium_type":2})"),
                         false, &themed) &&
-                  utf8_equal(themed.url.view(), png_user) && banner_scene.has_banner_color,
+                  utf8_equal(themed.url.view(), user_png.url.view()) && banner_scene.has_banner_color,
               "profile_banner_with_theme_colors_still_requests_the_picture");
+        // The size follows the drawn width at 100 %, 125 % and 200 %: the smallest documented size covering
+        // it, each DPI its own key. The popout's 300 DIP banner: 300, 375 and 600 pixels.
+        constexpr u16 kDpis[]{96, 120, 192};
+        constexpr u32 kSizes[]{300, 480, 600};
+        MediaAssetKey keys[3]{};
+        bool scaled = true;
+        for (u32 i = 0; i < 3; ++i) {
+            ProfileMedia scaled_png{};
+            scaled = scaled && requested(user_still, false, &scaled_png, kDpis[i]) &&
+                     ui_rect_width(scaled_png.rectangle) == 300.f &&
+                     documented_size(drawn_pixels(scaled_png.rectangle, kDpis[i]), 1536) == kSizes[i] &&
+                     sized_url(scaled_png.url.view(), png_user, kSizes[i], {});
+            keys[i] = scaled_png.key;
+        }
+        check(scaled && !media_asset_key_equal(keys[0], keys[1]) && !media_asset_key_equal(keys[1], keys[2]),
+              "profile_banner_size_follows_its_drawn_width_at_100_125_and_200_percent");
+        ProfileMedia animated{};
+        check(requested(utf8_literal(R"({"user":{"id":"42","username":"u"},"user_profile":{"banner":"a_0123456789abcdef0123456789abcdef"}})"),
+                        false, &animated, 192) &&
+                  sized_url(animated.url.view(),
+                            utf8_literal("https://cdn.discordapp.com/banners/42/a_0123456789abcdef0123456789abcdef.webp"),
+                            512, utf8_literal("&animated=true")),
+              "profile_animated_webp_banner_size_stops_at_the_512_its_frames_decode_to");
+        // 300 DIP at 800 % is 2400 pixels; 2048 would be 2 px wider than an identity page takes with its padding.
+        ProfileMedia widest{};
+        check(requested(user_still, false, &widest, 768) && sized_url(widest.url.view(), png_user, 1536, {}),
+              "profile_banner_size_stops_at_the_1536_an_identity_page_holds");
     }
     // The banner and effect are masked with the card's own painted shape: the
     // whole popout at the theme's radius, whatever radius the theme sets.

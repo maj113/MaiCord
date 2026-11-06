@@ -26,12 +26,23 @@ virtual height of up to eight fixed pages that shelves never cross. Rows are bac
 of 64 KiB tiles of one tiled texture; OpenGL ES: a whole texture per page) and returned at idle trim, so a surface never grows,
 compacts or copies, and nothing visible is evicted or moved to make room. What the allocator keeps beyond the visible set is bounded
 (`GlyphAtlasPaging::budget_rows`): past it, the least recently used slot that is not visible takes the request. Fixed-size profile media
-(effect layers, banners, nameplates) have pools of their own pages (`kMediaAtlasProfilePools`), reused in ring order. Out of virtual
-space (every page full of visible pictures) an upload is refused and logged (`media_atlas_out_of_virtual_space`).
+(effect layers, banners, nameplates) have pools of their own pages (`kMediaAtlasProfilePools`), reused in ring order. Every entry keeps
+`kMediaAtlasPadding` clear texels around it, so a page holds pictures up to its size less twice that. The CDN sizes what it can to the
+drawn width (profile card images); what it cannot (effect layers, some at about twice their 450x880 slot) the media worker fits at
+decode, every animation frame included, with an area-average filter (`media_fit_*`, `app/media/local_preview_thumbnail.hpp`). Uploads
+validate sizes before any device call; a refused upload fails its asset alone, which backs off (`media_asset_failures.hpp`), never the
+session. Out of virtual space (every page full of visible pictures) an upload is refused and logged (`media_atlas_out_of_virtual_space`).
 
 Quads sample a page at a time where pages are separate textures (`kGpuPagedBindings`, OpenGL ES): media quads carry v in their page's
 rows and their page in `RendererMediaDrawStorage::binding_data`; glyph quads keep v in the whole surface and the upload turns it into
 their page's rows. Draws split where consecutive quads change page and bind that page's view; Direct3D 11 never splits.
+
+Paged surfaces are never render targets: media atlases are written by compute and copies and cleared through their UAV
+(`gpu_clear_uav_rect`), so a remapped tile of the Direct3D 11 tiled texture needs no clear through its new mapping (the rule for
+renderable tiled resources, which partial entry clears cannot meet). Unbacked bands map nothing, and an empty surface releases its
+pool, which lives until the GPU is done with it; otherwise a pool shrinks only once the GPU has passed the unmaps that freed its last
+bands: ResizeTilePool frees memory at once, and shrinking it under queued writes hung an AMD GPU. Newly backed rows are undefined
+until written: media allocations are cleared with their padding before a picture lands, and glyph rasters write their gutter.
 
 ## Background effects
 

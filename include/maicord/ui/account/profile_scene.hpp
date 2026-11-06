@@ -232,6 +232,8 @@ struct ProfileScene {
     const ProfileEffect* effect;
     u64 effect_started_ms, name_started_ms;
     bool reduced_motion, banner_compatibility;
+    // The display's DPI, for the pixel size the card's CDN images are requested at (0: 96).
+    u16 media_dpi;
     UiPresence presence;
     // Online on mobile only: the avatar shows the phone status.
     bool presence_mobile;

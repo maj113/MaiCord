@@ -267,6 +267,14 @@ constexpr MediaAssetKey media_asset_embed(u64 message_id, u32 message_revision, 
     return MediaAssetKey{message_id, message_revision, MediaAssetKind::embed, flags};
 }
 
+// Profile images fetched by URL carry embed index 0; profile effect layers carry index 1, which tells the
+// decoder to fit them to the effect slot (CDN effect URLs take no `size`).
+inline constexpr u8 kMediaProfileEffectLayerIndex = 1;
+constexpr bool media_asset_profile_effect_layer(MediaAssetKey key) noexcept {
+    return key.kind == MediaAssetKind::profile_image &&
+           ((key.flags & kMediaEmbedIndexMask) >> kMediaEmbedIndexShift) == kMediaProfileEffectLayerIndex;
+}
+
 constexpr MediaAssetKey media_asset_search_attachment(u64 attachment_id, MediaAttachmentFormat format,
                                                       MediaResolutionTier resolution,
                                                       u32 publication_revision,

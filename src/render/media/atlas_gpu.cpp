@@ -255,7 +255,7 @@ GpuStatus create_media_surface(GpuDevice* device, const MediaAtlas& atlas, GpuPa
     const GpuStatus result = gpu_paged_texture_create(
         device,
         {pages.width, pages.page_rows, pages.page_count, GpuFormat::rgba8,
-         static_cast<u8>(gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav)},
+         static_cast<u8>(gpu_bind_srv | gpu_bind_uav)},
         surface);
     *view = SUCCEEDED(result) ? gpu_paged_texture_view(*surface) : nullptr;
     return result;
@@ -268,10 +268,16 @@ bool media_atlas_gpu_select(MediaAtlasGpu* gpu, GpuContext1* context, const Medi
     if (!media_atlas_gpu_sync(gpu, context, atlas, preview)) {
         return false;
     }
+    // The entry and its padding gutter (what clears, decodes and copies write) lie in backed rows of one page.
+    GpuPagedTexture* surface = preview ? gpu->preview_surface : gpu->surface;
+    const u32 padding = atlas.allocations.padding;
+    const u32 top = allocation->y > padding ? allocation->y - padding : 0u;
+    if (!gpu_paged_texture_backed(surface, top, allocation->y + allocation->height + padding - top)) {
+        return false;
+    }
     GpuPagedTexture* backup = preview ? gpu->preview_backup : gpu->backup;
-    const GpuPage page = gpu_paged_texture_page(preview ? gpu->preview_surface : gpu->surface, allocation->y);
+    const GpuPage page = gpu_paged_texture_page(surface, allocation->y);
     gpu->texture = page.texture;
-    gpu->target = page.target;
     gpu->texture_uav = page.uav;
     gpu->backup_texture = backup ? gpu_paged_texture_page(backup, allocation->y).texture : nullptr;
     allocation->y = static_cast<u16>(allocation->y - page.first_row);

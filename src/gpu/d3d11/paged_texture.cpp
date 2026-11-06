@@ -7,7 +7,10 @@ namespace {
 
 constexpr u32 kTileBytes = 64u * 1024u;
 
-// The pool keeps each texture band's tiles together: band slot s is pool tiles [s * tiles_across, ...).
+// The pool keeps each texture band's tiles together: band slot s is pool tiles [s * tiles_across, ...). Unbacked
+// bands map nothing (kUnmapped).
+constexpr u32 kUnmapped = ~0u;
+
 u64 pool_bytes(const GpuPagedTexture& paged, u32 bands) noexcept {
     return u64{bands} * paged.tiles_across * kTileBytes;
 }
@@ -34,14 +37,15 @@ u32 slots_in_use(const GpuPagedTexture& paged) noexcept {
     return top;
 }
 
-HRESULT map_band(ID3D11DeviceContext2* context, GpuPagedTexture* paged, u32 band, u32 slot, bool mapped) noexcept {
+// Maps `count` bands from `band` to nothing, or one band to `slot`.
+HRESULT map_bands(ID3D11DeviceContext2* context, GpuPagedTexture* paged, u32 band, u32 count, u32 slot) noexcept {
     const D3D11_TILED_RESOURCE_COORDINATE coordinate{0, band, 0, 0};
-    const D3D11_TILE_REGION_SIZE size{paged->tiles_across, TRUE, paged->tiles_across, 1, 1};
-    const UINT flags = mapped ? 0u : static_cast<UINT>(D3D11_TILE_RANGE_NULL);
-    const UINT start = slot * paged->tiles_across;
-    const UINT count = paged->tiles_across;
-    return context->UpdateTileMappings(paged->texture, 1, &coordinate, &size, paged->pool, 1, &flags, &start,
-                                       &count, 0);
+    const UINT tiles = paged->tiles_across * count;
+    const D3D11_TILE_REGION_SIZE size{tiles, TRUE, paged->tiles_across, static_cast<UINT16>(count), 1};
+    const UINT flags = slot == kUnmapped ? static_cast<UINT>(D3D11_TILE_RANGE_NULL) : 0u;
+    const UINT start = slot == kUnmapped ? 0u : slot * paged->tiles_across;
+    return context->UpdateTileMappings(paged->texture, 1, &coordinate, &size, paged->pool, 1, &flags, &start, &tiles,
+                                       0);
 }
 
 } // namespace
@@ -53,9 +57,13 @@ GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc&
     const u32 texel = gpu_texel_bytes(desc.format);
     const u32 band_rows = gpu_paged_commit_rows(texel);
     const u32 height = desc.page_rows * desc.pages;
+    // Never a render target: a renderable tiled texture must be cleared through every tile whose mapping changed
+    // before it is used, and whole tiles at that ("Tile access limitations with duplicate mappings"), which the
+    // partial clears of atlas entries cannot do. Atlases are written by compute and cleared through their UAV.
     if (!device || desc.width == 0 || desc.pages == 0 || desc.pages > kGpuPagedTextureMaximumPages ||
         desc.page_rows == 0 || (desc.pages > 1 && desc.page_rows % band_rows != 0) ||
-        (height + band_rows - 1u) / band_rows > 128 || height > 16384 || (texel != 1 && texel != 4)) {
+        (height + band_rows - 1u) / band_rows > 128 || height > 16384 || (texel != 1 && texel != 4) ||
+        (desc.bind & gpu_bind_rtv)) {
         return E_INVALIDARG;
     }
     auto* paged = static_cast<GpuPagedTexture*>(heap_allocate(sizeof(GpuPagedTexture), true));
@@ -86,8 +94,9 @@ GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc&
     if (SUCCEEDED(result) && (desc.bind & gpu_bind_uav)) {
         result = device->CreateUnorderedAccessView(paged->texture, nullptr, &paged->uav);
     }
-    if (SUCCEEDED(result) && (desc.bind & gpu_bind_rtv)) {
-        result = device->CreateRenderTargetView(paged->texture, nullptr, &paged->target);
+    if (SUCCEEDED(result)) {
+        const D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
+        result = device->CreateQuery(&query, &paged->unmapped);
     }
     if (FAILED(result)) {
         gpu_paged_texture_release(&paged);
@@ -102,7 +111,7 @@ void gpu_paged_texture_release(GpuPagedTexture** texture) {
     if (!paged) {
         return;
     }
-    com_release(paged->target);
+    com_release(paged->unmapped);
     com_release(paged->uav);
     com_release(paged->view);
     com_release(paged->texture);
@@ -115,9 +124,22 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
     if (!context || !paged || page >= paged->pages || rows > paged->page_rows) {
         return E_INVALIDARG;
     }
+    // Rows round up to whole bands both ways: a page of a part band holds that band.
     const u32 want = (rows + paged->band_rows - 1u) / paged->band_rows;
-    const u32 have = paged->committed[page] / paged->band_rows;
-    if (want == have) {
+    const u32 have = (paged->committed[page] + paged->band_rows - 1u) / paged->band_rows;
+    // The pool gives bands back only once the GPU has passed the unmaps that freed them: ResizeTilePool frees the
+    // memory at once, while work queued before the unmaps may still write it (that hung an AMD GPU). The event
+    // `unmapped` is ended after an unmap; an unmap while it is pending ends it again once it has passed.
+    bool shrink = false;
+    if (paged->shrinking && context->GetData(paged->unmapped, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK) {
+        if (paged->unmapped_again) {
+            context->End(paged->unmapped);
+            paged->unmapped_again = false;
+        } else {
+            shrink = true;
+        }
+    }
+    if (want == have && !shrink) {
         paged->committed[page] = static_cast<u16>(rows);
         return S_OK;
     }
@@ -147,38 +169,39 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
             }
             paged->pool_bands = slot + 1u;
         }
-        result = map_band(tiles, paged, first_band + band, slot, true);
+        result = map_bands(tiles, paged, first_band + band, 1, slot);
         if (SUCCEEDED(result)) {
             paged->band_slot[first_band + band] = static_cast<u8>(slot + 1u);
             paged->committed[page] = static_cast<u16>((band + 1u) * paged->band_rows);
-            // New tiles hold whatever the pool held: a render target starts transparent.
-            if (paged->target) {
-                const FLOAT transparent[4]{};
-                const u32 bottom = minimum((first_band + band + 1u) * paged->band_rows, paged->page_rows * paged->pages);
-                const D3D11_RECT band_rectangle{0, static_cast<LONG>((first_band + band) * paged->band_rows),
-                                                static_cast<LONG>(paged->width), static_cast<LONG>(bottom)};
-                tiles->ClearView(paged->target, transparent, &band_rectangle, 1);
-            }
         }
     }
-    for (u32 band = want; SUCCEEDED(result) && band < have; ++band) {
-        result = map_band(tiles, paged, first_band + band, 0, false);
-        if (SUCCEEDED(result)) {
-            paged->band_slot[first_band + band] = 0;
+    // The bands past the last one in use go back.
+    if (shrink && SUCCEEDED(result)) {
+        const u32 in_use = slots_in_use(*paged);
+        if (in_use == paged->pool_bands || SUCCEEDED(tiles->ResizeTilePool(paged->pool, pool_bytes(*paged, in_use)))) {
+            paged->pool_bands = in_use;
+            paged->shrinking = false;
         }
     }
     if (want < have && SUCCEEDED(result)) {
-        paged->committed[page] = static_cast<u16>(rows);
-        // The pool returns the bands past the last one in use.
-        const u32 in_use = slots_in_use(*paged);
-        if (in_use < paged->pool_bands && in_use != 0 &&
-            SUCCEEDED(tiles->ResizeTilePool(paged->pool, pool_bytes(*paged, in_use)))) {
-            paged->pool_bands = in_use;
-        } else if (in_use == 0) {
-            com_release(paged->pool);
-            paged->pool_bands = 0;
+        result = map_bands(tiles, paged, first_band + want, have - want, kUnmapped);
+        if (SUCCEEDED(result)) {
+            for (u32 band = want; band < have; ++band) {
+                paged->band_slot[first_band + band] = 0;
+            }
+            if (slots_in_use(*paged) == 0) {
+                // Nothing is backed: the pool goes whole, and a released pool lives until the GPU is done with it.
+                com_release(paged->pool);
+                paged->pool_bands = 0;
+            } else if (paged->shrinking) {
+                paged->unmapped_again = true;
+            } else {
+                context->End(paged->unmapped);
+                paged->shrinking = true;
+            }
         }
-    } else if (SUCCEEDED(result)) {
+    }
+    if (SUCCEEDED(result)) {
         paged->committed[page] = static_cast<u16>(rows);
     }
     tiles->Release();

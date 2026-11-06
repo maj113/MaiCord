@@ -217,6 +217,14 @@ maicord_test(MaiCordStorePreviewTests ENTRY maicord_store_preview_entry
     TIMEOUT 10
     TEST maicord_store_preview)
 
+maicord_test(MaiCordProfileMediaFitTests ENTRY maicord_profile_media_fit_entry
+    SOURCES tests/app/media/profile_media_fit.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
+        tests/platform/audio/window_post_stub.cpp
+    LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video maicord_gpu_gles_shaders
+        maicord_gpu_gles maicord_video_software maicord_paint_program ${maicord_linux_app_test_libs}
+    TIMEOUT 10
+    TEST maicord_profile_media_fit)
+
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
     SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/shell/state.cpp
     LIBS maicord_app_client ${maicord_linux_app_test_libs}

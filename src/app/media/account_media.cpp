@@ -9,7 +9,11 @@
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/media/image/regional_flag_svg.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/media/local_preview_thumbnail.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/render/media/atlas.hpp"
 
 namespace maicord {
 namespace account_media_detail {
@@ -190,12 +194,108 @@ void stage_frame(AccountMedia* media, const MediaAssetKey& key_view, u32 bytes, 
     capture_catalog_source(media, key);
 }
 
+namespace {
+
+// The box a profile image's decode must fit, the CDN being unable to size it: the effect slot for an effect
+// layer, an identity atlas page less its padding for any other. Other media choose their size on request.
+bool profile_fit(const MediaAssetKey& key, u32 width, u32 height, MediaFit* fit) noexcept {
+    if (key.kind != MediaAssetKind::profile_image)
+        return false;
+    const bool effect = media_asset_profile_effect_layer(key);
+    return media_fit_plan(width, height,
+                          effect ? kMediaAtlasEffectPool.slot_width : kMediaAtlasExtent - 2u * kMediaAtlasPadding,
+                          effect ? kMediaAtlasEffectPool.slot_height : kMediaAtlasPageRows - 2u * kMediaAtlasPadding,
+                          fit);
+}
+
+// One decoded frame's rows as straight RGBA8: PNG scanlines (image set), GIF indices (palette set) or RGBA8.
+struct FitRows {
+    const u8* data;
+    const PngImage* image;
+    const GifPalette* palette;
+    u32 width;
+
+    const u8* row(u32 y, u8* scratch) const noexcept {
+        if (image) {
+            const u8* scanline = data + static_cast<usize>(y) * image->row_stride + 1u;
+            if (image->color_type == 6 && image->bit_depth == 8)
+                return scanline;
+            return local_thumbnail_png_row(*image, scanline, scratch) ? scratch : nullptr;
+        }
+        if (palette) {
+            const u8* indices = data + static_cast<usize>(y) * width;
+            for (u32 x = 0; x < width; ++x) {
+                const u32 color = palette->rgba[indices[x]];
+                copy_bytes(scratch + x * 4u, &color, 4);
+            }
+            return scratch;
+        }
+        return data + static_cast<usize>(y) * width * 4u;
+    }
+};
+
+// Fits a decoded frame (`source`, a region of the canvas) and leaves it at the base of the lane's scanline
+// storage as rows of `lead` + width * 4 bytes (lead 1: RGBA8 PNG scanlines, filter byte none). False leaves
+// the frame as decoded (the renderer then refuses the asset alone).
+bool fit_frame(AccountMedia* media, const MediaFit& fit, MediaFitRegion source, const FitRows& rows, u32 lead,
+               MediaFitRegion* fitted, u32* bytes) noexcept {
+    const MediaFitRegion region = media_fit_region(fit, source.x, source.y, source.width, source.height);
+    const u32 stride = lead + region.width * 4u;
+    const u64 output = u64{stride} * region.height, output_space = (output + 15u) & ~15ull;
+    const u64 scratch = media_fit_scratch_bytes(source.width, region.width);
+    const u64 total = output_space + scratch + u64{source.width} * 4u;
+    if (total > kPngDecodeBufferMaximumBytes)
+        return false;
+    // Zeroed pages: every PNG filter byte is already none.
+    auto* block = static_cast<u8*>(commit_pages(static_cast<usize>(total)));
+    if (!block)
+        return false;
+    MediaFitSink sink{};
+    bool ok = media_fit_begin(&sink, fit, source, block, stride, lead,
+                              {block + output_space, static_cast<u32>(scratch)});
+    for (u32 y = 0; ok && y < source.height; ++y) {
+        const u8* row = rows.row(y, block + output_space + scratch);
+        ok = row && media_fit_push_row(&sink, row);
+    }
+    auto& pipeline = media->pipeline;
+    if (ok && output > pipeline.scanline_capacity)
+        ok = pipeline.grow_scanlines && pipeline.grow_scanlines(pipeline.scanline_owner, static_cast<u32>(output)).count >= output;
+    if (ok) {
+        copy_bytes(pipeline.scanline_storage, block, static_cast<u32>(output));
+        *fitted = region;
+        *bytes = static_cast<u32>(output);
+    }
+    pages_release(block, static_cast<usize>(total));
+    return ok;
+}
+
+// A fitted frame as RGBA8 PNG scanlines (the image the PNG and APNG uploads take) in frame_image.
+bool fit_png(AccountMedia* media, const MediaFit& fit, MediaFitRegion source, const FitRows& rows,
+             MediaFitRegion* fitted, u32* bytes) noexcept {
+    const MediaFitRegion region = media_fit_region(fit, source.x, source.y, source.width, source.height);
+    PngImage image{};
+    if (!png_image_configure(&image, region.width, region.height, 8, 6) ||
+        !fit_frame(media, fit, source, rows, 1, fitted, bytes))
+        return false;
+    media->frame_image = image;
+    return true;
+}
+
+} // namespace
+
 void publish_png_frame(AccountMedia* media, const MediaAssetKey& key, const CdnStaticPngResult& decoded,
                        u64 request_id, u64 source_message_id,
                        u32 source_message_revision) noexcept {
-    media->frame_image = decoded.image;
-    stage_frame(media, key, decoded.scanlines.count, request_id, source_message_id,
-                source_message_revision);
+    u32 bytes = 0;
+    MediaFit fit{};
+    MediaFitRegion fitted{};
+    if (!profile_fit(key, decoded.image.width, decoded.image.height, &fit) ||
+        !fit_png(media, fit, {0, 0, decoded.image.width, decoded.image.height},
+                 {decoded.scanlines.data, &decoded.image, nullptr, 0}, &fitted, &bytes)) {
+        media->frame_image = decoded.image;
+        bytes = decoded.scanlines.count;
+    }
+    stage_frame(media, key, bytes, request_id, source_message_id, source_message_revision);
     media->frame_kind = AccountMediaFrameKind::png_scanlines;
     mark_frame_ready(media, key);
 }
@@ -209,8 +309,17 @@ void publish_webp_frame(AccountMedia* media, const MediaAssetKey& key, const Cdn
         copy_value(&media->frame_vp8, decoded.vp8_frame);
         media->frame_vp8_header = decoded.vp8_header;
     }
-    stage_frame(media, key, lossy ? decoded.alpha.count : decoded.rgba8.count, request_id,
-                source_message_id, source_message_revision);
+    // Lossy keyframes decode on the GPU up to 512 px, inside any fit box; RGBA8 ones may need fitting.
+    u32 bytes = lossy ? decoded.alpha.count : decoded.rgba8.count;
+    MediaFit fit{};
+    MediaFitRegion fitted{};
+    if (!lossy && profile_fit(key, decoded.image.width, decoded.image.height, &fit) &&
+        fit_frame(media, fit, {0, 0, decoded.image.width, decoded.image.height},
+                  {decoded.rgba8.data, nullptr, nullptr, decoded.image.width}, 0, &fitted, &bytes)) {
+        media->frame_webp_image.width = fitted.width;
+        media->frame_webp_image.height = fitted.height;
+    }
+    stage_frame(media, key, bytes, request_id, source_message_id, source_message_revision);
     media->frame_kind = lossy ? AccountMediaFrameKind::vp8_keyframe : AccountMediaFrameKind::straight_rgba8;
     mark_frame_ready(media, key);
 }
@@ -265,25 +374,64 @@ void publish_animated_webp_frame(AccountMedia* media, const MediaAssetKey& key,
     mark_frame_ready(media, key);
 }
 
+// An oversized profile animation's frames are fitted one by one onto the fitted canvas, each keeping its offset
+// (on the cells it covers), blend and disposal, so the GPU composes them exactly as the full-size ones.
 void publish_apng_frame(AccountMedia* media, const MediaAssetKey& key, const CdnApngResult& decoded,
                         u64 request_id) noexcept {
-    media->frame_image = decoded.image;
     media->frame_apng = decoded.decode.frame;
-    stage_frame(media, key, decoded.scanlines.count, request_id, media->active_source_message_id,
+    u32 bytes = 0;
+    MediaFit fit{};
+    MediaFitRegion fitted{};
+    const auto& frame = decoded.decode.frame;
+    const bool fits = profile_fit(key, decoded.canvas_width, decoded.canvas_height, &fit) &&
+                      fit_png(media, fit, {frame.x_offset, frame.y_offset, frame.width, frame.height},
+                              {decoded.scanlines.data, &decoded.image, nullptr, 0}, &fitted, &bytes);
+    if (fits) {
+        media->frame_apng.x_offset = fitted.x;
+        media->frame_apng.y_offset = fitted.y;
+        media->frame_apng.width = fitted.width;
+        media->frame_apng.height = fitted.height;
+    } else {
+        media->frame_image = decoded.image;
+        bytes = decoded.scanlines.count;
+    }
+    stage_frame(media, key, bytes, request_id, media->active_source_message_id,
                 media->active_source_message_revision);
     stage_animation(media, decoded);
+    if (fits) {
+        media->frame_canvas_width = static_cast<u16>(fit.width);
+        media->frame_canvas_height = static_cast<u16>(fit.height);
+    }
     media->frame_kind = AccountMediaFrameKind::apng_scanlines;
     mark_frame_ready(media, key);
 }
 
 void publish_gif_frame(AccountMedia* media, const MediaAssetKey& key, const CdnGifResult& decoded,
                        u64 request_id) noexcept {
-    copy_value(&media->frame_gif, decoded.decode.frame);
-    media->frame_gif_palette = decoded.decode.palette;
-    stage_frame(media, key, decoded.indices.count, request_id, media->active_source_message_id,
+    const auto& frame = decoded.decode.frame;
+    MediaFit fit{};
+    MediaFitRegion fitted{};
+    u32 bytes = decoded.indices.count;
+    // A fitted GIF frame is RGBA8, so it goes out as the APNG frame it is equivalent to: drawn over the
+    // canvas, with the same disposal.
+    const bool fits = profile_fit(key, decoded.canvas_width, decoded.canvas_height, &fit) &&
+                      fit_png(media, fit, {frame.x_offset, frame.y_offset, frame.width, frame.height},
+                              {decoded.indices.data, nullptr, &decoded.decode.palette, frame.width}, &fitted, &bytes);
+    if (fits) {
+        media->frame_apng = {0, 0, fitted.width, fitted.height, fitted.x, fitted.y, 0, frame.delay_cs, 100,
+                             static_cast<ApngDispose>(frame.dispose), ApngBlend::over};
+    } else {
+        copy_value(&media->frame_gif, frame);
+        media->frame_gif_palette = decoded.decode.palette;
+    }
+    stage_frame(media, key, bytes, request_id, media->active_source_message_id,
                 media->active_source_message_revision);
     stage_animation(media, decoded);
-    media->frame_kind = AccountMediaFrameKind::gif_indices;
+    if (fits) {
+        media->frame_canvas_width = static_cast<u16>(fit.width);
+        media->frame_canvas_height = static_cast<u16>(fit.height);
+    }
+    media->frame_kind = fits ? AccountMediaFrameKind::apng_scanlines : AccountMediaFrameKind::gif_indices;
     mark_frame_ready(media, key);
 }
 

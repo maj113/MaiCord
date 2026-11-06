@@ -28,7 +28,7 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
             return true;
     } else if (resident)
         return true;
-    if (visibility_only)
+    if (visibility_only || asset_backed_off(key))
         return true;
     const AccountMediaAttachmentRequest request{media.url.view(),
                                                 key,
@@ -46,6 +46,21 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
                                                                now_ms, now_seconds);
     if (failure)
         *failure = requested;
+    // A profile image (banner, effect layer, decoration, avatar) the worker could not fetch or decode is logged
+    // once, at its failure record's first entry, and then backs off like a refused upload. The drawn size tells
+    // the part apart; effect_slot names the pool an effect layer targets.
+    if ((requested.state == AccountMediaRequestState::failed || requested.state == AccountMediaRequestState::invalid ||
+         requested.state == AccountMediaRequestState::unsupported) &&
+        key.kind == MediaAssetKind::profile_image &&
+        media_asset_failure_record(&application.media_failures, key, clock_monotonic_milliseconds())) {
+        const u64 values[]{static_cast<u64>(requested.state),        static_cast<u64>(requested.error),
+                           static_cast<u64>(requested.http_error),   static_cast<u64>(ui_rect_width(media.rectangle)),
+                           static_cast<u64>(ui_rect_height(media.rectangle)),
+                           static_cast<u64>(media_asset_embed_format(key)), media_asset_profile_effect_layer(key)};
+        LogEvent("profile_media_request_failed")
+            .fields("state\0error\0http_error\0drawn_dips\0drawn_height_dips\0format\0effect_slot", values)
+            .write(LogLevel::warning, "media");
+    }
     if (requested.state == AccountMediaRequestState::busy) {
         // Admission depends on media type: still-image lanes can be full while
         // the animation reserve is idle. Keep scanning this bounded surface so
@@ -75,7 +90,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
     *stop_scan = false;
     if (visibility_only)
         return true;
-    if (!force_request && media_atlas_find(application.renderer.media_atlas, key).ok())
+    if ((!force_request && media_atlas_find(application.renderer.media_atlas, key).ok()) || asset_backed_off(key))
         return true;
     return settle_media_request(
         application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
@@ -125,8 +140,9 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
     const bool animated = animate && asset_hash_animated(icon_hash);
     const MediaAssetKey key = media_asset_guild_icon(guild.id, guild.icon_variant, animated);
     const auto resident = media_atlas_find(application.renderer.media_atlas, key);
-    if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
-                                                *application.renderer.media_atlas, resident.handle)))
+    if ((resident.ok() && (!force_request || !media_atlas_decoded_animation(
+                                                 *application.renderer.media_atlas, resident.handle))) ||
+        asset_backed_off(key))
         return true;
     const AccountMediaGuildIconRequest request{icon_hash, key, {0, 0}};
     return settle_media_request(application.account.api.media_guild_icon_request(
@@ -193,8 +209,9 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
     if (!media_key_is_current(key))
         return true;
     const auto resident = media_atlas_find(application.renderer.media_atlas, key);
-    if (resident.ok() && (!force_request || !media_atlas_decoded_animation(
-                                                *application.renderer.media_atlas, resident.handle)))
+    if ((resident.ok() && (!force_request || !media_atlas_decoded_animation(
+                                                 *application.renderer.media_atlas, resident.handle))) ||
+        asset_backed_off(key))
         return true;
     // The account ABI keeps this historical name, but the request is the
     // generic hash-addressed CDN asset path. The asset key selects
@@ -456,7 +473,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     if (message_media_resident(*this, message, key, (key.flags & media_asset_flag_animated) != 0,
                                format == MediaAttachmentFormat::mp4))
         return true;
-    if (visibility_only)
+    if (visibility_only || asset_backed_off(key))
         return true;
     const Utf8View signed_url = message_rich_store_string(store, attachment.url);
     if (signed_url.bytes == 0) {
@@ -609,6 +626,8 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
             result.history_requested || media_url_next(&application.media_urls, now_ms) != nullptr;
         return true;
     }
+    if (asset_backed_off(key))
+        return true;
     const AccountMediaAttachmentRequest request{resolved,
                                                 key,
                                                 message.id,

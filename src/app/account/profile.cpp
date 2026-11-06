@@ -618,6 +618,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->scene.effect_started_ms = 0;
     load_note(*p);
     p->scene.reduced_motion = application_reduced_motion();
+    p->scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     p->scene.measure = &g_app.account_ui->text_measure_cache;
     p->scene.applications = p->applications.view();
     profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id,
@@ -719,7 +720,9 @@ void application_profile_layout(UiRect viewport) noexcept {
                          plugin_revision != g_plugin_surface_revision;
     plugin_revision = g_plugin_surface_revision;
     const u8 relation = relation_of(p->data.user_id);
-    const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation || plugins;
+    const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation || plugins ||
+                       s.media_dpi != static_cast<u16>(g_app.renderer.dpi);
+    s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     s.anchor = anchor;
     s.relation = relation;
     profile_scene_layout(&s, viewport, moved);

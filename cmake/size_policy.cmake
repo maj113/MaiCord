@@ -130,6 +130,11 @@ maicord_compact_sources(
         # connection setup and READY projection (their byte paths stay /O2).
         src/app/media/embed_resolver.cpp src/app/media/segmented_video_fetch.cpp src/app/net/cdn_client.cpp
         src/app/voice/connection.cpp src/app/gateway/ready_projection.cpp
+        # The account module's attachment playback sessions and CDN admission, once per packet, command or
+        # response around the decoders and demuxers, which stay /O2 (the Linux client compiles the same files
+        # -Oz). The offline perf probe replaces the account module, so no probe phase runs them.
+        src/app/media/account_media_video.cpp src/app/media/account_video_session.cpp
+        src/app/media/account_video_session_audio.cpp src/app/media/cdn_media_pipeline.cpp
         # Run once per font file or face: name/family/property resolution,
         # catalog records, seac charsets and face preparation.
         src/text/fonts/names.cpp src/text/fonts/family.cpp src/text/fonts/candidates.cpp
@@ -204,14 +209,16 @@ maicord_compact_sources(
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/h264_gpu_stream_decoder.cpp
         src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
         src/platform/decode/mp4_decoder.cpp)
-# Ogg/Opus page parsing, the window icon decode, local-file thumbnails and COLR paint program building.
+# Ogg/Opus page parsing, the window icon decode, local-file thumbnails and COLR paint program building (a
+# regional flag's program too, once per flag, with the SVG path outlining it inlines).
 # The rare-script shapers (Sinhala, Tamil, Myanmar, Khmer, Tibetan, Hebrew) stay /O2: -Oz cost them up to 6%
 # more cycles per shaped run in the text benchmark.
 maicord_compact_sources(
     SOURCES
         src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp
         src/app/shell/app_icon.cpp src/app/media/local_preview_thumbnail.cpp
-        src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp)
+        src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp
+        src/render/effects/regional_flag_program.cpp)
 # The Linux client. Its application sources are one library (maicord_app_client; the Windows build spreads them over
 # MaiCord, the account module and maicord_app_core, and compacts the first two and the listed units of the third), so
 # the application is cold except what the Windows build leaves at -O2: Gateway dispatch and payload decode, the media

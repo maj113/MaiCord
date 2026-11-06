@@ -233,6 +233,7 @@ bool show(u64 user, UiRect slot) noexcept {
         s.effect = nullptr;
         s.note_visible = false;
         s.reduced_motion = application_reduced_motion();
+        s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
         s.measure = &g_app.account_ui->text_measure_cache;
         const auto& state = g_app.account_ui->chat_state;
         resolve_commands(*entry, state.selected_channel_id);
@@ -247,7 +248,9 @@ bool show(u64 user, UiRect slot) noexcept {
         const UiPresence presence = presence_of(user);
         const bool mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
         const bool moved = commands || !ui_rect_equal(s.anchor, slot) || relation != s.relation ||
-                           presence != s.presence || mobile != s.presence_mobile;
+                           presence != s.presence || mobile != s.presence_mobile ||
+                           s.media_dpi != static_cast<u16>(g_app.renderer.dpi);
+        s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
         s.anchor = slot;
         s.relation = relation;
         s.presence = presence;

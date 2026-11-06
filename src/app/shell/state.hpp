@@ -22,6 +22,7 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/app/media/message_media_controller.hpp"
+#include "maicord/app/media/media_asset_failures.hpp"
 #include "maicord/app/media/url_resolver.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_storage.hpp"
@@ -358,6 +359,7 @@ struct Application {
     Window window;
     MessageViewRuntime message_view;
     MessageMediaController message_media;
+    MediaAssetFailures media_failures;
     D3D11Renderer renderer;
     MessageEventPump message_pump;
     MessageHistoryCatchup message_catchup;

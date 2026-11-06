@@ -193,9 +193,9 @@ MAICORD_GPU_INLINE GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** ra
 // through gpu_paged_texture_page: its texture and views hold the page in rows starting at `first_row`, `rows` rows
 // high (on Direct3D 11 every page is the one texture: first_row 0, every row). A draw samples one page binding at a
 // time: quads take v in the page's rows ((y - first_row) / rows) and the draw binds the page's `view`; quads of
-// different `binding`s need separate draws (on Direct3D 11 the binding is always 0, so nothing splits). Newly backed
-// rows of a render target are transparent black; other contents are undefined until written. Rows must be backed
-// before they are written or sampled.
+// different `binding`s need separate draws (on Direct3D 11 the binding is always 0, so nothing splits). A paged texture
+// is never a render target (gpu_bind_rtv is refused): writes are compute and copies, clears gpu_clear_uav_rect. Newly
+// backed rows are undefined until written. Rows must be backed before they are written or sampled.
 struct GpuPagedTextureDesc {
     u32 width;
     u32 page_rows; // a multiple of gpu_paged_commit_rows (where it is nonzero)
@@ -206,7 +206,6 @@ struct GpuPagedTextureDesc {
 struct GpuPage {
     GpuTexture* texture;
     GpuUav* uav;
-    GpuRtv* target;
     GpuSrv* view;
     u32 first_row;
     u32 rows;
@@ -218,6 +217,9 @@ void gpu_paged_texture_release(GpuPagedTexture** texture);
 // Backs rows [0, rows) of `page` and returns the memory of the rest. `rows` is a multiple of gpu_paged_commit_rows
 // (or the page's rows), and 0 or the page's rows where that is 0. Doing nothing when the page is already so.
 GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* texture, u32 page, u32 rows);
+// Whether rows [row, row + rows) are backed (inside one page): what a write or copy into the texture checks first, so
+// no shader or copy ever touches an unbacked tile (invalid at Direct3D 11 Tiled Resources Tier 1).
+MAICORD_GPU_INLINE bool gpu_paged_texture_backed(const GpuPagedTexture* texture, u32 row, u32 rows);
 // The page holding virtual row `row`; its texture is null while that page is not backed (OpenGL ES).
 MAICORD_GPU_INLINE GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32 row);
 // The texture's own view, owned by it (not counted: never released by the caller): what tells that the surface exists.
@@ -274,6 +276,8 @@ MAICORD_GPU_INLINE void gpu_dispatch(GpuContext* context, u32 x, u32 y, u32 z);
 MAICORD_GPU_INLINE void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]);
 // Clears only `rectangle` (D3D11 ClearView), ignoring the scissor.
 MAICORD_GPU_INLINE void gpu_clear_rtv_rect(GpuContext1* context, GpuRtv* target, const float rgba[4],
+                                           const GpuRect& rectangle);
+MAICORD_GPU_INLINE void gpu_clear_uav_rect(GpuContext1* context, GpuUav* target, const float rgba[4],
                                            const GpuRect& rectangle);
 // Replaces the whole contents of a default-usage constant buffer from `bytes` bytes.
 MAICORD_GPU_INLINE void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, const void* data, u32 bytes);

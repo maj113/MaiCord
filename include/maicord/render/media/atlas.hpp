@@ -54,16 +54,42 @@ inline constexpr u16 kMediaAtlasExtent = 2'048;
 inline constexpr u16 kMediaAtlasPageRows = 1'024;
 inline constexpr u16 kPreviewMediaAtlasExtent = 2'064;
 inline constexpr u16 kPreviewMediaAtlasPageRows = 2'176;
-// Profile media the CDN serves at fixed sizes, each in pages of its own (a
-// slot's padded size; memory of a full pool on Direct3D 11's 128-row bands):
+// Every entry keeps this gutter of clear texels on each side, so bilinear
+// sampling never reads a neighbour: a page holds images up to its size less
+// twice the padding.
+inline constexpr u16 kMediaAtlasPadding = 1;
+// Profile media in pools of their own (a slot's size; its padding is added
+// around it; memory of a full pool on Direct3D 11's 128-row bands):
 //  - effect layers 450x880, four a row: two cards of four layers (2 rows, 14 MiB);
-//  - banners 600x211 still and 512 wide animated, three a row: 8 (3 rows, 6 MiB);
+//    larger layers (some effects ship at about twice that) are fitted to the
+//    slot when they decode;
+//  - banners up to 600x240 (fetched at the drawn width), three a row: 8 (3 rows, 6 MiB);
 //  - nameplates 448x84, four a row: a member list screen of 24 (6 rows, 5 MiB).
 inline constexpr GlyphAtlasPool kMediaAtlasProfilePools[] = {
     {450, 880, 8, 0},
     {600, 240, 8, 0},
     {448, 84, 24, 0},
 };
+inline constexpr const GlyphAtlasPool& kMediaAtlasEffectPool = kMediaAtlasProfilePools[0];
+// The largest picture each pool's class sends there (effect layer, a 5:2 banner at the widest the pool takes,
+// nameplate): every slot holds it, and the slot with its padding on both sides fits one identity page.
+inline constexpr GlyphAtlasPool kMediaAtlasProfilePoolClassMaximum[] = {
+    {450, 880, 0, 0},
+    {600, 240, 0, 0},
+    {448, 84, 0, 0},
+};
+consteval bool media_atlas_profile_pools_fit() {
+    for (u32 i = 0; i < 3; ++i) {
+        const GlyphAtlasPool& slot = kMediaAtlasProfilePools[i];
+        const GlyphAtlasPool& largest = kMediaAtlasProfilePoolClassMaximum[i];
+        if (slot.slot_width < largest.slot_width || slot.slot_height < largest.slot_height ||
+            slot.slot_width + 2u * kMediaAtlasPadding > kMediaAtlasExtent ||
+            slot.slot_height + 2u * kMediaAtlasPadding > kMediaAtlasPageRows)
+            return false;
+    }
+    return true;
+}
+static_assert(media_atlas_profile_pools_fit(), "a profile pool slot no longer holds its largest picture and padding");
 
 enum class MediaAtlasError : u8 {
     none,

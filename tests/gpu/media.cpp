@@ -123,7 +123,7 @@ void run() noexcept {
     GpuPagedTexture* paged = nullptr;
     check(gpu_ok(gpu_paged_texture_create(device,
                                           {media_scene::kAtlasWidth, media_scene::kAtlasHeight, kAtlasPages,
-                                           GpuFormat::rgba8, gpu_bind_srv | gpu_bind_rtv | gpu_bind_uav},
+                                           GpuFormat::rgba8, gpu_bind_srv | gpu_bind_uav},
                                           &paged)) &&
               gpu_ok(gpu_paged_texture_commit(context, paged, kScenePage, media_scene::kAtlasHeight)) &&
               gpu_ok(gpu_paged_texture_commit(context, paged, kCopyPage, media_scene::kAtlasHeight)) &&
@@ -132,10 +132,9 @@ void run() noexcept {
     const GpuPage scene_page = paged ? gpu_paged_texture_page(paged, kScenePage * media_scene::kAtlasHeight) : GpuPage{};
     const GpuPage copy_page = paged ? gpu_paged_texture_page(paged, kCopyPage * media_scene::kAtlasHeight) : GpuPage{};
     GpuTexture* atlas = scene_page.texture;
-    GpuRtv* atlas_target = scene_page.target;
     GpuUav* atlas_uav = scene_page.uav;
     GpuSrv* atlas_view = paged ? gpu_paged_texture_view(paged) : nullptr;
-    check(atlas && atlas_target && atlas_uav && atlas_view && copy_page.texture &&
+    check(atlas && atlas_uav && atlas_view && copy_page.texture &&
               scene_page.first_row == kScenePage * media_scene::kAtlasHeight &&
               scene_page.rows == media_scene::kAtlasHeight && scene_page.binding == kScenePage,
           "the atlas pages");
@@ -225,7 +224,8 @@ void run() noexcept {
 
     if (g_failures == 0) {
         const float transparent[4] = {0, 0, 0, 0};
-        gpu_clear_rtv(context, atlas_target, transparent);
+        gpu_clear_uav_rect(context, atlas_uav, transparent,
+                           {0, 0, media_scene::kAtlasWidth, media_scene::kAtlasHeight});
         const Compute compute{device, context, atlas_uav};
         bool dispatched = true;
         for (u32 job = 0; job < media_scene::kPngJobs; ++job) {

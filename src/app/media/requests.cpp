@@ -129,10 +129,9 @@ __declspec(noinline) FrameTake take_ready_frame(ApplicationMediaPump& pump, cons
     if (!media_asset_key_equal(frame->key, key) ||
         (message_owned && !pump.message_image_frame_is_current(*frame)))
         return stale_fails ? FrameTake::failed : FrameTake::stale;
-    const auto upload = pump.upload_account_media_frame(*frame);
-    return upload == ApplicationMediaPump::MediaFrameUploadResult::failed     ? FrameTake::failed
-           : upload == ApplicationMediaPump::MediaFrameUploadResult::deferred ? FrameTake::deferred
-                                                                              : FrameTake::uploaded;
+    return pump.upload_account_media_frame(*frame) == ApplicationMediaPump::MediaFrameUploadResult::uploaded
+               ? FrameTake::uploaded
+               : FrameTake::deferred;
 }
 
 __declspec(noinline) void note_frame_uploaded(ApplicationMediaPump& pump) noexcept {
@@ -321,7 +320,7 @@ bool ApplicationMediaPump::request_catalog_previews() noexcept {
         // Only a decoded animation without its timeline needs reacquisition.
         if (resident.ok() && !preview_decoder_animation(application, resident, request.key))
             continue;
-        if (visibility_only)
+        if (visibility_only || asset_backed_off(request.key))
             continue;
         if (uploads >= kMessageMediaUploadBudget)
             return true;
@@ -786,7 +785,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
     for (u32 slot = 0; slot < scene.count && slot < kUiThreadBrowserPageCapacity; ++slot) {
         ForumChannelThumbnailMedia media{};
         if (!forum_channel_thumbnail_resolve(scene, slot, application.renderer.dpi, &media) ||
-            media_atlas_find(application.renderer.preview_media_atlas, media.key).ok())
+            media_atlas_find(application.renderer.preview_media_atlas, media.key).ok() || asset_backed_off(media.key))
             continue;
         if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
             *stop = true;
@@ -868,7 +867,7 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
             (application.renderer.preview_media_atlas &&
              media_atlas_find(application.renderer.preview_media_atlas, key).ok()))
             continue;
-        if (visibility_only)
+        if (visibility_only || asset_backed_off(key))
             continue;
         const AccountMediaAttachmentRequest request{previews[i].url,
                                                     key,

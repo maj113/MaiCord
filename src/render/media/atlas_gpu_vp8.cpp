@@ -362,7 +362,6 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
     gpu->texture_view = nullptr;
     gpu->preview_texture_view = nullptr;
     gpu->texture = nullptr;
-    gpu->target = nullptr;
     gpu->texture_uav = nullptr;
     gpu->backup_texture = nullptr;
     gpu->width = 0;

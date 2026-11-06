@@ -255,6 +255,8 @@ AccountMediaRequestResult WINAPI request_catalog(void*, const AccountMediaCatalo
 
 namespace media_visibility_detail {
 
+// A watched profile image the next request finds decoded (its frame waits in the mailbox), once.
+bool watched_profile_ready, watched_profile_failed;
 AccountMediaRequestResult WINAPI request_attachment(void*, const AccountMediaAttachmentRequest* request,
                                                     u64, u64) noexcept {
     ++attachment_requests;
@@ -269,6 +271,12 @@ AccountMediaRequestResult WINAPI request_attachment(void*, const AccountMediaAtt
         last_profile_proxy_width = request->proxy_width;
         last_profile_url_bytes = static_cast<u32>(request->signed_url.bytes);
         copy_bytes(last_profile_url, request->signed_url.data, last_profile_url_bytes);
+        if (watched_profile_ready || watched_profile_failed) {
+            AccountMediaRequestResult result{};
+            result.state = watched_profile_ready ? AccountMediaRequestState::ready : AccountMediaRequestState::failed;
+            watched_profile_ready = false;
+            return result;
+        }
     }
     return busy_result();
 }
@@ -1187,6 +1195,64 @@ void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
               last_profile_type == CdnImageType::jpeg && last_profile_proxy_width == 0,
           "profile activity art: the visible card requests its album art as JPEG from i.scdn.co");
     check(pump.media_key_is_current(art), "profile activity art: the visible card's art is current media");
+    // Issue #8: a decoded image the renderer refuses (there, a 1048x2048 effect layer no atlas page held; this
+    // renderer has no device and refuses every upload) fails its asset alone. The pump goes on, the account
+    // keeps its instance and phase (the shell schedules no reconnect: the pump never failed), the refusal is
+    // recorded once, and the image is not fetched, decoded or refused again until its backoff ends.
+    {
+        static PngImage oversized{};
+        static u8 scanlines[64];
+        png_image_configure(&oversized, 1048, 2048, 8, 6);
+        fixture_mailbox[0] = {};
+        fixture_mailbox[0].key = art;
+        fixture_mailbox[0].kind = AccountMediaFrameKind::png_scanlines;
+        fixture_mailbox[0].image = &oversized;
+        fixture_mailbox[0].bytes = {scanlines, sizeof(scanlines)};
+        fixture_mailbox[0].width = 1048;
+        fixture_mailbox[0].height = 2048;
+        fixture_mailbox[0].row_pitch = oversized.row_stride;
+        fixture_mailbox_count = 1;
+        fixture_mailbox_taken = 0;
+        reset_value(&g_app.media_failures);
+        ProfileMedia media{};
+        media.key = art;
+        media.url.bytes = static_cast<u16>(last_profile_url_bytes);
+        copy_bytes(media.url.data, last_profile_url, last_profile_url_bytes);
+        watched_profile_key = art;
+        watched_profile_ready = true;
+        const void* instance = g_app.account.instance;
+        const u8 phase = g_app.account.status.coordinator_phase;
+        const bool running = g_app.account.status.running;
+        const u32 requests = attachment_requests;
+        bool stop = false;
+        const u64 now = clock_monotonic_milliseconds();
+        const bool refused = pump.pass(now, clock_unix_milliseconds() / 1000, 0, &repaint).request_profile_media(media, &stop, false);
+        check(refused && fixture_mailbox_taken == 1 && attachment_requests == requests + 1 &&
+                  g_app.media_failures.count == 1 && g_app.media_failures.recorded == 1 &&
+                  media_asset_failure_blocked(g_app.media_failures, art, clock_monotonic_milliseconds()) &&
+                  g_app.account.instance == instance && g_app.account.status.coordinator_phase == phase &&
+                  g_app.account.status.running == running,
+              "upload refusal: a refused asset fails alone; the pump and the account session go on");
+        const bool skipped = pump.request_profile_media(media, &stop, false);
+        check(skipped && attachment_requests == requests + 1 && g_app.media_failures.recorded == 1,
+              "upload refusal: the refused asset is not fetched or decoded again during its backoff");
+        g_app.media_failures.entries[0].retry_at_ms = 0;
+        check(pump.request_profile_media(media, &stop, false) && attachment_requests == requests + 2,
+              "upload refusal: the asset is asked for again once its backoff ends");
+        reset_value(&g_app.media_failures);
+        // A profile image the worker fails to fetch or decode is recorded (and logged) once and backs off too.
+        watched_profile_failed = true;
+        const u32 failing = attachment_requests;
+        const bool failed_once = pump.request_profile_media(media, &stop, false) &&
+                                 pump.request_profile_media(media, &stop, false);
+        check(failed_once && attachment_requests == failing + 1 && g_app.media_failures.count == 1 &&
+                  g_app.media_failures.recorded == 1,
+              "request failure: a failed profile image is recorded once and not asked for again during its backoff");
+        watched_profile_failed = false;
+        reset_value(&g_app.media_failures);
+        watched_profile_ready = false;
+        fixture_mailbox_count = fixture_mailbox_taken = 0;
+    }
     watched_profile_key = {};
     g_app.profile = previous;
     profile_scene_release(&profile->scene);

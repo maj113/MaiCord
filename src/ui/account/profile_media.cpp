@@ -55,20 +55,33 @@ bool asset(const Utf8View& value) noexcept {
 bool animated_hash(const Utf8View& hash) noexcept {
     return hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
 }
-// The smallest CDN `size` covering `dips` at `dpi`: powers of two from 16 and the other documented
-// sizes between (Userdoccers, CDN parameters), so an ornament takes the pixels it is drawn at.
-u32 cdn_display_size(float dips, u32 dpi) noexcept {
+// The smallest CDN `size` covering `dips` at `dpi`: the documented sizes (powers of two from 16 to 4096 and
+// the others between; Userdoccers, CDN parameters), so an image takes the pixels it is drawn at. `limit` caps
+// it at the largest documented size the image's decoder and atlas page take.
+u32 cdn_display_size(float dips, u32 dpi, u32 limit = 4096) noexcept {
     const u32 pixels = static_cast<u32>(dips * static_cast<float>(dpi ? dpi : 96u) / 96.f + .999f);
-    static constexpr u16 sizes[] = {16, 20, 22, 24, 28, 32, 40, 44, 48, 56, 60, 64, 80, 96, 100, 128, 160};
-    for (const u16 size : sizes)
+    static constexpr u16 sizes[] = {16,  20,  22,  24,  28,  32,  40,  44,   48,   56,   60,   64,   80,   96,  100, 128,
+                                    160, 240, 256, 300, 320, 480, 512, 600, 640, 1024, 1280, 1536, 2048, 3072, 4096};
+    u32 fitting = sizes[0];
+    for (const u16 size : sizes) {
+        if (size > limit)
+            break;
+        fitting = size;
         if (size >= pixels)
-            return size;
-    return sizes[sizeof(sizes) / sizeof(sizes[0]) - 1];
+            break;
+    }
+    return fitting;
 }
-// The key of an image fetched from `url`.
-MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat format, bool animated) noexcept {
-    auto key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0, MediaEmbedResource::image,
-                                 format, animated, MediaResolutionTier::px512);
+// Animated WebP frames decode up to 512 px (kWebpDimensionMaximum). An identity atlas entry keeps 1 px of padding
+// on each side, so a page takes 2046 columns and 1022 rows: a square image fits up to 640 and a 5:2 banner up to
+// 1536 (2048 would be 2 px too wide).
+inline constexpr u32 kCdnAnimatedWebpSizeLimit = 512, kCdnSquareSizeLimit = 640, kCdnBannerSizeLimit = 1536;
+// The key of an image fetched from `url`; an effect layer's is marked so its decode fits the effect slot.
+MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat format, bool animated,
+                          bool effect_layer = false) noexcept {
+    auto key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1,
+                                 effect_layer ? kMediaProfileEffectLayerIndex : 0, MediaEmbedResource::image, format,
+                                 animated, MediaResolutionTier::px512);
     key.kind = MediaAssetKind::profile_image;
     return key;
 }
@@ -294,15 +307,14 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     append(&url, format == MediaAttachmentFormat::png   ? utf8_literal(".png")
                  : format == MediaAttachmentFormat::gif ? utf8_literal(".gif")
                                                         : utf8_literal(".webp"));
-    // Banners are fetched at 600 (the 300 DIP popout at 2x, the modal's 400),
-    // animated WebP ones at the 512 its frames decode to; the modal's 120 DIP
-    // avatar wants 256.
-    const bool large = part.media == ProfileMediaKind::avatar && ui_rect_width(result.rectangle) > 96;
+    // Every part is fetched at the smallest CDN size covering the width it is drawn at on this display
+    // (a DPI change is a new key), within what its decoder and atlas page take.
     const bool animated_webp = animated && format == MediaAttachmentFormat::webp;
-    append(&url, part.media == ProfileMediaKind::banner ? animated_webp ? utf8_literal("?size=512")
-                                                                         : utf8_literal("?size=600")
-                 : large                                ? utf8_literal("?size=256")
-                                                        : utf8_literal("?size=128"));
+    const u32 limit = animated_webp                              ? kCdnAnimatedWebpSizeLimit
+                      : part.media == ProfileMediaKind::banner ? kCdnBannerSizeLimit
+                                                                 : kCdnSquareSizeLimit;
+    append(&url, utf8_literal("?size="));
+    id(&url, cdn_display_size(ui_rect_width(result.rectangle), scene.media_dpi, limit));
     if (animated && format == MediaAttachmentFormat::webp)
         append(&url, utf8_literal("&animated=true"));
     if (part.media == ProfileMediaKind::decoration)
@@ -523,7 +535,7 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
         if (bytes_equal(url.data + i, ".gif", 4))
             format = MediaAttachmentFormat::gif;
     }
-    result.key = profile_key(url, format, animated);
+    result.key = profile_key(url, format, animated, true);
     copy_value(out, result);
     return true;
 }

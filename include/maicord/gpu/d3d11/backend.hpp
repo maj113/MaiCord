@@ -88,14 +88,16 @@ constexpr u16 gpu_paged_commit_rows(u32 texel_bytes) noexcept {
 inline constexpr bool kGpuPagedBindings = false;
 
 // A tiled texture (D3D11_RESOURCE_MISC_TILED) with its views and the tile pool backing it: each tile band of the
-// texture maps one band of pool tiles (band_slot holds that band + 1, 0 for none). The pool grows by ResizeTilePool
-// and shrinks when its last bands are free; a band takes the lowest free one.
+// texture maps one band of pool tiles (band_slot holds that band + 1, 0 for none) or nothing. The pool grows by
+// ResizeTilePool, goes when nothing is backed, and otherwise shrinks to its last band in use once the GPU has passed
+// the event `unmapped`, ended after an unmap (`shrinking` while it is pending, `unmapped_again` when another unmap
+// came since); a band takes the lowest free one.
 struct GpuPagedTexture {
     GpuTexture* texture;
     GpuSrv* view;
     GpuUav* uav;
-    GpuRtv* target;
     GpuBuffer* pool;
+    GpuQuery* unmapped;
     u32 width;
     u32 page_rows;
     u32 band_rows;
@@ -104,6 +106,8 @@ struct GpuPagedTexture {
     u32 pages;
     u16 committed[kGpuPagedTextureMaximumPages];
     u8 band_slot[128];
+    bool shrinking;
+    bool unmapped_again;
 };
 
 // Releases the reference and clears the handle; null is fine.

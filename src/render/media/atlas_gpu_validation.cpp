@@ -243,7 +243,7 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
     };
     const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     unbind_media_pixel_resources(context);
-    gpu_clear_rtv_rect(context, gpu->target, transparent, rectangle);
+    gpu_clear_uav_rect(context, gpu->texture_uav, transparent, rectangle);
     ++gpu->cleared_regions;
     return allocation;
 }

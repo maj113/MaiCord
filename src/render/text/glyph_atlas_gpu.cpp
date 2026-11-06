@@ -136,7 +136,10 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         static_cast<u32>(allocation.x) + allocation.width + allocation_padding > gpu->width ||
         static_cast<u32>(allocation.y) + allocation.height + allocation_padding > gpu->height ||
         !bounded_float(pixels_per_em, 1024.0f) || pixels_per_em <= 0.0f ||
-        !(stroke_half_width >= 0.0f && stroke_half_width < 128.0f)) {
+        !(stroke_half_width >= 0.0f && stroke_half_width < 128.0f) ||
+        // The raster with its gutter lies in backed rows: no shader touches an unbacked tile.
+        (gpu->surface && !gpu_paged_texture_backed(gpu->surface, allocation.y - allocation_padding,
+                                                   allocation.height + 2u * allocation_padding))) {
         return gpu_error(GlyphAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     if (outline.count > gpu->command_capacity)

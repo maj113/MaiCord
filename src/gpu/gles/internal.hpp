@@ -76,7 +76,6 @@ struct GpuPagedTexture {
     GpuTexture* textures[kGpuPagedTextureMaximumPages];
     GpuSrv* views[kGpuPagedTextureMaximumPages];
     GpuUav* uavs[kGpuPagedTextureMaximumPages];
-    GpuRtv* targets[kGpuPagedTextureMaximumPages];
     u32 width;
     u32 page_rows;
     u32 pages;

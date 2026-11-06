@@ -417,6 +417,7 @@ bool layout_preview(const UiRect& anchor, const UiRect& visible) noexcept {
     s.measure = &g_app.account_ui->text_measure_cache;
     s.effect = p.effect.sku && p.effect.sku == p.effect_wanted ? &p.effect : nullptr;
     s.reduced_motion = application_reduced_motion();
+    s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     s.phase = ProfilePhase::ready;
     s.presence = UiPresence::online;
     const auto viewport = ui_rect_has_area(visible) ? visible : application_viewport_dips();

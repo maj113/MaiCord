@@ -258,8 +258,8 @@ bool present_rejected(const char* stage) noexcept {
 
 // The GPU device was lost (a reset, a driver update, a removed adapter): the renderer rebuilds itself on a new
 // one, the loop rebuilds text for the empty atlas and media owners request their images again. A failed attempt
-// waits a second; the next requested frame tries again.
-bool application_recover_device() noexcept {
+// waits a second; the next requested frame tries again. Rare, so compiled for size with the rebuild it inlines.
+__attribute__((minsize)) bool application_recover_device() noexcept {
     static u64 retry_ms = 0;
     const u64 now = clock_monotonic_milliseconds();
     if (now < retry_ms)

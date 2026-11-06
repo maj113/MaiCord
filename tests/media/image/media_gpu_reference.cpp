@@ -23,6 +23,8 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "../../../src/render/media/atlas_gpu_internal.hpp"
+#include "maicord/media/image/apng_frame.hpp"
+#include "maicord/media/image/png.hpp"
 #include "../../fixtures/webp_fixture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
@@ -47,6 +49,12 @@ struct State {
     GlyphAtlasEntry allocations[16];
     GlyphAtlasRow rows[16];
     MediaAtlasGpu gpu;
+    MediaAtlas identity;
+    MediaAtlasEntry identity_entries[16];
+    u32 identity_buckets[32];
+    GlyphAtlasEntry identity_allocations[16];
+    GlyphAtlasRow identity_rows[16];
+    MediaAtlasGpu identity_gpu;
     u8 surface[kAtlasExtent * kAtlasExtent * 4];
     u8 reference[kWebpDimensionMaximum * kWebpDimensionMaximum * 4];
 };
@@ -333,6 +341,75 @@ void check_upload_shrink() noexcept {
     check(grown && kept && shrunk && small, "dynamic_upload_shrinks_after_large_image", capacity);
 }
 
+// Issue #8: out-of-range sizes are refused before any device call. In 0.6.6 the E_INVALIDARG of the 1048x2048
+// layer was this validation's own code (2048 rows and their padding against an atlas of at most 2048), not a device
+// error. Every stage's counters stay put: no upload buffer, clear, dispatch or allocation happened.
+void check_oversized_rejected() noexcept {
+    media_atlas_reset(&g->atlas);
+    auto& gpu = g->gpu;
+    const u32 rejected = gpu.rejected, png = gpu.png_uploads, straight = gpu.straight_rgba8_uploads,
+              cleared = gpu.cleared_regions, capacity = gpu.png_scanline_capacity, apng = gpu.apng_frames;
+    const u64 bytes = gpu.png_uploaded_bytes;
+    // One row past what a page holds with its padding.
+    PngImage tall{}, small{};
+    const bool configured = png_image_configure(&tall, 16, kAtlasExtent - 1, 8, 6) &&
+                            png_image_configure(&small, 16, 16, 8, 6);
+    clear_bytes(g->workspace, tall.inflated_bytes);
+    const auto png_result = media_atlas_gpu_upload_png(&gpu, &g->atlas, g_device, g_context,
+                                                       media_asset_custom_emoji(9101, false), tall,
+                                                       {g->workspace, tall.inflated_bytes});
+    const auto straight_result = media_atlas_gpu_upload_straight_rgba8(
+        &gpu, &g->atlas, g_device, g_context, media_asset_custom_emoji(9102, false), kAtlasExtent - 1, 16,
+        (kAtlasExtent - 1) * 4u, {g->workspace, (kAtlasExtent - 1) * 4u * 16u});
+    const ApngFrame frame{0, 0, 16, 16, 0, 0, 0, 1, 10, ApngDispose::none, ApngBlend::source};
+    const auto apng_result = media_atlas_gpu_begin_apng(&gpu, &g->atlas, g_device, g_context,
+                                                        media_asset_custom_emoji(9103, true), 16, kAtlasExtent - 1,
+                                                        frame, small, {g->workspace, small.inflated_bytes});
+    const bool refused = png_result.error == MediaAtlasGpuError::invalid_input &&
+                         straight_result.error == MediaAtlasGpuError::invalid_input &&
+                         apng_result.error == MediaAtlasGpuError::invalid_input;
+    check(configured && refused && gpu.rejected == rejected + 3 && gpu.png_uploads == png &&
+              gpu.straight_rgba8_uploads == straight && gpu.cleared_regions == cleared &&
+              gpu.png_scanline_capacity == capacity && gpu.apng_frames == apng && gpu.png_uploaded_bytes == bytes &&
+              g->atlas.entry_count == 0,
+          "oversized_inputs_refused_before_any_device_call", gpu.rejected - rejected);
+}
+
+// A 1048x2048 effect layer, fitted at decode to 450x879, becomes resident in the identity surface's effect
+// slot, and its allocation keeps the source's aspect for the renderer's height = width * h / w draw.
+void check_fitted_effect_layer() noexcept {
+    auto& atlas = g->identity;
+    if (!media_atlas_initialize(&atlas, kMediaAtlasExtent, kMediaAtlasPageRows, kMediaAtlasPadding,
+                                {g->identity_entries, 16}, {g->identity_buckets, 32}, {g->identity_allocations, 16},
+                                {g->identity_rows, 16}) ||
+        !media_atlas_configure_surface(&atlas, MediaAtlasSurface::identity) ||
+        !media_atlas_gpu_initialize(&g->identity_gpu, g_device, atlas).ok()) {
+        check(false, "fitted_effect_layer_surface", 0);
+        return;
+    }
+    auto key = media_asset_embed(0xEF1, 1, kMediaProfileEffectLayerIndex, MediaEmbedResource::image,
+                                 MediaAttachmentFormat::png, false, MediaResolutionTier::px512);
+    key.kind = MediaAssetKind::profile_image;
+    // Unfitted, a layer taller than a page (here 1100 rows) is refused before the device as in issue #8.
+    PngImage tall{}, fitted{};
+    const bool configured = png_image_configure(&tall, 450, 1100, 8, 6) && png_image_configure(&fitted, 450, 879, 8, 6) &&
+                            tall.inflated_bytes <= sizeof(g->workspace);
+    clear_bytes(g->workspace, tall.inflated_bytes);
+    const auto oversized = media_atlas_gpu_upload_png(&g->identity_gpu, &atlas, g_device, g_context, key, tall,
+                                                      {g->workspace, tall.inflated_bytes});
+    const auto uploaded = media_atlas_gpu_upload_png(&g->identity_gpu, &atlas, g_device, g_context, key, fitted,
+                                                     {g->workspace, fitted.inflated_bytes});
+    const auto& page = atlas.allocations.pages[uploaded.allocation.y / kMediaAtlasPageRows];
+    const auto resident = media_atlas_find(&atlas, key);
+    // The renderer draws an effect at the card's width with height = width * h / w (renderer_layout.cpp).
+    const float drawn = 340.f * resident.height / resident.width, source_aspect = 340.f * 2048 / 1048;
+    check(configured && oversized.error == MediaAtlasGpuError::invalid_input && uploaded.ok() && resident.ok() &&
+              resident.width == 450 && resident.height == 879 && page.owner == 1 &&
+              drawn - source_aspect < .5f && source_aspect - drawn < .5f,
+          "fitted_effect_layer_resident_in_the_effect_slot_at_its_aspect", page.owner);
+    media_atlas_gpu_release(&g->identity_gpu);
+}
+
 int run() noexcept {
     g = static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g) {
@@ -402,6 +479,8 @@ int run() noexcept {
     check(lossy >= 1, "vp8_corpus_images", lossy);
     check_vp8("vp8_damage_detected", {kWebpLossy32x24, sizeof(kWebpLossy32x24)}, 3003, 0, true);
     check_upload_shrink();
+    check_oversized_rejected();
+    check_fitted_effect_layer();
 
     media_atlas_gpu_release(&g->gpu);
     g_staging->Release();

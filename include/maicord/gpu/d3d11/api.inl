@@ -198,9 +198,12 @@ __forceinline GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster)
 
 // Every page is the one tiled texture, addressed and sampled by virtual rows: one binding.
 __forceinline GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32) {
-    return GpuPage{texture->texture, texture->uav,  texture->target,
-                   texture->view,    0,             texture->page_rows * texture->pages,
-                   0};
+    return GpuPage{texture->texture, texture->uav, texture->view, 0, texture->page_rows * texture->pages, 0};
+}
+
+__forceinline bool gpu_paged_texture_backed(const GpuPagedTexture* texture, u32 row, u32 rows) {
+    const u32 page = row / texture->page_rows;
+    return page < texture->pages && row + rows <= page * texture->page_rows + texture->committed[page];
 }
 
 __forceinline GpuSrv* gpu_paged_texture_binding_view(const GpuPagedTexture* texture, u32) {
@@ -324,6 +327,11 @@ __forceinline void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const floa
 }
 
 __forceinline void gpu_clear_rtv_rect(GpuContext1* context, GpuRtv* target, const float rgba[4],
+                                      const GpuRect& rectangle) {
+    context->ClearView(target, rgba, reinterpret_cast<const D3D11_RECT*>(&rectangle), 1);
+}
+
+__forceinline void gpu_clear_uav_rect(GpuContext1* context, GpuUav* target, const float rgba[4],
                                       const GpuRect& rectangle) {
     context->ClearView(target, rgba, reinterpret_cast<const D3D11_RECT*>(&rectangle), 1);
 }

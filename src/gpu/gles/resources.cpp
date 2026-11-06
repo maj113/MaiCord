@@ -444,7 +444,6 @@ void gpu_release(GpuRtv*& handle) noexcept {
 namespace {
 
 void release_page(GpuPagedTexture* paged, u32 page) noexcept {
-    gpu_release(paged->targets[page]);
     gpu_release(paged->uavs[page]);
     gpu_release(paged->views[page]);
     gpu_release(paged->textures[page]);
@@ -455,7 +454,8 @@ void release_page(GpuPagedTexture* paged, u32 page) noexcept {
 GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc& desc, GpuPagedTexture** texture) {
     *texture = nullptr;
     if (!device || desc.width == 0 || desc.width > device->caps.max_texture_size || desc.page_rows == 0 ||
-        desc.page_rows > device->caps.max_texture_size || desc.pages == 0 || desc.pages > kGpuPagedTextureMaximumPages)
+        desc.page_rows > device->caps.max_texture_size || desc.pages == 0 ||
+        desc.pages > kGpuPagedTextureMaximumPages || (desc.bind & gpu_bind_rtv))
         return kGpuInvalidArgument;
     const GpuStatus supported = gpu_format_check(device, desc.format, desc.bind);
     if (!gpu_ok(supported))
@@ -504,14 +504,6 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
         status = gpu_srv_create(device, paged->textures[page], {GpuViewKind::texture, paged->format}, &paged->views[page]);
     if (gpu_ok(status) && (paged->bind & gpu_bind_uav))
         status = gpu_uav_create(device, paged->textures[page], &paged->uavs[page]);
-    if (gpu_ok(status) && (paged->bind & gpu_bind_rtv)) {
-        status = gpu_rtv_create(device, paged->textures[page], &paged->targets[page]);
-        // A new page of a render target starts transparent.
-        if (gpu_ok(status)) {
-            const float transparent[4]{};
-            gpu_clear_rtv(context, paged->targets[page], transparent);
-        }
-    }
     if (!gpu_ok(status))
         release_page(paged, page);
     return status;
@@ -526,8 +518,13 @@ u64 gpu_paged_texture_bytes(const GpuPagedTexture* texture) {
 
 GpuPage gpu_paged_texture_page(const GpuPagedTexture* texture, u32 row) {
     const u32 page = minimum(row / texture->page_rows, texture->pages - 1u);
-    return GpuPage{texture->textures[page], texture->uavs[page], texture->targets[page], texture->views[page],
-                   page * texture->page_rows, texture->page_rows, page};
+    return GpuPage{texture->textures[page], texture->uavs[page], texture->views[page], page * texture->page_rows,
+                   texture->page_rows, page};
+}
+
+bool gpu_paged_texture_backed(const GpuPagedTexture* texture, u32 row, u32 rows) {
+    const u32 page = row / texture->page_rows;
+    return page < texture->pages && texture->textures[page] && row + rows <= (page + 1u) * texture->page_rows;
 }
 
 GpuSrv* gpu_paged_texture_binding_view(const GpuPagedTexture* texture, u32 binding) {
@@ -614,16 +611,29 @@ void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]) {
     gl.glEnable(gl::kScissorTest);
 }
 
-void gpu_clear_rtv_rect(GpuContext* context, GpuRtv* target, const float rgba[4], const GpuRect& rectangle) {
+namespace {
+
+// A rectangle of `texture` cleared through its framebuffer, ignoring the scissor.
+void clear_rect(GpuContext* context, GpuTexture* texture, const float rgba[4], const GpuRect& rectangle) noexcept {
     gl::Api& gl = api();
     flush_barriers();
-    const u32 framebuffer = texture_framebuffer(target->texture);
+    const u32 framebuffer = texture_framebuffer(texture);
     if (!framebuffer || rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
         return;
     bind_framebuffer(*context, framebuffer);
     gl.glScissor(rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top);
     gl.glClearBufferfv(gl::kColor, 0, rgba);
     context->applied_scissor_valid = false;
+}
+
+} // namespace
+
+void gpu_clear_rtv_rect(GpuContext* context, GpuRtv* target, const float rgba[4], const GpuRect& rectangle) {
+    clear_rect(context, target->texture, rgba, rectangle);
+}
+
+void gpu_clear_uav_rect(GpuContext* context, GpuUav* target, const float rgba[4], const GpuRect& rectangle) {
+    clear_rect(context, target->texture, rgba, rectangle);
 }
 
 void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, const void* data, u32 bytes) {

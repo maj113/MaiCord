@@ -14,8 +14,8 @@ struct ApplicationMediaPump {
     explicit ApplicationMediaPump(Application& source) noexcept : application(source) {
     }
 
+    // A refused frame is deferred: its asset backs off (media_asset_failures.hpp); nothing fails the pump.
     enum class MediaFrameUploadResult : u8 {
-        failed,
         uploaded,
         deferred,
     };
@@ -37,6 +37,8 @@ struct ApplicationMediaPump {
                                AccountMediaRequestResult* failure = nullptr) noexcept;
     // Go Live preview thumbnails shown by the stream card and call tiles.
     bool request_stream_previews(bool* stop) noexcept;
+    // A refused asset waiting out its backoff (media_asset_failures.hpp): no request fetches or decodes it.
+    __declspec(noinline) bool asset_backed_off(const MediaAssetKey& key) const noexcept;
     Application& application;
     ApplicationMediaPumpResult result{};
     bool prefetch_only = false;

@@ -148,7 +148,7 @@ UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexc
 
 } // namespace
 // Session start and stop, viewer opening, activation and control events: user-rate, not per frame. The
-// per-frame projection and positioning below and above stay at full speed.
+// per-frame playback state above and positioning below stay at full speed.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace video_detail {
 
@@ -824,7 +824,11 @@ bool update_video_extent(ApplicationVideo& video, const GpuVideoFrame& frame) no
     }
     return changed;
 }
-bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& positioned, bool visible, bool* repaint) noexcept {
+// The controls' scene projection: the UI library's own work (compiled for size there), here once per pump
+// turn of an open player, so it is compiled for size with what it inlines from that library. Positioning
+// stays at full speed.
+__attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& positioned,
+                                                  bool visible, bool* repaint) noexcept {
     const bool searched = media_asset_search(video->source.key);
     if (visible)
         video->hidden_pause = false;

@@ -34,7 +34,6 @@ struct MediaAtlasGpu {
     GpuSrv* preview_texture_view;
     // The page an upload writes and that page of the backup (select_page), in the page's own rows.
     GpuTexture* texture;
-    GpuRtv* target;
     GpuUav* texture_uav;
     GpuTexture* backup_texture;
     GpuBuffer* png_scanline_buffer;
@@ -152,7 +151,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(
     MediaAtlasGpu* gpu, GpuDevice* device, const MediaAtlas& atlas) noexcept;
 // Backs or returns the surface's rows to match the atlas's pages (after a trim).
 bool media_atlas_gpu_sync(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview) noexcept;
-// Backs the rows the atlas allocated on the primary surface (`preview`: the preview one), points texture, target,
+// Backs the rows the atlas allocated on the primary surface (`preview`: the preview one), points texture,
 // texture_uav and backup_texture at the page holding `allocation` and turns it into that page's rows. False when
 // the rows could not be backed: the caller then forgets the key, which nothing may sample.
 bool media_atlas_gpu_select(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview,
@@ -243,6 +242,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 736);
+static_assert(sizeof(MediaAtlasGpu) == 728);
 
 } // namespace maicord

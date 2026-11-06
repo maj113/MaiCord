@@ -214,9 +214,9 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
     }
     auto* shader=ensure_colr(g,context,bytes,general,extent,target_height,target!=nullptr,layers);
     if(!shader)return false;
-    // A one-page atlas made just now: its page.
+    // A one-page atlas made just now: its page. The job with its gutter lies in backed rows of the atlas.
     const GpuUav* output = page.uav ? page.uav : gpu_paged_texture_page(g->surface, a.y).uav;
-    if (!output)
+    if (!output || (!target && !gpu_paged_texture_backed(g->surface, a.y - padding, a.height + 2u * padding)))
         return false;
     // Append disjoint ranges until full. DISCARD renames the entire resource,
     // so doing it for every tiny glyph after a large one wastes driver memory.

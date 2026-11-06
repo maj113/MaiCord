@@ -136,7 +136,8 @@ void pump_after_event(void*) noexcept {
     application_downloads_pump();
 }
 
-bool initialize_ui_runtime() noexcept {
+// Once, at startup: compiled for size with the setup it inlines.
+__attribute__((minsize)) bool initialize_ui_runtime() noexcept {
     u64 stage = 1;
     if (!animation_visual_runtime_initialize(&g_app.animations)) {
         goto failed;
@@ -622,11 +623,12 @@ int run_application() noexcept {
             // Shader-only background frames reuse resident media. A completion
             // arriving after this turn's wait remains signaled for the next
             // account-priority turn; no mailbox result is acknowledged here.
-            if ((!video_overlay_only && !background_only &&
-                 !application_pump_visible_static_media(&repaint)) ||
-                !application_video_pump(&repaint)) {
-                application_account_stop_recoverable("static_media_pump_failed");
-            }
+            // Media is presentation: a failure here degrades pictures, never
+            // the account session (each refused asset backs off on its own).
+            if (!video_overlay_only && !background_only && !application_pump_visible_static_media(&repaint))
+                application_record_presentation_failure("static_media_pump_failed");
+            if (!application_video_pump(&repaint))
+                application_record_presentation_failure("video_pump_failed");
             application_received_attachment_pump();
             application_search_content_pump();
             g_app.frame_pending = g_app.frame_pending || repaint;

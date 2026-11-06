@@ -100,6 +100,8 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
 bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, HWND window) noexcept;
 bool application_media_animation_ui_probe(D3D11Renderer& renderer,
                                           bool (*capture)(const wchar_t*) noexcept) noexcept;
+bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* cache, ChatStateStore* state,
+                                     UserStore* users) noexcept;
 
 bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept;
 bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept;
@@ -2373,6 +2375,11 @@ int run_probe() noexcept {
                   valid ? "animation_handoff_native_ui_passed" : "animation_handoff_native_ui_failed");
         return finish_probe(valid ? 0 : 252);
     }
+    if (probe_option_enabled(L"MAICORD_UI_PROFILE_MEDIA_SEQUENCE_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                               profile_media_sequence_ui_probe(g_probe.renderer, &g_probe.text_measure_cache,
+                                                               &g_probe.chat_state, &g_probe.users),
+                           "profile_media_sequence_native_ui_passed", "profile_media_sequence_native_ui_failed", 280);
     if (probe_option_enabled(L"MAICORD_MENU_ROW_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         if (!valid) {
