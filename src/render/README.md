@@ -48,6 +48,12 @@ Under the Direct3D 11 debug layer every compute write through a surface's UAV re
 (`gpu_paged_texture_backed`). The UI probe's GPU hang reproductions run only on WARP with the debug layer
 (`tests/support/warp_device.hpp`), never on the hardware adapter, and allow that warning alone.
 
+The glyph atlas runs on the clock its idle trim check is given; until that check first observes it, what the first screens
+allocated counts as allocated then. The trim evicts glyphs nothing used within `kRendererGlyphProtectMs` once
+`kRendererGlyphIdleTrimMs` passed without a new glyph, and content text built again from the stale flag replaces the quads of what
+it evicted. The title stream (the sign-in screen, the bootstrap title) is retained quads nothing rebuilds, so the trim pins its
+glyphs; the caption rebuilds its own when the atlas evicts.
+
 ## Background effects
 
 Effects run through the shared pass executor (`d3d11/effect_renderer.cpp`, built into `maicord_effect_host`). A package of `.mcfx`

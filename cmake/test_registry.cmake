@@ -1934,6 +1934,13 @@ endforeach()
 # hardware adapter, and any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it.
 maicord_ui_probe_test(maicord_profile_media_sequence_ui_probe UI_PROFILE_MEDIA_SEQUENCE_PROBE BOOTSTRAP WARP TIMEOUT 15
     LABELS native-ui display)
+# The sign-in screen as the client starts it (first frame under the caption, window shown, the loop's first glyph
+# maintenance, an idle trim): every resident glyph reads back with coverage through a staging copy, and every sign-in
+# quad names a resident glyph and draws ink. On the hardware adapter and on WARP with the debug layer.
+maicord_ui_probe_test(maicord_startup_glyph_atlas_probe STARTUP_GLYPH_ATLAS_PROBE BOOTSTRAP TIMEOUT 15
+    LABELS native-ui display RESOURCE_LOCK native_gpu)
+maicord_ui_probe_test(maicord_startup_glyph_atlas_warp_probe STARTUP_GLYPH_ATLAS_PROBE BOOTSTRAP WARP TIMEOUT 15
+    LABELS native-ui display)
 # Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
 # runs label showcase only when the test is named, e.g.
 # -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.

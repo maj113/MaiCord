@@ -1,4 +1,7 @@
 #include "ui_probe_internal.hpp"
+#include "maicord/core/log_event.hpp"
+#include "maicord/ui/shell/caption_bar.hpp"
+#include "probe_capture.hpp"
 #include "probe_surface.hpp"
 #include "standalone_title_geometry.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
@@ -576,6 +579,166 @@ bool probe_bootstrap_title() noexcept {
         return false;
     renderer_set_dpi(&renderer, 96);
     return renderer.glyph_text.ready && draw() && probe_capture_frame(L"bootstrap-96.bmp");
+}
+
+namespace {
+
+// The backed rows of a paged glyph surface (`texel` bytes a texel) into `pixels`, through a staging copy of each
+// page's committed rows (never an unbacked tile).
+bool read_glyph_surface(const GpuPagedTexture* surface, u32 texel, u8* pixels) noexcept {
+    auto& r = g_probe.renderer;
+    const GlyphAtlasAllocator& atlas = r.glyph_text.allocator;
+    D3D11_TEXTURE2D_DESC description{};
+    surface->texture->GetDesc(&description);
+    description.BindFlags = description.MiscFlags = 0;
+    description.Usage = D3D11_USAGE_STAGING;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* staging = nullptr;
+    if (FAILED(r.graphics.device->CreateTexture2D(&description, nullptr, &staging)))
+        return false;
+    for (u32 page = 0; page < atlas.page_count; ++page) {
+        const u32 top = page * atlas.page_rows, rows = atlas.pages[page].committed;
+        const D3D11_BOX box{0, top, 0, atlas.width, top + rows, 1};
+        if (rows)
+            r.graphics.context->CopySubresourceRegion(staging, 0, 0, top, 0, surface->texture, 0, &box);
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    const bool ok = SUCCEEDED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+    for (u32 y = 0; ok && y < atlas.height; ++y)
+        copy_bytes(pixels + y * atlas.width * texel, static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch,
+                   atlas.width * texel);
+    if (ok)
+        r.graphics.context->Unmap(staging, 0);
+    staging->Release();
+    return ok;
+}
+
+// Glyphs the atlas holds with no coverage when it is read back (mono glyphs in the R8 surface, colour ones in the
+// RGBA surface's alpha); ~0u when the readback failed.
+u32 blank_glyphs(const char* stage) noexcept {
+    auto& r = g_probe.renderer;
+    const GlyphAtlasAllocator& atlas = r.glyph_text.allocator;
+    const GpuPagedTexture* color = d3d11_glyph_text_color_surface(r.glyph_text);
+    const usize texels = usize{atlas.width} * atlas.height;
+    auto* mono = static_cast<u8*>(VirtualAlloc(nullptr, texels * 5, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u8* rgba = mono ? mono + texels : nullptr;
+    const bool ok = mono && read_glyph_surface(r.glyph_text.gpu.surface, 1, mono) &&
+                    (!color || read_glyph_surface(color, 4, rgba));
+    u32 glyphs = 0, blank = 0;
+    for (u32 index = 0; ok && index < atlas.entry_capacity; ++index) {
+        const GlyphAtlasEntry& entry = atlas.entries[index];
+        if (!entry.occupied)
+            continue;
+        bool covered = false;
+        for (u32 y = entry.y; !covered && y < u32{entry.y} + entry.height; ++y)
+            for (u32 x = entry.x; !covered && x < u32{entry.x} + entry.width; ++x)
+                covered = mono[y * atlas.width + x] != 0 || (color && rgba[(y * atlas.width + x) * 4 + 3] != 0);
+        ++glyphs;
+        blank += !covered;
+    }
+    if (mono)
+        VirtualFree(mono, 0, MEM_RELEASE);
+    LogEvent(stage).field("glyphs", glyphs).field("blank", blank).field("bytes",
+        gpu_paged_texture_bytes(r.glyph_text.gpu.surface)).write(blank || !ok ? LogLevel::error : LogLevel::info,
+                                                                 "probe");
+    return ok && glyphs ? blank : ~0u;
+}
+
+// The glyph quads of the frame drawn now (sign-in title and form text) that are stale (their atlas corner is no
+// resident glyph's) or draw no ink on the target (every pixel of the quad as its padding corner).
+u32 undrawn_quads(const char* stage) noexcept {
+    auto& r = g_probe.renderer;
+    const GlyphAtlasAllocator& atlas = r.glyph_text.allocator;
+    ProbeTargetReadback image;
+    if (!d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr) || probe_target_readback(r, &image))
+        return ~0u;
+    const float scale = static_cast<float>(r.dpi) / 96.0f;
+    const auto pixel = [&](u32 x, u32 y) noexcept {
+        return static_cast<const u8*>(image.mapped.pData) + y * image.mapped.RowPitch + x * 4;
+    };
+    u32 quads = 0, stale = 0, undrawn = 0;
+    const auto check = [&](const GlyphQuad* list, u32 count) noexcept {
+        for (u32 i = 0; list && i < count; ++i) {
+            const GlyphQuad& q = list[i];
+            if (!(q.u0 >= 0 && q.u0 < 1))
+                continue;
+            ++quads;
+            const u32 x = static_cast<u32>(q.u0 * atlas.width + .5f), y = static_cast<u32>(q.v0 * atlas.height + .5f);
+            bool resident = false;
+            for (u32 j = 0; !resident && j < atlas.entry_capacity; ++j)
+                resident = atlas.entries[j].occupied && atlas.entries[j].x == x && atlas.entries[j].y == y;
+            stale += !resident;
+            const u32 left = static_cast<u32>(maximum(0.0f, q.left * scale));
+            const u32 top = r.caption_height + static_cast<u32>(maximum(0.0f, q.top * scale));
+            const u32 right = minimum(image.width, static_cast<u32>(maximum(0.0f, q.right * scale)));
+            const u32 bottom =
+                minimum(image.height, r.caption_height + static_cast<u32>(maximum(0.0f, q.bottom * scale)));
+            if (left >= right || top >= bottom)
+                continue;
+            const u8* corner = pixel(left, top);
+            bool ink = false;
+            for (u32 py = top; !ink && py < bottom; ++py)
+                for (u32 px = left; !ink && px < right; ++px) {
+                    const u8* p = pixel(px, py);
+                    for (u32 c = 0; c < 3; ++c)
+                        ink = ink || (p[c] > corner[c] ? p[c] - corner[c] : corner[c] - p[c]) > 32;
+                }
+            undrawn += !ink;
+        }
+    };
+    check(r.glyph_text.title_quads, r.glyph_text.title_quad_count);
+    if (r.content_text)
+        check(r.content_text->quads, r.content_text->quad_count);
+    LogEvent(stage).field("quads", quads).field("stale", stale).field("undrawn", undrawn).write(
+        stale || undrawn || !quads ? LogLevel::error : LogLevel::info, "probe");
+    return quads ? stale + undrawn : ~0u;
+}
+
+RendererLoginView probe_login_view(RendererLoginStatus status, bool visible) noexcept {
+    return RendererLoginView{{}, {}, {}, 0, 0, false, LoginControl::none, status, login_mfa_capability_none,
+                             login_mfa_capability_none, 0, false, nullptr, false, false, false, visible};
+}
+
+} // namespace
+
+// The sign-in screen as the client starts it: the first frame under the caption bar (the glyph atlas just adopted
+// from the device prestart), the window shown (the caption turns active, the form takes focus and is laid out again),
+// the main loop's first turn of media and glyph maintenance, then an idle trim on a screen nothing builds again.
+// After each frame every glyph the atlas holds reads back with coverage, and every sign-in quad names a resident
+// glyph and draws ink on the target. The first maintenance once trimmed every glyph (the atlas clock was never set),
+// and an idle trim evicted the glyphs of the retained sign-in quads, leaving the screen blank.
+bool probe_startup_glyph_atlas() noexcept {
+    auto& r = g_probe.renderer;
+    const auto frame = [&](const char* atlas_stage, const char* quad_stage) noexcept {
+        return probe_present(&r, kDefaultTheme) && blank_glyphs(atlas_stage) == 0 && undrawn_quads(quad_stage) == 0;
+    };
+    const u32 caption = static_cast<u32>(ui_caption_bar_height(kDefaultTheme) * r.dpi / 96.0f + .5f);
+    renderer_set_caption_height(&r, caption);
+    const UiCaptionBarState signin{UiCaptionPart::none, UiCaptionPart::none, false, false, UiCaptionUpdate::hidden,
+                                   true, 1};
+    if (r.glyph_text.cache_builds || !renderer_resize(&r, r.width, r.height - caption) ||
+        !renderer_set_caption(&r, signin, utf8_literal("MaiCord")) ||
+        !set_probe_login_view(probe_login_view(RendererLoginStatus::idle, true)) || !r.glyph_text.cache_builds ||
+        !frame("startup_glyph_atlas_first", "startup_glyph_quads_first"))
+        return false;
+    UiCaptionBarState shown = signin;
+    shown.active = true;
+    RendererLoginView focused = probe_login_view(RendererLoginStatus::idle, true);
+    focused.focus = LoginControl::login;
+    if (!renderer_set_caption(&r, shown, utf8_literal("MaiCord")) || !set_probe_login_view(focused) ||
+        !set_probe_login_view(focused) || !frame("startup_glyph_atlas_shown", "startup_glyph_quads_shown"))
+        return false;
+    const u64 entries = r.glyph_text.allocator.entry_count;
+    renderer_media_maintain(&r, clock_monotonic_milliseconds());
+    if (r.glyph_text.allocator.entry_count != entries ||
+        !frame("startup_glyph_atlas_loop", "startup_glyph_quads_loop"))
+        return false;
+    // Idle past the trim delay on the same screen: the trim runs and keeps what the screen draws.
+    const u32 evicted = r.glyph_text.allocator.evicted_entries;
+    renderer_media_maintain(&r, clock_monotonic_milliseconds() + kRendererGlyphIdleTrimMs + kRendererGlyphProtectMs);
+    LogEvent("startup_glyph_atlas_idle").field("evicted", r.glyph_text.allocator.evicted_entries - evicted)
+        .field("entries", r.glyph_text.allocator.entry_count).write(LogLevel::info, "probe");
+    return r.glyph_text.allocator.entry_count && frame("startup_glyph_atlas_idle", "startup_glyph_quads_idle");
 }
 
 bool probe_long_embed_text() noexcept {

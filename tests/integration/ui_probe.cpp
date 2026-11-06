@@ -1877,6 +1877,9 @@ int run_probe() noexcept {
     if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1)
         return finish_gate(title_only[0] == L'2' || probe_bootstrap_title(), "bootstrap_title_passed",
                            "bootstrap_title_failed", 246);
+    if (probe_option_enabled(L"MAICORD_STARTUP_GLYPH_ATLAS_PROBE"))
+        return finish_gate(probe_startup_glyph_atlas(), "startup_glyph_atlas_passed", "startup_glyph_atlas_failed",
+                           247);
     MediaQuad* initial_media_quads = g_probe.renderer.media_draw.quad_data;
     MediaAtlasHandle* initial_media_handles = g_probe.renderer.media_draw.handle_data;
     u8* initial_media_domains = g_probe.renderer.media_draw.domain_data;

@@ -1042,17 +1042,40 @@ u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept {
 }
 
 // Idle trim drops glyphs nothing used within kRendererGlyphProtectMs and returns the rows that empty; what stays
-// keeps its place, so only quads of evicted glyphs are rebuilt.
+// keeps its place, so only quads of evicted glyphs are rebuilt. The title stream (the sign-in screen, the bootstrap
+// title) is drawn every frame from quads nothing builds again after an eviction, so its glyphs stay: they are pinned.
 bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 now_ms) noexcept {
     if (!owner || !context || !owner->atlas_origins)
         return false;
+    // The atlas has no clock until the first trim check observes the caller's: what the first screens allocated
+    // before it counts as allocated now. (At clock zero that check found them idle since time zero and trimmed the
+    // sign-in screen's glyphs in its first frames.)
+    if (!owner->allocator.now_ms)
+        owner->allocator.last_activity_ms = now_ms;
     glyph_atlas_observe_time(&owner->allocator, now_ms);
     const u64 deadline = glyph_atlas_trim_deadline(owner->allocator, kRendererGlyphIdleTrimMs);
     if (!deadline || now_ms < deadline)
         return false;
     if (owner->color_batch)
         owner->color_batch->reset();
-    const bool evicted = glyph_atlas_trim(&owner->allocator) != 0;
+    GlyphAtlasAllocator& atlas = owner->allocator;
+    glyph_atlas_clear_pins(&atlas);
+    for (u32 i = 0; i < owner->title_quad_count; ++i) {
+        // Mono tiles take u in [0, 1), colour tiles in [2, 3); decorations and masks sample no tile.
+        const GlyphQuad& quad = owner->title_quads[i];
+        const float u = quad.u0 >= 2.0f ? quad.u0 - 2.0f : quad.u0;
+        if (!(u >= 0.0f && u < 1.0f))
+            continue;
+        const u32 x = static_cast<u32>(u * atlas.width + 0.5f), y = static_cast<u32>(quad.v0 * atlas.height + 0.5f);
+        for (u32 slot = 0; slot < atlas.entry_capacity; ++slot) {
+            const GlyphAtlasEntry& entry = atlas.entries[slot];
+            if (entry.occupied && entry.x == x && entry.y == y) {
+                glyph_atlas_pin(&atlas, GlyphAtlasHandle{static_cast<u16>(slot), entry.generation});
+                break;
+            }
+        }
+    }
+    const bool evicted = glyph_atlas_trim(&atlas) != 0;
     sync_surfaces(owner, context);
     if (evicted)
         text_storage(owner)->geometry_stale = true;
