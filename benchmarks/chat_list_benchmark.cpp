@@ -287,6 +287,7 @@ struct StageStats {
     u32 moved;
     double fps, mean, p50, p95, p99, max, cpu_ms, allocs;
     double layout_p50, text_p50, paint_p50, text_p95, text_p99, paint_p99;
+    double cpu_p50, cpu_p95, cpu_p99, gpu_p50, gpu_p95, gpu_p99;
 };
 
 // ---- the allocations of this image (heap blocks and pages) on the UI thread -----------------------------------
@@ -464,6 +465,8 @@ struct Fixture {
     u32 sample_c[kMaximumSamples];
     u32 sample_d[kMaximumSamples];
     u32 sample_e[kMaximumSamples];
+    u32 sample_f[kMaximumSamples];
+    u32 sample_g[kMaximumSamples];
 };
 
 Fixture* g_f = nullptr;
@@ -608,8 +611,64 @@ bool resident(u64 index) noexcept {
 // ---- one frame -------------------------------------------------------------------------------------------------
 
 struct FrameTimes {
-    i64 begin, laid_out, shaped, painted, server0;
+    i64 begin, laid_out, shaped, painted, server0, mark;
 };
+
+// --marks 0 runs without the GPU-call marks, to measure what they cost (the split fields are then absent).
+bool g_marks_enabled = true;
+#if defined(_WIN32)
+// Where the CPU's part of a frame ends. renderer_present builds the paint stream, then uploads it (Map, Unmap,
+// UpdateSubresource), draws and presents, all inside one call; the first call of any of those into the immediate
+// context marks the end of the CPU's work (layout, shaping, glyph quads and the paint stream are complete) and the rest
+// is the GPU's part. The context's vtable is patched in this process only; nothing of the renderer changes.
+using ContextFunction = u64(__stdcall*)(void*, u64, u64, u64, u64, u64, u64);
+inline constexpr u32 kContextSlots[] = {12, 13, 14, 15, 20, 21, 41, 46, 47, 48, 50};
+void* g_context_original[64]{};
+volatile u32 g_present_armed = 0;
+i64 g_gpu_mark = 0;
+template <u32 Slot> u64 __stdcall hook_context_call(void* context, u64 a, u64 b, u64 c, u64 d, u64 e, u64 f) noexcept {
+    if (g_present_armed && !g_gpu_mark && GetCurrentThreadId() == g_ui_thread)
+        g_gpu_mark = clock_now();
+    return reinterpret_cast<ContextFunction>(g_context_original[Slot])(context, a, b, c, d, e, f);
+}
+void install_gpu_marks(ID3D11DeviceContext* context) noexcept {
+    if (!g_marks_enabled)
+        return;
+    void** table = *reinterpret_cast<void***>(context);
+    void* replacements[64]{};
+    replacements[12] = reinterpret_cast<void*>(&hook_context_call<12>);
+    replacements[13] = reinterpret_cast<void*>(&hook_context_call<13>);
+    replacements[14] = reinterpret_cast<void*>(&hook_context_call<14>);
+    replacements[15] = reinterpret_cast<void*>(&hook_context_call<15>);
+    replacements[20] = reinterpret_cast<void*>(&hook_context_call<20>);
+    replacements[21] = reinterpret_cast<void*>(&hook_context_call<21>);
+    replacements[41] = reinterpret_cast<void*>(&hook_context_call<41>);
+    replacements[46] = reinterpret_cast<void*>(&hook_context_call<46>);
+    replacements[47] = reinterpret_cast<void*>(&hook_context_call<47>);
+    replacements[48] = reinterpret_cast<void*>(&hook_context_call<48>);
+    replacements[50] = reinterpret_cast<void*>(&hook_context_call<50>);
+    for (const u32 slot : kContextSlots) {
+        DWORD old = 0;
+        if (!VirtualProtect(&table[slot], sizeof(void*), PAGE_READWRITE, &old))
+            continue;
+        g_context_original[slot] = table[slot];
+        table[slot] = replacements[slot];
+        VirtualProtect(&table[slot], sizeof(void*), old, &old);
+    }
+}
+bool present_timed(FrameTimes* times) noexcept {
+    g_gpu_mark = 0;
+    g_present_armed = 1;
+    const bool ok = renderer_present(&g_f->renderer, g_theme);
+    g_present_armed = 0;
+    times->mark = g_gpu_mark;
+    return ok;
+}
+#else
+bool present_timed(FrameTimes*) noexcept {
+    return renderer_present(&g_f->renderer, g_theme);
+}
+#endif
 
 bool converge(bool scroll_refresh, bool scroll_moving) noexcept {
     Fixture& f = *g_f;
@@ -730,7 +789,7 @@ bool scroll_frame(FrameTimes* times, bool* moved, bool shortcut) noexcept {
     if (!converge(shortcut, shortcut))
         return false;
     times->shaped = clock_now();
-    if (!renderer_present(&f.renderer, g_theme))
+    if (!present_timed(times))
         return false;
     times->painted = clock_now();
     return true;
@@ -1063,6 +1122,8 @@ template <class C> void apply_arguments(Args* a, C* const* token, u32 count) noe
             a->limit_s = parse_number(token[i + 1]);
         else if (text_equals(token[i], "--profile"))
             a->profile = parse_number(token[i + 1]) != 0;
+        else if (text_equals(token[i], "--marks"))
+            g_marks_enabled = parse_number(token[i + 1]) != 0;
     }
 }
 Args parse_arguments() noexcept {
@@ -1288,6 +1349,9 @@ bool initialize_renderer_bindings(const GpuSurfaceDesc& surface) noexcept {
         !step(renderer_bind_message_text_presentation(&f.renderer, &f.presentation), 8))
         return false;
     f.renderer.message_measure_cache = &f.measure;
+#if defined(_WIN32)
+    install_gpu_marks(f.renderer.graphics.context);
+#endif
     return true;
 }
 
@@ -1362,6 +1426,7 @@ bool run_stage(Mode mode, double warm, double seconds, double hz, StageStats* ou
     Fixture& f = *g_f;
     const Clock clock = clock_initialize();
     Samples frame{f.sample_a, 0}, layout{f.sample_b, 0}, text{f.sample_c, 0}, paint{f.sample_d, 0};
+    Samples cpu_part{f.sample_f, 0}, gpu_part{f.sample_g, 0};
     const i64 begin = clock_now();
     const u64 warm_us = static_cast<u64>(warm * 1e6), total_us = static_cast<u64>((warm + seconds) * 1e6);
     bool recording = false;
@@ -1408,6 +1473,11 @@ bool run_stage(Mode mode, double warm, double seconds, double hz, StageStats* ou
             layout.add(layout_us > server_us ? layout_us - server_us : 0);
             text.add(clock_microseconds(clock, t.laid_out, t.shaped));
             paint.add(clock_microseconds(clock, t.shaped, t.painted));
+            // Split at the first GPU call of the present (0: the present made none, so it was all CPU).
+            const i64 split = t.mark ? t.mark : t.painted;
+            const u64 cpu_us = clock_microseconds(clock, t.begin, split);
+            cpu_part.add(cpu_us > server_us ? cpu_us - server_us : 0);
+            gpu_part.add(clock_microseconds(clock, split, t.painted));
         }
     }
     const u64 wall_us = clock_microseconds(clock, record_begin, clock_now());
@@ -1436,6 +1506,14 @@ bool run_stage(Mode mode, double warm, double seconds, double hz, StageStats* ou
     out->text_p95 = text.percentile(0.95);
     out->text_p99 = text.percentile(0.99);
     out->paint_p99 = paint.percentile(0.99);
+    cpu_part.sort();
+    gpu_part.sort();
+    out->cpu_p50 = cpu_part.percentile(0.5);
+    out->cpu_p95 = cpu_part.percentile(0.95);
+    out->cpu_p99 = cpu_part.percentile(0.99);
+    out->gpu_p50 = gpu_part.percentile(0.5);
+    out->gpu_p95 = gpu_part.percentile(0.95);
+    out->gpu_p99 = gpu_part.percentile(0.99);
     return true;
 }
 
@@ -1531,7 +1609,7 @@ int run() noexcept {
     g_stage = 5;
     const Memory end = memory();
 
-    char line[2048];
+    char line[4096];
     Text out{line, sizeof(line), 0, false};
     const auto field = [&](const char* key, double value, u32 decimals, bool first_field = false) noexcept {
         if (!first_field)
@@ -1592,6 +1670,14 @@ int run() noexcept {
     field("view_width_dips", g_b.scene_width_dips, 0);
     field("view_height_dips", g_b.scene_height_dips, 0);
     field("still_draw_calls", g_b.still_draw_calls, 0);
+#if defined(_WIN32)
+    field("cpu_frame_ms_p50", scroll.cpu_p50, 3);
+    field("cpu_frame_ms_p95", scroll.cpu_p95, 3);
+    field("cpu_frame_ms_p99", scroll.cpu_p99, 3);
+    field("gpu_submit_present_ms_p50", scroll.gpu_p50, 3);
+    field("gpu_submit_present_ms_p95", scroll.gpu_p95, 3);
+    field("gpu_submit_present_ms_p99", scroll.gpu_p99, 3);
+#endif
     field("dpi", f->renderer.dpi, 0);
     field("scene_rows", f->scene.count, 0);
     field("text_quads", f->text.quad_count, 0);

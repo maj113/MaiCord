@@ -15,7 +15,9 @@ param(
     # Run this image instead of building the target (the Linux runner's counterpart is tools/benchmark_chat_list.py).
     [string]$Binary,
     # One profiled run of the first size instead of the suite.
-    [switch]$Profile
+    [switch]$Profile,
+    # Appended to every process's command line (for example "--marks 0").
+    [string]$ExtraArguments = ''
 )
 
 # Builds MaiCordChatListBenchmark (tools/benchmark_session.ps1 owns the build, mutex and cleanup) and runs it
@@ -34,7 +36,7 @@ function Get-Median([double[]]$Values) {
 function Invoke-ChatListRun([string]$Image, [long]$Size) {
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $Image
-    $info.Arguments = "--n $Size --seconds $Seconds --cap-mb $CapMb --limit-seconds $LimitSeconds"
+    $info.Arguments = "--n $Size --seconds $Seconds --cap-mb $CapMb --limit-seconds $LimitSeconds $ExtraArguments"
     $info.UseShellExecute = $false
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
