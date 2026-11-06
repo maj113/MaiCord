@@ -6,6 +6,10 @@ param(
     [switch]$Test,
     # Build the updater disabled: the built client never checks for or downloads a release.
     [switch]$NoUpdater,
+    # Builds the client with the test-only environment switches (include/maicord/core/test_hook.hpp: MAICORD_TEST_SERVER and
+    # MAICORD_TEST_CA_FILE point it at tools/fake_discord_server.py). Not a shipping build, and it replaces the client in
+    # the build directory: the next run without -TestHooks rebuilds the shipping one. Builds the client alone.
+    [switch]$TestHooks,
     # Tests use the MaiCord.exe already in the build
     # directory (e.g. a running client) instead of building and auditing it.
     [switch]$SkipClient,
@@ -54,6 +58,7 @@ if (!$Test -and ($TestNames -or $TestShard -or $ProbeCaptureDirectory -or $Audio
     throw '-TestNames, -TestShard, -ProbeCaptureDirectory, -AudioPlaybackProbe and -PrebuiltClient require -Test.'
 }
 if ($SkipClient -and !$Test -and !$PerfProbe) { throw '-SkipClient requires -Test or -PerfProbe.' }
+if ($TestHooks -and ($Test -or $PerfProbe -or $StartupProbe)) { throw '-TestHooks builds the client alone: it cannot be combined with -Test, -PerfProbe or -StartupProbe.' }
 if (@($Test, $PerfProbe, $StartupProbe | Where-Object { $_ }).Count -gt 1) { throw '-Test, -PerfProbe and -StartupProbe are separate runs.' }
 if ($StartupProbe -and $SkipClient) { throw '-StartupProbe builds its own client.' }
 if ($TestShard | Where-Object { $_ -cnotin 'app', 'core' }) { throw "Unknown test shard in: $($TestShard -join ', ')" }
@@ -86,7 +91,8 @@ function Invoke-Build([string[]]$Targets) {
     if ($Targets -contains 'MaiCord') {
         # The image keeps large zero-filled globals in .bss; 16 KiB of initialized
         # .data leaves room for small tables but not for a serialized aggregate.
-        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -ForbidTestHooks -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, sspicli.dll, ole32.dll, advapi32.dll, combase.dll, d2d1.dll, bcrypt.dll, crypt32.dll
+        $hookAudit = @{ ForbidTestHooks = !$TestHooks; RequireTestHooks = [bool]$TestHooks }
+        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo @hookAudit -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, sspicli.dll, ole32.dll, advapi32.dll, combase.dll, d2d1.dll, bcrypt.dll, crypt32.dll
         Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)"
     }
 }
@@ -142,6 +148,7 @@ try {
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
     # The perf probe's sampler and allocation sites walk stacks through unwind tables.
     Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
+        "-DMAICORD_CLIENT_TEST_HOOKS=$(& $on $TestHooks)",
         "-DMAICORD_UNWIND_TABLES=$(& $on $PerfProbe)",
         "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",

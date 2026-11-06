@@ -4,6 +4,10 @@
 
 #include "maicord/sys/winsock.hpp"
 
+#if defined(MAICORD_TEST_HOOKS)
+#include "maicord/platform/net/test_server.hpp"
+#endif
+
 namespace maicord {
 namespace {
 
@@ -250,6 +254,19 @@ NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolve
         !hostname || hostname[0] == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
+
+#if defined(MAICORD_TEST_HOOKS)
+    // MAICORD_TEST_SERVER: every lookup answers with the fake server's address (platform/net/test_server.hpp).
+    const TestServerEndpoint* test_server = nullptr;
+    const TestServerState test_server_state = test_server_endpoint(&test_server);
+    if (test_server_state == TestServerState::invalid) {
+        return failure(NetworkError::invalid_argument, WSAEINVAL);
+    }
+    if (test_server_state == TestServerState::active) {
+        hostname = test_server->host;
+        service = test_server->service;
+    }
+#endif
 
     reset_value<NetworkResolver>(resolver);
     resolver->generation = 1;

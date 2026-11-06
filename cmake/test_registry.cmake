@@ -173,6 +173,14 @@ maicord_test(MaiCordPluginPipelineTests ENTRY maicord_plugin_pipeline_tests_entr
 maicord_test(MaiCordNetworkLoopTests ENTRY maicord_network_loop_entry SOURCES tests/platform/net/network_loop.cpp
     LIBS maicord_core maicord_platform kernel32 ws2_32 bcrypt maicord_sspicli crypt32
     TIMEOUT 20 TEST maicord_network_loop)
+# The test hooks that point a Windows client at tools/fake_discord_server.py (platform/net/test_server.hpp): MAICORD_TEST_SERVER
+# parsed and applied to the name lookup, MAICORD_TEST_CA_FILE the only trust (a certificate that does not chain to it is
+# rejected). The sources with hooks compile into this executable with MAICORD_TEST_HOOKS; the libraries have none.
+maicord_test(MaiCordTestServerTests ENTRY maicord_test_server_entry
+    SOURCES tests/platform/net/test_server.cpp src/platform/net/test_server.cpp src/platform/net/network.cpp
+    LIBS maicord_core maicord_platform kernel32 ws2_32 bcrypt maicord_sspicli crypt32
+    DEFINES MAICORD_TEST_HOOKS=1
+    TIMEOUT 15 TEST maicord_test_server)
 # Context menus (targets, a submenu, checkbox, visibility), typed slash commands against the composer's own
 # option parsing, banners, modals and the navigation actions, against the UI fixture and a recording host.
 maicord_plugin(MaiCordPluginUiFixture tests/fixtures/plugin_ui_fixture.c $<TARGET_OBJECTS:maicord_runtime>)

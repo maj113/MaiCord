@@ -152,6 +152,13 @@ maicord_library(maicord_window_win32 src/platform/window/win32/keys.cpp src/plat
 maicord_library(maicord_window_null src/platform/window/null/window.cpp
     LIBS maicord_core)
 
+# What the test hooks (include/maicord/core/test_hook.hpp) of a client built with tools/build.ps1 -TestHooks add; a
+# shipping build compiles none of it.
+set(maicord_test_hook_net_sources)
+if(MAICORD_CLIENT_TEST_HOOKS)
+    set(maicord_test_hook_net_sources src/platform/net/test_server.cpp)
+endif()
+
 maicord_library(maicord_platform
     src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp src/platform/decode/aac_decoder.cpp
     src/platform/audio/media_audio.cpp src/platform/audio/media_audio_ring.cpp src/platform/crypto/aead.cpp
@@ -168,6 +175,7 @@ maicord_library(maicord_platform
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/net/file_persistence.cpp
+    ${maicord_test_hook_net_sources}
     LIBS maicord_core maicord_window_win32 ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp

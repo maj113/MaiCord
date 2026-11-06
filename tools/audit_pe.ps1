@@ -5,9 +5,11 @@ param(
     [switch]$ForbidMediaFoundation,
     [switch]$ForbidDirectWrite,
     [switch]$RequireNoDebugInfo,
-    # Test hooks (include/maicord/core/test_hook.hpp) are a Linux test facility: a Windows image never holds the marker
-    # string that tools/audit_elf.py --no-test-hooks looks for on Linux.
+    # Test hooks (include/maicord/core/test_hook.hpp) leave the marker string that tools/audit_elf.py --no-test-hooks looks
+    # for on Linux in every image that holds one: a shipping Windows image never does, and a build made with
+    # tools/build.ps1 -TestHooks always does.
     [switch]$ForbidTestHooks,
+    [switch]$RequireTestHooks,
     # File bytes allowed in the writable .data section (-1: unchecked). One
     # nonzero default member initializer moves a whole zero-filled global
     # (e.g. app_detail::g_app) from .bss into the file.
@@ -95,9 +97,11 @@ foreach ($name in $forbiddenText) {
     if ($imports -match [regex]::Escape($name)) { throw "Forbidden runtime import found: $name" }
 }
 
-if ($ForbidTestHooks) {
+if ($ForbidTestHooks -or $RequireTestHooks) {
     $image = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($resolved))
-    if ($image.Contains('maicord-test-hooks-compiled-in')) { throw 'The image holds test hooks (built with tests).' }
+    $hooked = $image.Contains('maicord-test-hooks-compiled-in')
+    if ($ForbidTestHooks -and $hooked) { throw 'The image holds test hooks (built with tests).' }
+    if ($RequireTestHooks -and !$hooked) { throw 'The image holds no test hooks (built without -TestHooks).' }
 }
 
 foreach ($name in @('KERNEL32.dll') + @(if ($RequireD3D11Only) { 'D3D11.dll' })) {

@@ -44,6 +44,17 @@
 // <dpapi.h>
 #define CRYPTPROTECT_UI_FORBIDDEN 0x1
 
+// <wincrypt.h>
+#define CERT_STORE_PROV_MEMORY ((LPCSTR) 2)
+#define CERT_STORE_ADD_ALWAYS 4
+#define CERT_CHAIN_POLICY_SSL ((LPCSTR) 4)
+#define CRYPT_STRING_BASE64HEADER 0x00000000
+#define X509_ASN_ENCODING 0x00000001
+#define PKCS_7_ASN_ENCODING 0x00010000
+#define USAGE_MATCH_TYPE_AND 0x00000000
+#define CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG 0x00000001
+#define AUTHTYPE_SERVER 2
+
 typedef LONG NTSTATUS;
 typedef PVOID BCRYPT_HANDLE;
 typedef PVOID BCRYPT_ALG_HANDLE;
@@ -52,6 +63,8 @@ typedef PVOID BCRYPT_HASH_HANDLE;
 typedef PVOID BCRYPT_SECRET_HANDLE;
 typedef unsigned int ALG_ID;
 typedef void* HCERTSTORE;
+typedef ULONG_PTR HCRYPTPROV_LEGACY;
+typedef HANDLE HCERTCHAINENGINE;
 
 MAICORD_SYS_TYPES_BEGIN
 // <bcrypt.h>
@@ -107,6 +120,66 @@ struct _CRYPTPROTECT_PROMPTSTRUCT {
 typedef _CRYPTPROTECT_PROMPTSTRUCT CRYPTPROTECT_PROMPTSTRUCT;
 // <wincrypt.h>
 typedef const struct _CERT_CONTEXT* PCCERT_CONTEXT;
+typedef const struct _CERT_CHAIN_CONTEXT* PCCERT_CHAIN_CONTEXT;
+struct _CTL_USAGE {
+    DWORD cUsageIdentifier;
+    LPSTR* rgpszUsageIdentifier;
+};
+typedef _CTL_USAGE CERT_ENHKEY_USAGE;
+struct _CERT_USAGE_MATCH {
+    DWORD dwType;
+    CERT_ENHKEY_USAGE Usage;
+};
+typedef _CERT_USAGE_MATCH CERT_USAGE_MATCH;
+struct _CERT_CHAIN_PARA {
+    DWORD cbSize;
+    CERT_USAGE_MATCH RequestedUsage;
+};
+typedef _CERT_CHAIN_PARA CERT_CHAIN_PARA;
+typedef _CERT_CHAIN_PARA* PCERT_CHAIN_PARA;
+struct _CERT_CHAIN_ENGINE_CONFIG {
+    DWORD cbSize;
+    HCERTSTORE hRestrictedRoot;
+    HCERTSTORE hRestrictedTrust;
+    HCERTSTORE hRestrictedOther;
+    DWORD cAdditionalStore;
+    HCERTSTORE* rghAdditionalStore;
+    DWORD dwFlags;
+    DWORD dwUrlRetrievalTimeout;
+    DWORD MaximumCachedCertificates;
+    DWORD CycleDetectionModulus;
+    HCERTSTORE hExclusiveRoot;
+    HCERTSTORE hExclusiveTrustedPeople;
+    DWORD dwExclusiveFlags;
+};
+typedef _CERT_CHAIN_ENGINE_CONFIG CERT_CHAIN_ENGINE_CONFIG;
+typedef _CERT_CHAIN_ENGINE_CONFIG* PCERT_CHAIN_ENGINE_CONFIG;
+struct _CERT_CHAIN_POLICY_PARA {
+    DWORD cbSize;
+    DWORD dwFlags;
+    void* pvExtraPolicyPara;
+};
+typedef _CERT_CHAIN_POLICY_PARA CERT_CHAIN_POLICY_PARA;
+typedef _CERT_CHAIN_POLICY_PARA* PCERT_CHAIN_POLICY_PARA;
+struct _CERT_CHAIN_POLICY_STATUS {
+    DWORD cbSize;
+    DWORD dwError;
+    LONG lChainIndex;
+    LONG lElementIndex;
+    void* pvExtraPolicyStatus;
+};
+typedef _CERT_CHAIN_POLICY_STATUS CERT_CHAIN_POLICY_STATUS;
+typedef _CERT_CHAIN_POLICY_STATUS* PCERT_CHAIN_POLICY_STATUS;
+struct _HTTPSPolicyCallbackData {
+    union {
+        DWORD cbStruct;
+        DWORD cbSize;
+    };
+    DWORD dwAuthType;
+    DWORD fdwChecks;
+    WCHAR* pwszServerName;
+};
+typedef _HTTPSPolicyCallbackData SSL_EXTRA_CERT_CHAIN_POLICY_PARA;
 MAICORD_SYS_TYPES_END
 
 // <bcrypt.h>
@@ -153,3 +226,25 @@ extern "C" BOOL WINAPI CryptProtectData(DATA_BLOB* pDataIn, LPCWSTR szDataDescr,
     PVOID pvReserved, CRYPTPROTECT_PROMPTSTRUCT* pPromptStruct, DWORD dwFlags, DATA_BLOB* pDataOut);
 extern "C" BOOL WINAPI CryptUnprotectData(DATA_BLOB* pDataIn, LPWSTR* ppszDataDescr, DATA_BLOB* pOptionalEntropy,
     PVOID pvReserved, CRYPTPROTECT_PROMPTSTRUCT* pPromptStruct, DWORD dwFlags, DATA_BLOB* pDataOut);
+
+// <wincrypt.h>
+extern "C" __declspec(dllimport) HCERTSTORE WINAPI CertOpenStore(LPCSTR lpszStoreProvider, DWORD dwEncodingType,
+    HCRYPTPROV_LEGACY hCryptProv, DWORD dwFlags, const void* pvPara);
+extern "C" __declspec(dllimport) BOOL WINAPI CertCloseStore(HCERTSTORE hCertStore, DWORD dwFlags);
+extern "C" __declspec(dllimport) BOOL WINAPI CertAddEncodedCertificateToStore(HCERTSTORE hCertStore,
+    DWORD dwCertEncodingType, const BYTE* pbCertEncoded, DWORD cbCertEncoded, DWORD dwAddDisposition,
+    PCCERT_CONTEXT* ppCertContext);
+extern "C" __declspec(dllimport) PCCERT_CONTEXT WINAPI CertCreateCertificateContext(DWORD dwCertEncodingType,
+    const BYTE* pbCertEncoded, DWORD cbCertEncoded);
+extern "C" __declspec(dllimport) BOOL WINAPI CertFreeCertificateContext(PCCERT_CONTEXT pCertContext);
+extern "C" __declspec(dllimport) BOOL WINAPI CertCreateCertificateChainEngine(PCERT_CHAIN_ENGINE_CONFIG pConfig,
+    HCERTCHAINENGINE* phChainEngine);
+extern "C" __declspec(dllimport) void WINAPI CertFreeCertificateChainEngine(HCERTCHAINENGINE hChainEngine);
+extern "C" __declspec(dllimport) BOOL WINAPI CertGetCertificateChain(HCERTCHAINENGINE hChainEngine,
+    PCCERT_CONTEXT pCertContext, LPFILETIME pTime, HCERTSTORE hAdditionalStore, PCERT_CHAIN_PARA pChainPara,
+    DWORD dwFlags, LPVOID pvReserved, PCCERT_CHAIN_CONTEXT* ppChainContext);
+extern "C" __declspec(dllimport) void WINAPI CertFreeCertificateChain(PCCERT_CHAIN_CONTEXT pChainContext);
+extern "C" __declspec(dllimport) BOOL WINAPI CertVerifyCertificateChainPolicy(LPCSTR pszPolicyOID,
+    PCCERT_CHAIN_CONTEXT pChainContext, PCERT_CHAIN_POLICY_PARA pPolicyPara, PCERT_CHAIN_POLICY_STATUS pPolicyStatus);
+extern "C" __declspec(dllimport) BOOL WINAPI CryptStringToBinaryA(LPCSTR pszString, DWORD cchString, DWORD dwFlags,
+    BYTE* pbBinary, DWORD* pcbBinary, DWORD* pdwSkip, DWORD* pdwFlags);

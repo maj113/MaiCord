@@ -42,6 +42,12 @@ if(MAICORD_LINUX)
     include(cmake/linux_tests.cmake)
     return()
 endif()
+# A client with the test-only environment switches (include/maicord/core/test_hook.hpp; tools/build.ps1 -TestHooks): it
+# can be pointed at tools/fake_discord_server.py. Not a shipping build; the audit that guards shipping images rejects it.
+option(MAICORD_CLIENT_TEST_HOOKS "Compile the test-only environment switches into the client" OFF)
+if(MAICORD_CLIENT_TEST_HOOKS)
+    add_compile_definitions(MAICORD_TEST_HOOKS=1)
+endif()
 include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds
 include(cmake/libraries.cmake)          # shipping static libraries
 include(cmake/client.cmake)             # MaiCord.exe, updater identity, cold-code /Os

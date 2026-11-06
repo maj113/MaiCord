@@ -5,6 +5,11 @@
 #include "maicord/sys/sspi.hpp"
 #include <stddef.h>
 
+#if defined(MAICORD_TEST_HOOKS)
+#include "maicord/core/win32_error.hpp"
+#include "maicord/platform/net/test_server.hpp"
+#endif
+
 namespace maicord {
 namespace {
 
@@ -92,6 +97,15 @@ TlsResult share_credentials(TlsClient* client) noexcept {
         configuration.dwVersion = SCHANNEL_CRED_VERSION;
         configuration.dwFlags =
             SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
+#if defined(MAICORD_TEST_HOOKS)
+        // MAICORD_TEST_CA_FILE: Schannel does not validate the server's certificate; tls_client_handshake does, against
+        // that file only (platform/net/test_server.hpp).
+        wchar_t trust_file[kTestTrustPathCapacity];
+        if (test_trust_file(trust_file) != TestTrustState::unset) {
+            configuration.dwFlags =
+                (configuration.dwFlags & ~static_cast<DWORD>(SCH_CRED_AUTO_CRED_VALIDATION)) | SCH_CRED_MANUAL_CRED_VALIDATION;
+        }
+#endif
         TimeStamp expiry{};
         status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
                                            SECPKG_CRED_OUTBOUND, nullptr, &configuration, nullptr, nullptr,
@@ -180,11 +194,18 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
 
     constexpr ULONG requested = ISC_REQ_STREAM | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT |
                                 ISC_REQ_CONFIDENTIALITY | ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_EXTENDED_ERROR;
+#if defined(MAICORD_TEST_HOOKS)
+    wchar_t trust_file[kTestTrustPathCapacity];
+    const TestTrustState trust = test_trust_file(trust_file);
+    const ULONG context_request = requested | (trust != TestTrustState::unset ? ISC_REQ_MANUAL_CRED_VALIDATION : 0);
+#else
+    constexpr ULONG context_request = requested;
+#endif
     ULONG attributes = 0;
     TimeStamp expiry{};
     CtxtHandle* previous_context = client->context_valid ? context(client) : nullptr;
     SECURITY_STATUS status = InitializeSecurityContextW(
-        credentials(client), previous_context, const_cast<wchar_t*>(client->server_name), requested, 0,
+        credentials(client), previous_context, const_cast<wchar_t*>(client->server_name), context_request, 0,
         SECURITY_NATIVE_DREP, input_pointer, 0, context(client), &output_descriptor, &attributes, &expiry);
     if (SecIsValidHandle(context(client))) {
         client->context_valid = true;
@@ -228,6 +249,23 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
     if (status != SEC_E_OK) {
         return TlsHandshakeStep{consumed, produced, status, TlsError::handshake, TlsHandshakeState::failed};
     }
+
+#if defined(MAICORD_TEST_HOOKS)
+    if (trust != TestTrustState::unset) {
+        // The handshake finished without validating the certificate: do it against the CA file.
+        PCCERT_CONTEXT remote = nullptr;
+        u32 untrusted = trust == TestTrustState::invalid ? ERROR_INVALID_PARAMETER : ERROR_NOT_FOUND;
+        if (trust == TestTrustState::active &&
+            QueryContextAttributesW(context(client), SECPKG_ATTR_REMOTE_CERT_CONTEXT, &remote) == SEC_E_OK && remote) {
+            untrusted = test_trust_verify(trust_file, remote, client->server_name);
+            CertFreeCertificateContext(remote);
+        }
+        if (untrusted != 0) {
+            return TlsHandshakeStep{consumed, produced, static_cast<SECURITY_STATUS>(untrusted), TlsError::handshake,
+                                    TlsHandshakeState::failed};
+        }
+    }
+#endif
 
     status = QueryContextAttributesW(context(client), SECPKG_ATTR_STREAM_SIZES, &client->stream_sizes);
     if (status != SEC_E_OK || client->stream_sizes.cbMaximumMessage == 0) {

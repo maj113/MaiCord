@@ -17,6 +17,9 @@ Windows:
   archives, and don't move unwanted output elsewhere: delete it.
 - If `MaiCord.exe` is running from the build directory, add `-SkipClient` to a `-Test` run; the script won't overwrite a running client.
   Never close someone's running client for them.
+- `-TestHooks` builds the client alone with `MAICORD_TEST_HOOKS` (a Windows client that `MAICORD_TEST_SERVER` and
+  `MAICORD_TEST_CA_FILE` point at `tools/fake_discord_server.py`; CONTRIBUTING.md has the recipe). It replaces the shipping client
+  in the build directory: ship, measure and compare only from a run without it. `tools/audit_pe.ps1 -ForbidTestHooks` rejects it.
 - The suite must finish within 20 seconds. Keep coverage when trimming test work. Tests assert outputs and counts (operations,
   allocations, bytes), never wall-clock times.
 - The script removes test executables, objects, temporary profiles and logs after each run; leave the build directory holding only the
