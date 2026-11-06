@@ -1,6 +1,5 @@
 // Native text engine against DirectWrite (MaiCordNativeAppLineTests). The modes
 // registered in cmake/test_registry.cmake are the suite. Manual modes, not run by it:
-//   benchmarks  --devanagari-bench
 //   dumps for external comparison  --inspect (the registered
 //     --bidi-range-check is the quiet form of the bidi range dump)
 //   exhaustive variants  --matrix-batch (the union of the registered --matrix-profile 0-4, which
@@ -372,7 +371,7 @@ bool paragraph_fuzz() noexcept {
             for(u32 at=1;at<count;++at)if(breaks.after(at)!=native_break(bytes,count,at)){print("break difference at=");number(at);print(" ref=");number(breaks.after(at));print(" native=");number(native_break(bytes,count,at));print("\n");}return false;}
     }return true;
 }
-#include "styled_paragraph_benchmark.inc"
+#include "styled_paragraph_checks.inc"
 #include "native_decoration_options.inc"
 bool latin_paragraph_fuzz() noexcept {
     const u32 alphabet[]{'a','e','f','i','A','V','0','1',' ',' ','\t','\r','\n','(',')','"','-','/',',','.','$','%',0xe9,0x10d,0x153,0x301,0x327,0x34f,0x200c,0x200d,0xa0,0x2002,0x202f,0x2010,0x2011,0x2014,0x2028,0x2029};
@@ -405,7 +404,7 @@ bool paragraph_options() noexcept {
     return true;
 }
 #include "alphabetic_paragraph_cases.inc"
-#include "devanagari_memory_bench.inc"
+#include "devanagari_memory_check.inc"
 #include "thai_wordbreak_probe.inc"
 #include "thai_context_cases.inc"
 #include "script_storage_cases.inc"
@@ -441,8 +440,7 @@ bool run() noexcept {
     if(is_option(p,L"--alphabetic-paragraph"))return native_alphabetic_paragraph_corpus();
     if(is_option(p,L"--han-paragraph"))return native_han_paragraph_corpus();
     if(is_option(p,L"--thai-context-check"))return native_thai_context_cases();
-    if(is_option(p,L"--devanagari-bench"))return native_devanagari_memory_benchmark();
-    if(is_option(p,L"--devanagari-memory-check"))return native_devanagari_memory_benchmark(true);
+    if(is_option(p,L"--devanagari-memory-check"))return native_devanagari_memory_check();
     if(const u32 n=option_length(p,L"--retained-editor-check");n&&p[n]==' '&&p[n+1]>=L'0'&&p[n+1]<=L'5'&&!p[n+2])return retained_editor_capacity(p[n+1]-L'0');
     if(is_option(p,L"--long-editor-check"))return native_long_text_cases(true);
     if(is_option(p,L"--long-text-check"))return native_long_text_cases();
@@ -551,11 +549,10 @@ bool run() noexcept {
     profile(p,L"--style-profile",style_profiles);
     profile(p,L"--decoration-profile",decoration_profiles);
     if(is_option(p,L"--decoration-options"))return decoration_options();
-    profile(p,L"--smoke",benchmark_smoke);
-    if(is_option(p,L"--telugu-bench"))return styled_paragraph_benchmark(true,false,false);
-    if(is_option(p,L"--arabic-bench"))return styled_paragraph_benchmark(false,false,true);
-    if(is_option(p,L"--kannada-bench"))return styled_paragraph_benchmark(false,true,false);
-    if(is_option(p,L"--odia-bench"))return styled_paragraph_benchmark(false,false,false);
+    if(is_option(p,L"--telugu-styled"))return styled_paragraph_checks(true,false,false);
+    if(is_option(p,L"--arabic-styled"))return styled_paragraph_checks(false,false,true);
+    if(is_option(p,L"--kannada-styled"))return styled_paragraph_checks(false,true,false);
+    if(is_option(p,L"--odia-styled"))return styled_paragraph_checks(false,false,false);
     if(take(p,L"--paragraph-profile",true))paragraph_profiles=true;
     profile(p,L"--paragraph-expansion",paragraph_expansion);
     const bool system_family=take(p,L"--family",true);

@@ -4,10 +4,7 @@
 // register a new gate there together with the code that adds it.
 //
 // Manual modes, deliberately not in the suite:
-//   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames; MAICORD_CJK_PIXEL_* select their text.
-//   MAICORD_GLYPH_CACHE_METRICS, MAICORD_SCENE_MEMORY, MAICORD_SCENE_FONT_RESIDENCY,
-//     MAICORD_EMOJI_PAGE_CONTROL  measurement runs.
-//   MAICORD_SCROLL_BENCHMARK  scroll timing.
+//   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames.
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
@@ -21,7 +18,6 @@
 #include "guild_rail_icon_probe.hpp"
 #include "background_theme_probe.hpp"
 #include "picker_glyph_cache_probe.hpp"
-#include "glyph_cache_measurement.hpp"
 #include "colr_binding_probe.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
@@ -151,8 +147,6 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
 
 namespace ui_probe_detail {
-
-SceneMemoryMeasurement* scene_memory = nullptr;
 
 constinit ProbeState g_probe{};
 
@@ -492,7 +486,7 @@ void overwrite_probe_response_scratch() noexcept {
 
 namespace ui_probe_detail {
 
-bool rebuild_probe_content_text(bool overwrite_response) noexcept {
+bool rebuild_probe_content_text() noexcept {
     MessageTextCoordinatorTrace trace{};
     const MessageTextCoordinatorResult coordinated =
         message_text_coordinator_converge(MessageTextCoordinatorRequest{
@@ -569,13 +563,9 @@ bool rebuild_probe_content_text(bool overwrite_response) noexcept {
     if (coordinated.ok()) {
         if (g_probe.text.scratch.run_count != 0 || g_probe.text.scratch.glyph_count != 0)
             return false;
-        if (overwrite_response)
-            overwrite_probe_response_scratch();
+        overwrite_probe_response_scratch();
     }
     return coordinated.ok();
-}
-bool rebuild_probe_content_text() noexcept {
-    return rebuild_probe_content_text(true);
 }
 bool probe_sync_shell_and_text() noexcept {
     return synchronize_probe_shell_layout() && rebuild_probe_content_text();
@@ -673,132 +663,6 @@ bool add_message(u64 id, Utf8View content,
 } // namespace ui_probe_detail
 
 namespace {
-
-// Opt-in (MAICORD_SCROLL_BENCHMARK=1): scrolls a 200-message channel the way
-// smooth-scroll ticks do and logs text-rebuild/present costs, then exits.
-bool scroll_benchmark(bool* ran) noexcept {
-    wchar_t enabled[2]{};
-    *ran = GetEnvironmentVariableW(L"MAICORD_SCROLL_BENCHMARK", enabled, 2) != 0;
-    if (!*ran)
-        return true;
-    static constexpr const char* words[] = {"the", "message", "reply", "channel", "server", "voice", "emoji",
-                                            "thread", "pinned", "hello", "world", "thanks", "screenshot",
-                                            "attachment", "update", "really", "native", "renderer", "scroll"};
-    u64 seed = 151;
-    const auto next = [&]() noexcept {
-        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
-        return static_cast<u32>(seed >> 33);
-    };
-    constexpr u64 base = 1'420'070'400'000ull << 22;
-    // Reuse an existing author; the probe's user store is bounded.
-    const u64 author = g_probe.message_view.records[0].author_id;
-    char text[900];
-    // The view's 16 KiB text arena and the probe's 32 scene rows bound the
-    // corpus: 90 lines that mostly wrap once, every third under a new header.
-    const u64 second_author = g_probe.message_view.records[1].author_id;
-    for (u32 i = 0; i < 90; ++i) {
-        u32 bytes = 0;
-        const u32 count = 8 + next() % (i % 9 == 0 ? 20 : 14);
-        for (u32 w = 0; w < count && bytes < 820; ++w) {
-            const char* word = w == 3 && i % 7 == 0 ? "**bold**" : w == 5 && i % 11 == 0 ? "<@123>"
-                             : w == 2 && i % 13 == 0 ? "[link](https://chat_state.com)"
-                                                     : words[next() % (sizeof(words) / sizeof(words[0]))];
-            if (bytes)
-                text[bytes++] = ' ';
-            for (u32 c = 0; word[c]; ++c)
-                text[bytes++] = word[c];
-        }
-        const u64 id = base + (u64{i} << 22);
-        const auto stored = message_store_upsert(
-            &g_probe.message_view.store, MessageInput{id, 111, i % 3 ? author : second_author,
-                                                      snowflake_timestamp_ms(id), 0,
-                                                      Utf8View{text, bytes}, 0, MessageContentAvailability::available});
-        if (stored.error == MessageStoreError::text_capacity)
-            break;
-        if (!stored.ok()) {
-            log_u64(LogLevel::error, "probe", "scroll_benchmark_store_error", static_cast<u64>(stored.error));
-            return false;
-        }
-    }
-    if (!message_view_runtime_reindex(&g_probe.message_view,
-                                      ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, false)
-             .ok() ||
-        !rebuild_probe_content_text()) {
-        log_write(LogLevel::error, "probe", "scroll_benchmark_reindex_error");
-        return false;
-    }
-    auto& timeline = g_probe.message_view.timeline;
-    constexpr u32 steps = 480, stride = 3 * kUiExtentUnitsPerDip / 2;
-    static u32 text_us[steps], present_us[steps];
-    const auto clock = clock_initialize();
-    const auto report = [&](u32* samples, const char* name, bool cached) noexcept {
-        for (u32 i = 1; i < steps; ++i)
-            for (u32 j = i; j > 0 && samples[j - 1] > samples[j]; --j) {
-                const u32 t = samples[j];
-                samples[j] = samples[j - 1];
-                samples[j - 1] = t;
-            }
-        const u32 values[] = {samples[steps / 2], samples[steps * 95 / 100], samples[steps - 1]};
-        const char* const statistics[] = {"median", "p95", "max"};
-        for (u32 i = 0; i < 3; ++i) {
-            char key[64]{};
-            u32 used = 0;
-            const char* const parts[] = {"scroll_", name, cached ? "_cached_" : "_uncached_", statistics[i]};
-            for (const char* part : parts)
-                for (u32 c = 0; part[c] && used + 1 < sizeof(key); ++c)
-                    key[used++] = part[c];
-            log_u64(LogLevel::info, "probe", key, values[i]);
-        }
-    };
-    // Uncached first, then the shaped-text cache, over identical sweeps.
-    for (u32 mode = 0; mode < 2; ++mode) {
-        g_probe.renderer.shaped_text_cache_disabled = mode == 0;
-        u64 position = 0;
-        bool down = true;
-        for (u32 step = 0; step < steps * 2; ++step) {
-            const u64 maximum_scroll = timeline.list->total_units > timeline.viewport_units
-                                           ? timeline.list->total_units - timeline.viewport_units
-                                           : 0;
-            if (down && position + stride > maximum_scroll)
-                down = false;
-            else if (!down && position < stride)
-                down = true;
-            position = down ? position + stride : position - stride;
-            if (!message_timeline_set_scroll(&timeline, position, false))
-                return false;
-            const i64 begin = clock_now();
-            // The overwrite is a 256 KiB byte store loop (~70% of a rebuild): not text cost, so untimed.
-            if (!rebuild_probe_content_text(false)) {
-                log_u64(LogLevel::error, "probe", "scroll_benchmark_rebuild_error_step", step);
-                return false;
-            }
-            const i64 rebuilt = clock_now();
-            overwrite_probe_response_scratch();
-            const i64 presented = clock_now();
-            if (!probe_present(&g_probe.renderer, kDefaultTheme))
-                return false;
-            // The first sweep measures row heights; record the steady second sweep.
-            if (step >= steps) {
-                text_us[step - steps] = static_cast<u32>(clock_microseconds(clock, begin, rebuilt));
-                present_us[step - steps] = static_cast<u32>(clock_microseconds(clock, presented, clock_now()));
-            }
-        }
-        report(text_us, "text_us", mode != 0);
-        report(present_us, "present_us", mode != 0);
-    }
-    g_probe.renderer.shaped_text_cache_disabled = false;
-    if (const auto* cache = g_probe.renderer.shaped_text_cache) {
-        log_u64(LogLevel::info, "probe", "shaped_text_cache_hits", cache->stats.hits);
-        log_u64(LogLevel::info, "probe", "shaped_text_cache_misses", cache->stats.misses);
-        log_u64(LogLevel::info, "probe", "shaped_text_cache_promotions", cache->stats.promotions);
-        log_u64(LogLevel::info, "probe", "shaped_text_cache_flips", cache->stats.flips);
-    }
-    log_u64(LogLevel::info, "probe", "scroll_messages", g_probe.message_view.store.count);
-    log_u64(LogLevel::info, "probe", "scroll_text_bytes", g_probe.message_view.store.text_used);
-    log_u64(LogLevel::info, "probe", "scroll_message_commands", g_probe.message_text.command_count);
-    log_u64(LogLevel::info, "probe", "scroll_quads", g_probe.text.quad_count);
-    return true;
-}
 
 // Decodes `bytes` into `image` and uploads it as attachment `id`; `decoded` reports the decode.
 MediaAtlasGpuResult probe_upload_jpeg(ConstSlice<u8> bytes, u64 id, JpegImage* image,
@@ -1946,8 +1810,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
 #include "catalog_apng_probe.inc"
 
 int run_probe() noexcept {
-    SceneMemoryMeasurement memory_measurement;
-    scene_memory = &memory_measurement;
     struct SceneRelease {
         ~SceneRelease() noexcept {
             message_scene_release(&g_probe.message_scene);
@@ -1977,8 +1839,6 @@ int run_probe() noexcept {
         g_probe.renderer.pipeline.glyph_instance_capacity != kRendererContentGlyphCapacity) {
         return finish_probe(229);
     }
-    if (!memory_measurement.initialize(g_probe.renderer))
-        return 244;
     if (probe_option_enabled(L"MAICORD_COLR_BINDING_PROBE")) {
         const bool valid = colr_binding_probe(g_probe.renderer.graphics.device, g_probe.renderer.graphics.context);
         return finish_probe(valid ? 0 : 245);
@@ -2013,11 +1873,6 @@ int run_probe() noexcept {
         GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0))
         return finish_gate(regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame),
                            "regional_flag_gpu_probe_passed", "regional_flag_gpu_probe_failed", 242);
-    wchar_t glyph_cache_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_GLYPH_CACHE_METRICS", glyph_cache_only, 2)) {
-        const bool valid = probe_glyph_cache(g_probe.renderer, probe_capture_frame);
-        return finish_probe(valid ? 0 : 247);
-    }
     wchar_t title_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1)
         return finish_gate(title_only[0] == L'2' || probe_bootstrap_title(), "bootstrap_title_passed",
@@ -2749,13 +2604,12 @@ int run_probe() noexcept {
         log_write(LogLevel::error, "probe", "probe_color_foreground_cache()_failed");
         return 8;
     }
-    // These two native-only oracle checks create extra atlas entries. Keep
-    // them in ordinary integration runs, outside the paired scene-memory run.
-    if (!memory_measurement.enabled() && !probe_empty_outline_cache()) {
+    // These two native-only oracle checks create extra atlas entries.
+    if (!probe_empty_outline_cache()) {
         log_write(LogLevel::error, "probe", "probe_empty_outline_cache()_failed");
         return 8;
     }
-    if (!memory_measurement.enabled() && !probe_color_foreground_cache(true)) {
+    if (!probe_color_foreground_cache(true)) {
         log_write(LogLevel::error, "probe", "probe_color_foreground_cache(true)_failed");
         return 8;
     }
@@ -3363,15 +3217,6 @@ int run_probe() noexcept {
                 log_write(LogLevel::error, "probe", "picker_glyph_cache_lookup_failed");
                 return 14;
             }
-        }
-        bool scroll_measured = false;
-        if (!scroll_benchmark(&scroll_measured))
-            return 17;
-        if (scroll_measured) {
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            log_close();
-            return 0;
         }
         if (!shaped_text_cache_equivalence())
             return 18;

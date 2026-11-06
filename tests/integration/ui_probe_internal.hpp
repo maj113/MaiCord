@@ -3,7 +3,6 @@
 // State and entry points shared by the parts of the native UI probe (ui_probe.cpp,
 // ui_probe_media.cpp, ui_probe_scenes.cpp and ui_probe_renderer.cpp).
 #include "maicord/protocol/gateway/reaction_events.hpp"
-#include "scene_memory_measurement.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "../../src/app/shell/state.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
@@ -143,7 +142,6 @@ struct ProbeState {
 constexpr DWORD kProbeWindowExStyle = WS_EX_NOREDIRECTIONBITMAP | probe_window::kExtendedStyle;
 
 extern ProbeState g_probe;
-extern SceneMemoryMeasurement* scene_memory;
 
 inline bool probe_option_enabled(const wchar_t* name) noexcept {
     wchar_t value[2]{};
@@ -156,8 +154,6 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
                                     float navigation_width = 0, float member_width = 0,
                                     bool members_visible = true) noexcept;
 bool rebuild_probe_content_text() noexcept;
-// `overwrite_response` false leaves the response scratch alone (the scroll benchmark does it untimed).
-bool rebuild_probe_content_text(bool overwrite_response) noexcept;
 bool probe_sync_shell_and_text() noexcept;
 bool set_probe_login_view(RendererLoginView view) noexcept;
 bool add_message(u64 id, Utf8View content,

@@ -392,8 +392,6 @@ bool probe_capture_frame(const wchar_t* filename, const Theme& theme) noexcept {
     for (u32 i = 0; i < prefix_chars; ++i)
         if (filename[i] != prefix[i])
             return true;
-    if (scene_memory && !scene_memory->snapshot(filename, &g_probe.renderer))
-        return false;
     wchar_t directory[1024]{};
     const DWORD chars = GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", directory, 900);
     if (!chars)

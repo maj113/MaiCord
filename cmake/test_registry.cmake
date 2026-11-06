@@ -1464,11 +1464,11 @@ maicord_add_tests(MaiCordNativeAppLineTests
 maicord_native_profile_tests(5 tamil-direction "Nirmala UI" PRIVATE)
 maicord_native_profile_tests(5 tamil-app "Nirmala UI" PRIVATE)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-telugu-cpu
-    TEST maicord_native_telugu_cpu --smoke --telugu-bench)
+    TEST maicord_native_telugu_cpu --telugu-styled)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-kannada-cpu
-    TEST maicord_native_kannada_cpu --smoke --kannada-bench)
+    TEST maicord_native_kannada_cpu --kannada-styled)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-arabic-cpu
-    TEST maicord_native_arabic_cpu --smoke --arabic-bench)
+    TEST maicord_native_arabic_cpu --arabic-styled)
 maicord_native_profile_tests(5 telugu-app "Nirmala UI")
 maicord_native_profile_tests(5 kannada-app "Nirmala UI")
 maicord_native_profile_tests(5 sinhala-app "Nirmala UI")
@@ -1478,7 +1478,7 @@ maicord_native_profile_tests(5 tibetan-app "Microsoft Himalaya")
 maicord_native_profile_tests(5 malayalam-app "Nirmala UI")
 maicord_native_profile_tests(5 odia-app "Nirmala UI")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-cpu
-    TEST maicord_native_odia_cpu --smoke --odia-bench)
+    TEST maicord_native_odia_cpu --odia-styled)
 maicord_native_profile_tests(5 gurmukhi-app "Nirmala UI")
 maicord_native_profile_tests(5 gujarati-app "Nirmala UI")
 maicord_native_profile_tests(5 bengali-app "Nirmala UI")

@@ -1,8 +1,7 @@
 // Indic shaping plans, profiles and corpora (MaiCordDevanagariPlanTests). The built-in
 // --<script>-plan/-profile/-input/-shape modes are the suite (cmake/test_registry.cmake).
-// Manual QA modes, not run by the suite: a font path as the only argument (MAICORD_DEVANAGARI_RTL=1
-// shapes right to left) and the benchmarks MAICORD_<BENGALI|GUJARATI>_RUN (warm runs) and
-// MAICORD_DEVANAGARI_MEMO_BENCH.
+// Manual QA mode, not run by the suite: a font path as the only argument (MAICORD_DEVANAGARI_RTL=1
+// shapes right to left).
 #include "../../../src/text/scripts/indic_forms.hpp"
 #include "../../../src/text/scripts/indic_cluster.hpp"
 #include "maicord/text/scripts/devanagari_plan.hpp"
@@ -355,10 +354,7 @@ bool units() noexcept {
 }
 template<class T> Slice<T> allocate(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
 bool env_flag(const wchar_t* name) noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(name,value,2)==1&&value[0]=='1';}
-bool gujarati_run_mode() noexcept {return env_flag(L"MAICORD_GUJARATI_RUN");}
-bool bengali_run_mode() noexcept {return env_flag(L"MAICORD_BENGALI_RUN");}
 bool shape_right_to_left=false;
-bool memo_benchmark_mode() noexcept {return env_flag(L"MAICORD_DEVANAGARI_MEMO_BENCH");}
 struct TextOutput {u16 glyphs[1024];SfntPlacement placements[1024];u32 clusters[256];u32 count;};
 struct OwnedProfile {
     NativeFontFileSlot files[1]{};NativeFontFaceSlot faces[1]{};NativeFontInstanceSlot instances[1]{};NativeRunPlanSlot plans[1]{};
@@ -455,12 +451,10 @@ SfntStatus shape_text(ConstSlice<u32> scalars,SfntShapeStorage storage,TextOutpu
     for(u32 i=0;i<scalars.count;++i){output.clusters[i]=characters[source_units];source_units+=scalars[i]>0xffff?2u:1u;}
     output.count=result.glyph_count;return SfntStatus::ok;
 }
-#include "devanagari_memo_bench.inc"
-#include "indic_run_bench.inc"
 bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,bool profile_only) noexcept {
     if(tamil_profile)return tamil_font_plan(bytes,index);
-    const bool gujarati=gujarati_run_mode(),bengali=bengali_run_mode(),benchmark=memo_benchmark_mode(),quiet=profile_only||benchmark||gujarati||bengali;
-    const auto profile=malayalam_profile?SfntIndicProfile::malayalam:kannada_profile?SfntIndicProfile::kannada:telugu_profile?SfntIndicProfile::telugu:odia_profile?SfntIndicProfile::odia:gurmukhi_profile?SfntIndicProfile::gurmukhi:gujarati_profile||gujarati?SfntIndicProfile::gujarati:bengali_profile||bengali?SfntIndicProfile::bengali:tamil_owned_profile?SfntIndicProfile::tamil:SfntIndicProfile::devanagari;
+    const bool quiet=profile_only;
+    const auto profile=malayalam_profile?SfntIndicProfile::malayalam:kannada_profile?SfntIndicProfile::kannada:telugu_profile?SfntIndicProfile::telugu:odia_profile?SfntIndicProfile::odia:gurmukhi_profile?SfntIndicProfile::gurmukhi:gujarati_profile?SfntIndicProfile::gujarati:bengali_profile?SfntIndicProfile::bengali:tamil_owned_profile?SfntIndicProfile::tamil:SfntIndicProfile::devanagari;
     arena_reset(&arena);SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};ConstSlice<u8> data{};
     CHECK(sfnt_open(bytes,index,&face)==SfntStatus::ok&&sfnt_cmap_open(face,&cmap)==SfntStatus::ok&&sfnt_horizontal_metrics_open(face,&metrics)==SfntStatus::ok);
     CHECK(sfnt_table(face,sfnt_tag('G','D','E','F'),&data)==SfntStatus::ok&&sfnt_gdef_open(data,metrics.glyph_count,&gdef)==SfntStatus::ok);
@@ -486,12 +480,6 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     double advances[32]{},prefix[32]{};SfntPosition states[32]{};SfntPlacement placements[32]{};SfntMarkAssociation associations[32]{};
     SfntShapeStorage storage{{glyphs,32},{nodes,64},{bits,2},{characters,32},{targets,32},{associations,32},{advances,32},{flags,32},{states,32},{placements,32},
         {{frames,16},{positions,128},{rebased,128},{consumed,32},{reinterpret_cast<u8*>(replacement),sizeof(replacement)},{journal,512}},{{gp_frames,16},{gp_positions,128},{chains,2},{prefix,32},{cursive,32}}};
-    if(gujarati||bengali)storage={allocate<SfntComponentGlyph>(arena,1024),allocate<SfntComponentNode>(arena,2048),allocate<u64>(arena,16),
-            allocate<u32>(arena,512),allocate<u32>(arena,1024),allocate<SfntMarkAssociation>(arena,1024),allocate<double>(arena,1024),
-            allocate<u8>(arena,1024),allocate<SfntPosition>(arena,1024),allocate<SfntPlacement>(arena,1024),
-            {allocate<SfntGsubExecutionFrame>(arena,32),allocate<u32>(arena,4096),allocate<u32>(arena,4096),allocate<u32>(arena,1024),
-             allocate<u8>(arena,1024*sizeof(SfntComponentGlyph)),allocate<SfntComponentUndo>(arena,8192)},
-            {allocate<SfntGposExecutionFrame>(arena,32),allocate<u32>(arena,4096),allocate<u64>(arena,16),allocate<double>(arena,1024),allocate<SfntCursiveChainNode>(arena,1024)}};
     if(tamil_owned_profile){OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage,true));
         CHECK(owned.indic.substitution_count==count&&bytes_equal(owned.indic.substitution_steps,steps,count*sizeof(SfntLookupStep)));
         CHECK(owned.indic.positioning_count==root_count&&bytes_equal(owned.indic.positioning_roots,roots,root_count*sizeof(u16)));
@@ -512,13 +500,8 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     indic_form_defaults(profile,font_forms);
     if(profile==SfntIndicProfile::malayalam&&(font_forms[0x2f]&indic_default_position)){SfntLookupPlanResult reordered{};
         CHECK(sfnt_indic_lookup_plan(substitution_layout,{},profile,{scratch,4096},{steps,4096},&reordered,1000000,true)==SfntStatus::ok);count=reordered.lookup_count;}
-    if(gujarati||bengali){OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,profile,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(indic_run_benchmark(owned.store,prepared,storage));return owned.close();}
     if(bengali_profile||gujarati_profile||gurmukhi_profile||odia_profile||telugu_profile||kannada_profile||malayalam_profile)return bengali_owned_plan(path,index,arena,storage,{steps,count},{roots,root_count},font_forms,profile);
     OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage));
-    if(benchmark){CHECK(memo_benchmark(storage,owned));return owned.close();}
     CHECK(owned.profile.indic.substitution_count==count&&bytes_equal(owned.profile.indic.substitution_steps,steps,count*sizeof(SfntLookupStep)));
     CHECK(owned.profile.indic.positioning_count==root_count&&bytes_equal(owned.profile.indic.positioning_roots,roots,root_count*sizeof(u16)));
     CHECK(bytes_equal(owned.profile.forms,font_forms,128));
@@ -550,7 +533,6 @@ bool font_file(const wchar_t* path,bool profile_only=false) noexcept {
     const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);struct Unmap {const void* p;~Unmap() noexcept {UnmapViewOfFile(p);}} unmap{data};
     Arena arena{};CHECK(arena_initialize(&arena,32*1024*1024,65536));struct Release {Arena* a;~Release() noexcept {arena_release(a);}} release{&arena};
     const ConstSlice<u8> bytes{data,static_cast<u32>(size.QuadPart)};SfntFace first{};CHECK(sfnt_open(bytes,0,&first)==SfntStatus::ok&&first.face_count<=32);
-    if(bengali_run_mode()||gujarati_run_mode())CHECK(first.face_count==1);
     for(u32 i=0;i<first.face_count;++i)CHECK(font_case(bytes,i,arena,path,profile_only));return true;
 }
 bool run() noexcept {

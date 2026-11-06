@@ -1,5 +1,4 @@
-// Native text store. No argument runs the suite; --oracle-data keeps the detailed CSV
-// oracle (manual).
+// Native text store. Runs the suite; takes no argument.
 #include "../../support/tsf_composition_fixture.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
 #include "maicord/ui/text/text.hpp"
@@ -12,7 +11,6 @@ namespace {
 char output_buffer[16384];
 u32 output_count = 0;
 bool output_ok = true;
-bool detailed_output = false;
 struct QueryRecord {
     u32 values[9]{};
 };
@@ -90,40 +88,6 @@ bool fail(u32 line, const char* expression) noexcept {
         if (!(x))                                                                                          \
             return fail(__LINE__, #x);                                                                     \
     } while (false)
-bool configure_output() noexcept {
-    const wchar_t* argument = GetCommandLineW();
-    bool quoted = false;
-    while (*argument) {
-        if (*argument == L'"')
-            quoted = !quoted;
-        else if (!quoted && (*argument == L' ' || *argument == L'\t'))
-            break;
-        ++argument;
-    }
-    while (*argument == L' ' || *argument == L'\t')
-        ++argument;
-    if (!*argument)
-        return true;
-    // --oracle-data retains the detailed CSV oracle.
-    const bool option_quoted = *argument == L'"';
-    if (option_quoted)
-        ++argument;
-    const wchar_t* option = L"--oracle-data";
-    while (*option && *argument == *option) {
-        ++argument;
-        ++option;
-    }
-    if (*option || (option_quoted && *argument != L'"'))
-        return fail(__LINE__, "expected only --oracle-data");
-    if (option_quoted)
-        ++argument;
-    while (*argument == L' ' || *argument == L'\t')
-        ++argument;
-    if (*argument)
-        return fail(__LINE__, "expected only --oracle-data");
-    detailed_output = true;
-    return true;
-}
 struct Fixture {
     TextSystem system{};
     SecureEdit edit{};
@@ -240,8 +204,6 @@ struct Sink final : ITextStoreACPSink {
                                  static_cast<u32>(rectangle.bottom), extra}};
         failure_context.recent[failure_context.recorded % 16] = value;
         ++failure_context.recorded;
-        if (detailed_output)
-            print_record(value);
         ++records;
         if (type == 0)
             ++extent_records;
@@ -364,8 +326,6 @@ bool run() noexcept {
                 if (assigned == TextInputResult::invalid_input) {
                     CHECK(utf8_equal(sample, utf8_literal("a\tbc\n\nxyz")));
                     ++rejected;
-                    if (detailed_output)
-                        print("REJECT tab\n");
                     continue;
                 }
                 CHECK(assigned <= TextInputResult::changed && f.refresh());
@@ -400,13 +360,6 @@ bool run() noexcept {
                     }
                     if (phase == 3)
                         CHECK(utf8_equal(f.text(), sample));
-                    if (detailed_output) {
-                        print("CASE ");
-                        number(cases);
-                        print(" ");
-                        number(phase);
-                        print("\n");
-                    }
                     sink.operation = 0;
                     HRESULT session = E_FAIL;
                     CHECK(sink.store->RequestLock(TS_LF_SYNC | TS_LF_READ, &session) == S_OK &&
@@ -432,7 +385,7 @@ bool run() noexcept {
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_native_text_store_entry() noexcept {
-    const bool valid = maicord::configure_output() && maicord::run();
+    const bool valid = maicord::run();
     maicord::flush();
     ExitProcess(valid && maicord::output_ok ? 0 : 1);
 }

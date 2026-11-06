@@ -1,4 +1,4 @@
-// Manual: --benchmark times the deferred cursive attachment; the registered run is the check.
+// Deferred cursive attachment against the eager execution.
 #include "maicord/text/opentype/gpos_program.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
@@ -72,23 +72,8 @@ bool guarded() noexcept {
         for(u32 i=0;i<n && ok;++i)ok=state[i].ascender_offset==-70.0*(n-1-i);++guards;}
     pages_release(memory);return ok;
 }
-volatile u64 benchmark_witness=0;
-bool benchmark() noexcept {
-    LARGE_INTEGER frequency{};if(!QueryPerformanceFrequency(&frequency))return false;constexpr u32 lengths[]{8,512,4096};constexpr u32 samples=31;
-    for(u32 n:lengths){u64 durations[2][samples]{};const u32 repeats=n==8?256:n==512?8:1;
-        for(u32 sample=0;sample<samples+2;++sample)for(u32 order=0;order<2;++order){const bool deferred=((sample+order)&1)!=0;LARGE_INTEGER first{},last{};QueryPerformanceCounter(&first);
-            for(u32 repeat=0;repeat<repeats;++repeat){reset(n);u64 used=0;if(sequence(n,deferred,false,20000000,&used)!=SfntStatus::ok)return false;
-                const auto* state=deferred?coalesced:eager;u64 bits=0;copy_bytes(&bits,&state[0].ascender_offset,8);benchmark_witness=benchmark_witness^bits^used;}
-            QueryPerformanceCounter(&last);if(sample>=2)durations[deferred?1:0][sample-2]=static_cast<u64>(last.QuadPart-first.QuadPart)*1000000000ull/static_cast<u64>(frequency.QuadPart)/repeats;
-        }
-        for(u32 mode=0;mode<2;++mode){auto* values=durations[mode];for(u32 i=1;i<samples;++i){const u64 value=values[i];u32 at=i;while(at && value<values[at-1]){values[at]=values[at-1];--at;}values[at]=value;}
-            print(utf8_literal("n="));number(n);print(utf8_literal(" deferred="));number(mode);print(utf8_literal(" median_ns="));number(values[samples/2]);print(utf8_literal(" p95_ns="));number(values[29]);print(utf8_literal(" min_ns="));number(values[0]);print(utf8_literal("\n"));}
-    }
-    return true;
-}
 int run() noexcept {
     if(sfnt_gpos_attachment_open({cursive_bytes,sizeof(cursive_bytes)},3,2,&attachment)!=SfntStatus::ok)return 2;lookup={{&attachment,1},{}};lookup.filter.flags=1;
-    const wchar_t* command=GetCommandLineW();constexpr wchar_t option[]=L"--benchmark";for(;*command;++command){u32 i=0;while(option[i] && command[i]==option[i])++i;if(!option[i])return benchmark()?0:7;}
     if(!monotonic()){print(utf8_literal("FAIL monotonic\n"));return 3;}if(!interleaved()){print(utf8_literal("FAIL interleaved\n"));return 4;}if(!program()){print(utf8_literal("FAIL program\n"));return 5;}if(!guarded()){print(utf8_literal("FAIL guarded\n"));return 6;}
     print(utf8_literal("comparisons="));number(comparisons);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nlong_eager_work="));number(long_eager_work);print(utf8_literal("\nlong_deferred_work="));number(long_deferred_work);print(utf8_literal("\nprogram_work="));number(program_work);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nPASS deferred cursive\n"));return 0;
 }
