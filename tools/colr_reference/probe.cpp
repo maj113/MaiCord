@@ -230,12 +230,12 @@ int main(int argc, char** argv) {
         allocation.width = bounds.width;
         allocation.height = bounds.height;
         if(paired) {
-            if(!gpu.uav && !colr_paint_rasterize(&gpu,context,program,bounds,allocation,static_cast<float>(em),512,512,1))return 5;
-            const float poison[]{1,0,1,1};context->ClearUnorderedAccessViewFloat(gpu.uav,poison);
+            if(!gpu.surface && !colr_paint_rasterize(&gpu,context,program,bounds,allocation,static_cast<float>(em),512,512,1))return 5;
+            const float poison[]{1,0,1,1};context->ClearUnorderedAccessViewFloat(gpu.surface->uav,poison);
         }
         if (!colr_paint_rasterize(&gpu, context, program, bounds, allocation, (float)em, 512, 512, 1))
             return 5;
-        context->CopyResource(candidate, gpu.texture);
+        context->CopyResource(candidate, gpu.surface->texture);
         D3D11_MAPPED_SUBRESOURCE ours{};
         check(context->Map(candidate, 0, D3D11_MAP_READ, 0, &ours), "readback");
         QueryPerformanceCounter(&t2);
@@ -254,10 +254,10 @@ int main(int argc, char** argv) {
                paired_bounds.width!=bounds.width || paired_bounds.height!=bounds.height) {
                 fprintf(stderr,"Native placement/bounds differ: glyph=%u em=%u\n",gid,em);return 6;
             }
-            if(!paired_gpu.uav && !colr_paint_rasterize(&paired_gpu,context,paired_program,paired_bounds,allocation,static_cast<float>(em),512,512,1))return 5;
-            const float poison[]{0,1,0,1};context->ClearUnorderedAccessViewFloat(paired_gpu.uav,poison);
+            if(!paired_gpu.surface && !colr_paint_rasterize(&paired_gpu,context,paired_program,paired_bounds,allocation,static_cast<float>(em),512,512,1))return 5;
+            const float poison[]{0,1,0,1};context->ClearUnorderedAccessViewFloat(paired_gpu.surface->uav,poison);
             if(!colr_paint_rasterize(&paired_gpu,context,paired_program,paired_bounds,allocation,static_cast<float>(em),512,512,1))return 5;
-            context->CopyResource(candidate,paired_gpu.texture);
+            context->CopyResource(candidate,paired_gpu.surface->texture);
             D3D11_MAPPED_SUBRESOURCE second{};
             check(context->Map(candidate,0,D3D11_MAP_READ,0,&second),"paired readback");
             QueryPerformanceCounter(&t3);

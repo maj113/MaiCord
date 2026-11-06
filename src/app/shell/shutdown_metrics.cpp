@@ -3,6 +3,7 @@
 
 #include "maicord/app/chat/composer/message_draft_session.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/os/path.hpp"
 
 #if defined(MAICORD_STARTUP_PROBE)
 #include "../notifications/desktop.hpp"

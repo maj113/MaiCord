@@ -1,7 +1,9 @@
 // The process entry of the Windows client: the probe builds' set-up, a second launch handing its discord:// link to the
 // running client, then the application.
 #include "../notifications/desktop.hpp"
+#include "../shell/perf_mark.hpp"
 #include "../shell/run.hpp"
+#include "../shell/shutdown_metrics.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 #if defined(MAICORD_PERF_PROBE)

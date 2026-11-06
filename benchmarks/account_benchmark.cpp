@@ -350,7 +350,7 @@ u32 run() noexcept {
             DeleteFileW(profile_path);
             return 12;
         }
-        checksum += committed.bytes + iteration;
+        checksum += iteration;
     }
     const u64 profile_promotion_us = clock_microseconds(clock, begin, clock_now());
     if (!DeleteFileW(profile_path)) {

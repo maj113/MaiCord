@@ -66,8 +66,9 @@ foreach(target MaiCordColrReference MaiCordColrBuildBenchmark)
         "$<TARGET_PROPERTY:maicord_compile_contract,INTERFACE_COMPILE_DEFINITIONS>")
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_compile_options(${target} PRIVATE /GR- /utf-8 /fp:fast /arch:AVX)
-    foreach(library maicord_renderer maicord_text maicord_paint_program maicord_font maicord_render_core
-            maicord_core maicord_unicode maicord_ui maicord_media_core)
+    foreach(library maicord_renderer maicord_gpu_d3d11 maicord_text maicord_paint_program maicord_font
+            maicord_render_core maicord_core maicord_unicode maicord_ui maicord_media_core maicord_media_codec
+            maicord_compression)
         target_link_libraries(${target} PRIVATE "$<TARGET_FILE:${library}>")
         add_dependencies(${target} ${library})
     endforeach()

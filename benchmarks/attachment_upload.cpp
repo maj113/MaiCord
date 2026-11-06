@@ -129,11 +129,11 @@ int run() noexcept {
     const i64 drop_start = clock_now();
     for (u32 i = 0; ok && i < drop_cycles; ++i) {
         NativeFilePicker selection{};
-        const HDROP drop = file_drop_fixture::make({&dropped_path, 1});
+        DroppedFiles* const drop = file_drop_fixture::make({&dropped_path, 1});
         const i64 submitted_at = clock_now();
         const auto accepted = native_file_picker_take_drop(&selection, drop, 1);
         drop_submit_us += clock_microseconds(clock, submitted_at, clock_now());
-        if (accepted != NativeFilePickerError::none) { if (drop) DragFinish(drop); ok = false; break; }
+        if (accepted != NativeFilePickerError::none) { if (drop) dropped_files_release(drop); ok = false; break; }
         ok = file_drop_fixture::await(&selection) && native_file_picker_status(&selection).ok() &&
             native_file_picker_status(&selection).count == 1;
         drop_complete_us += clock_microseconds(clock, submitted_at, clock_now());
