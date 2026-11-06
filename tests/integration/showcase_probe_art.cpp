@@ -196,7 +196,7 @@ void paint_logo(u8* out, u32 s) noexcept {
                 const float e = segment(fx, fy, p[i][0], p[i][1], p[i + 1][0], p[i + 1][1]);
                 d = e < d ? e : d;
             }
-            Rgb c = mix(hex(0x5865f2), hex(0x7a5cff), fy / 176);
+            Rgb c = mix(hex(0x8b5cf6), hex(0xc026d3), fy / 176);
             c = mix(c, hex(0xffffff), 1 - smooth(11.5f, 13.5f, d));
             put(out + (y * s + x) * 4, c);
         }

@@ -128,7 +128,7 @@ add_custom_command(
         src/app/chat/composer/builtin_commands.json
     VERBATIM)
 
-# The executable's icon (the tray mark in the default theme colours, PNG-compressed): the file the Windows resource
+# The executable's icon (the tray mark on the violet brand tile, PNG-compressed): the file the Windows resource
 # compiler takes and src/core/linux/resource.cpp #embeds.
 set(MAICORD_APP_ICON "${MAICORD_GENERATED_DIRECTORY}/maicord.ico")
 add_custom_command(

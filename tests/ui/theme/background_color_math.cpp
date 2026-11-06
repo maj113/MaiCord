@@ -116,9 +116,12 @@ void test_background_color_math(void (*check)(bool, const char*) noexcept) noexc
     for (u32 i = 0; i < 3; ++i) {
         preferences.theme = flat[i];
         const auto projected = client_theme_projection(preferences);
-        unchanged = unchanged && bytes_equal(&projected, originals[i], sizeof(Theme));
+        // The flat themes are the built-in presets, flagged to draw MaiCord's marks in the brand violet.
+        Theme expected = *originals[i];
+        expected.brand_marks = true;
+        unchanged = unchanged && projected.brand_marks && bytes_equal(&projected, &expected, sizeof(Theme));
     }
-    check(unchanged, "client theme projection: all flat theme bytes retain their original identity");
+    check(unchanged, "client theme projection: all flat theme bytes retain their original identity, plus the brand flag");
     preferences.theme = ClientTheme::custom_gradient;
     preferences.gradient = original;
     const auto dark20 = client_theme_projection(preferences);

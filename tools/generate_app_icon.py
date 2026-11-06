@@ -1,9 +1,10 @@
-"""Write MaiCord's executable icon: the tray mark in the default theme colours.
+"""Write MaiCord's executable icon: the tray mark on the brand tile.
 
 Standard library only and deterministic. The drawing mirrors render_mark in
-src/platform/desktop/system_tray.cpp (rounded brand tile, white "M" stroke, whose
-geometry lives in include/maicord/ui/shell/brand_mark.hpp); the running client still
-re-tints window and tray icons to the active theme.
+src/platform/desktop/system_tray.cpp (rounded tile, white "M" stroke, whose
+geometry lives in include/maicord/ui/shell/brand_mark.hpp) with the brand
+gradient #8B5CF6 to #C026D3; the running client still re-tints window and tray
+icons to the active theme.
 PNG filters, DEFLATE strategies and gentle RGB posterization are searched
 deterministically. Alpha and the white mark are preserved exactly; each image
 must meet the PSNR floor against the original rendering. No external libraries.
@@ -25,9 +26,9 @@ SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
 MIN_PSNR = 46.0
 # A filtered byte's magnitude as a signed residual.
 RESIDUAL = bytes(min(v, 256 - v) for v in range(256))
-# Default theme core accent (include/maicord/ui/theme/presets.hpp) and text.on_accent.
-BRAND = (0.3451, 0.3961, 0.9490)
-SHADE = tuple(channel * 0.78 for channel in BRAND)
+# MaiCord's brand tile: a violet-to-magenta gradient from the top edge to the bottom edge, and the white mark.
+BRAND = (0x8B / 255, 0x5C / 255, 0xF6 / 255)
+SHADE = (0xC0 / 255, 0x26 / 255, 0xD3 / 255)
 GLYPH = (1.0, 1.0, 1.0)
 POINTS = ((.28, .71), (.28, .31), (.5, .55), (.72, .31), (.72, .71))
 

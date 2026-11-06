@@ -2,6 +2,7 @@
 #include "shell/window_state.hpp"
 #include "settings/custom_theme.hpp"
 #include "effects/effects.hpp"
+#include "notifications/desktop.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../support/test_output.hpp"
 
@@ -78,7 +79,7 @@ const ClientThemeDocument* application_custom_theme_document() noexcept {
 namespace theme_publication_test {
 using namespace app_detail;
 u32 scratch[4096];
-ClientThemeDocument linked{};
+ClientThemeDocument linked{}, plain{};
 
 // The look a publication of the current source settles on.
 Theme settled_look() noexcept {
@@ -166,6 +167,37 @@ void glide_looks() noexcept {
           "effect shows at once");
 }
 
+// Whether the tray, taskbar and notification mark is MaiCord's brand violet (the app icon's tile and a white glyph).
+bool brand_palette(const TrayIconPalette& palette) noexcept {
+    return palette.brand == 0xFF8B5CF6u && palette.brand_shade == 0xFFC026D3u && palette.glyph == 0xFFFFFFFFu;
+}
+// The built-in flat themes show the brand violet; a gradient theme and a custom or catalog theme keep the accent tint.
+void brand_marks() noexcept {
+    constexpr ClientTheme flat[]{ClientTheme::dark, ClientTheme::amoled, ClientTheme::light};
+    constexpr ClientTheme tinted[]{ClientTheme::aurora, ClientTheme::sunset, ClientTheme::ocean,
+                                   ClientTheme::custom_gradient, ClientTheme::custom_light_gradient};
+    bool flat_brand = true, tinted_accent = true;
+    for (const ClientTheme theme : flat)
+        flat_brand = flat_brand && switch_builtin(theme) && application_theme().brand_marks &&
+                     brand_palette(application_tray_palette());
+    for (const ClientTheme theme : tinted)
+        tinted_accent = tinted_accent && switch_builtin(theme) && !application_theme().brand_marks &&
+                        !brand_palette(application_tray_palette());
+    check(flat_brand && tinted_accent,
+          "brand marks: Dark, Light and AMOLED draw the tray and window mark in the brand violet; the gradient themes "
+          "keep their accent");
+    // A custom theme on the Dark base takes the accent, whatever its base, and leaving it restores the brand.
+    const auto source = utf8_literal("{\"version\":\"2.0\",\"name\":\"Plain\"}");
+    check(switch_builtin(ClientTheme::dark) &&
+              client_theme_document_parse(source, client_theme_document_defaults(), {scratch, 4096}, &plain).ok() &&
+              application_custom_theme_publish(&plain, false) && !application_theme().brand_marks &&
+              !brand_palette(application_tray_palette()) && application_tray_palette().brand == 0xFF5865F2u,
+          "brand marks: a custom theme keeps the accent tint, even on the Dark base");
+    check(application_custom_theme_publish(nullptr, false) && application_theme().brand_marks &&
+              brand_palette(application_tray_palette()),
+          "brand marks: leaving a custom theme for a built-in flat one restores the brand violet");
+}
+
 void run() noexcept {
     glide_looks();
     g_window_state.visible = true;
@@ -235,6 +267,7 @@ void run() noexcept {
     check(application_custom_theme_publish(nullptr, false) && !application_theme_transition_active() &&
               shows(settled_look()),
           "theme glide: a publication that doesn't animate shows at once");
+    brand_marks();
 
     // A theme with variants that follows its effect's knobs (03:00 on 1 March: its night look).
     const auto source = utf8_literal(

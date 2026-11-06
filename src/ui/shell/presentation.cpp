@@ -134,6 +134,21 @@ bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Th
                          rail_tile_ink(hovered, theme));
 }
 
+// The Home tile: in the built-in flat themes its hovered or selected state is the brand gradient (the app icon's tile)
+// under a white mark; in every other theme it is the rail's accent tile.
+bool home_brand_tile(bool accent, const Theme& theme) noexcept {
+    return accent && theme.brand_marks;
+}
+bool paint_home_tile(PaintStream* stream, const UiRect& tile, bool accent, const Theme& theme) noexcept {
+    if (!home_brand_tile(accent, theme))
+        return paint_rail_tile(stream, tile, accent, theme);
+    return paint_stream_push_gradient(stream, tile, color_from_rgb24(kBrandMarkTop),
+                                      color_from_rgb24(kBrandMarkBottom), rail_tile_radius(tile, theme));
+}
+Color home_mark_ink(bool accent, const Theme& theme) noexcept {
+    return home_brand_tile(accent, theme) ? color_from_rgb24(0xFFFFFF) : rail_tile_ink(accent, theme);
+}
+
 // MaiCord's mark stroked across a rail tile, the Home button's glyph.
 bool paint_brand_mark(PaintStream* stream, const UiRect& tile, Color color) noexcept {
     const float extent = ui_rect_width(tile);
@@ -465,16 +480,16 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
 
-    // Home: the MaiCord mark on a rail tile that takes the accent while hovered
-    // or selected, then the separator one gap below it.
+    // Home: the MaiCord mark on a rail tile that takes the accent (the brand gradient in the built-in flat themes)
+    // while hovered or selected, then the separator one gap below it.
     const bool home_hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::home_button));
     const bool home_selected = navigation && !navigation->selected_guild_id;
     const bool home_accent = home_selected || home_hovered;
     if (!paint_guild_indicator(stream, guild->rectangle.left, home->rectangle,
                                guild_scene ? &guild_scene->home_indicator : nullptr, home_selected,
                                home_hovered, false, theme.text_primary) ||
-        !paint_rail_tile(stream, home->rectangle, home_accent, theme) ||
-        !paint_brand_mark(stream, home->rectangle, rail_tile_ink(home_accent, theme)))
+        !paint_home_tile(stream, home->rectangle, home_accent, theme) ||
+        !paint_brand_mark(stream, home->rectangle, home_mark_ink(home_accent, theme)))
         return false;
     const float separator_center = (home->rectangle.left + home->rectangle.right) * .5f;
     const float separator_top = home->rectangle.bottom + kUiGuildRailGap;

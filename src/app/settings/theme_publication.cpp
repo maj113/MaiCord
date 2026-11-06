@@ -80,6 +80,7 @@ void glide_frame(ThemePublication& p, const ClientThemeDocument* document) noexc
     palette.style_revision = p.styles ? p.styles->revision : 0;
     const Theme& shown = p.theme();
     const bool changed = !ui_theme_palette_equal(shown, palette) || shown.appearance != palette.appearance ||
+                         shown.brand_marks != palette.brand_marks ||
                          !background_theme_equal(shown.background, palette.background);
     p.set_theme(palette);
     if (changed)
@@ -214,7 +215,8 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
     const bool geometry_changed = (styles_result.changes & ui_theme_style_geometry) != 0;
     const bool foreground_changed = !publication.ready ||
                                     !ui_theme_palette_equal(publication.theme(), palette) ||
-                                    publication.theme().appearance != palette.appearance;
+                                    publication.theme().appearance != palette.appearance ||
+                                    publication.theme().brand_marks != palette.brand_marks;
     const bool background_changed =
         !publication.ready || !background_theme_equal(publication.theme().background, palette.background);
 

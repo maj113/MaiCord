@@ -1,4 +1,5 @@
 #include "maicord/ui/chat/messages/mention_badge.hpp"
+#include "maicord/ui/shell/brand_mark.hpp"
 #include "maicord/ui/shell/presentation.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
@@ -169,6 +170,34 @@ void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept
             "mention badge: rail badges and their cutout ring paint after the server icons, not under them");
         paint_stream_release(&chrome);
         paint_stream_release(&overlay);
+        // The Home tile, selected: the brand gradient (the app icon's tile) when the theme draws brand marks, the
+        // rail's accent tile otherwise.
+        f.view.selected_guild_id = 0;
+        const auto* home = ui_scene_node(f.shell, UiSemantic::home_button);
+        const auto brand_home = [&](const Theme& theme) noexcept {
+            static PaintStream tile{};
+            ShellPresentationRegions area{};
+            bool found = false;
+            if (home && paint_stream_initialize(&tile) &&
+                shell_presentation_build_chrome(f.shell, &f.view, &f.rail, &f.navigation, nullptr, nullptr, theme, 1280,
+                                                800, &tile, &area, nullptr))
+                for (u32 q = 0; q < tile.count; ++q) {
+                    const auto& quad = tile.quads[q];
+                    const Color top = color_from_rgb24(kBrandMarkTop), bottom = color_from_rgb24(kBrandMarkBottom);
+                    found = found || (ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, home->rectangle) &&
+                                      quad.border_width == -2 && quad.fill.red == top.red && quad.fill.green == top.green &&
+                                      quad.fill.blue == top.blue && quad.border.red == bottom.red &&
+                                      quad.border.green == bottom.green && quad.border.blue == bottom.blue);
+                }
+            paint_stream_release(&tile);
+            return found;
+        };
+        Theme branded = kDefaultTheme;
+        branded.brand_marks = true;
+        check(brand_home(branded) && !brand_home(kDefaultTheme),
+              "home tile: selected, it is the brand gradient in a theme that draws brand marks and the accent tile in "
+              "every other");
+        f.view.selected_guild_id = 7;
         const auto& unread = f.navigation.rows[5];
         check(!unread.mention_badge.generation && unread.view.unread,
             "mention badge: unread white-dot-only channel creates no red badge or number");

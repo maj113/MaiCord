@@ -17,6 +17,7 @@ __declspec(noinline) inline Theme client_theme_projection(const ClientPreference
         // Effect choice is independent of appearance. The effect-only
         // descriptor leaves all flat palette tokens and gradient materials
         // unchanged; designated canvases use their own actual fill color.
+        theme.brand_marks = true;
         if (background_theme_valid(preferences.gradient) &&
             preferences.gradient.effect != BackgroundEffect::none) {
             reset_value(&theme.background);

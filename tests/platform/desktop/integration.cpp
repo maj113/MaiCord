@@ -152,6 +152,23 @@ void test_tray(Check check) noexcept {
               !tray_icon_render(TrayIconState::normal, 0, palette, 8, {normal, 64}),
           "tray icon: rounded mark with transparent corners and a lower-right state overlay");
 
+    // The brand palette keeps the theme's state colours, and the mark is the app icon's violet-to-magenta tile: the top
+    // edge of the tile is near #8B5CF6, the bottom near #C026D3.
+    const TrayIconPalette brand = tray_icon_brand_palette(palette);
+    static u32 branded[32 * 32];
+    const auto near_colour = [](u32 pixel, u32 red, u32 green, u32 blue) noexcept {
+        const auto close = [](u32 value, u32 expected) noexcept {
+            return value + 2 >= expected && value <= expected + 2;
+        };
+        return close((pixel >> 16) & 255, red) && close((pixel >> 8) & 255, green) && close(pixel & 255, blue);
+    };
+    check(brand.brand == 0xFF8B5CF6u && brand.brand_shade == 0xFFC026D3u && brand.glyph == 0xFFFFFFFFu &&
+              brand.success == palette.success && brand.danger == palette.danger &&
+              tray_icon_render(TrayIconState::normal, 0, brand, 32, {branded, 32 * 32}) &&
+              near_colour(branded[2 * 32 + 16], 143, 88, 243) && near_colour(branded[30 * 32 + 16], 190, 41, 213) &&
+              !near_colour(normal[2 * 32 + 16], 143, 88, 243),
+          "tray icon: the brand palette draws the violet-to-magenta tile, the theme palette its accent");
+
     check(desktop_close_action(true, true, false) == DesktopCloseAction::hide &&
               desktop_close_action(true, true, true) == DesktopCloseAction::quit &&
               desktop_close_action(false, true, false) == DesktopCloseAction::quit &&

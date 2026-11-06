@@ -77,6 +77,9 @@ struct Theme {
     UiThemeMotion motion{};
     BackgroundTheme background{};
     ThemeAppearance appearance{ThemeAppearance::dark};
+    // The built-in flat themes (dark, light, AMOLED) draw MaiCord's own marks (the Home tile, the window and tray
+    // icons) in the brand violet; every other theme tints them with its accent.
+    bool brand_marks{};
     const UiResolvedThemeStyles* styles{};
     u64 style_revision{};
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/ui/shell/brand_mark.hpp"
 #if defined(_WIN32)
 #include "maicord/core/win32_types.hpp"
 #endif
@@ -57,6 +58,11 @@ u32 tray_tooltip(const TrayInput&, wchar_t* text, u32 capacity) noexcept;
 struct TrayIconPalette {
     u32 brand, brand_shade, success, danger, glyph;
 };
+// `themed` with the tile in MaiCord's brand violet (kBrandMarkTop to kBrandMarkBottom) and a white glyph: the mark in the
+// built-in flat themes. The state overlays keep the theme's success and danger colours.
+constexpr TrayIconPalette tray_icon_brand_palette(const TrayIconPalette& themed) noexcept {
+    return {0xFF000000u | kBrandMarkTop, 0xFF000000u | kBrandMarkBottom, themed.success, themed.danger, 0xFFFFFFFFu};
+}
 inline constexpr u32 kTrayIconMaximumExtent = 64;
 // MaiCord's mark (rounded tile with an "M") plus the state overlay in the
 // lower-right corner: green dot (connected), ringed dot (speaking), struck
