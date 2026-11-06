@@ -14,6 +14,7 @@
 #include "maicord/os/file.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/log_event.hpp"
 
 namespace maicord {
 struct RendererTypographyOwner {
@@ -626,6 +627,33 @@ void sync_message_scroll(D3D11Renderer* renderer) noexcept {
     renderer->text_stable_serial = renderer->text_shell_serial;
 }
 
+// One line per failure episode (a successful build re-arms it): which projection rejected which element,
+// the check it failed and the values compared. Only code-given widget names, never text or IDs.
+bool g_projection_reject_logged;
+__declspec(noinline) bool projection_rejected(const char* projection, const UiTextEmitter& e) noexcept {
+    if (g_projection_reject_logged)
+        return false;
+    g_projection_reject_logged = true;
+    const UiWidgetManager* m = e.reject_check != UiTextRejectCheck::none ? e.reject_owner.manager : nullptr;
+    const UiWidget* widget = m ? ui_widget_manager_resolve(*m, e.reject_owner.handle) : nullptr;
+    const u64 values[]{e.count, static_cast<u64>(e.reject_check), e.reject_values[0], e.reject_values[1],
+                       widget ? static_cast<u64>(widget->kind) : ~0ull, e.reject_owner.handle.slot};
+    LogEvent line("text_projection_rejected");
+    line.field("projection", projection).fields("commands\0check\0first\0second\0widget_kind\0widget_slot", values);
+    // Debug names are code literals ("UserProfile", "ProfilePart"); a bounded copy terminates them.
+    const auto named = [&](const char* key, const UiLayoutNode* node) noexcept {
+        char name[24]{};
+        if (node)
+            copy_bytes(name, node->spec.debug_name.data, minimum<u32>(node->spec.debug_name.bytes, 23));
+        line.field(key, name);
+    };
+    if (m && m->layout.count) {
+        named("scene", &m->layout.storage[0]);
+        named("element", widget ? ui_widget_manager_layout_node(*m, e.reject_owner.handle) : nullptr);
+    }
+    line.write(LogLevel::error, "render");
+    return false;
+}
 bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* atlas_invalidated,
                              bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
     const bool login_form = d3d11_renderer_login_form_text(*renderer);
@@ -700,12 +728,12 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         // Only the member list scrolled: confirm the static shell by its
         // signature so its glyphs can stay; the rows are rastered below.
         if (renderer->text_shell_navigation_scroll_key == navigation_scroll && !project_static())
-            return false;
+            return projection_rejected("shell", shell);
     } else if (!project_static() || !project_shell_member_text(renderer, theme, &shell)) {
-        return false;
+        return projection_rejected(static_known ? "members" : "shell", shell);
     }
     if (!project_overlay_text(renderer, theme, &overlay, &boundaries))
-        return false;
+        return projection_rejected("overlay", overlay);
     ContentTextRetentionKey retention_key =
         content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
     if (shell_retained && (retention_key.shell_signature != retained_shell.signature ||
@@ -718,7 +746,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         shell_retained = false;
         if (!ui_text_emitter_initialize(&shell) || !project_static() ||
             !project_shell_member_text(renderer, theme, &shell))
-            return false;
+            return projection_rejected(static_known ? "members" : "shell", shell);
         retention_key =
             content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
     }
@@ -1410,6 +1438,7 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             build_content_text_once(renderer, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
                                     include_messages);
         if (content_built) {
+            g_projection_reject_logged = false;
             if (storage_modified) {
                 ++renderer->content_text->rebuilds;
             }

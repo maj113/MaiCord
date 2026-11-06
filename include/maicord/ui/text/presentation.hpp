@@ -62,6 +62,8 @@ bool ui_text_command_stream_push_owned(UiTextCommandStream* stream, const UiText
 // until consume returns. A null consumer validates/hashes without rendering.
 using UiTextConsumeFunction = bool (*)(void*, const UiTextCommand&, u32 ordinal) noexcept;
 inline constexpr u32 kUiTextEmitterMaximumCommands = 4096;
+// The check a rejected command failed (diagnostics only).
+enum class UiTextRejectCheck : u8 { none, owner, rectangle, clip, fields, limit, consumer };
 struct UiTextEmitter {
     UiTextConsumeFunction consume;
     void* context;
@@ -69,6 +71,11 @@ struct UiTextEmitter {
     u32 count;
     u32 rejected;
     u32 limit;
+    // The last rejection: its check, the command's owner and the values compared (the owner's slot and
+    // generation, a rectangle's ordered axes, or count and limit).
+    UiTextRejectCheck reject_check;
+    UiWidgetReference reject_owner;
+    u32 reject_values[2];
 };
 struct UiTextOutput {
     UiTextCommandStream* stream;

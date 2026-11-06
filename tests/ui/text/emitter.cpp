@@ -132,14 +132,22 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
     auto invalid = sample(); invalid.owner.handle.generation = 0;
     const auto signature = preflight.signature; const auto count = preflight.count;
     check(!ui_text_output_push(&checked, invalid) && preflight.count == count &&
-        preflight.signature == signature && preflight.rejected == 1,
+        preflight.signature == signature && preflight.rejected == 1 &&
+        preflight.reject_check == UiTextRejectCheck::owner && preflight.reject_values[1] == 0,
         "text emitter: malformed later owner rejects without publishing partial signature or ordinal");
+    auto inverted = sample(); inverted.rectangle.right = inverted.rectangle.left - 4;
+    check(!ui_text_output_push(&checked, inverted) && preflight.reject_check == UiTextRejectCheck::rectangle &&
+        preflight.reject_values[0] == 0 && preflight.reject_values[1] == 1 &&
+        preflight.reject_owner.handle.slot == inverted.owner.handle.slot,
+        "text emitter: a rejected command records its failing check, the axes compared and its owner");
     comparison = {&f.stream, 0, 1};
     check(ui_text_emitter_initialize(&emitter, consume, &comparison) && !transient_projection(&emitted) &&
         emitter.count == 1 && emitter.rejected == 1 && comparison.calls == 2,
         "text emitter: consumer failure stops at the failed command and keeps only successful prefix");
     check(ui_text_emitter_initialize(&preflight, nullptr, nullptr, 1) &&
-        !transient_projection(&checked) && preflight.count == 1 && preflight.rejected == 1,
+        !transient_projection(&checked) && preflight.count == 1 && preflight.rejected == 1 &&
+        preflight.reject_check == UiTextRejectCheck::limit && preflight.reject_values[0] == 1 &&
+        preflight.reject_values[1] == 1,
         "text emitter: explicit caller bound rejects before unbounded projection");
     ui_text_output_reset(&checked);
     auto invisible = sample();

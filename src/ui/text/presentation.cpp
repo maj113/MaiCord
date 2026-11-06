@@ -53,14 +53,38 @@ u64 append_signature(u64 signature, const UiTextCommand& command, u32 index) noe
     return hash64_mix(signature, layout);
 }
 
+// The first check `command` fails, none when it is valid.
+UiTextRejectCheck command_check(const UiTextCommand& command) noexcept {
+    if (!command.owner.manager || !ui_widget_manager_resolve(*command.owner.manager, command.owner.handle))
+        return UiTextRejectCheck::owner;
+    if (!ui_rect_valid_or_empty(command.rectangle))
+        return UiTextRejectCheck::rectangle;
+    if (!ui_rect_valid_or_empty(command.clip))
+        return UiTextRejectCheck::clip;
+    return (!command.styles.count || command.styles.data) && (!command.text.bytes || command.text.data) &&
+                   command.horizontal_alignment <= UiTextAlignment::end &&
+                   command.vertical_alignment <= UiTextAlignment::end &&
+                   command.wrapping <= TextWrapping::no_wrap && command.overflow <= TextOverflow::ellipsis
+               ? UiTextRejectCheck::none
+               : UiTextRejectCheck::fields;
+}
 bool command_valid(const UiTextCommand& command) noexcept {
-    return (!command.styles.count || command.styles.data) &&
-        (!command.text.bytes || command.text.data) && command.owner.manager &&
-        ui_widget_manager_resolve(*command.owner.manager, command.owner.handle) &&
-        ui_rect_valid_or_empty(command.rectangle) && ui_rect_valid_or_empty(command.clip) &&
-        command.horizontal_alignment <= UiTextAlignment::end &&
-        command.vertical_alignment <= UiTextAlignment::end &&
-        command.wrapping <= TextWrapping::no_wrap && command.overflow <= TextOverflow::ellipsis;
+    return command_check(command) == UiTextRejectCheck::none;
+}
+// Counts a rejection and keeps what failed for diagnostics.
+__declspec(noinline) bool reject(UiTextEmitter* emitter, const UiTextCommand& command,
+                                 UiTextRejectCheck check) noexcept {
+    saturating_increment(emitter->rejected);
+    emitter->reject_check = check;
+    emitter->reject_owner = command.owner;
+    const UiRect& r = check == UiTextRejectCheck::clip ? command.clip : command.rectangle;
+    emitter->reject_values[0] = check == UiTextRejectCheck::owner   ? command.owner.handle.slot
+                                : check == UiTextRejectCheck::limit ? emitter->count
+                                                                    : r.right >= r.left;
+    emitter->reject_values[1] = check == UiTextRejectCheck::owner   ? command.owner.handle.generation
+                                : check == UiTextRejectCheck::limit ? emitter->limit
+                                                                    : r.bottom >= r.top;
+    return false;
 }
 bool command_visible(const UiTextCommand& command) noexcept {
     return command.text.bytes &&
@@ -179,15 +203,15 @@ bool ui_text_output_push(UiTextOutput* output, const UiTextCommand& command) noe
     if (!ui_text_output_valid(output)) return false;
     if (output->stream) return ui_text_command_stream_push(output->stream, command);
     auto& emitter = *output->emitter;
-    if (!command_valid(command)) { saturating_increment(emitter.rejected); return false; }
+    if (const auto check = command_check(command); check != UiTextRejectCheck::none)
+        return reject(&emitter, command, check);
     if (!command_visible(command)) return true;
-    if (emitter.count == emitter.limit) { saturating_increment(emitter.rejected); return false; }
+    if (emitter.count == emitter.limit) return reject(&emitter, command, UiTextRejectCheck::limit);
     // Hash before consuming: callbacks may generate glyphs, never retain or
     // modify a source command. Commit the ordinal only after consumption.
     const u64 signature = append_signature(emitter.signature, command, emitter.count);
-    if (emitter.consume && !emitter.consume(emitter.context, command, emitter.count)) {
-        saturating_increment(emitter.rejected); return false;
-    }
+    if (emitter.consume && !emitter.consume(emitter.context, command, emitter.count))
+        return reject(&emitter, command, UiTextRejectCheck::consumer);
     emitter.signature = signature;
     ++emitter.count;
     return true;
