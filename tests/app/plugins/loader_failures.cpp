@@ -6,18 +6,13 @@
 // algorithm or fault flag is introduced: the failures are injected by replacing the Win32 and CNG calls the
 // loader makes while it pins the plugins directory, hashes a DLL and releases its handles.
 namespace maicord::plugin_loader_failure_test {
-enum class Fault : u8 { none, destroy_hash, close_algorithm, ancestor_close, file_close };
+enum class Fault : u8 { none, destroy_hash, ancestor_close, file_close };
 Fault fault{};
-u32 failures = 0, destroy_calls = 0, algorithm_calls = 0, load_calls = 0, query_calls = 0;
+u32 failures = 0, destroy_calls = 0, load_calls = 0, query_calls = 0;
 NTSTATUS WINAPI destroy(BCRYPT_HASH_HANDLE hash) noexcept {
     ++destroy_calls;
     if (fault == Fault::destroy_hash) { fault = Fault::none; return static_cast<NTSTATUS>(0xc0000001u); }
     return BCryptDestroyHash(hash);
-}
-NTSTATUS WINAPI close_algorithm(BCRYPT_ALG_HANDLE algorithm, ULONG flags) noexcept {
-    ++algorithm_calls;
-    if (fault == Fault::close_algorithm) { fault = Fault::none; return static_cast<NTSTATUS>(0xc0000001u); }
-    return BCryptCloseAlgorithmProvider(algorithm, flags);
 }
 // Directories are the pinned ancestors; the one regular file is the DLL's handle.
 BOOL WINAPI close_file(HANDLE handle) noexcept {
@@ -48,13 +43,11 @@ bool plugin_network_hosts_valid(const mc_str*, u32, bool) noexcept { return true
 } // namespace maicord
 
 #define BCryptDestroyHash maicord::plugin_loader_failure_test::destroy
-#define BCryptCloseAlgorithmProvider maicord::plugin_loader_failure_test::close_algorithm
 #define CloseHandle maicord::plugin_loader_failure_test::close_file
 #define LoadLibraryExW maicord::plugin_loader_failure_test::load
 #define GetProcAddress maicord::plugin_loader_failure_test::query
 #include "../../../src/app/plugins/loader.cpp"
 #undef BCryptDestroyHash
-#undef BCryptCloseAlgorithmProvider
 #undef CloseHandle
 #undef LoadLibraryExW
 #undef GetProcAddress
@@ -113,9 +106,9 @@ void run() noexcept {
 
     // The file is the public "abc" bytes: right digest reaches the PE check (not a PE), wrong digest stops before it.
     PluginImage image{};
-    destroy_calls = algorithm_calls = 0;
+    destroy_calls = 0;
     auto loaded = plugin_image_load(&image, pinned, leaf, 0, abc);
-    check(loaded.error == PluginLoadError::not_pe && !image.module && destroy_calls == 1 && algorithm_calls == 1 &&
+    check(loaded.error == PluginLoadError::not_pe && !image.module && destroy_calls == 1 &&
               !load_calls && !query_calls,
           "the matching digest reaches the PE check, which refuses the bytes before any code load");
     loaded = plugin_image_load(&image, pinned, leaf, 0, wrong);
@@ -123,12 +116,8 @@ void run() noexcept {
           "a different digest stops the load before the PE check");
     fault = Fault::destroy_hash;
     loaded = plugin_image_load(&image, pinned, leaf, 0, abc);
-    check(loaded.error == PluginLoadError::not_pe && destroy_calls == 3 && algorithm_calls == 3 && !load_calls,
-          "a failed hash destruction still releases the provider and never admits code");
-    fault = Fault::close_algorithm;
-    loaded = plugin_image_load(&image, pinned, leaf, 0, abc);
-    check(loaded.error == PluginLoadError::not_pe && destroy_calls == 4 && algorithm_calls == 4 && !load_calls,
-          "a failed provider close does not turn a refused file into a loaded one");
+    check(loaded.error == PluginLoadError::not_pe && destroy_calls == 3 && !load_calls,
+          "a failed hash destruction never admits code");
     fault = Fault::file_close;
     loaded = plugin_image_load(&image, pinned, leaf, 0, nullptr);
     check(loaded.error == PluginLoadError::not_pe && !load_calls && !query_calls,

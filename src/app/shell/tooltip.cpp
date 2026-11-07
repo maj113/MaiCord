@@ -268,7 +268,7 @@ bool composer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* t
         // Plugin tooltip text stays borrowed until the next slot revision.
         const u32 index = keyboard ? message_composer_scene_focused_plugin_slot(scene)
                                    : message_composer_scene_plugin_slot(scene, point.x, point.y);
-        UiPluginSlotNode nodes[kMessageComposerPluginSlots]{};
+        UiPluginSlotNode nodes[kMessageComposerPluginSlots];
         if (index >= ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {nodes, kMessageComposerPluginSlots}))
             return false;
         return widget_target(scene.widgets, scene.plugin_slots[index], scope, g_app.account_ui->active_channel_id,

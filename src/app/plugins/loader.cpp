@@ -8,11 +8,9 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/path.hpp"
-#if defined(_WIN32)
-#include "maicord/sys/crypto.hpp"
-#else
-#include "maicord/os/text.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
+#if !defined(_WIN32)
+#include "maicord/os/text.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #endif
@@ -437,27 +435,20 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
 bool file_digest_equals(HANDLE file, u64 bytes, const u8* expected) noexcept {
     Win32LargeInteger start{0};
     if (!bytes || bytes > kPluginDllMaximumBytes || !SetFilePointerEx(file, *start.native(), nullptr, FILE_BEGIN)) return false;
-    BCRYPT_ALG_HANDLE algorithm{};
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
-    BCRYPT_HASH_HANDLE hash{};
-    bool match = false;
-    // CNG owns the hash object, so a failed destroy never leaves a live handle into expired stack storage.
-    if (BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0) {
-        u8 buffer[8192], digest[32];
-        bool good = true;
-        for (u64 remaining = bytes; remaining && good;) {
-            const DWORD wanted = static_cast<DWORD>(minimum<u64>(remaining, sizeof(buffer)));
-            DWORD read = 0;
-            good = ReadFile(file, buffer, wanted, &read, nullptr) && read == wanted &&
-                   BCryptHashData(hash, buffer, read, 0) >= 0;
-            remaining -= wanted;
-        }
-        DWORD trailing = 0;
-        good = good && ReadFile(file, buffer, 1, &trailing, nullptr) && !trailing;
-        match = good && BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0 && bytes_equal(digest, expected, sizeof(digest));
-        BCryptDestroyHash(hash);
+    HashStream hash = nullptr;
+    if (hash_stream_begin(&hash, HashAlgorithm::sha256) < 0) return false;
+    u8 buffer[8192], digest[32];
+    bool good = true;
+    for (u64 remaining = bytes; remaining && good;) {
+        const DWORD wanted = static_cast<DWORD>(minimum<u64>(remaining, sizeof(buffer)));
+        DWORD read = 0;
+        good = ReadFile(file, buffer, wanted, &read, nullptr) && read == wanted && hash_stream_update(hash, buffer, read) >= 0;
+        remaining -= wanted;
     }
-    BCryptCloseAlgorithmProvider(algorithm, 0);
+    DWORD trailing = 0;
+    good = good && ReadFile(file, buffer, 1, &trailing, nullptr) && !trailing;
+    const bool match = good && hash_stream_finish(hash, digest, sizeof(digest)) >= 0 && bytes_equal(digest, expected, sizeof(digest));
+    hash_stream_destroy(hash);
     return match;
 }
 

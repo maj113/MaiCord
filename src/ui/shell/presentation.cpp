@@ -834,7 +834,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             !ui_voice_account_controls_paint(stream, voice, footer, theme))
             return false;
         // Plugin buttons left of the microphone.
-        UiPluginSlotNode plugin_nodes[kUiPluginSlotAccountButtons]{};
+        UiPluginSlotNode plugin_nodes[kUiPluginSlotAccountButtons];
         const u32 plugin_count = ui_plugin_slot_account_buttons({plugin_nodes, kUiPluginSlotAccountButtons});
         for (u32 i = 0; i < plugin_count; ++i) {
             const UiRect r = ui_plugin_slot_account_button(footer, i);
@@ -985,7 +985,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                               send_ready, false, UiButtonSurface::palette)) {
         return false;
     }
-    UiPluginSlotNode plugin_nodes[kMessageComposerPluginSlots]{};
+    UiPluginSlotNode plugin_nodes[kMessageComposerPluginSlots];
     const u32 plugin_count = minimum<u32>(
         composer_scene->plugin_count,
         ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {plugin_nodes, kMessageComposerPluginSlots}));

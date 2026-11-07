@@ -1101,8 +1101,8 @@ maicord_test(MaiCordGuildChannelUniquenessTests ENTRY maicord_guild_channel_uniq
     SOURCES tests/app/gateway/guild_channel_uniqueness.cpp
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 20 TEST maicord_guild_channel_uniqueness)
-# The plugin loader's cleanup failures (a failed handle close, hash destruction or provider close during
-# pinning, hashing and unloading), through imported-call wrappers around the production implementation.
+# The plugin loader's cleanup failures (a failed handle close or hash destruction during pinning, hashing and
+# unloading), through imported-call wrappers around the production implementation.
 maicord_test(MaiCordPluginLoaderFailureTests ENTRY maicord_plugin_loader_failures_entry
     SOURCES tests/app/plugins/loader_failures.cpp
     LIBS maicord_core kernel32 bcrypt

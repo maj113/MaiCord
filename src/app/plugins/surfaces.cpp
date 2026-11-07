@@ -24,7 +24,7 @@ const UiLayoutNode* account_footer() noexcept {
 bool account_hit(float x, float y, ApplicationPluginSurfaceHit* out) noexcept {
     const auto* footer = g_ui_plugin_slot_query ? account_footer() : nullptr;
     if (!footer || !ui_rect_contains(footer->rectangle, x, y)) return false;
-    UiPluginSlotNode nodes[kUiPluginSlotAccountButtons]{};
+    UiPluginSlotNode nodes[kUiPluginSlotAccountButtons];
     const u32 count = ui_plugin_slot_account_buttons({nodes, kUiPluginSlotAccountButtons});
     for (u32 i = 0; i < count; ++i) {
         const UiRect r = ui_plugin_slot_account_button(footer->rectangle, i);
@@ -130,7 +130,7 @@ bool application_plugins_surface_hover(float x, float y) noexcept {
 }
 
 bool application_plugins_hover_activate(u32 index, u64 message_id) noexcept {
-    UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
+    UiPluginSlotNode nodes[kUiPluginSlotHoverButtons];
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, message_id, {nodes, kUiPluginSlotHoverButtons});
     if (index >= count || !nodes[index].action_id || !g_app.account_ui || !message_id) return false;
     const auto* record = application_message_record(message_id);
@@ -144,7 +144,7 @@ bool application_plugins_hover_activate(u32 index, u64 message_id) noexcept {
 }
 
 Utf8View application_plugins_hover_label(u32 index) noexcept {
-    UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
+    UiPluginSlotNode nodes[kUiPluginSlotHoverButtons];
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, g_app.message_action_bar.message_id,
                                              {nodes, kUiPluginSlotHoverButtons});
     return index < count ? ui_plugin_slot_label(nodes[index]) : Utf8View{};
