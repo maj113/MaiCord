@@ -171,6 +171,23 @@ void test_persistence() noexcept {
           "cookies: an inconsistent record restores nothing");
 }
 
+// The signed-out login page's jar continues as the account's after sign-in.
+void test_copy() noexcept {
+    reset_value(&jar);
+    set(kApi, "__dcfduid=visitor3; Max-Age=31536000; Secure; HttpOnly; Path=/; SameSite=Lax");
+    set(kApi, "_cfuvid=session3; Secure; SameSite=None; Path=/; Domain=discord.com");
+    static CookieJar account;
+    reset_value(&account);
+    const u32 revision = account.persistent_revision;
+    cookie_jar_copy(&account, &jar);
+    u8 copy[kCookieHeaderMaximumBytes];
+    const u32 bytes = cookie_jar_header(&account, kApi, kNow, {copy, sizeof(copy)});
+    constexpr char expected[] = "__dcfduid=visitor3; _cfuvid=session3";
+    check(account.count == 2 && account.persistent_revision != revision && bytes == sizeof(expected) - 1 &&
+              bytes_equal(copy, expected, bytes) && jar.count == 2,
+          "cookies: a copy carries every cookie, session ones included, and marks the destination changed");
+}
+
 } // namespace cookie_jar_test
 } // namespace maicord
 
@@ -181,5 +198,6 @@ MAICORD_TEST_ENTRY(maicord_cookie_jar_entry) {
     test_cross_site();
     test_capacity();
     test_persistence();
+    test_copy();
     maicord::test_exit(failures, "cookie jar");
 }

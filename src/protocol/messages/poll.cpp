@@ -96,7 +96,7 @@ PollWriteResult write_poll_request(const PollRequest& request,
     // reads one message with /messages?limit=1&around={m}, an array whose
     // element must match {m}.
     bool okay=route_writer_initialize(&route,{target,sizeof(target)}) &&
-        route_write(&route,"/api/v10/channels/",request.channel_id,
+        route_write(&route,"/api/v9/channels/",request.channel_id,
                     refresh ? utf8_literal("/messages?limit=1&around=") : utf8_literal("/polls/"),request.message_id);
     if (voters) {
         okay=okay && route_write(&route,"/answers/",request.answer_id,"?limit=",request.limit) &&

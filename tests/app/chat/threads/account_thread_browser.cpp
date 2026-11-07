@@ -22,7 +22,7 @@ void transport() noexcept {
         account_thread_browser_submit(&details, &request, 101).ok() &&
             exact(&details, 101, 20,
                   utf8_literal(
-                      "/api/v10/channels/20/threads/"
+                      "/api/v9/channels/20/threads/"
                       "search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0")),
         "thread browser account: archived GET uses exact supplied DETAILS owner and bodyless parent-major "
         "search route");
@@ -30,7 +30,7 @@ void transport() noexcept {
     request.offset = 9975;
     check(account_thread_browser_submit(&details, &request, 102).ok() &&
               exact(&details, 102, ~u64{0},
-                    utf8_literal("/api/v10/channels/18446744073709551615/threads/"
+                    utf8_literal("/api/v9/channels/18446744073709551615/threads/"
                                  "search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&"
                                  "offset=9975")),
           "thread browser account: full-width parent and maximum archived offset retain exact numeric "
@@ -39,14 +39,14 @@ void transport() noexcept {
     request = {20, 10, {name, sizeof(name) - 1}, 0, ThreadBrowserMode::search, {}};
     check(account_thread_browser_submit(&details, &request, 103).ok() &&
               exact(&details, 103, 20,
-                    utf8_literal("/api/v10/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
+                    utf8_literal("/api/v9/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
           "thread browser account: search name is percent encoded solely inside fixed GET target");
     for (auto& byte : name)
         byte = 'x';
     request.parent_id = 21;
     request.name = {};
     check(exact(&details, 103, 20,
-                utf8_literal("/api/v10/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
+                utf8_literal("/api/v9/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
           "thread browser account: caller request and borrowed name may be reused immediately after "
           "synchronous submit");
 
@@ -61,9 +61,9 @@ void transport() noexcept {
     }
     request = {~u64{0}, 10, {supplementary, sizeof(supplementary)}, 0, ThreadBrowserMode::search, {}};
     bool maximum = account_thread_browser_submit(&details, &request, 104).ok() && capture.safe &&
-                   capture.target_bytes == 1259 && capture.target_bytes > 1024 &&
+                   capture.target_bytes == 1258 && capture.target_bytes > 1024 &&
                    capture.target_bytes <= kRestClientMaximumTargetBytes;
-    constexpr auto prefix = utf8_literal("/api/v10/channels/18446744073709551615/threads/search?name=");
+    constexpr auto prefix = utf8_literal("/api/v9/channels/18446744073709551615/threads/search?name=");
     maximum = maximum && utf8_equal({reinterpret_cast<const char*>(capture.target), prefix.bytes}, prefix);
     constexpr auto encoded = utf8_literal("%F0%9F%98%80");
     for (u32 at = prefix.bytes; maximum && at < capture.target_bytes; at += encoded.bytes)

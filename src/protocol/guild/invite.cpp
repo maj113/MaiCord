@@ -123,7 +123,7 @@ GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& requ
     RouteWriter route{};
     const bool written =
         route_writer_initialize(&route, target) &&
-        route_write(&route, "/api/v10/invites/", Utf8View{request.code, request.code_bytes}) &&
+        route_write(&route, "/api/v9/invites/", Utf8View{request.code, request.code_bytes}) &&
         (accept || route_write(&route, "?with_counts=true&with_expiration=true"));
     if (!written || (accept && (!body.data || body.count < 2))) {
         result.error = GuildInviteWriteError::output_capacity;

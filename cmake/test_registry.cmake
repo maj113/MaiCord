@@ -48,13 +48,13 @@ maicord_test_bundle(MaiCordOAuthTests
 
 maicord_test(MaiCordRemoteAuthCancellationTests ENTRY maicord_remote_auth_cancellation_entry
     SOURCES tests/app/account/login/remote_auth_ticket_exchange_cancellation.cpp src/app/account/login/remote_auth_ticket_exchange.cpp
-        src/app/account/login/remote_auth_handshake.cpp src/app/account/login/captcha_challenge.cpp
+        src/app/account/login/remote_auth_handshake.cpp src/app/account/login/captcha_challenge.cpp src/app/net/signed_out_session.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ${maicord_tls_libs}
     TIMEOUT 15 TEST maicord_remote_auth_cancellation)
 maicord_test(MaiCordAccountLoginHandoffTests ENTRY maicord_account_login_handoff_entry
     SOURCES tests/app/account/login/account_login_handoff.cpp tests/app/account/login/account_login_remote_fixture.cpp src/app/account/account_profile_promotion.cpp
         src/app/account/login/remote_auth_ticket_exchange.cpp src/app/account/login/captcha_challenge.cpp src/app/account/login/remote_auth_handshake.cpp
-        src/app/account/login/captcha_bridge.cpp src/app/account/login/loopback_server.cpp
+        src/app/account/login/captcha_bridge.cpp src/app/account/login/loopback_server.cpp src/app/net/signed_out_session.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ${maicord_tls_libs}
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_account_login_handoff)
@@ -1081,14 +1081,16 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
 maicord_test(MaiCordRestClientFixtureTests ENTRY maicord_rest_client_fixtures_entry
     SOURCES tests/app/net/rest_client_fixtures.cpp src/app/chat/messages/account_bulk_message_ack.cpp src/app/account/account_logout.cpp
         src/app/account/account_host.cpp src/media/image/png_common.cpp src/app/account/user_client_configuration.cpp
-        src/app/account/client_session_metadata.cpp
+        src/app/account/client_session_metadata.cpp src/app/net/signed_out_session.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ${maicord_tls_libs} ntdll
     TIMEOUT 15
     TEST maicord_reset_rest_storage reset-storage
     TEST maicord_user_settings_rest_storage user-settings-storage
     TEST maicord_account_logout_transport logout-transport
     TEST maicord_account_bulk_read_transport bulk-read-transport
-    TEST maicord_account_action_captcha_transport action-captcha-transport)
+    TEST maicord_account_action_captcha_transport action-captcha-transport
+    TEST maicord_rest_credential_swap credential-swap
+    TEST maicord_signed_out_session signed-out-session)
 maicord_test(MaiCordAccountLogoutRuntimeTests ENTRY maicord_application_account_logout_runtime_entry
     SOURCES tests/app/account/application_account_logout_runtime.cpp src/app/account/account_logout_stop.cpp
         src/app/account/login/account_credential_forget.cpp src/app/account/account_paths.cpp src/app/net/file_persistence.cpp

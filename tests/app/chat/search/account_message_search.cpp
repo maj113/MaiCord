@@ -34,7 +34,7 @@ void run() noexcept {
     for (u32 index = 0; index < query.content_bytes; ++index) {
         query.content[index] = 'x';
     }
-    check(target_is(utf8_literal("/api/v10/guilds/7/messages/"
+    check(target_is(utf8_literal("/api/v9/guilds/7/messages/"
                                  "search?offset=0&limit=25&sort_by=timestamp&sort_order=desc&content="
                                  "native%20%26%20query&include_nsfw=false")),
           "search transport: request bytes are copied before caller query reuse");
@@ -77,7 +77,7 @@ void run() noexcept {
         account_message_search(&rest, AccountMessageSearchOperation::submit, &query, 45).ok() &&
             capture.json && route.route_id == kGuildMessageSearchTabsRouteId &&
             route.major == RestMajorParameter::guild && route.major_key == 7 &&
-            route.method == RestMethod::post && target_is(utf8_literal("/api/v10/guilds/7/messages/search/tabs")) &&
+            route.method == RestMethod::post && target_is(utf8_literal("/api/v9/guilds/7/messages/search/tabs")) &&
             utf8_equal(
                 {reinterpret_cast<const char*>(capture.body), capture.body_bytes},
                 utf8_literal(
@@ -89,7 +89,7 @@ void run() noexcept {
     check(account_message_search(&rest, AccountMessageSearchOperation::submit, &query, 46).ok() &&
               route.route_id == kPrivateMessageSearchTabsRouteId &&
               route.major == RestMajorParameter::none &&
-              target_is(utf8_literal("/api/v10/users/@me/messages/search/tabs")),
+              target_is(utf8_literal("/api/v9/users/@me/messages/search/tabs")),
           "search transport: all-DM tabs search posts to /users/@me without a major parameter");
 }
 

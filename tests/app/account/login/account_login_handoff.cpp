@@ -4,6 +4,14 @@
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
+namespace maicord {
+// The Gateway's launch flag: counted here, as this test links no Gateway client.
+u32 launch_signed_in_calls{};
+void gateway_user_launch_signed_in() noexcept {
+    ++launch_signed_in_calls;
+}
+} // namespace maicord
+
 namespace maicord::login_handoff_test {
 bool prepare_remote(RemoteAuthClient*, HANDLE*) noexcept;
 bool prepare_remote_stop_limit(RemoteAuthClient*) noexcept;
@@ -232,6 +240,7 @@ void run() noexcept {
             status.event == UserAuthCoordinatorEventKind::none &&
             fixture.pumps == 1 && fixture.receipts == 1 && fixture.takes == 2 && fixture.saves == 1,
             "login handoff: retry adopts password credential without another auth receipt or submission");
+        check(launch_signed_in_calls != 0, "login handoff: a saved sign-in tells the Gateway the launch signed in");
         module_login_pump(owner);
         check(fixture.takes == 2 && fixture.saves == 1, "login handoff: saved password profile adoption stays one shot");
         void* instance = owner;

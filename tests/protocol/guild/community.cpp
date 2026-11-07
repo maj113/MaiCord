@@ -82,43 +82,43 @@ void test_requests() noexcept {
     u8 target[kGuildCommunityMaximumTargetBytes];
     RestMethod method{};
     check(utf8_equal(target_of(GuildCommunityOperation::verification_get, 10, 0, nullptr, &method, target, sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/member-verification?with_guild=false")) &&
+                     utf8_literal("/api/v9/guilds/10/member-verification?with_guild=false")) &&
               method == RestMethod::get,
           "community: the rules form is read from member-verification");
     check(utf8_equal(target_of(GuildCommunityOperation::verification_submit, 10, 0, "{\"version\":1}", &method, target,
                                sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/requests/@me")) &&
+                     utf8_literal("/api/v9/guilds/10/requests/@me")) &&
               method == RestMethod::put,
           "community: answers are PUT to requests/@me");
     check(utf8_equal(target_of(GuildCommunityOperation::onboarding_get, 10, 0, nullptr, &method, target, sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/onboarding")) &&
+                     utf8_literal("/api/v9/guilds/10/onboarding")) &&
               method == RestMethod::get &&
               utf8_equal(target_of(GuildCommunityOperation::onboarding_submit, 10, 0, "{}", &method, target,
                                    sizeof(target)),
-                         utf8_literal("/api/v10/guilds/10/onboarding-responses")) &&
+                         utf8_literal("/api/v9/guilds/10/onboarding-responses")) &&
               method == RestMethod::post &&
               target_of(GuildCommunityOperation::onboarding_update, 10, 0, "{}", &method, target, sizeof(target)).bytes &&
               method == RestMethod::put,
           "community: onboarding finishes with POST and Channels & Roles saves with PUT");
     check(utf8_equal(target_of(GuildCommunityOperation::events_list, 10, 0, nullptr, &method, target, sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/scheduled-events?with_user_count=true")) &&
+                     utf8_literal("/api/v9/guilds/10/scheduled-events?with_user_count=true")) &&
               utf8_equal(target_of(GuildCommunityOperation::event_get, 10, 77, nullptr, &method, target, sizeof(target)),
-                         utf8_literal("/api/v10/guilds/10/scheduled-events/77?with_user_count=true")) &&
+                         utf8_literal("/api/v9/guilds/10/scheduled-events/77?with_user_count=true")) &&
               utf8_equal(target_of(GuildCommunityOperation::event_create, 10, 0, "{\"name\":\"x\"}", &method, target,
                                    sizeof(target)),
-                         utf8_literal("/api/v10/guilds/10/scheduled-events")) &&
+                         utf8_literal("/api/v9/guilds/10/scheduled-events")) &&
               method == RestMethod::post,
           "community: events are listed with counts, read singly and created by POST");
     check(utf8_equal(target_of(GuildCommunityOperation::event_interested, 10, 77, nullptr, &method, target,
                                sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/scheduled-events/77/users/@me")) &&
+                     utf8_literal("/api/v9/guilds/10/scheduled-events/77/users/@me")) &&
               method == RestMethod::put &&
               target_of(GuildCommunityOperation::event_uninterested, 10, 77, nullptr, &method, target, sizeof(target))
                   .bytes &&
               method == RestMethod::delete_method &&
               utf8_equal(target_of(GuildCommunityOperation::event_rsvps, 10, 0, nullptr, &method, target,
                                    sizeof(target)),
-                         utf8_literal("/api/v10/users/@me/scheduled-events?guild_ids=10")),
+                         utf8_literal("/api/v9/users/@me/scheduled-events?guild_ids=10")),
           "community: Interested is PUT/DELETE on users/@me and own RSVPs come from the user route");
     u8 body[32];
     const u32 interest = guild_community_write_interest_body({body, sizeof(body)});
@@ -522,10 +522,10 @@ void test_guild_profile() noexcept {
     RestMethod method{};
     check(utf8_equal(target_of(GuildCommunityOperation::guild_profile_get, 10, 0, nullptr, &method, target,
                                sizeof(target)),
-                     utf8_literal("/api/v10/guilds/10/profile")) &&
+                     utf8_literal("/api/v9/guilds/10/profile")) &&
               method == RestMethod::get &&
               utf8_equal(target_of(GuildCommunityOperation::guild_join, 10, 0, nullptr, &method, target, sizeof(target)),
-                         utf8_literal("/api/v10/guilds/10/members/@me?lurker=true")) &&
+                         utf8_literal("/api/v9/guilds/10/members/@me?lurker=true")) &&
               method == RestMethod::put,
           "guild profile: the popout reads GET /guilds/{g}/profile and lurks with PUT members/@me?lurker=true");
     // The official client's lurking join names its Gateway session (the
@@ -546,7 +546,7 @@ void test_guild_profile() noexcept {
         guild_community_write_target(lurk, {target, sizeof(target)}, utf8_literal("0123abcdEF4567890123abcdef456789"));
     check(rewritten.ok() &&
               text_is(target, rewritten.target_bytes,
-                      utf8_literal("/api/v10/guilds/222333444555666777/members/@me?lurker=true&session_id="
+                      utf8_literal("/api/v9/guilds/222333444555666777/members/@me?lurker=true&session_id="
                                    "0123abcdEF4567890123abcdef456789")),
           "guild profile: the session joins the lurk query as &session_id=");
     u8 body[8];

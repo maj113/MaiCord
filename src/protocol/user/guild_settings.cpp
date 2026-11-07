@@ -116,7 +116,7 @@ UserGuildSettingsWriteResult user_guild_settings_write(const UserGuildSettingsPa
         return {};
     ProtocolWriter t{target, 0};
     JsonBody b{body};
-    bool ok = protocol_write(&t, "/api/v10/users/@me/guilds/");
+    bool ok = protocol_write(&t, "/api/v9/users/@me/guilds/");
     if (p.guild_id) {
         ok = ok && protocol_write(&t, "settings");
         b.begin_object();
@@ -141,7 +141,7 @@ u32 write_mentions_target(const MentionsQuery& q, Slice<u8> output) noexcept {
     if (!mentions_query_valid(q))
         return 0;
     ProtocolWriter w{output, 0};
-    bool ok = protocol_write(&w, "/api/v10/users/@me/mentions?limit=", q.limit, "&roles=", json_bool(q.roles),
+    bool ok = protocol_write(&w, "/api/v9/users/@me/mentions?limit=", q.limit, "&roles=", json_bool(q.roles),
                              "&everyone=", json_bool(q.everyone));
     if (q.guild_id)
         ok = ok && protocol_write(&w, "&guild_id=", q.guild_id);

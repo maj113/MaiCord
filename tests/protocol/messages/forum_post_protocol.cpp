@@ -360,12 +360,12 @@ void run() noexcept {
     body[0] = 0xa5;
     check(written.ok() &&
               utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
-                         utf8_literal("/api/v10/channels/10")) &&
+                         utf8_literal("/api/v9/channels/10")) &&
               forum_post_write_body(get, {body, sizeof(body)}).ok() && body[0] == 0xa5,
           "forum post: canonical metadata GET has exact target and no body");
     written = forum_post_write_target(create, {target, sizeof(target)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
-                                     utf8_literal("/api/v10/channels/10/threads?use_nested_fields=true")),
+                                     utf8_literal("/api/v9/channels/10/threads?use_nested_fields=true")),
           "forum post: exact observed atomic POST target");
     written = forum_post_write_body(create, {body, sizeof(body)});
     check(written.ok() &&
@@ -385,7 +385,7 @@ void run() noexcept {
     check(written.ok() &&
               utf8_equal(
                   {reinterpret_cast<const char*>(target), written.bytes},
-                  utf8_literal("/api/v10/channels/18446744073709551615/threads?use_nested_fields=true")) &&
+                  utf8_literal("/api/v9/channels/18446744073709551615/threads?use_nested_fields=true")) &&
               forum_post_write_body(full_ids, {body, sizeof(body)}).ok(),
           "forum post: full-width parent/tag IDs serialize exactly");
     target[0] = body[0] = 0xa5;

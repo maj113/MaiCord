@@ -662,7 +662,7 @@ void test_http1() noexcept {
 void test_rest() noexcept {
     u8 request_output[1024]{};
     const RestRequestWriteResult get =
-        write_rest_request_head(RestRequestHead{byte_literal("/api/v10/gateway"),
+        write_rest_request_head(RestRequestHead{byte_literal("/api/v9/gateway"),
                                                 {},
                                                 0,
                                                 RestMethod::get,
@@ -671,7 +671,7 @@ void test_rest() noexcept {
                                 Slice<u8>{request_output, 512});
     expect(get.ok() &&
                bytes_equal(ConstSlice<u8>{request_output, get.bytes},
-                           byte_literal("GET /api/v10/gateway HTTP/1.1\r\n"
+                           byte_literal("GET /api/v9/gateway HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
                                         "Connection: keep-alive\r\n"
                                         "User-Agent: " TEST_USER_AGENT "\r\n"
@@ -698,21 +698,22 @@ void test_rest() noexcept {
                                             "sec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                             "Authorization: user.token\r\n"
                                             "X-Super-Properties: e30=\r\n"
+                                            "Accept-Language: en-US,en;q=0.9\r\n"
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
+                                            "X-Debug-Options: bugReporterEnabled\r\n"
                                             "User-Agent: " TEST_USER_AGENT "\r\n"
                                             "Accept: */*\r\n"
                                             "Sec-Fetch-Site: same-origin\r\n"
                                             "Sec-Fetch-Mode: cors\r\n"
                                             "Sec-Fetch-Dest: empty\r\n"
                                             "Referer: https://discord.com/channels/@me\r\n"
-                                            "Accept-Encoding: gzip\r\n"
-                                            "Accept-Language: en-US,en;q=0.9\r\n"
+                                            "Accept-Encoding: gzip, deflate\r\n"
                                             "Cookie: __dcfduid=visitor; _cfuvid=session\r\n\r\n")),
                "rest_page_get_request_head");
         page.failed_requests = 2;
         page_written = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)});
-        constexpr char counted[] = "Europe/Ljubljana\r\nX-Failed-Requests: 2\r\nUser-Agent: ";
+        constexpr char counted[] = "bugReporterEnabled\r\nX-Failed-Requests: 2\r\nUser-Agent: ";
         bool counted_before_user_agent = false;
         for (u32 at = 0; page_written.ok() && at + sizeof(counted) - 1 <= page_written.bytes; ++at)
             counted_before_user_agent |= maicord::bytes_equal(page_output + at, counted, sizeof(counted) - 1);
@@ -756,8 +757,10 @@ void test_rest() noexcept {
                                             "sec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                             "Authorization: user.token\r\n"
                                             "X-Super-Properties: e30=\r\n"
+                                            "Accept-Language: en-US,en;q=0.9\r\n"
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
+                                            "X-Debug-Options: bugReporterEnabled\r\n"
                                             "X-Context-Properties: e30=\r\n"
                                             "User-Agent: " TEST_USER_AGENT "\r\n"
                                             "Content-Type: application/json\r\n"
@@ -767,8 +770,7 @@ void test_rest() noexcept {
                                             "Sec-Fetch-Mode: cors\r\n"
                                             "Sec-Fetch-Dest: empty\r\n"
                                             "Referer: https://discord.com/channels/@me\r\n"
-                                            "Accept-Encoding: gzip\r\n"
-                                            "Accept-Language: en-US,en;q=0.9\r\n"
+                                            "Accept-Encoding: gzip, deflate\r\n"
                                             "Cookie: __dcfduid=visitor; _cfuvid=session\r\n\r\n")) &&
                    page_written.extra_headers_end ==
                        byte_literal("POST /api/v9/channels/7/messages HTTP/1.1\r\nHost: discord.com\r\n"
@@ -776,14 +778,15 @@ void test_rest() noexcept {
                                     "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                     "sec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: " TEST_SEC_CH_UA_PLATFORM "\r\n"
                                     "Authorization: user.token\r\nX-Super-Properties: e30=\r\n"
+                                    "Accept-Language: en-US,en;q=0.9\r\n"
                                     "X-Discord-Locale: en-US\r\nX-Discord-Timezone: Europe/Ljubljana\r\n"
-                                    "X-Context-Properties: e30=\r\n")
+                                    "X-Debug-Options: bugReporterEnabled\r\nX-Context-Properties: e30=\r\n")
                            .count,
                "rest_page_post_request_head");
         page.cookie = byte_literal("a=1\r\nInjected: yes");
         const bool injected = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)}).error ==
                               RestRequestError::invalid_input;
-        expect(injected && write_rest_request_head(RestRequestHead{byte_literal("/api/v10/gateway"), {}, 0,
+        expect(injected && write_rest_request_head(RestRequestHead{byte_literal("/api/v9/gateway"), {}, 0,
                                                                    RestMethod::get, RestAuthorization::none,
                                                                    false, nullptr, false, {}, {}, {},
                                                                    false, byte_literal("a=1")},
@@ -843,14 +846,14 @@ void test_rest() noexcept {
     u8 atomic_output[16]{};
     guard_fill(atomic_output, sizeof(atomic_output));
     const RestRequestWriteResult too_small = write_rest_request_head(
-        RestRequestHead{byte_literal("/api/v10/gateway"), {}, 0,
+        RestRequestHead{byte_literal("/api/v9/gateway"), {}, 0,
                         RestMethod::get, RestAuthorization::none, false},
         Slice<u8>{atomic_output, 16});
     const bool untouched = guard_intact(atomic_output, sizeof(atomic_output));
     expect(too_small.error == RestRequestError::output_capacity && untouched,
            "rest_request_capacity_is_atomic");
     expect(write_rest_request_head(
-               RestRequestHead{byte_literal("/api/v10/gateway\r\nInjected: yes"),
+               RestRequestHead{byte_literal("/api/v9/gateway\r\nInjected: yes"),
                                {},
                                0,
                                RestMethod::get,
@@ -859,7 +862,7 @@ void test_rest() noexcept {
                Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_target &&
                write_rest_request_head(
-                   RestRequestHead{byte_literal("https://discord.com/api/v10/gateway"),
+                   RestRequestHead{byte_literal("https://discord.com/api/v9/gateway"),
                                    {},
                                    0,
                                    RestMethod::get,
@@ -868,7 +871,7 @@ void test_rest() noexcept {
                    Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_target &&
                write_rest_request_head(
-                   RestRequestHead{byte_literal("/api/v10/gateway"), byte_literal("bad\r\ntoken"), 0,
+                   RestRequestHead{byte_literal("/api/v9/gateway"), byte_literal("bad\r\ntoken"), 0,
                                    RestMethod::get, RestAuthorization::normal_user, false, &page},
                    Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_token,

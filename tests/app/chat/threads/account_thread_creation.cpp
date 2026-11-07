@@ -24,7 +24,7 @@ void transport() noexcept {
               capture.route.major == RestMajorParameter::channel &&
               capture.route.method == RestMethod::post &&
               equal(capture.target, capture.target_bytes,
-                    utf8_literal("/api/v10/channels/20/messages/30/threads")),
+                    utf8_literal("/api/v9/channels/20/messages/30/threads")),
           "thread creation: exact message-origin POST borrows supplied DETAILS owner");
     u8 expected[kThreadCreationMaximumBodyBytes]{};
     const auto body = thread_creation_write_body(request, {expected, sizeof(expected)});
@@ -42,7 +42,7 @@ void transport() noexcept {
               capture.route.method == RestMethod::get && capture.route.major_key == ~u64{0} &&
               !capture.json && !capture.body_bytes &&
               equal(capture.target, capture.target_bytes,
-                    utf8_literal("/api/v10/channels/18446744073709551615")),
+                    utf8_literal("/api/v9/channels/18446744073709551615")),
           "thread creation: reconciliation is bodyless GET of captured source/thread identity");
     const u32 before = capture.submissions;
     check(account_thread_creation_submit(nullptr, &request, 103).error ==

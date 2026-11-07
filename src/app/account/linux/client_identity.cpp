@@ -290,7 +290,6 @@ UserClientConfigurationResult linux_client_identity_build(const LinuxClientEnvir
         {},
         {},
         {},
-        false,
         true,
         Utf8View{storage->window_manager, manager_bytes},
         Utf8View{storage->distro, distro_bytes},

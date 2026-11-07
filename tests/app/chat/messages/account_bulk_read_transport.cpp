@@ -29,7 +29,7 @@ void admission() noexcept {
             retained.route.method == RestMethod::post && retained.json_body &&
             retained.request_id == 501 &&
             utf8_equal({reinterpret_cast<const char*>(retained.target.data), retained.target.count},
-                       utf8_literal("/api/v10/read-states/ack-bulk")) &&
+                       utf8_literal("/api/v9/read-states/ack-bulk")) &&
             utf8_equal(
                 {reinterpret_cast<const char*>(retained.body.data), retained.body.count},
                 utf8_literal(

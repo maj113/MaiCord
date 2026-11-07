@@ -268,7 +268,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     const auto decoded = decode_sent(json, sent, sizeof(sent));
     UserSettingsValue v{};
     const ConstSlice<u8> sent_message{sent, decoded.bytes};
-    check(decoded.ok() && utf8_equal(path, utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
+    check(decoded.ok() && utf8_equal(path, utf8_literal("/api/v9/users/@me/settings-proto/1")) &&
               user_settings_proto_read(user_settings_proto_group(sent_message, 6), {6, 17, 0, UserSettingsKind::boolean},
                                        &v) &&
               v.number == 1 &&
@@ -314,7 +314,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     bool packed = false;
     for (u32 i = 0; i + sizeof(packed_server) <= privacy_group.count; ++i)
         packed = packed || bytes_equal(privacy_group.data + i, packed_server, sizeof(packed_server));
-    check(privacy_decoded.ok() && utf8_equal(path, utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
+    check(privacy_decoded.ok() && utf8_equal(path, utf8_literal("/api/v9/users/@me/settings-proto/1")) &&
               packed && user_settings_proto_contains(privacy_group, request_list, server) &&
               !user_settings_proto_contains(privacy_group, activity_list, server) &&
               !user_settings_proto_group({privacy_sent, privacy_decoded.bytes}, 6).count,
@@ -483,7 +483,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     using SK = UserSettingsKind;
     const u8 dms_v2[]{0xDA, 0x01, 2, 8, 1}, activity_v2[]{0xE8, 0x01, 2}, hide_notes[]{0x8A, 0x02, 2, 8, 1},
         drops_out[]{0x92, 0x01, 2, 8, 1}, online_off[]{0xCA, 0x01, 0};
-    check(permissions_decoded.ok() && utf8_equal(path, utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
+    check(permissions_decoded.ok() && utf8_equal(path, utf8_literal("/api/v9/users/@me/settings-proto/1")) &&
               has_bytes(permission_privacy, dms_v2, sizeof(dms_v2)) &&
               !user_settings_proto_read(permission_privacy, {8, 4, 0, SK::plain_bool}, &v) &&
               user_settings_proto_read(permission_privacy, {8, 11, 0, SK::uint32}, &v) && v.number == 2 &&
@@ -522,7 +522,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               captured.operation == AccountSettingsOperation::session_logout,
           "account settings runtime: confirming queues exactly one log out request");
     json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
-    check(utf8_equal(path, utf8_literal("/api/v10/auth/sessions/logout")) &&
+    check(utf8_equal(path, utf8_literal("/api/v9/auth/sessions/logout")) &&
               utf8_equal(json, utf8_literal("{\"session_id_hashes\":[\"h2\"]}")),
           "account settings runtime: the log out body names only the confirmed device");
     application_account_settings_response(reply(1001, 204), {});
@@ -543,7 +543,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               captured.operation == AccountSettingsOperation::token_revoke && captured.id == 11,
           "account settings runtime: deauthorize confirms, then revokes the listed token");
     json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
-    check(utf8_equal(path, utf8_literal("/api/v10/oauth2/tokens/11")) && !json.bytes,
+    check(utf8_equal(path, utf8_literal("/api/v9/oauth2/tokens/11")) && !json.bytes,
           "account settings runtime: deauthorize sends DELETE without a body");
     application_account_settings_response(reply(1004, 204), {});
 
@@ -569,7 +569,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               captured.operation == AccountSettingsOperation::profile_patch,
           "account settings runtime: saving the editor queues one profile PATCH");
     json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
-    check(utf8_equal(path, utf8_literal("/api/v10/users/@me/profile")) &&
+    check(utf8_equal(path, utf8_literal("/api/v9/users/@me/profile")) &&
               utf8_equal(json, utf8_literal("{\"pronouns\":\"they/them\"}")),
           "account settings runtime: the pronouns PATCH body");
     application_account_settings_response(reply(1007, 400), {});

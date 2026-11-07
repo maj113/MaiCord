@@ -41,19 +41,19 @@ void guild_settings_bodies(Check check) noexcept {
     constexpr u64 now = 1'791'288'000'000ull;
     UserGuildSettingsPatch mute{10, 0, user_guild_settings_mute_end(3600, now), 3600, user_guild_settings_muted};
     mute.muted = true;
-    check(request(write(mute), utf8_literal("/api/v10/users/@me/guilds/settings"),
+    check(request(write(mute), utf8_literal("/api/v9/users/@me/guilds/settings"),
                   utf8_literal("{\"guilds\":{\"10\":{\"muted\":true,\"mute_config\":{\"selected_time_window\":3600,"
                                "\"end_time\":\"2026-10-06T13:00:00+00:00\"}}}}")),
           "guild settings: server mute for one hour goes through the bulk guild route");
     UserGuildSettingsPatch forever{10, 20, 0, -1, user_guild_settings_muted};
     forever.muted = true;
-    check(request(write(forever), utf8_literal("/api/v10/users/@me/guilds/settings"),
+    check(request(write(forever), utf8_literal("/api/v9/users/@me/guilds/settings"),
                   utf8_literal("{\"guilds\":{\"10\":{\"channel_overrides\":{\"20\":{\"muted\":true,\"mute_config\":"
                                "{\"selected_time_window\":-1,\"end_time\":null}}}}}}")),
           "guild settings: channel mute until turned back on carries only that channel");
     UserGuildSettingsPatch dm{0, 30, 0, 0, user_guild_settings_muted | user_guild_settings_level};
     dm.level = MessageNotificationLevel::mentions;
-    check(request(write(dm), utf8_literal("/api/v10/users/@me/guilds/@me/settings"),
+    check(request(write(dm), utf8_literal("/api/v9/users/@me/guilds/@me/settings"),
                   utf8_literal("{\"channel_overrides\":{\"30\":{\"muted\":false,\"message_notifications\":1}}}")),
           "guild settings: direct message override uses the @me route with a plain partial");
     UserGuildSettingsPatch level{10, 0, 0, 0,
@@ -61,13 +61,13 @@ void guild_settings_bodies(Check check) noexcept {
                                      user_guild_settings_suppress_roles};
     level.level = MessageNotificationLevel::none;
     level.suppress_everyone = true;
-    check(request(write(level), utf8_literal("/api/v10/users/@me/guilds/settings"),
+    check(request(write(level), utf8_literal("/api/v9/users/@me/guilds/settings"),
                   utf8_literal("{\"guilds\":{\"10\":{\"message_notifications\":2,\"suppress_everyone\":true,"
                                "\"suppress_roles\":false}}}")),
           "guild settings: level and suppression toggles serialize as numbers and booleans");
     UserGuildSettingsPatch inherit{10, 20, 0, 0, user_guild_settings_level};
     inherit.level = MessageNotificationLevel::inherit;
-    check(request(write(inherit), utf8_literal("/api/v10/users/@me/guilds/settings"),
+    check(request(write(inherit), utf8_literal("/api/v9/users/@me/guilds/settings"),
                   utf8_literal("{\"guilds\":{\"10\":{\"channel_overrides\":{\"20\":{\"message_notifications\":3}}}}}")),
           "guild settings: a channel returning to the server default sends 3");
     UserGuildSettingsPatch invalid = inherit;
@@ -208,11 +208,11 @@ void mentions(Check check) noexcept {
     u8 target[kMentionsMaximumTargetBytes]{};
     const u32 first = write_mentions_target({0, 0, kMentionsPageLimit, true, true}, {target, sizeof(target)});
     check(equals(reinterpret_cast<const char*>(target), first,
-                 utf8_literal("/api/v10/users/@me/mentions?limit=25&roles=true&everyone=true")),
+                 utf8_literal("/api/v9/users/@me/mentions?limit=25&roles=true&everyone=true")),
           "mentions: first page queries every server with roles and @everyone");
     const u32 next = write_mentions_target({300, 10, kMentionsPageLimit, false, true}, {target, sizeof(target)});
     check(equals(reinterpret_cast<const char*>(target), next,
-                 utf8_literal("/api/v10/users/@me/mentions?limit=25&roles=false&everyone=true&guild_id=10&before=300")),
+                 utf8_literal("/api/v9/users/@me/mentions?limit=25&roles=false&everyone=true&guild_id=10&before=300")),
           "mentions: later pages filter the server and continue before the oldest mention");
     check(!write_mentions_target({0, 0, 0, true, true}, {target, sizeof(target)}), "mentions: zero limit rejected");
     static u32 page[2048];

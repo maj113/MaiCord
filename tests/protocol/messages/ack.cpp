@@ -23,10 +23,10 @@ char large_token[kMessageAckMaximumBodyBytes]{};
 void test_message_ack(void (*check)(bool, const char*) noexcept) noexcept {
     u8 output[128]{};
     auto written = write_message_ack_target(1, 2, {output, 128});
-    check(written.ok() && bytes_equal(output, written.bytes, utf8_literal("/api/v10/channels/1/messages/2/ack")), "ack_target_exact");
+    check(written.ok() && bytes_equal(output, written.bytes, utf8_literal("/api/v9/channels/1/messages/2/ack")), "ack_target_exact");
     written = write_message_ack_target(~0ull, ~0ull, {output, 128});
     check(written.ok() && bytes_equal(output, written.bytes,
-        utf8_literal("/api/v10/channels/18446744073709551615/messages/18446744073709551615/ack")), "ack_target_max_snowflakes");
+        utf8_literal("/api/v9/channels/18446744073709551615/messages/18446744073709551615/ack")), "ack_target_max_snowflakes");
     const u32 target_bytes = written.bytes;
     check(write_message_ack_target(~0ull, ~0ull, {output, target_bytes}).ok(), "ack_target_exact_fit");
     for (u32 capacity = 0; capacity < target_bytes; ++capacity) {
@@ -39,7 +39,7 @@ void test_message_ack(void (*check)(bool, const char*) noexcept) noexcept {
         sentinel(output, 128), "ack_target_zero_channel_atomic");
     written = write_message_ack_target(1, 0, {output, 128});
     check(written.ok() && bytes_equal(output, written.bytes,
-        utf8_literal("/api/v10/channels/1/messages/0/ack")), "ack_target_zero_boundary_exact");
+        utf8_literal("/api/v9/channels/1/messages/0/ack")), "ack_target_zero_boundary_exact");
 
     MessageAckRequest request{};
     written = write_message_ack_body(request, {output, 128});

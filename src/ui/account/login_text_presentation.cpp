@@ -436,7 +436,9 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : view.status == LoginStatus::connection_failed
             ? utf8_literal("Couldn't connect. Try again.")
         : view.status == LoginStatus::rejected
-            ? utf8_literal("Login failed. Check your details and try again.")
+            ? view.account_suspended
+                  ? utf8_literal("Discord has suspended this account. See its standing at discord.com.")
+                  : utf8_literal("Login failed. Check your details and try again.")
         : remote_status == LoginRemoteStatus::connecting
             ? utf8_literal("Generating QR code…")
         : remote_status == LoginRemoteStatus::qr_ready

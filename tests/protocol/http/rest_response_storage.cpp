@@ -42,7 +42,7 @@ struct RestStorageProbe {
     }
     bool begin_request(bool reusable, u32 request_bytes = 0, ConstSlice<u8> target = {}) noexcept {
         runtime->transport.state = TlsStreamState::ready;
-        constexpr auto default_target = utf8_literal("/api/v10/channels/123/messages?limit=50");
+        constexpr auto default_target = utf8_literal("/api/v9/channels/123/messages?limit=50");
         if (!target.count)
             target = {reinterpret_cast<const u8*>(default_target.data), default_target.bytes};
         runtime->command.target_bytes = target.count;
@@ -173,7 +173,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         const auto post_written = write_message_create_target(123, {post_target, sizeof(post_target)});
         valid = valid && post_written.ok();
         const auto post = endpoint_key({post_target, post_written.bytes});
-        constexpr auto other_path = utf8_literal("/api/v10/channels/124/messages");
+        constexpr auto other_path = utf8_literal("/api/v9/channels/124/messages");
         const auto other = endpoint_key({reinterpret_cast<const u8*>(other_path.data), other_path.bytes});
         for (const auto key : keys)
             valid = valid && key.key_low == post.key_low && key.key_high == post.key_high &&
@@ -221,14 +221,14 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         for (u32 i = 0; i < kRestEndpointGateCapacity; ++i) {
             u8 target[96]{};
             ProtocolWriter writer{{target, sizeof(target)}, 0};
-            protocol_writer_append_literal(&writer, "/api/v10/channels/");
+            protocol_writer_append_literal(&writer, "/api/v9/channels/");
             protocol_writer_append_u64(&writer, i + 1);
             protocol_writer_append_literal(&writer, "/messages");
             valid = valid &&
                     endpoint_gate_acquire(&gate, endpoint_key({target, writer.used}), 1, &leases[i]).kind ==
                         EndpointGateKind::acquired;
         }
-        constexpr auto extra_path = utf8_literal("/api/v10/channels/999/messages");
+        constexpr auto extra_path = utf8_literal("/api/v9/channels/999/messages");
         const auto extra = endpoint_key({reinterpret_cast<const u8*>(extra_path.data), extra_path.bytes});
         RestEndpointLease newcomer{};
         valid = valid && endpoint_gate_acquire(&gate, extra, 1, &newcomer).kind == EndpointGateKind::busy;
@@ -262,7 +262,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         for (u32 i = 0; valid && i < kRestEndpointGateCapacity; ++i) {
             u8 target[96]{};
             ProtocolWriter writer{{target, sizeof(target)}, 0};
-            protocol_writer_append_literal(&writer, "/api/v10/channels/");
+            protocol_writer_append_literal(&writer, "/api/v9/channels/");
             protocol_writer_append_u64(&writer, i + 1);
             protocol_writer_append_literal(&writer, "/messages");
             RestEndpointLease lease{};
@@ -277,7 +277,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         }
         if (valid) {
             auto* r = probe.runtime;
-            constexpr auto target = utf8_literal("/api/v10/channels/999/messages?limit=50");
+            constexpr auto target = utf8_literal("/api/v9/channels/999/messages?limit=50");
             r->command.endpoint_key =
                 endpoint_key({reinterpret_cast<const u8*>(target.data), target.bytes});
             r->command.target_bytes = target.bytes;
@@ -404,7 +404,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         valid = valid && replacement.initialize(4096, false, &shared);
         if (valid) {
             auto* r = replacement.runtime;
-            constexpr auto target = utf8_literal("/api/v10/channels/123/messages?before=777&limit=25");
+            constexpr auto target = utf8_literal("/api/v9/channels/123/messages?before=777&limit=25");
             r->command.endpoint_key =
                 endpoint_key({reinterpret_cast<const u8*>(target.data), target.bytes});
             r->command.target_bytes = target.bytes;
@@ -742,7 +742,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             r->request_body[0] = 0x5A;
             const auto written =
                 thread_browser_write_target(request, {r->request_target, kRestClientMaximumTargetBytes});
-            valid = written.ok() && written.bytes == 1259 && written.bytes > 1024 &&
+            valid = written.ok() && written.bytes == 1258 && written.bytes > 1024 &&
                     r->request_target[written.bytes - 1] == '0' && r->encrypted_storage[0] == 0xA5 &&
                     r->request_body[0] == 0x5A && r->request_body == r->response_body &&
                     r->scheduler == &shared.scheduler && !r->extended_body;
@@ -862,6 +862,25 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             valid = output[i] == static_cast<u8>(body[i]) && identity.runtime->response_body[i] == 0;
     }
     check(valid, "rest_identity_response_survives_request_cleanup_and_short_output_retry");
+    // HTTP's deflate coding is a zlib stream (here one stored block): the
+    // client advertises it and decodes it like gzip.
+    RestStorageProbe deflated;
+    valid = deflated.initialize(4096) && deflated.begin_request(true);
+    if (valid) {
+        constexpr char header[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: deflate\r\n"
+                                  "Content-Length: 22\r\n\r\n";
+        constexpr u8 zlib[]{0x78, 0x01, 0x01, 0x0B, 0x00, 0xF4, 0xFF, 0x7B, 0x22, 0x6F, 0x6B,
+                            0x22, 0x3A, 0x74, 0x72, 0x75, 0x65, 0x7D, 0x16, 0xE3, 0x04, 0x11};
+        valid = response_plaintext_received(deflated.runtime,
+                    {reinterpret_cast<const u8*>(header), sizeof(header) - 1}, false) ==
+                    TlsStreamReadAction::continue_read &&
+                response_plaintext_received(deflated.runtime, {zlib, sizeof(zlib)}, false) ==
+                    TlsStreamReadAction::complete &&
+                deflated.finish() && deflated.runtime->completed.body_bytes == 11 &&
+                deflated.runtime->completed.content_encoding == RestContentEncoding::identity &&
+                bytes_equal(deflated.runtime->response_body, "{\"ok\":true}", 11);
+    }
+    check(valid, "rest_deflate_response_is_decoded");
     RestStorageProbe small;
     valid = small.initialize(kRestClientMinimumResponseBytes);
     for (u32 i = 0; valid && i < 3; ++i) {

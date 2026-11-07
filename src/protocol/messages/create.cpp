@@ -18,7 +18,7 @@ MessageCreateWriteResult write_message_create_target(u64 channel_id,
         return error(MessageCreateWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages")) {
+    if (!protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages")) {
         return error(MessageCreateWriteError::output_too_small);
     }
     return MessageCreateWriteResult{writer.used, MessageCreateWriteError::none};

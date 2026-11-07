@@ -55,7 +55,7 @@ ThreadActionResult thread_action_write_target(
         return {0, ThreadActionError::input};
     u8 temporary[kThreadActionMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", request.thread_id) ||
+    if (!protocol_write(&writer, "/api/v9/channels/", request.thread_id) ||
         (request.operation != ThreadActionOperation::unarchive &&
          !(protocol_write(&writer, "/thread-members/") &&
            (request.operation == ThreadActionOperation::fetch_self ? protocol_write(&writer, request.self_user_id)

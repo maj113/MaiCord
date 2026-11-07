@@ -906,7 +906,7 @@ Utf8View interaction_data_name(void*, InteractionDataEntity entity, u64 id) noex
 void test_interaction_data(Check check) noexcept {
     u8 target[kInteractionDataTargetBytes];
     const u32 bytes = interaction_data_write_target(1234567890123ull, 98765432109876ull, {target, sizeof(target)});
-    const Utf8View expected = utf8_literal("/api/v10/channels/1234567890123/messages/98765432109876/interaction-data");
+    const Utf8View expected = utf8_literal("/api/v9/channels/1234567890123/messages/98765432109876/interaction-data");
     const RestRouteKey route = interaction_data_route(1234567890123ull);
     u8 small[16];
     check(bytes == expected.bytes && bytes_equal(target, expected.data, bytes) && rest_route_valid(route) &&

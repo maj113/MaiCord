@@ -19,7 +19,7 @@ bool freed(const void* pointer) noexcept {
 }
 struct Probe : RestClientProbe {
     RestClientRequest request(RestMethod method, u64 id, ConstSlice<u8> body = {}) noexcept {
-        static constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
+        static constexpr char target[] = "/api/v9/users/@me/settings-proto/2";
         return {{reinterpret_cast<const u8*>(target), sizeof(target) - 1}, body,
             {kRestUserSettingsRouteId, 0, method, RestMajorParameter::none}, id, 0,
             method == RestMethod::patch};
@@ -198,7 +198,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
     // only for an oversized body, the response keeps its configured capacity,
     // and small bodies stay on the fixed arena.
     {
-        static constexpr char target[] = "/api/v10/guilds/10";
+        static constexpr char target[] = "/api/v9/guilds/10";
         static constexpr char boundary[] = "MaiCordFormBoundary0000000000001";
         RestClientRequest large{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                 {payload, sizeof(payload)},

@@ -2097,7 +2097,7 @@ void test_reaction_users_and_viewer() noexcept {
         1212343456567878909ull, 1357913579246802468ull, 0, utf8_literal("🦈"),
         MessageReactionType::normal, 0, 100, Slice<u8>{target, sizeof(target)});
     const Utf8View expected_shark =
-        utf8_literal("/api/v10/channels/1212343456567878909/messages/1357913579246802468/reactions/"
+        utf8_literal("/api/v9/channels/1212343456567878909/messages/1357913579246802468/reactions/"
                      "%F0%9F%A6%88?limit=100&type=0");
     expect(shark_route.ok() && shark_route.bytes == expected_shark.bytes &&
                utf8_equal(Utf8View{reinterpret_cast<const char*>(target), shark_route.bytes},
@@ -2111,7 +2111,7 @@ void test_reaction_users_and_viewer() noexcept {
                utf8_equal(
                    Utf8View{reinterpret_cast<const char*>(target), custom_route.bytes},
                    utf8_literal(
-                       "/api/v10/channels/7/messages/11/reactions/wave:123?limit=100&after=456&type=1")),
+                       "/api/v9/channels/7/messages/11/reactions/wave:123?limit=100&after=456&type=1")),
            "reaction_users_custom_emoji_after_pagination_route");
 
     constexpr Utf8View response_body =

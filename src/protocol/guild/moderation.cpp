@@ -527,7 +527,7 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
         return {0, GuildModerationError::input};
     u8 target[kGuildModerationMaximumTargetBytes];
     ProtocolWriter w{{target, sizeof(target)}, 0};
-    bool ok = protocol_write(&w, "/api/v10/guilds/", r.guild_id);
+    bool ok = protocol_write(&w, "/api/v9/guilds/", r.guild_id);
     switch (r.operation) {
     case Op::members_search: ok = ok && protocol_write(&w, "/members-search"); break;
     case Op::bulk_ban: ok = ok && protocol_write(&w, "/bulk-ban/v2"); break;

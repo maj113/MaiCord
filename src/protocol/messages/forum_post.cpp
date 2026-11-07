@@ -548,7 +548,7 @@ ForumPostResult forum_post_write_target(const ForumPostRequest& request, Slice<u
         return {written.target_bytes};
     }
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", request.parent_id) ||
+    if (!protocol_write(&writer, "/api/v9/channels/", request.parent_id) ||
         (request.operation == ForumPostOperation::create &&
          !protocol_write(&writer, "/threads?use_nested_fields=true")))
         return {0, ForumPostError::capacity};

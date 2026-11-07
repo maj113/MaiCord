@@ -19,7 +19,7 @@ void admission() noexcept {
         return;
     p.client.authentication_rejected = 1;
     rest_client_set_required_action(&p.client, AccountRequirement::captcha);
-    constexpr char ordinary_target[] = "/api/v10/users/@me";
+    constexpr char ordinary_target[] = "/api/v9/users/@me";
     const RestClientRequest ordinary{
         {reinterpret_cast<const u8*>(ordinary_target), sizeof(ordinary_target) - 1},
         {},
@@ -42,7 +42,7 @@ void admission() noexcept {
           "logout: fixed no-push operation is admitted despite authentication and action gates");
     const auto original = p.retained();
     check(utf8_equal({reinterpret_cast<const char*>(original.target.data), original.target.count},
-                     utf8_literal("/api/v10/auth/logout")) &&
+                     utf8_literal("/api/v9/auth/logout")) &&
               utf8_equal({reinterpret_cast<const char*>(original.body.data), original.body.count},
                          utf8_literal("{\"provider\":null,\"voip_provider\":null}")),
           "logout: canonical endpoint and JSON copied into existing request owner");
@@ -169,7 +169,7 @@ void receipts() noexcept {
 }
 
 void preemption() noexcept {
-    constexpr char target[] = "/api/v10/users/@me";
+    constexpr char target[] = "/api/v9/users/@me";
     RestClientRequest ordinary{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                {},
                                {0x4C4F474F55545445ull, 0, RestMethod::get, RestMajorParameter::none},

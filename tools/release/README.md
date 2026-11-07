@@ -15,6 +15,23 @@ any Windows machine with Python 3.10 or newer will do.
 | `test_plugin_index_tools.py` | Checks `plugin_index.py` against the vectors in `tests/fixtures/plugin_index/format2`; CI runs it on every build |
 | `test_release_tools.py` | Self-test with a throwaway key and a scratch git history; CI runs it on every build |
 
+## Before a release: the client's build number
+
+MaiCord reports itself as the official desktop client, whose web build moves on
+every few days; nothing refreshes `kClientBuildNumber`
+(`include/maicord/protocol/http/client_user_agent.hpp`) automatically. Before
+tagging a release, read the build the public login page serves (an
+unauthenticated GET):
+
+```sh
+curl -s https://discord.com/app | grep -o 'BUILD_NUMBER":"[0-9]*"'
+```
+
+When it differs, set `kClientBuildNumber` to it and update the pinned
+`client_build_number` in `tests/app/account/client_identity.cpp` in the same
+commit. A running official client may lag a week behind on stable, so an older
+number is not wrong, but a release should not ship one that is already stale.
+
 ## Formats (they match the client's verifiers)
 
 - **Update package**: `MaiCord-x64-p2-<version>.zip`. Exactly one *stored*

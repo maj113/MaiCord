@@ -419,6 +419,12 @@ inline RestClientSubmitResult rest_client_cancel_result(RestClient* client,
 // submit with exactly this request ID appends once; any other submit leaves
 // them armed. Empty headers or a zero ID clear. Erased when consumed.
 bool rest_client_arm_headers(RestClient* client, u64 request_id, const ConstSlice<u8>& headers) noexcept;
+// Producer thread of a started normal-user client. Replaces its credential
+// (the same 1..2048 visible ASCII bytes start accepts) and erases the old
+// one; false leaves the old one in place. Every request head the worker
+// writes after the call carries the new credential, and a 401 to a request
+// written under the old one is delivered without marking the session rejected.
+bool rest_client_replace_credential(RestClient* client, ConstSlice<u8> credential) noexcept;
 
 RestClientTakeResult rest_client_take_response(RestClient* client,
                                                RestClientResponse* response,

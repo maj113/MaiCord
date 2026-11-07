@@ -260,9 +260,11 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         runtime->record_output == base + request_capacity + kUserAuthEncryptedInputBytes &&
         runtime->request_head == base + request_capacity + kUserAuthEncryptedInputBytes + kUserAuthRecordOutputBytes &&
         runtime->response_input == runtime->request_head &&
-        runtime->request_head + kRestMaximumHeaderBytes == base + secure_expected &&
+        runtime->decompression == runtime->request_head + kRestMaximumHeaderBytes &&
+        runtime->decompression_capacity == response_capacity &&
+        runtime->decompression + kUserAuthMaximumResponseBytes == base + secure_expected &&
         runtime->request_head_capacity == kUserAuthRequestHeadBytes,
-        "real locked offsets are contiguous nonoverlapping with intentional aliases");
+        "real locked offsets are contiguous nonoverlapping with intentional aliases, the inflate scratch last");
     const usize owner_begin = reinterpret_cast<usize>(runtime);
     const usize handshake_begin = reinterpret_cast<usize>(runtime->handshake_output);
     storage_check(handshake_begin >= owner_begin + sizeof(RestClientRuntime) + sizeof(RestLocalRates) &&
@@ -345,8 +347,8 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
             kUserAuthResetRequestBodyBytes, maximum_captcha,
             {runtime->request_head, runtime->request_head_capacity}, &maximum_metadata);
         storage_check(maximum_head.ok() && maximum_head.bytes <= kUserAuthRequestHeadBytes &&
-            runtime->request_head_capacity == 12 * 1024,
-            "maximum metadata and complete CAPTCHA tuple fit the unchanged locked 12 KiB request head");
+            runtime->request_head_capacity == 20 * 1024,
+            "maximum metadata and complete CAPTCHA tuple fit the locked 20 KiB request head");
         SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
     }
     storage_check(storage_offline(client, *runtime), "startup performed no resolve connect TLS or REST request");

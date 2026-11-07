@@ -114,7 +114,7 @@ void test_search_bodies() noexcept {
     request.operation = GuildModerationOperation::members_search;
     request.guild_id = kGuild;
     request.search = &q;
-    check(target_is(request, utf8_literal("/api/v10/guilds/10/members-search")) &&
+    check(target_is(request, utf8_literal("/api/v9/guilds/10/members-search")) &&
               guild_moderation_method(request.operation) == RestMethod::post,
           "members search: POST /guilds/{g}/members-search");
     q.after = {1, 2};
@@ -145,7 +145,7 @@ void test_bans() noexcept {
     request.reason = utf8_literal("Breaking server rules");
     u8 reason[64];
     const auto encoded = guild_moderation_write_reason(request, {reason, sizeof(reason)});
-    check(target_is(request, utf8_literal("/api/v10/guilds/10/bulk-ban/v2")) &&
+    check(target_is(request, utf8_literal("/api/v9/guilds/10/bulk-ban/v2")) &&
               body_is(request, utf8_literal(R"({"user_ids":["1","2"],"delete_message_seconds":3600})")) &&
               encoded.ok() && same(reason, encoded.bytes, utf8_literal("Breaking%20server%20rules")) &&
               guild_moderation_reason_header(request),
@@ -167,11 +167,11 @@ void test_bans() noexcept {
     search.operation = GuildModerationOperation::ban_search;
     search.guild_id = kGuild;
     search.query = utf8_literal(" spam bot , 123456789012345678 , other ");
-    check(target_is(search, utf8_literal("/api/v10/guilds/10/bans/search?limit=10&user_ids=123456789012345678&query=spam%20bot")) &&
+    check(target_is(search, utf8_literal("/api/v9/guilds/10/bans/search?limit=10&user_ids=123456789012345678&query=spam%20bot")) &&
               guild_moderation_method(search.operation) == RestMethod::get && body_is(search, {}),
           "ban search: limit, each ID, then the first text piece, encoded");
     search.query = utf8_literal("123456789012345678,223456789012345678");
-    check(target_is(search, utf8_literal("/api/v10/guilds/10/bans/search?limit=10&user_ids=123456789012345678"
+    check(target_is(search, utf8_literal("/api/v9/guilds/10/bans/search?limit=10&user_ids=123456789012345678"
                                          "&user_ids=223456789012345678")),
           "ban search: IDs alone leave query out and repeat user_ids");
     search.query = utf8_literal("   ");
@@ -290,7 +290,7 @@ void test_transport() noexcept {
     check(account_guild_moderation_submit(&details, &request, 201).ok() && capture.id == 201 &&
               capture.route.method == RestMethod::post && capture.route.major == RestMajorParameter::guild &&
               capture.route.major_key == kGuild && capture.json && capture.response_capacity == kRestClientMaximumResponseBytes &&
-              same(capture.target, capture.target_bytes, utf8_literal("/api/v10/guilds/10/members-search")) &&
+              same(capture.target, capture.target_bytes, utf8_literal("/api/v9/guilds/10/members-search")) &&
               same(capture.body, capture.body_bytes, utf8_literal(R"({"or_query":{},"and_query":{},"limit":250})")) &&
               !capture.reason_bytes && !capture.empty_reason,
           "guild moderation account: a members search POSTs its body with an extended response bank");

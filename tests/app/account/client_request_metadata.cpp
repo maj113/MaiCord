@@ -28,12 +28,11 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
     u32 locale_bytes = 0;
     u32 revision = 0;
     ClientSessionMetadata metadata{};
-    const auto matches = [&](u32 bytes, Utf8View heartbeat, Utf8View app_state,
-                             bool app_state_first) noexcept {
+    // The writer's one order: the heartbeat session (when there is one) before the app state.
+    const auto matches = [&](u32 bytes, Utf8View heartbeat, Utf8View app_state) noexcept {
         GatewayUserProperties properties = base;
         properties.client_heartbeat_session_id = heartbeat;
         properties.client_app_state = app_state;
-        properties.app_state_first = app_state_first;
         const auto written = write_rest_user_super_properties(properties, {scratch, sizeof(scratch)},
                                                               {expected, sizeof(expected)});
         return written.ok() && bytes == written.bytes && bytes_equal(header, expected, bytes);
@@ -43,7 +42,7 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
           "metadata encodes the base properties");
     u32 bytes = client_session_metadata_request(&metadata, now, &revision, {header, sizeof(header)},
                                                 {locale, sizeof(locale)}, &locale_bytes);
-    check(matches(bytes, {}, utf8_literal("unfocused"), true) &&
+    check(matches(bytes, {}, utf8_literal("unfocused")) &&
               utf8_equal({locale, locale_bytes}, utf8_literal("en-GB")),
           "the first request adds the app state; no heartbeat session is reported before one exists");
     const u32 first_revision = revision;
@@ -61,13 +60,13 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
     bytes = client_session_metadata_request(&metadata, now + 2, &revision, {header, sizeof(header)},
                                             {locale, sizeof(locale)}, &locale_bytes);
     const Utf8View uuid{session.uuid, kGatewayUserLaunchIdBytes};
-    check(revision != first_revision && matches(bytes, uuid, utf8_literal("focused"), true),
-          "a heartbeat session first seen later follows the app state");
+    check(revision != first_revision && matches(bytes, uuid, utf8_literal("focused")),
+          "a heartbeat session first seen later precedes the app state");
     char identify_heartbeat[kGatewayUserLaunchIdBytes];
     const GatewayUserProperties identify =
         client_session_metadata_properties(&metadata, identify_heartbeat);
     check(utf8_equal(identify.client_heartbeat_session_id, uuid) &&
-              utf8_equal(identify.client_app_state, utf8_literal("focused")) && identify.app_state_first,
+              utf8_equal(identify.client_app_state, utf8_literal("focused")),
           "Identify reads the object the last request left");
     ClientHeartbeatSession reused{};
     check(!client_session_metadata_use_session(&metadata, true, now + kClientHeartbeatSessionIdleMs - 1,
@@ -78,7 +77,7 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
     const u64 expired = reused.last_used_ms + kClientHeartbeatSessionIdleMs;
     bytes = client_session_metadata_request(&metadata, expired, &revision, {header, sizeof(header)},
                                             {locale, sizeof(locale)}, &locale_bytes);
-    check(matches(bytes, {}, utf8_literal("focused"), true),
+    check(matches(bytes, {}, utf8_literal("focused")),
           "a session 30 minutes past its last use is no longer reported");
     ClientHeartbeatSession dropped{};
     check(!client_session_metadata_use_session(&metadata, false, expired, &dropped) && !dropped.valid &&
@@ -87,8 +86,8 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
           "an inactive client drops the expired session and an active one starts another");
     bytes = client_session_metadata_request(&metadata, expired, &revision, {header, sizeof(header)},
                                             {locale, sizeof(locale)}, &locale_bytes);
-    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused"), true),
-          "a returning heartbeat session keeps its key's place");
+    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused")),
+          "a returning heartbeat session is reported again");
 
     check(!client_session_metadata_set_locale(&metadata, utf8_literal("en-GB")) &&
               !client_session_metadata_set_locale(&metadata, {}) &&
@@ -99,7 +98,7 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
     bytes = client_session_metadata_request(&metadata, expired, &revision, {header, sizeof(header)},
                                             {locale, sizeof(locale)}, &locale_bytes);
     check(revision != locale_revision && utf8_equal({locale, locale_bytes}, utf8_literal("de")) &&
-              matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused"), true),
+              matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused")),
           "the user's interface locale reaches the next request as X-Discord-Locale");
 
     ClientSessionMetadata restored{};
@@ -108,7 +107,7 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
           "metadata restores a session");
     bytes = client_session_metadata_request(&restored, expired + 1, &revision, {header, sizeof(header)},
                                             {locale, sizeof(locale)}, &locale_bytes);
-    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused"), false),
+    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused")),
           "a session restored before the first request precedes the app state");
     ClientHeartbeatSession invalid = session;
     invalid.uuid[8] = 'x';
@@ -277,7 +276,7 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
               command.ok() &&
               contains({reinterpret_cast<const char*>(identify), command.bytes}, {launch_id, sizeof(launch_id)}),
           "replacement Gateway configurations retain the owner's launch UUID, backing views and REST projection");
-    constexpr char target[] = "/api/v10/users/@me";
+    constexpr char target[] = "/api/v9/users/@me";
     constexpr char token[] = "fixture";
     constexpr char properties[] = "e30=";
     RestUserRequestHeaders headers{{reinterpret_cast<const u8*>(properties), sizeof(properties) - 1},
@@ -295,9 +294,9 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
     auto view = Utf8View{reinterpret_cast<const char*>(output), written.bytes};
     check(
         written.ok() &&
-            contains(view, utf8_literal("X-Super-Properties: e30=\r\nX-Discord-Locale: de\r\n"
-                                        "X-Discord-Timezone: Europe/Berlin\r\n")) &&
-            contains(view, utf8_literal("\r\nAccept-Language: de,en-US;q=0.9\r\n")),
+            contains(view, utf8_literal("X-Super-Properties: e30=\r\nAccept-Language: de,en-US;q=0.9\r\n"
+                                        "X-Discord-Locale: de\r\nX-Discord-Timezone: Europe/Berlin\r\n"
+                                        "X-Debug-Options: bugReporterEnabled\r\n")),
         "authenticated request carries the languages, interface locale and IANA timezone in client order");
     const auto exact = write_rest_request_head(request, {output, written.bytes});
     for (auto& byte : output)

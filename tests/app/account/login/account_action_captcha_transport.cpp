@@ -31,7 +31,7 @@ struct Probe : RestClientProbe {
         return {runtime->extra_headers, runtime->command.extra_headers_bytes};
     }
     RestClientSubmitResult send(u64 id, ConstSlice<u8> extra = {}) noexcept {
-        static constexpr char target[] = "/api/v10/channels/1/messages";
+        static constexpr char target[] = "/api/v9/channels/1/messages";
         static constexpr char body[] = "{}";
         return rest_client_submit(&client, {{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                             {reinterpret_cast<const u8*>(body), 2},

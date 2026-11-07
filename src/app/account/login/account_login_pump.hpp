@@ -2,7 +2,9 @@
 
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/os/thread.hpp"
+#include "maicord/app/net/signed_out_session.hpp"
 #include "account_login_handoff.hpp"
+#include "maicord/app/gateway/client.hpp"
 
 // Profile staging, the pump and the stop of the TU-local login owner (see account_login_handoff.hpp).
 // Only translation units that drive the owner include this; those that read its status do not.
@@ -45,7 +47,12 @@ bool commit_login_profile(AccountLoginRuntime* runtime) noexcept {
     runtime->error = AccountLoginError::none;
     runtime->profile_native_error = 0;
     runtime->profile_saved = true;
+    // The launch signed in interactively: its first Gateway identify is the normal one, not fast-connect.
+    gateway_user_launch_signed_in();
     runtime->authenticated_pending = false;
+    // Login success: the fingerprint is dropped and this account adopts the
+    // signed-out cookies when it starts.
+    signed_out_signed_in(runtime->user_id);
     return true;
 }
 
@@ -198,6 +205,7 @@ AccountLoginStatus WINAPI module_login_pump(void* instance) noexcept {
     if (event.kind != UserAuthCoordinatorEventKind::none) {
         runtime->user_id = event.response.has_user_id ? event.response.user_id : runtime->user_id;
         runtime->error_code = event.response.has_error_code ? event.response.error_code : 0;
+        runtime->account_suspended = event.response.suspended;
         if (event.response.mfa_capabilities != 0) {
             runtime->mfa_capabilities = event.response.mfa_capabilities;
         }

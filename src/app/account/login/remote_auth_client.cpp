@@ -3,6 +3,10 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
+#include "maicord/app/net/signed_out_session.hpp"
+#include "maicord/os/wait.hpp"
+#include "maicord/protocol/auth/user_auth.hpp"
+#include "maicord/protocol/http/rest.hpp"
 #include "maicord/core/byte_queue.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
@@ -791,6 +795,60 @@ void release_transport(RemoteAuthClientRuntime* runtime) noexcept {
     byte_queue_clear(&runtime->websocket_input, true);
 }
 
+bool keep_fingerprint(void* context, const RestClientResponse& response, ConstSlice<u8> body) noexcept {
+    auto* runtime = static_cast<RemoteAuthClientRuntime*>(context);
+    char fingerprint[kRestUserFingerprintMaximumBytes];
+    // The socket's input storage is idle until it connects.
+    const Slice<u32> scratch{reinterpret_cast<u32*>(runtime->encrypted_storage), kEncryptedInputBytes / 4};
+    const u32 bytes = response.succeeded() ? user_auth_decode_fingerprint(
+                                                 {reinterpret_cast<const char*>(body.data), body.count}, scratch,
+                                                 {fingerprint, sizeof(fingerprint)})
+                                           : 0;
+    secure_clear_bytes(runtime->encrypted_storage, kEncryptedInputBytes);
+    signed_out_set_fingerprint({fingerprint, bytes});
+    secure_clear_bytes(fingerprint, sizeof(fingerprint));
+    return true;
+}
+
+bool discard_response(void*, const RestClientResponse&, ConstSlice<u8>) noexcept {
+    return true;
+}
+
+// What the desktop login page requests as it loads, before its QR socket:
+// the experiments assignment, which mints the fingerprint every later
+// signed-out request carries, then the location metadata. Once per
+// signed-out period, whatever the answers (a QR refresh is not a new page).
+// Borrows the ticket exchange's transport and stops it again; a failure only
+// leaves the login without a fingerprint, as a page whose request failed.
+void load_login_page(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime) noexcept {
+    RestClient* transport = &runtime->ticket_exchange.transport;
+    if (stop_requested(client) || !signed_out_claim_page_load() ||
+        !rest_client_start_user_auth(transport, kUserAuthMaximumResponseBytes).ok())
+        return;
+    constexpr u32 kPageRequestTimeoutMs = 10'000;
+    const UserAuthOperation requests[]{UserAuthOperation::experiments, UserAuthOperation::location_metadata};
+    for (u32 i = 0; i < 2; ++i) {
+        const u64 request_id = i + 1;
+        if (!rest_client_submit_user_auth(
+                 transport, {nullptr, nullptr, nullptr, nullptr, request_id, kPageRequestTimeoutMs, requests[i]})
+                 .ok())
+            break;
+        HANDLE waits[]{client->cancel_event, rest_client_notification_handle(transport)};
+        if (wait_any(waits, 2, kPageRequestTimeoutMs) != WAIT_OBJECT_0 + 1) {
+            rest_client_cancel(transport, request_id);
+            break;
+        }
+        RestClientResponse response{};
+        if (!rest_client_consume_user_auth_response(transport, &response, i ? discard_response : keep_fingerprint,
+                                                    runtime)
+                 .ok() ||
+            !response.succeeded())
+            break;
+    }
+    RestClientResponse receipt{};
+    rest_client_stop_user_auth(transport, 5'000, &receipt);
+}
+
 u32 remote_auth_thread(void* parameter) noexcept {
     auto* client = static_cast<RemoteAuthClient*>(parameter);
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
@@ -809,6 +867,7 @@ u32 remote_auth_thread(void* parameter) noexcept {
     RemoteAuthClientError error = RemoteAuthClientError::none;
     RemoteAuthHandshakeResult handshake_failure{};
     bool authenticated = false;
+    load_login_page(client, runtime);
     // RSA-2048 generation costs tens of milliseconds; doing it here keeps it
     // off the UI thread, which would otherwise delay the first login frame.
     const RemoteAuthHandshakeResult keyed = remote_auth_handshake_initialize(&runtime->handshake);

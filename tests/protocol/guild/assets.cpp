@@ -192,41 +192,41 @@ void test_protocol() noexcept {
     };
     auto r = asset(GuildAssetOperation::guild_icon);
     r.image = {png, sizeof(png)};
-    add(r, image, RestMethod::patch, utf8_literal("/api/v10/guilds/10"),
+    add(r, image, RestMethod::patch, utf8_literal("/api/v9/guilds/10"),
         utf8_literal(R"({"icon":"data:image/png;base64,AQIDBAU="})"));
     r.image = {};
-    add(r, {}, RestMethod::patch, utf8_literal("/api/v10/guilds/10"), utf8_literal(R"({"icon":null})"));
+    add(r, {}, RestMethod::patch, utf8_literal("/api/v9/guilds/10"), utf8_literal(R"({"icon":null})"));
     r = asset(GuildAssetOperation::guild_banner);
-    add(r, {}, RestMethod::patch, utf8_literal("/api/v10/guilds/10"), utf8_literal(R"({"banner":null})"));
+    add(r, {}, RestMethod::patch, utf8_literal("/api/v9/guilds/10"), utf8_literal(R"({"banner":null})"));
     r = asset(GuildAssetOperation::role_icon, 30);
     r.image = {png, sizeof(png)};
-    add(r, image, RestMethod::patch, utf8_literal("/api/v10/guilds/10/roles/30"),
+    add(r, image, RestMethod::patch, utf8_literal("/api/v9/guilds/10/roles/30"),
         utf8_literal(R"({"icon":"data:image/png;base64,AQIDBAU="})"));
     r = asset(GuildAssetOperation::emoji_create);
     r.name = utf8_literal("party_blob");
     r.image = {png, sizeof(png)};
-    add(r, image, RestMethod::post, utf8_literal("/api/v10/guilds/10/emojis"),
+    add(r, image, RestMethod::post, utf8_literal("/api/v9/guilds/10/emojis"),
         utf8_literal(R"({"name":"party_blob","image":"data:image/png;base64,AQIDBAU="})"));
     r = asset(GuildAssetOperation::emoji_update, 40);
     r.name = utf8_literal("blob2");
-    add(r, {}, RestMethod::patch, utf8_literal("/api/v10/guilds/10/emojis/40"), utf8_literal(R"({"name":"blob2"})"));
+    add(r, {}, RestMethod::patch, utf8_literal("/api/v9/guilds/10/emojis/40"), utf8_literal(R"({"name":"blob2"})"));
     add(asset(GuildAssetOperation::emoji_delete, 40), {}, RestMethod::delete_method,
-        utf8_literal("/api/v10/guilds/10/emojis/40"), {});
-    add(asset(GuildAssetOperation::sticker_list), {}, RestMethod::get, utf8_literal("/api/v10/guilds/10/stickers"),
+        utf8_literal("/api/v9/guilds/10/emojis/40"), {});
+    add(asset(GuildAssetOperation::sticker_list), {}, RestMethod::get, utf8_literal("/api/v9/guilds/10/stickers"),
         {});
     r = asset(GuildAssetOperation::sticker_update, 50);
     r.fields = guild_asset_field_tags | guild_asset_field_description;
     r.tags = utf8_literal("wave");
     r.description = {};
-    add(r, {}, RestMethod::patch, utf8_literal("/api/v10/guilds/10/stickers/50"),
+    add(r, {}, RestMethod::patch, utf8_literal("/api/v9/guilds/10/stickers/50"),
         utf8_literal(R"({"tags":"wave","description":""})"));
     add(asset(GuildAssetOperation::sticker_delete, 50), {}, RestMethod::delete_method,
-        utf8_literal("/api/v10/guilds/10/stickers/50"), {});
+        utf8_literal("/api/v9/guilds/10/stickers/50"), {});
     r = asset(GuildAssetOperation::guild_mfa);
     r.mfa_level = 1;
-    add(r, {}, RestMethod::post, utf8_literal("/api/v10/guilds/10/mfa"), utf8_literal(R"({"level":1})"));
+    add(r, {}, RestMethod::post, utf8_literal("/api/v9/guilds/10/mfa"), utf8_literal(R"({"level":1})"));
     add(asset(GuildAssetOperation::guild_delete), {}, RestMethod::post,
-        utf8_literal("/api/v10/guilds/10/delete"), {});
+        utf8_literal("/api/v9/guilds/10/delete"), {});
     bool exact = true;
     for (u32 i = 0; i < count; ++i) {
         const auto& row = rows[i];
@@ -386,7 +386,7 @@ void test_protocol() noexcept {
 
     u8 head[2048];
     RestRequestHead request{};
-    request.target = text_bytes(utf8_literal("/api/v10/guilds/10/stickers"));
+    request.target = text_bytes(utf8_literal("/api/v9/guilds/10/stickers"));
     request.method = RestMethod::post;
     request.json_body = true;
     request.content_length = 123;
@@ -534,7 +534,7 @@ void test_account() noexcept {
     request.reason = utf8_literal("new look");
     const auto icon_body = json_with_uri(utf8_literal(R"({"icon":")"), small_png, utf8_literal(R"("})"));
     check(account_guild_assets_submit(&details, &request, 201).ok() && capture.id == 201 &&
-              captured(RestMethod::patch, GuildAssetOperation::guild_icon, utf8_literal("/api/v10/guilds/10"),
+              captured(RestMethod::patch, GuildAssetOperation::guild_icon, utf8_literal("/api/v9/guilds/10"),
                        icon_body) &&
               same(capture.reason, capture.reason_bytes, utf8_literal("new%20look")) && !capture.boundary_bytes &&
               info.error == GuildImageError::none && info.width == 64,
@@ -543,7 +543,7 @@ void test_account() noexcept {
     request.image = {};
     request.reason = {};
     check(account_guild_assets_submit(&details, &request, 202).ok() &&
-              captured(RestMethod::patch, GuildAssetOperation::guild_icon, utf8_literal("/api/v10/guilds/10"),
+              captured(RestMethod::patch, GuildAssetOperation::guild_icon, utf8_literal("/api/v9/guilds/10"),
                        utf8_literal(R"({"icon":null})")),
           "account: removing the icon sends null");
 
@@ -564,7 +564,7 @@ void test_account() noexcept {
     request.image = make_png(256, 256);
     check(account_guild_assets_submit(&details, &request, 204).ok() && capture.route.route_id ==
                   kGuildAssetRouteBase + static_cast<u64>(GuildAssetOperation::role_icon) &&
-              same(capture.target, capture.target_bytes, utf8_literal("/api/v10/guilds/10/roles/30")) &&
+              same(capture.target, capture.target_bytes, utf8_literal("/api/v9/guilds/10/roles/30")) &&
               capture.body_bytes < 256 * 1024,
           "account: role icons are resized before the PATCH");
 
@@ -575,7 +575,7 @@ void test_account() noexcept {
         json_with_uri(utf8_literal(R"({"name":"blob","image":")"), small_png, utf8_literal(R"("})"));
     check(account_guild_assets_submit(&details, &request, 205).ok() &&
               captured(RestMethod::post, GuildAssetOperation::emoji_create,
-                       utf8_literal("/api/v10/guilds/10/emojis"), emoji_json),
+                       utf8_literal("/api/v9/guilds/10/emojis"), emoji_json),
           "account: emoji upload POSTs the name and image data URI");
 
     const auto submissions = capture.submissions + capture.large_submissions;
@@ -601,19 +601,19 @@ void test_account() noexcept {
     check(sticker_ok && capture.large && capture.boundary_bytes == kGuildAssetBoundaryBytes &&
               same(capture.body, 2, utf8_literal("--")) &&
               bytes_equal(capture.body + 2, capture.boundary, capture.boundary_bytes) && file_part &&
-              same(capture.target, capture.target_bytes, utf8_literal("/api/v10/guilds/10/stickers")),
+              same(capture.target, capture.target_bytes, utf8_literal("/api/v9/guilds/10/stickers")),
           "account: sticker uploads are multipart with the boundary handed to the transport");
 
     request = asset(GuildAssetOperation::guild_mfa);
     request.mfa_level = 1;
     check(account_guild_assets_submit(&details, &request, 208).ok() &&
-              captured(RestMethod::post, GuildAssetOperation::guild_mfa, utf8_literal("/api/v10/guilds/10/mfa"),
+              captured(RestMethod::post, GuildAssetOperation::guild_mfa, utf8_literal("/api/v9/guilds/10/mfa"),
                        utf8_literal(R"({"level":1})")),
           "account: the moderation 2FA level POSTs to /mfa");
     request = asset(GuildAssetOperation::guild_delete);
     const bool deleted = account_guild_assets_submit(&details, &request, 209).ok() &&
                          captured(RestMethod::post, GuildAssetOperation::guild_delete,
-                                  utf8_literal("/api/v10/guilds/10/delete"), {}) &&
+                                  utf8_literal("/api/v9/guilds/10/delete"), {}) &&
                          !capture.body_bytes && !capture.json && !capture.reason_bytes;
     // The head the transport writes for it: a zero length and no Content-Type,
     // as a fetch without a body sends.
@@ -631,7 +631,7 @@ void test_account() noexcept {
                 return true;
         return false;
     };
-    check(deleted && head_written.ok() && contains_text("POST /api/v10/guilds/10/delete HTTP/1.1\r\n") &&
+    check(deleted && head_written.ok() && contains_text("POST /api/v9/guilds/10/delete HTTP/1.1\r\n") &&
               contains_text("\r\nContent-Length: 0\r\n") && !contains_text("Content-Type"),
           "account: deleting the server POSTs to /delete with a 0-byte body and no Content-Type");
     // Create a server: POST /guilds from the blank template, no guild major.
@@ -641,7 +641,7 @@ void test_account() noexcept {
     check(account_guild_assets_submit(&details, &request, 220).ok() && capture.route.method == RestMethod::post &&
               capture.route.major == RestMajorParameter::none && capture.route.major_key == 0 &&
               capture.route.route_id == kGuildAssetRouteBase + static_cast<u64>(GuildAssetOperation::guild_create) &&
-              capture.json && !capture.large && same(capture.target, capture.target_bytes, utf8_literal("/api/v10/guilds")) &&
+              capture.json && !capture.large && same(capture.target, capture.target_bytes, utf8_literal("/api/v9/guilds")) &&
               same(capture.body, capture.body_bytes,
                    utf8_literal("{\"name\":\"Rob\xE2\x80\x99s \\\"server\\\"\",\"icon\":null,\"channels\":[],"
                                 "\"system_channel_id\":null,\"guild_template_code\":\"2TffvPucqHkN\"}")),
@@ -669,7 +669,7 @@ void test_account() noexcept {
     request = asset(GuildAssetOperation::sticker_list);
     check(account_guild_assets_submit(&details, &request, 210).ok() &&
               captured(RestMethod::get, GuildAssetOperation::sticker_list,
-                       utf8_literal("/api/v10/guilds/10/stickers"), {}),
+                       utf8_literal("/api/v9/guilds/10/stickers"), {}),
           "account: the sticker list is a bodyless GET");
 
     request = asset(GuildAssetOperation::image_probe);

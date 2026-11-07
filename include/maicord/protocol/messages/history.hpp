@@ -107,7 +107,7 @@ struct MessageHistoryRichCursor {
     void advance(const GatewayMessageEvent& message) noexcept;
 };
 
-// Writes an origin-form API v10 request target. Rate-limit policy is not handled
+// Writes an origin-form API v9 request target. Rate-limit policy is not handled
 // here; it comes from the HTTP response headers.
 MessageHistoryTargetResult write_message_history_target(
     u64 channel_id, const MessageHistoryQuery& query, Slice<u8> output) noexcept;

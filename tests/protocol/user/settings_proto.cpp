@@ -362,7 +362,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r.payload = bytes_of(utf8_literal("aBc/12+3="));
     auto w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
     check(w.ok() && w.method == RestMethod::post &&
-              utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/auth/sessions/logout")) &&
+              utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/auth/sessions/logout")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"session_id_hashes\":[\"aBc/12+3=\"]}")) &&
               !account_settings_primary(r.operation),
           "account settings: device log out posts exactly the selected session hash");
@@ -374,7 +374,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r.id = 1234567890123ull;
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
     check(w.ok() && w.method == RestMethod::delete_method && !w.body_bytes &&
-              utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/oauth2/tokens/1234567890123")),
+              utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/oauth2/tokens/1234567890123")),
           "account settings: deauthorize deletes one token id without a body");
     r.id = 0;
     check(!account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)}).ok(),
@@ -385,7 +385,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r.payload = bytes_of(utf8_literal("they/them"));
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
     check(w.ok() && w.method == RestMethod::patch &&
-              utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/users/@me/profile")) &&
+              utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/users/@me/profile")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"pronouns\":\"they/them\"}")),
           "account settings: pronouns PATCH body");
     r.field = AccountProfileField::bio;
@@ -404,7 +404,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r = {};
     r.operation = AccountSettingsOperation::display_name;
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
-    check(w.ok() && utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/users/@me")) &&
+    check(w.ok() && utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/users/@me")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"global_name\":null}")),
           "account settings: an empty display name resets to the username");
     r = {};
@@ -412,7 +412,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r.id = 42;
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
     check(w.ok() && w.method == RestMethod::get &&
-              utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/users/42/profile")),
+              utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/users/42/profile")),
           "account settings: profile read target");
     r = {};
     const u8 partial[]{106, 2, 72, 1};
@@ -421,7 +421,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
     r.required_data_version = 7;
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
     check(w.ok() && account_settings_primary(r.operation) && w.method == RestMethod::patch &&
-              utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
+              utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/users/@me/settings-proto/1")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":7}")),
           "account settings: settings-proto PATCH serializes the partial message");
     r.reserved = 1;

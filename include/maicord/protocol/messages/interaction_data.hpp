@@ -10,7 +10,7 @@ namespace maicord {
 inline constexpr u32 kInteractionDataTargetBytes = 96;
 inline constexpr u64 kInteractionDataRouteId = 0x494e544144415441ull; // "INTADATA"
 
-// "/api/v10/channels/{channel}/messages/{message}/interaction-data" into output;
+// "/api/v9/channels/{channel}/messages/{message}/interaction-data" into output;
 // the byte count, or zero for a zero id or a short buffer.
 u32 interaction_data_write_target(u64 channel_id, u64 message_id, Slice<u8> output) noexcept;
 // Its rate-limit identity: one route per channel, a bodyless GET.

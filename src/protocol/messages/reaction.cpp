@@ -27,7 +27,7 @@ MessageReactionWriteResult write_message_reaction_target(
     }
     RouteWriter writer{};
     if (!route_writer_initialize(&writer, output) ||
-        !route_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id, "/reactions/",
+        !route_write(&writer, "/api/v9/channels/", channel_id, "/messages/", message_id, "/reactions/",
                      path_component(emoji_name)) ||
         (emoji_id != 0 && !route_write(&writer, ':', emoji_id)) || !route_write(&writer, '/')) {
         return error(MessageReactionWriteError::output_too_small);

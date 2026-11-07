@@ -3,7 +3,7 @@
 
 namespace maicord {
 namespace {
-constexpr char kTarget[] = "/api/v10/auth/logout";
+constexpr char kTarget[] = "/api/v9/auth/logout";
 constexpr char kBody[] = "{\"provider\":null,\"voip_provider\":null}";
 
 bool equal(ConstSlice<u8> bytes, const char* text, u32 count) noexcept {

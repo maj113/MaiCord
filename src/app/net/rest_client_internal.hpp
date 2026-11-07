@@ -65,6 +65,9 @@ struct RestClientCommand {
     u64 request_id;
     i64 submitted_counter;
     u32 target_bytes;
+    // A signed-out request's target, a static literal (request_target is not
+    // allocated in that mode); its cookies are matched against it.
+    Utf8View auth_target;
     u32 body_bytes;
     u32 head_bytes;
     u32 timeout_ms;
@@ -99,6 +102,11 @@ struct RestClientRuntime {
     u64 logout_preempt_id;
     bool logout_cancelled;
     SecureBuffer credential;
+    // Guards credential against a swap while the worker writes a request
+    // head; generation counts swaps, and the head records the one it used.
+    SrwLock credential_lock;
+    volatile LONG credential_generation;
+    LONG sent_credential_generation;
     SecureBuffer secret_storage;
     Clock clock;
     i64 request_started_counter;
@@ -227,6 +235,9 @@ TlsStreamReadAction response_plaintext_received(void* opaque, ConstSlice<u8> pla
 TlsStreamEvent begin_resolution(RestClient* client, RestClientRuntime* runtime,
                                 NetworkLoop* loop) noexcept;
 bool reject_restricted_request(RestClient* client, RestClientRuntime* runtime) noexcept;
+// Writes the head of a normal or public request under the current credential;
+// 0 when it does not fit or is invalid.
+u32 write_request_head(RestClientRuntime* runtime) noexcept;
 TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime) noexcept;
 bool finalize_response(RestClient* client, RestClientRuntime* runtime,
                        const RestResponseStep& step, u64 now_ms) noexcept;

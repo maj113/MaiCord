@@ -380,7 +380,8 @@ UserAuthWriteResult user_auth_write_password_request(const UserAuthPasswordReque
     if (!encoded_string(request.password, kUserAuthMaximumPasswordBytes, &password))
         return UserAuthWriteResult{0, string_error(request.password, kUserAuthMaximumPasswordBytes)};
 
-    constexpr u32 fixed_bytes = sizeof("{\"login\":,\"password\":,\"undelete\":false}") - 1;
+    constexpr u32 fixed_bytes =
+        sizeof("{\"login\":,\"password\":,\"undelete\":false,\"login_source\":null,\"gift_code_sku_id\":null}") - 1;
     const u64 required = static_cast<u64>(fixed_bytes) + login.bytes + password.bytes -
                          (request.undelete ? 1u : 0u);
     if (required > output.count)
@@ -395,7 +396,7 @@ UserAuthWriteResult user_auth_write_password_request(const UserAuthPasswordReque
         write_literal(output.data, &offset, ",\"undelete\":true");
     else
         write_literal(output.data, &offset, ",\"undelete\":false");
-    output.data[offset++] = '}';
+    write_literal(output.data, &offset, ",\"login_source\":null,\"gift_code_sku_id\":null}");
     return UserAuthWriteResult{offset, UserAuthWriteError::none};
 }
 
@@ -466,7 +467,10 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
     if (!encoded_string(request.login_instance_id, kUserAuthMaximumLoginInstanceBytes, &instance))
         return UserAuthWriteResult{0, string_error(request.login_instance_id, kUserAuthMaximumLoginInstanceBytes)};
 
-    constexpr u32 fixed_bytes = sizeof("{\"code\":,\"ticket\":,\"login_instance_id\":}") - 1;
+    // The desktop page's MFA step: code and ticket, its (null) login source and
+    // gift SKU, then the login instance.
+    constexpr u32 fixed_bytes =
+        sizeof("{\"code\":,\"ticket\":,\"login_source\":null,\"gift_code_sku_id\":null,\"login_instance_id\":}") - 1;
     const u64 required = static_cast<u64>(fixed_bytes) + code.bytes + ticket.bytes + instance.bytes;
     if (required > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
@@ -476,7 +480,7 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
     write_encoded(output.data, &offset, code);
     write_literal(output.data, &offset, ",\"ticket\":");
     write_encoded(output.data, &offset, ticket);
-    write_literal(output.data, &offset, ",\"login_instance_id\":");
+    write_literal(output.data, &offset, ",\"login_source\":null,\"gift_code_sku_id\":null,\"login_instance_id\":");
     write_encoded(output.data, &offset, instance);
     output.data[offset++] = '}';
     return UserAuthWriteResult{offset, UserAuthWriteError::none};
@@ -562,6 +566,8 @@ Utf8View user_auth_target(UserAuthOperation operation) noexcept {
     case UserAuthOperation::reset_password:
     case UserAuthOperation::reset_mfa:
         return kLoginResetTarget;
+    case UserAuthOperation::experiments: return kUserAuthExperimentsTarget;
+    case UserAuthOperation::location_metadata: return kUserAuthLocationMetadataTarget;
     default: return Utf8View{};
     }
 }
@@ -569,24 +575,36 @@ Utf8View user_auth_target(UserAuthOperation operation) noexcept {
 UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u64 content_length,
                                                  const UserAuthCaptchaHeaders& captcha,
                                                  Slice<u8> output,
-                                                 const RestUserRequestHeaders* user_headers) noexcept {
+                                                 const RestUserRequestHeaders* user_headers,
+                                                 ConstSlice<u8> cookie) noexcept {
     const Utf8View target = user_auth_target(operation);
+    const bool get = user_auth_operation_is_get(operation);
     u32 captcha_bytes = 0;
-    if (!output.data || target.bytes == 0 || content_length == 0 ||
+    if (!output.data || target.bytes == 0 || (content_length == 0) != get ||
         !captcha_headers_size(captcha, true, &captcha_bytes) ||
-        (operation == UserAuthOperation::browser_handoff_exchange &&
+        ((get || operation == UserAuthOperation::browser_handoff_exchange) &&
             (captcha.key.bytes || captcha.rqtoken.bytes || captcha.session_id.bytes)))
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     if (captcha_bytes > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
+    // The experiments request's context is the page it is made from:
+    // base64 of {"location":"Login"}.
+    static constexpr char context[] = "X-Context-Properties: eyJsb2NhdGlvbiI6IkxvZ2luIn0=\r\n";
+    const bool experiments = operation == UserAuthOperation::experiments;
     const RestRequestWriteResult base = write_rest_request_head(
         RestRequestHead{ConstSlice<u8>{reinterpret_cast<const u8*>(target.data), target.bytes},
                         {},
                         content_length,
-                        RestMethod::post,
+                        get ? RestMethod::get : RestMethod::post,
                         RestAuthorization::none,
+                        !get,
+                        user_headers,
                         true,
-                        user_headers},
+                        {},
+                        {reinterpret_cast<const u8*>(context), experiments ? u32{sizeof(context) - 1} : 0u},
+                        {},
+                        false,
+                        cookie},
         Slice<u8>{output.data, output.count - captcha_bytes});
     if (!base.ok())
         return UserAuthWriteResult{0, base.error == RestRequestError::output_capacity
@@ -1040,6 +1058,38 @@ void user_auth_state_cancel(UserAuthState* state) noexcept {
     state->generation = next_generation(state->generation);
     state->phase = UserAuthPhase::idle;
     state->captcha_return_phase = UserAuthPhase::idle;
+}
+
+namespace {
+struct FingerprintContext {
+    Slice<char> output;
+    u32 bytes;
+};
+bool visit_fingerprint(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* context = static_cast<FingerprintContext*>(opaque);
+    JsonString text{};
+    if (!json_name_is(name, utf8_literal("fingerprint")) || !json_value_as_string(value, &text) ||
+        text.has_escapes || !text.encoded.bytes || text.encoded.bytes > context->output.count)
+        return true;
+    for (u32 i = 0; i < text.encoded.bytes; ++i)
+        if (text.encoded.data[i] < 0x21 || text.encoded.data[i] > 0x7E)
+            return true;
+    copy_bytes(context->output.data, text.encoded.data, text.encoded.bytes);
+    context->bytes = text.encoded.bytes;
+    return true;
+}
+} // namespace
+
+u32 user_auth_decode_fingerprint(Utf8View body, Slice<u32> structural_scratch, Slice<char> output) noexcept {
+    if (!body.data || !body.bytes || !structural_scratch.data || !output.data)
+        return 0;
+    const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
+    FingerprintContext context{output, 0};
+    return scan.ok() && json_visit_root_object(body, {structural_scratch.data, scan.count}, 8, visit_fingerprint,
+                                               &context)
+                            .ok()
+               ? context.bytes
+               : 0;
 }
 
 } // namespace maicord

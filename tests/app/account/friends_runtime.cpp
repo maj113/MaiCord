@@ -476,7 +476,7 @@ void pending_sections_runtime_fixture() noexcept {
     check(snapshot(requests,302)&&application_friends_synchronize()&&scene()->source_count==5&&
         action(UiFriendsAction::clear_incoming,0,UiFriendsTab::pending)&&save_form()&&application_friends_submit(320,5000)&&
         seen.operation==RelationshipOperation::clear_incoming&&seen.method==RestMethod::delete_method&&!seen.user_id&&!seen.body_bytes&&
-        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v10/users/@me/relationships?relationship_type=3")),
+        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v9/users/@me/relationships?relationship_type=3")),
         "friends Pending: approved Clear submits the unfiltered incoming route rather than five filtered user requests");
     check(response(320,204)&&application_friends_pending(5001)&&main_scene()->source_count==5&&application_friends_submit(321,5001)&&
         seen.operation==RelationshipOperation::list&&response(321,200,requests)&&main_scene()->source_count==5,
@@ -502,7 +502,7 @@ void ignore_and_decline_runtime_fixture() noexcept {
     check(action(UiFriendsAction::ignore,801)&&seen.form_opens==forms+1&&seen.form.confirmation_only&&
         seen.form.valid(seen.form.owner)&&seen.submissions==submissions&&!application_friends_pending(5200)&&
         save_form()&&application_friends_submit(330,5200)&&seen.operation==RelationshipOperation::ignore&&
-        seen.method==RestMethod::put&&!seen.body_bytes&&utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v10/users/@me/relationships/801/ignore"))&&response(330,204),
+        seen.method==RestMethod::put&&!seen.body_bytes&&utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v9/users/@me/relationships/801/ignore"))&&response(330,204),
         "friends Ignore: More Ignore requires native consent and submits bodyless PUT ignore rather than relationship DELETE");
     UiFriendsRow value{};
     check(row(801,&value)&&value.kind==UiFriendsKind::friend_user&&value.ignored&&scene()->source_count==1,
@@ -510,14 +510,14 @@ void ignore_and_decline_runtime_fixture() noexcept {
     forms=seen.form_opens;
     check(action(UiFriendsAction::unignore,801)&&seen.form_opens==forms&&application_friends_submit(331,5300)&&
         seen.operation==RelationshipOperation::unignore&&seen.method==RestMethod::delete_method&&!seen.body_bytes&&
-        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v10/users/@me/relationships/801/ignore"))&&response(331,204)&&
+        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v9/users/@me/relationships/801/ignore"))&&response(331,204)&&
         row(801,&value)&&value.kind==UiFriendsKind::friend_user&&!value.ignored,
         "friends Ignore: Unignore submits DELETE ignore and preserves the friend without redundant confirmation");
     forms=seen.form_opens;
     check(tab(UiFriendsTab::pending)&&scene()->source_count==3&&!scene()->sections->hidden_count&&
         action(UiFriendsAction::decline,815,UiFriendsTab::pending)&&seen.form_opens==forms&&application_friends_submit(332,5400)&&
         seen.operation==RelationshipOperation::remove&&seen.method==RestMethod::delete_method&&!seen.body_bytes&&
-        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v10/users/@me/relationships/815"))&&response(332,204)&&!row(815,&value),
+        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v9/users/@me/relationships/815"))&&response(332,204)&&!row(815,&value),
         "friends Pending: incoming X declines through bodyless relationship DELETE and does not set ignored");
     check(action(UiFriendsAction::cancel,814,UiFriendsTab::pending)&&application_friends_submit(333,5500)&&
         seen.operation==RelationshipOperation::remove&&seen.method==RestMethod::delete_method&&!seen.body_bytes&&response(333,204)&&!row(814,&value),

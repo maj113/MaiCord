@@ -252,26 +252,26 @@ ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest& r, Sl
     bool ok = false;
     switch (r.operation) {
     case ProfileEditOperation::user_patch:
-        ok = protocol_write(&w, "/api/v10/users/@me");
+        ok = protocol_write(&w, "/api/v9/users/@me");
         break;
     case ProfileEditOperation::user_profile_patch:
-        ok = protocol_write(&w, "/api/v10/users/@me/profile");
+        ok = protocol_write(&w, "/api/v9/users/@me/profile");
         break;
     case ProfileEditOperation::member_patch:
     case ProfileEditOperation::member_profile_patch:
-        ok = protocol_write(&w, "/api/v10/guilds/", r.guild_id,
+        ok = protocol_write(&w, "/api/v9/guilds/", r.guild_id,
                             r.operation == ProfileEditOperation::member_patch ? "/members/@me" : "/profile/@me");
         break;
     case ProfileEditOperation::profile_fetch:
-        ok = protocol_write(&w, "/api/v10/users/", r.id,
+        ok = protocol_write(&w, "/api/v9/users/", r.id,
                             "/profile?with_mutual_guilds=false&with_mutual_friends=false&with_mutual_friends_count=false") &&
              (!r.guild_id || protocol_write(&w, "&guild_id=", r.guild_id));
         break;
     case ProfileEditOperation::collectibles:
-        ok = protocol_write(&w, "/api/v10/users/@me/collectibles-purchases?variants_return_style=2");
+        ok = protocol_write(&w, "/api/v9/users/@me/collectibles-purchases?variants_return_style=2");
         break;
     case ProfileEditOperation::collectible_product:
-        ok = protocol_write(&w, "/api/v10/collectibles-products/", r.id);
+        ok = protocol_write(&w, "/api/v9/collectibles-products/", r.id);
         break;
     default:
         break;

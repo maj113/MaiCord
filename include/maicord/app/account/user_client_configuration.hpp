@@ -29,6 +29,8 @@ struct UserClientConfigurationStorage {
     char launch_signature[kGatewayUserLaunchIdBytes + 1];
     char timezone[kIanaTimezoneMaximumBytes + 1];
     u32 timezone_bytes;
+    // Windows' update build revision (UBR) as decimal text: os_build_revision.
+    char os_build_revision[11];
 #if !defined(_WIN32)
     // The Linux client's window_manager, distro and display_server properties.
     char window_manager[kGatewayUserMaximumHostBytes + 1];

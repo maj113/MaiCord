@@ -20,14 +20,14 @@ void transport() noexcept {
     check(account_guild_settings_submit(&details, &patch, 41).ok() && capture.safe && capture.client == &details &&
               capture.request_id == 41 && capture.json && capture.route.route_id == kUserGuildSettingsRouteId &&
               capture.route.method == RestMethod::patch &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v10/users/@me/guilds/settings")) &&
+              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/users/@me/guilds/settings")) &&
               equal(capture.body, capture.body_bytes,
                     utf8_literal(R"({"guilds":{"10":{"message_notifications":1}}})")),
           "guild settings: captured PATCH matches the client's bulk guild settings body");
     UserGuildSettingsPatch hide{10, 0, 0, 0, user_guild_settings_hide_muted};
     hide.hide_muted_channels = true;
     check(account_guild_settings_submit(&details, &hide, 45).ok() &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v10/users/@me/guilds/settings")) &&
+              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/users/@me/guilds/settings")) &&
               equal(capture.body, capture.body_bytes, utf8_literal(R"({"guilds":{"10":{"hide_muted_channels":true}}})")),
           "guild settings: Hide muted channels is the guild settings hide_muted_channels body");
     UserGuildSettingsPatch opt_in{10, 0, 0, 0, user_guild_settings_flags};
@@ -47,7 +47,7 @@ void transport() noexcept {
           "guild settings: the optimistic projection carries hide_muted_channels and flags");
     const UserGuildSettingsPatch dm{0, 30, 0, -1, user_guild_settings_muted, MessageNotificationLevel::all, true};
     check(account_guild_settings_submit(&details, &dm, 42).ok() &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v10/users/@me/guilds/@me/settings")) &&
+              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/users/@me/guilds/@me/settings")) &&
               equal(capture.body, capture.body_bytes,
                     utf8_literal(R"({"channel_overrides":{"30":{"muted":true,"mute_config":{"selected_time_window":-1,"end_time":null}}}})")),
           "guild settings: direct message mute goes to the @me settings route");
@@ -62,7 +62,7 @@ void transport() noexcept {
               capture.route.route_id == kMentionsRouteId && capture.route.method == RestMethod::get &&
               !capture.body_bytes &&
               equal(capture.target, capture.target_bytes,
-                    utf8_literal("/api/v10/users/@me/mentions?limit=25&roles=true&everyone=false&guild_id=10&before=900")),
+                    utf8_literal("/api/v9/users/@me/mentions?limit=25&roles=true&everyone=false&guild_id=10&before=900")),
           "mentions: GET carries filters and the before cursor without a body");
 }
 } // namespace notification_settings_account_test

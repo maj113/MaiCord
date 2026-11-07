@@ -19,11 +19,11 @@ bool token_member(void* context, JsonString name, JsonValue value) noexcept {
 MessageAckWriteResult write_message_ack_target(
     u64 channel_id, u64 message_id, Slice<u8> output) noexcept {
     if (!channel_id || !output.data) return fail(MessageAckWriteError::invalid_input);
-    constexpr u32 literals = sizeof("/api/v10/channels/") - 1 + sizeof("/messages/") - 1 + sizeof("/ack") - 1;
+    constexpr u32 literals = sizeof("/api/v9/channels/") - 1 + sizeof("/messages/") - 1 + sizeof("/ack") - 1;
     const u32 required = literals + decimal_digits(channel_id) + decimal_digits(message_id);
     if (required > output.count || required > kMessageAckMaximumTargetBytes) return fail(MessageAckWriteError::capacity);
     ProtocolWriter writer{output, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id, "/ack"))
+    if (!protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages/", message_id, "/ack"))
         return fail(MessageAckWriteError::capacity);
     return {writer.used, MessageAckWriteError::none};
 }

@@ -501,7 +501,7 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
     }
     RouteWriter route{};
     bool ok = route_writer_initialize(&route, target);
-    const auto guild_path = [&]() noexcept { return route_write(&route, "/api/v10/guilds/", request.guild_id); };
+    const auto guild_path = [&]() noexcept { return route_write(&route, "/api/v9/guilds/", request.guild_id); };
     const auto event_path = [&]() noexcept {
         return guild_path() && route_write(&route, "/scheduled-events/", request.event_id);
     };
@@ -552,7 +552,7 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
         result.route_id = kGuildEventInterestRouteId;
         break;
     case GuildCommunityOperation::event_rsvps:
-        ok = ok && route_write(&route, "/api/v10/users/@me/scheduled-events?guild_ids=", request.guild_id);
+        ok = ok && route_write(&route, "/api/v9/users/@me/scheduled-events?guild_ids=", request.guild_id);
         result.method = RestMethod::get;
         result.route_id = kGuildEventRsvpsRouteId;
         break;

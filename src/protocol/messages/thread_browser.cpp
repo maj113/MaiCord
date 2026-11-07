@@ -428,7 +428,7 @@ ThreadBrowserResult thread_browser_write_target(
         return {0, ThreadBrowserError::input};
     u8 temporary[kThreadBrowserMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    bool valid = protocol_write(&writer, "/api/v10/channels/", request.parent_id, "/threads/search?");
+    bool valid = protocol_write(&writer, "/api/v9/channels/", request.parent_id, "/threads/search?");
     if (request.mode == ThreadBrowserMode::archived)
         valid = valid && protocol_write(&writer,
             "archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=", request.offset);

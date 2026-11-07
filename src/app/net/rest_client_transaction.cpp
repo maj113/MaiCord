@@ -2,6 +2,7 @@
 #include "maicord/app/account/account_logout.hpp"
 #include "maicord/app/account/user_client_configuration.hpp"
 #include "maicord/app/account/client_session_metadata.hpp"
+#include "maicord/app/net/signed_out_session.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -18,7 +19,8 @@ namespace {
 
 inline constexpr u32 kRequestHeadBytes = 4 * 1024;
 inline constexpr u32 kNormalUserRequestHeadBytes = 28 * 1024;
-inline constexpr u32 kUserAuthRequestHeadBytes = 12 * 1024;
+// Room for the CAPTCHA answer, the experiments fingerprint and the cookies.
+inline constexpr u32 kUserAuthRequestHeadBytes = 20 * 1024;
 static_assert(kRequestHeadBytes <= kRestMaximumHeaderBytes &&
               kNormalUserRequestHeadBytes <= kRestMaximumHeaderBytes &&
               kUserAuthRequestHeadBytes <= kRestMaximumHeaderBytes);
@@ -203,9 +205,10 @@ constexpr u32 ordinary_fixed_storage_bytes(bool normal_user) noexcept {
            kRecordOutputBytes + kRestMaximumHeaderBytes + (normal_user ? kUserClientMetadataBytes : 0);
 }
 
+// The request, TLS input and record, the head, and the inflate scratch.
 constexpr u32 user_auth_secure_fixed_storage_bytes(u32 request_capacity) noexcept {
     return request_capacity + kUserAuthEncryptedInputBytes +
-           kUserAuthRecordOutputBytes + kRestMaximumHeaderBytes;
+           kUserAuthRecordOutputBytes + kRestMaximumHeaderBytes + kUserAuthMaximumResponseBytes;
 }
 
 inline u32 page_rounded_bytes(u64 raw) noexcept {
@@ -281,6 +284,9 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
         runtime->request_head = cursor;
         runtime->response_input = cursor;
         runtime->request_head_capacity = kUserAuthRequestHeadBytes;
+        cursor += kRestMaximumHeaderBytes;
+        runtime->decompression = cursor;
+        runtime->decompression_capacity = runtime->response_capacity;
         return;
     }
     runtime->request_target = cursor;
@@ -468,14 +474,20 @@ bool copy_user_configuration(RestClientRuntime* runtime,
     return true;
 }
 
-// The account's cookie jar: normal-user requests send and store cookies.
+// The cookie jar a request sends and stores into: the account's for a
+// normal-user client, the signed-out login page's for a user-auth one.
 CookieJar* request_cookies(const RestClientRuntime* runtime) noexcept {
-    return !runtime->user_auth_mode && runtime->metadata ? runtime->metadata->cookies : nullptr;
+    if (runtime->user_auth_mode)
+        return signed_out_cookies();
+    return runtime->metadata ? runtime->metadata->cookies : nullptr;
 }
 
 CookieRequest cookie_request(const RestClientRuntime* runtime) noexcept {
     return {utf8_literal("discord.com"),
-            {reinterpret_cast<const char*>(runtime->request_target), runtime->command.target_bytes}, true};
+            runtime->user_auth_mode
+                ? runtime->command.auth_target
+                : Utf8View{reinterpret_cast<const char*>(runtime->request_target), runtime->command.target_bytes},
+            true};
 }
 
 } // namespace rest_client_detail
@@ -546,9 +558,12 @@ RestRouteKey user_auth_route(UserAuthOperation operation) noexcept {
     case UserAuthOperation::phone_resend: route_id = 0x41555448000Bull; break;
     case UserAuthOperation::phone_verify: route_id = 0x41555448000Cull; break;
     case UserAuthOperation::browser_handoff_exchange: route_id = 0x41555448000Dull; break;
+    case UserAuthOperation::experiments: route_id = 0x41555448000Eull; break;
+    case UserAuthOperation::location_metadata: route_id = 0x41555448000Full; break;
     default: break;
     }
-    return RestRouteKey{route_id, 0, RestMethod::post, RestMajorParameter::none};
+    return RestRouteKey{route_id, 0, user_auth_operation_is_get(operation) ? RestMethod::get : RestMethod::post,
+                        RestMajorParameter::none};
 }
 
 void erase_command(RestClientRuntime* runtime, bool erase_body) noexcept {
@@ -576,8 +591,9 @@ void erase_response_storage(RestClientRuntime* runtime) noexcept {
 } // namespace
 namespace rest_client_detail {
 
+// A signed-out client's scratch lies in its locked storage, which erases it.
 void release_decompression(RestClientRuntime* runtime) noexcept {
-    if (runtime->decompression) {
+    if (runtime->decompression && !runtime->user_auth_mode) {
         secure_clear_bytes(runtime->decompression, runtime->decompression_capacity);
         if (runtime->decompression != runtime->handshake_output)
             pages_release(runtime->decompression);
@@ -900,6 +916,43 @@ bool reject_restricted_request(RestClient* client, RestClientRuntime* runtime) n
     return true;
 }
 
+u32 write_request_head(RestClientRuntime* runtime) noexcept {
+    refresh_user_metadata(runtime);
+    // The head carries the credential current when it is written; a swap
+    // waits for it, and the generation tells a later 401 which one it met.
+    AcquireSRWLockShared(runtime->credential_lock.native());
+    runtime->sent_credential_generation = read_acquire(&runtime->credential_generation);
+    const ConstSlice<u8> token = runtime->authorization == RestAuthorization::none
+                                     ? ConstSlice<u8>{nullptr, 0}
+                                     : secure_buffer_view(runtime->credential);
+    const RestUserRequestHeaders user_headers{
+        ConstSlice<u8>{runtime->user_super_properties, runtime->user_super_properties_bytes},
+        Utf8View{runtime->user_locale, runtime->user_locale_bytes},
+        Utf8View{runtime->user_timezone, runtime->user_timezone_bytes},
+        Utf8View{runtime->user_accept_language, runtime->user_accept_language_bytes}};
+    const bool normal_user = runtime->authorization == RestAuthorization::normal_user;
+    CookieJar* const cookies = normal_user ? request_cookies(runtime) : nullptr;
+    const u32 cookie_bytes =
+        cookies ? cookie_jar_header(cookies, cookie_request(runtime), clock_unix_milliseconds(),
+                                    {runtime->cookie_header, kCookieHeaderMaximumBytes})
+                : 0;
+    const RestRequestWriteResult written = write_rest_request_head(
+        RestRequestHead{ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
+                        token, runtime->command.body_bytes, runtime->command.route.method,
+                        runtime->authorization, runtime->command.json_body,
+                        normal_user ? &user_headers : nullptr,
+                        true,
+                        {runtime->audit_reason, runtime->command.audit_reason_bytes},
+                        {runtime->extra_headers, runtime->command.extra_headers_bytes},
+                        {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes},
+                        runtime->command.send_empty_audit_reason,
+                        {runtime->cookie_header, cookie_bytes}, runtime->command.failed_requests},
+        Slice<u8>{runtime->request_head, runtime->request_head_capacity});
+    ReleaseSRWLockShared(runtime->credential_lock.native());
+    secure_clear_bytes(runtime->cookie_header, cookie_bytes);
+    return written.ok() ? written.bytes : 0;
+}
+
 TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime) noexcept {
     // Recheck after DNS/TLS or a rate wait: a request can be accepted before a Gateway restriction applies.
     if (reject_restricted_request(client, runtime))
@@ -931,42 +984,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
             publish_worker_phase(client, runtime, RestClientPhase::rate_wait);
         return {0, TlsStreamEventKind::drained};
     }
-    u32 head_bytes = runtime->command.head_bytes;
-    if (!runtime->user_auth_mode) {
-        refresh_user_metadata(runtime);
-        const ConstSlice<u8> token = runtime->authorization == RestAuthorization::none
-                                         ? ConstSlice<u8>{nullptr, 0}
-                                         : secure_buffer_view(runtime->credential);
-        const RestUserRequestHeaders user_headers{
-            ConstSlice<u8>{runtime->user_super_properties, runtime->user_super_properties_bytes},
-            Utf8View{runtime->user_locale, runtime->user_locale_bytes},
-            Utf8View{runtime->user_timezone, runtime->user_timezone_bytes},
-            Utf8View{runtime->user_accept_language, runtime->user_accept_language_bytes}};
-        const bool normal_user = runtime->authorization == RestAuthorization::normal_user;
-        CookieJar* const cookies = normal_user ? request_cookies(runtime) : nullptr;
-        const u32 cookie_bytes =
-            cookies ? cookie_jar_header(cookies, cookie_request(runtime), clock_unix_milliseconds(),
-                                        {runtime->cookie_header, kCookieHeaderMaximumBytes})
-                    : 0;
-        const RestRequestWriteResult written = write_rest_request_head(
-            RestRequestHead{ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
-                            token, runtime->command.body_bytes, runtime->command.route.method,
-                            runtime->authorization, runtime->command.json_body,
-                            normal_user ? &user_headers : nullptr,
-                            true,
-                            {runtime->audit_reason, runtime->command.audit_reason_bytes},
-                            {runtime->extra_headers, runtime->command.extra_headers_bytes},
-                            {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes},
-                            runtime->command.send_empty_audit_reason,
-                            {runtime->cookie_header, cookie_bytes}, runtime->command.failed_requests},
-            Slice<u8>{runtime->request_head, runtime->request_head_capacity});
-        secure_clear_bytes(runtime->cookie_header, cookie_bytes);
-        if (!written.ok()) {
-            secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
-            return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
-        }
-        head_bytes = written.bytes;
-    }
+    const u32 head_bytes = runtime->user_auth_mode ? runtime->command.head_bytes : write_request_head(runtime);
     if (head_bytes == 0 || head_bytes > runtime->request_head_capacity ||
         !rest_transaction_begin_send(&runtime->transaction,
                                      head_bytes + runtime->command.body_bytes)) {
@@ -1046,20 +1064,24 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
             commit();
         }
     } session_rejection{client, runtime->authorization == RestAuthorization::normal_user &&
-                                    runtime->response.parsed_head.head.status_code == 401};
+                                    runtime->response.parsed_head.head.status_code == 401 &&
+                                    runtime->sent_credential_generation ==
+                                        read_acquire(&runtime->credential_generation)};
     runtime->wire_body_bytes = runtime->response.http.body_bytes;
     runtime->wire_encoding = runtime->response.parsed_head.representation.content_encoding;
     runtime->decode_us = 0;
-    if (!runtime->user_auth_mode && runtime->wire_body_bytes != 0 &&
-        runtime->command.route.method != RestMethod::head &&
+    if (runtime->wire_body_bytes != 0 && runtime->command.route.method != RestMethod::head &&
         runtime->wire_encoding != RestContentEncoding::missing &&
         runtime->wire_encoding != RestContentEncoding::identity) {
-        if (runtime->wire_encoding != RestContentEncoding::gzip)
+        const bool gzip = runtime->wire_encoding == RestContentEncoding::gzip;
+        if (!gzip && runtime->wire_encoding != RestContentEncoding::deflate)
             return false;
         // A complete response follows the final TLS handshake send. Reuse its
         // idle output as inflate scratch; copy/erase finishes on this worker
         // before close/reconnect can clear or reuse the handshake buffer.
-        // Larger response capacities retain a separately owned scratch buffer.
+        // Larger response capacities retain a separately owned scratch buffer;
+        // a signed-out client keeps a locked one from start, as its answers
+        // carry credentials.
         if (runtime->decompression && runtime->decompression_capacity < runtime->response_capacity)
             release_decompression(runtime);
         if (!runtime->decompression) {
@@ -1074,9 +1096,11 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
                                                   ? kHandshakeOutputBytes : runtime->response_capacity;
         }
         const i64 begin = clock_now();
-        const auto inflated =
-            gzip_inflate({runtime->response_body, runtime->wire_body_bytes},
-                         {runtime->decompression, runtime->response_capacity}, &runtime->inflate_workspace);
+        // HTTP's deflate is the zlib format (RFC 9110 section 8.4.1.2).
+        const DeflateInputSpan wire{runtime->response_body, runtime->wire_body_bytes};
+        const Slice<u8> output{runtime->decompression, runtime->response_capacity};
+        const auto inflated = gzip ? gzip_inflate({wire.data, wire.bytes}, output, &runtime->inflate_workspace)
+                                   : zlib_inflate({&wire, 1}, output, ~0u, &runtime->inflate_workspace);
         if (!inflated.ok()) {
             secure_clear_bytes(runtime->decompression, runtime->response_capacity);
             return false;

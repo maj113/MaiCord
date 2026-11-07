@@ -32,7 +32,7 @@ void transport() noexcept {
               capture.route.route_id == kMessageCreateRouteId && capture.route.major_key == 20 &&
               capture.route.major == RestMajorParameter::channel &&
               capture.route.method == RestMethod::post &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v10/channels/20/messages")),
+              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/channels/20/messages")),
           "poll create: message create POST in the channel bucket on the supplied DETAILS owner");
     // The official poll message body: empty content, nonce, and the poll object
     // with question, poll_media answers, allow_multiselect, duration and layout.

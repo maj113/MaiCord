@@ -129,7 +129,7 @@ ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8> ou
         return {0, ChannelOverviewError::input};
     u8 target[64];
     ProtocolWriter writer{{target, sizeof(target)}, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", channel_id))
+    if (!protocol_write(&writer, "/api/v9/channels/", channel_id))
         return {0, ChannelOverviewError::capacity};
     if (output.count < writer.used)
         return {writer.used, ChannelOverviewError::capacity};

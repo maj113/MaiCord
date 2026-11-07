@@ -271,7 +271,7 @@ maicord_library(maicord_app_core
     src/app/account/account_logout.cpp src/app/account/account_profile_promotion.cpp src/app/account/account_session_store.cpp
     src/app/account/login/captcha_challenge.cpp src/app/net/cdn_client.cpp src/app/media/progressive_video_fetch.cpp
     src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp src/app/net/rest_client.cpp
-    src/app/net/rest_client_transaction.cpp src/app/net/rest_client_worker.cpp
+    src/app/net/rest_client_transaction.cpp src/app/net/rest_client_worker.cpp src/app/net/signed_out_session.cpp
     src/app/gateway/client.cpp src/app/gateway/client_storage.cpp src/app/gateway/client_transport.cpp
     src/app/gateway/client_outputs.cpp src/app/gateway/client_session.cpp src/app/voice/connection_setup.cpp
     src/app/voice/connection.cpp src/app/voice/udp_discovery.cpp src/app/voice/media_setup.cpp

@@ -455,7 +455,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
     RouteWriter w{};
     route_writer_initialize(&w, {temporary, sizeof(temporary)});
     // The target is a complete origin-form path; the REST transport adds no API prefix.
-    route_write(&w, "/api/v10");
+    route_write(&w, "/api/v9");
     switch (query.operation) {
     case MediaCatalogOperation::gif_categories: route_write(&w, "/gifs/trending"); break;
     case MediaCatalogOperation::gif_trending: route_write(&w, "/gifs/trending-gifs"); break;

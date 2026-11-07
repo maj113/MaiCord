@@ -289,7 +289,7 @@ void manual_tests() noexcept {
     check(seed(1) && application_read_state_mark_message_unread(1) && channel().last_read_message_id == 0 &&
               admit() && seen.message_id == 0 && manual_body(body) &&
               equals(reinterpret_cast<const char*>(seen.target), seen.target_bytes,
-                     utf8_literal("/api/v10/channels/70/messages/0/ack")) &&
+                     utf8_literal("/api/v9/channels/70/messages/0/ack")) &&
               reply(204),
           "manual read: previous-millisecond clamp permits the exact zero boundary route");
     fresh_owner();
@@ -528,7 +528,7 @@ void run() noexcept {
               body.flags_seen && body.flags == 1 && body.last_viewed == channel().read_last_viewed &&
               body.last_viewed >= (date_before - 1'420'070'400'000ull + 86'399'999ull) / 86'400'000ull &&
               equals(reinterpret_cast<const char*>(seen.target), seen.target_bytes,
-                     utf8_literal("/api/v10/channels/70/messages/701/ack")) &&
+                     utf8_literal("/api/v9/channels/70/messages/701/ack")) &&
               !application_read_state_next_wake(),
           "read runtime: first admitted POST has null token guild flags epoch-day date and exact cursor "
           "route");

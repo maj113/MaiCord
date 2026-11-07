@@ -326,6 +326,22 @@ UserClientConfigurationResult user_client_configuration_initialize(
         kClientNativeBuildNumber,
         Utf8View{storage->launch_signature, kGatewayUserLaunchIdBytes},
     };
+    // os_build_revision: the update build revision (UBR) the desktop client
+    // reports as os.buildRevision.
+    DWORD revision = 0;
+    DWORD revision_bytes = sizeof(revision);
+    u32 revision_digits = 0;
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"UBR",
+                     RRF_RT_REG_DWORD, nullptr, &revision, &revision_bytes) == ERROR_SUCCESS) {
+        char reversed[10];
+        do {
+            reversed[revision_digits++] = static_cast<char>('0' + revision % 10);
+            revision /= 10;
+        } while (revision);
+        for (u32 i = 0; i < revision_digits; ++i)
+            storage->os_build_revision[i] = reversed[revision_digits - 1 - i];
+    }
+    configuration.properties.os_build_revision = Utf8View{storage->os_build_revision, revision_digits};
 #else
     LinuxClientEnvironmentBuffer environment_buffer;
     const LinuxClientEnvironment environment = linux_client_environment_read(&environment_buffer);

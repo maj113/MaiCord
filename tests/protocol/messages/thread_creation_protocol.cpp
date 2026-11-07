@@ -27,7 +27,7 @@ void run() noexcept {
     u8 target[kThreadCreationMaximumTargetBytes], body[kThreadCreationMaximumBodyBytes];
     auto written = thread_creation_write_target(request, {target, sizeof(target)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
-        utf8_literal("/api/v10/channels/10/messages/20/threads")), "thread creation: exact message-origin POST target");
+        utf8_literal("/api/v9/channels/10/messages/20/threads")), "thread creation: exact message-origin POST target");
     written = thread_creation_write_body(request, {body, sizeof(body)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(body), written.bytes},
         utf8_literal("{\"name\":\"a\\\"\\\\\xC3\xA9\",\"type\":11,\"auto_archive_duration\":4320}")),
@@ -37,7 +37,7 @@ void run() noexcept {
     body[0] = 0xa5;
     const auto empty = thread_creation_write_body(reconcile, {body, sizeof(body)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
-        utf8_literal("/api/v10/channels/20")) && empty.ok() && !empty.bytes && body[0] == 0xa5,
+        utf8_literal("/api/v9/channels/20")) && empty.ok() && !empty.bytes && body[0] == 0xa5,
         "thread creation: reconcile GET uses immutable source ID and sends no body");
     auto announcement = request; announcement.thread_type = 10;
     written = thread_creation_write_body(announcement, {body, sizeof(body)});
@@ -48,7 +48,7 @@ void run() noexcept {
     maximum_ids.source_message_id = ~u64{0} - 2;
     written = thread_creation_write_target(maximum_ids, {target, sizeof(target)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes}, utf8_literal(
-        "/api/v10/channels/18446744073709551615/messages/18446744073709551613/threads")),
+        "/api/v9/channels/18446744073709551615/messages/18446744073709551613/threads")),
         "thread creation: full-width parent and source IDs are exact");
     target[0] = body[0] = 0xa5;
     check(thread_creation_write_target(request, {target, 1}).error == ThreadCreationError::capacity &&

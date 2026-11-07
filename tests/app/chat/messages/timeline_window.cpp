@@ -206,7 +206,7 @@ void test_detached_window(void (*check)(bool, const char*) noexcept) noexcept {
     check(message_history_catchup_begin(&catchup, &pump, kChannel, limit) &&
               catchup.state == MessageHistoryCatchupState::request_required,
           "channel selection queues its latest page");
-    check(target({6, limit, MessageHistoryPosition::around}, utf8_literal("/api/v10/channels/7/messages?around=6&limit=4")),
+    check(target({6, limit, MessageHistoryPosition::around}, utf8_literal("/api/v9/channels/7/messages?around=6&limit=4")),
           "jump requests messages around the target");
     // message_history_jump_accept_rest: reset, then the around page.
     check(message_timeline_reset(&timeline) &&
@@ -228,7 +228,7 @@ void test_detached_window(void (*check)(bool, const char*) noexcept) noexcept {
 
     check(message_history_older_demand(&older, &timeline, kChannel, limit) &&
               message_history_older_take_query(&older, &query) &&
-              target(query, utf8_literal("/api/v10/channels/7/messages?before=5&limit=4")),
+              target(query, utf8_literal("/api/v9/channels/7/messages?before=5&limit=4")),
           "scrolling up pages before the window's oldest row");
     older.state = MessageHistoryOlderState::idle; // the before page is not under test here
 
@@ -255,7 +255,7 @@ void test_detached_window(void (*check)(bool, const char*) noexcept) noexcept {
     check(message_timeline_set_scroll(&timeline, list.total_units, false) &&
               message_history_catchup_begin(&catchup, &pump, kChannel, limit) &&
               message_history_catchup_take_query(&catchup, &query) &&
-              target(query, utf8_literal("/api/v10/channels/7/messages?after=16&limit=4")),
+              target(query, utf8_literal("/api/v9/channels/7/messages?after=16&limit=4")),
           "after cursor advances page by page");
     // A create lands while the final page is in flight.
     check(message_timeline_apply_created(&timeline, message(33)).kind == GatewayMessageApplyKind::deferred,
@@ -292,7 +292,7 @@ void test_detached_window(void (*check)(bool, const char*) noexcept) noexcept {
               message_history_jump_to_present(&catchup, &older, &pump, kChannel, limit) && store.count == 0 &&
               timeline.follow_bottom && !catchup.incremental &&
               message_history_catchup_take_query(&catchup, &query) &&
-              target(query, utf8_literal("/api/v10/channels/7/messages?limit=4")),
+              target(query, utf8_literal("/api/v9/channels/7/messages?limit=4")),
           "Jump to Present discards the detached window and requests the latest page");
     GatewayMessageEvent latest[limit];
     page_of(latest, 34, limit);

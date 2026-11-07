@@ -130,7 +130,7 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
         AcquireSRWLockExclusive(shared.lock.native());
         shared.scheduler.global_reset_at_ms = clock_monotonic_milliseconds() + 60000;
         ReleaseSRWLockExclusive(shared.lock.native());
-        constexpr char target[] = "/api/v10/gateway";
+        constexpr char target[] = "/api/v9/gateway";
         for (u32 n = 0; n < 2; ++n) {
             RestClientRequest request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                       {},
@@ -156,9 +156,9 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
         }
         // The global limit remains an offline safety backstop. The trace barrier
         // proves both real workers entered the endpoint gate before that limit.
-        constexpr char endpoint[] = "/api/v10/channels/1/messages";
-        constexpr char history[] = "/api/v10/channels/1/messages?before=2";
-        constexpr char message[] = "/api/v10/channels/1/messages?nonce=3";
+        constexpr char endpoint[] = "/api/v9/channels/1/messages";
+        constexpr char history[] = "/api/v9/channels/1/messages?before=2";
+        constexpr char message[] = "/api/v9/channels/1/messages?nonce=3";
         const u64 floor = clock_monotonic_milliseconds() + 120000;
         AcquireSRWLockExclusive(shared.lock.native());
         shared.endpoint_gate.entries[0] = {

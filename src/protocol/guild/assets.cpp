@@ -465,7 +465,7 @@ GuildAssetResult guild_asset_write_target(const GuildAssetRequest& r, Slice<u8> 
         return {0, 0, GuildAssetError::input};
     u8 target[kGuildAssetMaximumTargetBytes];
     Sink s{target, sizeof(target), 0, true};
-    s.literal("/api/v10/guilds");
+    s.literal("/api/v9/guilds");
     if (r.operation != Op::guild_create) {
         s.literal("/");
         s.number(r.guild_id);

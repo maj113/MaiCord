@@ -453,7 +453,7 @@ void test_refresh_request(Check check) noexcept {
     const Utf8View request{reinterpret_cast<const char*>(output), written.bytes};
     check(written.ok() && rest_route_valid(kAttachmentRefreshRoute) &&
               kAttachmentRefreshRoute.major == RestMajorParameter::none && !kAttachmentRefreshRoute.major_key &&
-              utf8_starts_with(request, utf8_literal("POST /api/v10/attachments/refresh-urls HTTP/1.1\r\n")) &&
+              utf8_starts_with(request, utf8_literal("POST /api/v9/attachments/refresh-urls HTTP/1.1\r\n")) &&
               view_contains(request, utf8_literal("\r\nAuthorization: fixture\r\n")) &&
               view_contains(request, utf8_literal("\r\nContent-Type: application/json\r\n")) &&
               view_contains(request, utf8_literal("\r\nOrigin: https://discord.com\r\n")) &&

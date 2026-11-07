@@ -155,6 +155,8 @@ struct LoginView {
     bool password_revealed;
     bool auth_rate_limited;
     bool auth_retry_time_unknown;
+    // With status rejected: Discord suspended the account.
+    bool account_suspended;
 #if !defined(_WIN32)
     LoginSecurityKey security_key;
 #endif

@@ -25,7 +25,7 @@ MessageTypingWriteResult write_message_typing_target(u64 channel_id, Slice<u8> o
         return failure(MessageTypingWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/typing")) {
+    if (!protocol_write(&writer, "/api/v9/channels/", channel_id, "/typing")) {
         return failure(MessageTypingWriteError::capacity);
     }
     return MessageTypingWriteResult{writer.used, MessageTypingWriteError::none};

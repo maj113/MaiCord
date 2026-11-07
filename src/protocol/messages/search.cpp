@@ -564,7 +564,7 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
         return {0, MessageSearchWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     bool written =
-        protocol_write(&writer, "/api/v10/", query.scope == MessageSearchScope::guild ? "guilds/" : "channels/",
+        protocol_write(&writer, "/api/v9/", query.scope == MessageSearchScope::guild ? "guilds/" : "channels/",
                        query.scope_id, "/messages/search?offset=", query.offset) &&
         append_parameter(&writer, "limit") && protocol_write(&writer, query.limit) &&
         append_parameter(&writer, "sort_by") &&
@@ -663,7 +663,7 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(
         (!body.data && body.count))
         return {0, 0, MessageSearchWriteError::invalid_input};
     ProtocolWriter path{target, 0};
-    bool written = protocol_write(&path, "/api/v10/");
+    bool written = protocol_write(&path, "/api/v9/");
     if (query.scope == MessageSearchScope::private_channels)
         written = written && protocol_write(&path, "users/@me");
     else

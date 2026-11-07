@@ -585,18 +585,18 @@ void test_requests() noexcept {
     const u64 zero[] = {5, 0};
     const u64 many[] = {1, 2, 3, 4};
     check(same({reinterpret_cast<const char*>(target), bytes},
-               utf8_literal("/api/v10/applications/public?application_ids=5&application_ids=6")) &&
+               utf8_literal("/api/v9/applications/public?application_ids=5&application_ids=6")) &&
               !user_activity_applications_target({zero, 2}, {target, sizeof(target)}) &&
               !user_activity_applications_target({many, 4}, {target, sizeof(target)}),
           "requests: public applications by ID, at most three");
     bytes = user_activity_metadata_target(42, utf8_literal("abc123"), 5, {target, sizeof(target)});
     const bool metadata =
         same({reinterpret_cast<const char*>(target), bytes},
-             utf8_literal("/api/v10/users/42/sessions/abc123/activities/5/metadata"));
+             utf8_literal("/api/v9/users/42/sessions/abc123/activities/5/metadata"));
     bytes = user_activity_metadata_target(42, utf8_literal("h:xbox,1"), 0, {target, sizeof(target)});
     check(metadata &&
               same({reinterpret_cast<const char*>(target), bytes},
-                   utf8_literal("/api/v10/users/42/sessions/h:xbox,1/activities/0/metadata")) &&
+                   utf8_literal("/api/v9/users/42/sessions/h:xbox,1/activities/0/metadata")) &&
               !user_activity_metadata_target(42, utf8_literal("a/b"), 5, {target, sizeof(target)}) &&
               !user_activity_metadata_target(42, {}, 5, {target, sizeof(target)}),
           "requests: activity metadata by session and application (0 for none)");

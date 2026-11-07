@@ -65,7 +65,7 @@ struct GuildCommunityWriteResult {
     GuildCommunityWriteError error;
     constexpr bool ok() const noexcept { return error == GuildCommunityWriteError::none; }
 };
-// Writes the target ("/api/v10/...") for a valid request. The body is the
+// Writes the target ("/api/v9/...") for a valid request. The body is the
 // request's own (checked by guild_community_request_valid) except for
 // event_interested, whose fixed body is written to `body`. session_id (the
 // Gateway session, alphanumeric) is guild_join's: the lurked server's

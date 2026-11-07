@@ -126,11 +126,11 @@ void run() noexcept {
     u8 target[kThreadBrowserMaximumTargetBytes];
     auto wrote = thread_browser_write_target(archived, {target, sizeof(target)});
     check(wrote.ok() && utf8_equal({reinterpret_cast<const char*>(target), wrote.bytes}, utf8_literal(
-        "/api/v10/channels/10/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0")),
+        "/api/v9/channels/10/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0")),
         "thread browser: archived exact user-client GET target and no tags or arbitrary route");
     wrote = thread_browser_write_target(search, {target, sizeof(target)});
     check(wrote.ok() && utf8_equal({reinterpret_cast<const char*>(target), wrote.bytes}, utf8_literal(
-        "/api/v10/channels/10/threads/search?name=a%20%26%2F%3F%C3%A9")),
+        "/api/v9/channels/10/threads/search?name=a%20%26%2F%3F%C3%A9")),
         "thread browser: search UTF-8 percent encoding excludes archive sort limit offset and tags");
     target[0] = 0xa5;
     check(thread_browser_write_target(search, {target, 1}).error == ThreadBrowserError::capacity &&
@@ -138,7 +138,7 @@ void run() noexcept {
     auto full_ids = archived; full_ids.parent_id = ~u64{0}; full_ids.guild_id = ~u64{0} - 1;
     wrote = thread_browser_write_target(full_ids, {target, sizeof(target)});
     check(wrote.ok() && utf8_equal({reinterpret_cast<const char*>(target), wrote.bytes}, utf8_literal(
-        "/api/v10/channels/18446744073709551615/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0")),
+        "/api/v9/channels/18446744073709551615/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0")),
         "thread browser: full-width parent IDs remain exact");
     char hundred_four_byte[400];
     for (u32 at = 0; at < 400; at += 4) {
@@ -230,7 +230,7 @@ void run() noexcept {
     wrote = thread_browser_write_target(active, {target, sizeof(target)});
     check(thread_browser_request_valid(active) && wrote.ok() &&
         utf8_equal({reinterpret_cast<const char*>(target), wrote.bytes}, utf8_literal(
-        "/api/v10/channels/10/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=25")),
+        "/api/v9/channels/10/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=25")),
         "thread browser: active fallback GET target pages the unarchived listing");
     auto invalid_active = active; invalid_active.offset = 7;
     bool active_rejected = !thread_browser_request_valid(invalid_active);

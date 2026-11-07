@@ -55,8 +55,8 @@ u32 request_gateway(u64 request_id, bool expect_reuse,
             RestClientRequest{
                 ConstSlice<u8>{
                     reinterpret_cast<const u8*>(
-                        "/api/v10/gateway"),
-                    16},
+                        "/api/v9/gateway"),
+                    15},
                 {},
                 RestRouteKey{
                     1, 0, RestMethod::get,
@@ -66,7 +66,7 @@ u32 request_gateway(u64 request_id, bool expect_reuse,
         return 1u + static_cast<u32>(submitted.error);
     }
     // No extra network request: the occupied slot must reject both attempts.
-    constexpr char canary[] = "/api/v10/gateway?trace=never-log-this";
+    constexpr char canary[] = "/api/v9/gateway?trace=never-log-this";
     for (u32 retry = 0; retry < 2; ++retry) {
         const auto busy = rest_client_submit(&g_client,
             {{reinterpret_cast<const u8*>(canary), sizeof(canary) - 1}, {},
@@ -112,8 +112,8 @@ u32 cancel_gateway_request() noexcept {
             RestClientRequest{
                 ConstSlice<u8>{
                     reinterpret_cast<const u8*>(
-                        "/api/v10/gateway"),
-                    16},
+                        "/api/v9/gateway"),
+                    15},
                 {},
                 RestRouteKey{
                     1, 0, RestMethod::get,
@@ -178,7 +178,7 @@ bool probe_shared_workers() noexcept {
     bool ok = rest_client_start_public(&primary, 4096, &shared).ok() &&
               rest_client_start_public(&details, 4096, &shared).ok();
     const u32 gates_before = g_trace_gates;
-    constexpr char target[] = "/api/v10/gateway";
+    constexpr char target[] = "/api/v9/gateway";
     RestClientRequest request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1}, {},
         {1, 0, RestMethod::get, RestMajorParameter::none}, 4, 20'000};
     if (ok) ok = rest_client_submit(&primary, request).ok();

@@ -4,7 +4,7 @@
 maicord_library(maicord_app_net
     src/app/net/file_persistence.cpp src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp
     src/app/net/rest_client_worker.cpp src/app/net/cdn_client.cpp src/app/net/https_file_upload.cpp
-    src/app/net/https_file_download.cpp
+    src/app/net/https_file_download.cpp src/app/net/signed_out_session.cpp
     src/app/gateway/client.cpp src/app/gateway/client_storage.cpp src/app/gateway/client_transport.cpp
     src/app/gateway/client_outputs.cpp src/app/gateway/client_session.cpp src/platform/desktop/staged_file.cpp
     src/app/account/account_logout.cpp src/app/account/client_session_metadata.cpp

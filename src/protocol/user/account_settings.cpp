@@ -269,7 +269,7 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
     switch (r.operation) {
     case Op::settings_fetch:
     case Op::settings_patch:
-        path = utf8_literal("/api/v10/users/@me/settings-proto/1");
+        path = utf8_literal("/api/v9/users/@me/settings-proto/1");
         result.route_id = kAccountSettingsRouteId;
         result.method = r.operation == Op::settings_fetch ? RestMethod::get : RestMethod::patch;
         if (r.operation == Op::settings_patch) {
@@ -280,13 +280,13 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         }
         break;
     case Op::self_user:
-        path = utf8_literal("/api/v10/users/@me");
+        path = utf8_literal("/api/v9/users/@me");
         result.route_id = kAccountSelfRouteId;
         break;
     case Op::sessions:
     case Op::session_logout: {
-        path = r.operation == Op::sessions ? utf8_literal("/api/v10/auth/sessions")
-                                           : utf8_literal("/api/v10/auth/sessions/logout");
+        path = r.operation == Op::sessions ? utf8_literal("/api/v9/auth/sessions")
+                                           : utf8_literal("/api/v9/auth/sessions/logout");
         result.route_id = kAccountSessionsRouteId;
         if (r.operation == Op::session_logout) {
             result.method = RestMethod::post;
@@ -302,20 +302,20 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         result.route_id = kAccountTokensRouteId;
         if (r.operation == Op::token_revoke) {
             result.method = RestMethod::delete_method;
-            if (!route_write(&route, "/api/v10/oauth2/tokens/", r.id))
+            if (!route_write(&route, "/api/v9/oauth2/tokens/", r.id))
                 return fail_capacity();
         } else
-            path = utf8_literal("/api/v10/oauth2/tokens");
+            path = utf8_literal("/api/v9/oauth2/tokens");
         break;
     case Op::profile:
         result.route_id = kAccountProfileRouteId;
-        if (!route_write(&route, "/api/v10/users/", r.id, "/profile"))
+        if (!route_write(&route, "/api/v9/users/", r.id, "/profile"))
             return fail_capacity();
         break;
     case Op::profile_patch:
     case Op::display_name: {
         const bool name = r.operation == Op::display_name;
-        path = name ? utf8_literal("/api/v10/users/@me") : utf8_literal("/api/v10/users/@me/profile");
+        path = name ? utf8_literal("/api/v9/users/@me") : utf8_literal("/api/v9/users/@me/profile");
         result.route_id = name ? kAccountSelfRouteId : kAccountProfileRouteId;
         result.method = RestMethod::patch;
         const Utf8View key = name ? utf8_literal("global_name")

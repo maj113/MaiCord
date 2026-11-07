@@ -64,6 +64,7 @@ namespace auth_detail {
 
 bool present(LoginStatus status) noexcept {
     g_app.login.status = status;
+    g_app.login.account_suspended = false;
     return application_refresh_login_view();
 }
 
@@ -1145,6 +1146,7 @@ bool application_login_pump() noexcept {
     } else if (host.login_status.phase == AccountLoginPhase::rejected ||
                host.login_status.phase == AccountLoginPhase::failed || !host.login_status.ok()) {
         g_app.login.status = RendererLoginStatus::rejected;
+        g_app.login.account_suspended = host.login_status.account_suspended;
         g_app.login.focus = g_app.login.login.storage.bytes == 0 ? LoginControl::login : LoginControl::password;
         if (host.login_instance) {
             stop_login_owner();

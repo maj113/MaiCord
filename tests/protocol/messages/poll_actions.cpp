@@ -8,7 +8,7 @@ void test_message_poll_actions(void (*check)(bool,const char*) noexcept) noexcep
     request.operation=PollOperation::vote; request.answer_count=2;
     request.answer_ids[0]=7; request.answer_ids[1]=42;
     auto written=write_poll_request(request,{target,sizeof(target)},{body,sizeof(body)});
-    constexpr char vote_target[]="/api/v10/channels/5/polls/6/answers/@me";
+    constexpr char vote_target[]="/api/v9/channels/5/polls/6/answers/@me";
     constexpr char vote_body[]="{\"answer_ids\":[\"7\",\"42\"]}";
     check(written.ok() && written.method==RestMethod::put && written.route_id==kPollVoteRouteId &&
               written.target_bytes==sizeof(vote_target)-1 && written.body_bytes==sizeof(vote_body)-1 &&
@@ -25,14 +25,14 @@ void test_message_poll_actions(void (*check)(bool,const char*) noexcept) noexcep
     request.operation=PollOperation::voters; request.answer_id=42; request.limit=25;
     request.after_user_id=123;
     written=write_poll_request(request,{target,sizeof(target)},{});
-    constexpr char users_target[]="/api/v10/channels/5/polls/6/answers/42?limit=25&after=123&type=2";
+    constexpr char users_target[]="/api/v9/channels/5/polls/6/answers/42?limit=25&after=123&type=2";
     check(written.ok() && written.method==RestMethod::get && !written.body_bytes &&
               written.route_id==kPollVotersRouteId && written.target_bytes==sizeof(users_target)-1 &&
               bytes_equal(target,users_target,written.target_bytes),
           "poll verified voter page route includes actual cursor bounded limit and vote reaction type");
     request={}; request.channel_id=5; request.message_id=6; request.operation=PollOperation::refresh;
     written=write_poll_request(request,{target,sizeof(target)},{body,sizeof(body)});
-    constexpr char refresh_target[]="/api/v10/channels/5/messages?limit=1&around=6";
+    constexpr char refresh_target[]="/api/v9/channels/5/messages?limit=1&around=6";
     check(written.ok() && written.method==RestMethod::get && !written.body_bytes &&
               written.route_id==kPollMessageRouteId && written.target_bytes==sizeof(refresh_target)-1 &&
               bytes_equal(target,refresh_target,written.target_bytes),

@@ -92,5 +92,9 @@ u32 cookie_jar_encode_persistent(CookieJar* jar, u64 now_ms, Slice<u8> output) n
 bool cookie_jar_decode_persistent(CookieJar* jar, ConstSlice<u8> input, u64 now_ms) noexcept;
 // Whether any persistent cookie is stored, and the revision it was last changed at.
 bool cookie_jar_has_persistent(CookieJar* jar, u32* revision) noexcept;
+// Replaces destination's contents with every cookie of source, session ones
+// included, as one browser profile continuing in another jar. Locks source,
+// then destination; never call it with the two the other way round.
+void cookie_jar_copy(CookieJar* destination, CookieJar* source) noexcept;
 
 } // namespace maicord

@@ -37,9 +37,10 @@ struct AccountLoginRuntime {
     bool reset_mode;
     bool recovery_mode;
     bool browser_mode;
-    bool authenticated_pending; // fills the final alignment byte
+    bool authenticated_pending;
+    // The last rejection carried a suspended-user token: Discord suspended the account.
+    bool account_suspended;
 };
-static_assert(offsetof(AccountLoginRuntime, authenticated_pending) + sizeof(bool) == sizeof(AccountLoginRuntime));
 
 AccountLoginStatus login_invalid_input() noexcept {
     AccountLoginStatus status{};
@@ -144,6 +145,7 @@ AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
     status.remote_ticket_response_bytes = runtime->remote_status.ticket_response_bytes;
     status.http_status = coordinator.http_status;
     status.mfa_capabilities = runtime->mfa_capabilities;
+    status.account_suspended = runtime->account_suspended;
     status.coordinator_error = coordinator.error;
     status.coordinator_decode_error = coordinator.decode_error;
     status.coordinator_scan_error = coordinator.scan_error;

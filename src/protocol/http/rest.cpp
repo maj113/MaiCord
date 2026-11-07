@@ -390,7 +390,8 @@ bool rest_user_headers_valid(const RestUserRequestHeaders& headers) noexcept {
     }
     return ascii_graphic_string(headers.locale, kRestUserLocaleMaximumBytes, true) &&
            ascii_graphic_string(headers.timezone, kRestUserTimezoneMaximumBytes) &&
-           ascii_graphic_string(headers.accept_language, kRestUserAcceptLanguageMaximumBytes);
+           ascii_graphic_string(headers.accept_language, kRestUserAcceptLanguageMaximumBytes) &&
+           ascii_graphic_string(headers.fingerprint, kRestUserFingerprintMaximumBytes);
 }
 
 bool rest_route_valid(const RestRouteKey& route) noexcept {
@@ -615,10 +616,10 @@ namespace {
 // The request head for a request write_rest_request_head validated, in the
 // order Chromium's network stack sends an XMLHttpRequest: Host, Connection and
 // the body length first, then the page's fields (client hints and the
-// headers Discord sets), User-Agent, Content-Type, Accept, Origin, the fetch
-// metadata and Referer, then Accept-Encoding, Accept-Language and Cookie. An
-// empty POST or PUT body is declared with Content-Length: 0; other bodyless
-// methods send no length. Returns where the extra headers end.
+// headers Discord sets, Accept-Language among them), User-Agent, Content-Type,
+// Accept, Origin, the fetch metadata and Referer, then Accept-Encoding and
+// Cookie. An empty POST or PUT body is declared with Content-Length: 0; other
+// bodyless methods send no length. Returns where the extra headers end.
 u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     const char* const method = method_literal(request.method);
     const RestUserRequestHeaders* const page = request.user_headers;
@@ -634,10 +635,17 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     if (request.authorization != RestAuthorization::none)
         writer.put("Authorization: ", request.token, "\r\n");
     if (page) {
-        // In the order the desktop client sets them.
-        writer.put("X-Super-Properties: ", page->super_properties, "\r\nX-Discord-Locale: ", page->locale, "\r\n");
+        // In the order the desktop client's request preparation sets them;
+        // its default developer options leave only the bug reporter flag on.
+        writer.put("X-Super-Properties: ", page->super_properties, "\r\n");
+        if (page->fingerprint.bytes)
+            writer.put("X-Fingerprint: ", page->fingerprint, "\r\n");
+        if (page->accept_language.bytes)
+            writer.put("Accept-Language: ", page->accept_language, "\r\n");
+        writer.put("X-Discord-Locale: ", page->locale, "\r\n");
         if (page->timezone.bytes)
             writer.put("X-Discord-Timezone: ", page->timezone, "\r\n");
+        writer.put("X-Debug-Options: bugReporterEnabled\r\n");
     }
     if (request.audit_reason.count || request.send_empty_audit_reason)
         writer.put("X-Audit-Log-Reason: ", request.audit_reason, "\r\n");
@@ -666,10 +674,10 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
         else
             writer.put("Referer: https://discord.com/login\r\n");
     }
-    if (request.accept_gzip)
-        writer.put("Accept-Encoding: gzip\r\n");
-    if (page && page->accept_language.bytes)
-        writer.put("Accept-Language: ", page->accept_language, "\r\n");
+    // Chromium offers gzip, deflate, br and zstd; the client decodes only the
+    // first two and so advertises only those.
+    if (request.accept_encoding)
+        writer.put("Accept-Encoding: gzip, deflate\r\n");
     if (request.cookie.count)
         writer.put("Cookie: ", request.cookie, "\r\n");
     writer.put("\r\n");

@@ -275,6 +275,8 @@ struct LoginRuntime {
     // Server admission belongs to the login actor, not its replaceable worker.
     u64 auth_retry_at_ms;
     bool auth_retry_time_unknown;
+    // The last sign-in was refused because Discord suspended the account.
+    bool account_suspended;
     u64 caret_blink_at_ms;
     bool caret_visible;
     bool reset_mode;

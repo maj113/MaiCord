@@ -215,7 +215,7 @@ MessageHistoryTargetResult write_message_history_target(
     }
 
     ProtocolWriter writer{output, 0};
-    const bool written = protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages?") &&
+    const bool written = protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages?") &&
                          (!cursor_name || protocol_write(&writer, cursor_name, '=', query.cursor, '&')) &&
                          protocol_write(&writer, "limit=", query.limit);
     return written

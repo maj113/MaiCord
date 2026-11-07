@@ -21,8 +21,8 @@ bool request_gateway(ProbeTransport* transport, const Clock& clock,
         write_rest_request_head(
             RestRequestHead{
                 ConstSlice<u8>{
-                    reinterpret_cast<const u8*>("/api/v10/gateway"),
-                    16},
+                    reinterpret_cast<const u8*>("/api/v9/gateway"),
+                    15},
                 {}, 0, RestMethod::get,
                 RestAuthorization::none, false},
             Slice<u8>{g_request, 512});

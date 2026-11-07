@@ -857,7 +857,6 @@ bool application_plugins_surface_hover(float, float) noexcept {
 bool application_voice_shell_hover(float, float) noexcept {
     return false;
 }
-void application_channel_prefetch_hover(u64) noexcept {}
 bool application_voice_hand_cursor(float, float) noexcept {
     return false;
 }

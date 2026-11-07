@@ -428,13 +428,13 @@ void invites() noexcept {
     auto written = guild_invite_write_request(request, {target, sizeof(target)}, {body, sizeof(body)});
     check(written.ok() && written.method == RestMethod::get && !written.body_bytes &&
               utf8_equal({reinterpret_cast<char*>(target), written.target_bytes},
-                         utf8_literal("/api/v10/invites/abc-1?with_counts=true&with_expiration=true")),
+                         utf8_literal("/api/v9/invites/abc-1?with_counts=true&with_expiration=true")),
           "resolve requests counts and expiration");
     request.operation = GuildInviteOperation::accept;
     written = guild_invite_write_request(request, {target, sizeof(target)}, {body, sizeof(body)});
     check(written.ok() && written.method == RestMethod::post && written.body_bytes == 2 &&
               body[0] == '{' && body[1] == '}' && written.route_id == kGuildInviteAcceptRouteId &&
-              utf8_equal({reinterpret_cast<char*>(target), written.target_bytes}, utf8_literal("/api/v10/invites/abc-1")),
+              utf8_equal({reinterpret_cast<char*>(target), written.target_bytes}, utf8_literal("/api/v9/invites/abc-1")),
           "accept posts an empty object to the invite route");
     request.code[2] = '/';
     check(!guild_invite_request_valid(request) &&

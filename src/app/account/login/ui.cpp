@@ -243,6 +243,7 @@ bool application_synchronize_login_view() noexcept {
     view.password_revealed = password_revealed;
     view.auth_rate_limited = application_login_auth_cooldown_active();
     view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
+    view.account_suspended = application.login.account_suspended;
     view.caps_lock = focused_edit == &application.login.password && window_toggle_state(nullptr, key::caps_lock);
 #if !defined(_WIN32)
     view.security_key = application.login.security_key;

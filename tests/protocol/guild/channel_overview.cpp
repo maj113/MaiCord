@@ -39,7 +39,7 @@ void test_channel_overview(void (*check)(bool, const char*) noexcept) noexcept {
           "channel overview codec: dirty-only PATCH correctly escapes quotes slash newline and tab");
     written = channel_overview_write_target(~u64{0}, {output, sizeof(output)});
     check(written.ok() && utf8_equal({reinterpret_cast<char*>(output), written.bytes},
-                                     utf8_literal("/api/v10/channels/18446744073709551615")),
+                                     utf8_literal("/api/v9/channels/18446744073709551615")),
           "channel overview codec: exact channel route accepts the full snowflake range");
     output[0] = 0xA5;
     const auto sized = channel_overview_write_patch(patch, {});

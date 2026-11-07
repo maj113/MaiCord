@@ -41,7 +41,7 @@ void test_transport() noexcept {
           "publish transport work");
     check(
         account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 20, nullptr, 101).ok() &&
-            captured(&client, 20, 101, RestMethod::get, utf8_literal("/api/v10/channels/20"), {}, false),
+            captured(&client, 20, 101, RestMethod::get, utf8_literal("/api/v9/channels/20"), {}, false),
         "channel overview account: GET uses exact channel-major route bodyless JSON admission and caller "
         "request identity");
     char topic[] = "quote \"\\\n";
@@ -50,7 +50,7 @@ void test_transport() noexcept {
           "channel overview account: typed topic PATCH is admitted once");
     for (u32 i = 0; i < sizeof(topic) - 1; ++i)
         topic[i] = 'x';
-    check(captured(&client, 20, 102, RestMethod::patch, utf8_literal("/api/v10/channels/20"),
+    check(captured(&client, 20, 102, RestMethod::patch, utf8_literal("/api/v9/channels/20"),
                    utf8_literal("{\"topic\":\"quote \\\"\\\\\\n\"}"), true),
           "channel overview account: dirty-only escaped PATCH is copied before adapter stack and caller "
           "strings are reused");
@@ -58,7 +58,7 @@ void test_transport() noexcept {
     check(account_channel_overview_submit(&client, ChannelOverviewOperation::update, ~u64{0}, &patch, 103)
                   .ok() &&
               captured(&client, ~u64{0}, 103, RestMethod::patch,
-                       utf8_literal("/api/v10/channels/18446744073709551615"),
+                       utf8_literal("/api/v9/channels/18446744073709551615"),
                        utf8_literal("{\"rate_limit_per_user\":21600,\"nsfw\":true}"), true),
           "channel overview account: full snowflake and exact boolean slowmode JSON retain channel-major "
           "rate ownership");

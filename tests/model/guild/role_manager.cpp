@@ -248,7 +248,7 @@ void test_reorder() noexcept {
     u8 target[256], body[512];
     const auto path = guild_admin_write_target(request, {target, sizeof(target)});
     const auto json = guild_admin_write_body(request, {body, sizeof(body)});
-    constexpr char kPath[] = "/api/v10/guilds/100/roles";
+    constexpr char kPath[] = "/api/v9/guilds/100/roles";
     constexpr char kBody[] = R"([{"id":"13","position":4},{"id":"12","position":3},{"id":"14","position":2}])";
     check(guild_admin_method(request.operation) == RestMethod::patch && guild_admin_request_valid(request) &&
               path.ok() && path.bytes == sizeof(kPath) - 1 && bytes_equal(target, kPath, path.bytes) && json.ok() &&

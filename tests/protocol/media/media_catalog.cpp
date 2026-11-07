@@ -63,14 +63,14 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     check(
         written.ok() &&
             same({reinterpret_cast<const char*>(target), written.bytes},
-                 utf8_literal("/api/v10/gifs/"
+                 utf8_literal("/api/v9/gifs/"
                               "search?q=hello%20%26%2B%C3%A9&media_format=tinywebp&locale=en-US&limit=20")),
         "media catalog: GIF search query encodes UTF8 and delimiters, in the client's {q, media_format, "
         "locale, limit} order with the minimum provider limit");
     query.limit = 0;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/gifs/"
+                               utf8_literal("/api/v9/gifs/"
                                             "search?q=hello%20%26%2B%C3%A9&media_format=tinywebp&locale=en-US")),
           "media catalog: zero limit omits the parameter like the official client");
     constexpr u32 rejected_limits[]{1u, 19u, kMediaCatalogMaximumPageItems + 1};
@@ -87,7 +87,7 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     query.query = utf8_literal("dap");
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
+                               utf8_literal("/api/v9/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
           "media catalog: inline /gif search target is the client's integration request");
     target[0] = 0x55;
     query.limit = 50;
@@ -103,35 +103,35 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     query.limit = 5;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/gifs/suggest?q=cat&limit=5&locale=en-US")),
+                               utf8_literal("/api/v9/gifs/suggest?q=cat&limit=5&locale=en-US")),
           "media catalog: suggestions use their separate endpoint without media_format, {q, limit, locale}");
     query.operation = MediaCatalogOperation::gif_categories;
     query.query = {};
     query.format = MediaCatalogFormat::tiny_webp;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/gifs/trending?locale=en-US&media_format=tinywebp")),
+                               utf8_literal("/api/v9/gifs/trending?locale=en-US&media_format=tinywebp")),
           "media catalog: category landing uses the preview catalog route");
     query.operation = MediaCatalogOperation::gif_trending;
     query.limit = 50;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() &&
               same({reinterpret_cast<const char*>(target), written.bytes},
-                   utf8_literal("/api/v10/gifs/trending-gifs?media_format=tinywebp&locale=en-US&limit=50")),
+                   utf8_literal("/api/v9/gifs/trending-gifs?media_format=tinywebp&locale=en-US&limit=50")),
           "media catalog: Trending results use their separate provider route, {media_format, locale, limit}");
     query.operation = MediaCatalogOperation::sticker_packs;
     query.query = {};
     query.limit = 4096;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/sticker-packs?locale=en-US")),
+                               utf8_literal("/api/v9/sticker-packs?locale=en-US")),
           "media catalog: complete sticker packs request has locale and no invented pagination parameter");
     query.operation = MediaCatalogOperation::guild_stickers;
     query.guild_id = 42;
     query.locale = {};
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/guilds/42/stickers")),
+                               utf8_literal("/api/v9/guilds/42/stickers")),
           "media catalog: guild sticker request uses authoritative guild route only");
     query.guild_id = 0;
     check(!media_catalog_write_target(query, {target, sizeof(target)}).ok(),
@@ -142,13 +142,13 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     query.object_id = 749054660769218631;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/stickers/749054660769218631")),
+                               utf8_literal("/api/v9/stickers/749054660769218631")),
           "media catalog: one sticker by ID");
     query.operation = MediaCatalogOperation::sticker_pack;
     query.object_id = 847199849233514549;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/sticker-packs/847199849233514549")),
+                               utf8_literal("/api/v9/sticker-packs/847199849233514549")),
           "media catalog: one sticker pack by ID");
     query.object_id = 0;
     const bool missing = !media_catalog_write_target(query, {target, sizeof(target)}).ok();

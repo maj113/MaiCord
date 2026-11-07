@@ -25,7 +25,7 @@ void transport() noexcept {
               capture.route.route_id == kForumPostRouteId && capture.route.major_key == 20 &&
               capture.route.major == RestMajorParameter::channel &&
               capture.route.method == RestMethod::get && !capture.json && !capture.body_bytes &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v10/channels/20")),
+              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/channels/20")),
           "forum account: canonical parent metadata GET is bodyless on supplied DETAILS owner");
     char title[] = "A \"post\"", content[] = "Body\nwith \\ escape";
     request.title = {title, sizeof(title) - 1};
@@ -38,7 +38,7 @@ void transport() noexcept {
     check(account_forum_post_submit(&details, &request, 102).ok() && capture.safe && capture.json &&
               capture.route.method == RestMethod::post && capture.route.major_key == 20 &&
               equal(capture.target, capture.target_bytes,
-                    utf8_literal("/api/v10/channels/20/threads?use_nested_fields=true")),
+                    utf8_literal("/api/v9/channels/20/threads?use_nested_fields=true")),
           "forum account: atomic nested-message POST preserves parent major and exact target");
     u8 expected[16384];
     const auto written = forum_post_write_body(request, {expected, sizeof(expected)});

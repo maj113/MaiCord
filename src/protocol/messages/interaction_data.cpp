@@ -141,7 +141,7 @@ u32 interaction_data_write_target(u64 channel_id, u64 message_id, Slice<u8> outp
     if (!channel_id || !message_id || !output.data)
         return 0;
     ProtocolWriter writer{output, 0};
-    const bool ok = protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id,
+    const bool ok = protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages/", message_id,
                                    "/interaction-data");
     return ok ? writer.used : 0;
 }

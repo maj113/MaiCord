@@ -384,6 +384,22 @@ void test_login_scene() noexcept {
     expect(login_view_valid(rejected_password_view) && !login_view_action_disabled(rejected_password_view) &&
                !login_view_submit_disabled(rejected_password_view),
            "login_rejected_password_preserves_ordinary_retry_fallback");
+    // A refusal with a suspended-user token names the suspension instead of the generic failure.
+    rejected_password_view.account_suspended = true;
+    scene.focus = rejected_password_view.focus;
+    scene.mfa_capabilities = rejected_password_view.mfa_capabilities;
+    scene.selected_mfa_capability = rejected_password_view.selected_mfa_capability;
+    scene.action_disabled = login_view_action_disabled(rejected_password_view);
+    scene.recovery_disabled = login_view_recovery_disabled(rejected_password_view);
+    scene.submit_disabled = login_view_submit_disabled(rejected_password_view);
+    login_text_stream.count = 0;
+    expect(login_scene_layout(&scene, 830.0f, 720.0f) &&
+               login_text_presentation_build(scene, rejected_password_view, kDefaultTheme, &login_text_stream),
+           "login_text_presentation_suspended_build");
+    expect(has_text(LoginElement::status_message,
+                    utf8_literal("Discord has suspended this account. See its standing at discord.com.")),
+           "login_suspended_account_is_named");
+    rejected_password_view.account_suspended = false;
 
     LoginView captcha_text_view = login_text_view;
     captcha_text_view.status = LoginStatus::captcha_required;
@@ -1607,7 +1623,7 @@ void test_user_auth_protocol() noexcept {
     u8 output[2048]{};
     const UserAuthPasswordRequest password{utf8_literal("mai\"\n@example.test"), utf8_literal("p\\\tword"), false};
     const ConstSlice<u8> expected_password = byte_literal(
-        R"({"login":"mai\"\n@example.test","password":"p\\\tword","undelete":false})");
+        R"({"login":"mai\"\n@example.test","password":"p\\\tword","undelete":false,"login_source":null,"gift_code_sku_id":null})");
     UserAuthWriteResult written =
         user_auth_write_password_request(password, Slice<u8>{output, expected_password.count});
     expect(written.ok() && written.bytes == expected_password.count &&
@@ -1644,7 +1660,7 @@ void test_user_auth_protocol() noexcept {
                                  utf8_literal("instance-7"),
                                  UserAuthMfaType::totp};
     const ConstSlice<u8> expected_mfa = byte_literal(
-        R"({"code":"012 345","ticket":"ticket\"value","login_instance_id":"instance-7"})");
+        R"({"code":"012 345","ticket":"ticket\"value","login_source":null,"gift_code_sku_id":null,"login_instance_id":"instance-7"})");
     written = user_auth_write_mfa_request(mfa, Slice<u8>{output, static_cast<u32>(sizeof(output))});
     expect(written.ok() && written.bytes == expected_mfa.count &&
                bytes_equal(ConstSlice<u8>{output, written.bytes}, expected_mfa) &&
@@ -1730,7 +1746,8 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Session-Id: session-7\r\n"
                      "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
-                     "Accept: */*\r\n\r\n");
+                     "Accept: */*\r\n"
+                     "Accept-Encoding: gzip, deflate\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
@@ -1738,7 +1755,8 @@ void test_user_auth_protocol() noexcept {
                      "Content-Length: 32\r\n"
                      "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
-                     "Accept: */*\r\n\r\n");
+                     "Accept: */*\r\n"
+                     "Accept-Encoding: gzip, deflate\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_captcha_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
@@ -1749,7 +1767,8 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Session-Id: session-7\r\n"
                      "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
-                     "Accept: */*\r\n\r\n");
+                     "Accept: */*\r\n"
+                     "Accept-Encoding: gzip, deflate\r\n\r\n");
     written = user_auth_write_request_head(UserAuthOperation::password, 123,
                                            UserAuthCaptchaHeaders{utf8_literal("solution"),
                                                                   utf8_literal("request-token"),
@@ -1807,8 +1826,10 @@ void test_user_auth_protocol() noexcept {
         metadata_operations = metadata_operations && head.ok() && head.bytes >= target.bytes + 5 &&
             maicord::bytes_equal(output, "POST ", 5) &&
             maicord::bytes_equal(output + 5, target.data, target.bytes) &&
-            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nX-Discord-Locale: en-GB\r\n")) == 1 &&
-            header_count(bytes, byte_literal("\r\nAccept-Language: sl,en-GB;q=0.9\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nAccept-Language: sl,en-GB;q=0.9\r\n"
+                                             "X-Discord-Locale: en-GB\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Debug-Options: bugReporterEnabled\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nAccept-Encoding: gzip, deflate\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nsec-ch-ua-platform: \"Windows\"\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nSec-Fetch-Site: same-origin\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nX-Discord-Timezone: Europe/Ljubljana\r\n")) == 1 &&
@@ -1859,6 +1880,80 @@ void test_user_auth_protocol() noexcept {
         header_count({output, optional_zone.bytes}, byte_literal("X-Discord-Timezone:")) == 0 &&
         header_count({output, optional_zone.bytes}, byte_literal("X-Super-Properties:")) == 1,
         "user_auth_metadata_omits_unavailable_timezone");
+
+    // The login page's own requests: the experiments GET that mints the
+    // fingerprint (no fingerprint yet, the page named in its context), then
+    // every later signed-out request with X-Fingerprint and the page's cookies.
+    const auto cookie = byte_literal("__dcfduid=a; _cfuvid=b");
+    const auto experiments = user_auth_write_request_head(UserAuthOperation::experiments, 0, {},
+        {output, sizeof(output)}, &metadata, cookie);
+    expect(experiments.ok() &&
+               bytes_equal(ConstSlice<u8>{output, experiments.bytes},
+                   byte_literal("GET /api/v9/experiments?with_guild_experiments=true HTTP/1.1\r\n"
+                                "Host: discord.com\r\n"
+                                "Connection: keep-alive\r\n"
+                                "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
+                                "sec-ch-ua-mobile: ?0\r\n"
+                                "sec-ch-ua-platform: \"Windows\"\r\n"
+                                "X-Super-Properties: e30=\r\n"
+                                "Accept-Language: sl,en-GB;q=0.9\r\n"
+                                "X-Discord-Locale: en-GB\r\n"
+                                "X-Discord-Timezone: Europe/Ljubljana\r\n"
+                                "X-Debug-Options: bugReporterEnabled\r\n"
+                                "X-Context-Properties: eyJsb2NhdGlvbiI6IkxvZ2luIn0=\r\n"
+                                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
+                                "Accept: */*\r\n"
+                                "Sec-Fetch-Site: same-origin\r\n"
+                                "Sec-Fetch-Mode: cors\r\n"
+                                "Sec-Fetch-Dest: empty\r\n"
+                                "Referer: https://discord.com/login\r\n"
+                                "Accept-Encoding: gzip, deflate\r\n"
+                                "Cookie: __dcfduid=a; _cfuvid=b\r\n\r\n")),
+           "user_auth_experiments_request_head_wire");
+    RestUserRequestHeaders fingerprinted = metadata;
+    fingerprinted.fingerprint = utf8_literal("1436551184213917696.Jz4qD1N8fRk0aSoW3ZpVr0v7hOM");
+    const auto location = user_auth_write_request_head(UserAuthOperation::location_metadata, 0, {},
+        {output, sizeof(output)}, &fingerprinted, cookie);
+    const ConstSlice<u8> location_bytes{output, location.bytes};
+    expect(location.ok() && maicord::bytes_equal(output, "GET /api/v9/auth/location-metadata HTTP/1.1\r\n", 45) &&
+               header_count(location_bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nX-Fingerprint: "
+                                                         "1436551184213917696.Jz4qD1N8fRk0aSoW3ZpVr0v7hOM\r\n"
+                                                         "Accept-Language: ")) == 1 &&
+               header_count(location_bytes, byte_literal("Content-")) == 0 &&
+               header_count(location_bytes, byte_literal("\r\nOrigin:")) == 0 &&
+               header_count(location_bytes, byte_literal("X-Context-Properties")) == 0 &&
+               header_count(location_bytes, byte_literal("\r\nCookie: __dcfduid=a; _cfuvid=b\r\n\r\n")) == 1,
+           "user_auth_location_metadata_carries_fingerprint_and_cookies");
+    const auto fingerprinted_login = user_auth_write_request_head(UserAuthOperation::password, 32,
+        UserAuthCaptchaHeaders{utf8_literal("solution"), {}, {}}, {output, sizeof(output)}, &fingerprinted, cookie);
+    const ConstSlice<u8> login_bytes{output, fingerprinted_login.bytes};
+    expect(fingerprinted_login.ok() &&
+               header_count(login_bytes, byte_literal("\r\nX-Fingerprint: 1436551184213917696.")) == 1 &&
+               header_count(login_bytes, byte_literal("\r\nX-Captcha-Key: solution\r\n")) == 1 &&
+               header_count(login_bytes, byte_literal("\r\nCookie: __dcfduid=a; _cfuvid=b\r\n\r\n")) == 1 &&
+               !user_auth_write_request_head(UserAuthOperation::experiments, 0,
+                    UserAuthCaptchaHeaders{utf8_literal("solution"), {}, {}}, {output, sizeof(output)}, &metadata)
+                    .ok() &&
+               !user_auth_write_request_head(UserAuthOperation::experiments, 2, {}, {output, sizeof(output)},
+                    &metadata).ok() &&
+               !user_auth_write_request_head(UserAuthOperation::password, 0, {}, {output, sizeof(output)},
+                    &metadata).ok(),
+           "user_auth_login_carries_fingerprint_captcha_headers_and_cookies");
+    char fingerprint[kRestUserFingerprintMaximumBytes]{};
+    u32 fingerprint_scratch[64]{};
+    const auto decode_fingerprint = [&](const char* body) noexcept {
+        return user_auth_decode_fingerprint({body, c_string_length(body)}, {fingerprint_scratch, 64},
+                                            {fingerprint, sizeof(fingerprint)});
+    };
+    const u32 fingerprint_bytes = decode_fingerprint(
+        R"({"fingerprint":"1436551184213917696.Jz4qD1N8fRk0aSoW3ZpVr0v7hOM","assignments":[[1,2,0,-1,0]],"guild_experiments":[]})");
+    expect(fingerprint_bytes == 47 && maicord::bytes_equal(fingerprint, "1436551184213917696.Jz4qD1N8fRk0aSoW3ZpVr0v7hOM", 47) &&
+               decode_fingerprint(R"({"assignments":[]})") == 0 &&
+               decode_fingerprint(R"({"fingerprint":"a\u0041"})") == 0 &&
+               decode_fingerprint(R"({"fingerprint":12})") == 0 &&
+               decode_fingerprint(R"({"fingerprint":"a b"})") == 0 &&
+               decode_fingerprint(R"(["fingerprint"])") == 0,
+           "user_auth_experiments_fingerprint_decode");
 
     u32 structurals[256]{};
     char token[128]{};

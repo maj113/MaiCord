@@ -531,7 +531,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "never taking the keyboard");
     check(send_pending(501) &&
               utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
-                         utf8_literal("/api/v10/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
+                         utf8_literal("/api/v9/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
           "inline results: the strip asks GET /gifs/search as the client's integration search");
     check(response(501, strip_body) && application_media_picker_synchronize() &&
               p.phase == UiMediaPickerPhase::ready && p.scene.cell_count && p.scene.selected_index == 0 &&
@@ -579,7 +579,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     check(application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dapp"), anchor) &&
               p.phase == UiMediaPickerPhase::loading && send_pending(502) &&
               utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
-                         utf8_literal("/api/v10/gifs/search?q=dapp&media_format=webp&locale=en-US&limit=20")) &&
+                         utf8_literal("/api/v9/gifs/search?q=dapp&media_format=webp&locale=en-US&limit=20")) &&
               response(502, strip_body) && application_media_picker_synchronize() &&
               p.phase == UiMediaPickerPhase::ready && open_strip() && !p.wanted &&
               application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dapp"), anchor) &&
@@ -850,7 +850,7 @@ void run() noexcept {
             application_media_picker_next_wake() == due && application_media_picker_submit(102, due) &&
             !account.query.limit &&
             utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
-                 utf8_literal("/api/v10/gifs/search?q=hello%20%26%2B&media_format=tinywebp&locale=en-US")),
+                 utf8_literal("/api/v9/gifs/search?q=hello%20%26%2B&media_format=tinywebp&locale=en-US")),
         "picker runtime: content debounce gates the exact encoded search target with the server's page size");
     const auto admitted_generation = p.generation;
     const auto admitted_submissions = account.submissions;

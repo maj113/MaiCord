@@ -60,8 +60,8 @@ constexpr Utf8View kBannerUri = utf8_literal("data:image/gif;base64,R0lGODlhAQAB
 
 // The official client's PATCH bodies: only changed fields, in its key order.
 void test_protocol() noexcept {
-    const auto me = utf8_literal("/api/v10/users/@me");
-    const auto me_profile = utf8_literal("/api/v10/users/@me/profile");
+    const auto me = utf8_literal("/api/v9/users/@me");
+    const auto me_profile = utf8_literal("/api/v9/users/@me/profile");
     UserPatch name{};
     name.fields = user_patch_global_name;
     name.global_name = utf8_literal("Ada \"Q\" L\xC3\xB6we");
@@ -125,8 +125,8 @@ void test_protocol() noexcept {
                  utf8_literal(R"({"banner":null,"accent_color":null,"theme_colors":null,"collectibles_sku_ids":[]})")),
           "profile edit: removals send null and an empty collectibles list");
 
-    const auto member_target = utf8_literal("/api/v10/guilds/10/members/@me");
-    const auto member_profile = utf8_literal("/api/v10/guilds/10/profile/@me");
+    const auto member_target = utf8_literal("/api/v9/guilds/10/members/@me");
+    const auto member_profile = utf8_literal("/api/v9/guilds/10/profile/@me");
     MemberEditPatch nick{};
     nick.fields = member_edit_nick | member_edit_avatar | member_edit_avatar_decoration;
     nick.avatar = kAvatarUri;
@@ -148,24 +148,24 @@ void test_protocol() noexcept {
     fetch.operation = ProfileEditOperation::profile_fetch;
     fetch.id = 42;
     check(writes(fetch,
-                 utf8_literal("/api/v10/users/42/profile?with_mutual_guilds=false&with_mutual_friends=false"
+                 utf8_literal("/api/v9/users/42/profile?with_mutual_guilds=false&with_mutual_friends=false"
                               "&with_mutual_friends_count=false"),
                  {}),
           "profile edit: the editor loads the profile without mutuals");
     fetch.guild_id = 10;
     check(writes(fetch,
-                 utf8_literal("/api/v10/users/42/profile?with_mutual_guilds=false&with_mutual_friends=false"
+                 utf8_literal("/api/v9/users/42/profile?with_mutual_guilds=false&with_mutual_friends=false"
                               "&with_mutual_friends_count=false&guild_id=10"),
                  {}),
           "profile edit: the per-server tab adds its guild");
     ProfileEditRequest owned{};
     owned.operation = ProfileEditOperation::collectibles;
-    check(writes(owned, utf8_literal("/api/v10/users/@me/collectibles-purchases?variants_return_style=2"), {}),
+    check(writes(owned, utf8_literal("/api/v9/users/@me/collectibles-purchases?variants_return_style=2"), {}),
           "profile edit: owned collectibles come from collectibles-purchases");
     ProfileEditRequest product{};
     product.operation = ProfileEditOperation::collectible_product;
     product.id = 99;
-    check(writes(product, utf8_literal("/api/v10/collectibles-products/99"), {}),
+    check(writes(product, utf8_literal("/api/v9/collectibles-products/99"), {}),
           "profile edit: an effect's layers come from its product");
 
     // Rejections: each differs from a valid request by one property.
@@ -208,7 +208,7 @@ void test_transport() noexcept {
     auto request = user_request(&name);
     const auto submitted = account_profile_edit_submit(&details, &request, 5);
     check(submitted.ok() && capture.submissions == 1 && !capture.large && capture.json &&
-              same(capture.target, capture.target_bytes, utf8_literal("/api/v10/users/@me")) &&
+              same(capture.target, capture.target_bytes, utf8_literal("/api/v9/users/@me")) &&
               same(capture.body, capture.body_bytes, utf8_literal(R"({"global_name":"Ada"})")) &&
               capture.route.method == RestMethod::patch,
           "profile edit transport: a small save goes out as one JSON PATCH");

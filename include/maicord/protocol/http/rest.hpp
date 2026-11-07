@@ -15,6 +15,8 @@ inline constexpr u32 kRestUserSuperPropertiesMaximumBytes = 2 * 1024;
 inline constexpr u32 kRestUserLocaleMaximumBytes = 32;
 inline constexpr u32 kRestUserTimezoneMaximumBytes = 64;
 inline constexpr u32 kRestUserAcceptLanguageMaximumBytes = 256;
+// The experiments fingerprint ("<snowflake>.<base64url>", 47 bytes today).
+inline constexpr u32 kRestUserFingerprintMaximumBytes = 64;
 // Moderation reason recorded in the guild audit log: at most 512 characters (the service limit), each
 // up to four UTF-8 bytes, so the percent-encoded header is bounded by three times that.
 inline constexpr u32 kRestAuditReasonMaximumCodepoints = 512;
@@ -42,12 +44,15 @@ enum class RestAuthorization : u8 {
 // Normal-user requests use the session token verbatim and attach client
 // metadata headers. The timezone is optional because a native Windows zone name
 // must not be mislabeled as an IANA zone; an empty Accept-Language is omitted.
-// locale is the Discord interface locale (X-Discord-Locale).
+// locale is the Discord interface locale (X-Discord-Locale). fingerprint is
+// the signed-out experiments fingerprint (X-Fingerprint), sent only until
+// sign-in; empty sends none.
 struct RestUserRequestHeaders {
     ConstSlice<u8> super_properties;
     Utf8View locale;
     Utf8View timezone;
     Utf8View accept_language;
+    Utf8View fingerprint{};
 };
 // True when super_properties is canonical padded base64 and every other field is graphic ASCII within its bound.
 bool rest_user_headers_valid(const RestUserRequestHeaders& headers) noexcept;
@@ -62,7 +67,8 @@ struct RestRequestHead {
     // Content-Length: 0.
     bool json_body;
     const RestUserRequestHeaders* user_headers;
-    bool accept_gzip;
+    // Advertises the content codings the client decodes (gzip, deflate).
+    bool accept_encoding;
     // Already percent-encoded (rest_encode_audit_reason); empty omits
     // the X-Audit-Log-Reason header unless send_empty_audit_reason is set.
     ConstSlice<u8> audit_reason;

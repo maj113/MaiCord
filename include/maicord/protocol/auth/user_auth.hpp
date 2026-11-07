@@ -21,6 +21,11 @@ inline constexpr u32 kUserAuthBrowserExchangeMaximumTokenBytes = 2 * 1024;
 inline constexpr Utf8View kUserAuthLoginTarget = utf8_literal("/api/v9/auth/login");
 inline constexpr Utf8View kUserAuthMfaSmsSendTarget = utf8_literal("/api/v9/auth/mfa/sms/send");
 inline constexpr Utf8View kUserAuthRemoteAuthTicketTarget = utf8_literal("/api/v9/users/@me/remote-auth/login");
+// The login page's first two requests: the experiments assignment, which mints
+// the fingerprint, then the location metadata.
+inline constexpr Utf8View kUserAuthExperimentsTarget =
+    utf8_literal("/api/v9/experiments?with_guild_experiments=true");
+inline constexpr Utf8View kUserAuthLocationMetadataTarget = utf8_literal("/api/v9/auth/location-metadata");
 
 enum class UserAuthWriteError : u8 {
     none,
@@ -32,6 +37,9 @@ enum class UserAuthWriteError : u8 {
 
 using UserAuthWriteResult = ByteResult<UserAuthWriteError>;
 
+// The body carries login, password, undelete, login_source and
+// gift_code_sku_id, as the desktop login page sends it: all five keys, the
+// last two null (they name a gift or invite the login started from).
 struct UserAuthPasswordRequest {
     Utf8View login;
     Utf8View password;
@@ -60,6 +68,9 @@ enum class UserAuthOperation : u8 {
     phone_resend,
     phone_verify,
     browser_handoff_exchange,
+    // Bodyless GETs of the signed-out login page.
+    experiments,
+    location_metadata,
 };
 
 struct UserAuthMfaRequest {
@@ -104,20 +115,29 @@ Utf8View user_auth_mfa_target(UserAuthMfaType type) noexcept;
 // credential and therefore has a larger payload limit.
 u32 user_auth_mfa_data_maximum(UserAuthMfaType type) noexcept;
 Utf8View user_auth_target(UserAuthOperation operation) noexcept;
+// The bodyless GETs (experiments, location metadata); every other operation POSTs JSON.
+constexpr bool user_auth_operation_is_get(UserAuthOperation operation) noexcept {
+    return operation == UserAuthOperation::experiments || operation == UserAuthOperation::location_metadata;
+}
 // Accepts only the receiver JSON {key,handoff_token}; never copies it.
 bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> structural_scratch,
     u32 maximum_depth) noexcept;
-// Writes the complete allowlisted POST head used by the user-auth transport.
-// An empty CAPTCHA tuple omits retry fields. Capacity and every field are
-// validated before the destination is touched. The native transport does not
-// emit browser Origin, Referer, or device-fingerprint metadata. In particular,
-// the QR fingerprint is not an HTTP client fingerprint.
-// Optional launch metadata adds the same client-properties and locale headers
-// as normal REST, without an Authorization field.
+// Writes the complete allowlisted head used by the user-auth transport: the
+// signed-out login page's request (its Referer, no Authorization). An empty
+// CAPTCHA tuple omits retry fields; GET operations take none and no body.
+// Capacity and every field are validated before the destination is touched.
+// user_headers carries the client properties, locale and the experiments
+// fingerprint; cookie is the signed-out jar's Cookie value. The experiments
+// request names the page it comes from in X-Context-Properties.
 UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u64 content_length,
                                                  const UserAuthCaptchaHeaders& captcha,
                                                  Slice<u8> output,
-                                                 const RestUserRequestHeaders* user_headers = nullptr) noexcept;
+                                                 const RestUserRequestHeaders* user_headers = nullptr,
+                                                 ConstSlice<u8> cookie = {}) noexcept;
+// The `fingerprint` of an experiments response, copied into output
+// (kRestUserFingerprintMaximumBytes); its bytes, or 0 when it is missing or
+// not a short visible-ASCII string.
+u32 user_auth_decode_fingerprint(Utf8View body, Slice<u32> structural_scratch, Slice<char> output) noexcept;
 
 enum class UserAuthResponseKind : u8 {
     none,

@@ -269,7 +269,7 @@ void test_search_tabs(void (*check)(bool, const char*) noexcept) noexcept {
         write_message_search_tabs_request(query, {target, sizeof(target)}, {body, sizeof(body)});
     check(
         written.ok() &&
-            text_is(target, written.target_bytes, utf8_literal("/api/v10/guilds/7/messages/search/tabs")) &&
+            text_is(target, written.target_bytes, utf8_literal("/api/v9/guilds/7/messages/search/tabs")) &&
             text_is(
                 body, written.body_bytes,
                 utf8_literal(
@@ -328,7 +328,7 @@ void test_search_tabs(void (*check)(bool, const char*) noexcept) noexcept {
         write_message_search_tabs_request(query, {target, sizeof(target)}, {body, sizeof(body)});
     check(written.ok() &&
               text_is(target, written.target_bytes,
-                      utf8_literal("/api/v10/users/@me/messages/search/tabs")) &&
+                      utf8_literal("/api/v9/users/@me/messages/search/tabs")) &&
               !write_message_search_target(query, {target, sizeof(target)}).ok(),
           "search tabs: all-DM search uses /users/@me and has no legacy GET form");
     query.scope = MessageSearchScope::channel;
@@ -336,7 +336,7 @@ void test_search_tabs(void (*check)(bool, const char*) noexcept) noexcept {
     auto gw = write_message_search_target(query, {target, sizeof(target)});
     check(gw.ok() && text_is(target, gw.bytes,
                              utf8_literal(
-                                 "/api/v10/channels/7/messages/search?offset=0&limit=25&sort_by=timestamp&"
+                                 "/api/v9/channels/7/messages/search?offset=0&limit=25&sort_by=timestamp&"
                                  "sort_order=desc&pinned=true&include_nsfw=false")),
           "search legacy: tab presets apply to the GET fallback");
     query.tab = MessageSearchTab::messages;
@@ -350,7 +350,7 @@ void test_search_tabs(void (*check)(bool, const char*) noexcept) noexcept {
     check(gw.ok() &&
               text_is(target, gw.bytes,
                       utf8_literal(
-                          "/api/v10/channels/7/messages/search?offset=0&limit=25&sort_by=timestamp&"
+                          "/api/v9/channels/7/messages/search?offset=0&limit=25&sort_by=timestamp&"
                           "sort_order=desc&has=-snapshot&link_hostname=a.b-c&attachment_filename=x%20y&"
                           "author_type=user&include_nsfw=false")),
           "search legacy: GET carries hostname, filename, author type and excluded has values");
@@ -474,7 +474,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(
         written.ok() &&
             utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
-                       utf8_literal("/api/v10/channels/7/messages/"
+                       utf8_literal("/api/v9/channels/7/messages/"
                                     "search?offset=0&limit=25&sort_by=timestamp&sort_order=desc&content=a%"
                                     "20%26%2B%23%2F%22%C3%A9&author_id=12&author_id=13&mentions=14&has="
                                     "video&has=image&min_id=20&max_id=90&pinned=false&include_nsfw=false")),
@@ -483,7 +483,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     query.sort = MessageSearchSort::relevance;
     query.offset = 25;
     written = write_message_search_target(query, {target, sizeof(target)});
-    constexpr auto guild_prefix = utf8_literal("/api/v10/guilds/7/messages/search?offset=25");
+    constexpr auto guild_prefix = utf8_literal("/api/v9/guilds/7/messages/search?offset=25");
     check(written.ok() && bytes_equal(target, guild_prefix.data, guild_prefix.bytes),
           "search: guild scope and page offset route through server search");
     check(write_message_search_target(query, {target, 20}).error ==

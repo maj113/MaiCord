@@ -24,31 +24,31 @@ void run() noexcept {
     ThreadActionRequest request{20, 30, ThreadActionOperation::fetch_self, {}};
     check(account_thread_action_submit(&rest, &request, 101).ok() &&
         exact(&rest, 101, 20, RestMethod::get, kThreadMemberRouteId,
-              utf8_literal("/api/v10/channels/20/thread-members/30")),
+              utf8_literal("/api/v9/channels/20/thread-members/30")),
         "thread account: GET numeric self uses exact existing owner and no body/query");
     request.operation = ThreadActionOperation::join;
     check(account_thread_action_submit(&rest, &request, 102).ok() &&
         exact(&rest, 102, 20, RestMethod::post, kThreadMemberRouteId,
-              utf8_literal("/api/v10/channels/20/thread-members/@me")),
+              utf8_literal("/api/v9/channels/20/thread-members/@me")),
         "thread account: native user Join POST @me has no automatic unarchive or optional analytics");
     request.operation = ThreadActionOperation::leave;
     check(account_thread_action_submit(&rest, &request, 103).ok() &&
         exact(&rest, 103, 20, RestMethod::delete_method, kThreadMemberRouteId,
-              utf8_literal("/api/v10/channels/20/thread-members/@me")),
+              utf8_literal("/api/v9/channels/20/thread-members/@me")),
         "thread account: Leave uses DELETE own membership only");
     request.operation = ThreadActionOperation::unarchive;
     check(account_thread_action_submit(&rest, &request, 104).ok() &&
         exact(&rest, 104, 20, RestMethod::patch, kChannelOverviewRouteId,
-              utf8_literal("/api/v10/channels/20"), utf8_literal("{\"archived\":false}")),
+              utf8_literal("/api/v9/channels/20"), utf8_literal("{\"archived\":false}")),
         "thread account: Unarchive PATCH contains only archived=false and cannot unlock");
     request.thread_id = request.self_user_id = 999;
     check(exact(&rest, 104, 20, RestMethod::patch, kChannelOverviewRouteId,
-        utf8_literal("/api/v10/channels/20"), utf8_literal("{\"archived\":false}")),
+        utf8_literal("/api/v9/channels/20"), utf8_literal("{\"archived\":false}")),
         "thread account: transport synchronously retains request bytes after caller reuse");
     request = {~u64{0}, ~u64{0}, ThreadActionOperation::fetch_self, {}};
     check(account_thread_action_submit(&rest, &request, 105).ok() &&
         exact(&rest, 105, ~u64{0}, RestMethod::get, kThreadMemberRouteId,
-        utf8_literal("/api/v10/channels/18446744073709551615/thread-members/18446744073709551615")),
+        utf8_literal("/api/v9/channels/18446744073709551615/thread-members/18446744073709551615")),
         "thread account: full-width IDs remain exact numeric identities");
     const u32 before_invalid = capture.submissions;
     bool rejected = account_thread_action_submit(nullptr, &request, 106).error == RestClientSubmitError::invalid_input &&

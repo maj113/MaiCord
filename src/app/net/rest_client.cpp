@@ -1,6 +1,7 @@
 #include "rest_client_internal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/account/account_logout.hpp"
+#include "maicord/app/net/signed_out_session.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 
 namespace maicord {
@@ -268,7 +269,7 @@ RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
 RestClientSubmitResult rest_client_submit_user_settings(
     RestClient* client, const RestClientRequest& request,
     u32 response_capacity) noexcept {
-    static constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
+    static constexpr char target[] = "/api/v9/users/@me/settings-proto/2";
     const auto* runtime = client ? static_cast<const RestClientRuntime*>(client->runtime) : nullptr;
     if (!runtime || runtime->authorization != RestAuthorization::normal_user ||
         runtime->user_auth_mode || response_capacity < kRestClientMinimumResponseBytes ||
@@ -295,10 +296,12 @@ RestClientSubmitResult rest_client_submit_user_auth(
     auto* runtime = runtime_of(client);
     const RestRouteKey route = user_auth_route(request.operation);
     const bool has_captcha = request.captcha_key != nullptr;
+    const bool get = user_auth_operation_is_get(request.operation);
     const bool handoff_headers = request.operation == UserAuthOperation::browser_handoff_exchange &&
         (request.captcha_key || request.captcha_rqtoken || request.captcha_session_id);
     if (!runtime || !runtime->user_auth_mode || !client->worker.thread ||
-        request.request_id == 0 || !rest_route_valid(route) || handoff_headers || !valid_locked_value(request.body, ~0u, true) ||
+        request.request_id == 0 || !rest_route_valid(route) || handoff_headers ||
+        (get ? request.body != nullptr : !valid_locked_value(request.body, ~0u, true)) ||
         !valid_locked_value(request.captcha_key, kUserAuthMaximumCaptchaKeyBytes, false) ||
         !valid_locked_value(request.captcha_rqtoken, kUserAuthMaximumCaptchaTokenBytes, false) ||
         !valid_locked_value(request.captcha_session_id, kUserAuthMaximumCaptchaSessionBytes, false) ||
@@ -306,7 +309,8 @@ RestClientSubmitResult rest_client_submit_user_auth(
         request.timeout_ms > kMaximumRequestTimeoutMs || worker_ending(client)) {
         return RestClientSubmitResult{RestClientSubmitError::invalid_input};
     }
-    if (request.body->bytes > runtime->request_body_capacity) {
+    const ConstSlice<u8> body = get ? ConstSlice<u8>{} : secure_buffer_view(*request.body);
+    if (body.count > runtime->request_body_capacity) {
         return RestClientSubmitResult{RestClientSubmitError::body_capacity};
     }
     if (InterlockedCompareExchange(&client->request_state, request_state_writing, request_state_empty) !=
@@ -314,21 +318,33 @@ RestClientSubmitResult rest_client_submit_user_auth(
         return RestClientSubmitResult{RestClientSubmitError::busy};
     }
 
+    // The login page's state goes on every signed-out request: the
+    // experiments fingerprint and the cookies Discord set on earlier answers.
+    char fingerprint[kRestUserFingerprintMaximumBytes];
+    const u32 fingerprint_bytes = signed_out_fingerprint({fingerprint, sizeof(fingerprint)});
     const RestUserRequestHeaders user_headers{
         {runtime->user_super_properties, runtime->user_super_properties_bytes},
         {runtime->user_locale, runtime->user_locale_bytes},
         {runtime->user_timezone, runtime->user_timezone_bytes},
-        {runtime->user_accept_language, runtime->user_accept_language_bytes}};
+        {runtime->user_accept_language, runtime->user_accept_language_bytes},
+        {fingerprint, fingerprint_bytes}};
+    const auto auth_target = user_auth_target(request.operation);
+    runtime->command.auth_target = auth_target;
+    const u32 cookie_bytes = cookie_jar_header(request_cookies(runtime), cookie_request(runtime),
+                                               clock_unix_milliseconds(),
+                                               {runtime->cookie_header, kCookieHeaderMaximumBytes});
     const UserAuthWriteResult head = user_auth_write_request_head(
-        request.operation, request.body->bytes,
+        request.operation, body.count,
         UserAuthCaptchaHeaders{locked_utf8(request.captcha_key), locked_utf8(request.captcha_rqtoken),
                                locked_utf8(request.captcha_session_id)},
-        Slice<u8>{runtime->request_head, runtime->request_head_capacity}, &user_headers);
-    const ConstSlice<u8> body = secure_buffer_view(*request.body);
+        Slice<u8>{runtime->request_head, runtime->request_head_capacity}, &user_headers,
+        {runtime->cookie_header, cookie_bytes});
+    secure_clear_bytes(runtime->cookie_header, cookie_bytes);
     if (!head.ok() || !copy_bytes(runtime->request_body, runtime->request_body_capacity, body.data,
                                   body.count)) {
         secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
         secure_clear_bytes(runtime->request_body, runtime->request_body_capacity);
+        runtime->command.auth_target = {};
         InterlockedExchange(&client->request_state, request_state_empty);
         return RestClientSubmitResult{head.error == UserAuthWriteError::output_too_small
                                                  ? RestClientSubmitError::target_capacity
@@ -336,15 +352,14 @@ RestClientSubmitResult rest_client_submit_user_auth(
     }
 
     runtime->command.route = route;
-    const auto auth_target = user_auth_target(request.operation);
     runtime->command.endpoint_key =
         endpoint_key({reinterpret_cast<const u8*>(auth_target.data), auth_target.bytes});
     runtime->command.request_id = request.request_id;
-    runtime->command.body_bytes = request.body->bytes;
+    runtime->command.body_bytes = body.count;
     runtime->command.head_bytes = head.bytes;
     runtime->command.timeout_ms =
         request.timeout_ms == 0 ? kRestClientDefaultTimeoutMs : request.timeout_ms;
-    runtime->command.json_body = true;
+    runtime->command.json_body = !get;
     runtime->command.submitted_counter = clock_now();
     InterlockedExchange64(&client->current_request_id, static_cast<LONG64>(request.request_id));
     InterlockedExchange(&client->request_state, request_state_pending);
@@ -373,6 +388,31 @@ bool rest_client_arm_headers(RestClient* client, u64 request_id, const ConstSlic
     copy_bytes(runtime->armed_headers, headers.data, headers.count);
     runtime->armed_headers_bytes = headers.count;
     runtime->armed_request_id = request_id;
+    return true;
+}
+
+bool rest_client_replace_credential(RestClient* client, ConstSlice<u8> credential) noexcept {
+    auto* runtime = runtime_of(client);
+    if (!runtime || runtime->authorization != RestAuthorization::normal_user || !credential.data ||
+        !credential.count || credential.count > kMaximumCredentialBytes)
+        return false;
+    for (u32 i = 0; i < credential.count; ++i)
+        if (credential[i] < 0x21 || credential[i] > 0x7E)
+            return false;
+    SecureBuffer replacement{};
+    if (!secure_buffer_initialize(&replacement, credential.count).ok() ||
+        !secure_buffer_assign(&replacement, credential).ok()) {
+        secure_buffer_release(&replacement);
+        return false;
+    }
+    // The worker reads the credential only under this lock, while it writes a
+    // request head; every head written after the swap carries the new one.
+    AcquireSRWLockExclusive(runtime->credential_lock.native());
+    SecureBuffer previous = runtime->credential;
+    runtime->credential = replacement;
+    InterlockedIncrement(&runtime->credential_generation);
+    ReleaseSRWLockExclusive(runtime->credential_lock.native());
+    secure_buffer_release(&previous);
     return true;
 }
 

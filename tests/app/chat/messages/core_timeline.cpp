@@ -1280,7 +1280,7 @@ void test_message_history_protocol() noexcept {
         7, MessageHistoryQuery{100, 100, MessageHistoryPosition::after},
         Slice<u8>{target, 128});
     expect(after.ok() && bytes_equal(ConstSlice<u8>{target, after.bytes},
-                                     byte_literal("/api/v10/channels/7/messages?after=100&limit=100")),
+                                     byte_literal("/api/v9/channels/7/messages?after=100&limit=100")),
            "message_history_after_target");
     expect(write_message_history_target(
                7, MessageHistoryQuery{1, 50, MessageHistoryPosition::latest},

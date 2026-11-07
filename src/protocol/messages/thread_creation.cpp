@@ -131,7 +131,7 @@ ThreadCreationResult thread_creation_write_target(const ThreadCreationRequest& r
         return {0, ThreadCreationError::input};
     u8 temporary[kThreadCreationMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_write(&writer, "/api/v10/channels/",
+    if (!protocol_write(&writer, "/api/v9/channels/",
                         request.operation == ThreadCreationOperation::from_message ? request.parent_id
                                                                                    : request.source_message_id) ||
         (request.operation == ThreadCreationOperation::from_message &&

@@ -594,4 +594,16 @@ bool cookie_jar_has_persistent(CookieJar* jar, u32* revision) noexcept {
     return false;
 }
 
+void cookie_jar_copy(CookieJar* destination, CookieJar* source) noexcept {
+    if (!destination || !source || destination == source)
+        return;
+    JarLock from(source);
+    JarLock to(destination);
+    destination->count = source->count;
+    destination->text_bytes = source->text_bytes;
+    copy_bytes(destination->entries, source->entries, sizeof(source->entries));
+    copy_bytes(destination->text, source->text, sizeof(source->text));
+    ++destination->persistent_revision;
+}
+
 } // namespace maicord

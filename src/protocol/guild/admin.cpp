@@ -688,7 +688,7 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         return {0, 0, GuildAdminError::input};
     u8 target[kGuildAdminMaximumTargetBytes];
     GuardedWriter w{{target, sizeof(target)}};
-    w.put("/api/v10/");
+    w.put("/api/v9/");
     const Op op = r.operation;
     if (op == Op::guild_leave) {
         w.put("users/@me/guilds/", r.guild_id);

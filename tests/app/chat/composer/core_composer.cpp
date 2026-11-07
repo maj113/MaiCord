@@ -379,7 +379,7 @@ void test_message_composer() noexcept {
     expect(
         target_written.ok() &&
             bytes_equal(ConstSlice<u8>{target, target_written.bytes},
-                        byte_literal("/api/v10/channels/42/messages")) &&
+                        byte_literal("/api/v9/channels/42/messages")) &&
             body_written.ok() &&
             bytes_equal(ConstSlice<u8>{body, body_written.bytes},
                         byte_literal(
@@ -402,7 +402,7 @@ void test_message_composer() noexcept {
         "message_create_nonce_enforcement_exact_capacity_and_truncated_tail");
     expect(delete_target_written.ok() &&
                bytes_equal(ConstSlice<u8>{delete_target, delete_target_written.bytes},
-                           byte_literal("/api/v10/channels/42/messages/77")) &&
+                           byte_literal("/api/v9/channels/42/messages/77")) &&
                write_message_delete_target(0, 77, Slice<u8>{delete_target, sizeof(delete_target)})
                        .error == MessageDeleteWriteError::invalid_input &&
                write_message_delete_target(42, 0, Slice<u8>{delete_target, sizeof(delete_target)})
@@ -411,7 +411,7 @@ void test_message_composer() noexcept {
     expect(
         edit_target_written.ok() && edit_body_written.ok() &&
             bytes_equal(ConstSlice<u8>{edit_target, edit_target_written.bytes},
-                        byte_literal("/api/v10/channels/42/messages/77")) &&
+                        byte_literal("/api/v9/channels/42/messages/77")) &&
             bytes_equal(ConstSlice<u8>{edit_body, edit_body_written.bytes},
                         byte_literal("{\"content\":\"edited\\n\\\"text\\\"\"}")) &&
             write_message_edit_target(0, 77, Slice<u8>{edit_target, sizeof(edit_target)}).error ==
@@ -421,7 +421,7 @@ void test_message_composer() noexcept {
         "message_edit_patch_target_body_and_validation");
     expect(reaction_add_written.ok() &&
                bytes_equal(ConstSlice<u8>{reaction_target, reaction_add_written.bytes},
-                           byte_literal("/api/v10/channels/42/messages/77/reactions/%F0%9F%91%8D/"
+                           byte_literal("/api/v9/channels/42/messages/77/reactions/%F0%9F%91%8D/"
                                         "@me?location=Message&type=0")) &&
                write_message_reaction_target(42, 77, 123, utf8_literal("wave"),
                                              MessageReactionType::burst, false,
@@ -433,7 +433,7 @@ void test_message_composer() noexcept {
                                       42, 77, 123, utf8_literal("wave"), MessageReactionType::burst,
                                       false, Slice<u8>{reaction_target, sizeof(reaction_target)})
                                       .bytes},
-                   byte_literal("/api/v10/channels/42/messages/77/reactions/wave:123/1/"
+                   byte_literal("/api/v9/channels/42/messages/77/reactions/wave:123/1/"
                                 "@me?location=Message&burst=true")) &&
                write_message_reaction_target(0, 77, 0, utf8_literal("x"),
                                              MessageReactionType::normal, true,
@@ -443,7 +443,7 @@ void test_message_composer() noexcept {
     expect(
         typing_target_written.ok() &&
             bytes_equal(ConstSlice<u8>{typing_target, typing_target_written.bytes},
-                        byte_literal("/api/v10/channels/42/typing")) &&
+                        byte_literal("/api/v9/channels/42/typing")) &&
             write_message_typing_target(0, Slice<u8>{typing_target, sizeof(typing_target)}).error ==
                 MessageTypingWriteError::invalid_input,
         "message_typing_route_and_validation");
