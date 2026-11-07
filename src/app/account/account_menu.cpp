@@ -79,7 +79,7 @@ void restore_source_focus(const ApplicationAccountMenu& owner) noexcept {
                               g_app.keyboard_focus_visible ? g_app.context_focus : nullptr);
 }
 Utf8View custom_status_label(char* output, u32 capacity) noexcept {
-    SelfCustomStatus status{};
+    SelfCustomStatus status;
     if (!application_custom_status_snapshot(&status) || !self_custom_status_active(status, clock_unix_milliseconds()))
         return {};
     u32 used = 0;

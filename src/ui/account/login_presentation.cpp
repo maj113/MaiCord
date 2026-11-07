@@ -202,7 +202,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
         return true;
     }
 
-    QrCodeRect rectangles[384]{};
+    QrCodeRect rectangles[384];
     const QrCodeRectResult compacted = qr_code_compact_rects(
         *input.qr_code,
         Slice<QrCodeRect>{rectangles, static_cast<u32>(sizeof(rectangles) / sizeof(rectangles[0]))});

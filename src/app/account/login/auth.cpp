@@ -758,7 +758,7 @@ bool submit_password() noexcept {
     }
     if (application_login_auth_cooldown_active())
         return application_refresh_login_view();
-    AccountPaths paths{};
+    AccountPaths paths;
     AccountPathsError path_error{};
     if (!application_login_prepare_owner(&paths, &path_error)) {
         log_u64(LogLevel::error, "auth", "login_storage_error", static_cast<u64>(path_error));
@@ -1186,7 +1186,7 @@ bool application_login_begin_remote_auth() noexcept {
         return true;
     }
     g_app.login.remote_restart_at_ms = 0;
-    AccountPaths paths{};
+    AccountPaths paths;
     AccountPathsError path_error{};
     if (!application_login_prepare_owner(&paths, &path_error)) {
         log_u64(LogLevel::error, "auth", "remote_auth_storage_error", static_cast<u64>(path_error));

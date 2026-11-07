@@ -181,10 +181,10 @@ struct WindowItem {
 };
 struct Window {
     WindowItem items[maximum_visible + 4];
-    u32 count, rows, first, mask;
+    u32 count = 0, rows = 0, first = 0, mask = 0;
 };
 Window window(const UiFriendsScene& s, float scroll) noexcept {
-    Window result{};
+    Window result;
     result.first = logical_count(s);
     if (!sectioned(s)) {
         const auto first = minimum(logical_count(s), static_cast<u32>(scroll / row_height));

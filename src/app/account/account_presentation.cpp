@@ -274,7 +274,7 @@ bool synchronize_shell_widget_scenes() noexcept {
         reset_value(&message_viewport);
     if (header_revision != g_app.thread_header.revision)
         content_text_retention_invalidate(&g_app.renderer.content_text_retention);
-    char reply_label_storage[256]{};
+    char reply_label_storage[256];
     Utf8View reply_label{};
     u64 composer_context_message_id = 0;
     if (!friends && g_app.message_edit.editor_active) {
@@ -293,7 +293,7 @@ bool synchronize_shell_widget_scenes() noexcept {
         g_app.account_ui ? &g_app.account_ui->chat_state : nullptr,
         g_app.account_ui ? g_app.account_ui->chat_state.selected_guild_id : 0, community_notice};
     application_commands_composer(&composer_projection);
-    char typing_label_storage[kMessageTypingLabelMaximumBytes]{};
+    char typing_label_storage[kMessageTypingLabelMaximumBytes];
     Utf8View typing_label{};
     MessageTypingName typing_names[3]{};
     u32 typing_named = 0;

@@ -63,7 +63,7 @@ bool busy() noexcept {
 
 bool save_inventory() noexcept {
     ++g_switch.inventory_revision;
-    AccountPaths root{};
+    AccountPaths root;
     wchar_t path[kAccountProfileMaximumPathCharacters];
     const bool saved = account_paths_resolve_slot(0, &root).ok() && account_paths_ensure_directories(root).ok() &&
                        account_inventory_path(root, path, kAccountProfileMaximumPathCharacters) &&
@@ -74,7 +74,7 @@ bool save_inventory() noexcept {
 }
 
 bool slot_profile_present(u32 slot) noexcept {
-    AccountPaths paths{};
+    AccountPaths paths;
     if (!account_paths_resolve_slot(slot, &paths).ok())
         return false;
     FileStat profile{};
@@ -84,7 +84,7 @@ bool slot_profile_present(u32 slot) noexcept {
 // Logout contract on a slot without a worker: marker, delete, confirm. The
 // drafts of an unused slot go too, so a new account never inherits them.
 bool forget_slot(u32 slot, bool drafts) noexcept {
-    AccountPaths paths{};
+    AccountPaths paths;
     if (!account_paths_resolve_slot(slot, &paths).ok())
         return false;
     FileStat directory{};
@@ -329,7 +329,7 @@ bool begin_add(u32 slot) noexcept {
 bool begin_switch(u32 slot) noexcept {
     if (!application_account_switch_available())
         return false;
-    AccountPaths target{};
+    AccountPaths target;
     if (!account_paths_resolve_slot(slot, &target).ok())
         return false;
     const auto probe = account_credential_forget_probe(target);
@@ -516,7 +516,7 @@ void application_account_switch_initialize() noexcept {
     if (g_switch.initialized)
         return;
     g_switch.initialized = true;
-    AccountPaths root{};
+    AccountPaths root;
     if (!account_paths_resolve_slot(0, &root).ok())
         return;
     const auto opened = account_inventory_open(root, &g_switch.inventory, clock_unix_milliseconds());

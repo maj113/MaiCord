@@ -57,7 +57,7 @@ u64 local_ms_of_day() noexcept {
 void project_appearance(u64 unix_now) noexcept {
     if (!g_app.account_ui)
         return;
-    SelfCustomStatus effective{};
+    SelfCustomStatus effective;
     if (!application_custom_status_snapshot(&effective))
         return;
     if (!self_custom_status_active(effective, unix_now))
@@ -252,7 +252,7 @@ bool application_custom_status_snapshot(SelfCustomStatus* output) noexcept {
 }
 
 bool application_custom_status_available() noexcept {
-    SelfCustomStatus ignored{};
+    SelfCustomStatus ignored;
     const auto self = identity();
     return g_app.account.api.custom_status_submit && self.available && self.authoritative && saved(&ignored);
 }
@@ -351,7 +351,7 @@ u64 application_custom_status_next_wake() noexcept {
     if (request.queued && !request.request_id && request.retry_at &&
         g_app.message_history_request_owner == MessageHistoryRequestOwner::none)
         wake = request.retry_at;
-    SelfCustomStatus current{};
+    SelfCustomStatus current;
     const u64 unix_now = clock_unix_milliseconds();
     // A past expiry is handled once by the tick; only a future one schedules.
     if (application_custom_status_snapshot(&current) && current.present && current.expires_at_ms > unix_now)
@@ -382,7 +382,7 @@ bool application_custom_status_open() noexcept {
     f.account_scope = g_app.plugin_account_scope_serial;
     f.invalid = false;
     reset_value(&f.status);
-    SelfCustomStatus current{};
+    SelfCustomStatus current;
     const bool known = application_custom_status_snapshot(&current) &&
                        self_custom_status_active(current, clock_unix_milliseconds());
     f.had_status = known;

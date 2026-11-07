@@ -243,7 +243,7 @@ ClientPreferencesResult client_preferences_save_file(const wchar_t* path,
 ClientPreferencesResult client_preferences_load(ClientPreferences* preferences) noexcept {
     if (!preferences)
         return failure(ClientPreferencesError::invalid_input);
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     const auto result = user_path(path, false);
     return result.ok() ? client_preferences_load_file(path, preferences) : result;
 }
@@ -251,7 +251,7 @@ ClientPreferencesResult client_preferences_load(ClientPreferences* preferences) 
 ClientPreferencesResult client_preferences_save(const ClientPreferences& preferences) noexcept {
     if (!client_preferences_valid(preferences))
         return failure(ClientPreferencesError::invalid_input);
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     const auto result = user_path(path, true);
     return result.ok() ? client_preferences_save_file(path, preferences) : result;
 }

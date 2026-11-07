@@ -378,7 +378,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
         g_author_member_pin_epoch = ui.guild_member_store.user_pin_epoch;
         g_author_user_pin_epoch = ui.user_store.pin_epoch;
     };
-    u64 ids[kVisibleAuthorMaximum]{};
+    u64 ids[kVisibleAuthorMaximum];
     const u32 author_count =
         eligible ? visible_author_ids(g_app.message_scene, selected->id, {ids, kVisibleAuthorMaximum}) : 0;
     const u32 voice_end = visible_voice_user_ids(ui.voice_states, voice_guild, {ids, kVisibleAuthorMaximum}, author_count);
@@ -388,7 +388,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
     u32 count = voice_end;
     const auto& shown = ui.guild_member_store.visible;
     if (selected && shown.guild_id && shown.guild_id == selected->guild_id) {
-        u64 rows[128]{};
+        u64 rows[128];
         const u32 row_count = guild_member_store_list_users(ui.guild_member_store, shown.guild_id, shown.list_id,
                                                             shown.first, shown.last, {rows, 128});
         for (u32 i = 0; i < row_count && count < kVisibleAuthorMaximum; ++i) {
@@ -417,7 +417,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
             break;
         g_author_people = people;
         follow_visible_members(ui, selected ? selected->guild_id : 0, ids, count);
-        u64 missing[kVisibleAuthorMaximum]{};
+        u64 missing[kVisibleAuthorMaximum];
         u32 missing_count = 0;
         // Rebuild only finite resident interest, retaining positional range pins.
         // Otherwise scrolling through authors could permanently pin the whole cache.
@@ -901,7 +901,7 @@ bool application_account_return_to_login(bool rejected) noexcept {
     if (!application_hide_account_scenes())
         return false;
     if (rejected) {
-        AccountPaths paths{};
+        AccountPaths paths;
         if (account_paths_resolve(&paths).ok()) {
             const wchar_t* invalidated[] = {paths.profile, paths.session, paths.shell};
             for (const auto* path : invalidated)
@@ -1045,7 +1045,7 @@ bool application_account_restart() noexcept {
     if (!g_app.account_ui || g_app.login.visible || host.instance || host.login_instance || host.stop_failed ||
         application_account_logout_blocked())
         return false;
-    AccountPaths paths{};
+    AccountPaths paths;
     if (!account_paths_resolve(&paths).ok() || (!host.module && !application_account_module_load()))
         return false;
     application_plugins_account_scope_invalidated();
@@ -1139,7 +1139,7 @@ bool application_account_attach_if_present() noexcept {
         reset_value(&early);
         return true;
     }
-    AccountPaths paths{};
+    AccountPaths paths;
     const AccountPathsResult resolved = account_paths_resolve(&paths);
     if (!resolved.ok()) {
         LogEvent("account_paths_failed")

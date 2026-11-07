@@ -67,7 +67,7 @@ bool application_login_begin_browser_auth() noexcept {
         login.status = LoginStatus::cancelling;
         return application_refresh_login_view();
     }
-    AccountPaths paths{};
+    AccountPaths paths;
     if (!application_login_prepare_owner(&paths))
         return stop_browser_owner(LoginStatus::browser_failed);
     host.login_status = account_host_login_start(&host, paths.profile);

@@ -63,7 +63,7 @@ bool text_store_point(void*, SecureTextPoint client, bool round, u32* position, 
     if (!edit || edit->password || !g_app.renderer.dpi) return false;
     POINT point{client.x, client.y};
     application_client_to_content(&point);
-    char visible[48*4]{};
+    char visible[48*4];
     u32 bytes = 0, relative = 0, first = 0;
     SecureEditRenderWindow window{};
     const auto& layout = g_app.renderer.login_edit;
@@ -176,8 +176,8 @@ bool application_synchronize_login_view() noexcept {
     if (!phone || !login_phone_editable(application.login.status)) application_phone_tsf_mutation_stamp() = 0;
     if (!phone && !application_login_prepare_identifier()) return false;
     constexpr u32 kVisibleEditCodepoints = 48;
-    char login_display[kVisibleEditCodepoints * 4]{};
-    char secret_display[kVisibleEditCodepoints * 4]{};
+    char login_display[kVisibleEditCodepoints * 4];
+    char secret_display[kVisibleEditCodepoints * 4];
     u32 login_display_bytes = 0;
     u32 secret_display_bytes = 0;
     SecureEditRenderWindow login_window{};
@@ -309,7 +309,7 @@ bool application_synchronize_login_view() noexcept {
             secure_text_store_unbind(&application.login.text_store);
         }
     }
-    TextCompositionSpan visible_composition[kTextCompositionSpanCapacity]{};
+    TextCompositionSpan visible_composition[kTextCompositionSpanCapacity];
     if (synchronized && focused_edit) {
         SecureTextComposition native{};
         if (!secure_text_store_composition(application.login.text_store, &native)) {

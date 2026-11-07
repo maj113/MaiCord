@@ -4,7 +4,7 @@ namespace maicord {
 RestClientSubmitResult account_relationship_submit(RestClient* rest,
     RelationshipOperation operation, u64 user_id, Utf8View username, u64 request_id) noexcept {
     if (!rest || !request_id) return {RestClientSubmitError::invalid_input};
-    u8 target[96]{}, body[256]{};
+    u8 target[96], body[256];
     const auto path = write_relationship_target(operation, user_id, {target, sizeof(target)});
     if (!path.ok()) return {path.error == RelationshipWriteError::output_too_small ?
         RestClientSubmitError::target_capacity : RestClientSubmitError::invalid_input};

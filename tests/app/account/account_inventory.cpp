@@ -175,6 +175,13 @@ void test_paths(Check check, const Profile& profile) noexcept {
     account_paths_select_slot(previous);
 }
 
+// Leaves a pattern in the stack below the caller, so the next call's frame starts dirty.
+__declspec(noinline) void dirty_stack(u8 pattern) noexcept {
+    volatile u8 scratch[16 * 1024];
+    for (u32 index = 0; index < sizeof(scratch); ++index)
+        scratch[index] = pattern;
+}
+
 void test_persistence(Check check, const Profile& profile) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters];
     check(account_inventory_path(profile.root, path, kAccountProfileMaximumPathCharacters) &&
@@ -193,6 +200,17 @@ void test_persistence(Check check, const Profile& profile) noexcept {
               bytes_equal(&loaded.entries[0], &saved.entries[0], sizeof(AccountInventoryEntry)) &&
               bytes_equal(&loaded.entries[1], &saved.entries[1], sizeof(AccountInventoryEntry)),
           "account_inventory_round_trips_exactly");
+    // The file never carries stack bytes: two saves from differently dirtied stacks are byte-identical.
+    u8 first[kAccountInventoryMaximumFileBytes], again[kAccountInventoryMaximumFileBytes];
+    dirty_stack(0xA5);
+    const bool first_saved = account_inventory_save(path, saved).ok();
+    const u32 first_bytes = read_file(path, first, sizeof(first));
+    dirty_stack(0x5A);
+    const bool again_saved = account_inventory_save(path, saved).ok();
+    const u32 again_bytes = read_file(path, again, sizeof(again));
+    check(first_saved && again_saved && first_bytes == 32 + 2 * 256 && first_bytes == again_bytes &&
+              bytes_equal(first, again, first_bytes),
+          "account_inventory_save_is_independent_of_stack_contents");
     const auto* second = account_inventory_find_user(loaded, 222);
     check(second && second->slot == 2 &&
               utf8_equal(account_inventory_display_name(*second), utf8_literal("Second \xc3\xa9")) &&

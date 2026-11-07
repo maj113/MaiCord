@@ -63,7 +63,7 @@ AccountPathsResult account_paths_resolve_slot(u32 slot, AccountPaths* paths) noe
     if (!paths) {
         return failure(AccountPathsError::invalid_input);
     }
-    wchar_t local_application_data[kCapacity]{};
+    wchar_t local_application_data[kCapacity];
     const u32 length = local_data_root(local_application_data, kCapacity);
     if (length == 0 || length >= kCapacity) {
         return failure(length == 0 ? AccountPathsError::environment : AccountPathsError::capacity,

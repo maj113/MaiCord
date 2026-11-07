@@ -285,7 +285,7 @@ bool registered_games_load(RegisteredGames* games) noexcept {
     if (!games)
         return false;
     reset_value(games);
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     if (!data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin").ok())
         return false;
     u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
@@ -293,7 +293,7 @@ bool registered_games_load(RegisteredGames* games) noexcept {
     return read.error == FileReadError::missing || (read.ok() && registered_games_decode({record, read.bytes}, games));
 }
 bool registered_games_save(const RegisteredGames& games) noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
     const u32 bytes = registered_games_encode(games, {record, sizeof(record)});
     if (!bytes)

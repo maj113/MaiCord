@@ -391,7 +391,7 @@ bool application_account_logout_prepare_startup(const AccountPaths* paths) noexc
     if (application_account_logout_host_owned() ||
         (application_account_logout_blocked() && g_app.account_logout))
         return false;
-    AccountPaths resolved{};
+    AccountPaths resolved;
     const bool valid = paths || account_paths_resolve(&resolved).ok();
     const auto probed =
         valid ? account_credential_forget_probe(paths ? *paths : resolved)

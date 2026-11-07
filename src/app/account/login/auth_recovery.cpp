@@ -129,7 +129,7 @@ bool application_login_submit_reset() noexcept {
     if (!host.login_instance) {
         if (login.reset_retry || !login.login.storage.locked || !login.login.storage.bytes)
             return reset_failed();
-        AccountPaths paths{};
+        AccountPaths paths;
         if (!application_login_prepare_owner(&paths))
             return reset_failed();
         invalidate_auth();
@@ -201,7 +201,7 @@ bool application_login_submit_recovery() noexcept {
     if (!quiesce_recovery_owner()) return application_refresh_login_view();
     if (application_login_auth_cooldown_active())
         return application_refresh_login_view();
-    AccountPaths paths{};
+    AccountPaths paths;
     if (!application_login_prepare_owner(&paths))
         return present(LoginStatus::recovery_failed);
     host.login_status = account_host_login_start(&host, paths.profile);

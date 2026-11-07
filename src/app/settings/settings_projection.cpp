@@ -358,7 +358,7 @@ static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed
 }
 
 static u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
-    UiSettingsSearchHit hits[kSettingsSearchHits]{};
+    UiSettingsSearchHit hits[kSettingsSearchHits];
     const auto& schema = settings_catalog();
     const u32 found = ui_settings_schema_search(schema, search_query(settings), {hits, kSettingsSearchHits});
     u32 count = 0;

@@ -171,7 +171,7 @@ AccountInventoryResult account_inventory_save(const wchar_t* path, const Account
     const u32 characters = wide_length(path, kAccountProfileMaximumPathCharacters);
     if (!characters || characters + 4 >= kAccountProfileMaximumPathCharacters || !inventory_valid(inventory))
         return failure(AccountInventoryError::invalid_input, ERROR_INVALID_PARAMETER);
-    u8 bytes[kAccountInventoryMaximumFileBytes]{};
+    u8 bytes[kAccountInventoryMaximumFileBytes];
     const u32 file_size = kHeaderBytes + inventory.count * kEntryBytes;
     copy_bytes(bytes, kMagic, sizeof(kMagic));
     byte_store_le32(bytes + 8, kAccountInventoryVersion);
@@ -179,6 +179,7 @@ AccountInventoryResult account_inventory_save(const wchar_t* path, const Account
     byte_store_le32(bytes + 16, file_size);
     byte_store_le32(bytes + 20, inventory.count);
     byte_store_le32(bytes + 24, inventory.active_slot);
+    byte_store_le32(bytes + 28, 0);
     for (u32 index = 0; index < inventory.count; ++index)
         encode_entry(bytes + kHeaderBytes + index * kEntryBytes, inventory.entries[index]);
     const FilePersistenceWriteResult written =

@@ -37,7 +37,7 @@ inline bool application_settings_envelope(Utf8View body, bool* out_of_date, Sett
         }
         return true;
     };
-    u32 indexes[256]{};
+    u32 indexes[256];
     const auto scanned = json_scan_structurals_avx1(body, {indexes, 256});
     if (!scanned.ok() || !json_visit_root_object(body, {indexes, scanned.count}, 16, member, &envelope).ok() ||
         !envelope.settings_seen)

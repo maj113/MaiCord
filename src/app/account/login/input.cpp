@@ -159,7 +159,7 @@ bool application_login_position_edit(LoginControl control, i32 client_x, i32 cli
         return true;
     }
     constexpr u32 kVisibleEditCodepoints = 48;
-    char visible[kVisibleEditCodepoints * 4]{};
+    char visible[kVisibleEditCodepoints * 4];
     u32 visible_bytes = 0;
     SecureEditRenderWindow window{};
     const SecureEditResult rendered = secure_edit_render_window(

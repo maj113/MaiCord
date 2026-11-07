@@ -203,7 +203,7 @@ inline bool application_login_range_geometry(const SecureEdit& edit,
     u32 ignored = 0;
     if (!utf8_byte_offset_for_utf16_position(source, first, &ignored) ||
         !utf8_byte_offset_for_utf16_position(source, last, &ignored)) return false;
-    char display[48 * 4]{};
+    char display[48 * 4];
     u32 bytes = 0;
     SecureEditRenderWindow window{};
     const auto rendered = secure_edit_render_window(edit, 48, {display, sizeof(display)}, &bytes, &window);

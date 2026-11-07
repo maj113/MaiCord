@@ -210,7 +210,7 @@ u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
     if (in.now_ms < loop.next_ms)
         return loop.next_ms;
     const ConstSlice<u8> encoded{loop.asset.bytes, loop.asset.count};
-    PngImage frame_image{};
+    PngImage frame_image;
     const ApngDecodeResult decoded = apng_decode_parsed_frame(encoded, loop.image, loop.frame, loop.inflate, &frame_image,
                                                               {loop.scanlines, loop.scanline_bytes});
     if (!decoded.ok())
