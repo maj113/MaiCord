@@ -628,6 +628,46 @@ bool drawn_knobs_follow_the_background() noexcept {
     return none && application_effects_count() == before && !g_app.renderer.effect.selected;
 }
 
+// An effect file in the library whose slug the catalog lists but whose install the catalog doesn't record (copied into
+// the effects folder, or kept from a lost catalog state): Installed lists and counts it on the catalog's item, with
+// Developer Mode off and on.
+bool unrecorded_listed_effect_is_installed() noexcept {
+    constexpr char kSlug[] = "listed";
+    constexpr u32 bytes = sizeof(kSlug) - 1;
+    copy_bytes(index.text, kSlug, bytes);
+    index.text_bytes = bytes;
+    index.item_count = 1;
+    reset_value(&index.items[0]);
+    index.items[0].kind = CatalogKind::effect;
+    index.items[0].slug = index.items[0].name = {0, bytes};
+    application_effects_reload();
+    const u32 before = application_effects_count();
+    const bool written = install_effect(kSlug);
+    application_effects_reload();
+    store_stub_catalog_index(&index);
+    const bool developer = g_app.preferences.developer_mode;
+    bool listed = written && application_effects_count() == before + 1;
+    const bool modes[]{false, true};
+    for (const bool mode : modes) {
+        g_app.preferences.developer_mode = mode;
+        application_effects_reload();
+        store_model_fill(&model, {});
+        const u32 at = store_find_item(model, CatalogKind::effect, {kSlug, bytes});
+        StoreList list{};
+        StorePageState state{};
+        state.kind = CatalogKind::effect;
+        store_installed_list(model, state, &list);
+        listed = listed && at != ~0u && model.items[at].item == 0 && model.items[at].installed &&
+                 model.items[at].library != ~0u && store_installed_count(model, CatalogKind::effect) == before + 1 &&
+                 list.count == before + 1;
+    }
+    g_app.preferences.developer_mode = developer;
+    store_stub_catalog_index(nullptr);
+    application_effects_remove(kSlug, bytes);
+    application_effects_reload();
+    return listed && application_effects_count() == before;
+}
+
 // A wheel notch on a store page eases on the shared scroll curve like a native page: it moves nothing at once, the
 // page then glides over several frames to the notch's target, and the settled page leaves the animator idle (the
 // frame loop and the scheduler's fallback timer only ask for scroll frames while it is active). Reduced motion lands
@@ -779,6 +819,9 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     check(drawn_knobs_follow_the_background(),
           "effect knobs a theme follows: the background's own values, the user's change at once, and none for an "
           "effect in the library, previewed in another's place, or no longer the background");
+    check(unrecorded_listed_effect_is_installed(),
+          "store: an effect file the catalog lists but has no install record for is Installed and counted, with "
+          "Developer Mode off and on");
     check(wheel_glides(stores[0]),
           "store routing: a wheel notch on a store page glides over several frames to its target with no first-frame "
           "jump, the settled animator schedules no frames, and reduced motion lands it at once");

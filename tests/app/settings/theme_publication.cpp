@@ -35,6 +35,7 @@ u32 refreshes{};
 // The effects' clock and the theme's effect's knobs (month, sky), as application_effects_* answers them.
 EffectLocalTime local{2026, 3, 1, 3, 0};
 float month_knob = -1, sky_knob = -1;
+u32 day_ms{}; // a development folder's simulation running the clock: how long its day takes (0: none)
 const ClientThemeDocument* document{};
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
@@ -67,8 +68,9 @@ u32 theme_fixture_typography_revision(const D3D11Renderer&) noexcept {
 float application_effects_drawn_knob(const char*, const char* id) noexcept {
     return id[0] == 'm' ? theme_publication_test::month_knob : theme_publication_test::sky_knob;
 }
-EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcept {
-    *next_ms = now_ms + 60'000;
+EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms, u32* day_ms) noexcept {
+    *day_ms = theme_publication_test::day_ms;
+    *next_ms = now_ms + (*day_ms ? 16 : 60'000);
     return theme_publication_test::local;
 }
 const ClientThemeDocument* application_custom_theme_document() noexcept {
@@ -79,7 +81,7 @@ const ClientThemeDocument* application_custom_theme_document() noexcept {
 namespace theme_publication_test {
 using namespace app_detail;
 u32 scratch[4096];
-ClientThemeDocument linked{}, plain{};
+ClientThemeDocument linked{}, plain{}, dusk{};
 
 // The look a publication of the current source settles on.
 Theme settled_look() noexcept {
@@ -306,6 +308,47 @@ void run() noexcept {
     check(jump.every_frame && jump.monotonic && jump.frames == (kEffectAmbientEaseMs + 15) / 16 &&
               shows(settled_look()) && quiet(10),
           "theme glide: a jump of the clock glides over the effects' appearance glide, then asks for nothing");
+    // A running simulated clock (a day in 60 s from 13:00, sampled every 100 ms: 2.4 minutes a tick) moves through the
+    // day-to-dusk mix at its own pace: every publication shows the clock's look at once, none starts a glide; a jump
+    // beyond its course (the file written again) still glides.
+    const auto dusk_source = utf8_literal(
+        "{\"version\":\"2.0\",\"name\":\"Dusk\",\"variants\":{\"day\":{\"base\":\"light\",\"colors\":{\"base_low\":"
+        "\"#f4f1ea\"}},\"dusk\":{\"base\":\"light\",\"colors\":{\"base_low\":\"#c08060\"}}}}");
+    check(client_theme_document_parse(dusk_source, client_theme_document_defaults(), {scratch, 4096}, &dusk).ok(),
+          "theme glide: the day-to-dusk theme reads");
+    document = &dusk;
+    local = {2026, 3, 1, 13, 0};
+    day_ms = 60'000;
+    g_app.preferences.reduced_motion = true; // the switch from the linked theme shows at once
+    check(application_custom_theme_publish(document, false) && shows(settled_look()) &&
+              application_theme_schedule_wake() == now + 16,
+          "theme glide: 13:00 shows at once, and the running clock wakes the schedule a frame later");
+    g_app.preferences.reduced_motion = false;
+    const u64 anchor = now;
+    bool follows = true;
+    u32 refreshed = refreshes, ticks = 0;
+    float red = application_theme().base_low.red;
+    for (; ticks < 30; ++ticks) {
+        now += 100;
+        u64 next_minute = 0;
+        const u32 clock_minute = effect_simulated_minute({13 * 60, day_ms, anchor}, now, &next_minute);
+        local.hour = static_cast<u16>(clock_minute / 60);
+        local.minute = static_cast<u16>(clock_minute % 60);
+        const bool due = application_theme_schedule_wake() <= now;
+        application_theme_schedule_tick(now, true);
+        follows = follows && due && !application_theme_transition_active() && shows(settled_look()) &&
+                  refreshes == refreshed + 1 && application_theme().base_low.red < red;
+        refreshed = refreshes;
+        red = application_theme().base_low.red;
+    }
+    check(follows && local.hour == 14 && local.minute == 12,
+          "theme glide: a running simulated clock is followed at once at each publication, never as a jump");
+    local.hour = 16;
+    now += 100;
+    application_theme_schedule_tick(now, false);
+    check(run_frames(16).frames == (kEffectAmbientEaseMs + 15) / 16 && shows(settled_look()),
+          "theme glide: a jump beyond the running clock's course glides over the effects' appearance glide");
+    day_ms = 0;
     document = nullptr;
     application_theme_release();
 }

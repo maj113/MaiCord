@@ -20,9 +20,11 @@ struct ThemePublication {
     // A change of colours glides (client_theme_glide) from the look that showed (ease_from_bytes), from ease_start_ms
     // (application_now_us in milliseconds) over ease_ms, one frame at a time (application_theme_schedule_tick), unless
     // motion is reduced or the window can't show it. A custom theme with variants follows the clock
-    // (client_theme_document_at): it is published again at each minute (schedule_next_ms, clock_monotonic_milliseconds).
+    // (client_theme_document_at): it is published again at each minute (schedule_next_ms, clock_monotonic_milliseconds),
+    // or as a development folder's simulation runs it.
     alignas(Theme) u8 ease_from_bytes[sizeof(Theme)];
     u64 ease_start_ms{}, schedule_next_ms{};
+    u64 schedule_ms{}; // when the last publication read the clock (clock_monotonic_milliseconds)
     u32 ease_ms{};
     u32 schedule_sample{}; // the last publication's minute, day and month as one count (months of 32 days)
     // The theme's effect's month and phase knobs as last seen (application_effects_drawn_knob, client_theme_follow).

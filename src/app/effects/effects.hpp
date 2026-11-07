@@ -44,8 +44,9 @@ u32 application_effects_interval_ms() noexcept;
 // theme switch still glides into place.
 u64 application_effects_transition_wake() noexcept;
 // The local date and time mc_ambient follows (a development folder's simulation included); a theme with variants
-// follows it too, so the two agree. *next_ms: when the clock is read again (the next whole minute).
-EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcept;
+// follows it too, so the two agree. *next_ms: when it next changes (the next whole minute; while a simulation runs the
+// clock, its next minute, at most once an effect frame). *day_ms: how long that simulation's day takes, else 0.
+EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms, u32* day_ms) noexcept;
 // The system's light or dark scheme (PlatformSettings::dark_scheme). The dispatcher reads it again on a scheme
 // change and hands it here; the appearance input then eases to it.
 void application_effects_set_system_dark(bool dark) noexcept;

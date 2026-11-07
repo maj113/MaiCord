@@ -661,8 +661,9 @@ bool turned_off(const char* slug) noexcept {
 
 // ---- Ambient inputs (mc_ambient) ----------------------------------------------------------------------------
 // The local date and time: the clock is read at each whole minute (the input's granularity), then a simulation
-// from the development folder may stand in for the time of day or the date.
-EffectLocalTime local_time(u64 now_ms) noexcept {
+// from the development folder may stand in for the time of day or the date. *next_ms: when it next changes (the
+// clock's next minute, or sooner a running simulation's).
+EffectLocalTime local_time(u64 now_ms, u64* next_ms) noexcept {
     Inputs& in = g.inputs;
     if (!in.clock_next_ms || now_ms >= in.clock_next_ms) {
         CalendarTime time{};
@@ -670,23 +671,29 @@ EffectLocalTime local_time(u64 now_ms) noexcept {
         in.local = {time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute};
         in.clock_next_ms = now_ms + (60u - minimum<u32>(time.wSecond, 59u)) * 1000u - minimum<u32>(time.wMilliseconds, 999u);
     }
+    *next_ms = in.clock_next_ms;
     EffectLocalTime local = in.local;
     const Simulation& s = in.simulation;
     if (!g_app.preferences.developer_mode)
         return local;
     if (s.time) {
-        u64 minutes = s.minutes;
-        if (s.day_seconds && now_ms > s.anchor_ms)
-            minutes += (now_ms - s.anchor_ms) * 1440u / (u64{s.day_seconds} * 1000u);
-        minutes %= 1440u;
+        u64 next = 0;
+        const u32 minutes = effect_simulated_minute({s.minutes, s.day_seconds * 1000u, s.anchor_ms}, now_ms, &next);
         local.hour = static_cast<u16>(minutes / 60u);
         local.minute = static_cast<u16>(minutes % 60u);
+        if (next && next < *next_ms)
+            *next_ms = next;
     }
     if (s.date) {
         local.month = s.month;
         local.day = static_cast<u16>(minimum<u32>(s.day, effect_month_days(local.year, s.month)));
     }
     return local;
+}
+// How long a simulated day takes while the development folder's simulation runs the clock, else 0.
+u32 simulated_day_ms() noexcept {
+    const Simulation& s = g.inputs.simulation;
+    return g_app.preferences.developer_mode && s.time ? s.day_seconds * 1000u : 0;
 }
 
 // An input may glide: the background shows and could move, and the window has focus or the effect keeps moving
@@ -727,8 +734,11 @@ void sample_inputs(u64 identity, u32 uses, bool adapt) noexcept {
     in.next_frame_ms = 0;
     const u64 now = clock_monotonic_milliseconds();
     EffectAmbientSources sources{};
-    if (uses & effect_use_clock)
-        sources.local = local_time(now);
+    if (uses & effect_use_clock) {
+        u64 next = 0;
+        sources.local = local_time(now, &next);
+        sources.day_ms = simulated_day_ms();
+    }
     if ((uses & effect_use_appearance) || adapt) {
         if (!in.system_read) {
             in.system_dark = platform_settings_read().dark_scheme;
@@ -1073,9 +1083,12 @@ u64 application_effects_transition_wake() noexcept {
     return g.selected && g.inputs.next_frame_ms && transition_allowed() ? g.inputs.next_frame_ms : 0;
 }
 
-EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms) noexcept {
-    const EffectLocalTime local = local_time(now_ms);
-    *next_ms = g.inputs.clock_next_ms;
+EffectLocalTime application_effects_local_time(u64 now_ms, u64* next_ms, u32* day_ms) noexcept {
+    const EffectLocalTime local = local_time(now_ms, next_ms);
+    *day_ms = simulated_day_ms();
+    // A running simulation turns minutes faster than frames show them: who follows it is woken once a frame at most.
+    if (*day_ms)
+        *next_ms = maximum<u64>(*next_ms, now_ms + application_effects_interval_ms());
     return local;
 }
 

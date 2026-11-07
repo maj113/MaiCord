@@ -36,14 +36,17 @@ u64 glide_now() noexcept {
 // The look the source asks for now: the built-in preferences' projection, a document, or a theme with variants on
 // the effects' clock. A publication (glide_ms not null) moves the clock's schedule on and sets how long a scheduled
 // look's own change glides, unless the caller set it: a month or phase the knobs hold as the user's change, a jump of
-// the clock or a light/dark flip over the effects' appearance glide, and the minutes as they come at once.
+// the clock or a light/dark flip over the effects' appearance glide, and the minutes as they come at once (a
+// development folder's running simulation brings many between publications: its course is no jump).
 Theme look(ThemePublication& p, const ClientThemeDocument* document, u32* glide_ms) noexcept {
     if (!document)
         return client_theme_projection(g_app.preferences);
     if (!client_theme_document_scheduled(*document))
         return document->theme;
     u64 next = 0;
-    const EffectLocalTime local = application_effects_local_time(clock_monotonic_milliseconds(), &next);
+    u32 day_ms = 0;
+    const u64 now = clock_monotonic_milliseconds();
+    const EffectLocalTime local = application_effects_local_time(now, &next, &day_ms);
     follow_knobs(p, *document);
     const ClientThemeClock clock = client_theme_follow(
         document->effect, {local.hour * 60u + local.minute, local.month, local.day}, p.follow_month, p.follow_phase);
@@ -51,14 +54,16 @@ Theme look(ThemePublication& p, const ClientThemeDocument* document, u32* glide_
     if (!glide_ms)
         return target;
     const u32 sample = clock.minute + 1440u * (clock.day + 32u * clock.month);
+    const u64 course = day_ms && p.schedule_ms && now > p.schedule_ms ? (now - p.schedule_ms) * 1440u / day_ms : 0;
     if (!*glide_ms && p.follow_changed)
         *glide_ms = kClientThemeGlideMs;
     else if (!*glide_ms && p.scheduled &&
-             (sample - p.schedule_sample > 2u || p.theme().appearance != target.appearance))
+             (sample - p.schedule_sample > 2u + course || p.theme().appearance != target.appearance))
         *glide_ms = kEffectAmbientEaseMs;
     p.follow_changed = false;
     p.schedule_sample = sample;
     p.schedule_next_ms = next;
+    p.schedule_ms = now;
     return target;
 }
 const Theme& glide_from(const ThemePublication& p) noexcept {

@@ -284,6 +284,13 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             out->unreviewed = !info->developer;
             out->bytes = info->bytes;
             out->enabled = true;
+        } else if (!out->installed) {
+            // The catalog lists its slug but records no install of it (a file copied into the effects folder, or one
+            // kept from a catalog state that was lost): the library holds it, so it is installed all the same, as an
+            // install the catalog didn't review.
+            out->installed = out->enabled = out->unreviewed = true;
+            out->order = 0x10000 + i;
+            out->installed_version = w.c_text(info->version);
         }
         out->library = i;
         out->active = info->selected;

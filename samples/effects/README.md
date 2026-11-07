@@ -238,7 +238,9 @@ maicord-plugin effect preview --real-inputs                     # back to the re
 ```
 
 The options merge into `simulate-inputs.txt` in the dev folder (`time=HH:MM`, `date=MM-DD`, `appearance=dark|light`,
-`day_seconds=N`), which MaiCord reads when the folder changes; a change glides as a real one does.
+`day_seconds=N`), which MaiCord reads when the folder changes; a change glides as a real one does. A running day
+(`day_seconds`) moves on by itself, its date standing: the effect and a theme with variants follow it minute by minute,
+at most once an effect frame, as they follow the real clock.
 
 ### Light themes
 

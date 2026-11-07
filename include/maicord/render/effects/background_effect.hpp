@@ -156,9 +156,27 @@ constexpr void effect_palette(const Theme& theme, float (&palette)[kBackgroundFx
 // moving on its own is followed as it is. Where the window cannot show a change moving (hidden, covered, reduced
 // motion, or not focused unless the effect keeps moving then) every value settles at once.
 inline constexpr u32 kEffectAmbientEaseMs = 1500;
-// The time of day moves in whole minutes; more than two of them between samples is a jump.
+// The time of day moves in whole minutes; more than two of them between samples, beyond what a running simulated
+// clock covered in the time between them (EffectAmbientSources::day_ms), is a jump.
 inline constexpr float kEffectClockMinute = 1.f / 1440.f;
 inline constexpr float kEffectClockJump = 2 * kEffectClockMinute;
+
+// Developer Mode's stand-in for the time of day (`maicord-plugin effect preview --time --day-seconds`): `minute` of
+// the day as read at anchor_ms; it stands (day_ms 0) or runs a whole day in day_ms. Returns the minute of the day at
+// now_ms and sets *next_ms to when the next one starts (0 while it stands).
+struct EffectSimulatedClock {
+    u32 minute, day_ms;
+    u64 anchor_ms;
+};
+constexpr u32 effect_simulated_minute(const EffectSimulatedClock& clock, u64 now_ms, u64* next_ms) noexcept {
+    *next_ms = 0;
+    if (!clock.day_ms)
+        return clock.minute % 1440u;
+    const u64 passed = now_ms > clock.anchor_ms ? (now_ms - clock.anchor_ms) * 1440u / clock.day_ms : 0;
+    // Minute k after the anchor starts at the first millisecond t with t * 1440 / day_ms >= k.
+    *next_ms = clock.anchor_ms + ((passed + 1) * clock.day_ms + 1439u) / 1440u;
+    return static_cast<u32>((clock.minute + passed) % 1440u);
+}
 
 // A local date and time (SYSTEMTIME's fields).
 struct EffectLocalTime {
@@ -247,15 +265,17 @@ constexpr void effect_ease_toward(EffectEase* ease, float target, u64 now_ms, bo
 }
 
 // What the host reads each frame: the local time, MaiCord's theme base and Windows' app mode, and whether the theme
-// follows the time of day.
+// follows the time of day. day_ms: while a simulated clock runs (EffectSimulatedClock), how long its day takes.
 struct EffectAmbientSources {
     EffectLocalTime local;
     bool theme_dark, system_dark, theme_scheduled;
+    u32 day_ms;
 };
 struct EffectAmbient {
     EffectEase day, year, dark;
     float month;
-    bool started; // the first sample settles at once
+    bool started;    // the first sample settles at once
+    u64 sampled_ms;  // the last sample's time
 };
 // One frame's sample for a package that declares `uses`: retargets from the sources, then writes mc_ambient
 // (zero for an input the package does not declare). `animate` false settles every change at once. The appearance
@@ -270,13 +290,21 @@ constexpr float effect_ambient_sample(EffectAmbient* ambient, u32 uses, const Ef
         value = 0;
     if (uses & effect_use_clock) {
         const EffectClock clock = effect_clock(sources.local);
-        effect_ease_toward(&ambient->day, clock.day, now_ms, ease, true, kEffectClockJump);
-        effect_ease_toward(&ambient->year, clock.year, now_ms, ease, true, kEffectClockJump / 365.f);
+        // A running simulated clock moves many minutes between frames: what it ran since the last sample is its
+        // course, followed as it comes; only a change beyond it eases. Its date stands, so at midnight its day starts
+        // over and the time of year steps back a day: that is its course too.
+        const bool simulated = sources.day_ms && ambient->sampled_ms && now_ms > ambient->sampled_ms;
+        const float course =
+            simulated ? static_cast<float>(now_ms - ambient->sampled_ms) / static_cast<float>(sources.day_ms) : 0.f;
+        effect_ease_toward(&ambient->day, clock.day, now_ms, ease, true, kEffectClockJump + course);
+        effect_ease_toward(&ambient->year, clock.year, now_ms, ease, true,
+                           (kEffectClockJump + course + (simulated ? 1.f : 0.f)) / 365.f);
         ambient->month = clock.month;
         values[effect_ambient_day] = effect_ease_value(ambient->day, now_ms, true);
         values[effect_ambient_year] = effect_ease_value(ambient->year, now_ms, true);
         values[effect_ambient_month] = ambient->month;
     }
+    ambient->sampled_ms = now_ms;
     const bool appearance = (uses & effect_use_appearance) != 0;
     effect_ease_toward(&ambient->dark,
                        appearance || adapt

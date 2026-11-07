@@ -500,6 +500,71 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     check(minute && jump_starts && (midway < .002f || midway > .998f) && close_to(values[effect_ambient_day], 61.f / 1440) &&
               values[effect_ambient_month] == 3 && !effect_ambient_easing(clock_ambient, 60000 + kEffectAmbientEaseMs),
           "effect inputs: the clock follows its minutes and eases a jump the short way round midnight");
+    // Developer Mode's running simulated clock: a day in 60 s from 18:30 is a minute every 41.67 ms, ticking on whole
+    // minutes (the next one's start in *next_ms), a day past 24 hours wrapping round; standing, it never moves.
+    const EffectSimulatedClock running{18 * 60 + 30, 60'000, 5000};
+    u64 next = 0;
+    const bool at_anchor = effect_simulated_minute(running, 5000, &next) == 1110 && next == 5042;
+    const bool before_next = effect_simulated_minute(running, 5041, &next) == 1110 && next == 5042;
+    const bool on_next = effect_simulated_minute(running, 5042, &next) == 1111 && next == 5084;
+    const bool quarter = effect_simulated_minute(running, 5000 + 15'000, &next) == (1110 + 360) % 1440 && next == 20'042;
+    const bool wrapped = effect_simulated_minute(running, 5000 + 60'000, &next) == 1110 && next == 65'042;
+    u64 still = 1;
+    const bool stands = effect_simulated_minute({600, 0, 5000}, 900'000, &still) == 600 && still == 0;
+    // A tick always lands on the minute it announced, at a whole day in 10 s too.
+    bool ticks = true;
+    u64 at = 0;
+    u32 shown_minute = effect_simulated_minute({0, 10'000, 0}, 0, &at);
+    for (u32 i = 0; i < 1440 && ticks; ++i) {
+        u64 following = 0;
+        const u32 reached = effect_simulated_minute({0, 10'000, 0}, at, &following);
+        ticks = reached == (shown_minute + 1) % 1440 &&
+                effect_simulated_minute({0, 10'000, 0}, at - 1, &following) == shown_minute;
+        shown_minute = reached;
+        effect_simulated_minute({0, 10'000, 0}, at, &at);
+    }
+    check(at_anchor && before_next && on_next && quarter && wrapped && stands && ticks && shown_minute == 0 &&
+              at == 10'000 + 7,
+          "effect inputs: a running simulated clock passes a whole day in its day_ms, minute by minute, and says when "
+          "the next minute starts; a standing one never moves");
+    // Sampled by frames 100 ms apart (an unfocused window's 10 fps: 2.4 minutes a frame), mc_ambient's time of day
+    // follows the running clock as it comes and never starts a glide; a jump beyond its course (the file written again)
+    // still eases.
+    const auto track = [&](u32 frame_ms) noexcept {
+        EffectAmbient run{};
+        EffectAmbientSources from{{2026, 9, 15, 12, 0}, false, false, false, 60'000};
+        bool follows = true;
+        float day_value[4]{};
+        u64 t = 0;
+        for (; t <= 30'000; t += frame_ms) {
+            u64 ignored = 0;
+            const u32 clock_minute = effect_simulated_minute({12 * 60, 60'000, 0}, t, &ignored);
+            from.local.hour = static_cast<u16>(clock_minute / 60);
+            from.local.minute = static_cast<u16>(clock_minute % 60);
+            effect_ambient_sample(&run, effect_use_clock, from, 100'000 + t, true, false, day_value);
+            follows = follows && close_to(day_value[effect_ambient_day], static_cast<float>(clock_minute) / 1440.f) &&
+                      !effect_ambient_easing(run, 100'000 + t);
+        }
+        // Half a day went by (noon to about midnight); then the clock jumps six hours on.
+        const float shown = day_value[effect_ambient_day];
+        follows = follows && (shown > .99f || shown < .01f);
+        from.local.hour = static_cast<u16>((from.local.hour + 6) % 24);
+        effect_ambient_sample(&run, effect_use_clock, from, 100'000 + t, true, false, day_value);
+        return follows && effect_ambient_easing(run, 100'000 + t) && close_to(day_value[effect_ambient_day], shown);
+    };
+    const bool real_clock_jump = [&]() noexcept {
+        // The real clock (day_ms 0) keeps its rule: three minutes between frames 100 ms apart is a jump.
+        EffectAmbient real{};
+        EffectAmbientSources from{{2026, 9, 15, 12, 0}, false, false};
+        float out[4]{};
+        effect_ambient_sample(&real, effect_use_clock, from, 1000, true, false, out);
+        from.local.minute = 3;
+        effect_ambient_sample(&real, effect_use_clock, from, 1100, true, false, out);
+        return effect_ambient_easing(real, 1100);
+    }();
+    check(track(100) && track(16) && track(41) && real_clock_jump,
+          "effect inputs: mc_ambient follows a running simulated clock at 10, 24 and 60 fps without starting a glide, "
+          "and a jump beyond its course still eases");
 
     // ---- Light themes (the host's light adaptation) ----
     const auto near = [](float a, float b) noexcept { return a - b < 1e-3f && b - a < 1e-3f; };
