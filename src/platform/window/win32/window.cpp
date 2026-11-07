@@ -16,10 +16,6 @@ namespace {
 constexpr WindowCaps kCaps{
     true,  // csd: the caption bar is drawn into the client area (WM_NCCALCSIZE)
     true,  // native_caption_buttons: snap layouts need the frame hit-test answers
-    true,  // absolute_position
-    true,  // sync_clipboard_read
-    true,  // key_prefilter: TSF sees keys before the app
-    true,  // global_key_state
     false, // fractional_scale
     true,  // window_menu
     true,  // maximize

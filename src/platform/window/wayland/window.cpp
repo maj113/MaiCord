@@ -676,7 +676,6 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
 
     g.caps = WindowCaps{};
     g.caps.csd = true;
-    g.caps.sync_clipboard_read = true;
     g.caps.window_menu = true;
     g.caps.maximize = true;
     g.caps.minimize = true;

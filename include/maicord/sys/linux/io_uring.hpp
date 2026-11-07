@@ -10,10 +10,8 @@ namespace maicord {
 
 inline constexpr long kSysIoUringSetup = 425;
 inline constexpr long kSysIoUringEnter = 426;
-inline constexpr long kSysIoUringRegister = 427;
 
 // IORING_OP_*: what a submission entry asks for.
-inline constexpr u8 kRingOpPollAdd = 6;
 inline constexpr u8 kRingOpAsyncCancel = 14;
 inline constexpr u8 kRingOpConnect = 16;
 inline constexpr u8 kRingOpRead = 22;
@@ -37,8 +35,6 @@ inline constexpr u32 kRingEnterExtendedArgument = 1u << 3;
 inline constexpr u32 kRingCancelAll = 1u << 0;
 inline constexpr u32 kRingCancelDescriptor = 1u << 1;
 
-// IORING_FEAT_SINGLE_MMAP: one mapping holds both rings.
-inline constexpr u32 kRingFeatureSingleMap = 1u << 0;
 // IORING_OFF_SQES: where the submission entry array is mapped.
 inline constexpr u64 kRingOffsetSubmissionEntries = 0x10000000ull;
 

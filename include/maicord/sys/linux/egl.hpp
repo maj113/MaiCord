@@ -35,7 +35,6 @@ inline constexpr Enum kOpenGlEsApi = 0x30A0;
 inline constexpr Int kContextMajorVersion = 0x3098;
 inline constexpr Int kContextMinorVersion = 0x30FB;
 inline constexpr Int kPlatformSurfacelessMesa = 0x31DD;
-inline constexpr Int kPlatformDeviceExt = 0x313F;
 inline constexpr Int kPresentOpaqueExt = 0x31DF;
 inline constexpr Int kPlatformWaylandKhr = 0x31D8;
 inline constexpr Int kWindowBit = 0x0004;

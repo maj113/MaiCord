@@ -129,11 +129,6 @@ struct D2D1_STROKE_STYLE_PROPERTIES {
     D2D1_DASH_STYLE dashStyle;
     FLOAT dashOffset;
 };
-enum D2D1_FACTORY_TYPE {
-    D2D1_FACTORY_TYPE_SINGLE_THREADED = 0,
-    D2D1_FACTORY_TYPE_FORCE_DWORD = 0xffffffff
-};
-struct D2D1_FACTORY_OPTIONS;
 struct __declspec(uuid("2cd90691-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1Resource : IUnknown {
     MAICORD_COM_UNUSED(GetFactory);
 };
@@ -218,7 +213,3 @@ struct __declspec(uuid("06152247-6f50-465a-9245-118bfd3b6007")) __declspec(novta
     __declspec(nothrow) HRESULT CreateStrokeStyle(const D2D1_STROKE_STYLE_PROPERTIES& strokeStyleProperties, const FLOAT* dashes, UINT32 dashesCount, ID2D1StrokeStyle** strokeStyle) { return CreateStrokeStyle(& strokeStyleProperties, dashes, dashesCount, strokeStyle); }
 };
 MAICORD_SYS_TYPES_END
-
-// <d2d1.h>
-extern "C" HRESULT WINAPI D2D1CreateFactory(D2D1_FACTORY_TYPE factoryType, const IID& riid,
-    const D2D1_FACTORY_OPTIONS* pFactoryOptions, void** ppIFactory);

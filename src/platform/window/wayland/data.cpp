@@ -250,7 +250,6 @@ void on_drag_enter(void*, wl_data_device*, u32 serial, wl_surface*, i32, i32, wl
     if (data.drag)
         destroy_slot(data.drag);
     data.drag = slot_of(offer);
-    data.drag_serial = serial;
     data.drag_accepts = data.drag && data.drop_target && (data.drag->mimes & mime_uri_list);
     if (!data.drag)
         return;

@@ -98,7 +98,6 @@
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400
 #define DUPLICATE_SAME_ACCESS 0x00000002
 #define FAST_FAIL_FATAL_APP_EXIT 7
-#define FAST_FAIL_INVALID_ARG 5
 #define HEAP_ZERO_MEMORY 0x00000008
 #define RtlCopyMemory(Destination,Source,Length) memcpy((Destination),(Source),(Length))
 #define RtlFillMemory(Destination,Length,Fill) memset((Destination),(Fill),(Length))
@@ -313,7 +312,6 @@ enum _FILE_INFO_BY_HANDLE_CLASS {
     FileBasicInfo,
     FileStandardInfo,
     FileDispositionInfo = 4,
-    FileAttributeTagInfo = 9,
     FileIdInfo = 18,
 };
 typedef _FILE_INFO_BY_HANDLE_CLASS FILE_INFO_BY_HANDLE_CLASS;
@@ -522,7 +520,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI SetThreadPriority(HANDLE hThread, i
 extern "C" __declspec(dllimport) BOOL WINAPI GetExitCodeThread(HANDLE hThread, LPDWORD lpExitCode);
 extern "C" __declspec(dllimport) DWORD WINAPI SuspendThread(HANDLE hThread);
 extern "C" __declspec(dllimport) DWORD WINAPI ResumeThread(HANDLE hThread);
-extern "C" __declspec(dllimport) DWORD WINAPI GetPriorityClass(HANDLE hProcess);
 extern "C" __declspec(dllimport) BOOL WINAPI GetThreadTimes(HANDLE hThread, LPFILETIME lpCreationTime,
     LPFILETIME lpExitTime, LPFILETIME lpKernelTime, LPFILETIME lpUserTime);
 extern "C" __declspec(dllimport) BOOL WINAPI GetProcessHandleCount(HANDLE hProcess, PDWORD pdwHandleCount);
@@ -533,7 +530,6 @@ extern "C" __declspec(dllimport) void WINAPI GetSystemTimeAsFileTime(LPFILETIME 
 extern "C" __declspec(dllimport) DWORD WINAPI GetTickCount();
 extern "C" __declspec(dllimport) ULONGLONG WINAPI GetTickCount64();
 extern "C" __declspec(dllimport) UINT WINAPI GetWindowsDirectoryW(LPWSTR lpBuffer, UINT uSize);
-extern "C" __declspec(dllimport) void WINAPI GetNativeSystemInfo(LPSYSTEM_INFO lpSystemInfo);
 extern "C" __declspec(dllimport) void WINAPI GetSystemTimePreciseAsFileTime(LPFILETIME lpSystemTimeAsFileTime);
 
 // <memoryapi.h>

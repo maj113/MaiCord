@@ -17,10 +17,6 @@ using Window = WindowObject*;
 struct WindowCaps {
     bool csd;                     // the app draws the frame
     bool native_caption_buttons;  // caption buttons need non-client hit-test answers (snap layouts)
-    bool absolute_position;       // windows can be placed at screen coordinates
-    bool sync_clipboard_read;     // clipboard text can be read synchronously
-    bool key_prefilter;           // a text service sees keys before the app (TSF)
-    bool global_key_state;        // key state is readable while the window is in the background
     bool fractional_scale;
     bool window_menu;             // window_show_system_menu works
     bool maximize, minimize, fullscreen;

@@ -49,17 +49,8 @@
 #define SOL_SOCKET 0xffff
 
 // <WinSock2.h>
-#define FD_READ_BIT 0
-#define FD_READ (1 << FD_READ_BIT)
-#define FD_WRITE_BIT 1
-#define FD_WRITE (1 << FD_WRITE_BIT)
-#define FD_ACCEPT_BIT 3
-#define FD_ACCEPT (1 << FD_ACCEPT_BIT)
-#define FD_CLOSE_BIT 5
-#define FD_CLOSE (1 << FD_CLOSE_BIT)
 #define WSAEVENT HANDLE
 #define WSA_IO_PENDING (ERROR_IO_PENDING)
-#define WSA_INVALID_HANDLE (ERROR_INVALID_HANDLE)
 #define WSA_INVALID_EVENT ((WSAEVENT)NULL)
 #define SD_SEND 0x01
 #define WSA_FLAG_OVERLAPPED 0x01

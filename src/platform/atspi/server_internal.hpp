@@ -13,7 +13,6 @@ struct Server {
     dbus::Connection* bus;      // the accessibility bus connection, owned
     u32 name_watch;
     u32 status_subscription;
-    u32 registry_watch;
     u32 request;  // identifies the GetAddress call a reply belongs to
     bool started;
     bool address_pending;

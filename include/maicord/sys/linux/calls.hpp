@@ -167,10 +167,6 @@ inline long sys_socket(int domain, int type, int protocol) noexcept {
     return syscall3(kSysSocket, domain, type, protocol);
 }
 
-inline long sys_socketpair(int domain, int type, int protocol, int* descriptors) noexcept {
-    return syscall4(kSysSocketpair, domain, type, protocol, reinterpret_cast<long>(descriptors));
-}
-
 inline long sys_connect(int fd, const void* address, u32 bytes) noexcept {
     return syscall3(kSysConnect, fd, reinterpret_cast<long>(address), static_cast<long>(bytes));
 }
@@ -192,16 +188,8 @@ inline long sys_getsockname(int fd, void* address, u32* bytes) noexcept {
     return syscall3(kSysGetsockname, fd, reinterpret_cast<long>(address), reinterpret_cast<long>(bytes));
 }
 
-inline long sys_getpeername(int fd, void* address, u32* bytes) noexcept {
-    return syscall3(kSysGetpeername, fd, reinterpret_cast<long>(address), reinterpret_cast<long>(bytes));
-}
-
 inline long sys_setsockopt(int fd, int level, int name, const void* value, u32 bytes) noexcept {
     return syscall5(kSysSetsockopt, fd, level, name, reinterpret_cast<long>(value), static_cast<long>(bytes));
-}
-
-inline long sys_getsockopt(int fd, int level, int name, void* value, u32* bytes) noexcept {
-    return syscall5(kSysGetsockopt, fd, level, name, reinterpret_cast<long>(value), reinterpret_cast<long>(bytes));
 }
 
 inline long sys_shutdown(int fd, int how) noexcept {

@@ -1,7 +1,6 @@
 #pragma once
 
-// Process information: PSAPI, Tool Help and process snapshots, declared as the SDK declares them; see
-// maicord/sys/sdk.hpp.
+// Process information: PSAPI and Tool Help, declared as the SDK declares them; see maicord/sys/sdk.hpp.
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -10,7 +9,6 @@
 #include <Windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
-#include <processsnapshot.h>
 #endif
 
 // <psapi.h>
@@ -20,11 +18,6 @@
 
 // <tlhelp32.h>
 #define TH32CS_SNAPPROCESS 0x00000002
-
-struct HPSS__;
-struct HPSSWALK__;
-typedef struct HPSS__* HPSS;
-typedef struct HPSSWALK__* HPSSWALK;
 
 MAICORD_SYS_TYPES_BEGIN
 // <psapi.h>
@@ -125,87 +118,6 @@ struct tagPROCESSENTRY32W {
 };
 typedef tagPROCESSENTRY32W PROCESSENTRY32W;
 typedef PROCESSENTRY32W* LPPROCESSENTRY32W;
-// <processsnapshot.h>
-typedef enum {
-    PSS_HANDLE_HAVE_NAME = 0x02,
-    PSS_HANDLE_HAVE_TYPE_SPECIFIC_INFORMATION = 0x08
-} PSS_HANDLE_FLAGS;
-typedef enum {
-    PSS_OBJECT_TYPE_THREAD = 2,
-} PSS_OBJECT_TYPE;
-typedef enum {
-    PSS_CAPTURE_HANDLES = 0x00000004,
-    PSS_CAPTURE_HANDLE_NAME_INFORMATION = 0x00000008,
-    PSS_CAPTURE_HANDLE_BASIC_INFORMATION = 0x00000010,
-    PSS_CAPTURE_HANDLE_TYPE_SPECIFIC_INFORMATION = 0x00000020,
-    PSS_CREATE_USE_VM_ALLOCATIONS = 0x20000000,
-    PSS_CREATE_RELEASE_SECTION = 0x80000000
-} PSS_CAPTURE_FLAGS;
-typedef enum {
-    PSS_WALK_HANDLES = 2,
-} PSS_WALK_INFORMATION_CLASS;
-typedef struct {
-    HANDLE Handle;
-    PSS_HANDLE_FLAGS Flags;
-    PSS_OBJECT_TYPE ObjectType;
-    FILETIME CaptureTime;
-    DWORD Attributes;
-    DWORD GrantedAccess;
-    DWORD HandleCount;
-    DWORD PointerCount;
-    DWORD PagedPoolCharge;
-    DWORD NonPagedPoolCharge;
-    FILETIME CreationTime;
-    WORD TypeNameLength;
-    wchar_t const* TypeName;
-    WORD ObjectNameLength;
-    wchar_t const* ObjectName;
-    union {
-        struct {
-            DWORD ExitStatus;
-            void* PebBaseAddress;
-            ULONG_PTR AffinityMask;
-            LONG BasePriority;
-            DWORD ProcessId;
-            DWORD ParentProcessId;
-            DWORD Flags;
-        } Process;
-        struct {
-            DWORD ExitStatus;
-            void* TebBaseAddress;
-            DWORD ProcessId;
-            DWORD ThreadId;
-            ULONG_PTR AffinityMask;
-            int Priority;
-            int BasePriority;
-            void* Win32StartAddress;
-        } Thread;
-        struct {
-            LONG CurrentCount;
-            BOOL Abandoned;
-            DWORD OwnerProcessId;
-            DWORD OwnerThreadId;
-        } Mutant;
-        struct {
-            BOOL ManualReset;
-            BOOL Signaled;
-        } Event;
-        struct {
-            void* BaseAddress;
-            DWORD AllocationAttributes;
-            LARGE_INTEGER MaximumSize;
-        } Section;
-        struct {
-            LONG CurrentCount;
-            LONG MaximumCount;
-        } Semaphore;
-    } TypeSpecificInformation;
-} PSS_HANDLE_ENTRY;
-typedef struct {
-    void* Context;
-    void* (__stdcall* AllocRoutine)(void* Context, DWORD Size);
-    void(__stdcall* FreeRoutine)(void* Context, void* Address);
-} PSS_ALLOCATOR;
 MAICORD_SYS_TYPES_END
 
 // <psapi.h>
@@ -221,12 +133,3 @@ extern "C" BOOL WINAPI K32GetProcessMemoryInfo(HANDLE Process, PPROCESS_MEMORY_C
 extern "C" HANDLE WINAPI CreateToolhelp32Snapshot(DWORD dwFlags, DWORD th32ProcessID);
 extern "C" BOOL WINAPI Process32FirstW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
 extern "C" BOOL WINAPI Process32NextW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
-
-// <processsnapshot.h>
-extern "C" DWORD WINAPI PssCaptureSnapshot(HANDLE ProcessHandle, PSS_CAPTURE_FLAGS CaptureFlags,
-    DWORD ThreadContextFlags, HPSS* SnapshotHandle);
-extern "C" DWORD WINAPI PssFreeSnapshot(HANDLE ProcessHandle, HPSS SnapshotHandle);
-extern "C" DWORD WINAPI PssWalkSnapshot(HPSS SnapshotHandle, PSS_WALK_INFORMATION_CLASS InformationClass,
-    HPSSWALK WalkMarkerHandle, void* Buffer, DWORD BufferLength);
-extern "C" DWORD WINAPI PssWalkMarkerCreate(PSS_ALLOCATOR const* Allocator, HPSSWALK* WalkMarkerHandle);
-extern "C" DWORD WINAPI PssWalkMarkerFree(HPSSWALK WalkMarkerHandle);

@@ -16,10 +16,6 @@ struct WindowObjectStorage {
 constexpr WindowCaps kCaps{
     true,   // csd
     true,   // native_caption_buttons
-    false,  // absolute_position
-    true,   // sync_clipboard_read
-    false,  // key_prefilter
-    true,   // global_key_state
     false,  // fractional_scale
     true,   // window_menu
     true,   // maximize

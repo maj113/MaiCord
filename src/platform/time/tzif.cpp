@@ -195,7 +195,6 @@ void copy_name(const char (&name)[8], TzifOffset* output) noexcept {
     for (u8 i = 0; i < length; ++i)
         output->abbreviation[i] = name[i];
     output->abbreviation[length] = 0;
-    output->abbreviation_length = length;
 }
 
 bool rule_offset(const TzifRule& rule, i64 unix_seconds, TzifOffset* output) noexcept {
@@ -230,7 +229,6 @@ bool type_offset(const TzifZone& zone, u32 type, TzifOffset* output) noexcept {
     while (at < zone.char_count && zone.chars[at] != 0 && length < 7)
         output->abbreviation[length++] = static_cast<char>(zone.chars[at++]);
     output->abbreviation[length] = 0;
-    output->abbreviation_length = static_cast<u8>(length);
     return true;
 }
 

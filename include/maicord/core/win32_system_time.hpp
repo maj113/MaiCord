@@ -28,7 +28,6 @@ typedef _SYSTEMTIME SYSTEMTIME;
 typedef _SYSTEMTIME* LPSYSTEMTIME;
 // <timezoneapi.h>
 typedef struct _TIME_ZONE_INFORMATION TIME_ZONE_INFORMATION;
-typedef struct _TIME_DYNAMIC_ZONE_INFORMATION DYNAMIC_TIME_ZONE_INFORMATION;
 MAICORD_SYS_TYPES_END
 
 extern "C" __declspec(dllimport) void WINAPI GetLocalTime(LPSYSTEMTIME lpSystemTime);
@@ -41,8 +40,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI FileTimeToSystemTime(const FILETIME
     LPSYSTEMTIME lpSystemTime);
 extern "C" __declspec(dllimport) BOOL WINAPI SystemTimeToFileTime(const SYSTEMTIME* lpSystemTime,
     LPFILETIME lpFileTime);
-extern "C" __declspec(dllimport) BOOL WINAPI TzSpecificLocalTimeToSystemTimeEx(const DYNAMIC_TIME_ZONE_INFORMATION* lpTimeZoneInformation,
-    const SYSTEMTIME* lpLocalTime, LPSYSTEMTIME lpUniversalTime);
 // <datetimeapi.h>
 extern "C" __declspec(dllimport) int WINAPI GetTimeFormatEx(LPCWSTR lpLocaleName, DWORD dwFlags,
     const SYSTEMTIME* lpTime, LPCWSTR lpFormat, LPWSTR lpTimeStr, int cchTime);

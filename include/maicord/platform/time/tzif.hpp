@@ -49,7 +49,6 @@ struct TzifRule {
 struct TzifOffset {
     i32 utc_offset; // seconds east of UTC
     bool daylight;
-    u8 abbreviation_length;
     char abbreviation[8]; // NUL-terminated, longer names cut
 };
 

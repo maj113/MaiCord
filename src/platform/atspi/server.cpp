@@ -34,7 +34,6 @@ void disconnect_bus() noexcept {
         log_write(LogLevel::trace, "atspi", "left the accessibility bus");
     }
     s.bus = nullptr;
-    s.registry_watch = 0;
     s.embedded = false;
     s.endpoint.bus_name[0] = 0;
     s.endpoint.parent_name[0] = 0;
@@ -110,7 +109,7 @@ void connect_bus(const char* address) noexcept {
     s.bus = bus;
     c_string_copy(s.endpoint.bus_name, sizeof(s.endpoint.bus_name), connection_unique_name(bus));
     connection_set_method_handler(bus, on_call, nullptr);
-    s.registry_watch = connection_watch_name(bus, kRegistryName, on_registry, nullptr);
+    connection_watch_name(bus, kRegistryName, on_registry, nullptr);
     log_write(LogLevel::trace, "atspi", "connected to the accessibility bus");
 }
 

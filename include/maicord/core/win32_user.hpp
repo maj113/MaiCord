@@ -90,9 +90,7 @@
 #define WM_MOUSEHWHEEL 0x020E
 #define WM_MOUSELAST 0x020E
 #define WHEEL_DELTA 120
-#define GET_WHEEL_DELTA_WPARAM(wParam) ((short)HIWORD(wParam))
 #define WHEEL_PAGESCROLL (UINT_MAX)
-#define GET_XBUTTON_WPARAM(wParam) (HIWORD(wParam))
 #define XBUTTON1 0x0001
 #define XBUTTON2 0x0002
 #define WM_CAPTURECHANGED 0x0215
@@ -217,13 +215,11 @@
 #define MF_STRING 0x00000000L
 #define SC_MINIMIZE 0xF020
 #define SC_MAXIMIZE 0xF030
-#define SC_CLOSE 0xF060
 #define SC_RESTORE 0xF120
 #define SC_KEYMENU 0xF100
 #define IDC_ARROW MAKEINTRESOURCE(32512)
 #define IDC_IBEAM MAKEINTRESOURCE(32513)
 #define IDC_SIZEWE MAKEINTRESOURCE(32644)
-#define IDC_SIZENS MAKEINTRESOURCE(32645)
 #define IDC_SIZEALL MAKEINTRESOURCE(32646)
 #define IDC_HAND MAKEINTRESOURCE(32649)
 #define LR_DEFAULTCOLOR 0x00000000
@@ -370,7 +366,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI TranslateMessage(const MSG* lpMsg);
 extern "C" __declspec(dllimport) LRESULT WINAPI DispatchMessageW(const MSG* lpMsg);
 extern "C" __declspec(dllimport) BOOL WINAPI PeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin,
     UINT wMsgFilterMax, UINT wRemoveMsg);
-extern "C" __declspec(dllimport) DWORD WINAPI GetMessagePos();
 extern "C" __declspec(dllimport) LONG WINAPI GetMessageTime();
 extern "C" __declspec(dllimport) LRESULT WINAPI SendMessageW(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam);
 extern "C" __declspec(dllimport) LRESULT WINAPI SendMessageTimeoutW(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam,
@@ -452,7 +447,6 @@ extern "C" __declspec(dllimport) int WINAPI MessageBoxW(HWND hWnd, LPCWSTR lpTex
 extern "C" __declspec(dllimport) BOOL WINAPI MessageBeep(UINT uType);
 extern "C" __declspec(dllimport) HCURSOR WINAPI SetCursor(HCURSOR hCursor);
 extern "C" __declspec(dllimport) BOOL WINAPI GetCursorPos(LPPOINT lpPoint);
-extern "C" __declspec(dllimport) HCURSOR WINAPI GetCursor();
 extern "C" __declspec(dllimport) UINT WINAPI GetCaretBlinkTime();
 extern "C" __declspec(dllimport) BOOL WINAPI ClientToScreen(HWND hWnd, LPPOINT lpPoint);
 extern "C" __declspec(dllimport) BOOL WINAPI ScreenToClient(HWND hWnd, LPPOINT lpPoint);

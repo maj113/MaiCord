@@ -140,7 +140,6 @@ struct DataState {
     OfferSlot* selection;          // the clipboard, as announced
     OfferSlot* primary_selection;  // the primary selection
     OfferSlot* drag;               // the offer being dragged over the window
-    u32 drag_serial;
     bool drag_accepts;
     bool drop_target;              // window_set_drop_target
     wl_data_source* source;                       // the clipboard we own

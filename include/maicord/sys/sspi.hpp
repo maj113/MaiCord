@@ -157,7 +157,6 @@ extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI InitializeSecurityContex
     PCtxtHandle phContext, SEC_WCHAR* pszTargetName, unsigned long fContextReq, unsigned long Reserved1,
     unsigned long TargetDataRep, PSecBufferDesc pInput, unsigned long Reserved2, PCtxtHandle phNewContext,
     PSecBufferDesc pOutput, unsigned long* pfContextAttr, PTimeStamp ptsExpiry);
-extern "C" SECURITY_STATUS WINAPI CompleteAuthToken(PCtxtHandle phContext, PSecBufferDesc pToken);
 extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI DeleteSecurityContext(PCtxtHandle phContext);
 extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI QueryContextAttributesW(PCtxtHandle phContext,
     unsigned long ulAttribute, void* pBuffer);
