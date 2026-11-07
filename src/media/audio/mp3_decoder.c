@@ -3,7 +3,9 @@
 // extension uses); the Huffman codes are multi-level lookup tables. Every
 // stage works in place in the output, slot-major (see mp3_frame_decode), with
 // a few KiB of stack. The transforms run 8 lanes wide: the IMDCT over
-// subbands, the synthesis DCT and window over time slots.
+// subbands, the synthesis DCT and window over time slots. The per-sample
+// kernels compile for speed; the per-frame and per-granule work around them,
+// and the rare block transitions, compile for size (minsize).
 #include "maicord/media/audio/mp3_decoder.h"
 #include "maicord/sys/simd.hpp"
 #include <string.h>
@@ -22,14 +24,33 @@ static const float kOddLanes[8] = {0.0f, -0.0f, 0.0f, -0.0f, 0.0f, -0.0f, 0.0f, 
 // (past any subtable index) plus one sign bit per nonzero value, or
 // -((offset << 4) | bits) for a subtable of `bits` index bits. kHuffmanTables:
 // offset and root bits of tables 1, 2, 3, 5-13, 15, 16 and 24; kTableSelect:
-// that table + 1 | linbits << 4. kCount1: count1 table A, (bits << 4) | vwxy,
-// sign bits included. Long-block IMDCT windows and tails have their
-// transform's signs folded in.
+// that table + 1 | linbits << 4. kCount1: count1 table A by 6 bits, then table
+// B by 4, (bits << 4) | vwxy, sign bits included. kQuad: by vwxy << 4 | the
+// codeword's last 4 bits (the signs end it), the quadruple as four 2-bit
+// values (bit 0 nonzero, bit 1 negative), each pair of them a kPairs index.
+// Long-block IMDCT windows and tails have their transform's signs folded in.
 // clang-format off
-static const uint8_t kCount1[64] = {
+static const uint8_t kCount1[80] = {
     155, 175, 157, 158, 151, 133, 121, 121, 118, 118, 115, 115, 122, 122, 124, 124, 82, 82, 82, 82, 81, 81,
     81, 81, 84, 84, 84, 84, 88, 88, 88, 88, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 143, 126, 125, 108, 123, 106, 105, 88,
+    119, 102, 101, 84, 99, 82, 81, 64};
+static const uint8_t kQuad[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 4, 12,
+    4, 12, 4, 12, 4, 12, 4, 12, 4, 12, 4, 12, 4, 12, 5, 7, 13, 15, 5, 7, 13, 15, 5, 7, 13, 15, 5, 7, 13, 15,
+    16, 48, 16, 48, 16, 48, 16, 48, 16, 48, 16, 48, 16, 48, 16, 48, 17, 19, 49, 51, 17, 19, 49, 51, 17, 19,
+    49, 51, 17, 19, 49, 51, 20, 28, 52, 60, 20, 28, 52, 60, 20, 28, 52, 60, 20, 28, 52, 60, 21, 23, 29, 31,
+    53, 55, 61, 63, 21, 23, 29, 31, 53, 55, 61, 63, 64, 192, 64, 192, 64, 192, 64, 192, 64, 192, 64, 192,
+    64, 192, 64, 192, 65, 67, 193, 195, 65, 67, 193, 195, 65, 67, 193, 195, 65, 67, 193, 195, 68, 76, 196,
+    204, 68, 76, 196, 204, 68, 76, 196, 204, 68, 76, 196, 204, 69, 71, 77, 79, 197, 199, 205, 207, 69, 71,
+    77, 79, 197, 199, 205, 207, 80, 112, 208, 240, 80, 112, 208, 240, 80, 112, 208, 240, 80, 112, 208, 240,
+    81, 83, 113, 115, 209, 211, 241, 243, 81, 83, 113, 115, 209, 211, 241, 243, 84, 92, 116, 124, 212, 220,
+    244, 252, 84, 92, 116, 124, 212, 220, 244, 252, 85, 87, 93, 95, 117, 119, 125, 127, 213, 215, 221, 223,
+    245, 247, 253, 255};
+static const uint64_t kPairs[16] = { // Two of 0, 1.0f and -1.0f.
+    0, 0x3f80000000000000, 0, 0xbf80000000000000, 0x3f800000, 0x3f8000003f800000, 0x3f800000,
+    0xbf8000003f800000, 0, 0x3f80000000000000, 0, 0xbf80000000000000, 0xbf800000, 0x3f800000bf800000,
+    0xbf800000, 0xbf800000bf800000};
 static const int16_t kHuffman[2406] = {
     1297, 1025, 784, 784, 256, 256, 256, 256, -513, 1810, 1825, 1568, 1297, 1297, 1297, 1297, 1025, 1025,
     1025, 1025, 1040, 1040, 1040, 1040, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
@@ -209,11 +230,6 @@ static const float kIntensity[7] = {
 static const float kAntialias[2][8] = {
     .8574929f, .881742f, .94962865f, .9833146f, .9955178f, .9991606f, .9998992f, .99999315f, -.51449573f,
     -.47173196f, -.31337744f, -.1819132f, -.09457419f, -.040965583f, -.014198569f, -.0036999746f};
-static const float kCos9[8][4] = {
-    .9848077f, .8660254f, .64278764f, .34202015f, .9396926f, .5f, -.17364818f, -.76604444f, .8660254f,
-    6.123234e-17f, -.8660254f, -.8660254f, .76604444f, -.5f, -.9396926f, .17364818f, .64278764f, -.8660254f,
-    -.34202015f, .9848077f, .5f, -1.0f, .5f, .5f, .34202015f, -.8660254f, .9848077f, -.64278764f,
-    .17364818f, -.5f, .76604444f, -.9396926f};
 static const float kTwiddle9[9] = {
     .5019099f, .5176381f, .55168897f, .61038727f, .70710677f, .8717234f, 1.1831008f, 1.9318516f,
     5.7368565f};
@@ -293,7 +309,9 @@ typedef struct Reader {
     const uint8_t* data;
     uint32_t at;
 } Reader;
-static inline uint64_t peek(const uint8_t* data, uint32_t at) {
+// peek, splat, lanes and negate are forced inline: minsize callers otherwise
+// keep them calls.
+static __forceinline uint64_t peek(const uint8_t* data, uint32_t at) {
     uint64_t v;
     memcpy(&v, data + (at >> 3), 8);
     return __builtin_bswap64(v) << (at & 7);
@@ -303,16 +321,19 @@ static inline uint32_t take(Reader* r, uint32_t bits) {
     r->at += bits;
     return v;
 }
-static inline V splat(float v) {
+static __forceinline V splat(float v) {
     return _mm256_set1_ps(v);
 }
-static inline V lanes(uint32_t n) {
+static __forceinline V lanes(uint32_t n) {
     return _mm256_loadu_ps(kLeading + 8 - n);
 }
-static inline V negate(V v) {
+static __forceinline V negate(V v) {
     return _mm256_xor_ps(v, splat(-0.0f));
 }
 
+// Once per frame, and the band layout and scalefactors once per granule
+// channel: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 int mp3_frame_parse(const uint8_t* h, uint32_t available, Mp3Frame* out) {
     if (available < 4)
         return 4;
@@ -413,8 +434,7 @@ static inline float quarter_power(int32_t q) { // 2^(q / 4)
     return v * kQuarter[q & 3];
 }
 
-// Band layout and scalefactor parsing run once per granule channel: their
-// short loops stay rolled (unrolled they were 3 KB of code).
+// Band layout and scalefactor parsing run once per granule channel.
 // Lays out g's bands for a granule channel at stride.
 static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Bands* b) {
     const uint32_t lsf = f->version != 3, shorts = g->block_type == 2;
@@ -422,14 +442,12 @@ static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Band
     b->longs = (uint8_t)(!shorts ? 22 : g->mixed ? (lsf ? 6 : 8) : 0);
     b->first_short = (uint8_t)(b->longs ? 3 : 0);
     uint32_t n = 0, sum = 0;
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (; n < b->longs; sum += long_widths[n++]) {
         b->width[n] = long_widths[n];
         b->run[n] = (uint8_t)(18 - sum % 18);
         b->at[n] = (uint16_t)(sum % 18 * stride + sum / 18);
     }
     // A mixed block's long bands span its first three short bands' lines.
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t sfb = b->first_short, start = sum / 3; shorts && sfb < 13; start += short_widths[sfb++])
         for (uint32_t w = 0; w < 3; ++w, ++n) {
             b->width[n] = short_widths[sfb];
@@ -437,7 +455,6 @@ static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Band
             b->at[n] = (uint16_t)((6 * w + start % 6) * stride + start / 6);
         }
     b->count = (uint8_t)n;
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t e = 0, end = 0; e < n; ++e)
         b->end[e] = (uint16_t)(end += b->width[e]);
     if (shorts) {
@@ -474,23 +491,19 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
         while (table % 3 < 2 && c >= kStart[table + 1])
             ++table;
         c -= kStart[table];
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t p = 3; p; --p)
             slen[p] = c % kRadix[table][p - 1], c /= kRadix[table][p - 1];
         slen[0] = c;
         preflag = table == 2;
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t p = 0; p < 4; ++p)
             counts[p] = kLsfCounts[table][shorts ? (b->longs ? 2 : 1) : 0][p];
     }
     uint32_t k = 0;
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t p = 0; p < 4; ++p) {
         if (g->scfsi & (8 >> p)) {
             k += counts[p];
             continue;
         }
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t i = 0; i < counts[p]; ++i, ++k) {
             sf[k] = (uint8_t)take(r, slen[p]);
             limit[k] = (uint8_t)(lsf ? (1u << slen[p]) - 1 : 7);
@@ -498,7 +511,6 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
     }
     memset(sf + k, 0, n - k); // The last bands carry no scalefactor.
     const int32_t gain = g->global_gain - 210, shift = g->scalefac_scale ? 4 : 2;
-#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t e = 0; e < n; ++e) {
         int32_t q = gain;
         if (e < b->longs)
@@ -508,8 +520,11 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
         b->scale[e] = quarter_power(q);
     }
 }
+#pragma clang attribute pop
 
-static float pow43(uint32_t v) { // v^(4/3) beyond the table: v^2 y^2 for y Newton's inverse cube root
+// v^(4/3) beyond the table: v^2 y^2 for y Newton's inverse cube root. Rare
+// (escaped values from 16 on), so compiled for size.
+__attribute__((minsize)) static float pow43(uint32_t v) {
     const double d = v;
     uint64_t bits;
     memcpy(&bits, &d, 8);
@@ -521,7 +536,7 @@ static float pow43(uint32_t v) { // v^(4/3) beyond the table: v^2 y^2 for y Newt
     return (float)(d * d * y * y);
 }
 
-static inline float with_sign(float magnitude, uint32_t sign) {
+static __forceinline float with_sign(float magnitude, uint32_t sign) {
     uint32_t bits;
     memcpy(&bits, &magnitude, 4);
     bits ^= sign << 31;
@@ -529,20 +544,7 @@ static inline float with_sign(float magnitude, uint32_t sign) {
     return magnitude;
 }
 
-// One Huffman-coded value's magnitude (with linbits) and sign, without
-// data-dependent branches; c holds the bits after the codeword and advances
-// past what the value used.
-static inline float value(uint32_t v, uint32_t linbits, uint64_t* c, uint32_t* used) {
-    if (v == 15 && linbits) {
-        v += (uint32_t)(*c >> (64 - linbits));
-        *c <<= linbits;
-        *used += linbits;
-    }
-    const uint32_t nonzero = v != 0, sign = (uint32_t)(*c >> 63) & nonzero;
-    *c <<= nonzero;
-    *used += nonzero;
-    return with_sign(v < 16 ? kPow43[v] : pow43(v), sign);
-}
+static void transpose(V* r);
 
 // Where the next pair of lines goes: p, `left` lines before the next subband
 // (where it steps back by `back`), `pairs` pairs before the next band, in
@@ -552,7 +554,7 @@ typedef struct Spot {
     uint32_t left, span, back, pairs, e;
     float scale;
 } Spot;
-static inline void enter(Spot* s, const Bands* b, uint32_t e, uint32_t stride) {
+static __forceinline void enter(Spot* s, const Bands* b, uint32_t e, uint32_t stride) {
     s->p = s->x + b->at[e];
     s->left = b->run[e];
     s->span = e < b->longs ? 18 : 6;
@@ -561,30 +563,39 @@ static inline void enter(Spot* s, const Bands* b, uint32_t e, uint32_t stride) {
     s->e = e;
     s->scale = b->scale[e];
 }
-// Stores the next pair of lines (bands and subband runs hold whole pairs)
-// dequantized, and moves on.
-static inline void put(uint32_t stride, const Bands* b, Spot* s, float first, float second) {
-    if (!s->pairs)
-        enter(s, b, s->e + 1, stride);
-    --s->pairs;
-    s->p[0] = first * s->scale;
-    s->p[stride] = second * s->scale;
-    s->left -= 2;
-    const uint32_t next = s->left ? 0 : ~0u; // On to the next subband, without a mispredicted branch.
-    s->left += s->span & next;
-    s->p += (int32_t)(2 * stride) - (int32_t)(s->back & next);
+
+// A pair from tables 16 to 31 with an escaped value (15 and linbits more),
+// its codeword and signs ending `used` bits into c, into p; returns the bits
+// it took. Rare, so compiled for size.
+__attribute__((minsize)) static uint32_t escape(uint64_t c, uint32_t used, uint32_t vx, uint32_t vy,
+                                                uint32_t linbits, float* p) {
+    const uint32_t nx = vx != 0, ny = vy != 0;
+    uint64_t t = c << (used - nx - ny); // Linbits precede each sign.
+    if (vx == 15)
+        vx += (uint32_t)(t >> (64 - linbits)), t <<= linbits, used += linbits;
+    const uint32_t sx = (uint32_t)(t >> 63) & nx;
+    t <<= nx;
+    if (vy == 15)
+        vy += (uint32_t)(t >> (64 - linbits)), t <<= linbits, used += linbits;
+    p[0] = with_sign(vx < 16 ? kPow43[vx] : pow43(vx), sx);
+    p[1] = with_sign(vy < 16 ? kPow43[vy] : pow43(vy), (uint32_t)(t >> 63) & ny);
+    return used;
 }
 
-// Big value pairs from table (root bits) up to line `limit`, from bit *at of
-// data; false when the granule's bits (to end) ran out before. Inlined per
-// case, linbits 0 a constant.
-static __forceinline int big_values(const uint8_t* data, uint32_t* at, uint32_t end, const int16_t* table,
-                                    uint32_t root, uint32_t linbits, uint32_t* i, uint32_t limit,
-                                    uint32_t stride, const Bands* b, Spot* s) {
-    for (; *i < limit; *i += 2) {
-        if (*at > end)
-            return 0;
-        uint64_t c = peek(data, *at); // At least 57 bits: codeword, linbits and signs.
+// Big value pairs from table (root bits) into p up to stop, from bit *at of
+// data; returns where they ended, before stop when the granule's bits (to
+// end) ran out. c keeps the bits from pos on, reloaded when fewer than a
+// pair's most remain.
+static float* big_values(const uint8_t* data, uint32_t* at, uint32_t end, const int16_t* table,
+                         uint32_t root, uint32_t linbits, float* p, const float* stop) {
+    uint64_t c = 0;
+    uint32_t pos = *at, refill = 0;
+    const uint32_t need = linbits ? 47 : 21; // A pair's most bits: codeword, signs and linbits.
+    for (; p < stop && pos <= end; p += 2) {
+        if (pos >= refill) {
+            c = peek(data, pos);
+            refill = pos + 65 - (pos & 7) - need;
+        }
         int32_t e = table[c >> (64 - root)];
         uint32_t used = 0, bits = root;
         while (e < 0) {
@@ -593,72 +604,156 @@ static __forceinline int big_values(const uint8_t* data, uint32_t* at, uint32_t 
             e = table[((uint32_t)-e >> 4) + (uint32_t)(c << used >> (64 - bits))];
         }
         used += (uint32_t)e >> 8; // The codeword and its sign bits.
-        const uint32_t vx = ((uint32_t)e >> 4) & 15, vy = (uint32_t)e & 15, signs = (vx != 0) + (vy != 0);
-        const uint64_t t = c << (used - signs);
-        float first, second;
-        if (linbits) { // Linbits precede each sign.
-            c = t;
-            used -= signs;
-            first = value(vx, linbits, &c, &used);
-            second = value(vy, linbits, &c, &used);
-        } else {
-            const uint32_t one = (uint32_t)(t >> 63), two = (uint32_t)(t >> 62) & 1;
-            first = with_sign(kPow43[vx], one & (vx != 0));
-            second = with_sign(kPow43[vy], (vx ? two : one) & (vy != 0));
-            c <<= used;
+        const uint32_t vx = ((uint32_t)e >> 4) & 15, vy = (uint32_t)e & 15;
+        if (linbits && (vx == 15 || vy == 15)) {
+            used = escape(c, used, vx, vy, linbits, p);
+        } else { // The signs end the codeword: y's last, x's before it.
+            const uint32_t signs = (uint32_t)(c >> (64 - used)), nx = vx != 0, ny = vy != 0;
+            p[0] = with_sign(kPow43[vx], signs >> ny & nx);
+            p[1] = with_sign(kPow43[vy], signs & ny);
         }
-        put(stride, b, s, first, second);
-        *at += used;
+        c <<= used;
+        pos += used;
     }
-    return 1;
+    *at = pos;
+    return p;
 }
 
-// Decodes the big values and count1 quadruples between at and end,
-// dequantized, into the granule channel at x (zeroed; see Bands). Reads stop
-// one pair or quadruple past end, inside the main data's padding.
+// Count1 quadruples (table B when table_b) from bit *at of data into p while p
+// is at most last; returns where they ended, at most last when one overran
+// the granule's bits (to end).
+static float* quads(const uint8_t* data, uint32_t* at, uint32_t end, uint32_t table_b, float* p,
+                    const float* last) {
+    uint64_t c = 0;
+    uint32_t pos = *at, valid = 0;
+    const uint32_t shift = table_b ? 60 : 58, first = table_b ? 64 : 0;
+    for (; p <= last; p += 4) {
+        if (valid < 10) { // A quadruple's most bits: codeword and signs.
+            c = peek(data, pos);
+            valid = 64 - (pos & 7);
+        }
+        const uint32_t e = kCount1[first + (uint32_t)(c >> shift)], used = e >> 4;
+        if (pos + used > end) // An overrunning quadruple is discarded (ISO reference).
+            break;
+        const uint32_t q = kQuad[(e & 15) << 4 | ((uint32_t)(c >> (64 - used)) & 15)];
+        memcpy(p, &kPairs[q >> 4], 8);
+        memcpy(p + 2, &kPairs[q & 15], 8);
+        c <<= used;
+        valid -= used;
+        pos += used;
+    }
+    *at = pos;
+    return p;
+}
+
+// Long blocks: lines [first, first + 144) (8 subbands') at line, scaled by
+// their bands (band: the first's, moved on), into their 8 columns of the
+// granule channel at x.
+static void place(float* line, uint32_t first, const Bands* b, uint32_t* band, float* x, uint32_t stride) {
+    uint32_t e = *band;
+    for (uint32_t k = 0; k < 144; k += 8) {
+        const uint32_t at = first + k;
+        while (b->end[e] <= at)
+            ++e;
+        V scale = splat(b->scale[e]);
+        for (uint32_t f = e; b->end[f] < at + 8; ++f) // Later lanes in later bands.
+            scale = _mm256_blendv_ps(splat(b->scale[f + 1]), scale, lanes(b->end[f] - at));
+        _mm256_storeu_ps(line + k, _mm256_mul_ps(_mm256_loadu_ps(line + k), scale));
+    }
+    *band = e;
+    x += first / 18;
+#pragma clang loop unroll(disable)
+    for (uint32_t n = 0; n < 18; n += n == 8 ? 2 : 8) { // Slots 0-7, 8-15 and 10-17.
+        V r[8];
+        for (uint32_t s = 0; s < 8; ++s)
+            r[s] = _mm256_loadu_ps(line + 18 * s + n);
+        transpose(r);
+        for (uint32_t t = 0; t < 8; ++t)
+            _mm256_storeu_ps(x + (n + t) * stride, r[t]);
+    }
+}
+
+// Short and mixed blocks: count lines at line, scaled by their bands, into
+// place from spot on.
+static void scatter(const float* line, uint32_t count, const Bands* b, Spot* spot, uint32_t stride) {
+    Spot s = *spot;
+    for (uint32_t k = 0; k < count; k += 2) { // Bands and subband runs hold whole pairs.
+        if (!s.pairs)
+            enter(&s, b, s.e + 1, stride);
+        --s.pairs;
+        s.p[0] = line[k] * s.scale;
+        s.p[stride] = line[k + 1] * s.scale;
+        s.left -= 2;
+        const uint32_t next = s.left ? 0 : ~0u; // On to the next subband, without a mispredicted branch.
+        s.left += s.span & next;
+        s.p += (int32_t)(2 * stride) - (int32_t)(s.back & next);
+    }
+    *spot = s;
+}
+
+// Once per granule channel, so compiled for size: the line decoding below
+// (big_values, quads, place and scatter do the per-line work) and stereo.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// Zeros 18 slots of `width` (a multiple of 8) subband samples at x.
+static void clear(float* x, uint32_t stride, uint32_t width) {
+    for (uint32_t n = 0; n < 18 * stride; n += stride)
+        for (uint32_t sb = 0; sb < width; sb += 8)
+            _mm256_storeu_ps(x + n + sb, _mm256_setzero_ps());
+}
+
+// Decodes the big values and count1 quadruples between at and end into the
+// granule channel at x, dequantized, 144 lines at a time; lines past them
+// are zeros. Reads stop one pair or quadruple past end, inside the main
+// data's padding.
 static void lines(const uint8_t* data, uint32_t at, uint32_t end, const Mp3Granule* g, const Bands* b,
                   float* x, uint32_t stride) {
-    uint32_t i = 0;
-    Spot s;
-    s.x = x;
-    enter(&s, b, 0, stride);
-    const uint32_t big = g->big_values * 2u;
-    for (uint32_t region = 0; region < 3; ++region) {
+    float line[148]; // 144 lines and an overrunning quadruple's last two.
+    const uint32_t longs = b->longs == 22, big = g->big_values * 2u;
+    uint32_t base = 0, band = 0;
+    Spot spot;
+    if (!longs) {
+        clear(x, stride, 32);
+        spot.x = x;
+        enter(&spot, b, 0, stride);
+    }
+    float* p = line;
+    for (uint32_t region = 0; region < 4; ++region) { // The three big value regions, then count1.
         uint32_t limit = region == 0 ? b->region1 : region == 1 ? b->region2 : 576;
-        limit = limit < big ? limit : big;
-        const uint32_t select = kTableSelect[g->table[region]], linbits = select >> 4;
-        if (!(select & 15)) { // Table 0: zeros without bits.
-            for (; i < limit; i += 2)
-                put(stride, b, &s, 0, 0);
-            continue;
+        limit = region == 3 ? 573 : limit < big ? limit : big;
+        const uint32_t select = region == 3 ? 0 : kTableSelect[g->table[region]];
+        while (base + (uint32_t)(p - line) < limit) {
+            float* stop = line + ((limit < base + 144 ? limit : base + 144) - base);
+            if (region == 3)
+                p = quads(data, &at, end, g->count1_table, p, stop - 1);
+            else if (!(select & 15)) // Table 0: zeros without bits.
+                memset(p, 0, (size_t)(stop - p) * sizeof(float)), p = stop;
+            else
+                p = big_values(data, &at, end, kHuffman + kHuffmanTables[(select & 15) - 1][0],
+                               kHuffmanTables[(select & 15) - 1][1], select >> 4, p, stop);
+            if (p < stop) // The granule's bits ran out.
+                goto done;
+            if (p >= line + 144) {
+                if (longs)
+                    place(line, base, b, &band, x, stride);
+                else
+                    scatter(line, 144, b, &spot, stride);
+                base += 144;
+                p -= 144;
+                memcpy(line, line + 144, 8); // An overrunning quadruple's last lines.
+            }
         }
-        const int16_t* table = kHuffman + kHuffmanTables[(select & 15) - 1][0];
-        const uint32_t root = kHuffmanTables[(select & 15) - 1][1];
-        if (!(linbits ? big_values(data, &at, end, table, root, linbits, &i, limit, stride, b, &s)
-                      : big_values(data, &at, end, table, root, 0, &i, limit, stride, b, &s)))
-            return;
     }
-    for (; i <= 572; i += 4) {
-        const uint64_t c = peek(data, at);
-        uint32_t v = 15 - (uint32_t)(c >> 60), used = 4;
-        if (!g->count1_table)
-            v = kCount1[c >> 58] & 15, used = kCount1[c >> 58] >> 4;
-        const uint32_t nonzero = (v >> 3) + (v >> 2 & 1) + (v >> 1 & 1) + (v & 1);
-        used += g->count1_table ? nonzero : 0;
-        if (at + used > end) // An overrunning quadruple is discarded (ISO reference).
-            break;
-        // The sign bits after the codeword, one per nonzero value in order.
-        const uint32_t signs = (uint32_t)(c << (used - nonzero) >> 60);
-        float q[4];
-        for (uint32_t k = 0, taken = 0; k < 4; ++k) {
-            const uint32_t set = v >> (3 - k) & 1;
-            q[k] = with_sign((float)set, (signs >> (3 - taken)) & set);
-            taken += set;
-        }
-        put(stride, b, &s, q[0], q[1]);
-        put(stride, b, &s, q[2], q[3]);
-        at += used;
+done:;
+    const uint32_t count = (uint32_t)(p - line);
+    if (!longs) {
+        scatter(line, count, b, &spot, stride);
+        return;
     }
+    if (base == 576)
+        return;
+    memset(p, 0, (144 - count) * sizeof(float));
+    place(line, base, b, &band, x, stride);
+    clear(x + base / 18 + 8, stride, 24 - base / 18);
 }
 
 // Joint stereo of a granule (left channel at l, right at l + 32, stride 64).
@@ -732,17 +827,20 @@ static void stereo(float* l, const Mp3Frame* f, const Mp3Granule* g, const uint8
         }
     }
 }
+#pragma clang attribute pop
 
 // Alias reduction across subband boundaries 1 to `boundaries`, 8 at a time:
 // lines 17 - i below each boundary and i above it.
 static void antialias(float* x, uint32_t stride, uint32_t boundaries) {
+#pragma clang loop unroll(disable)
     for (uint32_t first = 0; first <= boundaries; first += 8) {
         const uint32_t count = boundaries + 1 - first;
         V mask = lanes(count < 8 ? count : 8);
         if (!first)
             mask = _mm256_blend_ps(mask, _mm256_setzero_ps(), 1); // No boundary below subband 0.
-        for (uint32_t i = 0; i < 8; ++i) {
-            float *up = x + (17 - i) * stride + first - 1, *down = x + i * stride + first;
+        float *up = x + 17 * stride + first - 1, *down = x + first;
+#pragma clang loop unroll(disable)
+        for (uint32_t i = 0; i < 8; ++i, up -= stride, down += stride) {
             const V u = _mm256_loadu_ps(up), d = _mm256_loadu_ps(down);
             const V c = splat(kAntialias[0][i]), a = splat(kAntialias[1][i]);
             const V u2 = _mm256_sub_ps(_mm256_mul_ps(u, c), _mm256_mul_ps(d, a));
@@ -753,7 +851,9 @@ static void antialias(float* x, uint32_t stride, uint32_t boundaries) {
     }
 }
 
-static inline void transpose(V* r) {
+// One call for every 8 by 8 transposition: inlined, they cost more code than
+// time.
+static void transpose(V* r) {
     const V t0 = _mm256_unpacklo_ps(r[0], r[1]), t1 = _mm256_unpackhi_ps(r[0], r[1]);
     const V t2 = _mm256_unpacklo_ps(r[2], r[3]), t3 = _mm256_unpackhi_ps(r[2], r[3]);
     const V t4 = _mm256_unpacklo_ps(r[4], r[5]), t5 = _mm256_unpackhi_ps(r[4], r[5]);
@@ -772,54 +872,79 @@ static inline void transpose(V* r) {
     r[7] = _mm256_permute2f128_ps(u3, u7, 0x31);
 }
 
-// DCT-III of 9 (out[n] = sum y[j] cos(pi j (2n + 1) / 18)), even and odd terms
-// shared between n and 8 - n.
-static inline void dct3_9(const V* y, V* out) {
-    for (uint32_t n = 0; n < 4; ++n) {
-        V even = y[0], odd = _mm256_mul_ps(y[1], splat(kCos9[0][n]));
-        for (uint32_t j = 2; j < 9; j += 2)
-            even = _mm256_add_ps(even, _mm256_mul_ps(y[j], splat(kCos9[j - 1][n])));
-        for (uint32_t j = 3; j < 9; j += 2)
-            odd = _mm256_add_ps(odd, _mm256_mul_ps(y[j], splat(kCos9[j - 1][n])));
-        out[n] = _mm256_add_ps(even, odd);
-        out[8 - n] = _mm256_sub_ps(even, odd);
-    }
-    out[4] = _mm256_add_ps(_mm256_sub_ps(_mm256_add_ps(_mm256_sub_ps(y[0], y[2]), y[4]), y[6]), y[8]);
+// In-place DCT-III of 9 (y[n] = sum y[j] cos(pi j (2n + 1) / 18)): the even
+// terms through cos(pi / 9), cos(2 pi / 9) and cos(4 pi / 9), the odd ones
+// through cos(pi / 18), cos(pi / 6), cos(5 pi / 18) and cos(7 pi / 18), 11
+// multiplications. Straight-line code, as fast compiled for size.
+__attribute__((minsize)) static void dct3_9(V* y) {
+    const V half = splat(.5f), root3 = splat(.8660254f);
+    V e0 = y[0], e2 = y[2], e4 = y[4], e8 = y[8];
+    const V base = _mm256_add_ps(e0, _mm256_mul_ps(y[6], half));
+    e0 = _mm256_sub_ps(e0, y[6]);
+    const V a = _mm256_mul_ps(_mm256_add_ps(e4, e2), splat(.93969262f));
+    const V b = _mm256_mul_ps(_mm256_add_ps(e8, e2), splat(.76604444f));
+    const V c = _mm256_mul_ps(_mm256_sub_ps(e4, e8), splat(.17364818f));
+    e4 = _mm256_add_ps(e4, _mm256_sub_ps(e8, e2));
+    e2 = _mm256_sub_ps(e0, _mm256_mul_ps(e4, half));
+    const V middle = _mm256_add_ps(e4, e0);
+    e8 = _mm256_add_ps(_mm256_sub_ps(base, b), c);
+    e0 = _mm256_add_ps(_mm256_sub_ps(base, a), b);
+    e4 = _mm256_sub_ps(_mm256_add_ps(base, a), c);
+    V o1 = y[1], o5 = y[5], o7 = y[7];
+    const V o3 = _mm256_mul_ps(y[3], root3);
+    const V p = _mm256_mul_ps(_mm256_add_ps(o5, o1), splat(.98480775f));
+    const V q = _mm256_mul_ps(_mm256_sub_ps(o5, o7), splat(.34202014f));
+    const V r = _mm256_mul_ps(_mm256_add_ps(o1, o7), splat(.64278761f));
+    o1 = _mm256_mul_ps(_mm256_sub_ps(_mm256_sub_ps(o1, o5), o7), root3);
+    o5 = _mm256_sub_ps(_mm256_sub_ps(p, o3), r);
+    o7 = _mm256_sub_ps(_mm256_sub_ps(q, o3), p);
+    const V s = _mm256_sub_ps(_mm256_add_ps(q, o3), r);
+    y[0] = _mm256_sub_ps(e4, o7);
+    y[1] = _mm256_add_ps(e2, o1);
+    y[2] = _mm256_sub_ps(e0, s);
+    y[3] = _mm256_add_ps(e8, o5);
+    y[4] = middle;
+    y[5] = _mm256_sub_ps(e8, o5);
+    y[6] = _mm256_add_ps(e0, s);
+    y[7] = _mm256_sub_ps(e2, o1);
+    y[8] = _mm256_add_ps(e4, o7);
 }
 
 // DCT-IV of 18, the 36-point IMDCT's kernel, of lines x[k * stride]: summing
 // adjacent inputs turns a DCT-IV into a DCT-III, whose odd half is a DCT-IV of
 // 9 again.
-static inline void dct4_18(const float* x, uint32_t stride, V* z) {
-    V even[9], odd[9], e[9], o[9];
+static void dct4_18(const float* x, uint32_t stride, V* z) {
+    V even[9], odd[9];
     even[0] = _mm256_loadu_ps(x);
-    for (uint32_t j = 1; j < 9; ++j)
-        even[j] =
-            _mm256_add_ps(_mm256_loadu_ps(x + 2 * j * stride), _mm256_loadu_ps(x + (2 * j - 1) * stride));
-    for (uint32_t j = 0; j < 9; ++j)
-        odd[j] =
-            _mm256_add_ps(_mm256_loadu_ps(x + (2 * j + 1) * stride), _mm256_loadu_ps(x + 2 * j * stride));
-    for (uint32_t j = 8; j; --j)
-        odd[j] = _mm256_add_ps(odd[j], odd[j - 1]);
-    dct3_9(even, e);
-    dct3_9(odd, o);
+    V pair = odd[0] = _mm256_add_ps(_mm256_loadu_ps(x + stride), even[0]); // Lines 2j + 1 and 2j.
+#pragma clang loop unroll(disable)
+    for (uint32_t j = 1; j < 9; ++j) {
+        const V a = _mm256_loadu_ps(x + (2 * j - 1) * stride), b = _mm256_loadu_ps(x + 2 * j * stride);
+        const V next = _mm256_add_ps(_mm256_loadu_ps(x + (2 * j + 1) * stride), b);
+        even[j] = _mm256_add_ps(b, a);
+        odd[j] = _mm256_add_ps(next, pair);
+        pair = next;
+    }
+    dct3_9(even);
+    dct3_9(odd);
+#pragma clang loop unroll(disable)
     for (uint32_t n = 0; n < 9; ++n) {
-        const V scaled = _mm256_mul_ps(o[n], splat(kTwiddle9[n]));
-        z[n] = _mm256_mul_ps(_mm256_add_ps(e[n], scaled), splat(kTwiddle18[n]));
-        z[17 - n] = _mm256_mul_ps(_mm256_sub_ps(e[n], scaled), splat(kTwiddle18[17 - n]));
+        const V scaled = _mm256_mul_ps(odd[n], splat(kTwiddle9[n]));
+        z[n] = _mm256_mul_ps(_mm256_add_ps(even[n], scaled), splat(kTwiddle18[n]));
+        z[17 - n] = _mm256_mul_ps(_mm256_sub_ps(even[n], scaled), splat(kTwiddle18[17 - n]));
     }
 }
 
 // The DCT-IV of six lines x[k * stride], d: the 12-point IMDCT's outputs are
-// d[3..5], then -d[5..0], then -d[0..2].
-static void dct4_6(const float* x, uint32_t stride, V* d) {
+// d[3..5], then -d[5..0], then -d[0..2]. Short blocks only: compiled for size.
+__attribute__((minsize)) static void dct4_6(const float* x, uint32_t stride, V* d) {
     for (uint32_t n = 0; n < 6; ++n) {
         d[n] = _mm256_mul_ps(_mm256_loadu_ps(x), splat(kCos6[n][0]));
         for (uint32_t k = 1; k < 6; ++k)
             d[n] = _mm256_add_ps(d[n], _mm256_mul_ps(_mm256_loadu_ps(x + k * stride), splat(kCos6[n][k])));
     }
 }
-static inline V imdct12(const V* d, uint32_t k) {
+static __forceinline V imdct12(const V* d, uint32_t k) {
     return k < 3 ? d[3 + k] : negate(d[k < 9 ? 8 - k : k - 9]);
 }
 
@@ -835,7 +960,30 @@ typedef struct Kind {
     uint32_t split, shorts;
     const float* window; // Long first half, or the tail weights for the previous granule.
 } Kind;
-static void imdct(float* x, uint32_t stride, float* tail, Kind now, Kind before, int active) {
+// imdct for long blocks after long blocks in every lane (most granules): the
+// window's first half, and the previous granule's tail weights.
+static void imdct_long(float* x, uint32_t stride, float* tail, const float* window, const float* weights,
+                       int active) {
+    V z[18];
+    if (active)
+        dct4_18(x, stride, z);
+#pragma clang loop unroll(disable)
+    for (uint32_t n = 0; n < 18; ++n) {
+        const V y =
+            active ? _mm256_mul_ps(splat(window[n]), z[n < 9 ? 9 + n : 26 - n]) : _mm256_setzero_ps();
+        const V term = _mm256_loadu_ps(tail + (n < 9 ? n : 17 - n) * 32);
+        V out = _mm256_add_ps(y, _mm256_mul_ps(splat(weights[n]), term));
+        if (n & 1)
+            out = _mm256_xor_ps(out, _mm256_loadu_ps(kOddLanes));
+        _mm256_storeu_ps(x + n * stride, out);
+    }
+#pragma clang loop unroll(disable)
+    for (uint32_t m = 0; m < 9; ++m) // After the old tail's last use.
+        _mm256_storeu_ps(tail + m * 32, active ? z[8 - m] : _mm256_setzero_ps());
+}
+// Short and mixed blocks, and long ones after them: compiled for size.
+__attribute__((minsize)) static void imdct(float* x, uint32_t stride, float* tail, Kind now, Kind before,
+                                           int active) {
     const V zero = _mm256_setzero_ps(), split = lanes(now.split), low = lanes(before.split);
     const int longs = active && (!now.shorts || now.split), shorts = active && now.shorts;
     V z[18], d0[6], d1[6], d2[6];
@@ -887,6 +1035,7 @@ static void imdct(float* x, uint32_t stride, float* tail, Kind now, Kind before,
 // Whether any of 8 subbands' 18 lines at stride is nonzero.
 static int nonzero(const float* x, uint32_t stride) {
     __v8su bits = {0};
+#pragma clang loop unroll(disable)
     for (uint32_t n = 0; n < 18; ++n)
         bits |= (__v8su)_mm256_loadu_ps(x + n * stride);
     uint32_t any = 0;
@@ -896,9 +1045,9 @@ static int nonzero(const float* x, uint32_t stride) {
 }
 
 // Alias reduction and IMDCT of one granule channel (see Bands) in place: its
-// 18 slots of 32 subband samples.
-static void hybrid(float* x, uint32_t stride, const Mp3Granule* g, uint32_t rate_index, float* overlap,
-                   uint8_t* previous) {
+// 18 slots of 32 subband samples. Once per granule channel: compiled for size.
+__attribute__((minsize)) static void hybrid(float* x, uint32_t stride, const Mp3Granule* g,
+                                            uint32_t rate_index, float* overlap, uint8_t* previous) {
     const uint32_t shorts = g->block_type == 2, longs = rate_index == 8 ? 4 : 2;
     if (!shorts || g->mixed)
         antialias(x, stride, shorts ? longs - 1 : 31);
@@ -911,13 +1060,16 @@ static void hybrid(float* x, uint32_t stride, const Mp3Granule* g, uint32_t rate
         const Kind now = {group || !g->mixed ? 0 : longs, shorts, kLongWindow[g->block_type == 3]};
         const Kind before = {group || !before_mixed ? 0 : longs, before_type == 2,
                              kTail[before_type == 2 ? 2 : before_type == 1]};
-        imdct(x + 8 * group, stride, overlap + 8 * group, now, before, group < top);
+        if (!now.split && !now.shorts && !before.split && !before.shorts)
+            imdct_long(x + 8 * group, stride, overlap + 8 * group, now.window, before.window, group < top);
+        else
+            imdct(x + 8 * group, stride, overlap + 8 * group, now, before, group < top);
     }
     *previous = (uint8_t)(g->block_type | g->mixed << 2);
 }
 
 // DCT-II of 4 and 8 vectors in registers; twiddles as in dct.
-static inline void dct4(V* a, const float* twiddle) {
+static __forceinline void dct4(V* a, const float* twiddle) {
     const V p0 = _mm256_add_ps(a[0], a[3]), p1 = _mm256_add_ps(a[1], a[2]);
     const V q0 = _mm256_mul_ps(_mm256_sub_ps(a[0], a[3]), splat(twiddle[0]));
     const V q1 = _mm256_mul_ps(_mm256_sub_ps(a[1], a[2]), splat(twiddle[1]));
@@ -927,7 +1079,7 @@ static inline void dct4(V* a, const float* twiddle) {
     a[2] = _mm256_mul_ps(_mm256_sub_ps(p0, p1), splat(twiddle[2]));
     a[3] = q;
 }
-static inline void dct8(V* x, const float* twiddle) {
+static __forceinline void dct8(V* x, const float* twiddle) {
     V a[4], b[4];
     for (uint32_t k = 0; k < 4; ++k) {
         a[k] = _mm256_add_ps(x[k], x[7 - k]);
@@ -949,12 +1101,14 @@ static void dct(V* x, V* t, uint32_t n, const float* twiddle) {
         return;
     }
     const uint32_t h = n / 2;
+#pragma clang loop unroll(disable)
     for (uint32_t k = 0; k < h; ++k) {
         t[k] = _mm256_add_ps(x[k], x[n - 1 - k]);
         t[h + k] = _mm256_mul_ps(_mm256_sub_ps(x[k], x[n - 1 - k]), splat(twiddle[k]));
     }
     dct(t, x, h, twiddle + h);
     dct(t + h, x + h, h, twiddle + h);
+#pragma clang loop unroll(disable)
     for (uint32_t m = 0; m < h; ++m) {
         x[2 * m] = t[m];
         x[2 * m + 1] = m + 1 < h ? _mm256_add_ps(t[h + m], t[h + m + 1]) : t[h + m];
@@ -963,7 +1117,7 @@ static void dct(V* x, V* t, uint32_t n, const float* twiddle) {
 
 // Moves a row's history (its last 15 slots) on by the `count` newest slots of
 // its stage (history slots 7-14, then the new ones).
-static inline void retire(float* history, const float* stage, uint32_t count) {
+static __forceinline void retire(float* history, const float* stage, uint32_t count) {
     const V head = _mm256_loadu_ps(count == 8 ? stage + 1 : history + count);
     const V rest = _mm256_loadu_ps(stage + count);
     _mm256_storeu_ps(history, head);
@@ -973,9 +1127,9 @@ static inline void retire(float* history, const float* stage, uint32_t count) {
 // Stores output block q (samples 8q to 8q + 7; lanes: slots) of `count` slots
 // starting at pcm, of channel 0, or of channel 1 interleaved with channel 0's
 // block q (which the store to samples 16q to 16q + 15 replaces).
-static inline void flush(V* block, float* pcm, uint32_t q, uint32_t stride, uint32_t count,
-                         uint32_t channel) {
+static void flush(V* block, float* pcm, uint32_t q, uint32_t stride, uint32_t count, uint32_t channel) {
     transpose(block);
+#pragma clang loop unroll(disable)
     for (uint32_t t = 0; t < count; ++t) {
         float* p = pcm + t * stride;
         if (!channel) {
@@ -1002,7 +1156,9 @@ static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t cha
         // half (the DCT's scratch in the second), then per row k the history's
         // slots 7-14 at stage[2k] and the new slots at stage[2k + 1].
         V stage[64];
+#pragma clang loop unroll(disable)
         for (uint32_t q = 0; q < 4; ++q) {
+#pragma clang loop unroll(disable)
             for (uint32_t t = 0; t < 8; ++t)
                 stage[8 * q + t] =
                     t < count ? _mm256_loadu_ps(in + t * stride + 32 * channel + 8 * q) : zero;
@@ -1010,6 +1166,7 @@ static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t cha
         }
         dct(stage, stage + 32, 32, kDctTwiddle);
         // Downwards: row k moves to 2k + 1 after rows 2k and 2k + 1 have.
+#pragma clang loop unroll(disable)
         for (uint32_t k = 32; k--;) {
             stage[2 * k + 1] = stage[k];
             stage[2 * k] = _mm256_loadu_ps(history + 15 * k + 7);
@@ -1017,23 +1174,27 @@ static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t cha
         const float* rows = (const float*)stage;
         // Output j: the window over the 16 latest slots' DCT rows 16 + j (even
         // ages) and 16 - j (odd); 32 - j uses the same rows. Ages up to 7 are
-        // on the stage, older ones in the history. Outputs take over retired
-        // rows: j < 16 at stage[32 + j] (rows 16 to 23), the others at
-        // stage[j] (rows 8 to 15). Channel 1 stores blocks 3 to 0 at the end:
-        // block q's interleaved samples replace channel 0's blocks 2q and
-        // 2q + 1.
+        // on the stage, older ones in the history; taps i and 7 - i share
+        // their coefficients. Outputs take over retired rows: j < 16 at
+        // stage[32 + j] (rows 16 to 23), the others at stage[j] (rows 8 to
+        // 15). Rolled loops: unrolled, they spilled and ran slower.
+#pragma clang loop unroll(disable)
         for (uint32_t j = 0; j < 16; ++j) {
-            const float *even = rows + 16 * (16 + j), *odd = rows + 16 * (16 - j);
+            const float *even = rows + 16 * (16 + j), *odd = rows + 16 * (16 - j), *c = kSynthesis[j][0];
             float *even_old = history + 15 * (16 + j), *odd_old = history + 15 * (16 - j);
             V sum = zero, mirror = zero;
-            for (uint32_t i = 0; i < 8; ++i) {
-                const V e = _mm256_loadu_ps(i < 4 ? even + 8 - 2 * i : even_old + 15 - 2 * i);
-                const V d = _mm256_loadu_ps(i < 4 ? odd + 7 - 2 * i : odd_old + 14 - 2 * i);
-                sum = _mm256_add_ps(sum, _mm256_add_ps(_mm256_mul_ps(e, splat(kSynthesis[j][i][0])),
-                                                       _mm256_mul_ps(d, splat(kSynthesis[j][i][1]))));
-                mirror =
-                    _mm256_add_ps(mirror, _mm256_sub_ps(_mm256_mul_ps(d, splat(kSynthesis[j][7 - i][0])),
-                                                        _mm256_mul_ps(e, splat(kSynthesis[j][7 - i][1]))));
+#pragma clang loop unroll(disable)
+            for (uint32_t i = 0; i < 4; ++i) {
+                const V e = _mm256_loadu_ps(even + 8 - 2 * i), d = _mm256_loadu_ps(odd + 7 - 2 * i);
+                const V e7 = _mm256_loadu_ps(even_old + 1 + 2 * i), d7 = _mm256_loadu_ps(odd_old + 2 * i);
+                const V a = splat(c[2 * i]), b = splat(c[2 * i + 1]);
+                const V a7 = splat(c[14 - 2 * i]), b7 = splat(c[15 - 2 * i]);
+                const V sum0 = _mm256_add_ps(_mm256_mul_ps(e, a), _mm256_mul_ps(d, b));
+                const V sum7 = _mm256_add_ps(_mm256_mul_ps(e7, a7), _mm256_mul_ps(d7, b7));
+                const V mirror0 = _mm256_sub_ps(_mm256_mul_ps(d, a7), _mm256_mul_ps(e, b7));
+                const V mirror7 = _mm256_sub_ps(_mm256_mul_ps(d7, a), _mm256_mul_ps(e7, b));
+                sum = _mm256_add_ps(sum, _mm256_add_ps(sum0, sum7));
+                mirror = _mm256_add_ps(mirror, _mm256_add_ps(mirror0, mirror7));
             }
             retire(even_old, even, count);
             stage[32 + j] = sum;
@@ -1041,24 +1202,25 @@ static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t cha
                 retire(odd_old, odd, count);
                 stage[32 - j] = mirror;
             }
-            if ((j & 7) == 7 && !channel)
-                flush(stage + 25 + j, in, j / 8, stride, count, 0);
-            if (j == 8 && !channel)
-                flush(stage + 24, in, 3, stride, count, 0);
         }
         V middle = zero;
+#pragma clang loop unroll(disable)
         for (uint32_t i = 0; i < 8; ++i)
             middle = _mm256_add_ps(
                 middle, _mm256_mul_ps(_mm256_loadu_ps(i < 4 ? rows + 7 - 2 * i : history + 14 - 2 * i),
                                       splat(kSynthesisMiddle[i])));
         retire(history, rows, count);
         stage[16] = middle;
+        // Channel 1 stores blocks 3 to 0: block q's interleaved samples
+        // replace channel 0's blocks 2q and 2q + 1.
+#pragma clang loop unroll(disable)
         for (uint32_t q = 4; q--;)
-            if (channel || q == 2)
-                flush(q < 2 ? stage + 32 + 8 * q : stage + 8 * q, in, q, stride, count, channel);
+            flush(q < 2 ? stage + 32 + 8 * q : stage + 8 * q, in, q, stride, count, channel);
     }
 }
 
+// Once per frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // Reads every granule's scalefactors and Huffman-coded lines into pcm,
 // dequantized and in place (see mp3_frame_decode), and moves the reservoir on;
 // positions and limits receive each granule's right channel intensity
@@ -1079,7 +1241,6 @@ static uint32_t unpack(Mp3DecoderState* s, const uint8_t* data, const Mp3Frame* 
         uint8_t sf[2][40] = {{0}}, limit[2][40] = {{0}};
         Bands bands;
         Reader r = {main, 0};
-        memset(pcm, 0, (size_t)f->samples * channels * sizeof(float));
         for (uint32_t gr = 0; gr < granules; ++gr) {
             for (uint32_t ch = 0; ch < channels; ++ch) {
                 const Mp3Granule* g = &f->granules[gr * channels + ch];
@@ -1124,3 +1285,4 @@ uint32_t mp3_frame_decode(Mp3DecoderState* s, const uint8_t* data, const Mp3Fram
         synthesize(pcm, 18 * granules, stride, ch, &s->history[ch][0][0]);
     return f->samples;
 }
+#pragma clang attribute pop

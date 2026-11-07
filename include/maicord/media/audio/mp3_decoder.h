@@ -6,7 +6,7 @@
 // PCM (full scale 1.0, not clipped), keeping the bit reservoir, IMDCT overlap
 // and synthesis history in caller state. Reads stay inside the frame and the
 // retained reservoir for any byte sequence; nothing allocates, and a decode
-// needs under 4 KiB of stack.
+// needs under 5 KiB of stack.
 #include <stdint.h>
 
 #if defined(__cplusplus)

@@ -221,15 +221,16 @@ maicord_compact_sources(
         src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp
         src/render/effects/regional_flag_program.cpp src/render/effects/vector_geometry.cpp
         src/render/effects/vector_overlay.cpp src/render/effects/vector_stroke.cpp)
-# Once per sound, file, packet or GPU device: the MP3 path (stream framing, seek index and the C decoder, the one codec
-# compiled for size), the notification sound unpacking and the D3D11 shader pack inflate. The decoder at -Oz decodes
-# a 5 s 128 kbit/s stereo clip in 0.035% of its duration (0.026% at /O2) and a 30 s 64 kbit/s mono one in 0.021%
-# (0.015%).
+# Once per sound, file, packet or GPU device: the MP3 stream framing and seek index, the notification sound unpacking
+# and the D3D11 shader pack inflate. The MP3 decoder (mp3_decoder.c) stays at the contract's /O2: its per-frame and
+# per-granule code compiles for size through minsize attributes in the source, its per-line and per-sample kernels for
+# speed. Wholly at -Oz it decoded a 5 s 128 kbit/s stereo clip 33% slower than the old /O2 code and a 30 s 64 kbit/s
+# mono one 44% slower; split, it is 9-15% faster than that /O2 code, in 14.1 KB of code and 8.0 KB of tables
+# (-Oz: 11.7 and 7.8 KB; /O2: 22.9 and 9.8 KB).
 maicord_compact_sources(
     SOURCES
         src/media/audio/mp3_stream.cpp src/media/audio/notification_pcm.cpp src/app/notifications/sound_assets.cpp
         src/gpu/d3d11/shader_pack.cpp)
-set_property(SOURCE src/media/audio/mp3_decoder.c APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 # The Linux client. Its application sources are one library (maicord_app_client; the Windows build spreads them over
 # MaiCord, the account module and maicord_app_core, and compacts the first two and the listed units of the third), so
 # the application is cold except what the Windows build leaves at -O2: Gateway dispatch and payload decode, the media

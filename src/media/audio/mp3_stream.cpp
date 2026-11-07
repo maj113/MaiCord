@@ -17,6 +17,8 @@ bool tag(const u8* p, const char* text, u32 bytes) noexcept {
 }
 // Header and side information, bounded as the decoder consumes them. The
 // protection CRC is skipped, not verified. Callers pass offsets within bytes.
+// On success out is wholly written (mp3_frame_parse copies a cleared frame);
+// on failure it is untouched and unread, so callers leave it uninitialized.
 Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Mp3Frame* out) noexcept {
     return static_cast<Mp3Error>(mp3_frame_parse(bytes.data + offset, bytes.count - offset, out));
 }
@@ -164,7 +166,7 @@ Mp3Error mp3_stream_initialize(Mp3Stream* output, ConstSlice<u8> bytes, Mp3Cance
     Mp3Error error = tags(bytes, &s.audio_begin, &s.audio_end);
     if (error != Mp3Error::none)
         return error;
-    Mp3Frame first{};
+    Mp3Frame first;
     error = frame({bytes.data, s.audio_end}, s.audio_begin, &first);
     if (error != Mp3Error::none)
         return error;
@@ -184,7 +186,7 @@ Mp3Error mp3_stream_initialize(Mp3Stream* output, ConstSlice<u8> bytes, Mp3Cance
     while (offset < s.audio_end) {
         if (cancelled(cancel, context))
             return Mp3Error::cancelled;
-        Mp3Frame f{};
+        Mp3Frame f;
         error = frame({bytes.data, s.audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
@@ -224,7 +226,7 @@ Mp3Packet mp3_stream_next(Mp3Stream* s) noexcept {
         packet.error = Mp3Error::end_of_stream;
         return packet;
     }
-    Mp3Frame f{};
+    Mp3Frame f;
     packet.error = frame({s->encoded.data, s->audio_end}, s->cursor_offset, &f);
     if (!packet.ok())
         return packet;
@@ -266,7 +268,7 @@ Mp3Error mp3_stream_build_index(const Mp3Stream& s, Mp3SeekIndex* output, Slice<
     for (u32 i = 0; i < s.frame_count; ++i) {
         if (cancelled(cancel, context))
             return Mp3Error::cancelled;
-        Mp3Frame f{};
+        Mp3Frame f;
         const Mp3Error error = frame({s.encoded.data, s.audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
@@ -321,7 +323,7 @@ Mp3Error mp3_stream_seek(Mp3Stream* s, u64 target, const Mp3SeekIndex* index, Mp
             --start;
         offset = index->points[start].offset;
         first = index->points[start].first_frame;
-        Mp3Frame f{};
+        Mp3Frame f;
         const Mp3Error error = frame({s->encoded.data, s->audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
@@ -374,7 +376,7 @@ Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, S
         byte_ranges_overlap(decoder, sizeof(*decoder), packet.data, packet.count) ||
         byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes))
         return {Mp3Error::invalid_input};
-    Mp3Frame f{};
+    Mp3Frame f;
     const Mp3Error error = frame(packet, 0, &f);
     if (error != Mp3Error::none)
         return {error};
