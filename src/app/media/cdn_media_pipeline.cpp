@@ -1,4 +1,5 @@
 #include "maicord/app/media/cdn_media_pipeline.hpp"
+#include <stddef.h>
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -53,26 +54,6 @@ template <typename Result> __declspec(noinline) void reset(Result* out) noexcept
 }
 template <typename Result> void set_state(Result* out, decltype(Result::state) state) noexcept {
     out->state = state;
-}
-
-// The answer for a lookup with nothing to decode: a miss, a stale entry (its ETag and generation
-// for the conditional request) or an unusable one.
-template <typename Result>
-void unfresh_lookup(CdnMediaPipeline* pipeline, const EncodedMediaCacheLookup& cached,
-                    Result* out) noexcept {
-    reset(out);
-    using State = decltype(Result::state);
-    if (cached.state == EncodedMediaCacheLookupState::miss) {
-        out->state = State::cache_miss;
-    } else if (cached.state == EncodedMediaCacheLookupState::stale) {
-        out->state = State::fetch_required;
-        out->etag = copy_result_etag(pipeline, cached.etag);
-        if constexpr (requires { out->cache_generation; }) {
-            out->cache_generation = cached.generation;
-        }
-    } else {
-        out->state = State::invalid;
-    }
 }
 
 bool static_image_key_valid(const MediaAssetKey& key, MediaAttachmentFormat format) noexcept {
@@ -831,53 +812,205 @@ bool usable(const CdnMediaPipeline* pipeline) noexcept {
     return pipeline && pipeline->cache && pipeline->scanline_storage;
 }
 
-// A failed decode evicts the cache entry unless the result is the one state
-// (a codec workspace the caller can still bind) that says the entry is fine.
-template <typename State> inline constexpr State kEraseOnFailure = static_cast<State>(0xFF);
+// The lookup, frame and admit paths below are written once for every result type (a template per type kept a
+// copy of each per codec). shape_of() records where a type keeps what they touch and checks that its states are
+// numbered as they expect: invalid, cache_miss, fetch_required, generation_mismatch (only a type with a cache
+// generation has it), then decoded_cache_hit, decoded_response and decoded_transient (the decoded states),
+// http_rejected, decode_rejected and uncorrelated_not_modified.
+struct ResultShape {
+    u16 state, store, etag, generation; // member offsets; generation is 0 for a type with none
+    u8 hit;                             // decoded_cache_hit
+    // What a failed lookup or frame decode leaves in a result that is not to evict the cached entry (a codec
+    // workspace the caller can still bind); a result that reaches any other state evicts it.
+    u8 keep;
+};
+template <typename Result> constexpr ResultShape shape_of() noexcept {
+    using State = decltype(Result::state);
+    constexpr bool generation = requires(Result r) { r.cache_generation; };
+    constexpr u8 hit = generation ? 4 : 3;
+    static_assert(static_cast<u8>(State::invalid) == 0 && static_cast<u8>(State::cache_miss) == 1 &&
+                  static_cast<u8>(State::fetch_required) == 2);
+    static_assert(static_cast<u8>(State::decoded_cache_hit) == hit &&
+                  static_cast<u8>(State::decoded_response) == hit + 1 &&
+                  static_cast<u8>(State::decoded_transient) == hit + 2 &&
+                  static_cast<u8>(State::http_rejected) == hit + 3 &&
+                  static_cast<u8>(State::uncorrelated_not_modified) == hit + 5);
+    static_assert(sizeof(Result) <= 0xFFFF);
+    ResultShape shape{static_cast<u16>(offsetof(Result, state)), static_cast<u16>(offsetof(Result, store)),
+                      static_cast<u16>(offsetof(Result, etag)), 0, hit, 0xFF};
+    if constexpr (generation) {
+        static_assert(static_cast<u8>(State::generation_mismatch) == 3);
+        shape.generation = static_cast<u16>(offsetof(Result, cache_generation));
+    }
+    if constexpr (requires { State::lossy_workspace_required; })
+        shape.keep = static_cast<u8>(State::lossy_workspace_required);
+    else if constexpr (requires { State::jpeg_workspace_required; })
+        shape.keep = static_cast<u8>(State::jpeg_workspace_required);
+    return shape;
+}
+template <typename Result> inline constexpr ResultShape kShape = shape_of<Result>();
+
+constexpr u8 kInvalid = 0, kCacheMiss = 1, kFetchRequired = 2, kGenerationMismatch = 3;
+
+template <typename T> T& member(void* result, u16 offset) noexcept {
+    return *reinterpret_cast<T*>(static_cast<u8*>(result) + offset);
+}
+
+// After a decode: whether it decoded; if not, the cache entry goes unless the state is `keep`.
+bool settle_decode(void* out, const ResultShape& shape, u8 keep, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                   CacheLeaseScope* cache_lease) noexcept {
+    const u8 state = member<u8>(out, shape.state);
+    if (static_cast<u8>(state - shape.hit) < 3)
+        return true;
+    if (state != keep) {
+        cache_lease->release();
+        encoded_media_cache_erase(pipeline->cache, key);
+    }
+    return false;
+}
+
+using LookupDecode = void (*)(void* context, const EncodedMediaCacheLookup& cached) noexcept;
+
+void lookup_cached_in(void* out, const ResultShape& shape, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                      u64 now_seconds, bool ready, LookupDecode decode, void* context) noexcept {
+    u8& state = member<u8>(out, shape.state);
+    if (!ready) {
+        state = kInvalid;
+        return;
+    }
+    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
+    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+    if (cached.state != EncodedMediaCacheLookupState::fresh) {
+        // Nothing to decode: a miss, a stale entry (its ETag and generation for the conditional request) or an
+        // unusable one.
+        if (cached.state == EncodedMediaCacheLookupState::miss) {
+            state = kCacheMiss;
+        } else if (cached.state == EncodedMediaCacheLookupState::stale) {
+            state = kFetchRequired;
+            member<ConstSlice<u8>>(out, shape.etag) = copy_result_etag(pipeline, cached.etag);
+            if (shape.generation)
+                member<u16>(out, shape.generation) = cached.generation;
+        } else {
+            state = kInvalid;
+        }
+        return;
+    }
+    decode(context, cached);
+    if (settle_decode(out, shape, shape.keep, pipeline, key, &cache_lease))
+        member<ConstSlice<u8>>(out, shape.etag) = copy_result_etag(pipeline, cached.etag);
+}
+
+void decode_cached_frame_in(void* out, const ResultShape& shape, CdnMediaPipeline* pipeline,
+                            const MediaAssetKey& key, u16 cache_generation, u64 now_seconds, bool ready,
+                            LookupDecode decode, void* context) noexcept {
+    u8& state = member<u8>(out, shape.state);
+    if (!ready || cache_generation == 0) {
+        state = kInvalid;
+        return;
+    }
+    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
+    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+    if (!cached.found()) {
+        state = kCacheMiss;
+        return;
+    }
+    if (cached.generation != cache_generation) {
+        state = kGenerationMismatch;
+        return;
+    }
+    decode(context, cached);
+    settle_decode(out, shape, shape.keep, pipeline, key, &cache_lease);
+}
+
+struct AdmitHooks {
+    // Fills the result from `bytes` in `state` (`cached` is null for a response body).
+    void (*decode)(void* context, ConstSlice<u8> bytes, u8 state, const EncodedMediaCacheLookup* cached) noexcept;
+    // Drops codec state tied to the entry a no-store 304 just retired.
+    void (*forget_retained)(void* context) noexcept;
+};
+
+void admit_response_in(void* out, const ResultShape& shape, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                       const CdnResponseResult& response, ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
+                       bool ready, u8 keep, const AdmitHooks& hooks, void* context) noexcept {
+    const u8 http_rejected = shape.hit + 3;
+    u8& state = member<u8>(out, shape.state);
+    if (!ready || !response.ok()) {
+        state = response.ok() ? kInvalid : http_rejected;
+        return;
+    }
+    if (response.disposition == CdnResponseDisposition::accept_body) {
+        if (!accepted_body_valid(response, body)) {
+            state = kInvalid;
+            return;
+        }
+        const u8 transient = shape.hit + 2;
+        hooks.decode(context, body, response.store_allowed ? shape.hit + 1 : transient, nullptr);
+        if (static_cast<u8>(state - shape.hit) >= 3)
+            return;
+        auto& store = member<EncodedMediaCacheStoreResult>(out, shape.store);
+        store = store_decoded_response(pipeline, key, body, response);
+        // Cache pressure never invalidates already decoded pixels.
+        const bool stored = store.stored();
+        if (!stored)
+            state = transient;
+        if (shape.generation)
+            member<u16>(out, shape.generation) = stored ? store.generation : u16{0};
+        return;
+    }
+    if (response.disposition == CdnResponseDisposition::not_modified) {
+        if (!not_modified_valid(response, body, conditional_etag)) {
+            state = kInvalid;
+            return;
+        }
+        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
+        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+        if (!etag_correlated(cached, conditional_etag)) {
+            state = shape.hit + 5; // uncorrelated_not_modified
+            return;
+        }
+        hooks.decode(context, cached.bytes, response.store_allowed ? shape.hit : shape.hit + 2, &cached);
+        if (!settle_decode(out, shape, keep, pipeline, key, &cache_lease))
+            return;
+        if (!response.store_allowed) {
+            if (shape.generation)
+                member<u16>(out, shape.generation) = 0;
+            hooks.forget_retained(context);
+        }
+        finish_not_modified(pipeline, key, &cache_lease, response);
+        return;
+    }
+    state = http_rejected;
+}
 
 // Decodes a fresh cached entry; a stale one answers with its ETag instead.
 template <typename Result, typename Decode>
 void lookup_cached(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u64 now_seconds, bool ready,
-                   decltype(Result::state) keep, Decode decode) noexcept {
-    using State = decltype(Result::state);
+                   Decode decode) noexcept {
     reset(out);
-    if (!ready)
-        return set_state(out, State::invalid);
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh)
-        return unfresh_lookup(pipeline, cached, out);
-    decode(cached);
-    if (!out->decoded()) {
-        if (out->state != keep) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-        }
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
+    lookup_cached_in(
+        out, kShape<Result>, pipeline, key, now_seconds, ready,
+        [](void* context, const EncodedMediaCacheLookup& cached) noexcept {
+            (*static_cast<Decode*>(context))(cached);
+        },
+        &decode);
 }
 
 // Decodes one frame of the cache entry whose generation the caller holds.
 template <typename Result, typename Decode>
 void decode_cached_frame(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u16 cache_generation,
-                         u64 now_seconds, bool ready, decltype(Result::state) keep, Decode decode) noexcept {
-    using State = decltype(Result::state);
+                         u64 now_seconds, bool ready, Decode decode) noexcept {
     reset(out);
-    if (!ready || cache_generation == 0)
-        return set_state(out, State::invalid);
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (!cached.found())
-        return set_state(out, State::cache_miss);
-    if (cached.generation != cache_generation)
-        return set_state(out, State::generation_mismatch);
-    decode(cached);
-    if (!out->decoded() && out->state != keep) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-    }
+    decode_cached_frame_in(
+        out, kShape<Result>, pipeline, key, cache_generation, now_seconds, ready,
+        [](void* context, const EncodedMediaCacheLookup& cached) noexcept {
+            (*static_cast<Decode*>(context))(cached);
+        },
+        &decode);
 }
+
+// A failed decode evicts the cache entry unless the result is the one state
+// (a codec workspace the caller can still bind) that says the entry is fine.
+template <typename State> inline constexpr State kEraseOnFailure = static_cast<State>(0xFF);
 
 // Admits a validated HTTP response: a 200 body is decoded before it is cached, a 304 must
 // correlate to a cached entry. decode(bytes, state, cached) fills *out (cached is null for a body);
@@ -887,51 +1020,18 @@ void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey
                     const CdnResponseResult& response, ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
                     bool ready, decltype(Result::state) keep, Decode decode, ForgetRetained forget_retained) noexcept {
     using State = decltype(Result::state);
+    struct Callbacks {
+        Decode* decode;
+        ForgetRetained* forget_retained;
+    } callbacks{&decode, &forget_retained};
+    static constexpr AdmitHooks hooks{
+        [](void* context, ConstSlice<u8> bytes, u8 state, const EncodedMediaCacheLookup* cached) noexcept {
+            (*static_cast<Callbacks*>(context)->decode)(bytes, static_cast<State>(state), cached);
+        },
+        [](void* context) noexcept { (*static_cast<Callbacks*>(context)->forget_retained)(); }};
     reset(out);
-    if (!ready || !response.ok())
-        return set_state(out, response.ok() ? State::invalid : State::http_rejected);
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, body))
-            return set_state(out, State::invalid);
-        decode(body, response.store_allowed ? State::decoded_response : State::decoded_transient, nullptr);
-        if (!out->decoded())
-            return;
-        out->store = store_decoded_response(pipeline, key, body, response);
-        // Cache pressure never invalidates already decoded pixels.
-        const bool stored = out->store.stored();
-        if (!stored)
-            out->state = State::decoded_transient;
-        if constexpr (requires { out->cache_generation; }) {
-            out->cache_generation = 0;
-            if (stored)
-                out->cache_generation = out->store.generation;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, body, conditional_etag))
-            return set_state(out, State::invalid);
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag))
-            return set_state(out, State::uncorrelated_not_modified);
-        decode(cached.bytes, response.store_allowed ? State::decoded_cache_hit : State::decoded_transient, &cached);
-        if (!out->decoded()) {
-            if (out->state != keep) {
-                cache_lease.release();
-                encoded_media_cache_erase(pipeline->cache, key);
-            }
-            return;
-        }
-        if (!response.store_allowed) {
-            if constexpr (requires { out->cache_generation; })
-                out->cache_generation = 0;
-            forget_retained();
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, State::http_rejected);
+    admit_response_in(out, kShape<Result>, pipeline, key, response, body, conditional_etag, ready,
+                      static_cast<u8>(keep), hooks, &callbacks);
 }
 
 } // namespace
@@ -990,7 +1090,7 @@ void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipel
                                           const MediaAssetKey& key, u64 now_seconds) noexcept {
     lookup_cached(out, pipeline, key, now_seconds,
                   usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::png),
-                  kEraseOnFailure<CdnStaticPngState>, [&](const EncodedMediaCacheLookup& cached) {
+                  [&](const EncodedMediaCacheLookup& cached) {
                       decode_bytes(pipeline, cached.bytes, CdnStaticPngState::decoded_cache_hit, out);
                   });
 }
@@ -1030,7 +1130,7 @@ void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPip
     lookup_cached(
         out, pipeline, key, now_seconds,
         usable(pipeline) && pipeline->webp_workspace && static_image_key_valid(key, MediaAttachmentFormat::webp),
-        CdnStaticWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+        [&](const EncodedMediaCacheLookup& cached) {
             decode_webp_bytes(pipeline, cached.bytes, CdnStaticWebpState::decoded_cache_hit, out);
         });
 }
@@ -1053,7 +1153,7 @@ void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPip
                                            const MediaAssetKey& key, u64 now_seconds) noexcept {
     lookup_cached(out, pipeline, key, now_seconds,
                   usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::jpeg),
-                  CdnStaticJpegState::jpeg_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+                  [&](const EncodedMediaCacheLookup& cached) {
                       decode_jpeg_bytes(pipeline, key, cached.bytes, CdnStaticJpegState::decoded_cache_hit, out);
                   });
 }
@@ -1075,7 +1175,7 @@ void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipe
 void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                     u64 now_seconds) noexcept {
     lookup_cached(out, pipeline, key, now_seconds, usable(pipeline) && pipeline->apng_workspace && apng_key_valid(key),
-                  kEraseOnFailure<CdnApngState>, [&](const EncodedMediaCacheLookup& cached) {
+                  [&](const EncodedMediaCacheLookup& cached) {
                       decode_apng_bytes(pipeline, cached.bytes, 0, cached.generation,
                                         CdnApngState::decoded_cache_hit, false, cached.content_identity, out);
                   });
@@ -1098,7 +1198,7 @@ void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* 
                                           u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
     decode_cached_frame(out, pipeline, key, cache_generation, now_seconds,
                         usable(pipeline) && pipeline->apng_workspace && apng_key_valid(key),
-                        kEraseOnFailure<CdnApngState>, [&](const EncodedMediaCacheLookup& cached) {
+                        [&](const EncodedMediaCacheLookup& cached) {
                             decode_apng_bytes(pipeline, cached.bytes, frame_index, cached.generation,
                                               CdnApngState::decoded_cache_hit, false, cached.content_identity, out);
                         });
@@ -1107,7 +1207,7 @@ void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* 
 void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    u64 now_seconds) noexcept {
     lookup_cached(out, pipeline, key, now_seconds, usable(pipeline) && pipeline->gif_workspace && gif_key_valid(key),
-                  kEraseOnFailure<CdnGifState>, [&](const EncodedMediaCacheLookup& cached) {
+                  [&](const EncodedMediaCacheLookup& cached) {
                       decode_gif_bytes(pipeline, cached.bytes, 0, cached.generation, CdnGifState::decoded_cache_hit,
                                        cached.content_identity, out);
                   });
@@ -1130,7 +1230,7 @@ void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pi
                                          u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
     decode_cached_frame(out, pipeline, key, cache_generation, now_seconds,
                         usable(pipeline) && pipeline->gif_workspace && gif_key_valid(key),
-                        kEraseOnFailure<CdnGifState>, [&](const EncodedMediaCacheLookup& cached) {
+                        [&](const EncodedMediaCacheLookup& cached) {
                             decode_gif_bytes(pipeline, cached.bytes, frame_index, cached.generation,
                                              CdnGifState::decoded_cache_hit, cached.content_identity, out);
                         });
@@ -1142,7 +1242,7 @@ void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMedi
         out, pipeline, key, now_seconds,
         usable(pipeline) && pipeline->webp_workspace && pipeline->animated_webp_workspace &&
             animated_webp_key_valid(key),
-        CdnAnimatedWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+        [&](const EncodedMediaCacheLookup& cached) {
             decode_animated_webp_bytes(pipeline, cached.bytes, 0, cached.generation,
                                        CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
         });
@@ -1171,7 +1271,7 @@ void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, C
         out, pipeline, key, cache_generation, now_seconds,
         usable(pipeline) && pipeline->webp_workspace && pipeline->animated_webp_workspace &&
             animated_webp_key_valid(key),
-        CdnAnimatedWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+        [&](const EncodedMediaCacheLookup& cached) {
             decode_animated_webp_bytes(pipeline, cached.bytes, frame_index, cached.generation,
                                        CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
         });

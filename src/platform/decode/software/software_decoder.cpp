@@ -45,6 +45,14 @@ bool open_first(SharedLibrary* library, const char* override_name, const char* c
     return false;
 }
 
+// dav1d's function table as data: each name NUL terminated, and where its pointer sits in the Dav1dApi.
+#define MAICORD_DAV1D_NAME(ret, name, args) #name "\0"
+#define MAICORD_DAV1D_SLOT(ret, name, args) static_cast<u16>(__builtin_offsetof(Dav1dApi, name)),
+constexpr char kDav1dNames[] = MAICORD_DAV1D_FUNCTIONS(MAICORD_DAV1D_NAME);
+constexpr u16 kDav1dSlots[] = {MAICORD_DAV1D_FUNCTIONS(MAICORD_DAV1D_SLOT)};
+#undef MAICORD_DAV1D_NAME
+#undef MAICORD_DAV1D_SLOT
+
 bool load_dav1d() noexcept {
     static constexpr const char* names[]{"libdav1d.so.7", "libdav1d.so.6"};
     if (!open_first(&g_dav1d.library, test_hook("MAICORD_DAV1D_LIBRARY"), names, 2)) {
@@ -53,11 +61,14 @@ bool load_dav1d() noexcept {
     }
     Dav1dApi api{};
     bool complete = true;
-#define MAICORD_DAV1D_RESOLVE(ret, name, args)                                                                         \
-    api.name = reinterpret_cast<decltype(api.name)>(shared_library_symbol(g_dav1d.library, #name));                    \
-    complete = complete && api.name != nullptr;
-    MAICORD_DAV1D_FUNCTIONS(MAICORD_DAV1D_RESOLVE)
-#undef MAICORD_DAV1D_RESOLVE
+    const char* name = kDav1dNames;
+    for (u32 index = 0; index < sizeof(kDav1dSlots) / sizeof(kDav1dSlots[0]); ++index) {
+        void* function = shared_library_symbol(g_dav1d.library, name);
+        copy_bytes(reinterpret_cast<u8*>(&api) + kDav1dSlots[index], &function, sizeof(function));
+        complete = complete && function != nullptr;
+        while (*name++) {
+        }
+    }
     if (!complete) {
         log_unavailable("libdav1d lacks a function: no software AV1 decode");
         shared_library_close(&g_dav1d.library);

@@ -256,11 +256,11 @@ void deinterlace_rows(u8* indices, u32 width, u32 height) noexcept {
     }
 }
 
+// Fills a palette that is still zero: the only caller reads it into the result it has just reset.
 bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* palette) noexcept {
     if (!palette_bounds(encoded, offset, count)) {
         return false;
     }
-    reset_value<GifPalette>(palette);
     palette->count = static_cast<u16>(count);
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < count; ++index) {

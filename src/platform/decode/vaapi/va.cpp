@@ -33,6 +33,29 @@ bool env_is(const char* name, const char* value) noexcept {
         ++i;
     return have[i] == value[i];
 }
+// The function tables as data: each name NUL terminated, and where its pointer sits in the Api.
+#define MAICORD_VA_NAME(ret, name, args) #name "\0"
+#define MAICORD_VA_SLOT(ret, name, args) static_cast<u16>(__builtin_offsetof(Api, name)),
+constexpr char kNames[] = MAICORD_VA_FUNCTIONS(MAICORD_VA_NAME);
+constexpr u16 kSlots[] = {MAICORD_VA_FUNCTIONS(MAICORD_VA_SLOT)};
+constexpr char kDrmNames[] = MAICORD_VA_DRM_FUNCTIONS(MAICORD_VA_NAME);
+constexpr u16 kDrmSlots[] = {MAICORD_VA_DRM_FUNCTIONS(MAICORD_VA_SLOT)};
+#undef MAICORD_VA_NAME
+#undef MAICORD_VA_SLOT
+
+// Stores every named function of `library` in its slot of `api`; false when any is missing.
+__declspec(noinline) bool resolve(const SharedLibrary& library, Api* api, const char* names, const u16* slots,
+                                  u32 count) noexcept {
+    bool complete = true;
+    for (u32 index = 0; index < count; ++index) {
+        void* function = shared_library_symbol(library, names);
+        copy_bytes(reinterpret_cast<u8*>(api) + slots[index], &function, sizeof(function));
+        complete = complete && function != nullptr;
+        while (*names++) {
+        }
+    }
+    return complete;
+}
 
 bool load_libraries(Api* api) noexcept {
     // Only the tests name another soname (the missing-library path); operators have MAICORD_LIBRARY_PATH.
@@ -47,17 +70,8 @@ bool load_libraries(Api* api) noexcept {
         shared_library_close(&g_libva);
         return false;
     }
-    bool complete = true;
-#define MAICORD_VA_RESOLVE(ret, name, args)                                                                            \
-    api->name = reinterpret_cast<decltype(api->name)>(shared_library_symbol(g_libva, #name));                          \
-    complete = complete && api->name != nullptr;
-    MAICORD_VA_FUNCTIONS(MAICORD_VA_RESOLVE)
-#undef MAICORD_VA_RESOLVE
-#define MAICORD_VA_RESOLVE_DRM(ret, name, args)                                                                        \
-    api->name = reinterpret_cast<decltype(api->name)>(shared_library_symbol(g_libva_drm, #name));                      \
-    complete = complete && api->name != nullptr;
-    MAICORD_VA_DRM_FUNCTIONS(MAICORD_VA_RESOLVE_DRM)
-#undef MAICORD_VA_RESOLVE_DRM
+    const bool complete = resolve(g_libva, api, kNames, kSlots, sizeof(kSlots) / sizeof(kSlots[0])) &&
+                          resolve(g_libva_drm, api, kDrmNames, kDrmSlots, sizeof(kDrmSlots) / sizeof(kDrmSlots[0]));
     if (!complete) {
         note("libva lacks a function: no hardware video decode");
         shared_library_close(&g_libva_drm);
