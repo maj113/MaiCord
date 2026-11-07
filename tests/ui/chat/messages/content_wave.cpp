@@ -955,6 +955,8 @@ void test_plugin_decorations(Check check) noexcept {
     hidden.author_id = 9;
     hidden.timestamp_ms += 1;
     hidden.content = utf8_literal("hidden secret");
+    // The edited messages below keep their plugin verdicts: replaced text gets the label, hidden and collapsed none.
+    hidden.edited_timestamp_ms = 1'500'000'100'000ull;
     MessageInput replaced = hidden;
     replaced.id += 1;
     replaced.timestamp_ms += 1;
@@ -1036,6 +1038,10 @@ void test_plugin_decorations(Check check) noexcept {
     check(folded && test_contains(folded->text, utf8_literal("Show")) && has_target(folded, kUiPluginRenderShowTarget) &&
               !find_command(f, collapsed.id, utf8_literal("collapsed secret")),
           "plugin_render_collapsed_label_and_show_link");
+    check(body && test_contains(body->text, utf8_literal("replaced")) && message_text_command_copy_end(*body) + 9 == body->text.bytes &&
+              utf8_equal({body->text.data + body->text.bytes - 8, 8}, utf8_literal("(edited)")) &&
+              !find_command(f, hidden.id, utf8_literal("(edited)")) && folded && !test_contains(folded->text, utf8_literal("(edited)")),
+          "plugin_render_edited_label_follows_replaced_text_never_hidden_or_collapsed_rows");
     // Cozy header: the suffix follows the name and the badge follows it.
     const MessageTextCommand* author = nullptr;
     for (u32 i = 0; i < f.presentation.command_count; ++i)

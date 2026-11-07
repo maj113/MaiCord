@@ -7,6 +7,7 @@
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "maicord/ui/chat/search/scene.hpp"
 #include "renderer_interaction_state.hpp"
 
 namespace maicord {
@@ -388,10 +389,12 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
             continue;
         }
         const MessageTextSemantic& semantic = storage.content_semantics[region.semantic_index];
-        // Icon cells belong to the chip around them, which hits instead.
+        // Icon cells belong to the chip around them, which hits instead; the "(edited)" label is only a tooltip's
+        // target (renderer_edited_label_hit_test), no link, cursor or click of its own.
         if ((semantic.reserved & kRendererSearchSemanticFlag) ||
             semantic.kind == MessageMarkdownSemanticKind::chip_icon ||
-            semantic.kind == MessageMarkdownSemanticKind::guild_icon)
+            semantic.kind == MessageMarkdownSemanticKind::guild_icon ||
+            semantic.kind == MessageMarkdownSemanticKind::edited)
             continue;
         // Message rows clip to themselves: only the visible timeline takes hits.
         if (semantic.message_id != 0 &&
@@ -429,6 +432,34 @@ MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x
         !ui_rect_contains(renderer.message_scene->viewport, x, y))
         return {};
     return message_emoji_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system, x, y);
+}
+
+RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& renderer, float x, float y) noexcept {
+    if (!renderer.content_text || !ui_coordinate_valid(x) || !ui_coordinate_valid(y))
+        return {};
+    const RendererTextStorage& storage = *renderer.content_text;
+    const bool timeline = renderer.message_scene && renderer.message_scene->active &&
+                          ui_rect_contains(renderer.message_scene->viewport, x, y);
+    for (u32 cursor = storage.content_hit_region_count; cursor != 0; --cursor) {
+        const TextHitRegion& region = storage.content_hit_regions[cursor - 1];
+        if (x < region.left || x >= region.right || y < region.top || y >= region.bottom ||
+            region.semantic_index >= storage.content_semantic_count) {
+            continue;
+        }
+        const MessageTextSemantic& semantic = storage.content_semantics[region.semantic_index];
+        if (semantic.kind != MessageMarkdownSemanticKind::edited || semantic.message_id == 0)
+            continue;
+        const bool search = (semantic.reserved & kRendererSearchSemanticFlag) != 0;
+        const UiRect label{region.left, region.top, region.right, region.bottom};
+        const UiRect visible = search ? (renderer.search_scene ? ui_search_scene_content_clip(*renderer.search_scene, label)
+                                                               : UiRect{})
+                                      : (timeline ? ui_rect_intersection(label, renderer.message_scene->viewport) : UiRect{});
+        if (!ui_rect_contains(visible, x, y))
+            continue;
+        return RendererEditedLabelHit{semantic.message_id, semantic.target, visible, semantic.message_revision,
+                                      search, true};
+    }
+    return {};
 }
 
 void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept {

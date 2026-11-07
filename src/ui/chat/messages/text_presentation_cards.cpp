@@ -491,6 +491,34 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     return true;
 }
 
+bool append_edited_tail(MessageTextPresentation* presentation, const MessageScene& scene,
+                        const MessageSceneRowWidget& row, const UiRect& row_clip, const Theme& theme,
+                        const MessageRecord& record, u16 measurement_index) noexcept {
+    const UiLayoutNode* group = message_scene_layout_node(scene, row.edited);
+    if (!group)
+        return fail(presentation, MessageTextPresentationError::layout);
+    // The group takes the line's height from this pass, as the notice group does.
+    MessageTextMeasurement& measured = presentation->measurements[measurement_index];
+    measured.rich_layout.edited = measured.rich_item_layout.edited_height = kAnnotationLineHeight;
+    const UiRect region = group->content_rectangle;
+    const UiRect line{region.left, region.top, maximum(region.left + 1.0f, region.right),
+                      region.top + kAnnotationLineHeight};
+    Utf8View text{};
+    ConstSlice<TextStyleSpan> styles{};
+    ConstSlice<MessageMarkdownSemantic> semantics{};
+    // A line out of view, or without room, goes without its label.
+    if (!ui_rect_has_area(ui_rect_intersection(line, row_clip)) ||
+        !append_edited_label(presentation, record.edited_timestamp_ms / 1'000u, &text, &styles, &semantics))
+        return true;
+    constexpr CommandLook look{.kind = MessageTextMeasurementKind::notice,
+                               .themed = true,
+                               .vertical = UiTextAlignment::center,
+                               .wrapping = TextWrapping::no_wrap,
+                               .overflow = TextOverflow::ellipsis};
+    return append_command(presentation, text, styles, semantics, UiWidgetReference{&scene.widgets, row.edited}, line,
+                          row_clip, ui_background_muted_text_color(theme), &record, measurement_index, look);
+}
+
 namespace {
 bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept {
     if (text.bytes > presentation->utf8.count - presentation->utf8_count)
@@ -1237,13 +1265,29 @@ __declspec(noinline) bool append_content_segments(
     const Utf8View& display_content, const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
-    const Color& role_color) noexcept {
+    const Color& role_color, u64 edited_unix_seconds) noexcept {
     QuoteSegment segments[kQuoteSegmentMaximum];
     // Compact rows keep the name inline with the first line of the body.
     u32 segment_count = split ? split_quote_segments(display_content, styles, semantics, segments) : 0u;
     if (segment_count == 0) {
         segments[0] = QuoteSegment{display_content, styles, semantics, false, false};
         segment_count = 1;
+    }
+    if (edited_unix_seconds != 0) {
+        // The label follows the last plain text; after a quote or a code block, or with no text at all, it
+        // starts a line of its own. Without room the label is left out.
+        u32 last = segment_count;
+        while (last != 0 && segments[last - 1].text.bytes == 0)
+            --last;
+        if (last != 0 && !segments[last - 1].quote && !segments[last - 1].code) {
+            QuoteSegment& tail = segments[last - 1];
+            append_edited_label(presentation, edited_unix_seconds, &tail.text, &tail.styles, &tail.semantics);
+        } else if (segment_count < kQuoteSegmentMaximum) {
+            QuoteSegment& tail = segments[segment_count];
+            tail = QuoteSegment{};
+            if (append_edited_label(presentation, edited_unix_seconds, &tail.text, &tail.styles, &tail.semantics))
+                ++segment_count;
+        }
     }
     bool first_segment = true;
     for (u32 index = 0; index < segment_count; ++index) {

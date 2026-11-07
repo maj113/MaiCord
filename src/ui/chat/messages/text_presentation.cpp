@@ -533,6 +533,17 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
     return MessageTextCopyProjectionResult{written, transformed, true};
 }
 
+u32 message_text_command_copy_end(const MessageTextCommand& command) noexcept {
+    for (u32 index = 0; index < command.semantics.count; ++index) {
+        const MessageMarkdownSemantic& semantic = command.semantics[index];
+        if (semantic.kind != MessageMarkdownSemanticKind::edited || semantic.byte_offset > command.text.bytes)
+            continue;
+        const u32 at = semantic.byte_offset;
+        return at != 0 && command.text.data[at - 1] == ' ' ? at - 1 : at;
+    }
+    return command.text.bytes;
+}
+
 bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentation,
                                               const MessageStore& store, const MessageTextHit& hit,
                                               bool* changed) noexcept {

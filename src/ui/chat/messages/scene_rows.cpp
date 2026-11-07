@@ -214,6 +214,15 @@ bool plugin_folded(const MessageScene& scene, const MessageRecord& record) noexc
     return scene.plugin_decorations && message_scene_plugin_visibility(scene, record) != ui_plugin_render_normal;
 }
 
+// A message with an edit time but no text shows "(edited)" on a line of its own after its accessories; every
+// other edited message shows it inline after its text (compact rows always do).
+bool edited_tail(const MessageScene& scene, const MessageRecord& record) noexcept {
+    return record.edited_timestamp_ms != 0 && record.content_bytes == 0 && !compact(scene) &&
+           record.content_availability == MessageContentAvailability::available &&
+           record.delivery == MessageDeliveryState::authoritative && !message_type_is_system(record.type) &&
+           !plugin_folded(scene, record);
+}
+
 const MessageRichRecord* row_rich(const MessageScene& scene, const MessageRecord& record) noexcept {
     if (plugin_folded(scene, record))
         return nullptr;
@@ -840,7 +849,8 @@ bool row_identity_matches(const MessageScene& scene, const MessageSceneRowWidget
            message_rich_widgets_structure_matches(
                row, rich, record && (row_poll(scene, *record) || unavailable_poll(scene, *record)),
                no_invites ? 0u
-                          : message_scene_invite_codes(scene, *record, {invites, kMessageInviteCardMaximum}));
+                          : message_scene_invite_codes(scene, *record, {invites, kMessageInviteCardMaximum}),
+               record && edited_tail(scene, *record));
 }
 
 } // namespace
@@ -1119,7 +1129,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     InviteLink invites[kMessageInviteCardMaximum];
     const u32 invite_count =
         record ? message_scene_invite_codes(*scene, *record, {invites, kMessageInviteCardMaximum}) : 0u;
-    if (!message_rich_widgets_build(&scene->widgets, body.handle, id, rich, &row, invite_count)) {
+    if (!message_rich_widgets_build(&scene->widgets, body.handle, id, rich, &row, invite_count,
+                                    record && edited_tail(*scene, *record))) {
         return false;
     }
     return apply_row_specs(scene, &row);

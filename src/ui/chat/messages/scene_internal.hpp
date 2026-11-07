@@ -19,6 +19,7 @@ __forceinline u64 hash_mix(u64 hash, u64 value) noexcept {
     return hash64_mix(hash, value);
 }
 bool plugin_folded(const MessageScene& scene, const MessageRecord& record) noexcept;
+bool edited_tail(const MessageScene& scene, const MessageRecord& record) noexcept;
 const MessageRichRecord* row_rich(const MessageScene& scene, const MessageRecord& record) noexcept;
 const MessagePollRecord* row_poll(const MessageScene& scene, const MessageRecord& record) noexcept;
 bool poll_state(const MessageScene& scene, const MessageRecord& record, MessageHandle handle,

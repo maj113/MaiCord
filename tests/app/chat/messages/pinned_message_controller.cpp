@@ -65,6 +65,24 @@ void test_pinned_message_controller(void (*check)(bool, const char*) noexcept) n
             pinned_message_controller_select(&forwarded, 90) && !pinned_message_controller_select(&forwarded, 800),
             "pins_forwarded_card_owns_both_body_excerpts_and_child_media_summary_while_jump_authority_stays_outer");
     }
+    {
+        // An edited message's excerpt ends with its label; a message without text or a forward gets none.
+        PinnedMessageController edited{};
+        const PinnedMessageScope scoped{1, 2, 3, 4, 5};
+        const auto when = cursor(utf8_literal("2026-10-05T12:00:00.123456+00:00"));
+        MessagePin items_edited[]{pin(91, when, 3000), pin(92, when, 2900)};
+        items_edited[0].message.edited_timestamp_ms = 1'700'000'100'000ull;
+        items_edited[1].message.edited_timestamp_ms = 1'700'000'100'000ull;
+        items_edited[1].message.content = {};
+        const MessagePinsPage page{4, when, 2, 0, false};
+        const bool loaded = pinned_message_controller_open(&edited, scoped, true, true) &&
+            submit(edited, 778) && complete(edited, 778, PinnedMessageCompletionKind::success, &page, {items_edited, 2});
+        const auto* with_text = pinned_message_controller_row(edited, 0);
+        const auto* without_text = pinned_message_controller_row(edited, 1);
+        check(loaded && with_text && utf8_equal(pinned_message_content(*with_text), utf8_literal("Pinned text (edited)")) &&
+            with_text->edited_offset == 12 && without_text && !without_text->content_bytes && !without_text->edited_offset,
+            "pins_edited_excerpt_ends_with_its_label_where_the_message_has_text");
+    }
     PinnedMessageController value{};
     const PinnedMessageScope scope{1, 2, 3, 4, 5};
     const auto newest = cursor(utf8_literal("2026-10-05T12:00:00.123456+00:00"));

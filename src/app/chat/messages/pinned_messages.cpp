@@ -130,6 +130,7 @@ bool resolve(void* context, u32 index, UiPinnedMessagesRow* output) noexcept {
         value.body_heights[index], pending || (row->type != 6 && value.controller.authoritative && pin_permission() &&
             !value.controller.permission_denied && !value.controller.request_id && !pinned_message_controller_mutation_pending(value.controller)),
         pending, value.controller.authoritative};
+    output->edited_offset = pinned_message_content(*row).bytes ? row->edited_offset : u16{0};
     return true;
 }
 void prepare_rows(ApplicationPinnedMessages& value) noexcept {

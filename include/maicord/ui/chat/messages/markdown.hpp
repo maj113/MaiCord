@@ -39,6 +39,9 @@ enum class MessageMarkdownSemanticKind : u8 {
     // kMessageMarkdownChipInitials the server has no icon: the cell shows its
     // initials on a round plate instead.
     guild_icon,
+    // The "(edited)" label after a message's text: target is the edit time in
+    // Unix seconds (the tooltip shows it in full). Never a click target.
+    edited,
 };
 
 inline constexpr u8 kMessageMarkdownChipHovered = 1u << 2;

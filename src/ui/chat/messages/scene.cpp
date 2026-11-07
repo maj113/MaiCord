@@ -1101,7 +1101,7 @@ const MessageSceneRowWidget* message_scene_resolve(const MessageScene& scene,
     const UiWidgetHandle handles[] = {row->widget,   row->avatar,     row->body,        row->reply,
                                       row->author,   row->content,    row->attachments, row->embeds,
                                       row->stickers, row->components, row->reactions,   row->notice,
-                                      row->poll,     row->thread};
+                                      row->poll,     row->thread,     row->edited};
     for (const auto handle : handles)
         if (same(handle))
             return row;

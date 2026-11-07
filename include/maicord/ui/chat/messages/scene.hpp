@@ -43,9 +43,9 @@ inline constexpr u32 kMessageSceneEphemeralFlag = 1u << 6;
 inline constexpr float kMessageSceneEphemeralAlpha = 0.05f;
 inline constexpr float kMessageScenePreparationMarginDips = 512.0f;
 inline constexpr u64 kMessageGroupIntervalMilliseconds = 7ull * 60ull * 1'000ull;
-inline constexpr u32 kMessageSceneBaseWidgetsPerRow = 14;
+inline constexpr u32 kMessageSceneBaseWidgetsPerRow = 15;
 // Widgets of a plain text row: row, avatar, body, reply, author, content and
-// the notice group. Rich groups, reactions and polls add widgets only when present.
+// the notice group. Rich groups, reactions, polls and the group of an "(edited)" line add widgets only when present.
 inline constexpr u32 kMessageScenePlainRowWidgets = 7;
 inline constexpr u32 kMessageSceneAttachmentItemOffset = kMessageRichAttachmentItemOffset;
 inline constexpr u32 kMessageSceneEmbedItemOffset = kMessageRichEmbedItemOffset;
@@ -102,6 +102,7 @@ struct MessageSceneRowWidget {
     UiWidgetHandle poll;
     UiWidgetHandle thread; // thread starter card; zero height without a thread
     UiWidgetHandle invites; // invite cards for invite links in the content
+    UiWidgetHandle edited;  // the "(edited)" line of a message without text; absent otherwise
     UiWidgetHandle reaction_buttons[kGatewayMessageReactionMaximum];
     float reaction_widths[kGatewayMessageReactionMaximum];
     UiWidgetHandle rich_items[kMessageSceneRichItemMaximum];

@@ -61,6 +61,7 @@
 #include "hover_retention_ui_probe.hpp"
 #include "message_components_ui_probe.hpp"
 #include "message_header_clip_ui_probe.hpp"
+#include "edited_label_ui_probe.hpp"
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/gpu/api.hpp"
@@ -2026,6 +2027,12 @@ int run_probe() noexcept {
                                                             g_probe.message_scene, g_probe.users,
                                                             rebuild_probe_content_text),
                            "message_header_clip_native_ui_passed", "message_header_clip_native_ui_failed", 306);
+    if (probe_option_enabled(L"MAICORD_UI_EDITED_LABEL_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                               edited_label_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.rich_store,
+                                                     g_probe.message_scene, g_probe.users, rebuild_probe_content_text,
+                                                     +[](const wchar_t* name) noexcept { return probe_capture_frame(name); }),
+                           "edited_label_native_ui_passed", "edited_label_native_ui_failed", 308);
     if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE"))
         return finish_gate(initialize_fixture(true) && probe_media_underlay_and_quick_reactions(),
                            "media_underlay_native_ui_passed", "media_underlay_native_ui_failed", 264);
@@ -2226,7 +2233,7 @@ int run_probe() noexcept {
         return valid ? 0 : static_cast<int>(g_probe.failure_stage ? g_probe.failure_stage : 742);
     }
     if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE"))
-        return finish_gate(initialize_fixture(true) && probe_braille_profile(),
+        return finish_gate(initialize_fixture(true) && probe_braille_profile() && probe_profile_member_modal(),
                            "braille_profile_native_ui_passed", "braille_profile_native_ui_failed", 270);
     if (probe_option_enabled(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE")) {
         bool valid = initialize_fixture(true);

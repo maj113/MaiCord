@@ -912,6 +912,17 @@ RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Rend
                                                                        i32 client_y_pixels) noexcept;
 // The emoji under a DIP point in the visible message timeline's body text.
 MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept;
+// The "(edited)" label under a DIP point: its message and revision, the edit time and the visible part of its
+// rectangle. A timeline label counts inside the message view, a search result's inside the results list.
+struct RendererEditedLabelHit {
+    u64 message_id;
+    u64 edited_unix_seconds;
+    UiRect rectangle;
+    u32 message_revision;
+    bool search;
+    bool valid;
+};
+RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& renderer, float x, float y) noexcept;
 void renderer_set_message_text_selection(D3D11Renderer* renderer,
                                          const RendererMessageTextPositionHit& command, u32 anchor,
                                          u32 caret) noexcept;

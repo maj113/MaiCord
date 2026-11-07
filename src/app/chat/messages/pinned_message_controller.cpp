@@ -82,10 +82,18 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
         utf8_assign(row.author, row.author_bytes, message.author_name);
         utf8_assign(row.avatar_hash, row.avatar_bytes, message.author_avatar_hash);
         row.forwarded = message.reference.type == 1 || message.snapshot.present;
+        // An edited message ends with its label: the excerpt leaves room for it.
+        constexpr Utf8View edited_label = utf8_literal(" (edited)");
+        const bool edited = message.edited_timestamp_ms != 0 && !row.forwarded;
         const auto card = message_card_excerpt({message.content,
             message.snapshot.present ? message.snapshot.content : Utf8View{}, row.forwarded},
-            {row.content, sizeof(row.content)});
+            {row.content, static_cast<u32>(sizeof(row.content)) - (edited ? edited_label.bytes : 0u)});
         row.content_bytes = card.bytes;
+        if (edited && card.bytes != 0) {
+            copy_bytes(row.content + card.bytes, edited_label.data, edited_label.bytes);
+            row.edited_offset = static_cast<u16>(card.bytes + 1u);
+            row.content_bytes = static_cast<u16>(card.bytes + edited_label.bytes);
+        }
         row.attachment_count = message.attachments.count + (message.snapshot.present ? message.snapshot.attachments.count : 0);
         row.embed_count = message.embeds.count + (message.snapshot.present ? message.snapshot.embeds.count : 0);
         row.sticker_count = message.stickers.count + (message.snapshot.present ? message.snapshot.stickers.count : 0);

@@ -341,12 +341,14 @@ bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentat
 MessageTextCopyProjectionResult message_text_project_selection_for_copy(
     const MessageTextCommand& command, Utf8View source, u32 first, u32 last,
     Slice<char> output) noexcept;
+// Where a copy of the command's text stops: before its "(edited)" label, which is no part of the message.
+u32 message_text_command_copy_end(const MessageTextCommand& command) noexcept;
 
 static_assert(sizeof(MessageTextSemantic) == 32);
 static_assert(sizeof(MessageTextHit) == 32);
 static_assert(sizeof(MessageTextSpoilerReveal) == 16);
 static_assert(sizeof(MessageTextCommand) == 176);
-static_assert(sizeof(MessageTextMeasurement) == 824);
+static_assert(sizeof(MessageTextMeasurement) == 832);
 static_assert(sizeof(MessageTextRichMetrics) == 32);
 static_assert(sizeof(MessageMarkdownCacheEntry) == 72);
 

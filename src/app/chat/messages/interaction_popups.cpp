@@ -229,7 +229,9 @@ bool handle_message_text_selection_drag(const WindowEvent& event) noexcept {
 bool copy_message_text_selection() noexcept {
     const MessageTextCommand* command = selected_message_text_command();
     const u32 first = minimum(g_app.message_text_selection_anchor, g_app.message_text_selection_caret);
-    const u32 last = maximum(g_app.message_text_selection_anchor, g_app.message_text_selection_caret);
+    const u32 last = command ? minimum(maximum(g_app.message_text_selection_anchor, g_app.message_text_selection_caret),
+                                       message_text_command_copy_end(*command))
+                             : 0u;
     if (!command || first >= last || last > command->text.bytes) {
         return false;
     }

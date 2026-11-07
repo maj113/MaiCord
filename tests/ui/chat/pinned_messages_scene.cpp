@@ -10,7 +10,7 @@ namespace maicord {
 namespace {
 struct PinsFixture {
     u32 resolves{};
-    bool current{true}, manage{true}, pending{}, invalid_avatar{}, authoritative{true};
+    bool current{true}, manage{true}, pending{}, invalid_avatar{}, authoritative{true}, edited{};
     float invalid_height{};
     bool override_height{};
 };
@@ -27,6 +27,10 @@ bool resolve_pin(void* context, u32 index, UiPinnedMessagesRow* row) noexcept {
     if (f.override_height) row->body_height = f.invalid_height;
     if (f.invalid_avatar) row->avatar_hash = utf8_literal("not-an-avatar-hash");
     row->jump_enabled = f.authoritative;
+    if (f.edited && index % 2) {
+        row->body = utf8_literal("A note (edited)");
+        row->edited_offset = 7;
+    }
     return true;
 }
 bool pins_current(void* context) noexcept { return static_cast<PinsFixture*>(context)->current; }
@@ -143,6 +147,30 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
                    command.clip.top >= s.panel.top && command.clip.bottom <= s.panel.bottom;
     }
     check(clipped, "pins scene: every author, metadata and wrapped excerpt stays clipped to the pane");
+    // An edited message's excerpt ends with its label: one span sets it in the small muted type.
+    f.edited = true;
+    ++source.revision;
+    ui_text_command_stream_reset(&stream);
+    const bool labelled = ui_pinned_messages_scene_update(&s, &source, &content, s.viewport) &&
+                          ui_pinned_messages_scene_text_output(s, kDefaultTheme, &output) && stream.rejected == 0;
+    u32 labels = 0, small = 0;
+    for (u32 i = 0; labelled && i < stream.count; ++i) {
+        const auto& command = stream.storage[i];
+        if (!utf8_equal(command.text, utf8_literal("A note (edited)")))
+            continue;
+        ++labels;
+        small += command.styles.count == 1 && command.styles[0].byte_offset == 7 && command.styles[0].byte_count == 8 &&
+                         (command.styles[0].flags & text_style_subtext) && command.styles[0].size == text_size_xs &&
+                         command.effect.themed_styles
+                     ? 1u
+                     : 0u;
+    }
+    check(labelled && labels >= 1 && small == labels,
+          "pins scene: an edited excerpt's label takes the small muted type, the text before it none");
+    f.edited = false;
+    ++source.revision;
+    check(ui_pinned_messages_scene_update(&s, &source, &content, s.viewport),
+          "pins scene: unedited excerpts return to plain text");
     const u32 before_hover = f.resolves;
     bool changed = false;
     check(ui_pinned_messages_scene_set_hover(&s, s.cards[0].left + 20, s.cards[0].top + 64, &changed) &&

@@ -170,6 +170,17 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
 bool append_compact_timestamp(MessageTextPresentation* presentation, const MessageScene& scene,
                               const MessageSceneRowWidget& row, const UiRect& clip, const Theme& theme,
                               const MessageRecord& record, u64 now_unix_seconds) noexcept;
+// The label of an edited message: small muted type after the text, one semantic carrying the edit time
+// for its tooltip. A message without text shows it on a line of its own in the group after its accessories.
+inline constexpr Utf8View kEditedLabel = utf8_literal("(edited)");
+// Extends the retained text (copying it behind the banks' ends when it lives elsewhere). False without
+// room, leaving the arguments as they were.
+bool append_edited_label(MessageTextPresentation* presentation, u64 edited_unix_seconds, Utf8View* text,
+                         ConstSlice<TextStyleSpan>* styles,
+                         ConstSlice<MessageMarkdownSemantic>* semantics) noexcept;
+bool append_edited_tail(MessageTextPresentation* presentation, const MessageScene& scene,
+                        const MessageSceneRowWidget& row, const UiRect& row_clip, const Theme& theme,
+                        const MessageRecord& record, u16 measurement_index) noexcept;
 bool parse_content(MessageTextPresentation* presentation, BuildContext* context, const Utf8View& source,
                    Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                    ConstSlice<MessageMarkdownSemantic>* semantics, u32 base_style = 0,
@@ -236,7 +247,7 @@ __declspec(noinline) bool append_content_segments(
     const Utf8View& display_content, const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
-    const Color& role_color) noexcept;
+    const Color& role_color, u64 edited_unix_seconds = 0) noexcept;
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,

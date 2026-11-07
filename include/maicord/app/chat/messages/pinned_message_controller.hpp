@@ -26,12 +26,13 @@ struct PinnedMessageCompletion {
 };
 // Excerpts are stored by value so they survive shared REST decode-buffer reuse. They are never
 // inserted into the message timeline. The host formats the two timestamps and
-// rich counts for presentation; empty content remains a valid pinned message.
+// rich counts for presentation; empty content remains a valid pinned message. An edited message's excerpt
+// ends with its " (edited)" label, which starts at edited_offset (zero: none).
 struct PinnedMessageRow {
     u64 channel_id{}, message_id{}, author_id{}, timestamp_ms{}, pinned_at_ms{};
     char author[kPinnedMessageAuthorBytes]{}, avatar_hash[kPinnedMessageAvatarBytes]{},
          content[kPinnedMessageExcerptBytes]{};
-    u16 author_bytes{}, avatar_bytes{}, content_bytes{}, type{};
+    u16 author_bytes{}, avatar_bytes{}, content_bytes{}, type{}, edited_offset{};
     u32 attachment_count{}, embed_count{}, sticker_count{}, component_count{};
     bool forwarded{}, excerpt_truncated{}, rich_truncated{};
 };

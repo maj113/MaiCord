@@ -115,7 +115,7 @@ bool set_interaction(UiWidgetManager* manager, UiWidgetHandle handle, bool inter
 }
 
 bool build_preflight(UiWidgetManager& manager, UiWidgetHandle parent, u32 row_widget_id,
-                     const MessageRichRecord* rich, bool poll, u32 invites) noexcept {
+                     const MessageRichRecord* rich, bool poll, u32 invites, bool edited) noexcept {
     const u32 reaction_count = rich ? rich->reaction_count : 0;
     const u32 attachment_count = rich ? rich->attachment_count : 0;
     const u32 embed_count = rich ? rich->embed_count : 0;
@@ -136,7 +136,7 @@ bool build_preflight(UiWidgetManager& manager, UiWidgetHandle parent, u32 row_wi
         reaction_count + attachment_count + embed_count + sticker_count + component_count + notice_count + invites;
     const u32 required = 1u + (reaction_count != 0 ? 1u : 0u) + (attachment_count != 0 ? 1u : 0u) +
                          (embed_count != 0 ? 1u : 0u) + (sticker_count != 0 ? 1u : 0u) +
-                         (component_count != 0 ? 1u : 0u) + (invites != 0 ? 1u : 0u) +
+                         (component_count != 0 ? 1u : 0u) + (invites != 0 ? 1u : 0u) + (edited ? 1u : 0u) +
                          (rich && message_rich_has_thread_card(*rich) ? 1u : 0u) + child_count + (poll ? 1u : 0u);
     u32 extra_depth = child_count != 0 ? 2u : 1u;
     u8 component_depth[kGatewayMessageComponentMaximum]{};
@@ -170,6 +170,7 @@ void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
     row->components = ui_widget_invalid_handle();
     row->reactions = ui_widget_invalid_handle();
     row->notice = ui_widget_invalid_handle();
+    row->edited = ui_widget_invalid_handle();
     row->poll = ui_widget_invalid_handle();
     row->thread = ui_widget_invalid_handle();
     row->invites = ui_widget_invalid_handle();
@@ -189,7 +190,7 @@ void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
 }
 
 bool message_rich_widgets_structure_matches(const MessageSceneRowWidget& row, const MessageRichRecord* rich,
-                                            bool poll, u32 invites) noexcept {
+                                            bool poll, u32 invites, bool edited) noexcept {
     const u8 reaction_count = rich ? rich->reaction_count : 0;
     const u8 attachment_count = rich ? rich->attachment_count : 0;
     const u8 embed_count = rich ? rich->embed_count : 0;
@@ -201,13 +202,15 @@ bool message_rich_widgets_structure_matches(const MessageSceneRowWidget& row, co
            row.reaction_button_count == reaction_count && row.attachment_item_count == attachment_count &&
            row.embed_item_count == embed_count && row.sticker_item_count == sticker_count &&
            row.component_item_count == component_count && row.notice_item_count == notice_count &&
-           row.invite_item_count == invites && row.component_structure == message_component_structure(rich);
+           row.invite_item_count == invites && row.component_structure == message_component_structure(rich) &&
+           (row.edited.slot != kInvalidUiWidgetSlot) == edited;
 }
 
 bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent, u32 row_widget_id,
-                                const MessageRichRecord* rich, MessageSceneRowWidget* row, u32 invites) noexcept {
+                                const MessageRichRecord* rich, MessageSceneRowWidget* row, u32 invites,
+                                bool edited) noexcept {
     if (!manager || !row ||
-        !build_preflight(*manager, parent, row_widget_id, rich, row->poll_content_revision != 0, invites)) {
+        !build_preflight(*manager, parent, row_widget_id, rich, row->poll_content_revision != 0, invites, edited)) {
         return false;
     }
     message_rich_widgets_reset_handles(row);
@@ -241,6 +244,9 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     const UiWidgetResult invite_group =
         add_group(manager, parent, row_widget_id + 13u, "Invites", row->rich_layout.invites, invites != 0, false,
                   kMessageInviteCardGap);
+    // The "(edited)" line of a message without text: after the accessories, before the reactions.
+    const UiWidgetResult edited_group = add_group(manager, parent, row_widget_id + 14u, "Edited",
+                                                  row->rich_layout.edited, edited, false);
     const UiWidgetResult reactions = add_group(manager, parent, row_widget_id + 10u, "Reactions",
                                                row->rich_layout.reactions, reaction_total != 0, true);
     const UiWidgetResult notice =
@@ -255,10 +261,11 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
                        row->rich_layout.thread)
             : kAbsentWidget;
     if (!attachments.ok() || !embeds.ok() || !stickers.ok() || !components.ok() || !reactions.ok() ||
-        !notice.ok() || !thread.ok() || !invite_group.ok()) {
+        !notice.ok() || !thread.ok() || !invite_group.ok() || !edited_group.ok()) {
         return false;
     }
     row->invites = invite_group.handle;
+    row->edited = edited_group.handle;
     row->invite_item_count = static_cast<u8>(invites);
     row->thread = thread.handle;
     row->attachments = attachments.handle;
@@ -377,7 +384,8 @@ bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecor
                                 MessageSceneRowWidget* row) noexcept {
     if (!manager || !row ||
         !message_rich_widgets_structure_matches(*row, rich, row->poll_content_revision != 0,
-                                                row->invite_item_count) ||
+                                                row->invite_item_count, row->edited.slot != kInvalidUiWidgetSlot) ||
+        !set_group_height(manager, row->edited, row->rich_layout.edited) ||
         !set_group_height(manager, row->invites, row->rich_layout.invites) ||
         (row->poll_content_revision && (!set_fixed_height(manager, row->poll, row->poll_height) ||
                                         !set_interaction(manager, row->poll, !row->poll_unavailable))) ||

@@ -24,7 +24,8 @@ bool row_valid(const UiPinnedMessagesRow& row, u64 channel) noexcept {
            utf8_validate(row.author).valid && utf8_validate(row.timestamp).valid &&
            utf8_validate(row.body).valid && utf8_validate(row.detail).valid &&
            utf8_validate(row.avatar_hash).valid && ui_coordinate_valid(row.body_height) &&
-           (row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 144));
+           (row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 144)) &&
+           (row.edited_offset == 0 || row.edited_offset < row.body.bytes);
 }
 
 bool current(const UiPinnedMessagesScene& s) noexcept {
@@ -60,6 +61,9 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
         if (!ui_rect_intersects(card, s.body)) continue;
         const u32 slot = s.count++;
         s.visible[slot] = row;
+        s.body_styles[slot] = row.edited_offset
+            ? TextStyleSpan{row.edited_offset, row.body.bytes - row.edited_offset, text_style_subtext, text_size_xs}
+            : TextStyleSpan{};
         s.cards[slot] = card;
         // The whole card jumps; the later child target owns only its unpin slot.
         s.rows[slot] = ui_scene_add(s, ui_rect_intersection(card, s.body),
@@ -330,8 +334,21 @@ bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene& s, const 
              text_style_bold, ui_text_in_body);
         text(card, row.timestamp, ui_rect_edges(r, ui_start(50), ui_start(30), ui_end(-12), ui_start(48)),
              theme.text_secondary, text_style_subtext, ui_text_in_body);
-        text(card, row.body.bytes ? row.body : utf8_literal("Message has no text"),
-             {r.left + 12, r.top + 56, r.right - 12, body_bottom}, theme.text_primary, 0, ui_text_wrap | ui_text_in_body);
+        const Utf8View body = row.body.bytes ? row.body : utf8_literal("Message has no text");
+        const UiRect body_rectangle{r.left + 12, r.top + 56, r.right - 12, body_bottom};
+        if (row.edited_offset) {
+            // The "(edited)" label: small muted type after the text, so the command carries its span.
+            const UiRect clip = ui_rect_intersection(body_rectangle, s.body);
+            UiTextCommand command{body, {&s.widgets, card}, body_rectangle, clip, theme.text_primary, 0,
+                                  UiTextAlignment::start, UiTextAlignment::start, TextWrapping::wrap,
+                                  TextOverflow::ellipsis, UiTextFace::normal};
+            command.effect.themed_styles = true;
+            command.styles = {&s.body_styles[i], 1};
+            if (ui_rect_has_area(clip))
+                text.emit(command);
+        } else {
+            text(card, body, body_rectangle, theme.text_primary, 0, ui_text_wrap | ui_text_in_body);
+        }
         text(card, row.detail, {r.left + 12, body_bottom + 2, r.right - 12, body_bottom + 22}, theme.text_secondary,
              text_style_subtext, ui_text_in_body);
         text(card, utf8_literal("Jump to message"), ui_rect_edges(r, ui_start(36), ui_end(-33), ui_end(-12), ui_end(-9)),

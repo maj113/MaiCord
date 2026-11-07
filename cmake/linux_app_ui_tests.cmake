@@ -158,6 +158,13 @@ maicord_test(MaiCordProfileActivityTests ENTRY maicord_profile_activity_entry
     TIMEOUT 10
     TEST maicord_profile_activity)
 
+maicord_test(MaiCordProfileTextProjectionTests ENTRY maicord_profile_text_projection_entry
+    SOURCES tests/ui/account/profile_text_projection.cpp
+    LIBS ${maicord_linux_app_test_libs}
+    BUNDLE MaiCordAppWaveTests
+    TIMEOUT 10
+    TEST maicord_profile_text_projection)
+
 maicord_test(MaiCordRegionalFlagNativeGeometryTests ENTRY maicord_flag_native_geometry_entry
     SOURCES tests/ui/text/flag_native_geometry.cpp src/ui/text/native_text_candidate.cpp src/ui/text/native_text_catalog.cpp src/ui/media/emoji_presentation.cpp
     LIBS maicord_core maicord_font maicord_media_core maicord_ui ${maicord_linux_app_test_libs}
@@ -371,6 +378,15 @@ maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry
     BUNDLE MaiCordUiUnitTests
     TIMEOUT 5
     TEST maicord_toast)
+
+# The "(edited)" label of an edited message: inline after the text, in a group of its own for a message without text,
+# added and removed by updates, and laid out after the last glyph (the layout checks skip a host without the font).
+maicord_test(MaiCordEditedLabelTests ENTRY maicord_edited_label_entry
+    SOURCES tests/ui/chat/messages/edited_label.cpp
+    LIBS ${maicord_linux_app_test_libs}
+    BUNDLE MaiCordUiUnitTests
+    TIMEOUT 15
+    TEST maicord_edited_label)
 
 maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_messages_runtime_entry
     SOURCES tests/app/chat/messages/pinned_messages_runtime.cpp src/app/shell/state.cpp

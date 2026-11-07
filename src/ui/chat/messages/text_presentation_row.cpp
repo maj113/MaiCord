@@ -553,11 +553,20 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             return false;
         row_measurement.content_present = true;
     }
+    // The edit label follows a message's text; one without text keeps it on a line below its accessories.
+    const bool edited = !forwarded && !collapsed && !thinking && !command_status && !system_row &&
+                        record->edited_timestamp_ms >= 1'000u &&
+                        record->content_availability == MessageContentAvailability::available &&
+                        record->delivery == MessageDeliveryState::authoritative;
+    const bool edited_tail = edited && row.edited.slot != kInvalidUiWidgetSlot;
+    const u64 edited_inline = edited && !edited_tail ? record->edited_timestamp_ms / 1'000u : 0u;
+    if (edited_inline)
+        row_measurement.content_present = true;
     if (!append_content_segments(presentation, scene, row, display_content, styles, semantics,
                                  parse && !system_row && !thinking && !command_status,
                                  content_layout->content_rectangle.top, text_left, text_width, row_clip, content_color,
                                  record, measurement_index, context.source_id,
-                                 compact_name.bytes ? compact_color : kNoRoleColor))
+                                 compact_name.bytes ? compact_color : kNoRoleColor, edited_inline))
         return false;
 
     if (!forwarded && (row.poll_unavailable || row.poll_content_revision) &&
@@ -566,6 +575,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     if (!forwarded && row.invite_item_count &&
         !append_invite_cards(presentation, scene, row, *record, state, theme, row_clip, measurement_index,
                              now_unix_seconds))
+        return false;
+    row_measurement.rich_layout.edited = row_measurement.rich_item_layout.edited_height = 0.0f;
+    if (edited_tail && !append_edited_tail(presentation, scene, row, row_clip, theme, *record, measurement_index))
         return false;
     if (!rich) {
         return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,

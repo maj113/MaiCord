@@ -136,14 +136,15 @@ bool message_rich_layout_valid(const MessageRichLayout& layout) noexcept {
     return ui_extent_valid(layout.attachments) && ui_extent_valid(layout.embeds) &&
            ui_extent_valid(layout.stickers) && ui_extent_valid(layout.components) &&
            ui_extent_valid(layout.reactions) && ui_extent_valid(layout.notice) &&
-           ui_extent_valid(layout.thread) && ui_extent_valid(layout.invites) && ui_extent_valid(layout.total());
+           ui_extent_valid(layout.thread) && ui_extent_valid(layout.invites) && ui_extent_valid(layout.edited) &&
+           ui_extent_valid(layout.total());
 }
 
 bool message_rich_layout_equal(const MessageRichLayout& left, const MessageRichLayout& right) noexcept {
     return left.attachments == right.attachments && left.embeds == right.embeds &&
            left.stickers == right.stickers && left.components == right.components &&
            left.reactions == right.reactions && left.notice == right.notice && left.thread == right.thread &&
-           left.invites == right.invites;
+           left.invites == right.invites && left.edited == right.edited;
 }
 
 // Every MessageRichItemLayout member is a float extent.
@@ -980,6 +981,7 @@ MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
     }
     if (invites > 1)
         result.invites += static_cast<float>(invites - 1) * kMessageInviteCardGap;
+    result.edited = items.edited_height;
     return result;
 }
 

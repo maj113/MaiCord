@@ -68,9 +68,12 @@ struct MessageRichLayout {
     float notice;
     float thread;
     float invites;
+    // The "(edited)" line of a message without text: after its accessories,
+    // before its reactions. Zero for any message that shows the label inline.
+    float edited;
 
     constexpr float total() const noexcept {
-        return attachments + embeds + stickers + components + reactions + notice + thread + invites;
+        return attachments + embeds + stickers + components + reactions + notice + thread + invites + edited;
     }
 };
 
@@ -107,6 +110,8 @@ struct MessageRichItemLayout {
     // A plugin card at the start of the notice container, laid out and painted as an embed: where it starts (below
     // a truncation notice), how tall and how wide it is, 0 for none. The text pass measures it and paint draws it.
     float plugin_card_top, plugin_card_height, plugin_card_width;
+    // Height of the group that holds the "(edited)" line; the text pass sets it.
+    float edited_height;
 };
 
 // Reply preview: the text starts after the 16-DIP avatar and

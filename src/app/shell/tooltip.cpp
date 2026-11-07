@@ -17,6 +17,7 @@
 #include "../chat/composer/interaction_card.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
@@ -329,6 +330,33 @@ bool app_check_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcep
     if (!hit.message_id || !ui_rect_has_area(hit.check))
         return false;
     *target = {{hit.owner, scope, hit.message_id, hit.revision, 0x5900u}, hit.check, kUiAppBadgeVerifiedHint};
+    return true;
+}
+// The "(edited)" label after a message's text, in the timeline or a search result: when it was edited, in full.
+char g_edited_label[kMessageMarkdownTimestampMaximumBytes];
+bool edited_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& renderer = g_app.renderer;
+    if (application_friends_active() || !g_app.account_ui)
+        return false;
+    const auto hit = renderer_edited_label_hit_test(renderer, point.x, point.y);
+    if (!hit.valid)
+        return false;
+    UiWidgetReference owner{};
+    if (hit.search) {
+        owner = {&renderer.search_scene->widgets, renderer.search_scene->root};
+    } else {
+        const auto* record = application_message_record(hit.message_id);
+        if (!record || record->revision != hit.message_revision ||
+            record->channel_id != g_app.account_ui->active_channel_id)
+            return false;
+        owner = {&g_app.message_scene.widgets, g_app.message_scene.root};
+    }
+    const auto formatted = format_timestamp_local(hit.edited_unix_seconds, 'F', clock_unix_milliseconds() / 1'000u,
+                                                  {g_edited_label, sizeof(g_edited_label)});
+    if (!formatted.ok || !formatted.bytes)
+        return false;
+    *target = {{owner, scope, hit.message_id, hit.message_revision, 0x5a00u}, hit.rectangle,
+               {g_edited_label, formatted.bytes}};
     return true;
 }
 // The same check on a member row's APP tag.
@@ -690,7 +718,7 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
         return browser_target(point, false, scope, target);
     if (g_app.renderer.search_scene &&
         ui_search_scene_contains(*g_app.renderer.search_scene, point.x, point.y))
-        return search_target(point, false, scope, target);
+        return edited_target(point, scope, target) || search_target(point, false, scope, target);
     if (g_app.renderer.pinned_messages_scene &&
         ui_pinned_messages_scene_contains(*g_app.renderer.pinned_messages_scene, point.x, point.y))
         return pinned_target(point, false, scope, target);
@@ -700,7 +728,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
         return profile_hint_target(*panel, point, false, scope, 0x5802u, target);
     if (!application_thread_browser_read_blocked()) {
         if (application_video_tooltip_target(point, false, scope, target) || message_target(point, scope, target) ||
-            app_check_target(point, scope, target) || member_app_check_target(point, scope, target))
+            app_check_target(point, scope, target) || member_app_check_target(point, scope, target) ||
+            edited_target(point, scope, target))
             return true;
         if (!application_friends_active() && application_reaction_tooltip_target(point, scope, target)) {
             // Reaction pills lead with their emoji; their names wrap beside it.

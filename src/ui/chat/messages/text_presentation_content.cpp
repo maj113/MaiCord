@@ -211,6 +211,58 @@ bool append_compact_timestamp(MessageTextPresentation* presentation, const Messa
                           kInvalidMessageTextMeasurement, kLookStampEnd);
 }
 
+bool append_edited_label(MessageTextPresentation* presentation, u64 edited_unix_seconds, Utf8View* text,
+                         ConstSlice<TextStyleSpan>* styles,
+                         ConstSlice<MessageMarkdownSemantic>* semantics) noexcept {
+    char* const end = presentation->utf8.data + presentation->utf8_count;
+    TextStyleSpan* const styles_end = presentation->styles.data + presentation->style_count;
+    MessageMarkdownSemantic* const semantics_end = presentation->semantics.data + presentation->semantic_count;
+    // Text, spans and semantics that end the retained banks grow in place; any other is copied behind them.
+    const bool text_here = text->bytes == 0 || text->data + text->bytes == end;
+    const bool styles_here = styles->count == 0 || styles->data + styles->count == styles_end;
+    const bool semantics_here = semantics->count == 0 || semantics->data + semantics->count == semantics_end;
+    const u32 space = text->bytes != 0 ? 1u : 0u;
+    const u32 copied_text = text_here ? 0u : text->bytes;
+    if (space + kEditedLabel.bytes + copied_text > presentation->utf8.count - presentation->utf8_count ||
+        1u + (styles_here ? 0u : styles->count) > presentation->styles.count - presentation->style_count ||
+        1u + (semantics_here ? 0u : semantics->count) >
+            presentation->semantics.count - presentation->semantic_count)
+        return false;
+    char* text_begin = text_here && text->bytes != 0 ? const_cast<char*>(text->data) : end;
+    TextStyleSpan* style_begin = styles_here && styles->count != 0 ? const_cast<TextStyleSpan*>(styles->data) : styles_end;
+    MessageMarkdownSemantic* semantic_begin =
+        semantics_here && semantics->count != 0 ? const_cast<MessageMarkdownSemantic*>(semantics->data) : semantics_end;
+    const u32 text_bytes = text->bytes;
+    const u32 style_count = styles->count;
+    const u32 semantic_count = semantics->count;
+    if (!text_here) {
+        copy_bytes(end, text->data, text_bytes);
+        presentation->utf8_count += text_bytes;
+    }
+    if (!styles_here) {
+        copy_bytes(style_begin, styles->data, style_count * sizeof(TextStyleSpan));
+        presentation->style_count += style_count;
+    }
+    if (!semantics_here) {
+        copy_bytes(semantic_begin, semantics->data, semantic_count * sizeof(MessageMarkdownSemantic));
+        presentation->semantic_count += semantic_count;
+    }
+    char* tail = presentation->utf8.data + presentation->utf8_count;
+    if (space)
+        *tail++ = ' ';
+    copy_bytes(tail, kEditedLabel.data, kEditedLabel.bytes);
+    presentation->utf8_count += space + kEditedLabel.bytes;
+    const u32 label_offset = text_bytes + space;
+    presentation->styles[presentation->style_count++] =
+        TextStyleSpan{label_offset, kEditedLabel.bytes, text_style_subtext, text_size_xs};
+    presentation->semantics[presentation->semantic_count++] = MessageMarkdownSemantic{
+        edited_unix_seconds, label_offset, kEditedLabel.bytes, 0, 0, MessageMarkdownSemanticKind::edited, 0};
+    *text = Utf8View{text_begin, label_offset + kEditedLabel.bytes};
+    *styles = ConstSlice<TextStyleSpan>{style_begin, style_count + 1};
+    *semantics = ConstSlice<MessageMarkdownSemantic>{semantic_begin, semantic_count + 1};
+    return true;
+}
+
 bool parse_content(MessageTextPresentation* presentation, BuildContext* context, const Utf8View& source,
                    Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                    ConstSlice<MessageMarkdownSemantic>* semantics, u32 base_style, u8 base_size) noexcept {

@@ -808,7 +808,8 @@ maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry SOUR
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_draw_submission)
 maicord_test(MaiCordTooltipRuntimeTests ENTRY maicord_tooltip_runtime_entry
     SOURCES tests/app/shell/tooltip_runtime.cpp src/app/shell/tooltip.cpp src/app/shell/state.cpp
-        tests/app/chat/messages/reaction_tooltip_runtime.cpp tests/app/media/emoji_tooltip_runtime.cpp src/core/log.cpp
+        tests/app/chat/messages/reaction_tooltip_runtime.cpp tests/app/media/emoji_tooltip_runtime.cpp
+        tests/app/chat/messages/edited_tooltip_runtime.cpp src/core/log.cpp
     LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_tooltip_runtime)
@@ -908,6 +909,9 @@ maicord_test(MaiCordMessagePinnedStateTests ENTRY maicord_message_pinned_state_e
 maicord_test(MaiCordForwardedTextContractTests ENTRY maicord_forwarded_text_contract_entry
     SOURCES tests/ui/chat/messages/forwarded_text_contract.cpp
     BUNDLE MaiCordModelTests TIMEOUT 15 TEST maicord_forwarded_text_contract)
+maicord_test(MaiCordEditedLabelTests ENTRY maicord_edited_label_entry
+    SOURCES tests/ui/chat/messages/edited_label.cpp
+    BUNDLE MaiCordModelTests TIMEOUT 15 TEST maicord_edited_label)
 maicord_test(MaiCordReceivedAttachmentOpenTests ENTRY maicord_received_attachment_open_test_entry
     SOURCES tests/app/media/received_attachment_open.cpp src/app/media/received_attachment_open.cpp src/app/media/url_resolver.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 10 TEST maicord_received_attachment_open)
@@ -1924,7 +1928,7 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI
         PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI STORE_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
         UI_GUILD_ROLES
-        UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
+        UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_EDITED_LABEL UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
         UI_INLINE_FLAGS UI_RESIZE_TEXT
         UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_MESSAGE_HEADER_CLIP UI_PANE_GLYPH_STRESS
         UI_PINNED_MESSAGES UI_QUICK_SWITCHER

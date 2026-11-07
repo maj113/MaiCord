@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
+#include "maicord/ui/text/style.hpp"
 
 namespace maicord {
 struct UiTextOutput;
@@ -30,6 +31,8 @@ struct UiPinnedMessagesRow {
     // Retained stale previews may remain readable while their replacement loads.
     // The host disables navigation until that page is authoritative again.
     bool jump_enabled{true};
+    // Where the body's "(edited)" label starts (after its space); it takes the small muted type. Zero: none.
+    u16 edited_offset{};
 };
 struct UiPinnedMessagesSource {
     void* context{};
@@ -55,6 +58,7 @@ struct UiPinnedMessagesScene {
     UiWidgetHandle root{}, body_owner{}, close{}, refresh{}, previous{}, next{}, retry{};
     UiWidgetHandle rows[kUiPinnedMessagesVisibleRows]{}, unpin[kUiPinnedMessagesVisibleRows]{};
     UiPinnedMessagesRow visible[kUiPinnedMessagesVisibleRows]{};
+    TextStyleSpan body_styles[kUiPinnedMessagesVisibleRows]{};
     UiRect cards[kUiPinnedMessagesVisibleRows]{};
     UiPinnedMessagesTarget targets[kUiPinnedMessagesWidgetCapacity]{}, focused{};
     float offsets[kUiPinnedMessagesPageCapacity + 1]{};
