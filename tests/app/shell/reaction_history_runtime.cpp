@@ -11,6 +11,7 @@
 #include "application_dm_profile_inactive.hpp"
 #include "../../../src/app/chat/messages/history.cpp"
 #include "../../../src/app/chat/messages/send.cpp"
+#include "../../../src/app/chat/channel_snapshots.cpp"
 #include "shell/startup_history.hpp"
 #include "shell/application_startup_shell.hpp"
 #include "maicord/app/shell/startup_shell.hpp"
@@ -631,6 +632,81 @@ void startup_history(AccountUiRuntime& ui) noexcept {
           "startup history: reset releases the PRIMARY lane it owns");
     g_app.account.status.running = true;
 }
+constexpr auto kPressedPage = utf8_literal(
+    R"([{"id":"2002","channel_id":"8","author":{"id":"11","username":"self"},"content":"d","timestamp":"2024-08-30T12:00:01Z"},)"
+    R"({"id":"2001","channel_id":"8","author":{"id":"11","username":"self"},"content":"c","timestamp":"2024-08-30T12:00:00Z"}])");
+// The channel the window shows is complete and nothing is queued.
+void settle_channel(AccountUiRuntime& ui, u64 channel_id) noexcept {
+    ui.chat_state.selected_channel_id = ui.active_channel_id = channel_id;
+    reset_value(&g_app.message_catchup);
+    reset_value(&g_app.message_older);
+    g_app.message_catchup.channel_id = channel_id;
+    g_app.message_catchup.state = MessageHistoryCatchupState::complete;
+    g_app.message_pump.catchup_required = g_app.message_pump.resync_required = false;
+    g_app.message_view.timeline.newer_refetch_required = false;
+    g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
+    g_app.primary_request_id = 0;
+    receipt_ready = false;
+}
+// A press on a channel row that waits for its release requests that channel's latest page: exactly one
+// request, taken by the click either as the catch-up (still in flight) or as a retained page (arrived).
+// Idle pumps request nothing: only the press reaches the preload.
+void channel_press_preload(AccountUiRuntime& ui) noexcept {
+    auto& view = g_app.message_view;
+    auto* other = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 8));
+    check(other != nullptr, "press preload: a second conversation is listed");
+    if (!other)
+        return;
+    other->last_message_id = 2002;
+    application_channel_snapshots_reset();
+    settle_channel(ui, 7);
+    const u32 start = history_admissions;
+    for (u32 pass = 0; pass < 3; ++pass)
+        pump_message_history();
+    check(history_admissions == start && g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
+              !application_channel_prefetch_next_wake(),
+          "press preload: without a press no history is requested");
+
+    application_channel_prefetch_press(8);
+    check(pump_message_history() && history_admissions == start + 1 && last_history_channel == 8 &&
+              last_history_query.cursor == 0 && last_history_query.limit == kMessageHistoryRequestLimit &&
+              last_history_query.position == MessageHistoryPosition::latest &&
+              is_primary(MessageHistoryRequestOwner::channel_prefetch, last_history_id),
+          "press preload: a press requests the pressed channel's latest page");
+    const u64 preload = last_history_id;
+    for (u32 pass = 0; pass < 3; ++pass)
+        pump_message_history();
+    check(history_admissions == start + 1 && !application_channel_prefetch_next_wake(),
+          "press preload: a press issues exactly one request");
+    receipt(preload, 200, kPressedPage);
+    check(pump_message_history() && history_admissions == start + 1 &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
+              !message_store_find(view.store, 2002).ok(),
+          "press preload: the page arrives into the cache, not into the open channel");
+    ui.chat_state.selected_channel_id = ui.active_channel_id = 8;
+    check(message_timeline_reset(&view.timeline) && application_channel_snapshot_restore(8) &&
+              message_store_find(view.store, 2002).ok() && message_store_find(view.store, 2001).ok() &&
+              history_admissions == start + 1,
+          "press preload: the click shows the arrived page without a second request");
+
+    // The click lands while the preload is still in flight: it becomes the click's catch-up.
+    application_channel_snapshots_reset();
+    settle_channel(ui, 8);
+    application_channel_prefetch_press(7);
+    check(pump_message_history() && history_admissions == start + 2 && last_history_channel == 7 &&
+              is_primary(MessageHistoryRequestOwner::channel_prefetch, last_history_id),
+          "press preload: a second press requests its own channel");
+    const u64 flying = last_history_id;
+    check(settle_restoration(ui, 7) && pump_message_history() && history_admissions == start + 2,
+          "press preload: the click waits for the request already in flight");
+    receipt(flying, 200, kStartupPage);
+    check(pump_message_history() && history_admissions == start + 2 && message_store_find(view.store, 1002).ok() &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "press preload: the click takes the in-flight request as its catch-up without a second request");
+    application_channel_snapshots_reset();
+    settle_channel(ui, 7);
+}
 // A startup shell for Home on conversation 7, written as the last session would.
 bool startup_shell_file(AccountPaths* paths) noexcept {
     const DWORD length = GetTempPathW(512, paths->shell);
@@ -876,6 +952,7 @@ void run() noexcept {
     navigation_history_gate(*ui);
     scoped_read_routing();
     startup_history(*ui);
+    channel_press_preload(*ui);
     startup_shell_page(*ui);
     application_message_history_reset_reaction_turn();
     application_history_decode_storage_release(*ui);
@@ -900,17 +977,8 @@ namespace maicord::app_detail {
     bool application_##owner##_response(const RestClientResponse&, Utf8View) noexcept {                \
         return response_result;                                                                        \
     }
-u64 application_channel_prefetch_take(u64) noexcept {
-    return 0;
-}
-void application_channel_prefetch_submitted(u64, u64, u64) noexcept {}
-void application_channel_prefetch_skip() noexcept {}
-bool application_channel_prefetch_adopt(u64) noexcept {
-    return false;
-}
-bool application_channel_prefetch_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+// The retained-page owner is the shipping one; its memory summary is a log line only.
+void application_memory_summary(const char*) noexcept {}
 bool application_message_edit_pending_available() noexcept {
     return false;
 }

@@ -603,7 +603,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             entry->state = MediaUrlState::failed;
         }
     } else if (const u64 prefetch_channel = application_channel_prefetch_take(now_ms)) {
-        // Speculative hover prefetch: only when the lane has no other work.
+        // Speculative press preload: only when the lane has no other work.
         const u64 request_id = next_message_history_request_id();
         const MessageHistoryQuery prefetch_query{0, kMessageHistoryRequestLimit,
                                                  MessageHistoryPosition::latest};
@@ -802,7 +802,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                     return true;
                 owner = MessageHistoryRequestOwner::catchup;
             }
-            // A hovered channel that was selected meanwhile takes its prefetch as
+            // A pressed channel that was selected meanwhile takes its prefetch as
             // the latest-page catch-up instead of issuing a second request.
             if (owner == MessageHistoryRequestOwner::channel_prefetch &&
                 application_channel_prefetch_adopt(response.request_id))

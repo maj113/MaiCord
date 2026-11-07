@@ -116,8 +116,8 @@ void application_channel_snapshots_observe(void*, const GatewayClientEvent& even
                                    ui->chat_state.self_user_id, availability);
 }
 
-void application_channel_prefetch_hover(u64 channel_id) noexcept {
-    channel_prefetch_hover(&g_prefetch, channel_id, clock_monotonic_milliseconds());
+void application_channel_prefetch_press(u64 channel_id) noexcept {
+    channel_prefetch_press(&g_prefetch, channel_id, clock_monotonic_milliseconds());
 }
 
 u64 application_channel_prefetch_next_wake() noexcept {

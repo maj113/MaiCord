@@ -443,7 +443,11 @@ bool application_voice_shell_click(float, float) noexcept {
 bool application_voice_shell_hover(float, float) noexcept {
     return false;
 }
-void application_channel_prefetch_hover(u64) noexcept {}
+// The channel preload seam: the shell reaches it only through a press that waits for its release.
+u32 channel_prefetch_calls{};
+void application_channel_prefetch_press(u64) noexcept {
+    ++channel_prefetch_calls;
+}
 bool application_voice_hand_cursor(float, float) noexcept {
     return false;
 }

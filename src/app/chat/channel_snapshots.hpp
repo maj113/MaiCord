@@ -14,7 +14,8 @@ void application_channel_snapshots_observe(void* context, const GatewayClientEve
                                            ConstSlice<u8> payload,
                                            MessageContentAvailability availability) noexcept;
 
-void application_channel_prefetch_hover(u64 channel_id) noexcept;
+// A press that waits for its release to open the channel row: request its latest page now.
+void application_channel_prefetch_press(u64 channel_id) noexcept;
 u64 application_channel_prefetch_next_wake() noexcept;
 // Channel whose latest page should be requested now, or 0.
 u64 application_channel_prefetch_take(u64 now_ms) noexcept;

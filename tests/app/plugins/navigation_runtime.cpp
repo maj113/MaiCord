@@ -15,8 +15,11 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
+#include "shell/input.hpp"
+#include "../../support/window_fixture.hpp"
 
 namespace maicord::app_detail {
+extern u32 channel_prefetch_calls; // settings_runtime_stubs.cpp: calls into the channel preload seam
 const ApplicationPluginMenu& application_plugins_menu_state() noexcept { return g_menu; }
 } // namespace maicord::app_detail
 
@@ -235,6 +238,26 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
             application_plugins_menu_action(first) && s->menu_calls==before_dismissal && !g_app.popup_scene.active;
     }
     check(cleared,"navigation runtime: every non-plugin popup transition clears rows and cannot activate old captured action");
+    // Hovering the list never starts a history preload; only a press that waits for its release does.
+    {
+        auto& scene=g_app.shell_navigation_scene;
+        const bool rendering=g_app.renderer_ready;
+        g_app.renderer_ready=false; // the fixture has no native text to rebuild on a hover change
+        const u32 presses=channel_prefetch_calls;
+        bool swept=scene.count==2;
+        u64 last=0;
+        for (u32 pass=0;swept && pass<3;++pass)
+            for (u32 index=0;swept && index<scene.count;++index) {
+                const auto* layout=shell_navigation_scene_layout_node(scene,scene.rows[index]);
+                swept=layout && handle_navigation_hover(window_test::pointer_move(
+                    (layout->rectangle.left+layout->rectangle.right)*.5f,(layout->rectangle.top+layout->rectangle.bottom)*.5f));
+                last=scene.rows[index].view.id;
+            }
+        g_app.renderer_ready=rendering;
+        const auto* hovered=shell_navigation_scene_resolve(scene,scene.widgets.hovered);
+        check(swept && hovered && hovered->view.id==last && channel_prefetch_calls==presses,
+            "navigation runtime: sweeping the pointer over channel rows hovers each and starts no preload");
+    }
     cleanup();
 }
 // What the application rebuilds its text from when plugins decorate: a decorating plugin changes it, and so does

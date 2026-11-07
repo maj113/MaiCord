@@ -1,6 +1,7 @@
 #include "navigation_drag.hpp"
 #include "maicord/core/memory.hpp"
 #include "../account/account_presentation.hpp"
+#include "../chat/channel_snapshots.hpp"
 #include "content_input.hpp"
 #include "overlay_input.hpp"
 #include "../guild/folders.hpp"
@@ -170,6 +171,7 @@ bool application_navigation_drag_press(const WindowEvent& event) noexcept {
     if (!account_ready() || g_drag.drag.phase != NavigationDragPhase::idle)
         return false;
     const float x = client_dip_x(event), y = client_dip_y(event);
+    u64 preload = 0;
     const UiPoint point{x, y};
     const auto rail = guild_rail_scene_hit_test(g_app.guild_rail_scene, x, y);
     if (rail.id && ui_rect_contains(g_app.guild_rail_scene.viewport, x, y)) {
@@ -198,12 +200,15 @@ bool application_navigation_drag_press(const WindowEvent& event) noexcept {
             return false;
         navigation_drag_press(&g_drag.drag, NavigationDragList::channels, row->view.id, kind, point);
         g_drag.visual_source = row->view.id;
+        preload = row->view.selectable ? row->view.id : 0;
     }
     if (g_drag.drag.phase != NavigationDragPhase::armed) {
         reset_value(&g_drag);
         return false;
     }
     g_drag.press = event;
+    // Opening waits for the release: the press starts the page the click will show.
+    application_channel_prefetch_press(preload);
     return true;
 }
 

@@ -11,7 +11,6 @@
 #include "../account/profile.hpp"
 #include "../account/account_menu.hpp"
 #include "content_input.hpp"
-#include "../chat/channel_snapshots.hpp"
 #include "retained_projection.hpp"
 #include "maicord/ui/voice/panel.hpp"
 
@@ -352,7 +351,6 @@ bool handle_navigation_hover(const WindowEvent& event) noexcept {
     }
     const bool changed = !ui_widget_handle_equal(prior_guild, g_app.guild_rail_scene.widgets.hovered) ||
                          !ui_widget_handle_equal(prior_channel, g_app.shell_navigation_scene.widgets.hovered);
-    application_channel_prefetch_hover(channel.selectable ? channel.id : 0);
     if (changed) {
         // The hovered row's name brightens and leaves room for its controls,
         // and a hovered text tile's initials take the accent ink.

@@ -117,37 +117,36 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
                                     ConstSlice<u8> payload, Slice<u64> bulk_ids, u64 self_user_id,
                                     MessageContentAvailability content_availability) noexcept;
 
-// Hover-intent prefetch policy: one request in flight, a global submission
-// interval, per-channel deduplication and a short window for unused results.
-inline constexpr u32 kChannelPrefetchDwellMs = 100;
-inline constexpr u32 kChannelPrefetchIntervalMs = 400;
+// Press-intent preload policy: a pointer press on a channel row that waits for
+// its release to open the channel requests the row's latest page, so the click
+// finds it in flight or cached. One request in flight, per-channel
+// deduplication and a short window for unused results. Hovering requests nothing.
 inline constexpr u32 kChannelPrefetchRepeatMs = 15'000;
 inline constexpr u32 kChannelPrefetchKeepMs = 2'000;
 inline constexpr u32 kChannelPrefetchRecent = 4;
 
 struct ChannelPrefetch {
-    u64 hover_channel_id;
-    u64 hover_since_ms;
+    u64 press_channel_id;
+    u64 press_at_ms;
     u64 left_at_ms;
     u64 inflight_channel_id;
     u64 inflight_request_id;
-    u64 last_submit_ms;
     u64 recent_channel_ids[kChannelPrefetchRecent];
     u64 recent_at_ms[kChannelPrefetchRecent];
     bool fired;
 };
 
-// channel_id 0 means the pointer left every channel row.
-void channel_prefetch_hover(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept;
+// The latest press wins; channel_id 0 is ignored.
+void channel_prefetch_press(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept;
 u64 channel_prefetch_due(const ChannelPrefetch& prefetch, u64 now_ms) noexcept;
 u64 channel_prefetch_next_wake(const ChannelPrefetch& prefetch) noexcept;
-// Settles the current hover without a request (already cached or unreadable).
+// Settles the current press without a request (already cached or unreadable).
 void channel_prefetch_skip(ChannelPrefetch* prefetch) noexcept;
 void channel_prefetch_submitted(ChannelPrefetch* prefetch, u64 channel_id, u64 request_id,
                                 u64 now_ms) noexcept;
 // The selected channel takes over the in-flight request as its history load.
 bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 channel_id) noexcept;
-// True when the finished request is still wanted (pointer on it or recently left).
+// True when the finished request is still wanted (latest press or recently replaced).
 bool channel_prefetch_complete(ChannelPrefetch* prefetch, u64 request_id, u64 now_ms) noexcept;
 
 } // namespace maicord

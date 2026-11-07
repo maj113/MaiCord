@@ -288,7 +288,7 @@ void test_thread_history_pages(void (*check)(bool, const char*) noexcept) noexce
               utf8_equal(message_rich_store_string(g_fresh.rich, starter->thread.name),
                          utf8_literal("Release planning")),
           "thread history: a page with a thread starter applies whole and keeps its thread card");
-    // Snapshot capture of the same page (hover prefetch) and its restore.
+    // Snapshot capture of the same page (press preload) and its restore.
     message_snapshot_cache_initialize(&g_cache, kMessageSnapshotCacheBudgetBytes);
     ready = message_snapshot_cache_capture_page(&g_cache, kChannel, page, nullptr,
                                                 MessageContentAvailability::available, kUnit, true) &&
@@ -544,35 +544,35 @@ void test_message_snapshot_cache(void (*check)(bool, const char*) noexcept) noex
     check(!message_snapshot_cache_count(g_cache) && !g_cache.pool.base && !g_cache.scratch && !g_cache.used,
           "snapshot release drops every channel on account reset");
 
-    // Prefetch dedupe, rate limit, cancellation and adoption.
+    // Prefetch: a press requests at once, one request in flight, dedupe, adoption.
     ChannelPrefetch prefetch{};
-    channel_prefetch_hover(&prefetch, 50, 1000);
-    check(!channel_prefetch_due(prefetch, 1099) && channel_prefetch_due(prefetch, 1100) == 50 &&
-              channel_prefetch_next_wake(prefetch) == 1100,
-          "prefetch waits for the hover dwell");
-    channel_prefetch_submitted(&prefetch, 50, 1, 1100);
-    channel_prefetch_hover(&prefetch, 51, 1150);
+    check(!channel_prefetch_next_wake(prefetch) && !channel_prefetch_due(prefetch, 1'000'000),
+          "prefetch requests nothing until a row is pressed");
+    channel_prefetch_press(&prefetch, 0, 1000);
+    check(!channel_prefetch_next_wake(prefetch), "prefetch ignores a press on no channel");
+    channel_prefetch_press(&prefetch, 50, 1000);
+    check(channel_prefetch_due(prefetch, 1000) == 50 && channel_prefetch_next_wake(prefetch) == 1000,
+          "prefetch requests a pressed channel at once");
+    channel_prefetch_submitted(&prefetch, 50, 1, 1000);
+    check(!channel_prefetch_due(prefetch, 1000) && !channel_prefetch_next_wake(prefetch),
+          "a press issues exactly one request");
+    channel_prefetch_press(&prefetch, 51, 1150);
     check(!channel_prefetch_due(prefetch, 1200) && !channel_prefetch_next_wake(prefetch),
           "prefetch keeps one request in flight");
     check(channel_prefetch_complete(&prefetch, 1, 1300) && !channel_prefetch_complete(&prefetch, 1, 1300),
-          "prefetch result is kept shortly after the pointer leaves");
-    check(!channel_prefetch_due(prefetch, 1499) && channel_prefetch_due(prefetch, 1500) == 51,
-          "prefetch submissions are rate limited");
-    channel_prefetch_hover(&prefetch, 50, 1600);
+          "prefetch result is kept shortly after another row is pressed");
+    check(channel_prefetch_due(prefetch, 1300) == 51, "the newest press is requested once the lane is free");
+    channel_prefetch_press(&prefetch, 50, 1600);
     check(!channel_prefetch_due(prefetch, 9000),
           "prefetch deduplicates a recently requested channel");
-    channel_prefetch_hover(&prefetch, 52, 10000);
-    const bool short_hover_due = channel_prefetch_due(prefetch, 10100) == 52;
-    channel_prefetch_hover(&prefetch, 0, 10050);
-    check(short_hover_due && !channel_prefetch_due(prefetch, 20000), "prefetch cancels a short hover");
-    channel_prefetch_hover(&prefetch, 53, 30000);
-    channel_prefetch_submitted(&prefetch, 53, 2, 30100);
+    channel_prefetch_press(&prefetch, 53, 30000);
+    channel_prefetch_submitted(&prefetch, 53, 2, 30000);
     check(!channel_prefetch_adopt(&prefetch, 2, 54) && channel_prefetch_adopt(&prefetch, 2, 53) &&
               !channel_prefetch_adopt(&prefetch, 2, 53) && !channel_prefetch_complete(&prefetch, 2, 30200),
           "prefetch request is adopted by the selected channel once");
-    channel_prefetch_hover(&prefetch, 54, 40000);
-    channel_prefetch_submitted(&prefetch, 54, 3, 40100);
-    channel_prefetch_hover(&prefetch, 0, 40110);
+    channel_prefetch_press(&prefetch, 54, 40000);
+    channel_prefetch_submitted(&prefetch, 54, 3, 40000);
+    channel_prefetch_press(&prefetch, 55, 40110);
     check(!channel_prefetch_complete(&prefetch, 3, 40110 + kChannelPrefetchKeepMs + 1),
           "prefetch discards a result after the keep window");
 

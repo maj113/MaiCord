@@ -640,16 +640,15 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
     }
 }
 
-void channel_prefetch_hover(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept {
-    if (!prefetch || prefetch->hover_channel_id == channel_id)
+void channel_prefetch_press(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept {
+    if (!prefetch || !channel_id)
         return;
-    if (prefetch->hover_channel_id && prefetch->hover_channel_id == prefetch->inflight_channel_id)
+    if (prefetch->press_channel_id && prefetch->press_channel_id == prefetch->inflight_channel_id &&
+        prefetch->press_channel_id != channel_id)
         prefetch->left_at_ms = now_ms;
-    prefetch->hover_channel_id = channel_id;
-    prefetch->hover_since_ms = now_ms;
+    prefetch->press_channel_id = channel_id;
+    prefetch->press_at_ms = now_ms;
     prefetch->fired = false;
-    if (!channel_id)
-        return;
     if (channel_id == prefetch->inflight_channel_id) {
         prefetch->fired = true;
         prefetch->left_at_ms = 0;
@@ -665,15 +664,13 @@ void channel_prefetch_hover(ChannelPrefetch* prefetch, u64 channel_id, u64 now_m
 
 u64 channel_prefetch_due(const ChannelPrefetch& prefetch, u64 now_ms) noexcept {
     const u64 wake = channel_prefetch_next_wake(prefetch);
-    return wake && now_ms >= wake ? prefetch.hover_channel_id : 0;
+    return wake && now_ms >= wake ? prefetch.press_channel_id : 0;
 }
 
 u64 channel_prefetch_next_wake(const ChannelPrefetch& prefetch) noexcept {
-    if (!prefetch.hover_channel_id || prefetch.fired || prefetch.inflight_request_id)
+    if (!prefetch.press_channel_id || prefetch.fired || prefetch.inflight_request_id)
         return 0;
-    const u64 dwell = prefetch.hover_since_ms + kChannelPrefetchDwellMs;
-    const u64 interval = prefetch.last_submit_ms ? prefetch.last_submit_ms + kChannelPrefetchIntervalMs : 0;
-    return maximum(dwell, interval);
+    return prefetch.press_at_ms;
 }
 
 void channel_prefetch_skip(ChannelPrefetch* prefetch) noexcept {
@@ -686,9 +683,8 @@ void channel_prefetch_submitted(ChannelPrefetch* prefetch, u64 channel_id, u64 r
         return;
     prefetch->inflight_channel_id = channel_id;
     prefetch->inflight_request_id = request_id;
-    prefetch->last_submit_ms = now_ms;
     prefetch->left_at_ms = 0;
-    if (prefetch->hover_channel_id == channel_id)
+    if (prefetch->press_channel_id == channel_id)
         prefetch->fired = true;
     u32 slot = 0;
     for (u32 index = 1; index < kChannelPrefetchRecent; ++index)
@@ -710,7 +706,7 @@ bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 chann
 bool channel_prefetch_complete(ChannelPrefetch* prefetch, u64 request_id, u64 now_ms) noexcept {
     if (!prefetch || !request_id || request_id != prefetch->inflight_request_id)
         return false;
-    const bool wanted = prefetch->hover_channel_id == prefetch->inflight_channel_id ||
+    const bool wanted = prefetch->press_channel_id == prefetch->inflight_channel_id ||
                         (prefetch->left_at_ms && now_ms - prefetch->left_at_ms <= kChannelPrefetchKeepMs);
     prefetch->inflight_channel_id = prefetch->inflight_request_id = 0;
     prefetch->left_at_ms = 0;
