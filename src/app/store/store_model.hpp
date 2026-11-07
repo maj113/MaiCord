@@ -118,6 +118,10 @@ struct StoreConsoleLine {
 struct StoreModel {
     StoreItem items[kStoreItemMaximum];
     u32 count;
+    // The catalog index the items' text and `item` numbers refer to (null: none). The host holds it from the catalog
+    // service until it fills the model again, so a refresh that replaces the index can't free text the model, or the
+    // scene built from it, still shows.
+    const CatalogIndex* index;
     StoreCatalogState catalog;
     bool developer_mode, installable;
     u64 checked_unix, fetched_unix;

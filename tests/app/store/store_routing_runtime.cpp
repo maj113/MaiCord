@@ -22,6 +22,7 @@
 
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -33,6 +34,8 @@ namespace maicord {
 namespace app_detail {
 void store_stub_catalog_index(const CatalogIndex*) noexcept;                // store_runtime_stubs.cpp
 void store_stub_catalog_operation(const CatalogOperation& operation) noexcept; // store_runtime_stubs.cpp
+void store_stub_catalog_refresh(CatalogIndex* next) noexcept;                 // store_runtime_stubs.cpp
+u32 store_stub_catalog_released() noexcept;                                   // store_runtime_stubs.cpp
 } // namespace app_detail
 
 namespace store_routing_runtime {
@@ -302,6 +305,58 @@ bool busy_spinner_wakes(UiPageKey plugins, UiPageKey other) noexcept {
     store_stub_catalog_operation(op);
     application_settings_close(false);
     return spins && hidden && idle;
+}
+
+// A catalog refresh replaces the index at a poll, between two frames of an open effect detail. The index the page
+// lists stays readable until the store has laid the page out from the new one (the next frame's details poll compares
+// the open slug against the listed rows before that layout), and a hidden store holds no index. The indexes are page
+// memory the stub releases as the service does: a read after it faults.
+CatalogIndex* listed_effect() noexcept {
+    auto* out = commit_pages<CatalogIndex>();
+    if (!out)
+        return nullptr;
+    constexpr char kSlug[] = "aurora-sky";
+    constexpr u32 bytes = sizeof(kSlug) - 1;
+    copy_bytes(out->text, kSlug, bytes);
+    out->text_bytes = bytes;
+    out->item_count = 1;
+    out->items[0].kind = CatalogKind::effect;
+    out->items[0].slug = out->items[0].name = {0, bytes};
+    return out;
+}
+bool refresh_keeps_open_detail(UiPageKey effects, UiPageKey other) noexcept {
+    CatalogIndex* first = listed_effect();
+    CatalogIndex* second = listed_effect();
+    if (!first || !second) {
+        if (first)
+            pages_release(first, sizeof(CatalogIndex));
+        if (second)
+            pages_release(second, sizeof(CatalogIndex));
+        return false;
+    }
+    const auto detail = []() noexcept {
+        for (u32 i = 0; store() && i < store()->count; ++i)
+            if (store()->nodes[i].action == store_action(StoreAct::back))
+                return true;
+        return false;
+    };
+    const u32 released = store_stub_catalog_released();
+    store_stub_catalog_refresh(first);
+    bool opened = open_store(effects);
+    if (opened && detail())
+        opened = click_store(store_action(StoreAct::back));
+    opened = opened && click_store(store_action(StoreAct::tab, static_cast<u32>(StoreTab::browse))) &&
+             click_store(store_action(StoreAct::card, 0)) && detail();
+    // The refresh lands; the next frame polls the open item's details and lays the page out from the new index.
+    store_stub_catalog_refresh(second);
+    const bool kept = store_stub_catalog_released() == released;
+    const bool laid_out = application_settings_synchronize() && detail() && store_stub_catalog_released() == released + 1;
+    // Hidden, the store lets go: a refresh then releases the index it replaces at once.
+    const bool hidden = application_settings_open_page(other) && application_settings_synchronize() && !application_store_active();
+    store_stub_catalog_refresh(nullptr);
+    const bool let_go = store_stub_catalog_released() == released + 2;
+    application_settings_close(false);
+    return opened && kept && laid_out && hidden && let_go;
 }
 
 // ---- Knob page previews --------------------------------------------------------------------------------------
@@ -748,6 +803,9 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     }
     check(sidebar_wheel, "store routing: the wheel scrolls the sidebar over its rows and over its scrollbar");
     observed.viewport = viewport;
+    check(refresh_keeps_open_detail(stores[2], kAppearancePage),
+          "store routing: a catalog refresh under an open effect detail keeps the listed index readable until the page "
+          "is laid out from the new one, and a hidden store holds none");
     application_settings_close(false);
     g_app.scroll_host.immediate = immediate;
     cleanup();

@@ -2,8 +2,8 @@
 // server: a signed format-2 index naming the clear-urls sample plugin (and a patched 1.1.0 build of it), a
 // theme and an effect. Covers install with consent, the plugin then stripping links through the pre-send
 // hook, digest failures, automatic update, rollback, startup enabling from catalog-state.bin, replayed and
-// unsigned indexes, revocation, removal, a declined consent, the Developer Mode gate on sideloads and a sideloaded
-// plugin's host switches surviving a restart (the translate sample).
+// unsigned indexes, revocation, removal, a declined consent, a refresh while the consent dialog is open, the
+// Developer Mode gate on sideloads and a sideloaded plugin's host switches surviving a restart (the translate sample).
 #include "plugins/catalog_service.hpp"
 #include "plugins/catalog_worker.hpp"
 #include "maicord/core/data_path.hpp"
@@ -58,7 +58,11 @@ u64 clock() noexcept { return g_now; }
 bool g_developer;
 u32 g_toasts, g_library_changes, g_removed, g_deactivated;
 bool developer_mode() noexcept { return g_developer; }
-void toast(Utf8View, bool) noexcept { ++g_toasts; }
+Utf8View g_last_toast; // the service's toasts are literals
+void toast(Utf8View text, bool) noexcept {
+    ++g_toasts;
+    g_last_toast = text;
+}
 bool validate_package(CatalogKind kind, ConstSlice<u8> bytes, Utf8View) noexcept {
     return kind != CatalogKind::plugin && bytes.count && bytes.data[0] == '{';
 }
@@ -374,10 +378,19 @@ void run_flow(const wchar_t* base) noexcept {
               state.update == kCatalogNone && state.installed->approved_permissions == g->permissions,
           "the install is recorded with its approval");
 
-    // A theme whose download doesn't match the index is refused; the right bytes install. An effect whose package
-    // needs a newer .mcfx interface is listed but can't be installed.
+    // The store's model holds the index it lists: a refresh that replaces it keeps it readable until the holder
+    // takes the next one or lets go (the page memory is released then, so a later read would fault).
+    const CatalogIndex* held = application_catalog_hold_index();
     publish({101, false, true, false, nullptr, nullptr, kMcfxInterfaceMaximum + 1});
     check(check_now(), "a newer index is accepted");
+    const CatalogIndex* current = application_catalog_view().index;
+    check(held && current && held != current && held->sequence < current->sequence && held->item_count == 3 &&
+              utf8_equal(catalog_text(*held, held->items[0].slug), utf8_literal("clear-urls")) &&
+              application_catalog_hold_index() == current,
+          "a held index stays readable after a refresh replaces it, until the holder takes the next one");
+    application_catalog_release_index();
+    // A theme whose download doesn't match the index is refused; the right bytes install. An effect whose package
+    // needs a newer .mcfx interface is listed but can't be installed.
     check(application_catalog_install(CatalogKind::theme, utf8_literal("fjord")) && settle(finished) && phase() == CatalogPhase::failed &&
               application_catalog_view().operation.error == CatalogError::digest &&
               !application_catalog_item_state(CatalogKind::theme, utf8_literal("fjord")).installed,
@@ -484,6 +497,47 @@ void run_flow(const wchar_t* base) noexcept {
               !application_catalog_consent_answer(false, false) && application_catalog_view().operation.error == CatalogError::declined &&
               !application_catalog_item_state(CatalogKind::plugin, kSlug).installed && !plugin_file(base, g->plugin[1].sha256),
           "declining installs nothing");
+
+    // A refresh while the consent dialog is open: allowing installs only the build the dialog showed, listed as it
+    // was then. One the refresh removed or listed differently installs nothing and the dialog asks again about what
+    // the catalog offers now; one it still lists unchanged installs, recorded as the version shown.
+    const auto shown = [](const char* version) noexcept {
+        const CatalogConsent* c = application_catalog_consent();
+        return phase() == CatalogPhase::consent && c && utf8_equal(c->request->version, {version, c_string_length(version)});
+    };
+    const auto installed_as = [](const char* version) noexcept {
+        const auto s = application_catalog_item_state(CatalogKind::plugin, kSlug);
+        return s.installed && utf8_equal(catalog_entry_version(*s.installed), {version, c_string_length(version)});
+    };
+    check(application_catalog_install(CatalogKind::plugin, kSlug) && settle(consent_or_finished) && shown("1.1.0"),
+          "the dialog shows the newest build");
+    publish({107});
+    check(check_now() && shown("1.1.0"), "a refresh lands while the dialog is open");
+    const u32 refused_toasts = g_toasts;
+    check(!application_catalog_consent_answer(true, true) && g_toasts == refused_toasts + 1 &&
+              utf8_equal(g_last_toast, application_catalog_error_text(CatalogError::review_again)) &&
+              !application_catalog_item_state(CatalogKind::plugin, kSlug).installed && !plugin_file(base, g->plugin[1].sha256),
+          "allowing a build a refresh took out of the catalog installs nothing and says to review it again");
+    check(settle(consent_or_finished) && shown("1.0.0"), "the dialog asks again about the version the catalog offers now");
+    const u64 permissions = g->permissions;
+    g->permissions |= permissions & MC_PERM_CLIPBOARD ? MC_PERM_ACT_PRESENCE : MC_PERM_CLIPBOARD;
+    publish({108});
+    g->permissions = permissions;
+    check(check_now() && shown("1.0.0") && !application_catalog_consent_answer(true, true) &&
+              !application_catalog_item_state(CatalogKind::plugin, kSlug).installed && settle(finished) &&
+              application_catalog_view().operation.error == CatalogError::plugin_mismatch && !running(),
+          "allowing a build whose listing a refresh changed installs nothing (the new listing doesn't match the build)");
+    publish({109});
+    check(check_now() && application_catalog_install(CatalogKind::plugin, kSlug) && settle(consent_or_finished) && shown("1.0.0"),
+          "the dialog shows the build again");
+    publish({110, true});
+    check(check_now() && shown("1.0.0") && application_catalog_consent_answer(true, true) && running_version("1.0.0") &&
+              installed_as("1.0.0"),
+          "allowing a build a refresh still lists unchanged installs it, recorded as the version shown");
+    check(settle([] { return running_version("1.1.0") && finished(); }) && installed_as("1.1.0") &&
+              application_catalog_remove(CatalogKind::plugin, kSlug, true) &&
+              !application_catalog_item_state(CatalogKind::plugin, kSlug).installed,
+          "the newer listed build then updates it within the approval, and it is removed");
 
     // Sideloads need Developer Mode.
     check(!application_catalog_sideload({L"C:\\x.dll", 8}) &&

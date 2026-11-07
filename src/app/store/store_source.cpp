@@ -143,7 +143,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     m->text_used = 0;
     Writer w{m};
     const CatalogView& view = application_catalog_view();
-    const CatalogIndex* index = view.index;
+    const CatalogIndex* index = m->index = view.index;
     m->developer_mode = g_app.preferences.developer_mode;
     m->console_count = m->console_total = 0;
     if (m->developer_mode) {
@@ -384,8 +384,8 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
         return;
     const StoreItem& item = m->items[at];
     Writer w{m};
-    const CatalogView& view = application_catalog_view();
-    const CatalogIndex* index = view.index;
+    // The index the model's `item` numbers refer to.
+    const CatalogIndex* index = m->index;
     m->details_markdown = hooks.details;
     m->details_loading = hooks.details_loading;
     m->changelog_markdown = hooks.changelog;

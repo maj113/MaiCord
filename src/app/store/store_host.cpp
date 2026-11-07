@@ -606,6 +606,14 @@ void parse_markdown(UiMarkdown** out, u64 owner, const Utf8View& source) noexcep
         *out = block;
 }
 
+// The model and the scene built from it borrow the catalog index's text: hold the index being listed until the next
+// fill. A refresh replaces the index at a poll, before the next frame or input sees the new revision; the replaced
+// one stays readable until the model has moved off it.
+void fill_model(const StoreSourceHooks& hooks) noexcept {
+    application_catalog_hold_index();
+    store_model_fill(&g->model, hooks);
+}
+
 void poll_details() noexcept {
     const StorePageState& st = page();
     if (!st.detail) {
@@ -617,7 +625,7 @@ void poll_details() noexcept {
     if (at >= g->model.count)
         return;
     const StoreItem& item = g->model.items[at];
-    const CatalogView& view = application_catalog_view();
+    const CatalogIndex* index = g->model.index;
     const bool same_slug = utf8_equal({g->details_slug, c_string_length(g->details_slug)}, slug);
     if (!same_slug) {
         g->details_bytes = g->changelog_bytes = 0;
@@ -625,14 +633,14 @@ void poll_details() noexcept {
         copy_bytes(g->details_slug, slug.data, slug.bytes);
         g->details_slug[slug.bytes] = 0;
         g->about = g->changes = nullptr;
-        if (view.index && item.item != ~0u) {
-            const CatalogItem& ci = view.index->items[item.item];
+        if (index && item.item != ~0u) {
+            const CatalogItem& ci = index->items[item.item];
             if (ci.details.bytes) {
                 copy_bytes(g->details_sha, ci.details.sha256, 32);
                 g->details_loading = application_catalog_asset_request(CatalogAssetKind::details, ci.details);
             }
             if (ci.version_count) {
-                const Utf8View text = catalog_text(*view.index, view.index->versions[ci.first_version].changelog);
+                const Utf8View text = catalog_text(*index, index->versions[ci.first_version].changelog);
                 g->changelog_bytes = minimum<u32>(text.bytes, sizeof(g->changelog));
                 copy_bytes(g->changelog, text.data, g->changelog_bytes);
             }
@@ -715,7 +723,7 @@ u32 loop_slot(u64 now, bool* pending) noexcept {
 
 void build_and_commit(UiSettingsScene* settings) noexcept {
     StoreModel& m = g->model;
-    store_model_fill(&m, {g->trying, {g->trying_name, g->trying_bytes}});
+    fill_model({g->trying, {g->trying_name, g->trying_bytes}});
     StorePageState& st = page();
     if (st.detail)
         store_model_fill_detail(&m, st.kind, {st.slug, c_string_length(st.slug)},
@@ -803,7 +811,7 @@ void request_preview(bool shown) noexcept {
 // The catalog picture behind a preview tile: its still, or the loop of an effect. Called by the preview pump and
 // the scene's media_key, both of which only run while the store page (and so `g`) exists.
 bool store_preview_blob(u32 slot, bool loop, CatalogBlob* out) noexcept {
-    const CatalogIndex* index = application_catalog_view().index;
+    const CatalogIndex* index = g->model.index;
     if (!index || !slot || slot > g->model.count)
         return false;
     const u32 at = g->model.items[slot - 1].item;
@@ -857,6 +865,11 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
                 application_custom_theme_action(ApplicationCustomThemeAction::cancel);
                 end_trial();
             }
+            // Nothing reads a hidden store's model, and a refresh may replace the index before it shows again:
+            // drop the listings and let go of the index they borrow from. The next layout fills the model again.
+            g->model.count = 0;
+            g->model.index = nullptr;
+            application_catalog_release_index();
         }
         return;
     }
@@ -873,7 +886,7 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
     g->stamp = 0;
     if (!page().entered && !page().detail) {
         // The first visit opens on Installed when something is installed.
-        store_model_fill(&g->model, {false, {}});
+        fill_model({false, {}});
         page().tab = store_initial_tab(g->model, kind);
         page().entered = true;
     }
@@ -1454,6 +1467,7 @@ void application_store_release() noexcept {
     ui_markdown_bank_release(&g->bank);
     g_app.renderer.settings_store = nullptr;
     ui_store_scene_release(&g->scene);
+    application_catalog_release_index();
     pages_release(g);
     g = nullptr;
 }

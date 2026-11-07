@@ -28,6 +28,7 @@ enum class CatalogError : u8 {
     none, busy, not_configured, unreachable, rate_limited, signature, invalid_index, replay, expired,
     not_listed, incompatible, revoked, download, digest, package, storage, plugin_load, plugin_mismatch,
     owner_conflict, declined, capacity, enable_failed, not_installed, developer_mode,
+    review_again, // a refresh changed the build under review: nothing installed, its new version is being reviewed
 };
 // A short sentence for a toast or the "Copy details" line.
 Utf8View application_catalog_error_text(CatalogError) noexcept;
@@ -43,7 +44,7 @@ struct CatalogOperation {
 };
 struct CatalogView {
     u64 revision;              // changes whenever anything below changes
-    const CatalogIndex* index; // null without a catalog; immutable until the revision changes
+    const CatalogIndex* index; // null without a catalog; immutable until the revision changes, freed when replaced
     const CatalogState* state; // what is installed
     CatalogStatus status;
     CatalogError error;        // why the last check failed
@@ -54,6 +55,11 @@ struct CatalogView {
     CatalogOperation operation;
 };
 const CatalogView& application_catalog_view() noexcept;
+// The store's model keeps views into the index it was filled from across frames, and a refresh replaces the index at
+// any poll. The model holds that index: a held index a refresh replaced stays readable until the holder takes the
+// next one (hold again) or lets go (release). One holder; hold returns view.index.
+const CatalogIndex* application_catalog_hold_index() noexcept;
+void application_catalog_release_index() noexcept;
 
 inline constexpr u32 kCatalogNone = ~0u;
 // One item as the store shows it: installed, listed, or both.
@@ -113,6 +119,9 @@ struct CatalogConsent {
     u32 bytes;
 };
 const CatalogConsent* application_catalog_consent() noexcept;
+// Accepting installs only the build the dialog showed, listed as it was: when a refresh replaced, changed or revoked
+// it meanwhile, nothing installs and the operation ends with review_again while the version the catalog offers now is
+// downloaded and asked about again (not_listed when it offers none).
 bool application_catalog_consent_answer(bool accepted, bool enable_now) noexcept;
 
 // ---- details, previews and loops: verified against the signed digest, cached on disk ----------------

@@ -8,6 +8,7 @@
 #include "plugins/settings_dialog.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/media/image/png.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -31,6 +32,17 @@ namespace app_detail {
 namespace {
 // The first fetch is on its way: the pages show their toolbar (search, sort) over skeleton cards.
 CatalogView g_catalog{1, nullptr, nullptr, CatalogStatus::none, CatalogError::none, true};
+// The service's hold (catalog_service.cpp): the index the store's model holds outlives a refresh that replaces it
+// until the store holds the next one or lets go. Indexes a refresh brings are page memory the stub owns and releases
+// the way the service does, so a read after the release faults.
+const CatalogIndex* g_held;
+CatalogIndex* g_retired; // replaced while held
+bool g_owned;            // the stub owns view.index (store_stub_catalog_refresh)
+u32 g_released;
+void release(CatalogIndex* index) noexcept {
+    pages_release(index, sizeof(CatalogIndex));
+    ++g_released;
+}
 } // namespace
 
 // ---- catalog service ----
@@ -43,6 +55,34 @@ const CatalogView& application_catalog_view() noexcept {
 // The index the next store_model_fill lists (null: none); the test owns it.
 void store_stub_catalog_index(const CatalogIndex* index) noexcept {
     g_catalog.index = index;
+    g_owned = false;
+}
+// A refresh as the service applies one: `next` (page memory, owned by the stub from now on; null: none) becomes the
+// index at a new revision, and the one it replaces is released at once unless the store holds it.
+void store_stub_catalog_refresh(CatalogIndex* next) noexcept {
+    CatalogIndex* replaced = g_owned ? const_cast<CatalogIndex*>(g_catalog.index) : nullptr;
+    if (replaced && replaced == g_held)
+        g_retired = replaced;
+    else if (replaced)
+        release(replaced);
+    g_catalog.index = next;
+    g_owned = next != nullptr;
+    ++g_catalog.revision;
+}
+// How many indexes the stub has released.
+u32 store_stub_catalog_released() noexcept {
+    return g_released;
+}
+const CatalogIndex* application_catalog_hold_index() noexcept {
+    application_catalog_release_index();
+    return g_held = g_catalog.index;
+}
+void application_catalog_release_index() noexcept {
+    if (g_retired && g_retired == g_held) {
+        release(g_retired);
+        g_retired = nullptr;
+    }
+    g_held = nullptr;
 }
 // The operation the catalog runs (an item is busy while its phase is active); the store sees it as a new revision.
 void store_stub_catalog_operation(const CatalogOperation& operation) noexcept {

@@ -42,6 +42,8 @@ struct Operation {
     u64 job;         // the worker job in flight
     u8 sha256[32];   // the file being installed
     bool update;
+    // A refresh replaced the build the user was reviewing: this one asks again even within the approval.
+    bool reask;
     // A Developer Mode reload (a build the dev folder watch found); dev_file indexes Service::dev_files.
     bool reload;
     u8 dev_file;
@@ -77,6 +79,9 @@ struct Service {
     u32 state_path_characters;
     CatalogState state;
     CatalogIndex* index;
+    // The index the store's model borrows views from (application_catalog_hold_index): the current one, or one a
+    // refresh replaced, which is freed once the holder takes the next one or lets go.
+    CatalogIndex* held;
     CatalogView view;
     Runtime* runtime;
     Operation op;
@@ -321,7 +326,7 @@ void apply_revocations() noexcept {
     if (changed) save_state();
 }
 void set_index(CatalogIndex* index, bool fresh) noexcept {
-    if (g->index) catalog_worker_free(g->index);
+    if (g->index != g->held) catalog_worker_free(g->index);
     g->index = index;
     g->view.index = index;
     g->view.installable = fresh && !index->expired;
@@ -501,6 +506,16 @@ bool apply_plugin(u64 permissions, u32 host_bits, bool enable_now) noexcept {
     }
     return finish(enabled);
 }
+// The listing of v describes this build: permissions, API level, version and network hosts.
+bool listing_matches(const PluginImage& image, const CatalogVersion& v) noexcept {
+    const mc_descriptor& d = *image.descriptor;
+    Utf8View hosts[MC_NETWORK_HOSTS_MAX];
+    const auto listed = version_hosts(v, hosts);
+    bool matches = image.permissions == v.permissions && d.api_level == v.api_level && d.network_count == listed.count &&
+                   utf8_equal({d.version.data, d.version.bytes}, catalog_text(*g->index, v.text));
+    for (u32 i = 0; matches && i < listed.count; ++i) matches = utf8_equal({d.network[i].data, d.network[i].bytes}, listed[i]);
+    return matches;
+}
 // Checks a downloaded plugin against its listing (owner, permissions, hosts, API level, version) and asks
 // for consent when it needs anything the user has not approved.
 bool review_plugin() noexcept {
@@ -525,17 +540,11 @@ bool review_plugin() noexcept {
     if (g->op.reload) {
         g->op.dev_name_bytes = static_cast<u8>(utf8_copy_truncated(g->op.dev_name, {image.info.name, image.info.name_bytes}));
     }
-    const mc_descriptor& d = *image.descriptor;
     CatalogStateEntry* e = catalog_state_find(g->state, CatalogKind::plugin, slug_of(g->op));
     CatalogStateEntry* same_owner = catalog_state_find_owner(g->state, image.owner_id);
     bool matches = true;
     if (g->op.action != CatalogAction::sideload) {
-        const CatalogVersion& v = g->index->versions[g->op.version];
-        Utf8View hosts[MC_NETWORK_HOSTS_MAX];
-        const auto listed = version_hosts(v, hosts);
-        matches = image.permissions == v.permissions && d.api_level == v.api_level && d.network_count == listed.count &&
-                  utf8_equal({d.version.data, d.version.bytes}, catalog_text(*g->index, v.text));
-        for (u32 i = 0; matches && i < listed.count; ++i) matches = utf8_equal({d.network[i].data, d.network[i].bytes}, listed[i]);
+        matches = listing_matches(image, g->index->versions[g->op.version]);
     } else {
         // A sideloaded build is recorded under its owner.
         static constexpr char digits[] = "0123456789abcdef";
@@ -566,7 +575,7 @@ bool review_plugin() noexcept {
     // Updates within the approval apply at once, and so does a rebuild of a plugin the user already allowed
     // (Developer Mode); installs and first sideloads always ask.
     const bool within = !(request.permissions & ~request.approved_permissions) && request.approved_hosts == all;
-    if (within && ((g->op.update && g->op.action != CatalogAction::sideload) || (g->op.reload && e)))
+    if (within && !g->op.reask && ((g->op.update && g->op.action != CatalogAction::sideload) || (g->op.reload && e)))
         return apply_plugin(request.permissions, all, true);
     g->consent_request = request;
     g->consent.request = &g->consent_request;
@@ -856,6 +865,7 @@ Utf8View application_catalog_error_text(CatalogError error) noexcept {
     case CatalogError::enable_failed: return utf8_literal("The plugin didn't start. It's turned off.");
     case CatalogError::not_installed: return utf8_literal("That item isn't installed.");
     case CatalogError::developer_mode: return utf8_literal("Turn on Developer Mode to load your own plugins.");
+    case CatalogError::review_again: return utf8_literal("This plugin was updated while you reviewed it. Review it again.");
     }
     return {};
 }
@@ -863,6 +873,18 @@ Utf8View application_catalog_error_text(CatalogError error) noexcept {
 const CatalogView& application_catalog_view() noexcept {
     static const CatalogView empty{};
     return g ? g->view : empty;
+}
+
+const CatalogIndex* application_catalog_hold_index() noexcept {
+    if (!g) return nullptr;
+    application_catalog_release_index();
+    return g->held = g->index;
+}
+
+void application_catalog_release_index() noexcept {
+    if (!g) return;
+    if (g->held != g->index) catalog_worker_free(g->held);
+    g->held = nullptr;
 }
 
 namespace {
@@ -1103,12 +1125,57 @@ const CatalogConsent* application_catalog_consent() noexcept {
     return g && g->view.operation.phase == CatalogPhase::consent ? &g->consent : nullptr;
 }
 
+namespace {
+// The version of the current index that lists the build under review exactly as it was reviewed: the same item and
+// file, a listing that still matches the build, still installable. kCatalogNone when a refresh during the dialog
+// removed, replaced, revoked or changed it.
+u32 reviewed_version() noexcept {
+    const u32 item = item_of(g->op.kind, slug_of(g->op));
+    if (item == kCatalogNone) return kCatalogNone;
+    const CatalogItem& it = g->index->items[item];
+    for (u32 i = 0; i < it.version_count; ++i) {
+        const CatalogVersion& v = g->index->versions[it.first_version + i];
+        if (!bytes_equal(v.file.sha256, g->op.sha256, 32)) continue;
+        const auto severity = catalog_index_revocation(*g->index, v.file.sha256);
+        const bool installable = severity == CatalogRevocationSeverity::none || severity == CatalogRevocationSeverity::withdrawn;
+        return installable && version_runs(it, v) && listing_matches(g->consent_image, v) ? it.first_version + i : kCatalogNone;
+    }
+    return kCatalogNone;
+}
+// Nothing installs the build the user allowed; the version the catalog offers now is downloaded and its dialog asks
+// again, whatever the approval already covers. With none to offer the operation ends as not listed.
+bool review_again() noexcept {
+    const CatalogAction action = g->op.action;
+    const CatalogKind kind = g->op.kind;
+    char slug[kCatalogSlugMaximumBytes];
+    const Utf8View listed{slug, g->op.slug_bytes};
+    copy_bytes(slug, g->op.slug, g->op.slug_bytes);
+    unload_consent_image();
+    delete_plugin_file(g->op.sha256);
+    u32 next = kCatalogNone;
+    if (g->view.installable) {
+        if (action == CatalogAction::update) next = application_catalog_item_state(kind, listed).update;
+        else if (const u32 item = item_of(kind, listed); item != kCatalogNone) next = application_catalog_installable_version(item);
+    }
+    finish(next == kCatalogNone ? CatalogError::not_listed : CatalogError::review_again);
+    if (next != kCatalogNone && download(action, kind, listed, next)) g->op.reask = true;
+    return false;
+}
+} // namespace
+
 bool application_catalog_consent_answer(bool accepted, bool enable_now) noexcept {
     if (!g || g->view.operation.phase != CatalogPhase::consent) return false;
     if (!accepted) {
         unload_consent_image();
         delete_plugin_file(g->op.sha256);
         return finish(CatalogError::declined);
+    }
+    // A refresh may have replaced the index while the dialog was open: install only the build the user saw, as listed
+    // when they saw it.
+    if (g->op.action != CatalogAction::sideload) {
+        const u32 version = reviewed_version();
+        if (version == kCatalogNone) return review_again();
+        g->op.version = version;
     }
     const PluginConsentRequest& request = g->consent_request;
     const u32 all = request.hosts.count ? (1u << request.hosts.count) - 1 : 0;
@@ -1251,6 +1318,7 @@ void application_catalog_release() noexcept {
     }
     catalog_worker_stop();
     for (AssetSlot& slot : g->assets) catalog_worker_free(slot.bytes);
+    if (g->held != g->index) catalog_worker_free(g->held);
     catalog_worker_free(g->index);
     // A runtime whose DLL could not be freed keeps its memory.
     if (!g->runtime || !g->runtime->runtime.binding_count) catalog_worker_free(g->runtime);
