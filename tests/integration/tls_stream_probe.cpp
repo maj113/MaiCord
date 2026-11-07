@@ -89,7 +89,7 @@ TlsStreamEvent wait_for_event(TlsStreamEvent initial, TlsStreamEventKind expecte
 }
 
 bool request_gateway(u64* elapsed_microseconds, bool duplex = false) noexcept {
-    constexpr Utf8View first = utf8_literal("GET /api/v10/gateway HTTP/1.1\r\n");
+    constexpr Utf8View first = utf8_literal("GET /api/v9/gateway HTTP/1.1\r\n");
     constexpr Utf8View second = utf8_literal("Host: discord.com\r\nConnection: keep-alive\r\n\r\n");
     const ConstSlice<u8> spans[]{
         ConstSlice<u8>{reinterpret_cast<const u8*>(first.data), first.bytes},
@@ -165,7 +165,7 @@ bool cancel_and_drain() noexcept {
     if (!started.ok() || started.kind != TlsStreamEventKind::waiting) {
         return false;
     }
-    constexpr Utf8View request = utf8_literal("GET /api/v10/gateway HTTP/1.1\r\nHost: discord.com\r\n\r\n");
+    constexpr Utf8View request = utf8_literal("GET /api/v9/gateway HTTP/1.1\r\nHost: discord.com\r\n\r\n");
     const ConstSlice<u8> span{reinterpret_cast<const u8*>(request.data), request.bytes};
     const auto sending = tls_stream_start_write(&g_stream, {&span, 1});
     if (!sending.ok() || !g_stream.connection.send_pending || !g_stream.connection.receive_pending ||

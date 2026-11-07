@@ -2,8 +2,9 @@
 // owns no socket: the caller's network layer carries the bytes exactly as it does for Schannel.
 //
 //   - One process-wide SSL_CTX (the counterpart of Schannel's shared credential): TLS 1.2 and up, peer
-//     verification always on, renegotiation refused, the distribution's trust store. It is created by the first
-//     client and kept for the life of the process; a failed creation is not remembered.
+//     verification always on, renegotiation refused, the distribution's trust store, a ClientHello shaped like
+//     Chrome's (configure_hello) with ALPN "http/1.1". It is created by the first client and kept for the life of
+//     the process; a failed creation is not remembered.
 //   - One SSL per client with a read BIO and a write BIO. Whole TLS records are fed to the read BIO one at a time,
 //     so `consumed` is exact (Schannel's SECBUFFER_EXTRA) and a record that follows the end of the handshake stays
 //     in the caller's queue for tls_client_decrypt. Output is drained from the write BIO after every call.
@@ -155,6 +156,40 @@ bool load_trust(const openssl::Ssl& library, void* context) noexcept {
     return false;
 }
 
+// The ClientHello as close to Chrome's as OpenSSL's API allows: Chrome's cipher suites in its order (TLS 1.3, then
+// the TLS 1.2 ones, all among OpenSSL's defaults), its groups (X25519MLKEM768 with a key share beside X25519's
+// where the library has it, OpenSSL 3.5 and later) and signature algorithms, and its extension set: status_request
+// and signed_certificate_timestamp (CT checks that never fail a connection: certificate validation is unchanged)
+// and no encrypt_then_mac. With OpenSSL 3.5 the suites are exactly Chrome's (JA4 part b 8daaf6152771); before it,
+// OpenSSL adds the 0x00ff suite where Chrome sends renegotiation_info. What OpenSSL cannot do: GREASE, Chrome's
+// shuffled extension order, ALPS, ECH, Chrome's compress_certificate algorithm (brotli; OpenSSL 3.2 and later
+// offers its own when built with them), and an uncompressed-only EC point format list.
+constexpr char kTls13Suites[] = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
+constexpr char kTls12Suites[] =
+    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:"
+    "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-SHA:"
+    "ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA";
+constexpr char kHybridGroups[] = "*X25519MLKEM768:*X25519:P-256:P-384";
+constexpr char kGroups[] = "X25519:P-256:P-384";
+constexpr char kSignatureAlgorithms[] =
+    "ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:rsa_pkcs1_sha256:ecdsa_secp384r1_sha384:rsa_pss_rsae_sha384:"
+    "rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512";
+
+bool configure_hello(const openssl::Ssl& library, void* context) noexcept {
+    const auto list = [&](int command, const char* text) noexcept {
+        return library.SSL_CTX_ctrl(context, command, 0, const_cast<char*>(text)) == 1;
+    };
+    // A library before 3.5 knows neither the hybrid group nor the key-share marks: the classic list then.
+    const bool groups =
+        list(openssl::kSslCtrlSetGroupsList, kHybridGroups) || list(openssl::kSslCtrlSetGroupsList, kGroups);
+    library.crypto.ERR_clear_error();
+    library.SSL_CTX_ctrl(context, openssl::kSslCtrlSetStatusType, openssl::kStatusTypeOcsp, nullptr);
+    return groups && library.SSL_CTX_set_ciphersuites(context, kTls13Suites) == 1 &&
+           library.SSL_CTX_set_cipher_list(context, kTls12Suites) == 1 &&
+           list(openssl::kSslCtrlSetSigalgsList, kSignatureAlgorithms) &&
+           library.SSL_CTX_enable_ct(context, openssl::kCtValidationPermissive) == 1;
+}
+
 // The process-wide context, created on first use.
 const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept {
     u32 reason = 0;
@@ -170,14 +205,19 @@ const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept 
         bool good = created != nullptr;
         if (good) {
             library->SSL_CTX_ctrl(created, openssl::kSslCtrlSetMinimumVersion, openssl::kTls12Version, nullptr);
-            library->SSL_CTX_set_options(created, openssl::kSslOptionNoRenegotiation);
+            library->SSL_CTX_set_options(created,
+                                         openssl::kSslOptionNoRenegotiation | openssl::kSslOptionNoEncryptThenMac);
             library->SSL_CTX_ctrl(created, openssl::kSslCtrlMode, openssl::kSslModeReleaseBuffers, nullptr);
             library->SSL_CTX_set_verify(created, openssl::kSslVerifyPeer, nullptr);
-            good = load_trust(*library, created);
-            if (!good) {
-                library->SSL_CTX_free(created);
+            if (!configure_hello(*library, created)) {
+                good = false;
+                *failure = result(TlsError::credential_acquire, openssl::error_status(library->crypto));
+            } else if (!load_trust(*library, created)) {
+                good = false;
                 *failure = result(TlsError::credential_acquire, kStatusLibrary | static_cast<i32>(openssl::kFailureTrust));
             }
+            if (!good)
+                library->SSL_CTX_free(created);
         } else {
             *failure = result(TlsError::credential_acquire,
                               static_cast<i32>(0x80000000u | static_cast<u32>(library->crypto.ERR_get_error() & 0x7fffffffu)));
@@ -292,9 +332,9 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
         if (good)
             library.crypto.X509_VERIFY_PARAM_set_hostflags(library.SSL_get0_param(ssl), openssl::kX509NoPartialWildcards);
     }
-    // SSL_set_alpn_protos returns 0 on success.
+    // Every ClientHello offers ALPN "http/1.1" (tls_client.hpp). SSL_set_alpn_protos returns 0 on success.
     static constexpr u8 kHttp11[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    if (good && client->offer_http11)
+    if (good)
         good = library.SSL_set_alpn_protos(ssl, kHttp11, sizeof(kHttp11)) == 0;
     if (!good) {
         *status = static_cast<i32>(0x80000000u | static_cast<u32>(library.crypto.ERR_get_error() & 0x7fffffffu));
@@ -323,8 +363,7 @@ TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) n
         return failure;
     }
     // The context is created here so a missing library or trust store is reported at initialize, where Schannel
-    // reports its credential failures; the SSL is created by the first handshake step, which is when the caller
-    // has set offer_http11.
+    // reports its credential failures; the SSL is created by the first handshake step.
     client->maximum_token_bytes = kMaximumPlaintext;
     client->credentials_valid = true;
     return result(TlsError::none, kTlsStatusOk);

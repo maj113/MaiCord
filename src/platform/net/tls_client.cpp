@@ -51,7 +51,9 @@ u32 extra_input_bytes(const SecBuffer (&buffers)[2]) noexcept {
     return 0;
 }
 
-// ALPN "http/1.1" laid out as SEC_APPLICATION_PROTOCOLS with one list.
+// ALPN "http/1.1" laid out as SEC_APPLICATION_PROTOCOLS with one list. Every ClientHello offers it, as Chromium's
+// HTTP/1.1-only connections (its WebSockets) do: MaiCord speaks no other protocol, and some hosts
+// (translate.googleapis.com) answer a TLS 1.2 hello without ALPN with 429 Too Many Requests.
 struct Http11Protocols {
     unsigned long lists_bytes;
     SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT extension;
@@ -70,6 +72,10 @@ constexpr Http11Protocols kHttp11Protocols{kHttp11ProtocolsBytes - kProtocolList
 // remembered: the next connection tries again). Schannel keeps its client session cache per
 // credential, which is what lets a later connection to a host resume an earlier handshake. It is
 // never freed: workers may still hold contexts made from it when the process exits.
+//
+// SCH_CREDENTIALS with no TLS_PARAMETERS takes the system's protocol defaults: TLS 1.3 and 1.2 where Schannel has
+// TLS 1.3 (Windows 11, Server 2022), TLS 1.2 elsewhere. The legacy SCHANNEL_CRED never negotiates TLS 1.3; it is
+// the fallback of a Windows 10 older than 1809, which does not know SCH_CREDENTIALS. Both carry the same flags.
 SRWLOCK g_credentials_lock = SRWLOCK_INIT;
 CredHandle g_credentials;
 u32 g_maximum_token_bytes;
@@ -93,23 +99,29 @@ TlsResult share_credentials(TlsClient* client) noexcept {
         const u32 maximum_token_bytes = package_info->cbMaxToken;
         FreeContextBuffer(package_info);
 
-        SCHANNEL_CRED configuration{};
-        configuration.dwVersion = SCHANNEL_CRED_VERSION;
-        configuration.dwFlags =
-            SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
+        DWORD flags = SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
 #if defined(MAICORD_TEST_HOOKS)
         // MAICORD_TEST_CA_FILE: Schannel does not validate the server's certificate; tls_client_handshake does, against
         // that file only (platform/net/test_server.hpp).
         wchar_t trust_file[kTestTrustPathCapacity];
         if (test_trust_file(trust_file) != TestTrustState::unset) {
-            configuration.dwFlags =
-                (configuration.dwFlags & ~static_cast<DWORD>(SCH_CRED_AUTO_CRED_VALIDATION)) | SCH_CRED_MANUAL_CRED_VALIDATION;
+            flags = (flags & ~static_cast<DWORD>(SCH_CRED_AUTO_CRED_VALIDATION)) | SCH_CRED_MANUAL_CRED_VALIDATION;
         }
 #endif
+        SCH_CREDENTIALS configuration{};
+        configuration.dwVersion = SCH_CREDENTIALS_VERSION;
+        configuration.dwFlags = flags;
         TimeStamp expiry{};
         status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
                                            SECPKG_CRED_OUTBOUND, nullptr, &configuration, nullptr, nullptr,
                                            &g_credentials, &expiry);
+        if (status != SEC_E_OK) {
+            SCHANNEL_CRED legacy{};
+            legacy.dwVersion = SCHANNEL_CRED_VERSION;
+            legacy.dwFlags = flags;
+            status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W), SECPKG_CRED_OUTBOUND,
+                                               nullptr, &legacy, nullptr, nullptr, &g_credentials, &expiry);
+        }
         if (status != SEC_E_OK) {
             return result(TlsError::credential_acquire, status);
         }
@@ -120,6 +132,45 @@ TlsResult share_credentials(TlsClient* client) noexcept {
     client->maximum_token_bytes = g_maximum_token_bytes;
     client->credentials_valid = true;
     return result(TlsError::none, SEC_E_OK);
+}
+
+// The context attributes every InitializeSecurityContextW call asks for; with MAICORD_TEST_CA_FILE the certificate is
+// validated by tls_client_handshake instead of Schannel.
+ULONG requested_attributes() noexcept {
+    constexpr ULONG requested = ISC_REQ_STREAM | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT |
+                                ISC_REQ_CONFIDENTIALITY | ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_EXTENDED_ERROR;
+#if defined(MAICORD_TEST_HOOKS)
+    wchar_t trust_file[kTestTrustPathCapacity];
+    if (test_trust_file(trust_file) != TestTrustState::unset) {
+        return requested | ISC_REQ_MANUAL_CRED_VALIDATION;
+    }
+#endif
+    return requested;
+}
+
+// Gives Schannel a TLS 1.3 handshake message that came after the handshake (a NewSessionTicket, which goes to the
+// credential's session cache, or a KeyUpdate): DecryptMessage leaves it decrypted in its SECBUFFER_EXTRA at the end
+// of the buffer. True when it was taken and needs no answer, with *remaining the bytes behind it (still encrypted
+// records); a message that needs one (a KeyUpdate that asks for ours) is false, there being nowhere to send it.
+bool take_post_handshake_message(TlsClient* client, u8* message, u32 bytes, u32* remaining) noexcept {
+    SecBuffer input_buffers[2]{};
+    input_buffers[0] = SecBuffer{bytes, SECBUFFER_TOKEN, message};
+    input_buffers[1].BufferType = SECBUFFER_EMPTY;
+    SecBufferDesc input_descriptor{SECBUFFER_VERSION, 2, input_buffers};
+    SecBuffer output_buffer{};
+    output_buffer.BufferType = SECBUFFER_TOKEN;
+    SecBufferDesc output_descriptor{SECBUFFER_VERSION, 1, &output_buffer};
+    ULONG attributes = 0;
+    TimeStamp expiry{};
+    const SECURITY_STATUS status = InitializeSecurityContextW(
+        credentials(client), context(client), const_cast<wchar_t*>(client->server_name), requested_attributes(), 0,
+        SECURITY_NATIVE_DREP, &input_descriptor, 0, context(client), &output_descriptor, &attributes, &expiry);
+    const bool answer = output_buffer.cbBuffer != 0;
+    if (output_buffer.pvBuffer) {
+        FreeContextBuffer(output_buffer.pvBuffer);
+    }
+    *remaining = extra_input_bytes(input_buffers);
+    return status == SEC_E_OK && !answer && *remaining < bytes;
 }
 
 } // namespace
@@ -162,27 +213,15 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
     }
 
     SecBuffer input_buffers[2]{};
-    SecBufferDesc input_descriptor{};
-    SecBufferDesc* input_pointer = nullptr;
+    SecBufferDesc input_descriptor{SECBUFFER_VERSION, 2, input_buffers};
     Http11Protocols protocols = kHttp11Protocols;
     if (client->context_valid) {
-        input_buffers[0].BufferType = SECBUFFER_TOKEN;
-        input_buffers[0].pvBuffer = const_cast<u8*>(incoming.data);
-        input_buffers[0].cbBuffer = incoming.count;
+        input_buffers[0] = SecBuffer{incoming.count, SECBUFFER_TOKEN, const_cast<u8*>(incoming.data)};
         input_buffers[1].BufferType = SECBUFFER_EMPTY;
-        input_descriptor.ulVersion = SECBUFFER_VERSION;
-        input_descriptor.cBuffers = 2;
-        input_descriptor.pBuffers = input_buffers;
-        input_pointer = &input_descriptor;
-    } else if (client->offer_http11) {
+    } else {
         // The first step makes the ClientHello: it carries the ALPN list.
-        input_buffers[0].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
-        input_buffers[0].pvBuffer = &protocols;
-        input_buffers[0].cbBuffer = kHttp11ProtocolsBytes;
-        input_descriptor.ulVersion = SECBUFFER_VERSION;
+        input_buffers[0] = SecBuffer{kHttp11ProtocolsBytes, SECBUFFER_APPLICATION_PROTOCOLS, &protocols};
         input_descriptor.cBuffers = 1;
-        input_descriptor.pBuffers = input_buffers;
-        input_pointer = &input_descriptor;
     }
 
     SecBuffer output_buffer{};
@@ -192,21 +231,17 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
     output_descriptor.cBuffers = 1;
     output_descriptor.pBuffers = &output_buffer;
 
-    constexpr ULONG requested = ISC_REQ_STREAM | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT |
-                                ISC_REQ_CONFIDENTIALITY | ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_EXTENDED_ERROR;
+    const ULONG context_request = requested_attributes();
 #if defined(MAICORD_TEST_HOOKS)
     wchar_t trust_file[kTestTrustPathCapacity];
     const TestTrustState trust = test_trust_file(trust_file);
-    const ULONG context_request = requested | (trust != TestTrustState::unset ? ISC_REQ_MANUAL_CRED_VALIDATION : 0);
-#else
-    constexpr ULONG context_request = requested;
 #endif
     ULONG attributes = 0;
     TimeStamp expiry{};
     CtxtHandle* previous_context = client->context_valid ? context(client) : nullptr;
     SECURITY_STATUS status = InitializeSecurityContextW(
         credentials(client), previous_context, const_cast<wchar_t*>(client->server_name), context_request, 0,
-        SECURITY_NATIVE_DREP, input_pointer, 0, context(client), &output_descriptor, &attributes, &expiry);
+        SECURITY_NATIVE_DREP, &input_descriptor, 0, context(client), &output_descriptor, &attributes, &expiry);
     if (SecIsValidHandle(context(client))) {
         client->context_valid = true;
     }
@@ -358,6 +393,14 @@ TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noex
         return TlsDecryptResult{plaintext, consumed, status, TlsError::none, TlsDecryptState::peer_closed};
     }
     if (status == SEC_I_RENEGOTIATE) {
+        // TLS 1.3 reports its post-handshake messages this way; taken, the record reads as one without application
+        // data, as on Linux. Anything else (a TLS 1.2 renegotiation request) ends the connection.
+        u32 remaining = 0;
+        if (extra != 0 && extra <= encrypted.count &&
+            take_post_handshake_message(client, encrypted.data + encrypted.count - extra, extra, &remaining)) {
+            return TlsDecryptResult{{encrypted.data, 0}, encrypted.count - remaining, SEC_E_OK, TlsError::none,
+                                    TlsDecryptState::plaintext};
+        }
         client->handshake_complete = false;
         return TlsDecryptResult{plaintext, consumed, status, TlsError::none, TlsDecryptState::renegotiate};
     }

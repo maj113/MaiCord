@@ -61,10 +61,16 @@ inline constexpr int kRsaOaepPadding = 4;          // RSA_PKCS1_OAEP_PADDING
 inline constexpr int kBioSetMemoryEofReturn = 130; // BIO_C_SET_BUF_MEM_EOF_RETURN
 inline constexpr int kSslCtrlMode = 33;            // SSL_CTRL_MODE
 inline constexpr int kSslCtrlSetHostname = 55;     // SSL_CTRL_SET_TLSEXT_HOSTNAME
+inline constexpr int kSslCtrlSetStatusType = 65;   // SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE
+inline constexpr int kSslCtrlSetGroupsList = 92;   // SSL_CTRL_SET_GROUPS_LIST
+inline constexpr int kSslCtrlSetSigalgsList = 98;  // SSL_CTRL_SET_SIGALGS_LIST
 inline constexpr int kSslCtrlSetMinimumVersion = 123; // SSL_CTRL_SET_MIN_PROTO_VERSION
 inline constexpr long kSslModeReleaseBuffers = 0x10; // SSL_MODE_RELEASE_BUFFERS
 inline constexpr long kTls12Version = 0x0303;      // TLS1_2_VERSION
+inline constexpr long kStatusTypeOcsp = 1;         // TLSEXT_STATUSTYPE_ocsp
+inline constexpr u64 kSslOptionNoEncryptThenMac = 0x00080000ull; // SSL_OP_NO_ENCRYPT_THEN_MAC
 inline constexpr u64 kSslOptionNoRenegotiation = 0x40000000ull; // SSL_OP_NO_RENEGOTIATION
+inline constexpr int kCtValidationPermissive = 0; // SSL_CT_VALIDATION_PERMISSIVE
 inline constexpr int kSslVerifyPeer = 1;           // SSL_VERIFY_PEER
 inline constexpr u32 kX509NoPartialWildcards = 0x4; // X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS
 inline constexpr int kSslErrorNone = 0;       // SSL_ERROR_NONE
@@ -150,6 +156,9 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
     F(long, SSL_CTX_ctrl, (void*, int, long, void*))                                                                   \
     F(u64, SSL_CTX_set_options, (void*, u64))                                                                          \
     F(void, SSL_CTX_set_verify, (void*, int, void*))                                                                   \
+    F(int, SSL_CTX_set_ciphersuites, (void*, const char*))                                                             \
+    F(int, SSL_CTX_set_cipher_list, (void*, const char*))                                                              \
+    F(int, SSL_CTX_enable_ct, (void*, int))                                                                            \
     F(int, SSL_CTX_load_verify_locations, (void*, const char*, const char*))                                           \
     F(int, SSL_CTX_set_default_verify_paths, (void*))                                                                  \
     F(void*, SSL_CTX_get_cert_store, (const void*))                                                                    \

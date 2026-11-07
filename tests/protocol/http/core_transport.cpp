@@ -2077,30 +2077,37 @@ void test_tls_client_shared_credential() noexcept {
     expect(same, "tls_credential_is_not_reacquired_after_every_client_released");
 }
 
-// A client that asks for it offers ALPN "http/1.1"; the others send no ALPN extension.
-void test_tls_client_alpn() noexcept {
+// Every ClientHello names the server and offers ALPN "http/1.1"; where Schannel has TLS 1.3 (Windows 11 and Server
+// 2022, build 20348 and later) it offers TLS 1.3 beside 1.2, which the legacy SCHANNEL_CRED never did.
+void test_tls_client_hello() noexcept {
     constexpr u16 kAlpn = 16;
+    constexpr u16 kSupportedVersions = 43;
     static const u8 http11[]{0, 9, 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    for (u32 pass = 0; pass < 2; ++pass) {
-        const bool offer = pass == 1;
-        TlsClient client{};
-        if (!tls_client_initialize(&client, L"translate.googleapis.com").ok() ||
-            client.maximum_token_bytes > kTlsTokenCapacity) {
-            expect(false, "tls_alpn_client");
-            return;
-        }
-        client.offer_http11 = offer;
-        const TlsHandshakeStep hello = tls_client_handshake(&client, ConstSlice<u8>{nullptr, 0},
-                                                            Slice<u8>{g_tls_token, client.maximum_token_bytes});
-        const ConstSlice<u8> alpn = hello.ok() && hello.state == TlsHandshakeState::need_send
-                                        ? hello_extension({g_tls_token, hello.produced}, kAlpn)
-                                        : ConstSlice<u8>{};
-        const bool sni = hello.ok() && hello_extension({g_tls_token, hello.produced}, 0).count != 0;
-        expect(sni && (offer ? alpn.count == sizeof(http11) && bytes_equal(alpn.data, http11, sizeof(http11))
-                             : !alpn.data),
-               offer ? "tls_hello_offers_alpn_http11" : "tls_hello_without_alpn_by_default");
-        tls_client_release(&client);
+    TlsClient client{};
+    if (!tls_client_initialize(&client, L"translate.googleapis.com").ok() ||
+        client.maximum_token_bytes > kTlsTokenCapacity) {
+        expect(false, "tls_hello_client");
+        return;
     }
+    const TlsHandshakeStep step = tls_client_handshake(&client, ConstSlice<u8>{nullptr, 0},
+                                                       Slice<u8>{g_tls_token, client.maximum_token_bytes});
+    const ConstSlice<u8> hello = step.ok() && step.state == TlsHandshakeState::need_send
+                                     ? ConstSlice<u8>{g_tls_token, step.produced}
+                                     : ConstSlice<u8>{};
+    const ConstSlice<u8> alpn = hello_extension(hello, kAlpn);
+    expect(hello_extension(hello, 0).count != 0 && alpn.count == sizeof(http11) &&
+               bytes_equal(alpn.data, http11, sizeof(http11)),
+           "tls_hello_offers_alpn_http11");
+    // supported_versions: a length byte, then two bytes per version.
+    const ConstSlice<u8> versions = hello_extension(hello, kSupportedVersions);
+    bool tls13 = false;
+    for (u32 at = 1; at + 1 < versions.count; at += 2) {
+        tls13 = tls13 || (versions.data[at] == 3 && versions.data[at + 1] == 4);
+    }
+    // NtBuildNumber in KUSER_SHARED_DATA, the page every process maps at 0x7FFE0000.
+    const u32 build = *reinterpret_cast<const volatile u32*>(0x7FFE0260ull) & 0xFFFFu;
+    expect(tls13 || build < 20348, "tls_hello_offers_tls13");
+    tls_client_release(&client);
 }
 #endif
 } // namespace maicord

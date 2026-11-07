@@ -32,4 +32,16 @@ inline ConstSlice<u8> hello_extension(ConstSlice<u8> hello, u16 type) noexcept {
     return {};
 }
 
+// The cipher suites of the ClientHello record `hello` (two bytes each, in offer order), or an empty slice.
+inline ConstSlice<u8> hello_cipher_suites(ConstSlice<u8> hello) noexcept {
+    u32 at = 5 + 4 + 2 + 32;
+    if (hello.count < at + 1 || hello.data[0] != 22 || hello.data[5] != 1)
+        return {};
+    at += 1 + hello.data[at]; // session id
+    if (hello.count < at + 2)
+        return {};
+    const u32 bytes = static_cast<u32>(hello.data[at] << 8 | hello.data[at + 1]);
+    return hello.count < at + 2 + bytes ? ConstSlice<u8>{} : ConstSlice<u8>{hello.data + at + 2, bytes};
+}
+
 } // namespace maicord

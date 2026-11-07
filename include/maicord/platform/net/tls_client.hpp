@@ -43,9 +43,8 @@ struct TlsStreamSizes {
 // native.credentials is a copy of the process-wide Schannel credential every client shares (see
 // tls_client.cpp); a later connection to the same server_name can resume an earlier session. On Linux the
 // process-wide object is the OpenSSL context and native holds the connection.
-// offer_http11, set between tls_client_initialize and the first handshake step, offers ALPN
-// "http/1.1" in the ClientHello: some hosts (translate.googleapis.com) answer a TLS 1.2 hello
-// without ALPN with 429 Too Many Requests.
+// Every ClientHello offers TLS 1.3 and 1.2 (1.3 where the system has it) and ALPN "http/1.1", the one
+// application protocol MaiCord speaks.
 struct TlsClient {
     TlsNative native;
     TlsStreamSizes stream_sizes;
@@ -54,7 +53,6 @@ struct TlsClient {
     bool credentials_valid;
     bool context_valid;
     bool handshake_complete;
-    bool offer_http11;
 };
 
 enum class TlsHandshakeState : u8 {

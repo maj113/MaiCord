@@ -10,6 +10,9 @@
 #include <Windows.h>
 #define SECURITY_WIN32
 #include <Security.h>
+// SCH_CREDENTIALS is declared only with SCHANNEL_USE_BLACKLISTS, which needs UNICODE_STRING (winternl.h).
+#include <winternl.h>
+#define SCHANNEL_USE_BLACKLISTS
 #include <Schannel.h>
 #endif
 
@@ -39,6 +42,7 @@
 // <Schannel.h>
 #define UNISP_NAME_W L"Microsoft Unified Security Protocol Provider"
 #define SCHANNEL_CRED_VERSION 0x00000004
+#define SCH_CREDENTIALS_VERSION 0x00000005
 #define SCH_CRED_NO_DEFAULT_CREDS 0x00000010
 #define SCH_CRED_MANUAL_CRED_VALIDATION 0x00000008
 #define SECPKG_ATTR_CONNECTION_INFO 0x5a
@@ -48,6 +52,7 @@
 #define SCH_USE_STRONG_CRYPTO 0x00400000
 
 struct _HMAPPER;
+struct _TLS_PARAMETERS;
 typedef WCHAR SEC_WCHAR;
 typedef void(__stdcall* SEC_GET_KEY_FN)(void* Arg, void* Principal, unsigned long KeyVer, void** Key,
     SECURITY_STATUS* Status);
@@ -147,6 +152,20 @@ struct _SCHANNEL_CRED {
     DWORD dwCredFormat;
 };
 typedef _SCHANNEL_CRED SCHANNEL_CRED;
+struct _SCH_CREDENTIALS {
+    DWORD dwVersion;
+    DWORD dwCredFormat;
+    DWORD cCreds;
+    PCCERT_CONTEXT* paCred;
+    HCERTSTORE hRootStore;
+    DWORD cMappers;
+    struct _HMAPPER** aphMappers;
+    DWORD dwSessionLifespan;
+    DWORD dwFlags;
+    DWORD cTlsParameters;
+    struct _TLS_PARAMETERS* pTlsParameters;
+};
+typedef _SCH_CREDENTIALS SCH_CREDENTIALS;
 MAICORD_SYS_TYPES_END
 
 // <sspi.h>

@@ -155,7 +155,6 @@ bool handshake(Connection& connection, const wchar_t* name, TlsError* error, i32
         *status = initialized.native_status;
         return false;
     }
-    connection.tls.offer_http11 = true;
     for (;;) {
         const TlsHandshakeStep step = tls_client_handshake(&connection.tls, {g_queue, connection.queued}, {g_token, kTokenCapacity});
         if (!step.ok() || step.state == TlsHandshakeState::failed) {
@@ -292,30 +291,59 @@ void bootstrap_cases() noexcept {
     tls_client_release(&client);
     tls_client_release(nullptr);
 
-    // A client offers ALPN "http/1.1" when it asks and sends no ALPN extension otherwise, and always names the server.
+    // Every ClientHello names the server and offers ALPN "http/1.1", and is shaped like Chrome's as far as OpenSSL
+    // allows (configure_hello): Chrome's suites in its order (OpenSSL before 3.5 adds its renegotiation SCSV), its
+    // groups with X25519MLKEM768 first where the library has it, its signature algorithms, status_request and
+    // signed_certificate_timestamp, no encrypt_then_mac, the session_ticket extension.
     constexpr u16 kAlpn = 16;
     static const u8 http11[]{0, 9, 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    for (u32 pass = 0; pass < 2; ++pass) {
-        const bool offer = pass == 1;
-        TlsClient asking{};
-        if (!tls_client_initialize(&asking, L"translate.googleapis.com").ok()) {
-            check(false, "tls_alpn_client");
-            return;
-        }
-        asking.offer_http11 = offer;
-        const TlsHandshakeStep first = tls_client_handshake(&asking, {}, {g_token, asking.maximum_token_bytes});
-        const ConstSlice<u8> alpn =
-            first.ok() ? hello_extension({g_token, first.produced}, kAlpn) : ConstSlice<u8>{};
-        const ConstSlice<u8> server_name = first.ok() ? hello_extension({g_token, first.produced}, 0) : ConstSlice<u8>{};
-        // server_name_list: length, type 0, name length, the name.
-        const char host[] = "translate.googleapis.com";
-        check(server_name.count == 5 + sizeof(host) - 1 && server_name.data[2] == 0 &&
-                  bytes_equal(server_name.data + 5, host, sizeof(host) - 1),
-              "the ClientHello names the server (SNI)");
-        check(offer ? alpn.count == sizeof(http11) && bytes_equal(alpn.data, http11, sizeof(http11)) : !alpn.data,
-              offer ? "the ClientHello offers ALPN http/1.1" : "the ClientHello has no ALPN by default");
-        tls_client_release(&asking);
+    static const u8 chrome_suites[]{0x13, 0x01, 0x13, 0x02, 0x13, 0x03, 0xc0, 0x2b, 0xc0, 0x2f, 0xc0, 0x2c, 0xc0, 0x30,
+                                    0xcc, 0xa9, 0xcc, 0xa8, 0xc0, 0x13, 0xc0, 0x14, 0x00, 0x9c, 0x00, 0x9d, 0x00, 0x2f,
+                                    0x00, 0x35};
+    static const u8 chrome_signatures[]{0, 16, 0x04, 0x03, 0x08, 0x04, 0x04, 0x01, 0x05, 0x03, 0x08, 0x05, 0x05, 0x01,
+                                        0x08, 0x06, 0x06, 0x01};
+    static const u8 hybrid_groups[]{0, 8, 0x11, 0xec, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18};
+    static const u8 classic_groups[]{0, 6, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18};
+    TlsClient asking{};
+    if (!tls_client_initialize(&asking, L"translate.googleapis.com").ok()) {
+        check(false, "tls_alpn_client");
+        return;
     }
+    const TlsHandshakeStep first = tls_client_handshake(&asking, {}, {g_token, asking.maximum_token_bytes});
+    const ConstSlice<u8> offered = first.ok() ? ConstSlice<u8>{g_token, first.produced} : ConstSlice<u8>{};
+    const ConstSlice<u8> alpn = hello_extension(offered, kAlpn);
+    const ConstSlice<u8> server_name = hello_extension(offered, 0);
+    // server_name_list: length, type 0, name length, the name.
+    const char host[] = "translate.googleapis.com";
+    check(server_name.count == 5 + sizeof(host) - 1 && server_name.data[2] == 0 &&
+              bytes_equal(server_name.data + 5, host, sizeof(host) - 1),
+          "the ClientHello names the server (SNI)");
+    check(alpn.count == sizeof(http11) && bytes_equal(alpn.data, http11, sizeof(http11)),
+          "the ClientHello offers ALPN http/1.1");
+    const ConstSlice<u8> suites = hello_cipher_suites(offered);
+    const bool scsv = suites.count == sizeof(chrome_suites) + 2 && suites.data[sizeof(chrome_suites)] == 0x00 &&
+                      suites.data[sizeof(chrome_suites) + 1] == 0xff;
+    check((suites.count == sizeof(chrome_suites) || scsv) &&
+              bytes_equal(suites.data, chrome_suites, sizeof(chrome_suites)),
+          "the ClientHello offers Chrome's cipher suites in Chrome's order");
+    const ConstSlice<u8> groups = hello_extension(offered, 10);
+    const ConstSlice<u8> shares = hello_extension(offered, 51);
+    const bool hybrid =
+        groups.count == sizeof(hybrid_groups) && bytes_equal(groups.data, hybrid_groups, sizeof(hybrid_groups));
+    // key_share: the list length, then the first share's group; with the hybrid group, X25519's share follows its own.
+    check((hybrid || (groups.count == sizeof(classic_groups) &&
+                      bytes_equal(groups.data, classic_groups, sizeof(classic_groups)))) &&
+              shares.count > 4 && shares.data[2] == groups.data[2] && shares.data[3] == groups.data[3] &&
+              (!hybrid || shares.count == 2 + 4 + 1216 + 4 + 32),
+          "the ClientHello offers Chrome's groups and shares a key for the first (and X25519 beside the hybrid)");
+    const ConstSlice<u8> signatures = hello_extension(offered, 13);
+    check(signatures.count == sizeof(chrome_signatures) &&
+              bytes_equal(signatures.data, chrome_signatures, sizeof(chrome_signatures)),
+          "the ClientHello offers Chrome's signature algorithms");
+    check(hello_extension(offered, 5).data && hello_extension(offered, 18).data && hello_extension(offered, 35).data &&
+              !hello_extension(offered, 22).data,
+          "the ClientHello asks for OCSP and SCTs, offers session tickets and no encrypt_then_mac");
+    tls_client_release(&asking);
     // An address literal is not sent as a server name.
     TlsClient literal{};
     if (tls_client_initialize(&literal, L"192.0.2.1").ok()) {

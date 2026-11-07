@@ -72,8 +72,6 @@ E handshake(UpdateHttpsTransport* t) noexcept {
     const TlsResult initialized = tls_client_initialize(&t->tls, t->host);
     if (!initialized.ok()) return fail(t, E::tls, static_cast<u32>(initialized.native_status));
     if (t->tls.maximum_token_bytes > sizeof(t->token)) return fail(t, E::tls, 0);
-    // This transport speaks only HTTP/1.1; some hosts answer a TLS 1.2 hello without ALPN with 429.
-    t->tls.offer_http11 = true;
     auto step = tls_client_handshake(&t->tls, {}, {t->token, sizeof(t->token)});
     for (;;) {
         if (!step.ok() || step.state == TlsHandshakeState::failed) return fail(t, E::tls, static_cast<u32>(step.native_status));

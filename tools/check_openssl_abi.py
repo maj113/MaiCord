@@ -89,7 +89,7 @@ def read_table():
         functions.append((match["name"], match["ret"].strip(), split_arguments(match["args"])))
     constants = []
     for match in re.finditer(
-            r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>[A-Z][A-Z0-9_]+)\b", text):
+            r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>[A-Z][A-Za-z0-9_]+)\b", text):
         constants.append((match["macro"], re.sub(r"(?<=[0-9a-fA-F])(ull|ULL)\b", "ULL", match["value"].strip())))
     return functions, constants
 
