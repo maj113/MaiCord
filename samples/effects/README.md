@@ -304,6 +304,11 @@ only shaders, and every count and size below is checked when MaiCord reads the p
 - **Cost**: the whole graph is one effect frame. The GPU budget times every pass together, the resolution and
   frame rate apply to the output (a target sized by a share follows them), and the graph pauses as an effect does.
 
+`spark-ribbon` is the small graph to start from. The largest in the catalog is Silk Waves
+([`effects/silk-waves`](https://github.com/maj113/MaiCord-plugins/tree/main/effects/silk-waves) in MaiCord-plugins):
+six passes over a persistent `rgba32f` state target that eases its knobs, a 128x128 grid for the folding sheet, a
+blurred glow chain at a quarter of the output and 4,096 glitter quads, following the clock and the appearance.
+
 **Textures.** Interface 3 adds `@uses texture2 texture3` (`mc_tex2`, `mc_tex3`), and any of the four may be float
 data instead of a PNG: `texture<N>.mcft` beside the HLSL holds `MCFT`, the width and height as little-endian 16-bit
 numbers (1 to 512), then width x height RGBA32F texels, at most 512 KiB as for a PNG. The tool packs
