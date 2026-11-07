@@ -65,7 +65,7 @@ bool apply_response(u32 body_bytes) noexcept {
             log_write(LogLevel::error, "message", "history_decode_storage_admission_failed");
             return false;
         }
-        u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
+        u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
         const GatewayEventDecodeResult decoded = gateway_decode_message_create(
             JsonValue{body, 0, JsonValueKind::object}, scratch.page_structurals, 64, scratch.content,
             Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, scratch.rich.member_roles,

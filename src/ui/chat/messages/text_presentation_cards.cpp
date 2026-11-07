@@ -1189,7 +1189,7 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
             return fail(presentation, MessageTextPresentationError::layout);
         return true;
     }
-    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollAnswer answers[kUiPollMaximumAnswers];
     UiPollProjection poll{};
     struct PollTextContext {
         MessageTextPresentation* presentation;

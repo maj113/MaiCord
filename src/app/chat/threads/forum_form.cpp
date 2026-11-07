@@ -280,7 +280,7 @@ bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangl
     auto* field = static_cast<ApplicationForumFormField*>(context);
     if (!current_layout(field))
         return false;
-    TextEditMetric metrics[kTextEditSelectionCapacity]{};
+    TextEditMetric metrics[kTextEditSelectionCapacity];
     u32 count = 0;
     if (!text_edit_layout_range_geometry(field->owner->surface.layouts[field->index], first, last,
                                            {metrics, kTextEditSelectionCapacity}, &count) ||

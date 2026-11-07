@@ -289,7 +289,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, SecureTextRect* output, b
         *clipped = *clipped || left != metric.left;
         rectangle = {left, metric.top, left + 1, metric.top + metric.height};
     } else {
-        TextEditMetric metrics[kTextEditSelectionCapacity]{};
+        TextEditMetric metrics[kTextEditSelectionCapacity];
         u32 count = 0;
         if (!text_edit_layout_range_geometry(layout, a, b, {metrics, kTextEditSelectionCapacity},
                                                &count) ||

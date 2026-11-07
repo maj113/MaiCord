@@ -290,9 +290,10 @@ Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, const Sli
                      UiActivityGlyph* glyph) noexcept {
     const Utf8View plain = ui_private_peer_activity(source, channel_id, storage, glyph);
     u64 peer[2]{};
+    if (!plain.bytes || !ui_private_row_group_members(*source.state, channel_id, peer))
+        return plain;
     UserActivitySet set{};
-    if (!plain.bytes || !ui_private_row_group_members(*source.state, channel_id, peer) ||
-        !user_activity_find(source.users->activities, peer[0], &set))
+    if (!user_activity_find(source.users->activities, peer[0], &set))
         return plain;
     u8 order[kUserActivityMaximum];
     const u32 ordered = profile_activity_order(set, {order, kUserActivityMaximum});

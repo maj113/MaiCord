@@ -841,7 +841,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         }
     }
 
-    MessageReactionTextItem reaction_items[kGatewayMessageReactionMaximum]{};
+    MessageReactionTextItem reaction_items[kGatewayMessageReactionMaximum]; // the build writes the first item_count
     set_failure_context(presentation, MessageTextPresentationStage::reaction,
                         MessageTextPresentationOperation::build_reactions);
     const MessageReactionPresentationResult reaction_result =

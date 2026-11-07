@@ -1070,7 +1070,7 @@ static __declspec(noinline) bool decode_voter_page(PollOwner& value, Utf8View bo
     if (!page_storage(bank))
         return false;
     auto& page = *value.pages[bank];
-    u32 object_scratch[256]{};
+    u32 object_scratch[256];
     const auto decoded = decode_poll_voters(
         body, {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
         {object_scratch, 256}, 64, {page.users, page_limit}, {page.text, page_text_bytes});
@@ -1080,11 +1080,11 @@ static __declspec(noinline) bool decode_voter_page(PollOwner& value, Utf8View bo
     return true;
 }
 static __declspec(noinline) bool apply_poll_message(PollOwner& value, Utf8View body) noexcept {
-    GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers]{};
-    GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers]{};
+    GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers];
+    GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers];
     char text[kGatewayMessagePollQuestionMaximumBytes +
               kGatewayMessagePollMaximumAnswers *
-                  (kGatewayMessagePollAnswerMaximumBytes + kGatewayMessagePollEmojiMaximumBytes)]{};
+                  (kGatewayMessagePollAnswerMaximumBytes + kGatewayMessagePollEmojiMaximumBytes)];
     GatewayMessagePoll dto{};
     const auto decoded = decode_poll_message(
         body, value.source.source.channel_id, value.source.source.message_id,

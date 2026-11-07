@@ -586,7 +586,7 @@ bool ui_poll_target_visible(const UiPollProjection& projection, UiPollTarget tar
     }
 }
 UiPollTarget ui_poll_controls_hit(const UiPollProjection& projection, UiPoint point) noexcept {
-    UiPollTarget candidates[kUiPollMaximumAnswers + 4]{};
+    UiPollTarget candidates[kUiPollMaximumAnswers + 4];
     const auto count = targets(projection, candidates);
     for (u32 i = 0; i < count; ++i)
         if (ui_poll_target_enabled(projection, candidates[i]) &&
@@ -748,7 +748,7 @@ UiPollSceneResult ui_poll_scene_key(UiPollScene* scene, UiPollKey key) noexcept 
             result.handled && ui_poll_controls_action(scene->projection, scene->focus, &result.action);
         return result;
     }
-    UiPollTarget all[kUiPollMaximumAnswers + 4]{}, enabled[kUiPollMaximumAnswers + 4]{};
+    UiPollTarget all[kUiPollMaximumAnswers + 4], enabled[kUiPollMaximumAnswers + 4];
     const auto count = targets(scene->projection, all);
     u32 available{}, current = ~0u;
     for (u32 i = 0; i < count; ++i)

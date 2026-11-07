@@ -32,7 +32,7 @@ LinkTrustStore* current_store() noexcept {
     if (!profile)
         return nullptr;
     if (trust_profile != profile) {
-        wchar_t path[512]{};
+        wchar_t path[512];
         reset_value(&trust);
         if (link_trust_path(profile, path, 512) && !link_trust_load_file(path, &trust))
             log_write(LogLevel::warning, "links", "trusted_links_unreadable");
@@ -66,7 +66,7 @@ bool pending_accept(TextFormOwnerKey key, bool trust_link) noexcept {
         const bool added = store && (pending.target.web
                                          ? link_trust_add_host(store, link_target_host(pending.target))
                                          : link_trust_add_protocol(store, link_target_protocol(pending.target)));
-        wchar_t path[512]{};
+        wchar_t path[512];
         if (!added || !link_trust_path(g_app.account.status.profile_id, path, 512) ||
             !link_trust_save_file(path, *store))
             log_write(LogLevel::warning, "links", "trusted_link_not_saved");

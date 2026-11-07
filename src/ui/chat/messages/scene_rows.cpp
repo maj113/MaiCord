@@ -312,7 +312,7 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
         *out = unavailable_poll(scene, record) ? 64.f : 0;
         return true;
     }
-    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollAnswer answers[kUiPollMaximumAnswers];
     UiPollState state{};
     UiPollLayout layout{};
     const UiPollStyle style = ui_theme_poll_style(scene.theme_styles);

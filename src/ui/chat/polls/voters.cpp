@@ -338,7 +338,7 @@ bool ui_poll_voters_target_enabled(const UiPollVotersScene& scene, UiPollVotersT
 UiPollVotersTarget ui_poll_voters_scene_hit(const UiPollVotersScene& scene, UiPoint point) noexcept {
     if (!current(scene) || !ui_rect_contains(scene.geometry.panel, point.x, point.y))
         return {};
-    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4]{};
+    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4];
     const auto count = targets(scene, all);
     for (u32 i = 0; i < count; ++i) {
         const auto target = all[i];
@@ -403,8 +403,8 @@ UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene* scene, UiPol
             result.action = action(*scene, scene->focus);
         return result;
     }
-    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4]{},
-        enabled[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4]{};
+    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4],
+        enabled[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4];
     const auto count = targets(*scene, all);
     u32 available{}, focused = ~0u;
     for (u32 i = 0; i < count; ++i)

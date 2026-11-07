@@ -245,7 +245,7 @@ __declspec(noinline) bool append_system_glyph(const MessageScene& scene, const M
 __declspec(noinline) bool append_poll(const MessageScene& scene, const MessageSceneRowWidget& row,
                                       const Theme& theme, const UiRect& row_clip, PaintStream* paint,
                                       MessageMediaCommandStream* media) noexcept {
-    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollAnswer answers[kUiPollMaximumAnswers];
     UiPollProjection poll{};
     const UiWidgetReference owner{&scene.widgets, row.poll};
     const UiPollStyle poll_style = ui_theme_poll_style(scene.theme_styles);
@@ -277,7 +277,7 @@ __declspec(noinline) bool paint_audio_attachment(const MessageRichStore& store, 
                                                  const UiRect& row_clip, const Theme& theme,
                                                  const UiAudioControlsStyle& style, const UiWidgetReference& owner,
                                                  PaintStream* paint) noexcept {
-    u8 waveform[kUiAudioWaveformMaximum]{};
+    u8 waveform[kUiAudioWaveformMaximum]; // only the decoded prefix is read
     UiAudioControlsProjection projection{};
     return ui_audio_attachment_project(store, attachment, rich.message_id, rich.message_revision,
                                        message_rich_record_voice(rich), card, theme, {waveform, sizeof(waveform)},
@@ -365,9 +365,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         return true;
     }
 
+    // A non-forwarded row's rich record is the outer one already found above.
     const MessageMediaPolicyResult media_policy = message_scene_media_policy(
-        scene, message_media_owner(*record, rich_store ? message_rich_store_find(*rich_store, record->id)
-                                                       : nullptr));
+        scene, message_media_owner(*record, row.forwarded_snapshot ? message_rich_store_find(*rich_store, record->id) : rich));
     // A compact quoted line starts a reply indent right of the name column.
     const float text_left = body->content_rectangle.left + message_scene_reply_indent(scene);
     if (row.forwarded_snapshot) {
