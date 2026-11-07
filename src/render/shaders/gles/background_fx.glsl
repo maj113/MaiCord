@@ -1,4 +1,4 @@
-// twin: src/render/shaders/background_fx.hlsl 657ce5664dddafff
+// twin: src/render/shaders/background_fx.hlsl fbe73921641adc91
 // Background effect pass. FX_VERTEX: fx_vertex (STAGE_VS); FX_TARGET: fx_target_vertex (STAGE_VS);
 // FX_COMPOSITE_VERTEX: fx_composite_vertex (STAGE_VS); FX_COMPOSITE_PIXEL: fx_composite_pixel (STAGE_PS);
 // none: fx_builtin (STAGE_PS).
@@ -148,7 +148,7 @@ layout(std140, binding = 8) uniform McFxCompositePixel {
     float composite_opacity;
     float composite_radius; // a tile's corner radius in DIPs; 0 fills the canvas rectangle
     float composite_light;  // the light adaptation's amount (effect_light_composite)
-    float composite_layer;  // the paint layer's opacity (the blend factor)
+    float composite_layer;  // the paint layer's opacity (normal scales by it, else the blend factor)
     float composite_blend;  // EffectBlend: 0 normal, 1 screen, 2 add
 };
 
@@ -159,7 +159,8 @@ layout(location = 0, index = 0) out vec4 out_color;
 layout(location = 0, index = 1) out vec4 out_weight;
 
 void main() {
-    // The target holds premultiplied colour; the user's opacity scales all four channels.
+    // The target holds premultiplied colour; the user's opacity scales all four channels, and in normal blend the
+    // paint layer's opacity scales them too, so a fading layer composes over what is behind and leaves its alpha whole.
     vec4 color = textureLod(fx_target, clamp(v_uv, composite_clamp.xy, composite_clamp.zw), 0.0) * composite_opacity;
     // A tile is a rounded rectangle: coverage from the signed distance to its outline, one pixel wide.
     if (composite_radius > 0.0) {
@@ -186,6 +187,8 @@ void main() {
             out_color.rgb = composite_light < 1.0 ? color.rgb * (1.0 - composite_light) : out_weight.rgb;
         }
     }
+    if (composite_blend == 0.0)
+        out_color *= composite_layer;
 }
 
 #else

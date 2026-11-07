@@ -172,7 +172,7 @@ cbuffer McFxCompositePixel : register(b0) {
     float composite_opacity : packoffset(c3.x);
     float composite_radius : packoffset(c3.y); // a tile's corner radius in DIPs; 0 fills the canvas rectangle
     float composite_light : packoffset(c3.z);  // the light adaptation's amount (effect_light_composite)
-    float composite_layer : packoffset(c3.w);  // the paint layer's opacity (the blend factor)
+    float composite_layer : packoffset(c3.w);  // the paint layer's opacity (normal scales by it, else the blend factor)
     float composite_blend : packoffset(c4.x);  // EffectBlend: 0 normal, 1 screen, 2 add
 };
 Texture2D<float4> fx_target : register(t0);
@@ -184,7 +184,8 @@ struct FxCompositeTargets {
     float4 weight : SV_Target1;
 };
 
-// The target holds premultiplied colour; the user's opacity scales all four channels.
+// The target holds premultiplied colour; the user's opacity scales all four channels, and in normal blend the paint
+// layer's opacity scales them too, so a fading layer composes over what is behind and leaves its alpha whole.
 FxCompositeTargets fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) {
     float4 color = fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
                    composite_opacity;
@@ -214,6 +215,8 @@ FxCompositeTargets fx_composite_pixel(float4 position : SV_Position, float2 uv :
             output.color.rgb = composite_light < 1.0f ? color.rgb * (1.0f - composite_light) : output.weight.rgb;
         }
     }
+    if (composite_blend == 0.0f)
+        output.color *= composite_layer;
     return output;
 }
 #else

@@ -6,7 +6,8 @@
 // are pass graphs with persistent targets, grids, quads, additive blending and RGBA32F / RGBA16F planes: their
 // pictures at three frames show the persistent state carried across passes and frames. After aurora's last frame the
 // composite pass puts its target over six canvases in every blend mode, the light-adapted screen and add (the
-// dual-source blend) and a rounded tile.
+// dual-source blend) and a rounded tile, then in normal blend over an opaque background in a fading paint layer,
+// checked against the arithmetic of the composite.
 //
 // The same source runs on Windows and Linux. MAICORD_GPU_EFFECT_CAPTURE=<prefix> (on Windows: the goldens' source)
 // or MAICORD_GPU_EFFECT_DUMP=<prefix> (elsewhere, to look at a difference) writes every picture to
@@ -302,6 +303,73 @@ void composite_scene(GpuDevice* device, GpuContext* context, D3D11EffectOwner* o
     gpu_release(texture);
 }
 
+// A paint layer fading in (a modal's entrance) at a quarter of its opacity: Aurora's target at 60 % in normal blend
+// over an opaque background. The composite weighs what is behind by the share of the effect the layer lets through,
+// so the background stays opaque (the window composes with premultiplied alpha: a translucent pixel shows the
+// desktop through it) and takes the effect at that share.
+void fading_layer(GpuDevice* device, GpuContext* context, D3D11EffectOwner* owner) noexcept {
+    static u8 picture[kPixels];
+    GpuTexture* texture = nullptr;
+    GpuRtv* view = nullptr;
+    GpuBuffer* frame = nullptr;
+    const UiFrame constants{2.0f / kWidth, -2.0f / kHeight, -1.0f, 1.0f, 1.0f, {}};
+    check(gpu_ok(gpu_texture_create(device, {kWidth, kHeight, GpuFormat::rgba8, GpuUsage::default_, gpu_bind_srv | gpu_bind_rtv},
+                                    nullptr, &texture)) &&
+              gpu_ok(gpu_rtv_create(device, texture, &view)) &&
+              gpu_ok(gpu_buffer_create(device, {sizeof(constants), GpuUsage::default_, gpu_bind_constant, false}, &constants,
+                                       &frame)) &&
+              read_target(device, context, *owner, picture),
+          "the fading layer's target and the effect's picture");
+    if (!view || !frame) {
+        gpu_release(frame);
+        gpu_release(view);
+        gpu_release(texture);
+        return;
+    }
+    constexpr float kLayer = 0.25f, kOpacity = 0.6f;
+    const float background[4]{0.85f, 0.80f, 0.70f, 1.0f};
+    gpu_clear_rtv(context, view, background);
+    gpu_set_render_target(context, view);
+    gpu_set_viewport(context, 0, 0, static_cast<float>(kWidth), static_cast<float>(kHeight));
+    gpu_set_scissor(context, {0, 0, static_cast<i32>(kWidth), static_cast<i32>(kHeight)});
+    gpu_set_raster(context, owner->rasterizer);
+    gpu_set_strip_topology(context);
+    GpuBuffer* ui[1] = {frame};
+    gpu_set_constants(context, GpuStage::vertex, 0, 1, ui);
+    GpuSampler* sampler[1] = {owner->samplers[2]};
+    gpu_set_samplers(context, GpuStage::pixel, 0, 1, sampler);
+    owner->settings.blend = EffectBlend::normal;
+    owner->settings.opacity = kOpacity;
+    owner->light = 0;
+    owner->layer_opacity = kLayer;
+    check(d3d11_effect_draw(owner, context, {0, 0, static_cast<float>(kWidth), static_cast<float>(kHeight)}, 6, 0.0f),
+          "the fading layer draws");
+    d3d11_effect_end_frame(owner, context);
+    check(gpu_ok(gpu_readback(device, context, texture, {0, 0, kWidth, kHeight}, g_pixels, kWidth * 4)),
+          "the fading layer readback");
+    u32 translucent = 0, off = 0;
+    for (u32 i = 0; i < kWidth * kHeight; ++i) {
+        const u8* got = g_pixels + i * 4;
+        const u8* effect = picture + i * 4;
+        translucent += got[3] != 255 ? 1u : 0u;
+        const float share = kLayer * kOpacity, behind = 1.0f - share * static_cast<float>(effect[3]) / 255.0f;
+        bool near = true;
+        for (u32 c = 0; c < 3; ++c) {
+            const float expected = share * static_cast<float>(effect[c]) + background[c] * 255.0f * behind;
+            const float difference = static_cast<float>(got[c]) - expected;
+            near = near && difference <= 2.0f && difference >= -2.0f;
+        }
+        off += near ? 0u : 1u;
+    }
+    test_write_metric("fading_layer_translucent=", translucent);
+    test_write_metric("fading_layer_off=", off);
+    check(translucent == 0, "a fading layer leaves an opaque background opaque");
+    check(off == 0, "a fading layer adds the effect at its share over what is behind");
+    gpu_release(frame);
+    gpu_release(view);
+    gpu_release(texture);
+}
+
 void run_case(GpuDevice* device, GpuContext* context, GpuSrv* glyphs, const Case& test, u64 identity) noexcept {
     test_write_text("== ");
     test_write_line(test.name);
@@ -375,8 +443,10 @@ void run_case(GpuDevice* device, GpuContext* context, GpuSrv* glyphs, const Case
     }
     check(next == test.frame_count, "every named frame was reached");
     check(!moved, "the budget controller leaves the resolution alone");
-    if (test.composite)
+    if (test.composite) {
         composite_scene(device, context, &owner);
+        fading_layer(device, context, &owner);
+    }
     d3d11_effect_release(&owner);
 }
 

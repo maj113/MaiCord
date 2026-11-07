@@ -79,15 +79,15 @@ void mark_idle(D3D11EffectOwner* owner) noexcept {
 }
 
 bool create_blend_states(D3D11EffectOwner* owner, GpuDevice* device) noexcept {
-    // Source, destination, source alpha, destination alpha. The composite's modes first: the target holds
-    // premultiplied colour, so every mode adds the source at the user's opacity (the blend factor) and weighs what
-    // is behind it: normal by what the source leaves open, screen by one minus the source colour, add by one; only
-    // normal composes alpha. Then a graph pass's alpha, add and premultiplied. Last the adapted screen and add: while
-    // they cross-fade, the source plus what is behind weighed by the shader's second output; settled, what is behind
-    // times the source.
+    // Source, destination, source alpha, destination alpha. The composite's modes first; the target holds
+    // premultiplied colour. Normal is premultiplied over: the shader scales the source by the paint layer's opacity,
+    // so what is behind is weighed by what the faded source leaves open and an opaque background stays opaque (the
+    // window composes with premultiplied alpha). Screen and add add the source at the layer's opacity (the blend
+    // factor) and weigh what is behind by one minus the source colour, or by one, keeping its alpha. Then a graph
+    // pass's alpha, add and premultiplied. Last the adapted screen and add: while they cross-fade, the source plus what
+    // is behind weighed by the shader's second output; settled, what is behind times the source.
     static constexpr GpuBlendFactor kModes[8][4]{
-        {GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::blend_factor,
-         GpuBlendFactor::inv_src_alpha},
+        {GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha},
         {GpuBlendFactor::blend_factor, GpuBlendFactor::inv_src_color, GpuBlendFactor::zero, GpuBlendFactor::one},
         {GpuBlendFactor::blend_factor, GpuBlendFactor::one, GpuBlendFactor::zero, GpuBlendFactor::one},
         {GpuBlendFactor::src_alpha, GpuBlendFactor::inv_src_alpha, GpuBlendFactor::one, GpuBlendFactor::inv_src_alpha},

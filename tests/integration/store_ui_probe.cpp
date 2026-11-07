@@ -20,6 +20,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
@@ -31,7 +32,8 @@
 // catalog fixture's `previews/<sha>.png`: the tiles then show the real pictures, decoded and uploaded the way the
 // host does. 04 and 08 run the Aurora sample as the window background so their live tiles have an effect; 16 and 17
 // run every sample on its own knob page and check the tile's pixels; 19 is Starfield's page on the Light theme,
-// adapted to it; 20 to 24 are choice knobs, buttons or dropdown, at window sizes up to 2560x1440 pixels.
+// adapted to it; 20 to 24 are choice knobs, buttons or dropdown, at window sizes up to 2560x1440 pixels; 25 and
+// store-flash-0 to 5 are the first frames of Settings opening on a knob page, whose every pixel must stay opaque.
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -470,8 +472,8 @@ const Sample kSamples[]{
 };
 #undef MC_PACKAGE
 
-// A sample as the window background, as the host selects the effect a knob page previews.
-bool run_effect(D3D11Renderer& renderer, const Sample& sample) noexcept {
+// A sample as the window background, as the host selects the effect a knob page previews, at the user's opacity.
+bool run_effect(D3D11Renderer& renderer, const Sample& sample, float opacity = 1.f) noexcept {
     BackgroundEffectSpec spec{};
     spec.bytecode = {sample.code, sample.bytes};
     spec.identity = hash64_bytes(kHash64Seed, sample.code, sample.bytes) | 1;
@@ -480,7 +482,7 @@ bool run_effect(D3D11Renderer& renderer, const Sample& sample) noexcept {
     spec.requested_resolution = spec.requested_frame_rate = 3;
     for (u32 i = 0; i < 12; ++i)
         spec.knobs[i / 4][i % 4] = sample.knobs[i];
-    const EffectSettings settings{1.f, 1.f, sample.blend, 2, 2, EffectBudget::high, false};
+    const EffectSettings settings{1.f, opacity, sample.blend, 2, 2, EffectBudget::high, false};
     const auto selected = renderer_select_effect(&renderer, spec, settings);
     if (selected.state == EffectSelect::rejected || FAILED(selected.native_error))
         return false;
@@ -543,6 +545,53 @@ TilePixels live_tile_pixels(D3D11Renderer& renderer, const Theme& theme) noexcep
                 ++out.shades;
             }
         }
+    return out;
+}
+
+// One frame of Settings opening, read back from the drawn target: the pixels of the window's content, of the modal
+// and of the knob page's live tile whose alpha is below 255, and the lowest alpha. The window composes with
+// premultiplied alpha and has no backdrop of its own, so a translucent pixel shows the desktop through the window.
+struct OpeningAlpha {
+    bool read;
+    u32 window, modal, tile;
+    u32 lowest;
+};
+OpeningAlpha opening_alpha(D3D11Renderer& renderer, const Theme& theme, const UiRect& modal, float progress) noexcept {
+    OpeningAlpha out{false, 0, 0, 0, 255};
+    const PaintQuad* tile = nullptr;
+    for (u32 i = 0; i < renderer.paint_stream.count && !tile; ++i)
+        if (ui_background_canvas_quad(renderer.paint_stream.quads[i]) && renderer.paint_stream.quads[i].radius > 0)
+            tile = &renderer.paint_stream.quads[i];
+    D3D11_TEXTURE2D_DESC description{};
+    ProbeTargetReadback readback;
+    if (!tile || !d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr, 10000) ||
+        readback.read_target(renderer, description) ||
+        (description.Format != DXGI_FORMAT_B8G8R8A8_UNORM && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM))
+        return out;
+    out.read = true;
+    const float scale = static_cast<float>(renderer.dpi) / 96.f;
+    const u32 origin = renderer.target_origin_y;
+    // The dialog grows from 90 % about the modal's centre while it fades in (renderer_draw.cpp); the tile with it.
+    const float grow = .9f + .1f * progress;
+    const float cx = (modal.left + modal.right) * .5f, cy = (modal.top + modal.bottom) * .5f;
+    const UiRect shown{cx + (tile->left - cx) * grow, cy + (tile->top - cy) * grow, cx + (tile->right - cx) * grow,
+                       cy + (tile->bottom - cy) * grow};
+    const auto inside = [&](const UiRect& r, u32 x, u32 y) noexcept {
+        const float px = static_cast<float>(x) + .5f, py = static_cast<float>(y - origin) + .5f;
+        return px >= r.left * scale && px < r.right * scale && py >= r.top * scale && py < r.bottom * scale;
+    };
+    for (u32 y = origin; y < origin + renderer.height && y < description.Height; ++y) {
+        const u8* row = static_cast<const u8*>(readback.mapped.pData) + y * readback.mapped.RowPitch;
+        for (u32 x = 0; x < renderer.width && x < description.Width; ++x) {
+            const u32 alpha = row[x * 4 + 3];
+            if (alpha == 255)
+                continue;
+            ++out.window;
+            out.lowest = minimum(out.lowest, alpha);
+            out.modal += inside(modal, x, y) ? 1u : 0u;
+            out.tile += inside(shown, x, y) ? 1u : 0u;
+        }
+    }
     return out;
 }
 
@@ -797,6 +846,44 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         f.model.effect_preview = 0;
         next(L"store-18-knobs-starting.bmp", kEffects, nullptr, sunset);
         valid = valid && !live_tile_pixels(renderer, sunset).found;
+    }
+    // 25 Settings opening on the knob page as the owner opens it: the Light theme, the page's effect drawing at 60 %
+    // opacity in normal blend. Every frame of the entrance, from its first, leaves the window's content opaque, the
+    // modal and its live tile included (opening_alpha); the tile's composite once punched it through to the desktop.
+    if (valid) {
+        stage = __LINE__;
+        effects();
+        knobs();
+        valid = run_effect(renderer, kSamples[0], .6f);
+        renderer_set_effect_light(&renderer, 0);
+        StorePageState& st = f.state[2];
+        st.detail = st.knobs = true;
+        st.detail_from = StoreTab::installed;
+        copy_bytes(st.slug, "aurora", 7);
+        next(L"store-25-knobs-opening.bmp", kEffects, nullptr, kLightTheme);
+        if (valid)
+            stage = __LINE__;
+        const UiSettingsDurations timing = ui_settings_layout_tokens(kLightTheme.styles).duration;
+        static constexpr u64 kElapsedMs[]{0, 16, 33, 50, 66, 100};
+        wchar_t name[] = L"store-flash-0.bmp";
+        bool opaque = true;
+        for (u32 i = 0; valid && i < sizeof(kElapsedMs) / sizeof(kElapsedMs[0]); ++i) {
+            const float progress = ui_settings_modal_entrance(timing, kElapsedMs[i]);
+            renderer_set_settings_modal_progress(&renderer, progress);
+            const OpeningAlpha alpha = opening_alpha(renderer, kLightTheme, f.scene.layout.modal, progress);
+            name[12] = static_cast<wchar_t>(L'0' + i);
+            valid = alpha.read && capture(name, kLightTheme);
+            if (valid && alpha.window) {
+                log_u64(LogLevel::error, "probe", "store_opening_elapsed_ms", kElapsedMs[i]);
+                log_u64(LogLevel::error, "probe", "store_opening_translucent_window", alpha.window);
+                log_u64(LogLevel::error, "probe", "store_opening_translucent_modal", alpha.modal);
+                log_u64(LogLevel::error, "probe", "store_opening_translucent_tile", alpha.tile);
+                log_u64(LogLevel::error, "probe", "store_opening_lowest_alpha", alpha.lowest);
+                opaque = false;
+            }
+        }
+        renderer_set_settings_modal_progress(&renderer, 1);
+        valid = valid && opaque;
     }
     // 19 Starfield's page on the Light theme, adapted as the host draws it there (its stars as dark specks): the pill
     // and the panels over a light effect.
