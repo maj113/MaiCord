@@ -436,12 +436,18 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     if (!self && g_app.account_ui->active_channel_id && g_app.account.api.application_command)
         facts.has_apps = apps_available(kCommandTypeUser);
     facts.can_report = !self && g_app.account.api.user_social;
+    // From a profile card the first row is View Full Profile; the full profile itself has none.
+    if (source == UserMenuSource::profile)
+        facts.profile_row = g_app.profile && g_app.profile->scene.active && g_app.profile->data.user_id == user_id &&
+                                    g_app.profile->scene.presentation == ProfilePresentation::modal
+                                ? UserContextProfileRow::none
+                                : UserContextProfileRow::view_full;
     PopupItem items[kMenuCapacity]{};
     u32 count = 0;
     for (u32 i = 0; i < leading.count; ++i)
         items[count++] = leading[i];
     const u32 builtins = user_context_menu_build(facts, {items + count, kUserContextMaximumItems});
-    if (!builtins)
+    if (!builtins && facts.profile_row != UserContextProfileRow::none)
         return false;
     if (count)
         items[count].flags |= popup_item_separator_before;
@@ -588,8 +594,8 @@ bool application_user_menu_activate(u32 action) noexcept {
     case A::profile:
         dismiss_popup();
         // From a profile card this is View Full Profile.
-        if (s.source == UserMenuSource::profile && application_profile_expand(user))
-            return true;
+        if (s.source == UserMenuSource::profile)
+            return application_profile_view_full(user, anchor) || true;
         return application_profile_open(user, anchor) || true;
     case A::mention: {
         dismiss_popup();

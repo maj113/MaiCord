@@ -505,6 +505,12 @@ bool application_profile_expand(u64 user, u8 tab) noexcept {
         return false;
     return show_modal(*p, tab);
 }
+bool application_profile_view_full(u64 user, const UiRect& anchor) noexcept {
+    const auto* p = g_app.profile;
+    if ((!p || !p->scene.active || p->data.user_id != user) && !application_profile_open(user, anchor))
+        return false;
+    return application_profile_expand(user);
+}
 bool application_profile_menu_action(u32 action) noexcept {
     return action > kMenuBase && action <= menu_last && g_app.popup_owner_kind == PopupOwnerKind::profile;
 }
@@ -602,8 +608,13 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
             p->scene.presence = ui_user_presence(*rows, user);
         p->scene.presence_mobile =
             ui_presence_mobile(p->scene.presence, user_store_client_status(g_app.account_ui->user_store, user));
-        if (member)
+        if (member) {
             assign(&p->data.nickname, guild_member_store_nickname(*member));
+            // The member's cached roles show while the profile loads and stay if its fetch fails.
+            const auto held = guild_member_store_role_ids(g_app.account_ui->guild_member_store, *member);
+            for (u32 i = 0; i < held.count && i < sizeof(p->data.roles) / sizeof(p->data.roles[0]); ++i)
+                p->data.roles[p->data.role_count++] = held[i];
+        }
         if (const auto* a = user_appearance_find(g_app.account_ui->user_store.appearance, user))
             user_appearance_expand(*a, &p->data.user_appearance);
         if (const auto* a =

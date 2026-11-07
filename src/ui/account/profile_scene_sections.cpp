@@ -557,6 +557,19 @@ bool role_removable(const ProfileScene& s, const RoleEditPolicy& policy, const R
     return interactive(s) && !s.roles_busy && role_editable(policy, role);
 }
 } // namespace
+// Whether roles() draws anything: a role of the member the store knows, or
+// the add button.
+bool roles_shown(const ProfileScene& s) noexcept {
+    const auto& p = *s.profile;
+    if (!s.state || !p.guild_id)
+        return false;
+    if (interactive(s) && s.can_manage_roles && !s.roles_busy)
+        return true;
+    for (u32 i = 0; i < p.role_count && i < sizeof(p.roles) / sizeof(p.roles[0]); ++i)
+        if (chat_state_store_find_role(*s.state, p.guild_id, p.roles[i]))
+            return true;
+    return false;
+}
 // Role pills. Popouts show at most two lines within the content width and end
 // with "+N"; the modal and an expanded popout list every role. Returns the
 // block height (0 without roles or add button).
@@ -1055,10 +1068,13 @@ bool can_message(const ProfileScene& s) noexcept {
     return !self(s) && s.relation != 4;
 }
 bool finish(ProfileScene* s, const UiRect& viewport) noexcept {
-    if (labels(s).failed)
-        return false;
     ++s->revision;
+    // A part that could not be added drops alone: the parts that were added
+    // still get their geometry, so a failed layout never leaves the card's
+    // nodes empty. The failure is still reported.
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
+        return false;
+    if (labels(s).failed)
         return false;
     if (s->note_editing && s->note_field.generation) {
         // The note field takes the edit view: geometry follows its laid-out row.

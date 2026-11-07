@@ -138,7 +138,7 @@ constexpr auto kBefore = utf8_literal(
 constexpr auto kAfter = utf8_literal(
     R"({"user":{"id":"42","username":"fixture"},"guild_member":{"roles":["100","101","102","103","104","105","106","107","108","109","110","111","112","113","114","115","116","117","200"]}})");
 bool role_request(RestMethod method) noexcept {
-    return same({target, target_bytes}, utf8_literal("/api/v10/guilds/7/members/42/roles/200")) &&
+    return same({target, target_bytes}, utf8_literal("/api/v9/guilds/7/members/42/roles/200")) &&
            !body_bytes && route.method == method && route.major == RestMajorParameter::guild &&
            route.major_key == 7;
 }
@@ -343,6 +343,60 @@ void run() noexcept {
     check(server_row && !friends_tab, "profile runtime: a bot's full profile has Mutual Servers and no Mutual Friends");
     check(click(ProfileAction::command) && !p.scene.active && inserted_application == 55 && inserted_command == 902,
           "profile runtime: a command chip closes the profile and fills the composer");
+    // A member of the selected server whose roles the viewer neither sees nor edits, wearing a server tag:
+    // the popout menu's View Full Profile turns the card into that member's full profile in the same server,
+    // laid out with every text part placed, and never reopens the popout.
+    guild.base_permissions = 0;
+    constexpr auto member = utf8_literal(
+        R"({"user":{"id":"43","username":"tagged","global_name":"Tagged Member",)"
+        R"("primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"YURI","badge":null}},)"
+        R"("guild_member":{"nick":"Server Nick","roles":[]}})");
+    const UiRect anchor{600, 300, 640, 340};
+    const bool popout = application_profile_open(43, anchor) &&
+                        p.scene.presentation == ProfilePresentation::popout && application_profile_submit(300) &&
+                        read_operation == 0 && read_user == 43 && read_guild == 7;
+    response(200, member);
+    const u32 opens = p.scene.opens;
+    const bool full = application_profile_view_full(43, anchor);
+    bool placed = p.scene.part_count > 0, nick = false;
+    for (u32 i = 0; i < p.scene.part_count; ++i) {
+        const auto* node = ui_widget_manager_layout_node(p.scene.widgets, p.scene.parts[i].widget);
+        if (p.scene.parts[i].text.bytes)
+            placed &= node && ui_rect_has_area(node->rectangle);
+        nick |= utf8_equal(p.scene.parts[i].text, utf8_literal("Server Nick"));
+    }
+    check(popout && full && p.scene.active && p.scene.presentation == ProfilePresentation::modal &&
+              p.scene.opens == opens + 1 && p.data.user_id == 43 && p.data.guild_id == 7 && placed && nick,
+          "profile runtime: View Full Profile opens the same member's full profile, laid out, not the popout");
+    check(application_profile_close() && !p.scene.active, "profile runtime: the full profile closes");
+    // A profile GET that fails (404 Unknown User): the card stays open on what the client cached, the name, and the
+    // notice, and its full profile lays out the same way.
+    static UserRecord user_records[4];
+    static u32 user_order[4];
+    static u8 user_names[256];
+    const bool cached = user_store_initialize(&users, {user_records, 4}, {user_order, 4}, {user_names, 256}) &&
+                        user_store_upsert(&users, 44, utf8_literal("Cached Name")).ok();
+    const bool requested = cached && application_profile_open(44, anchor) && application_profile_submit(400) &&
+                           read_operation == 0 && read_user == 44 && read_guild == 7;
+    response(404, utf8_literal(R"({"message":"Unknown User","code":10013})"));
+    const auto shows = [&](Utf8View text) noexcept {
+        bool found = false, laid = p.scene.part_count > 0;
+        for (u32 i = 0; i < p.scene.part_count; ++i) {
+            const auto* node = ui_widget_manager_layout_node(p.scene.widgets, p.scene.parts[i].widget);
+            if (p.scene.parts[i].text.bytes)
+                laid &= node && ui_rect_has_area(node->rectangle);
+            found |= utf8_equal(p.scene.parts[i].text, text);
+        }
+        return found && laid;
+    };
+    const auto notice = utf8_literal("Unable to load parts of profile");
+    const bool fallback = requested && p.scene.active && p.scene.phase == ProfilePhase::failed &&
+                          p.scene.http_status == 404 && shows(utf8_literal("Cached Name")) && shows(notice);
+    check(fallback && application_profile_view_full(44, anchor) &&
+              p.scene.presentation == ProfilePresentation::modal && shows(utf8_literal("Cached Name")) &&
+              shows(notice),
+          "profile runtime: a 404 profile shows the cached card and its full profile, never a blank one");
+    check(application_profile_close(), "profile runtime: the failed card closes");
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

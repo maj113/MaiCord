@@ -211,6 +211,7 @@ bool probe_chat_name_styles() noexcept;
 bool probe_dm_name_styles() noexcept;
 bool probe_transparent_guild_icon() noexcept;
 bool probe_braille_profile() noexcept;
+bool probe_profile_member_modal() noexcept;
 bool probe_profile_card() noexcept;
 bool probe_profile_activity_card() noexcept;
 bool probe_rich_composer() noexcept;

@@ -486,6 +486,11 @@ maicord_test(MaiCordPresenceWaveTests ENTRY maicord_presence_wave_entry
 # icon and button metadata requests.
 maicord_test(MaiCordProfileActivityTests ENTRY maicord_profile_activity_entry SOURCES tests/ui/account/profile_activity.cpp
     BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_profile_activity)
+# Every profile shape (server tag, pronouns, theme colours, failed fetch, webhook) projects text
+# commands the renderer accepts, in the popout and the full profile, on dark and light themes.
+maicord_test(MaiCordProfileTextProjectionTests ENTRY maicord_profile_text_projection_entry
+    SOURCES tests/ui/account/profile_text_projection.cpp
+    BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_profile_text_projection)
 # A large-account READY through the production projection and the app's
 # message event pump; skipped-event isolation and diagnostics.
 maicord_test(MaiCordReadyScalePumpTests ENTRY maicord_ready_scale_pump_entry SOURCES tests/model/user/ready_scale_pump.cpp

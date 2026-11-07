@@ -48,6 +48,22 @@ void test_user_context_menu(void (*check)(bool, const char*) noexcept) noexcept 
               ui_menu_row_icon(items[5].presentation) == UiIcon::chevron_right &&
               ui_menu_row_icon(items[9].presentation) == UiIcon::chevron_right,
           "user menu: submenus carry a trailing chevron");
+    {
+        // A profile card's menu opens with the official popout's View Full Profile; the full profile has none.
+        PopupItem card[kUserContextMaximumItems]{};
+        UserContextFacts facts = other;
+        facts.profile_row = UserContextProfileRow::view_full;
+        const u32 card_count = user_context_menu_build(facts, {card, kUserContextMaximumItems});
+        facts.profile_row = UserContextProfileRow::none;
+        PopupItem full[kUserContextMaximumItems]{};
+        const u32 full_count = user_context_menu_build(facts, {full, kUserContextMaximumItems});
+        check(card_count == count && card[0].action == static_cast<u32>(A::profile) &&
+                  utf8_equal(card[0].label, utf8_literal("View Full Profile")) &&
+                  utf8_equal(items[0].label, utf8_literal("Profile")) && full_count == count - 1 &&
+                  full[0].action == static_cast<u32>(A::mention) &&
+                  index_of({full, full_count}, static_cast<u32>(A::profile)) == ~0u,
+              "user menu: a profile card's first row is View Full Profile, absent from the full profile");
+    }
     PopupItem leading{};
     leading.presentation = ui_menu_row_presentation(UiIcon::copy);
     check(popup_item_menu_row_height(items[4], true) == popup_item_menu_row_height(items[0], true) &&

@@ -627,9 +627,11 @@ void sync_message_scroll(D3D11Renderer* renderer) noexcept {
     renderer->text_stable_serial = renderer->text_shell_serial;
 }
 
-// One line per failure episode (a successful build re-arms it): which projection rejected which element,
-// the check it failed and the values compared. Only code-given widget names, never text or IDs.
+// One line per failure episode (a build that projects every overlay re-arms it): which projection rejected which
+// element, the check it failed and the values compared. Only code-given widget names, never text or IDs.
 bool g_projection_reject_logged;
+// The last build drew the overlays without their text because one could not be projected.
+bool g_overlay_text_withheld;
 __declspec(noinline) bool projection_rejected(const char* projection, const UiTextEmitter& e) noexcept {
     if (g_projection_reject_logged)
         return false;
@@ -732,8 +734,20 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     } else if (!project_static() || !project_shell_member_text(renderer, theme, &shell)) {
         return projection_rejected(static_known ? "members" : "shell", shell);
     }
-    if (!project_overlay_text(renderer, theme, &overlay, &boundaries))
-        return projection_rejected("overlay", overlay);
+    // An overlay whose text has no valid geometry (a scene left without layout) shows without text for this
+    // build; the shell and the messages beneath it keep theirs. Anything else (a stale owner, a scene that
+    // refused, capacity) still refuses the build.
+    g_overlay_text_withheld = false;
+    if (!project_overlay_text(renderer, theme, &overlay, &boundaries)) {
+        projection_rejected("overlay", overlay);
+        if (overlay.reject_check != UiTextRejectCheck::rectangle && overlay.reject_check != UiTextRejectCheck::clip)
+            return false;
+        g_overlay_text_withheld = true;
+        reservation = {storage->quad_capacity, 0};
+        reset_value(&boundaries);
+        if (!ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation))
+            return false;
+    }
     ContentTextRetentionKey retention_key =
         content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
     if (shell_retained && (retention_key.shell_signature != retained_shell.signature ||
@@ -996,9 +1010,10 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     UiTextEmitter overlay_raster{};
     TextOverlayBoundaries raster_boundaries{};
     if (!ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster) ||
-        !project_overlay_text(renderer, theme, &overlay_raster, &raster_boundaries) ||
-        overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
-        !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes))
+        (!g_overlay_text_withheld &&
+         (!project_overlay_text(renderer, theme, &overlay_raster, &raster_boundaries) ||
+          overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
+          !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes))))
         return false;
     for (u32 index = 0; index < kOverlayEndBoundaryCount; ++index) {
         const auto& entry = kOverlayBatchBoundaries[index];
@@ -1438,7 +1453,8 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             build_content_text_once(renderer, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
                                     include_messages);
         if (content_built) {
-            g_projection_reject_logged = false;
+            if (!g_overlay_text_withheld)
+                g_projection_reject_logged = false;
             if (storage_modified) {
                 ++renderer->content_text->rebuilds;
             }

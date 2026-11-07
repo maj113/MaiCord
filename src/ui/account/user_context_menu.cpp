@@ -34,7 +34,10 @@ u32 user_context_menu_build(const UserContextFacts& f, const Slice<PopupItem>& o
     const bool other = !f.self;
     const bool relation_rows = other && !f.bot && f.relations_known;
 
-    push(row(utf8_literal("Profile"), UserContextAction::profile));
+    if (f.profile_row != UserContextProfileRow::none)
+        push(row(f.profile_row == UserContextProfileRow::view_full ? utf8_literal("View Full Profile")
+                                                                    : utf8_literal("Profile"),
+                 UserContextAction::profile));
     if (f.can_mention)
         push(row(utf8_literal("Mention"), UserContextAction::mention));
     if (other && f.can_message && f.relation != UserContextRelation::blocked)

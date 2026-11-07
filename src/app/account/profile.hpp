@@ -111,6 +111,10 @@ bool application_profile_open_edit(u64 user) noexcept;
 // then the mutual lists: 1 Mutual Friends and 2 Mutual Servers, a bot's
 // Mutual Servers 1); false when not shown.
 bool application_profile_expand(u64 user, u8 tab = 0) noexcept;
+// View Full Profile from a profile card's menu: the card showing user becomes
+// their full profile (a card for someone else, the DM panel's, opens theirs
+// first); it never reopens the popout. False when it cannot be shown.
+bool application_profile_view_full(u64 user, const UiRect& anchor) noexcept;
 // Popup rows of the profile card's menus.
 bool application_profile_menu_action(u32 action) noexcept;
 bool application_profile_menu_activate(u32 action) noexcept;

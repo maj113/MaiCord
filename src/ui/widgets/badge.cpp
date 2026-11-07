@@ -79,6 +79,8 @@ UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManage
         const float mark = badge.leading ? kUiBadgeCompactIcon + kUiBadgeCompactIconGap : 0.0f;
         r.text = {r.outer.left + kUiBadgeCompactPadding + mark, r.outer.top, r.outer.right - kUiBadgeCompactPadding,
                   r.outer.bottom};
+        // A chip narrower than its padding and mark has no room for its label.
+        r.text.right = maximum(r.text.left, r.text.right);
         if (badge.leading && badge.accent)
             r.icon = ui_app_badge_check_rectangle(r.outer);
         else if (badge.leading)
@@ -87,6 +89,7 @@ UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManage
         return r;
     }
     r.text = {r.outer.left + 6 + (badge.leading ? 20 : 0), r.outer.top, r.outer.right - 6, r.outer.bottom};
+    r.text.right = maximum(r.text.left, r.text.right);
     if (badge.leading)
         r.icon = {r.outer.left + 6, cy - 7, r.outer.left + 20, cy + 7};
     return r;

@@ -8,10 +8,14 @@ made up; the server answers from it instead of its built-in QA guild. world.json
     me                  key of the signed-in account in users
     users               key -> {id, username, global_name, avatar, banner, accent_color, bio, pronouns, theme_colors, bot,
                           display_name_styles: {font_id, effect_id, colors}, primary_guild: {identity_guild_id,
-                          identity_enabled, tag, badge} (the badge under cdn/clan-badges/<guild>/<badge>.png)}
+                          identity_enabled, tag, badge} (the badge under cdn/clan-badges/<guild>/<badge>.png),
+                          webhook (a webhook author: bot, discriminator 0000, its messages carry webhook_id, and like
+                          any ID that is not a user its profile answers 404 Unknown User), profile_status (403 or 404:
+                          the profile GET fails that way)}
     guilds              [{id, name, icon, description, owner, roles: [{id, name, color, hoist, position}],
                           channels: [{id, type, name, parent, topic}], members: [{user, roles, nick}],
-                          emojis: [{id, name}], voice: [{user, channel, self_mute, self_video}]}]
+                          emojis: [{id, name}], voice: [{user, channel, self_mute, self_video}],
+                          member_count (what a large server reports; default: the members listed)}]
     presences           user key -> {status, activities: [{type, name, details, state, emoji, started_ago (ms)}]}
     dms                 [{id, type (1 or 3), users: [keys], name}]
     friends             [user keys]
@@ -99,9 +103,11 @@ class World:
     def user(self, key_or_id) -> dict:
         key = key_or_id if isinstance(key_or_id, str) else self.by_id[key_or_id]
         u = self.users[key]
-        return {"id": u["id"], "username": u["username"], "discriminator": "0" if not u.get("bot") else "1337",
+        discriminator = "0000" if u.get("webhook") else "1337" if u.get("bot") else "0"
+        return {"id": u["id"], "username": u["username"], "discriminator": discriminator,
                 "global_name": u["global_name"], "avatar": u["avatar"], "avatar_decoration_data": None,
-                "banner": u.get("banner"), "accent_color": u.get("accent_color"), "bot": bool(u.get("bot")),
+                "banner": u.get("banner"), "accent_color": u.get("accent_color"),
+                "bot": bool(u.get("bot") or u.get("webhook")),
                 "system": False, "flags": 0, "public_flags": 0, "premium_type": 2 if u.get("theme_colors") else 0,
                 "clan": u.get("primary_guild"), "primary_guild": u.get("primary_guild"),
                 **({"display_name_styles": u["display_name_styles"]} if u.get("display_name_styles") else {})}
@@ -141,6 +147,8 @@ class World:
                    "mentions": [self.user(key) for key in item.get("mentions", [])], "mention_roles": [],
                    "attachments": [self.picture(channel, key) for key in item.get("pictures", [])], "embeds": [],
                    "pinned": False, "type": 0, "flags": 0, "components": []}
+        if self.users[item["author"]].get("webhook"):
+            message["webhook_id"] = self.users[item["author"]]["id"]
         for embed in item.get("embeds", []):
             embed = dict(embed)
             for slot in ("image", "thumbnail"):  # a picture key becomes that picture on the CDN
@@ -235,7 +243,8 @@ class World:
                 "system_channel_id": None, "system_channel_flags": 0, "rules_channel_id": None, "premium_tier": 0,
                 "premium_subscription_count": 0, "preferred_locale": "en-US", "public_updates_channel_id": None,
                 "nsfw_level": 0, "premium_progress_bar_enabled": False, "max_members": 500000,
-                "member_count": len(g["members"]), "joined_at": iso(NOW - 86400000 * 120), "large": False,
+                "member_count": g.get("member_count", len(g["members"])), "joined_at": iso(NOW - 86400000 * 120),
+                "large": g.get("member_count", len(g["members"])) > 250,
                 "lazy": True, "unavailable": False, "roles": roles, "channels": channels, "threads": [],
                 "emojis": [{"id": e["id"], "name": e["name"], "animated": False, "available": True, "managed": False,
                             "require_colons": True, "roles": []} for e in g.get("emojis", [])],
@@ -321,7 +330,8 @@ class World:
                                           "client_status": {"desktop": "online"}, "activities": []}
                 items.append({"member": member})
         online_count = len(g["members"]) - len(offline)
-        return {"guild_id": g["id"], "id": "everyone", "member_count": len(g["members"]), "online_count": online_count,
+        return {"guild_id": g["id"], "id": "everyone", "member_count": g.get("member_count", len(g["members"])),
+                "online_count": online_count,
                 "groups": groups, "ops": [{"op": "SYNC", "range": [first, last], "items": items[first:last + 1]}]}
 
     def guild(self, identifier) -> dict:
@@ -404,6 +414,10 @@ class World:
         match = re.fullmatch(r"/users/(\d+)/profile", path)
         if match and method == "GET":
             return self.profile(int(match.group(1)), int(query["guild_id"]) if query.get("guild_id") else None)
+        # A note on a user: Discord answers 404 Unknown User when there is none (and for an ID that is not a user).
+        match = re.fullmatch(r"/users/@me/notes/(\d+)", path)
+        if match and method == "GET":
+            return 404, {"message": "Unknown User", "code": 10013}
         match = re.fullmatch(r"/users/(\d+)", path)
         if match and method == "GET" and int(match.group(1)) in self.by_id:
             return 200, rest(self.user(int(match.group(1))))
@@ -423,8 +437,11 @@ class World:
         return None
 
     def profile(self, user_id: int, guild_id):
-        if user_id not in self.by_id:
+        u = self.users.get(self.by_id.get(user_id), {})
+        if user_id not in self.by_id or u.get("webhook") or u.get("profile_status") == 404:
             return 404, {"message": "Unknown User", "code": 10013}
+        if u.get("profile_status") == 403:
+            return 403, {"message": "Missing Access", "code": 50001}
         key = self.by_id[user_id]
         u = self.users[key]
         user = self.user(key)

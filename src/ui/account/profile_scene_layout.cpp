@@ -431,16 +431,9 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     // Bot info: the bio, its Commands, then Created On.
     section(commands_section(s, s->body, cp, y, content));
     section(member_since(s, s->body, cp, y, content));
-    if (s->profile->guild_id && s->state) {
-        const float before = y;
+    if (roles_shown(*s)) {
         const float h = heading(s, s->body, cp, y, content, utf8_literal("Roles"));
-        const float r = roles(s, s->body, cp, y + h, content, false);
-        if (r == 0) {
-            // No roles to show: drop the heading again.
-            --s->part_count;
-            y = before;
-        } else
-            y += h + r + 24;
+        y += h + roles(s, s->body, cp, y + h, content, false) + 24;
     }
     section(plugin_section(s, s->body, cp, y, content));
     section(connections(s, s->body, cp, y, content));

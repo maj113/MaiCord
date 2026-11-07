@@ -42,6 +42,9 @@ constexpr bool user_context_action(u32 action) noexcept {
 }
 
 enum class UserContextRelation : u8 { none, friend_, incoming, outgoing, blocked };
+// The first row: "Profile" opens the popout; from a profile card it is the
+// official popout's "View Full Profile"; the full profile itself has none.
+enum class UserContextProfileRow : u8 { profile, view_full, none };
 
 struct UserContextFacts {
     UserContextRelation relation;
@@ -56,6 +59,7 @@ struct UserContextFacts {
     bool has_apps;           // user commands are loaded (or loading) here
     bool can_report;
     bool developer_mode;
+    UserContextProfileRow profile_row;
 };
 
 // Returns the row count, or zero (output untouched) without room.

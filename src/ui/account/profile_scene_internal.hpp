@@ -10,8 +10,8 @@
 namespace maicord::profile_scene_detail {
 
 constexpr u32 capacity = 320;
-// One widget per part, the root, and the Roles heading a modal drops again.
-constexpr u32 kWidgets = capacity + 2;
+// One widget per part and the root.
+constexpr u32 kWidgets = capacity + 1;
 // Chips a card holds: the bot tag, the server tag and the plugin chips.
 constexpr u32 kBadges = 12;
 // Text variants as size codes (1rem = the body size).
@@ -104,6 +104,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
                     u64 now_ms, ProfileAction action) noexcept;
 u32 activity_cards(ProfileScene* s, u8* order) noexcept;
 float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width) noexcept;
+bool roles_shown(const ProfileScene& s) noexcept;
 float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp) noexcept;
 float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool large) noexcept;

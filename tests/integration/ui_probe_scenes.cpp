@@ -4572,6 +4572,79 @@ bool probe_braille_profile() noexcept {
         probe_capture_frame(L"braille-profile-closed.bmp");
     return valid;
 }
+// Glyph quads of the last content text build whose centres fall in rectangle.
+u32 probe_quads_in(const UiRect& rectangle) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < g_probe.text.quad_count; ++i) {
+        const auto& q = g_probe.text_quads[i];
+        count += ui_rect_contains(rectangle, (q.left + q.right) * .5f, (q.top + q.bottom) * .5f);
+    }
+    return count;
+}
+// The full profile of a server member none of whose roles the viewer knows,
+// wearing a server tag (the card that drew blank), then of a member with a
+// role: both lay out and draw their text beside the message's. An overlay
+// whose text cannot be projected then loses only its own text; the shell and
+// the message keep theirs, and its text returns with its next layout.
+bool probe_profile_member_modal() noexcept {
+    g_probe.failure_stage = 275;
+    const UiRect viewport{0, 0, static_cast<float>(g_probe.renderer.width) * 96 / g_probe.renderer.dpi,
+        static_cast<float>(g_probe.renderer.height) * 96 / g_probe.renderer.dpi};
+    const UiRect message = g_probe.message_text.command_count ? g_probe.message_text.commands[0].rectangle : UiRect{};
+    bool valid = ui_rect_has_area(message) && rebuild_probe_content_text() && probe_quads_in(message) > 0;
+    for (u32 member = 0; valid && member < 2; ++member) {
+        g_probe.failure_stage = 276 + member;
+        UserProfile data{};
+        data.user_id = 4343 + member;
+        data.guild_id = 100;
+        const auto username = utf8_literal("tagged.member");
+        const auto display = utf8_literal("Tagged Member");
+        const auto tag = utf8_literal("YURI");
+        copy_bytes(data.username.data, username.data, username.bytes);
+        data.username.bytes = static_cast<u16>(username.bytes);
+        copy_bytes(data.display_name.data, display.data, display.bytes);
+        data.display_name.bytes = static_cast<u16>(display.bytes);
+        data.user_appearance.user_id = data.user_id;
+        data.user_appearance.primary_enabled = true;
+        data.user_appearance.primary_guild_id = 200;
+        copy_bytes(data.user_appearance.primary_tag.data, tag.data, tag.bytes);
+        data.user_appearance.primary_tag.bytes = static_cast<u16>(tag.bytes);
+        if (member)
+            data.roles[data.role_count++] = 55;
+        ProfileScene scene{};
+        scene.phase = ProfilePhase::ready;
+        scene.measure = &g_probe.text_measure_cache;
+        g_probe.renderer.profile_scene = &scene;
+        valid = profile_scene_open(&scene, &data, &g_probe.chat_state, &g_probe.users, 1,
+                                   {viewport.right - 100, 90, viewport.right, 134}, viewport);
+        scene.presentation = ProfilePresentation::modal;
+        valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
+                probe_present(&g_probe.renderer, kDefaultTheme) &&
+                probe_capture_frame(member ? L"profile-member-roles.bmp" : L"profile-member-no-roles.bmp");
+        const ProfilePart* name = nullptr;
+        for (u32 i = 0; i < scene.part_count; ++i)
+            if (utf8_equal(scene.parts[i].text, display))
+                name = &scene.parts[i];
+        auto* node = name ? ui_widget_manager_layout_node(&scene.widgets, name->widget) : nullptr;
+        const UiRect name_rect = node ? node->rectangle : UiRect{};
+        valid = valid && node && probe_text_pixels({&name_rect, 1}) && probe_quads_in(name_rect) > 0 &&
+                probe_quads_in(message) > 0;
+        // A part left without geometry: its command fails the renderer's checks.
+        if (valid) {
+            g_probe.failure_stage = 278 + member;
+            node->rectangle.right = node->rectangle.left - 10;
+            valid = rebuild_probe_content_text() && probe_quads_in(message) > 0 && probe_quads_in(name_rect) == 0 &&
+                    probe_present(&g_probe.renderer, kDefaultTheme) &&
+                    probe_capture_frame(member ? L"profile-member-roles-contained.bmp"
+                                               : L"profile-member-no-roles-contained.bmp");
+            valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
+                    probe_quads_in(name_rect) > 0 && probe_quads_in(message) > 0;
+        }
+        profile_scene_release(&scene);
+        g_probe.renderer.profile_scene = nullptr;
+    }
+    return valid && rebuild_probe_content_text() && probe_quads_in(message) > 0;
+}
 
 } // namespace ui_probe_detail
 
