@@ -49,7 +49,6 @@ void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept;
 // Whether a session whose last heartbeat acknowledgement (or connection start) was at last_ack_ms is too
 // old to resume: the client identifies afresh after three minutes without one. Zero is unknown.
 bool gateway_resume_expired(u64 last_ack_ms, u64 now_ms) noexcept;
-u32 gateway_invalid_session_delay(u32 random) noexcept;
 // Floor before re-identifying after the n-th consecutive READY that could not
 // be projected: 5 s doubling to a 10 min cap (at most ~150 IDENTIFYs a day,
 // well inside the server's 1000/day session-start budget). Zero for n == 0.

@@ -66,9 +66,9 @@ struct GatewayGuildSubscription {
     u64 members[kGatewayGuildSubscriptionMaximumMembers];
 };
 
-// Auth-token refresh (bit 8) stays disabled until a replacement can be adopted
-// atomically by REST, Gateway and encrypted profile storage.
-inline constexpr u32 kGatewayUserCapabilitiesDefault = 1'734'397;
+// The desktop client's capabilities with channel obfuscation off (1734653). It includes AUTH_TOKEN_REFRESH (bit 8):
+// READY may carry a replacement token, which the client adopts for the Gateway, REST and its saved profile.
+inline constexpr u32 kGatewayUserCapabilitiesDefault = 1'734'653;
 inline constexpr u32 kGatewayUserMaximumCommandBytes = 4'096;
 
 inline constexpr u32 kGatewayGuildMemberRequestMaximum = 100;
@@ -110,6 +110,8 @@ enum class GatewayUserStatus : u8 {
     idle,
     dnd,
     invisible,
+    // Presence only: the desktop client's status before its first session of the launch is open.
+    unknown,
 };
 // Gateway/settings wire name; empty for an unknown value.
 constexpr Utf8View gateway_user_status_name(GatewayUserStatus status) noexcept {
@@ -122,6 +124,8 @@ constexpr Utf8View gateway_user_status_name(GatewayUserStatus status) noexcept {
         return utf8_literal("dnd");
     case GatewayUserStatus::invisible:
         return utf8_literal("invisible");
+    case GatewayUserStatus::unknown:
+        return utf8_literal("unknown");
     default:
         return {};
     }
@@ -149,11 +153,11 @@ struct GatewayUserProperties {
     u32 native_build_number;
     // Per-launch UUID; empty omits it.
     Utf8View launch_signature;
-    // Added at request time after launch_signature, in the order they first
-    // appeared (app_state_first); an empty value is omitted.
+    // Added at request time after launch_signature: the heartbeat session, then the
+    // app state; an empty value is omitted. A normal identify always carries the
+    // heartbeat session, as null while there is none.
     Utf8View client_heartbeat_session_id;
     Utf8View client_app_state;
-    bool app_state_first;
     // The Linux desktop client's object: os_sdk_version is not sent, and window_manager, distro, runtime_environment
     // and display_server follow browser_version (an empty one is omitted).
     bool linux_desktop;
@@ -161,6 +165,8 @@ struct GatewayUserProperties {
     Utf8View distro;
     Utf8View runtime_environment;
     Utf8View display_server;
+    // Windows only: the build's update revision (UBR), after browser_version; empty omits it.
+    Utf8View os_build_revision;
 };
 
 // Writes the properties object, or with a null output measures it. Every
@@ -175,14 +181,15 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
 // properties as REST; client_build_number describes that protocol profile,
 // independently of MaiCord's binary version.
 //
-// A launch's first identify is the desktop page's fast-connect one: token,
-// capabilities, the reduced properties (no launch signature, heartbeat session
-// or app state; the page's own client_launch_id) with is_fast_connect:true, and
-// client_state; no presence, compress or QoS token. Later identifies carry the
-// current client_app_state (replacing the request-time one in place),
-// is_fast_connect:false, gateway_connect_reasons (empty writes "COLD_START"),
-// the presence, compress:false, client_state and the base64 qos_token (empty
-// omits it).
+// The desktop page fast-connects only when it loads with a stored token: that
+// launch's first identify carries token, capabilities, the reduced properties
+// (no launch signature, heartbeat session or app state; the page's
+// own client_launch_id) with is_fast_connect:true, and client_state; no presence,
+// compress or QoS token. Every other identify (after an interactive sign-in, a
+// re-identify) is the normal one: the full properties with the current
+// client_app_state (replacing the request-time one in place), is_fast_connect:false
+// and gateway_connect_reasons (empty writes "COLD_START"), then the presence,
+// compress:false, client_state and the base64 qos_token (empty omits it).
 inline constexpr u32 kGatewayUserMaximumConnectReasonsBytes = 256;
 inline constexpr u32 kGatewayUserMaximumQosTokenBytes = 1024;
 struct GatewayUserIdentify {

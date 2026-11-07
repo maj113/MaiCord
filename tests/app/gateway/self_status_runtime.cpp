@@ -23,7 +23,7 @@ RestClientSubmitResult capture(const RestClientRequest& request) noexcept {
     if (request.body.count <= sizeof(submitted_body))
         copy_bytes(submitted_body, request.body.data, request.body.count);
     check(utf8_equal({reinterpret_cast<const char*>(request.target.data), request.target.count},
-                     utf8_literal("/api/v10/users/@me/settings-proto/1")),
+                     utf8_literal("/api/v9/users/@me/settings-proto/1")),
           "self status runtime: shared primary REST request uses actual settings-proto1 endpoint");
     return {submit_error};
 }

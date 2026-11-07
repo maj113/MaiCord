@@ -45,6 +45,8 @@ struct GatewayReady {
     JsonValue auth_session_id_hash;
     // Optional base64 QoS data for later identifies; a credential.
     JsonValue qos_token;
+    // Optional replacement token (AUTH_TOKEN_REFRESH); a credential.
+    JsonValue auth_token;
     bool notification_policy_invalid;
 };
 

@@ -105,7 +105,11 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     const Utf8View app_state = fast                                      ? Utf8View{}
                                : identify && identify->client_app_state.bytes ? identify->client_app_state
                                                                              : properties.client_app_state;
-    const Utf8View heartbeat = fast ? Utf8View{} : properties.client_heartbeat_session_id;
+    // A normal identify reports a heartbeat session it does not have yet as null, as the page's properties do.
+    const bool heartbeat_null = identify && !fast && !properties.client_heartbeat_session_id.bytes;
+    const Utf8View heartbeat = fast             ? Utf8View{}
+                               : heartbeat_null ? utf8_literal("null")
+                                                : properties.client_heartbeat_session_id;
     const PropertySegment markers =
         fast ? PropertySegment{utf8_literal(",\"is_fast_connect\":"), utf8_literal("true"), 0, true}
         : identify
@@ -116,12 +120,10 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     const PropertySegment app_state_segment{utf8_literal(",\"client_app_state\":"), app_state,
                                             kGatewayUserMaximumAppStateBytes, false};
     const PropertySegment heartbeat_segment{utf8_literal(",\"client_heartbeat_session_id\":"), heartbeat,
-                                            kGatewayUserLaunchIdBytes, false};
-    // An app state the request-time object lacks follows its other properties.
-    const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes && !fast;
+                                            kGatewayUserLaunchIdBytes, heartbeat_null};
     // The live client's order: os_version, os_version_is_release, then on Windows os_sdk_version, os_arch ...
-    // browser_version, client_build_number. The Linux desktop client sends no os_sdk_version and adds the host's
-    // window manager, distro, runtime environment and display server after browser_version.
+    // browser_version, os_build_revision, client_build_number. The Linux desktop client sends no os_sdk_version and
+    // adds the host's window manager, distro, runtime environment and display server after browser_version.
     constexpr u32 segment_capacity = 24;
     PropertySegment segments[segment_capacity];
     u32 segment_count = 0;
@@ -144,9 +146,8 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     add({utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent, kGatewayUserMaximumUserAgentBytes,
          false});
     add({utf8_literal(",\"browser_version\":"), properties.browser_version, kGatewayUserMaximumVersionBytes, false});
-    // Fields before client_build_number are required on Windows, the ones before the host's own on Linux; later
-    // ones are omitted when empty.
-    u32 required_count = segment_count;
+    // Fields up to browser_version are required; later ones are omitted when empty.
+    const u32 required_count = segment_count;
     if (properties.linux_desktop) {
         add({utf8_literal(",\"window_manager\":"), properties.window_manager, kGatewayUserMaximumHostBytes, false});
         add({utf8_literal(",\"distro\":"), properties.distro, kGatewayUserMaximumHostBytes, false});
@@ -154,16 +155,17 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
              kGatewayUserMaximumRuntimeBytes, false});
         add({utf8_literal(",\"display_server\":"), properties.display_server, kGatewayUserMaximumRuntimeBytes,
              false});
+    } else {
+        add({utf8_literal(",\"os_build_revision\":"), properties.os_build_revision, kGatewayUserMaximumVersionBytes,
+             false});
     }
     add({utf8_literal(",\"client_build_number\":"), build_text, 0, true});
-    if (!properties.linux_desktop)
-        required_count = segment_count;
     add({utf8_literal(",\"native_build_number\":"), native_text, 0, true});
     add({utf8_literal(",\"client_event_source\":"), utf8_literal("null"), 0, true});
     add({utf8_literal(",\"launch_signature\":"), fast ? Utf8View{} : properties.launch_signature,
          kGatewayUserLaunchIdBytes, false});
-    add(app_state_first ? app_state_segment : heartbeat_segment);
-    add(app_state_first ? heartbeat_segment : app_state_segment);
+    add(heartbeat_segment);
+    add(app_state_segment);
     add(markers);
     EncodedString encoded[segment_capacity]{};
     for (u32 index = 0; index < segment_count; ++index) {

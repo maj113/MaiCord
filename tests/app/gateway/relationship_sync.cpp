@@ -335,7 +335,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     u8 output[128]{};
     const auto target = write_relationship_target(RelationshipOperation::accept, ~u64{0}, {output, 128});
     check(target.ok() && utf8_equal({reinterpret_cast<const char*>(output), target.bytes},
-        utf8_literal("/api/v10/users/@me/relationships/18446744073709551615")) &&
+        utf8_literal("/api/v9/users/@me/relationships/18446744073709551615")) &&
         relationship_method(RelationshipOperation::accept) == RestMethod::put &&
         relationship_method(RelationshipOperation::remove) == RestMethod::delete_method,
         "friends: ID routes preserve full snowflakes and normalized confirmed PUT/DELETE methods");
@@ -346,7 +346,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     check(written.ok() && written.bytes == 2 && bytes_equal(output, "{}", 2), "friends: accepting uses minimal type-omitted PUT body");
     const auto stranger_target = write_relationship_target(RelationshipOperation::accept_stranger, 42, {output, 128});
     check(stranger_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), stranger_target.bytes},
-        utf8_literal("/api/v10/users/@me/relationships/42")) &&
+        utf8_literal("/api/v9/users/@me/relationships/42")) &&
         relationship_method(RelationshipOperation::accept_stranger) == RestMethod::put,
         "friends: explicit stranger consent uses the user-ID route with PUT");
     written = write_relationship_body(RelationshipOperation::accept_stranger, {}, {output, 128});
@@ -377,7 +377,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     for (const auto operation : ignores) {
         const auto ignore_target = write_relationship_target(operation, ~u64{0}, {output, 128});
         check(ignore_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), ignore_target.bytes},
-                utf8_literal("/api/v10/users/@me/relationships/18446744073709551615/ignore")) &&
+                utf8_literal("/api/v9/users/@me/relationships/18446744073709551615/ignore")) &&
             relationship_method(operation) == (operation == RelationshipOperation::ignore ? RestMethod::put : RestMethod::delete_method) &&
             write_relationship_body(operation, {}, {}).ok() &&
             write_relationship_target(operation, 0, {output, 128}).error == RelationshipWriteError::invalid_input,
@@ -387,7 +387,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     for (const auto operation : clears) {
         const auto clear_target = write_relationship_target(operation, 0, {output, 128});
         check(clear_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), clear_target.bytes},
-                utf8_literal("/api/v10/users/@me/relationships?relationship_type=3")) &&
+                utf8_literal("/api/v9/users/@me/relationships?relationship_type=3")) &&
             relationship_method(operation) == RestMethod::delete_method &&
             write_relationship_target(operation, 1, {output, 128}).error == RelationshipWriteError::invalid_input,
             "friends: clear actions use collection DELETE constrained to incoming relationship type");
@@ -445,9 +445,11 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         11, 100, capture, &stream).ok() && !stream.completed && stream.active.revision == stream_revision && stream.active.count == 3,
         "friends Gateway: publisher failure after a staged item cannot replace the last complete snapshot");
     stream.fail_after = 0;
-    check(!gateway_client_publish_relationship_snapshot({bad[1], 0, JsonValueKind::array}, {}, {scratch, 1024}, {object_scratch, 512},
-        12, 100, capture, &stream).ok() && !stream.completed && stream.active.revision == stream_revision,
-        "friends Gateway: late invalid relationship prevents the completion marker and preserves active state");
+    // A relationship of a type this client does not know is left out of the snapshot rather than failing READY.
+    check(gateway_client_publish_relationship_snapshot({bad[1], 0, JsonValueKind::array}, {}, {scratch, 1024}, {object_scratch, 512},
+        12, 100, capture, &stream).ok() && stream.completed && stream.active.count == 1 &&
+        relationship_store_find(stream.active, 1) && !relationship_store_find(stream.active, 2),
+        "friends Gateway: an untypeable relationship is skipped and the snapshot completes");
     GatewayEnvelope envelope{};
     const auto live = utf8_literal(R"({"id":"55","type":3,"user":{"id":"55","username":"requester"}})");
     envelope.event_name = {utf8_literal("RELATIONSHIP_ADD"), 0, false}; envelope.data = {live, 0, JsonValueKind::object};

@@ -91,7 +91,7 @@ void lifecycle_requests() noexcept {
     const auto t = guild_admin_write_target(leave, {target, sizeof(target)});
     const auto b = guild_admin_write_body(leave, {body, sizeof(body)});
     check(guild_admin_request_valid(leave) && t.ok() && b.ok() &&
-              text_is(target, t.bytes, utf8_literal("/api/v10/users/@me/guilds/42")) &&
+              text_is(target, t.bytes, utf8_literal("/api/v9/users/@me/guilds/42")) &&
               text_is(body, b.bytes, utf8_literal(R"({"lurking":false})")) &&
               guild_admin_method(leave.operation) == RestMethod::delete_method &&
               guild_admin_has_body(leave.operation),
@@ -142,7 +142,7 @@ void lifecycle_requests() noexcept {
     char json[512];
     const u32 plain = guild_asset_body_bytes(create, {}, {});
     const auto written = guild_asset_write_body(create, {}, {}, {reinterpret_cast<u8*>(json), sizeof(json)});
-    check(guild_asset_request_valid(create) && at.ok() && text_is(asset_target, at.bytes, utf8_literal("/api/v10/guilds")) &&
+    check(guild_asset_request_valid(create) && at.ok() && text_is(asset_target, at.bytes, utf8_literal("/api/v9/guilds")) &&
               written.ok() && written.bytes == plain &&
               utf8_equal({json, written.bytes},
                          utf8_literal(R"({"name":"Lab","icon":null,"channels":[],"system_channel_id":null,"guild_template_code":"2TffvPucqHkN"})")) &&

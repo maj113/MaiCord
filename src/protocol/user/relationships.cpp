@@ -164,7 +164,7 @@ RelationshipWriteResult write_relationship_target(RelationshipOperation operatio
     char temporary[96];
     RouteWriter writer{};
     route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
-    route_write(&writer, "/api/v10/users/@me/relationships");
+    route_write(&writer, "/api/v9/users/@me/relationships");
     if (individual) route_write(&writer, '/', user_id);
     if (operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore)
         route_write(&writer, "/ignore");

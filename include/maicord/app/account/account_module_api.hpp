@@ -261,6 +261,9 @@ struct AccountLoginStatus {
     CaptchaProvider captcha_provider;
     bool captcha_invisible;
     bool profile_saved;
+    // The sign-in was refused because Discord suspended the account (a
+    // suspended-user token instead of a session).
+    bool account_suspended;
     UserAuthDecodeError coordinator_decode_error;
     JsonScanError coordinator_scan_error;
     JsonReadError coordinator_read_error;

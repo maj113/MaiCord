@@ -22,6 +22,11 @@ enum class GatewayLifecycleAction : u8 {
     stop,
     // Opcode 41 for the current analytics heartbeat session.
     send_time_spent_session,
+    // After READY, in the desktop client's order: the presence the identify carried
+    // (opcode 3), the idle voice state (opcode 4), then the session's own presence.
+    send_identify_presence,
+    send_idle_voice_state,
+    send_ready_presence,
 };
 
 enum class GatewayLifecycleError : u8 {
@@ -72,6 +77,9 @@ GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle
 GatewayLifecycleStep gateway_lifecycle_reconnect_requested(GatewayLifecycle* lifecycle) noexcept;
 GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecycle,
                                                        bool resumable) noexcept;
+// After an invalid session, the desktop client tries again on the same socket at
+// once: the step back to awaiting_session with its resume or identify.
+GatewayLifecycleStep gateway_lifecycle_session_retry(GatewayLifecycle* lifecycle) noexcept;
 GatewayCloseDisposition gateway_classify_close(u16 close_code) noexcept;
 GatewayLifecycleStep gateway_lifecycle_closed(GatewayLifecycle* lifecycle, u16 close_code) noexcept;
 

@@ -3,9 +3,64 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/crypto/random.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
+#include "maicord/app/gateway/user_settings.hpp"
 
 namespace maicord {
 namespace {
+
+// READY's replacement token (AUTH_TOKEN_REFRESH): the worker identifies and resumes with it from now on, and the
+// owner takes a copy for REST and the saved profile. A malformed or unchanged one is ignored; the copies are made
+// before either holder changes, so a failed allocation leaves both on the old token.
+void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* runtime, JsonValue value) noexcept {
+    JsonString text{};
+    if (!json_value_as_string(value, &text) || text.has_escapes || !text.encoded.bytes ||
+        text.encoded.bytes > kGatewayUserMaximumTokenBytes)
+        return;
+    const ConstSlice<u8> token{reinterpret_cast<const u8*>(text.encoded.data), text.encoded.bytes};
+    for (u32 i = 0; i < token.count; ++i)
+        if (token.data[i] <= 0x20 || token.data[i] >= 0x7F)
+            return;
+    const ConstSlice<u8> current = secure_buffer_view(runtime->credential);
+    if (current.count == token.count && bytes_equal(current.data, token.data, token.count))
+        return;
+    SecureBuffer worker{}, owner{};
+    if (!secure_buffer_initialize(&worker, token.count).ok() || !secure_buffer_assign(&worker, token).ok() ||
+        !secure_buffer_initialize(&owner, token.count).ok() || !secure_buffer_assign(&owner, token).ok()) {
+        secure_buffer_release(&worker);
+        secure_buffer_release(&owner);
+        return;
+    }
+    secure_buffer_release(&runtime->credential);
+    secure_buffer_transfer(&runtime->credential, &worker);
+    AcquireSRWLockExclusive(&runtime->resume_lock);
+    secure_buffer_release(&runtime->refreshed_credential);
+    secure_buffer_transfer(&runtime->refreshed_credential, &owner);
+    ReleaseSRWLockExclusive(&runtime->resume_lock);
+    if (client->notification_event)
+        event_set(client->notification_event);
+}
+
+bool auth_session_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    if (json_string_equals_ascii(name, utf8_literal("auth_session_id_hash")))
+        *static_cast<JsonValue*>(opaque) = value;
+    return true;
+}
+
+// AUTH_SESSION_CHANGE {auth_session_id_hash}: the settings store's session hash (the Devices list's current
+// session) follows it, as a partial settings update that carries the hash alone.
+void publish_auth_session_change(GatewayClient* client, GatewayClientRuntime* runtime,
+                                 const GatewayEnvelope& envelope, u64 now_ms) noexcept {
+    u32 structurals[16];
+    JsonValue hash{};
+    const JsonScanResult scan = json_scan_structurals_avx1(envelope.data.source, {structurals, 16});
+    if (envelope.data.kind != JsonValueKind::object || !scan.ok() ||
+        !json_visit_value_object(envelope.data, {structurals, scan.count}, 4, auth_session_member, &hash).ok() ||
+        hash.kind != JsonValueKind::string)
+        return;
+    RelationshipStreamBinding binding{client, runtime};
+    gateway_client_publish_user_settings({}, hash, true, dispatch_scratch(runtime), envelope.sequence,
+                                         envelope.has_sequence, now_ms, publish_relationship_stream, &binding);
+}
 
 // Out of line: its resume capture would otherwise join process_session's stack frame. Once per session:
 // compiled for size.
@@ -21,6 +76,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     if (event.ready.api_version != 9) {
         return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
     }
+    adopt_refreshed_token(client, runtime, event.ready.auth_token);
     // A READY without one drops the stored data, as the client does.
     JsonString qos{};
     GatewayUserRuntime& user = *runtime->user;
@@ -91,8 +147,9 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
         const u32 failures = runtime->ready_failures < 16 ? ++runtime->ready_failures : 16;
         const u32 floor_ms = gateway_ready_failure_delay(failures);
         const u32 jitter_ms = gateway_reconnect_next(&runtime->reconnect_backoff, random).delay_ms;
+        // The page resets its socket with a close frame without a code.
         return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_identify, now_ms,
-                                  floor_ms + jitter_ms)
+                                  floor_ms + jitter_ms, kCloseWithoutCode)
                    ? PlaintextDrive::reconnecting
                    : fail_plaintext(runtime, stage);
     }
@@ -119,6 +176,8 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     // a session whose model never existed, so the next process would
     // resume into an empty shell.
     publish_resume(runtime, captured_state);
+    if (runtime->follows_resume_url)
+        remember_gateway_url(captured_state);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_state_recovery_ready(&runtime->state_recovery);
     gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, true);
@@ -138,6 +197,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     runtime->deadline_ms = 0;
     InterlockedIncrement64(&client->frecency_settings_revision);
     publish_phase(client, GatewayClientPhase::ready);
+    queue_ready_outputs(runtime);
     client_session_ready(runtime);
     return PlaintextDrive::receive;
 }
@@ -256,12 +316,13 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 supplemental,
                 poll_votes,
                 reactions,
-                guild_create
+                guild_create,
+                auth_session
             };
             const auto named = static_cast<Named>(protocol_detail::member_index<
                 "RATE_LIMITED", "USER_SETTINGS_PROTO_UPDATE", "VOICE_STATE_UPDATE_BATCH", "VOICE_STATE_UPDATE",
                 "PASSIVE_UPDATE_V2", "READY_SUPPLEMENTAL", "MESSAGE_POLL_VOTE_ADD_MANY",
-                "MESSAGE_REACTION_ADD_MANY", "GUILD_CREATE">(event.envelope.event_name));
+                "MESSAGE_REACTION_ADD_MANY", "GUILD_CREATE", "AUTH_SESSION_CHANGE">(event.envelope.event_name));
             // Neither grows while one dispatch is handled.
             const Slice<u32> index = main_index_view(runtime);
             const Slice<char> scratch = dispatch_scratch(runtime);
@@ -280,6 +341,12 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     runtime->channel_info_deadline_ms = gateway_channel_info_deadline(runtime->channel_info, now_ms);
                     ReleaseSRWLockExclusive(&runtime->subscription_lock);
                 }
+                checkpoint_resume_sequence(runtime);
+                continue;
+            }
+            if (named == Named::auth_session) {
+                // The session's auth session changed (a password reset, say): its new hash replaces READY's.
+                publish_auth_session_change(client, runtime, event.envelope, now_ms);
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
@@ -506,24 +573,35 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 return fail_plaintext(runtime, GatewayClientFailureStage::close_random);
             }
             const GatewayReconnectDelay delay = gateway_reconnect_next(&runtime->reconnect_backoff, random);
-            return schedule_reconnect(client, runtime, event.lifecycle_step.action, now_ms, delay.delay_ms)
+            // The page's WebSocket answers a close frame with its code.
+            return schedule_reconnect(client, runtime, event.lifecycle_step.action, now_ms, delay.delay_ms,
+                                      event.close_code ? event.close_code : kCloseWithoutCode)
                        ? PlaintextDrive::reconnecting
                        : fail_plaintext(runtime, GatewayClientFailureStage::close_reconnect);
         }
         if (event.kind == GatewaySessionEventKind::reconnect_requested) {
-            return schedule_reconnect(client, runtime, event.lifecycle_step.action, now_ms, 0)
+            return schedule_reconnect(client, runtime, event.lifecycle_step.action, now_ms, 0, kCloseReconnect)
                        ? PlaintextDrive::reconnecting
                        : fail_plaintext(runtime, GatewayClientFailureStage::reconnect_request);
         }
         if (event.kind == GatewaySessionEventKind::invalid_session) {
-            u32 random = 0;
-            if (!secure_random_u32(&random).ok()) {
-                return fail_plaintext(runtime, GatewayClientFailureStage::invalid_session_random);
+            // As the desktop client does: a resume, or a fresh identify, on the same socket at once.
+            if (event.lifecycle_step.action == GatewayLifecycleAction::reconnect_identify) {
+                reset_voice(client, runtime);
+                clear_resume(runtime);
             }
-            return schedule_reconnect(client, runtime, event.lifecycle_step.action, now_ms,
-                                      gateway_invalid_session_delay(random))
-                       ? PlaintextDrive::reconnecting
-                       : fail_plaintext(runtime, GatewayClientFailureStage::invalid_session_reconnect);
+            reset_session_outputs(runtime);
+            const GatewayLifecycleStep retry = gateway_lifecycle_session_retry(&runtime->session.lifecycle);
+            if (!retry.ok() || !gateway_outbound_enqueue(&runtime->outbound, retry.action))
+                return fail_plaintext(runtime, GatewayClientFailureStage::invalid_session_reconnect);
+            GatewayClientEvent retrying{};
+            retrying.timestamp_ms = now_ms;
+            retrying.kind = GatewayClientEventKind::reconnecting;
+            retrying.has_sequence = runtime->resume.valid;
+            retrying.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
+            publish_event(runtime, retrying);
+            runtime->deadline_ms = now_ms + kPhaseTimeoutMs;
+            return drive_queued_actions(client, runtime, now_ms);
         }
         if (event.kind == GatewaySessionEventKind::error) {
             return fail_session_event(runtime, event);
@@ -643,8 +721,11 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         if (runtime->outstanding_socket_operations != 0) {
             --runtime->outstanding_socket_operations;
         }
+        // The close frame is written: the connection goes (its receive ends as a stale completion).
+        if (completion.kind == NetworkOperationKind::send && runtime->closing)
+            finish_close(runtime);
         if (runtime->stopping) {
-            return NetworkWorkerStep{INFINITE, shutdown_drained(runtime)};
+            return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), shutdown_drained(runtime)};
         }
         if (runtime->reconnecting) {
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
@@ -778,9 +859,17 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
     }
     if (event.kind == NetworkWorkerEventKind::stop_requested) {
         begin_shutdown(client, runtime);
-        return NetworkWorkerStep{INFINITE, shutdown_drained(runtime)};
+        return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), shutdown_drained(runtime)};
     }
     if (event.kind == NetworkWorkerEventKind::deadline) {
+        // A close frame that is not written in time goes with its connection.
+        if (runtime->closing) {
+            if (event.now_ms >= runtime->closing_deadline_ms)
+                finish_close(runtime);
+            if (runtime->stopping || runtime->closing)
+                return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms),
+                                         runtime->stopping && shutdown_drained(runtime)};
+        }
         if (runtime->reconnecting) {
             if (runtime->resolver.pending || runtime->outstanding_socket_operations != 0) {
                 return NetworkWorkerStep{INFINITE, false};
@@ -803,7 +892,7 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         if (recover) {
             if (!schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_identify,
-                                    event.now_ms, 0))
+                                    event.now_ms, 0, kCloseWithoutCode))
                 return fail_and_drain(client, runtime, GatewayClientError::session, 0);
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
         }
@@ -830,7 +919,8 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
                 }
                 const GatewayReconnectDelay delay =
                     gateway_reconnect_next(&runtime->reconnect_backoff, random);
-                if (!schedule_reconnect(client, runtime, heartbeat.action, event.now_ms, delay.delay_ms)) {
+                if (!schedule_reconnect(client, runtime, heartbeat.action, event.now_ms, delay.delay_ms,
+                                        kCloseReconnect)) {
                     return fail_and_drain(client, runtime, GatewayClientError::session, 0);
                 }
                 return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
@@ -961,6 +1051,8 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     gateway_self_status_initialize(&runtime->self_status, user_metadata->profile_id,
                                    {user_configuration->since_ms, user_configuration->status,
                                     user_configuration->has_since, user_configuration->afk});
+    // The default endpoint follows the page's socket: after a READY in this launch, its resume host.
+    runtime->follows_resume_url = !gateway_endpoint;
     if (gateway_endpoint) {
         runtime->initial_endpoint = *gateway_endpoint;
     } else if (gateway_endpoint_parse_with_policy(

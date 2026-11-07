@@ -67,7 +67,7 @@ void test_transport() noexcept {
           "work");
 
     check(account_relationship_submit(&client, RelationshipOperation::list, 0, {}, 101).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships"), {},
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships"), {},
                        RestMethod::get, 101, false),
           "relationships: list uses authenticated account owner, existing mailbox request ID and bodyless "
           "normalized GET");
@@ -78,48 +78,48 @@ void test_transport() noexcept {
           "relationships: current username request is admitted once");
     for (u32 i = 0; i < sizeof(username) - 1; ++i)
         username[i] = 'x';
-    check(captured(&client, utf8_literal("/api/v10/users/@me/relationships"),
+    check(captured(&client, utf8_literal("/api/v9/users/@me/relationships"),
                    utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}"),
                    RestMethod::post, 102, true),
           "relationships: username POST bytes are synchronously copied before caller storage is reused");
     check(account_relationship_submit(&client, RelationshipOperation::accept, 42, {}, 103).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42"), utf8_literal("{}"),
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), utf8_literal("{}"),
                        RestMethod::put, 103, true),
           "relationships: accept addresses target user and omits optional relationship type in JSON body");
     check(account_relationship_submit(&client, RelationshipOperation::accept_stranger, 42, {}, 110)
                   .ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42"),
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"),
                        utf8_literal("{\"confirm_stranger_request\":true}"), RestMethod::put, 110,
                        true),
           "relationships: explicit consent uses existing account lane and copies exact stranger flag "
           "without relationship type");
     check(account_relationship_submit(&client, RelationshipOperation::remove, 42, {}, 104).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42"), {},
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), {},
                        RestMethod::delete_method, 104, false),
           "relationships: remove/decline/cancel/unblock uses bodyless DELETE through shared mutation "
           "scheduler");
     check(account_relationship_submit(&client, RelationshipOperation::block, 42, {}, 105).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42"),
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"),
                        utf8_literal("{\"type\":2}"), RestMethod::put, 105, true),
           "relationships: block uses PUT type 2 and shares normalized user relationship route with accept");
     check(account_relationship_submit(&client, RelationshipOperation::ignore, 42, {}, 111).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42/ignore"), {},
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42/ignore"), {},
                        RestMethod::put, 111, false),
           "relationships: ignoring user uses bodyless PUT on exact ignore subroute without fabricating "
           "JSON consent");
     check(account_relationship_submit(&client, RelationshipOperation::unignore, 42, {}, 112).ok() &&
-              captured(&client, utf8_literal("/api/v10/users/@me/relationships/42/ignore"), {},
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42/ignore"), {},
                        RestMethod::delete_method, 112, false),
           "relationships: unignore uses bodyless DELETE on exact ignore subroute");
     check(
         account_relationship_submit(&client, RelationshipOperation::clear_incoming, 0, {}, 113)
                 .ok() &&
-            captured(&client, utf8_literal("/api/v10/users/@me/relationships?relationship_type=3"), {},
+            captured(&client, utf8_literal("/api/v9/users/@me/relationships?relationship_type=3"), {},
                      RestMethod::delete_method, 113, false),
         "relationships: clear incoming addresses collection query with no identity parameter or JSON body");
     check(
         account_relationship_submit(&client, RelationshipOperation::clear_hidden, 0, {}, 114).ok() &&
-            captured(&client, utf8_literal("/api/v10/users/@me/relationships?relationship_type=3"),
+            captured(&client, utf8_literal("/api/v9/users/@me/relationships?relationship_type=3"),
                      utf8_literal("{\"filters\":[1,2]}"), RestMethod::delete_method, 114, true),
         "relationships: clear hidden sends exact spam and ignored filter JSON over collection DELETE");
     const u32 before_new_invalid = submitted.calls;
@@ -167,7 +167,7 @@ void test_transport() noexcept {
                                         109)
                 .ok() &&
             captured(
-                &client, utf8_literal("/api/v10/users/@me/relationships"),
+                &client, utf8_literal("/api/v9/users/@me/relationships"),
                 utf8_literal("{\"username\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"discriminator\":null}"),
                 RestMethod::post, 109, true),
         "relationships: largest valid username fits bounded adapter without truncating serialized request");
@@ -260,7 +260,7 @@ static void test_message_ack_transport() noexcept {
               submitted.route.method == RestMethod::post &&
               submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body &&
               utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes},
-                         utf8_literal("/api/v10/channels/7/messages/99/ack")) &&
+                         utf8_literal("/api/v9/channels/7/messages/99/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
                          utf8_literal("{\"token\":null,\"last_viewed\":123,\"flags\":0}")),
           "message ACK: exact JSON POST, channel major route, request ID and body are synchronously copied "
@@ -294,7 +294,7 @@ static void test_message_ack_transport() noexcept {
               submitted.route.method == RestMethod::post &&
               submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body &&
               utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes},
-                         utf8_literal("/api/v10/channels/7/messages/0/ack")) &&
+                         utf8_literal("/api/v9/channels/7/messages/0/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
                          utf8_literal("{\"manual\":true}")),
           "message ACK: manual zero route, exact body and account request identity are copied before "

@@ -7,6 +7,7 @@
 #include "../../support/spsc_mailbox_state.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/protocol/user/settings_proto.hpp"
 #include "../../fixtures/gateway_growth.hpp"
 #include "../../fixtures/gateway_growth_etf.hpp"
 #include "../../fixtures/oversized_guild.hpp"
@@ -140,9 +141,10 @@ bool projection_packet(bool malformed) noexcept {
             !protocol_writer_append_u64(&writer, i + 2) ||
             !protocol_writer_append_literal(&writer, "\",\"username\":\"peer\"}")) return false;
     }
-    if (!protocol_writer_append_literal(&writer, "],\"read_state\":{\"entries\":[{\"id\":\"90\"}")) return false;
-    if (malformed && !protocol_writer_append_literal(&writer, ",{\"id\":\"90\"}")) return false;
-    if (!protocol_writer_append_literal(&writer, "]},\"dense_probe\":[")) return false;
+    if (!protocol_writer_append_literal(&writer, "],\"read_state\":{\"entries\":[{\"id\":\"90\"}]}")) return false;
+    // A READY whose friend presences are not a list cannot be projected (rows of a list it cannot type are skipped).
+    if (malformed && !protocol_writer_append_literal(&writer, ",\"merged_presences\":{\"friends\":7}")) return false;
+    if (!protocol_writer_append_literal(&writer, ",\"dense_probe\":[")) return false;
     for (u32 i = 0; i < 4096; ++i) {
         if (i && !protocol_writer_append_byte(&writer, ',')) return false;
         if (!protocol_writer_append_byte(&writer, '0')) return false;
@@ -200,7 +202,7 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.self_user_id == 77 && !runtime.resume.valid &&
         runtime.reconnecting && runtime.ready_failures == 1 &&
         runtime.reconnect_deadline_ms >= before_failure + gateway_ready_failure_delay(1),
-        "shipping READY worker reports malformed final reads and re-identifies later without publishing a prefix");
+        "shipping READY worker reports an unprojectable READY and re-identifies later without publishing a prefix");
     runtime.reconnecting = false;
     runtime.reconnect_deadline_ms = 0;
     runtime.ready_failures = 0;
@@ -807,8 +809,10 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(fresh_index(), "Gateway demand index fixture returns to one-page baseline");
 }
 
-// The launch's first identify is the fast-connect one with its own launch ID;
-// later ones carry the connect reasons and the QoS token from READY's data.
+// A launch that starts with a stored token fast-connects first, with its own launch ID; every other identify is
+// the normal one. One after an interactive sign-in (MaiCordWire password.jsonl:14,21,25: fast-connect, launch ID
+// U3 against REST's U1) is the normal one with REST's launch ID. Before the launch's first session opened, the
+// presence is the page's unknown.
 void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     static GatewayUserRuntime user{};
     GatewayUserClientConfiguration configuration{};
@@ -821,8 +825,9 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayUserRuntime* const saved = runtime.user;
     runtime.user = &user;
     fast_connect_taken = 0;
+    launch_presence = 0;
     constexpr auto head = utf8_literal(
-        R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");
+        R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");
     constexpr auto tail = utf8_literal(
         R"(","browser_user_agent":"Agent","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,)");
     const auto text = [](u32 offset) noexcept { return reinterpret_cast<const char*>(runtime.gateway_payload) + offset; };
@@ -837,8 +842,9 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
               bytes_equal(text(0), head.data, head.bytes) && launch_id && text(head.bytes)[14] == '4' &&
               !bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
               bytes_equal(text(head.bytes + 36), tail.data, tail.bytes) &&
-              bytes_equal(text(head.bytes + 36 + tail.bytes), fast_end.data, fast_end.bytes),
-          "Gateway sends the fast-connect identify first, with its own launch ID");
+              bytes_equal(text(head.bytes + 36 + tail.bytes), fast_end.data, fast_end.bytes) &&
+              runtime.identify_presence.status == GatewayUserStatus::unknown,
+          "Gateway fast-connects a stored-token launch first, with its own launch ID");
     const u8 derived[]{0x0a, 0x03, 'a', 'b', 'c'};
     copy_bytes(user.qos_derived, derived, sizeof(derived));
     user.qos_derived_bytes = sizeof(derived);
@@ -846,12 +852,28 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     runtime.qos.has_upcoming = true;
     runtime.qos.upcoming = gateway_qos_payload(gateway_qos_foregrounded);
     const auto second = write_user_identify_command(&runtime, utf8_literal("t"));
-    constexpr auto main_end = utf8_literal(
-        R"("is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIARIFCgNhYmM="}})");
-    check(second.ok() && second.bytes == head.bytes + 36 + tail.bytes + main_end.bytes &&
+    constexpr auto unknown_end = utf8_literal(
+        R"("client_heartbeat_session_id":null,"is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"unknown","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIARIFCgNhYmM="}})");
+    check(second.ok() && second.bytes == head.bytes + 36 + tail.bytes + unknown_end.bytes &&
               bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
-              bytes_equal(text(head.bytes + 36 + tail.bytes), main_end.data, main_end.bytes),
-          "Gateway later identifies carry the app's connect reasons and QoS token");
+              bytes_equal(text(head.bytes + 36 + tail.bytes), unknown_end.data, unknown_end.bytes),
+          "Gateway later identifies are the normal one with the connect reasons, QoS token and the page's presence");
+    // A launch that signed in interactively never fast-connects: its first identify is the normal one, with the
+    // launch ID REST's super properties carry.
+    fast_connect_taken = 0;
+    gateway_user_launch_signed_in();
+    const auto signed_in = write_user_identify_command(&runtime, utf8_literal("t"));
+    check(signed_in.ok() && signed_in.bytes == second.bytes &&
+              bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
+              bytes_equal(text(head.bytes + 36 + tail.bytes), unknown_end.data, unknown_end.bytes),
+          "Gateway identifies a signed-in launch with the normal identify and REST's launch ID");
+    // After a READY the page's presence store holds the status it settled on (a sign-out keeps it).
+    note_launch_presence(GatewayUserStatus::online);
+    const auto settled = write_user_identify_command(&runtime, utf8_literal("t"));
+    constexpr auto online_end = utf8_literal(
+        R"("client_heartbeat_session_id":null,"is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIARIFCgNhYmM="}})");
+    check(settled.ok() && bytes_equal(text(head.bytes + 36 + tail.bytes), online_end.data, online_end.bytes),
+          "Gateway identifies after a READY of the launch with the presence it settled on");
     // A command write that failed part-way leaves no plaintext (the token) behind in the payload buffer.
     GatewayCommandWriteResult partial = second;
     partial.error = GatewayCommandError::output_too_small;
@@ -863,8 +885,189 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     SecureZeroMemory(runtime.gateway_payload, sizeof(runtime.gateway_payload));
     runtime.qos = {};
     runtime.user = saved;
+    launch_presence = 0;
 }
+
+// After READY, as the desktop client's connection store commits on CONNECTION_OPEN (OfficialWire live captures):
+// op 3 with the identify's presence unless it was plain Online, op 4 idle, op 3 with the settled presence when it
+// differs, then (client_session_ready) op 41 and op 40.
+GatewayLifecycleAction take_action() noexcept {
+    const auto step = gateway_outbound_take(&runtime.outbound, 1);
+    return step.state == GatewayOutboundState::action ? step.action : GatewayLifecycleAction::none;
 }
+void ready_outputs(void (*check)(bool, const char*) noexcept) noexcept {
+    using A = GatewayLifecycleAction;
+    const auto frame = [](const GatewayPresenceUpdate& presence, bool activities, Utf8View expected) noexcept {
+        const auto written = write_self_presence(&runtime, presence, activities);
+        return written.ok() && written.bytes == expected.bytes &&
+               bytes_equal(runtime.gateway_payload, expected.data, written.bytes);
+    };
+    reset_value(&runtime.self_status);
+    reset_value(&runtime.local_presence);
+    gateway_outbound_reset(&runtime.outbound);
+    launch_presence = 0;
+    // The launch's first session (a stored-token launch or a fresh sign-in): unknown, idle voice, Online.
+    runtime.identify_presence = {0, GatewayUserStatus::unknown, false, false};
+    queue_ready_outputs(&runtime);
+    const A first[]{take_action(), take_action(), take_action(), take_action()};
+    check(first[0] == A::send_identify_presence && first[1] == A::send_idle_voice_state &&
+              first[2] == A::send_ready_presence && first[3] == A::none &&
+              launch_presence_status() == GatewayUserStatus::online &&
+              frame(runtime.identify_presence, false,
+                    utf8_literal(R"({"op":3,"d":{"status":"unknown","since":0,"activities":[],"afk":false}})")) &&
+              frame(ready_presence(&runtime), true,
+                    utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[],"afk":false}})")),
+          "Gateway after the launch's first READY sends op 3 unknown, op 4, op 3 online");
+    runtime.voice_recording_disallowed = true;
+    const auto idle = gateway_write_voice_state({0, 0, false, false, false, false}, 0,
+                                                {runtime.gateway_payload, sizeof(runtime.gateway_payload)});
+    constexpr char idle_voice[] =
+        R"({"op":4,"d":{"guild_id":null,"channel_id":null,"self_mute":false,"self_deaf":false,"self_video":false,"flags":0}})";
+    check(idle.ok() && idle.bytes == sizeof(idle_voice) - 1 &&
+              bytes_equal(runtime.gateway_payload, idle_voice, idle.bytes),
+          "Gateway idle voice state matches the desktop client's op 4");
+    runtime.voice_recording_disallowed = false;
+    // An identify that already carried Online (a sign-in after a sign-out in the same launch): op 4 alone.
+    runtime.identify_presence = {0, GatewayUserStatus::online, false, false};
+    queue_ready_outputs(&runtime);
+    check(take_action() == A::send_idle_voice_state && take_action() == A::none,
+          "Gateway after a READY whose identify carried Online sends only op 4");
+    // A saved Do Not Disturb that the identify already carried: op 3 dnd (not plain Online), op 4, nothing to
+    // settle, and the owner's revision counts as held by the server.
+    runtime.self_status.authoritative = true;
+    runtime.self_status.revision = 3;
+    runtime.self_status.desired = {0, GatewayUserStatus::dnd, false, false};
+    runtime.identify_presence = runtime.self_status.desired;
+    queue_ready_outputs(&runtime);
+    check(take_action() == A::send_identify_presence && take_action() == A::send_idle_voice_state &&
+              take_action() == A::none && runtime.self_status.transmitted_revision == 3 &&
+              launch_presence_status() == GatewayUserStatus::dnd,
+          "Gateway after a READY whose identify carried the saved status does not repeat it");
+    reset_value(&runtime.self_status);
+    gateway_outbound_reset(&runtime.outbound);
+    SecureZeroMemory(runtime.gateway_payload, sizeof(runtime.gateway_payload));
+    launch_presence = 0;
+}
+
+// READY's auth_token (AUTH_TOKEN_REFRESH) becomes the worker's credential and waits once for the owner; an
+// unchanged or malformed one changes nothing.
+void token_refresh(void (*check)(bool, const char*) noexcept) noexcept {
+    static GatewayUserRuntime user{};
+    GatewayUserRuntime* const saved = runtime.user;
+    runtime.user = &user;
+    client.runtime = &runtime;
+    constexpr u8 old_token[] = {'o', 'l', 'd', '.', 't'};
+    const bool held = secure_buffer_initialize(&runtime.credential, sizeof(old_token)).ok() &&
+                      secure_buffer_assign(&runtime.credential, {old_token, sizeof(old_token)}).ok();
+    const auto token_is = [](const SecureBuffer& buffer, Utf8View expected) noexcept {
+        const auto view = secure_buffer_view(buffer);
+        return view.count == expected.bytes && bytes_equal(view.data, expected.data, view.count);
+    };
+    SecureBuffer taken{};
+    adopt_refreshed_token(&client, &runtime, {utf8_literal("\"old.t\""), 0, JsonValueKind::string});
+    adopt_refreshed_token(&client, &runtime, {utf8_literal("\"bad token\""), 0, JsonValueKind::string});
+    adopt_refreshed_token(&client, &runtime, {utf8_literal("12"), 0, JsonValueKind::number});
+    adopt_refreshed_token(&client, &runtime, {});
+    check(held && token_is(runtime.credential, utf8_literal("old.t")) &&
+              !gateway_client_take_refreshed_credential(&client, &taken),
+          "Gateway keeps its token when READY carries none, the same one or a malformed one");
+    adopt_refreshed_token(&client, &runtime, {utf8_literal("\"new.token\""), 0, JsonValueKind::string});
+    const bool first = gateway_client_take_refreshed_credential(&client, &taken);
+    SecureBuffer again{};
+    check(token_is(runtime.credential, utf8_literal("new.token")) && runtime.credential.locked && first &&
+              token_is(taken, utf8_literal("new.token")) && !gateway_client_take_refreshed_credential(&client, &again),
+          "Gateway adopts READY's refreshed token and hands it to the owner once");
+    secure_buffer_release(&taken);
+    secure_buffer_release(&runtime.credential);
+    client.runtime = nullptr;
+    runtime.user = saved;
+}
+
+// AUTH_SESSION_CHANGE replaces the session hash READY gave the settings store.
+void auth_session_change(void (*check)(bool, const char*) noexcept) noexcept {
+    client.runtime = &runtime;
+    secure_clear_bytes(&runtime.events, sizeof(runtime.events));
+    GatewayEnvelope envelope{};
+    envelope.data = {utf8_literal(R"({"auth_session_id_hash":"abc="})"), 0, JsonValueKind::object};
+    envelope.sequence = 4;
+    envelope.has_sequence = true;
+    publish_auth_session_change(&client, &runtime, envelope, 10);
+    GatewayClientEvent event{};
+    const auto popped = spsc_mailbox_pop(&runtime.events, &event, {output, sizeof(output)});
+    static UserSettingsStore store{};
+    const ConstSlice<u8> payload{output, popped.payload_bytes};
+    check(popped.ok() && event.dispatch_kind == GatewayClientDispatchKind::user_settings &&
+              user_settings_proto_partial(payload) && user_settings_store_apply(&store, payload, true) &&
+              store.session_hash_bytes == 4 && bytes_equal(store.session_hash, "abc=", 4),
+          "Gateway AUTH_SESSION_CHANGE updates the stored session hash");
+    secure_clear_bytes(&runtime.events, sizeof(runtime.events));
+    client.runtime = nullptr;
+}
+
+// After an invalid session the UI re-requests the subscriptions it already holds: the same request keeps its
+// revision, so each is sent once on the new session (MaiCordWire reconnect.jsonl:125-147).
+void subscription_once(void (*check)(bool, const char*) noexcept) noexcept {
+    client.runtime = &runtime;
+    client.worker.thread = reinterpret_cast<HANDLE>(1);
+    runtime.stopping = runtime.failed = false;
+    GatewayGuildSubscription viewport{};
+    viewport.guild_id = 8;
+    viewport.channel_id = 80;
+    viewport.range_last = 99;
+    viewport.range_count = 1;
+    viewport.ranges[0] = {0, 99};
+    viewport.typing = viewport.activities = viewport.threads = true;
+    GatewayGuildSubscription members{};
+    members.guild_id = 8;
+    members.omit_channel_ranges = members.omit_features = members.members_present = true;
+    members.member_count = 1;
+    members.members[0] = 13;
+    gateway_client_subscribe_guild_members(&client, viewport);
+    gateway_client_subscribe_guild_members(&client, members);
+    const u32 viewport_revision = runtime.subscription_revision, members_revision = runtime.members_revision;
+    gateway_client_subscribe_guild_members(&client, viewport);
+    gateway_client_subscribe_guild_members(&client, members);
+    const bool kept = runtime.subscription_revision == viewport_revision && runtime.members_revision == members_revision;
+    members.member_count = 2;
+    members.members[1] = 14;
+    gateway_client_subscribe_guild_members(&client, members);
+    check(viewport_revision && members_revision && kept && runtime.members_revision == members_revision + 1,
+          "Gateway sends a repeated subscription request once and a changed one again");
+    // The frames on the wire carry only what changed, as the desktop client's subscription store sends them.
+    runtime.sent_guild_count = 0;
+    reset_value(&runtime.thread_subscription_owner);
+    const auto written = [](GatewayGuildSubscription frame, const char* label, Utf8View expected,
+                            void (*check)(bool, const char*) noexcept) noexcept {
+        GatewayClientRuntime::SentGuildSubscription* sent = nullptr;
+        u64 ranges = 0;
+        const bool needed = shape_guild_subscription(&runtime, &frame, &sent, &ranges);
+        const auto bytes = needed ? gateway_write_guild_subscriptions_bulk(
+                                        frame, {runtime.gateway_payload, sizeof(runtime.gateway_payload)})
+                                  : GatewayCommandWriteResult{};
+        if (needed)
+            note_guild_subscription(&runtime, sent, frame.guild_id, ranges);
+        check(expected.bytes ? bytes.ok() && bytes.bytes == expected.bytes &&
+                                   bytes_equal(runtime.gateway_payload, expected.data, expected.bytes)
+                             : !needed,
+              label);
+    };
+    viewport.thread_member_lists_present = true;
+    written(viewport, "Gateway op 37 opens a guild with its features and member list ranges, no empty thread list",
+            utf8_literal(R"({"op":37,"d":{"subscriptions":{"8":{"typing":true,"activities":true,"threads":true,"channels":{"80":[[0,99]]}}}}})"),
+            check);
+    written(viewport, "Gateway op 37 does not repeat a guild frame the server already holds", {}, check);
+    GatewayGuildSubscription second = viewport;
+    second.channel_id = 81;
+    second.channel_count = 1;
+    second.channels[0] = {80, {{0, 99}}, 1};
+    written(second, "Gateway op 37 sends a changed member list without the guild's features again",
+            utf8_literal(R"({"op":37,"d":{"subscriptions":{"8":{"channels":{"81":[[0,99]],"80":[[0,99]]}}}}})"),
+            check);
+    runtime.sent_guild_count = 0;
+    client.worker.thread = nullptr;
+    client.runtime = nullptr;
+}
+} // namespace ready_probe
 void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_probe;
     if (!initialize()) { check(false, "ready user probe event"); return; }
@@ -897,6 +1100,10 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     failure_receipt(check);
     mailbox_wakeups(check);
     identify_sequence(check);
+    ready_outputs(check);
+    token_refresh(check);
+    auth_session_change(check);
+    subscription_once(check);
     release();
     check(!runtime.structural_scratch.arena.base && !runtime.structural_scratch.capacity &&
         !runtime.structural_scratch.reserved_capacity, "Gateway index teardown releases and clears the owner descriptor");

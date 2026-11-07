@@ -64,17 +64,29 @@ inline constexpr u32 kZstdStorageBytes =
     kGatewaySessionMaximumDecodedMessageBytes + kZstdMaximumWindowBytes + kZstdMessageSlackBytes;
 // An ETF command: binaries and integers outgrow their JSON text by at most 2.5x.
 inline constexpr u32 kEtfCommandBytes = 12u * 1024u;
-// The desktop client's connect reasons once its app skeleton has mounted,
-// which it has by any identify after the launch's fast-connect one.
+// The desktop client's connect reasons once its app skeleton has mounted. A live
+// capture of the official client sends them on every normal identify, including
+// the first one after an interactive sign-in.
 inline constexpr char kGatewayConnectReasons[] = "AppSkeleton";
 
 static_assert(kGatewayClientDispatchPayloadCapacity <= kHandshakeBytes - kMessageBytes,
               "Gateway dispatch output must fit in the disjoint scratch half");
 
+// Close frame codes for close_transport: none, an empty close frame (the page's
+// WebSocket.close()), or the code the frame carries.
+inline constexpr u32 kCloseWithoutFrame = 0;
+inline constexpr u32 kCloseWithoutCode = 1;
+// The page reconnects with 4000 (op 7, a missed heartbeat acknowledgement).
+inline constexpr u32 kCloseReconnect = 4000;
+// A close frame still unwritten after this long is dropped with the connection.
+inline constexpr u64 kCloseFrameTimeoutMs = 1'000;
+
 // Handshake sends come first; from pong on the send carries a Gateway frame (gateway_action on:
 // one that also holds the plaintext record to erase).
 enum class SendPurpose : u8 {
     none,
+    // The close frame of a connection being dropped.
+    closing,
     tls_handshake,
     websocket_opening,
     pong,
@@ -120,6 +132,8 @@ struct GatewayClientRuntime {
     GatewayReactionBatchCursor reaction_batch;
     u64 resume_user_id; // Protected by resume_lock together with its matching session.
     SRWLOCK resume_lock;
+    // A token READY handed out (AUTH_TOKEN_REFRESH) that the owner has not taken yet; under resume_lock.
+    SecureBuffer refreshed_credential;
     SRWLOCK subscription_lock;
     NetworkSignal subscription_signal;
     GatewayGuildSubscription desired_subscription;
@@ -169,6 +183,8 @@ struct GatewayClientRuntime {
     ClientHeartbeatSession time_spent;
     // clips.allow_voice_recording is false (opcode 4 flags).
     bool voice_recording_disallowed;
+    // The presence the last identify carried (opcode 3 after READY repeats it when it is not plain Online).
+    GatewayPresenceUpdate identify_presence;
     GatewayReconnectBackoff reconnect_backoff;
     // Consecutive READY payloads that could not be projected.
     u32 ready_failures;
@@ -203,6 +219,18 @@ struct GatewayClientRuntime {
     GatewayGuildSubscription desired_members;
     u32 members_revision;
     u32 sent_members_revision;
+    // Encoded-frame digests of the two desired op 37 slots: an identical request keeps its revision.
+    u64 subscription_digest, members_digest;
+    // What this session's op 37 frames already told the server, per guild: its features (sent once a session) and
+    // its member list ranges (sent again only when they change), as the desktop client's subscription store keeps.
+    struct SentGuildSubscription {
+        u64 guild_id, ranges_digest;
+    } sent_guilds[16];
+    u32 sent_guild_count;
+    // The followed users the server holds (the members key), and when a set that only dropped users may go out.
+    u64 sent_members_guild, members_release_ms;
+    u32 sent_member_count;
+    u64 sent_member_ids[kGatewayGuildSubscriptionMaximumMembers];
     u64 rate_deadline_ms;
     u64 member_deadline_ms;
     u64 channel_info_deadline_ms;
@@ -220,6 +248,11 @@ struct GatewayClientRuntime {
     bool authenticated;
     bool reconnecting;
     bool has_pending_pong;
+    // Started on the default endpoint: fresh sessions go to the launch's last resume host.
+    bool follows_resume_url;
+    // A close frame is being written; the connection drops when it is, or at closing_deadline_ms.
+    bool closing;
+    u64 closing_deadline_ms;
     u8 pending_pong[125];
     u8 encrypted_storage[kEncryptedInputBytes];
     u8 handshake_output[kHandshakeBytes];
@@ -267,7 +300,9 @@ struct GatewayUserRuntime {
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> browser_version;
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_sdk_version;
     GatewayUserTextStorage<kGatewayUserLaunchIdBytes> launch_signature;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_build_revision;
+#else
     // The Linux desktop client's host properties (GatewayUserProperties::linux_desktop and the four texts after it): an
     // identify without them is the Windows object, which needs an os_sdk_version the Linux client has none of.
     bool linux_desktop;
@@ -316,6 +351,18 @@ template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity
 }
 
 bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes + 1]) noexcept;
+// The presence status the page's store holds: unknown before the launch's first
+// session opened, then the last status sent after a READY.
+GatewayUserStatus launch_presence_status() noexcept;
+void note_launch_presence(GatewayUserStatus status) noexcept;
+void remember_gateway_url(const GatewayResumeState& resume) noexcept;
+bool remembered_gateway_url(GatewayEndpoint* endpoint) noexcept;
+// After READY, ahead of opcode 41: the identify's presence unless plain Online, the
+// idle voice state, then the session's presence when it differs (caller is the worker).
+void queue_ready_outputs(GatewayClientRuntime* runtime) noexcept;
+// The presence the session settles on after READY: the saved status (Online without
+// one) with the local idle state. Caller holds subscription_lock.
+GatewayPresenceUpdate ready_presence(const GatewayClientRuntime* runtime) noexcept;
 bool qos_active(const GatewayQosState& qos) noexcept;
 GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token,
                                   char (&heartbeat_id)[kGatewayUserLaunchIdBytes]) noexcept;
@@ -382,9 +429,14 @@ void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runti
                               const GatewayEnvelope& envelope, u64 now_ms) noexcept;
 bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                       u64 now_ms) noexcept;
+// close_code: kCloseWithoutFrame, kCloseWithoutCode or the close frame's code (see close_transport).
 bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, GatewayLifecycleAction action,
-                        u64 now_ms, u32 delay_ms) noexcept;
+                        u64 now_ms, u32 delay_ms, u32 close_code) noexcept;
 void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
+// Drops the connection whose close frame was written or timed out.
+void finish_close(GatewayClientRuntime* runtime) noexcept;
+// The per-session output state a new identify or resume restates.
+void reset_session_outputs(GatewayClientRuntime* runtime) noexcept;
 bool shutdown_drained(GatewayClientRuntime* runtime) noexcept;
 NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* runtime,
                                  GatewayClientError error, u32 native_error) noexcept;
@@ -412,6 +464,8 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
                                      u64 now_ms) noexcept;
 OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRuntime* runtime,
                                        u64 now_ms) noexcept;
+// A post-READY frame (send_identify_presence, send_idle_voice_state, send_ready_presence).
+OutboundDrive send_ready_output(GatewayClientRuntime* runtime, GatewayLifecycleAction action, u64 now_ms) noexcept;
 
 enum class PlaintextDrive : u8 {
     receive,

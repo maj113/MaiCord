@@ -148,6 +148,7 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
         pages_release(runtime->self_status_group);
         runtime->self_status_group = nullptr;
     }
+    secure_buffer_release(&runtime->refreshed_credential);
     SecureZeroMemory(runtime, bytes);
     pages_release(runtime);
 }
@@ -292,15 +293,57 @@ GatewayClientResult invalid_input_result() noexcept {
 } // namespace client_detail
 namespace {
 
-// The launch's first identify is the desktop page's fast-connect one; the
-// page's own module instance gives it a launch ID of its own.
+// A launch that starts with a stored token fast-connects once, with the page's own
+// launch ID; an interactive sign-in spends it first, as the page only fast-connects
+// when it loads with a token.
 volatile LONG fast_connect_taken;
+// The page's presence store: unknown until its first session opens, then the
+// status it last committed, which survives a sign-out. Status + 1; zero is unknown.
+volatile LONG launch_presence;
+// The page's socket connects every later session, a sign-out and the next
+// sign-in included, to the last READY's resume_gateway_url.
+SRWLOCK remembered_url_lock;
+char remembered_url[kGatewayResumeUrlCapacity];
+u32 remembered_url_bytes;
 
 } // namespace
+
+void gateway_user_launch_signed_in() noexcept {
+    InterlockedExchange(&fast_connect_taken, 1);
+}
+
 namespace client_detail {
 
 bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes + 1]) noexcept {
     return InterlockedCompareExchange(&fast_connect_taken, 1, 0) == 0 && user_client_random_uuid(launch_id);
+}
+
+GatewayUserStatus launch_presence_status() noexcept {
+    const LONG status = ReadAcquire(&launch_presence);
+    return status ? static_cast<GatewayUserStatus>(status - 1) : GatewayUserStatus::unknown;
+}
+
+void note_launch_presence(GatewayUserStatus status) noexcept {
+    InterlockedExchange(&launch_presence, static_cast<LONG>(status) + 1);
+}
+
+void remember_gateway_url(const GatewayResumeState& resume) noexcept {
+    if (!resume.valid || !resume.resume_url_bytes || resume.resume_url_bytes > kGatewayResumeUrlCapacity)
+        return;
+    AcquireSRWLockExclusive(&remembered_url_lock);
+    copy_bytes(remembered_url, resume.resume_url, resume.resume_url_bytes);
+    remembered_url_bytes = resume.resume_url_bytes;
+    ReleaseSRWLockExclusive(&remembered_url_lock);
+}
+
+bool remembered_gateway_url(GatewayEndpoint* endpoint) noexcept {
+    AcquireSRWLockShared(&remembered_url_lock);
+    const bool parsed = remembered_url_bytes &&
+                        gateway_endpoint_parse_with_policy(Utf8View{remembered_url, remembered_url_bytes},
+                                                           GatewayEndpointPolicy::user_v9_etf_zstd_stream,
+                                                           endpoint) == GatewayEndpointError::none;
+    ReleaseSRWLockShared(&remembered_url_lock);
+    return parsed;
 }
 
 // The heartbeat QoS activity identify reports (the upcoming state, else the current one).
@@ -343,12 +386,10 @@ void store_user_text(GatewayUserRuntime* user, const UserTextSlot& slot, const U
     *reinterpret_cast<u32*>(storage + slot.bytes) = text.bytes;
 }
 
-#if !defined(_WIN32)
 template <u32 Capacity> void store_host_text(GatewayUserTextStorage<Capacity>* storage, const Utf8View& text) noexcept {
     storage->bytes = text.bytes < Capacity ? text.bytes : Capacity;
     copy_bytes(storage->data, text.data, storage->bytes);
 }
-#endif
 
 } // namespace
 namespace client_detail {
@@ -364,7 +405,9 @@ GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token
     properties.launch_signature = load_user_text(user, kUserTextSlots[kUserTextViews]);
     properties.client_build_number = user.client_build_number;
     properties.native_build_number = user.native_build_number;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    properties.os_build_revision = {user.os_build_revision.data, user.os_build_revision.bytes};
+#else
     properties.linux_desktop = user.linux_desktop;
     properties.window_manager = {user.window_manager.data, user.window_manager.bytes};
     properties.distro = {user.distro.data, user.distro.bytes};
@@ -376,7 +419,6 @@ GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token
             client_session_metadata_properties(user.session_metadata, heartbeat_id);
         identify.properties.client_heartbeat_session_id = live.client_heartbeat_session_id;
         identify.properties.client_app_state = live.client_app_state;
-        identify.properties.app_state_first = live.app_state_first;
         identify.client_app_state = client_session_metadata_focused(user.session_metadata)
                                         ? utf8_literal("focused")
                                         : utf8_literal("unfocused");
@@ -393,7 +435,9 @@ void store_user_configuration(GatewayUserRuntime* user,
     store_user_text(user, kUserTextSlots[kUserTextViews], properties.launch_signature);
     user->client_build_number = properties.client_build_number;
     user->native_build_number = properties.native_build_number;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    store_host_text(&user->os_build_revision, properties.os_build_revision);
+#else
     user->linux_desktop = properties.linux_desktop;
     store_host_text(&user->window_manager, properties.window_manager);
     store_host_text(&user->distro, properties.distro);
@@ -683,6 +727,8 @@ bool publish_ready_projection(void* opaque, const GatewayClientEvent& event,
 
 u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* runtime,
                      u64 now_ms) noexcept {
+    if (runtime->closing)
+        return wait_milliseconds_until(now_ms, runtime->closing_deadline_ms);
     if (runtime->stopping || (!runtime->authenticated && load_phase(client) == GatewayClientPhase::hello)) {
         return INFINITE;
     }
@@ -705,6 +751,7 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     if (runtime->session.lifecycle.heartbeat_interval_ms != 0)
         deadline = earliest_deadline(deadline, runtime->session.lifecycle.next_heartbeat_ms);
     deadline = earliest_deadline(deadline, client_activity_deadline(runtime, now_ms));
+    deadline = earliest_deadline(deadline, runtime->members_release_ms);
     deadline = earliest_deadline(deadline, runtime->rate_deadline_ms);
     deadline =
         earliest_deadline(deadline, runtime->member_deadline_ms > now_ms ? runtime->member_deadline_ms : 0);

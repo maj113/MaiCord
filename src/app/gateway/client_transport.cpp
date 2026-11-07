@@ -4,6 +4,23 @@
 namespace maicord {
 namespace client_detail {
 
+// What a new identify or resume restates: subscriptions, the presence, pending member requests.
+void reset_session_outputs(GatewayClientRuntime* runtime) noexcept {
+    runtime->sent_subscription_revision = 0;
+    runtime->sent_members_revision = 0;
+    runtime->sent_guild_count = 0;
+    runtime->sent_members_guild = runtime->members_release_ms = 0;
+    runtime->sent_member_count = 0;
+    gateway_subscription_thread_owner_reset_connection(&runtime->thread_subscription_owner);
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    gateway_self_status_reset_connection(&runtime->self_status);
+    gateway_member_request_reset_connection(&runtime->member_requests, !runtime->resume.valid);
+    runtime->member_deadline_ms = 0;
+    runtime->channel_info_deadline_ms = 0;
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+    runtime->self_status_deadline_ms = 0;
+}
+
 bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                       u64 now_ms) noexcept {
     if (runtime->resume.valid && gateway_resume_expired(runtime->last_ack_ms, now_ms)) {
@@ -38,17 +55,8 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     runtime->send_bytes = 0;
     runtime->send_offset = 0;
     runtime->send_purpose = SendPurpose::none;
-    runtime->sent_subscription_revision = 0;
     runtime->active_subscription_revision = 0;
-    runtime->sent_members_revision = 0;
-    gateway_subscription_thread_owner_reset_connection(&runtime->thread_subscription_owner);
-    AcquireSRWLockExclusive(&runtime->subscription_lock);
-    gateway_self_status_reset_connection(&runtime->self_status);
-    gateway_member_request_reset_connection(&runtime->member_requests, !runtime->resume.valid);
-    runtime->member_deadline_ms = 0;
-    runtime->channel_info_deadline_ms = 0;
-    ReleaseSRWLockExclusive(&runtime->subscription_lock);
-    runtime->self_status_deadline_ms = 0;
+    reset_session_outputs(runtime);
     runtime->rate_deadline_ms = 0;
     runtime->pending_pong_bytes = 0;
     runtime->has_pending_pong = false;
@@ -60,7 +68,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
                 GatewayEndpointPolicy::user_v9_etf_zstd_stream, &runtime->endpoint) != GatewayEndpointError::none) {
             return false;
         }
-    } else {
+    } else if (!runtime->follows_resume_url || !remembered_gateway_url(&runtime->endpoint)) {
         runtime->endpoint = runtime->initial_endpoint;
     }
     runtime->resolver_released = false;
@@ -79,8 +87,42 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
 } // namespace client_detail
 namespace {
 
+bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, SendPurpose purpose) noexcept;
+
+// Closes as the page's WebSocket does: an open session first writes a masked close frame
+// (kCloseWithoutCode: no status, as WebSocket.close() sends; else the code), and the
+// connection drops once it is written (finish_close) or after kCloseFrameTimeoutMs.
+// A connection with a frame in flight, a failed one or close_code kCloseWithoutFrame drops at once.
+void close_transport(GatewayClientRuntime* runtime, u32 close_code, u64 now_ms) noexcept {
+    if (runtime->closing)
+        return;
+    u32 masking_key = 0;
+    u32 encrypted_bytes = 0;
+    const u8 code[2] = {static_cast<u8>(close_code >> 8), static_cast<u8>(close_code)};
+    if (close_code != kCloseWithoutFrame && runtime->session.opened && runtime->tls_initialized &&
+        runtime->send_purpose == SendPurpose::none && secure_random_u32(&masking_key).ok()) {
+        const WebSocketWriteResult framed = websocket_write_client_frame(
+            WebSocketOpcode::close, true, ConstSlice<u8>{code, close_code == kCloseWithoutCode ? 0u : 2u},
+            masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+        if (framed.ok() &&
+            tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
+                               Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
+                .ok() &&
+            start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, SendPurpose::closing)) {
+            runtime->closing = true;
+            runtime->closing_deadline_ms = deadline_after(now_ms, kCloseFrameTimeoutMs);
+            return;
+        }
+    }
+    finish_close(runtime);
+}
+
+} // namespace
+namespace client_detail {
+
 // Drops the connection and its TLS state; the worker keeps its loop.
-void close_transport(GatewayClientRuntime* runtime) noexcept {
+void finish_close(GatewayClientRuntime* runtime) noexcept {
+    runtime->closing = false;
     if (runtime->resolver.pending)
         network_resolver_cancel(&runtime->resolver);
     network_connection_close(&runtime->connection);
@@ -91,11 +133,8 @@ void close_transport(GatewayClientRuntime* runtime) noexcept {
     clear_user_transport(runtime);
 }
 
-} // namespace
-namespace client_detail {
-
 bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, GatewayLifecycleAction action,
-                        u64 now_ms, u32 delay_ms) noexcept {
+                        u64 now_ms, u32 delay_ms, u32 close_code) noexcept {
     runtime->mailbox_deadline_ms = 0;
     if (action != GatewayLifecycleAction::reconnect_identify &&
         action != GatewayLifecycleAction::reconnect_resume) {
@@ -111,7 +150,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     runtime->rate_deadline_ms = 0;
     gateway_outbound_reset(&runtime->outbound);
     runtime->qos.has_immediate = false;
-    close_transport(runtime);
+    close_transport(runtime, close_code, now_ms);
     publish_phase(client, GatewayClientPhase::reconnect_wait);
     GatewayClientEvent reconnecting{};
     reconnecting.timestamp_ms = now_ms;
@@ -134,7 +173,7 @@ bool schedule_backoff_reconnect(GatewayClient* client, GatewayClientRuntime* run
     const GatewayLifecycleAction action = runtime->resume.valid
                                               ? GatewayLifecycleAction::reconnect_resume
                                               : GatewayLifecycleAction::reconnect_identify;
-    return schedule_reconnect(client, runtime, action, now_ms, delay.delay_ms);
+    return schedule_reconnect(client, runtime, action, now_ms, delay.delay_ms, kCloseWithoutFrame);
 }
 
 } // namespace
@@ -149,7 +188,9 @@ void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexce
         if (!runtime->failed) {
             publish_phase(client, GatewayClientPhase::stopping);
         }
-        close_transport(runtime);
+        // The page's sign-out closes its socket without a status code.
+        close_transport(runtime, runtime->failed ? kCloseWithoutFrame : kCloseWithoutCode,
+                        clock_monotonic_milliseconds());
     }
 }
 
@@ -323,9 +364,13 @@ bool begin_websocket_opening(GatewayClientRuntime* runtime) noexcept {
     const u32 cookie_bytes =
         cookies ? cookie_jar_header(cookies, cookie_request, clock_unix_milliseconds(), {cookie, sizeof(cookie)})
                 : 0;
+    // Chromium's WebSocket handshake carries the primary language alone (en-GB), not the weighted list XHRs send.
+    u32 language_bytes = metadata ? metadata->accept_language.bytes : 0;
+    for (u32 i = 0; i < language_bytes; ++i)
+        if (metadata->accept_language.data[i] == ',' || metadata->accept_language.data[i] == ';')
+            language_bytes = i;
     const WebSocketPageFields page{
-        metadata ? ConstSlice<u8>{reinterpret_cast<const u8*>(metadata->accept_language.data),
-                                  metadata->accept_language.bytes}
+        metadata ? ConstSlice<u8>{reinterpret_cast<const u8*>(metadata->accept_language.data), language_bytes}
                  : ConstSlice<u8>{},
         {cookie, cookie_bytes}};
     const WebSocketHandshakeWriteResult request = websocket_write_opening_request(
@@ -458,8 +503,10 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
 } // namespace client_detail
 namespace {
 
-// The user identify into gateway_payload: the launch's first is the
-// fast-connect one, later ones carry the connect reasons and QoS token.
+// The user identify into gateway_payload: a launch that starts with a stored token
+// fast-connects first; every other identify carries the connect reasons and QoS token.
+// The presence is the page's: the saved status once a READY gave it, else the
+// launch's (unknown before its first session opened). It is kept for after READY.
 GatewayCommandWriteResult write_user_identify_command(GatewayClientRuntime* runtime, Utf8View token) noexcept {
     char heartbeat_id[kGatewayUserLaunchIdBytes];
     char fast_connect_id[kGatewayUserLaunchIdBytes + 1];
@@ -475,14 +522,16 @@ GatewayCommandWriteResult write_user_identify_command(GatewayClientRuntime* runt
                                                                  {user.qos_derived, user.qos_derived_bytes},
                                                                  {qos_token, sizeof(qos_token)})};
     }
+    GatewayPresenceUpdate presence{0, launch_presence_status(), false, false};
     AcquireSRWLockShared(&runtime->subscription_lock);
-    if (runtime->self_status.authoritative) {
-        identify.status = runtime->self_status.desired.status;
-        identify.since_ms = runtime->self_status.desired.since_ms;
-        identify.has_since = runtime->self_status.desired.has_since;
-        identify.afk = runtime->self_status.desired.afk;
-    }
+    if (runtime->self_status.authoritative)
+        presence = gateway_presence_effective(runtime->self_status.desired, &runtime->local_presence);
     ReleaseSRWLockShared(&runtime->subscription_lock);
+    runtime->identify_presence = presence;
+    identify.status = presence.status;
+    identify.since_ms = presence.since_ms;
+    identify.has_since = presence.has_since;
+    identify.afk = presence.afk;
     const GatewayCommandWriteResult command =
         gateway_write_user_identify(identify, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     SecureZeroMemory(qos_token, sizeof(qos_token));
@@ -509,6 +558,14 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     if (next.state != GatewayOutboundState::action || !runtime->credential.data ||
         !runtime->credential.locked) {
         return OutboundDrive::failed;
+    }
+    if (next.action == GatewayLifecycleAction::send_identify_presence ||
+        next.action == GatewayLifecycleAction::send_idle_voice_state ||
+        next.action == GatewayLifecycleAction::send_ready_presence) {
+        if (send_ready_output(runtime, next.action, now_ms) != OutboundDrive::sending)
+            return OutboundDrive::failed;
+        runtime->rate_deadline_ms = 0;
+        return OutboundDrive::sending;
     }
 
     GatewayCommandWriteResult command{};

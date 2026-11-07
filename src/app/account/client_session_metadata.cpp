@@ -28,7 +28,6 @@ GatewayUserProperties object_properties(const ClientSessionMetadata& metadata,
         metadata.heartbeat_present ? Utf8View{heartbeat_id, kGatewayUserLaunchIdBytes} : Utf8View{};
     properties.client_app_state =
         metadata.app_state_key ? app_state(metadata.app_state_focused) : Utf8View{};
-    properties.app_state_first = metadata.app_state_first;
     return properties;
 }
 
@@ -101,21 +100,18 @@ u32 client_session_metadata_request(ClientSessionMetadata* metadata, u64 now_ms,
         return 0;
     ExclusiveLock guard(metadata->lock);
     // As the desktop client extends its super properties: a changed value is
-    // set, and a key seen for the first time follows the existing ones.
+    // set, and the heartbeat session always precedes the app state.
     bool changed = false;
     const ClientHeartbeatSession* session = live_session(*metadata, now_ms);
     if (session ? !metadata->heartbeat_present ||
                       !bytes_equal(metadata->heartbeat_id, session->uuid, kGatewayUserLaunchIdBytes)
                 : metadata->heartbeat_present) {
-        metadata->heartbeat_key = true;
         metadata->heartbeat_present = session != nullptr;
         if (session)
             copy_bytes(metadata->heartbeat_id, session->uuid, kGatewayUserLaunchIdBytes);
         changed = true;
     }
     if (!metadata->app_state_key || metadata->app_state_focused != metadata->focused) {
-        if (!metadata->app_state_key)
-            metadata->app_state_first = !metadata->heartbeat_key;
         metadata->app_state_key = true;
         metadata->app_state_focused = metadata->focused;
         changed = true;

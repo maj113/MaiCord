@@ -42,7 +42,9 @@ bool publish_relationship(void* opaque, u32, JsonValue value) noexcept {
     RelationshipMutation mutation{};
     const auto decoded = relationship_decode_record(value.source, stream.object_scratch,
         RelationshipEvent::update, &mutation);
-    if (!decoded.ok()) { stream.error = fail(GatewayClientDispatchRouteError::decode); return false; }
+    // A row this client cannot type (a relationship type it does not know, say) is left out of the snapshot
+    // rather than failing READY.
+    if (!decoded.ok()) return true;
     auto event = event_for(stream, GatewayClientDispatchKind::relationship_snapshot_item);
     event.state.record_count = 1;
     event.dispatch_payload_bytes = sizeof(mutation);
@@ -93,28 +95,20 @@ bool user_id_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     if (value.kind == JsonValueKind::null_value) return true; // compressed payload permits empty positions
     auto& stream = *static_cast<Stream*>(opaque);
-    if (value.kind != JsonValueKind::object) { stream.error = fail(GatewayClientDispatchRouteError::decode); return false; }
+    if (value.kind != JsonValueKind::object) return true;
     const auto scan = json_scan_structurals_avx1(value.source, stream.object_scratch);
     if (!scan.ok()) { stream.error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed); return false; }
     const JsonIndexedDocument document{value.source, {stream.object_scratch.data, scan.count}};
     Presence presence{};
     const auto read = json_visit_value_object(value, document.structurals, 64, presence_member, &presence);
-    const bool guild = stream.guild_id != 0;
-    if (!read.ok() || !presence.valid || !(presence.seen & 4)) {
-        if (guild) return true;
-        stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
-    }
+    // Malformed rows are skipped, never fatal: a guild row is advisory and a friend's stays unknown.
+    if (!read.ok() || !presence.valid || !(presence.seen & 4)) return true;
     if (presence.seen & 2) {
         const auto user = json_visit_indexed_object(document, presence.user, 64, user_id_member, &presence);
-        if (!user.ok() || !presence.valid || !(presence.seen & 16)) {
-            if (guild) return true;
-            stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
-        }
+        if (!user.ok() || !presence.valid || !(presence.seen & 16)) return true;
     }
-    if (!presence.value.user_id) {
-        if (guild) return true;
-        stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
-    }
+    if (!presence.value.user_id) return true;
+    const bool guild = stream.guild_id != 0;
     auto event = event_for(stream, GatewayClientDispatchKind::presence_update);
     event.presence = presence.value;
     event.presence.guild_id = stream.guild_id;

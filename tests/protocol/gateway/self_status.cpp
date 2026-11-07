@@ -13,7 +13,7 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
         utf8_literal("{\"op\":3,\"d\":{\"status\":\"invisible\",\"since\":0,\"activities\":[],\"afk\":false}}")),
         "self status: opcode3 Invisible is explicit desired status rather than Offline presence");
     wire[0] = 77;
-    check(gateway_write_presence_update({0, static_cast<GatewayUserStatus>(4), false, false}, nullptr, nullptr,
+    check(gateway_write_presence_update({0, static_cast<GatewayUserStatus>(5), false, false}, nullptr, nullptr,
                                         {wire, sizeof(wire)}).error == GatewayCommandError::invalid_input &&
               wire[0] == 77 &&
           gateway_write_presence_update({42, GatewayUserStatus::online, true, false}, nullptr, nullptr,

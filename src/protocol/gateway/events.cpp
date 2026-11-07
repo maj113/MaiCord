@@ -267,7 +267,7 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
                                    "guilds", "private_channels", "required_action", "relationships",
                                    "merged_presences", "merged_members", "read_state", "linked_users",
                                    "regional_feature_config", "apex_experiments", "users", "session_id",
-                                   "resume_gateway_url", "auth_session_id_hash", "qos_token">(name);
+                                   "resume_gateway_url", "auth_session_id_hash", "qos_token", "auth_token">(name);
     if (index < 3) {
         const u32 policy_bit = 1u << (15 + index);
         JsonValue* const policy = index == 0   ? &ready.user_guild_settings
@@ -369,6 +369,7 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
         ready.auth_session_id_hash = value;
         break;
     case 19: ready.qos_token = value; break;
+    case 20: ready.auth_token = value; break;
     default: break;
     }
     return true;

@@ -15,9 +15,11 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         return result;
     }
     // A READY without settings (missing or "") is an empty message: every
-    // setting at its default and editable, as the official client loads it.
+    // setting at its default and editable, as the official client loads it. A
+    // partial update without settings carries only a new session hash
+    // (AUTH_SESSION_CHANGE).
     JsonString text{};
-    if ((partial || settings_proto.source.data) && !json_value_as_string(settings_proto, &text)) {
+    if (settings_proto.source.data && !json_value_as_string(settings_proto, &text)) {
         result.error = GatewayClientDispatchRouteError::decode;
         return result;
     }
@@ -39,7 +41,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         if (decoded.ok())
             hash = {hash_storage, decoded.bytes};
     }
-    if (!encoded.bytes && partial)
+    if (!encoded.bytes && partial && !hash.bytes)
         return result;
     const Slice<u8> output{reinterpret_cast<u8*>(storage.data), output_bytes};
     const auto extracted = user_settings_proto_extract_base64(encoded, kUserSettingsStoredGroups, hash,
@@ -48,7 +50,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         result.error = GatewayClientDispatchRouteError::decode;
         return result;
     }
-    if (partial && !extracted.present_mask)
+    if (partial && !extracted.present_mask && !hash.bytes)
         return result;
     u32 bytes = extracted.bytes;
     if (partial) {

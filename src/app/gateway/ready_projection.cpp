@@ -191,7 +191,14 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
             writer = {pass.scratch.payload, pass.user_bytes};
             pass.result.route = gateway_append_user(value, pass.scratch.records, 64, &writer);
         } while (!pass.result.route.ok() && grow_record_index(pass));
-        if (!pass.result.route.ok()) return false;
+        // A user the typed route cannot hold is left out (its name shows as unknown) rather than failing READY;
+        // a failed append wrote nothing.
+        if (!pass.result.route.ok()) {
+            if (pass.result.interrupted || pass.result.route.error == GatewayClientDispatchRouteError::payload_capacity)
+                return false;
+            reset_value(&pass.result.route);
+            return true;
+        }
         if (pass.ready->linked_users.source.data) {
             GatewayClientUserMutation user{};
             copy_bytes(&user, pass.scratch.payload.data + pass.user_bytes, sizeof(user));
@@ -239,12 +246,14 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
         pass.result.route.error = GatewayClientDispatchRouteError::decode;
         pass.result.route.event_error = GatewayEventDecodeError::invalid_data;
     }
-    if (!pass.result.route.ok() && pass.kind == RecordKind::guild && !pass.result.interrupted) {
-        // One guild that cannot be projected (an unknown shape, or more data
-        // than one typed record holds) must not cost the whole session. The
-        // READY header already listed it, so it stays an unavailable entry.
-        if (!pass.result.degraded_guilds) pass.result.degraded_route = pass.result.route;
-        ++pass.result.degraded_guilds;
+    if (!pass.result.route.ok() && !pass.result.interrupted) {
+        // One guild or private channel that cannot be projected (an unknown shape or channel type, or more data
+        // than one typed record holds) must not cost the whole session. A guild stays listed, as unavailable,
+        // because the READY header already named it; a private channel is left out.
+        if (pass.kind == RecordKind::guild) {
+            if (!pass.result.degraded_guilds) pass.result.degraded_route = pass.result.route;
+            ++pass.result.degraded_guilds;
+        }
         reset_value(&pass.result.route);
         return true;
     }
@@ -334,9 +343,13 @@ bool run(Pass& pass) noexcept {
         if (!allowed(pass)) return false;
         pass.result.route = gateway_client_route_read_state_snapshot(ready.read_state, pass.scratch.arrays,
             64, pass.scratch.payload, &event, &payload, pass.scratch.large);
-        if (!pass.result.route.ok()) return false;
-        event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
-        if (!emit(pass, event, payload)) return false;
+        // Read states are ancillary: one the typed route cannot hold leaves unread counts to the live
+        // events instead of failing READY.
+        if (pass.result.route.ok()) {
+            event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
+            if (!emit(pass, event, payload)) return false;
+        }
+        reset_value(&pass.result.route);
     }
     if (!allowed(pass)) return false;
     pass.result.route = gateway_client_publish_relationship_snapshot(ready.relationships, ready.merged_presences,

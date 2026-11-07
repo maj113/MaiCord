@@ -248,7 +248,7 @@ u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noe
     if (!ids.count || ids.count > kUserActivityMaximum)
         return 0;
     GuardedWriter w{output};
-    w.put("/api/v10/applications/public");
+    w.put("/api/v9/applications/public");
     for (u32 i = 0; i < ids.count; ++i) {
         if (!ids[i])
             return 0;
@@ -268,7 +268,7 @@ u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application
             return 0;
     }
     GuardedWriter w{output};
-    w.put("/api/v10/users/", user_id, "/sessions/", session, "/activities/", application_id, "/metadata");
+    w.put("/api/v9/users/", user_id, "/sessions/", session, "/activities/", application_id, "/metadata");
     return w.finish();
 }
 namespace {

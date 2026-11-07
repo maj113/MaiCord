@@ -1,6 +1,7 @@
 #include "client_internal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/net/rest_client.hpp"
+#include "maicord/core/hash.hpp"
 
 namespace maicord {
 
@@ -170,6 +171,17 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
     return true;
 }
 
+bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffer* output) noexcept {
+    auto* runtime = user_runtime(client);
+    if (!runtime || !output || output->data)
+        return false;
+    AcquireSRWLockExclusive(&runtime->resume_lock);
+    const bool taken = runtime->refreshed_credential.data &&
+                       secure_buffer_transfer(output, &runtime->refreshed_credential);
+    ReleaseSRWLockExclusive(&runtime->resume_lock);
+    return taken;
+}
+
 bool gateway_client_subscribe_guild_members(GatewayClient* client,
                                             const GatewayGuildSubscription& subscription) noexcept {
     auto* runtime = live_user_runtime(client);
@@ -179,6 +191,7 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
     u8 validation[kGatewayUserMaximumCommandBytes];
     const GatewayCommandWriteResult valid = gateway_write_guild_subscriptions_bulk(
         subscription, Slice<u8>{validation, kGatewayUserMaximumCommandBytes});
+    const u64 digest = hash64_bytes(kHash64Seed, validation, valid.bytes);
     SecureZeroMemory(validation, sizeof(validation));
     if (!valid.ok()) {
         return false;
@@ -188,8 +201,15 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
     const bool members_only = subscription.members_present && subscription.omit_channel_ranges &&
                               subscription.omit_features && !subscription.thread_member_lists_present;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
-    copy_value(members_only ? &runtime->desired_members : &runtime->desired_subscription, subscription);
     u32& revision = members_only ? runtime->members_revision : runtime->subscription_revision;
+    u64& desired_digest = members_only ? runtime->members_digest : runtime->subscription_digest;
+    // The same request again is not a new subscription: its revision is sent once per session.
+    if (revision != 0 && desired_digest == digest) {
+        ReleaseSRWLockExclusive(&runtime->subscription_lock);
+        return true;
+    }
+    copy_value(members_only ? &runtime->desired_members : &runtime->desired_subscription, subscription);
+    desired_digest = digest;
     u32& sent = members_only ? runtime->sent_members_revision : runtime->sent_subscription_revision;
     if (++revision == 0) {
         revision = 1;
@@ -281,7 +301,7 @@ RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime
                                                    SelfStatusSettingsOperation operation,
                                                    const ConstSlice<u8>& body, u64 request_id) noexcept {
     const bool update = operation == SelfStatusSettingsOperation::update;
-    static constexpr char target[] = "/api/v10/users/@me/settings-proto/1";
+    static constexpr char target[] = "/api/v9/users/@me/settings-proto/1";
     const RestClientRequest rest_request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                          body,
                                          {0x5354415455535052ull, 0,

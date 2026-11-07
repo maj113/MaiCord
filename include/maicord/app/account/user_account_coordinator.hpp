@@ -89,6 +89,11 @@ UserAccountCoordinatorResult user_account_coordinator_status(
     const UserAccountCoordinator* coordinator) noexcept;
 bool user_account_coordinator_snapshot_session(const UserAccountCoordinator* coordinator,
                                                GatewayUserSessionSnapshot* snapshot) noexcept;
+// A token the Gateway's READY refreshed (AUTH_TOKEN_REFRESH): both REST clients
+// switch to it before this returns, and the empty `output` receives it for the
+// saved profile. False when none is waiting.
+bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* coordinator,
+                                                        SecureBuffer* output) noexcept;
 UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinator* coordinator,
                                                            u32 timeout_ms,
                                                            GatewayUserSessionSnapshot* snapshot) noexcept;

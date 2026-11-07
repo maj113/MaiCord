@@ -1,5 +1,6 @@
 #include "account_module_internal.hpp"
 #include "maicord/os/wait.hpp"
+#include "maicord/app/net/signed_out_session.hpp"
 #include "login/account_login_captcha.hpp"
 #include "maicord/app/account/account_user_social.hpp"
 #include "maicord/app/guild/account_guild_community.hpp"
@@ -92,6 +93,22 @@ bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapsh
     return true;
 }
 
+void persist_refreshed_credential(AccountModuleRuntime* runtime, bool retry) noexcept {
+    SecureBuffer taken{};
+    const bool fresh = user_account_coordinator_take_refreshed_credential(&runtime->coordinator, &taken);
+    if (fresh) {
+        // A newer token replaces one still waiting for its save.
+        secure_buffer_release(&runtime->refreshed_credential);
+        secure_buffer_transfer(&runtime->refreshed_credential, &taken);
+    }
+    // A failed save keeps the token; the session autosave and the stop try again.
+    if ((fresh || retry) && runtime->refreshed_credential.data &&
+        runtime->coordinator.state.error != UserAccountCoordinatorError::authentication_rejected &&
+        account_profile_save(runtime->profile_path, runtime->coordinator.metadata, runtime->refreshed_credential)
+            .ok())
+        secure_buffer_release(&runtime->refreshed_credential);
+}
+
 } // namespace account_module_detail
 namespace {
 
@@ -102,6 +119,7 @@ void autosave_if_due(AccountModuleRuntime* runtime, u64 monotonic_now_ms) noexce
     GatewayUserSessionSnapshot snapshot{};
     const bool captured = user_account_coordinator_snapshot_session(&runtime->coordinator, &snapshot);
     const bool saved = !captured || save_snapshot(runtime, snapshot, false);
+    persist_refreshed_credential(runtime, true);
     runtime->next_autosave_at_ms =
         deadline_after(monotonic_now_ms, saved ? kSessionAutosaveIntervalMs : kSessionAutosaveRetryMs);
 }
@@ -181,7 +199,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     video_stream_decoders_initialize(&runtime->video);
     account_soundboard_initialize(&runtime->soundboard);
     account_voice_message_initialize(&runtime->voice_message);
-    if (!copy_path(session_path, runtime->session_path)) {
+    if (!copy_path(session_path, runtime->session_path) || !copy_path(profile_path, runtime->profile_path)) {
         discard_runtime(runtime);
         result.error = AccountModuleError::invalid_input;
         return result;
@@ -212,6 +230,9 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     if (session.ok() && (snapshot_is_persistable(restored) || heartbeat || cookies)) {
         account_session_save_state_record(&runtime->save_state, restored, heartbeat, cookie_revision);
     }
+    // An account that just signed in continues with the login page's cookies,
+    // which replace any saved ones; they are saved with its session.
+    signed_out_adopt_cookies(profile.metadata.profile_id, &runtime->cookies);
 
     const AccountMediaRequestResult media_started = account_media_worker_initialize(&runtime->media);
     if (!media_started.ok()) {
@@ -269,6 +290,7 @@ AccountModuleStatus WINAPI module_pump(void* instance, u64 monotonic_now_ms, u64
         return module_failure(AccountModuleError::invalid_input);
     }
     user_account_coordinator_pump(&runtime->coordinator, monotonic_now_ms);
+    persist_refreshed_credential(runtime, false);
     if (user_account_coordinator_gateway_restart_due(&runtime->coordinator, monotonic_now_ms)) {
         // Reuse the authenticated owner's initial identity; the saved status
         // follows READY. Soundboard and video sinks re-attach on their next
@@ -674,9 +696,9 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
     ProtocolWriter path{{target, sizeof(target)}, 0};
     if (operation <= 1) {
         if (operation == 1) {
-            if (!protocol_writer_append_literal(&path, "/api/v10/users/@me/application-command-index"))
+            if (!protocol_writer_append_literal(&path, "/api/v9/users/@me/application-command-index"))
                 return invalid;
-        } else if (!channel || !protocol_writer_append_literal(&path, "/api/v10/") ||
+        } else if (!channel || !protocol_writer_append_literal(&path, "/api/v9/") ||
                    !protocol_writer_append_c_string(&path, guild ? "guilds/" : "channels/") ||
                    !protocol_writer_append_u64(&path, guild ? guild : channel) ||
                    !protocol_writer_append_literal(&path, "/application-command-index"))
@@ -752,7 +774,7 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
     RestMethod method = RestMethod::get;
     if (operation == 4) {
         ProtocolWriter writer{{target, 96}, 0};
-        if (!protocol_writer_append_literal(&writer, "/api/v10/collectibles-products/") ||
+        if (!protocol_writer_append_literal(&writer, "/api/v9/collectibles-products/") ||
             !protocol_writer_append_u64(&writer, user))
             return invalid;
         path.count = writer.used;
@@ -791,15 +813,15 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             !protocol_writer_append_json_string(&writer, value) ||
             !protocol_writer_append_byte(&writer, '}'))
             return invalid;
-        const auto patch_target = operation == 3 ? utf8_literal("/api/v10/users/@me")
-                                                 : utf8_literal("/api/v10/users/@me/profile");
+        const auto patch_target = operation == 3 ? utf8_literal("/api/v9/users/@me")
+                                                 : utf8_literal("/api/v9/users/@me/profile");
         path = {reinterpret_cast<const u8*>(patch_target.data), patch_target.bytes};
         payload = {body, writer.used};
         route = 0x5052464d;
         method = RestMethod::patch;
     } else {
         ProtocolWriter writer{{target, sizeof(target)}, 0};
-        if (!protocol_writer_append_literal(&writer, "/api/v10/users/") ||
+        if (!protocol_writer_append_literal(&writer, "/api/v9/users/") ||
             !protocol_writer_append_u64(&writer, user) ||
             !protocol_writer_append_literal(&writer, "/profile?with_mutual_guilds=true&with_mutual_friends=true"
                                                      "&with_mutual_friends_count=true"))

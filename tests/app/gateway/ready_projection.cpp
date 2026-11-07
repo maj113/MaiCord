@@ -971,23 +971,35 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         "staged READY publication stops at its guard with the admitted prefix and releases staging");
     reserved_bytes_release(&staging);
 
+    // A READY the client cannot fully type still opens the session: the rows it cannot hold are left out, so a
+    // new field shape, channel or relationship type never sends it into the re-identify loop.
+    const auto published = [](const Probe& probe, GatewayClientDispatchKind kind) noexcept {
+        u32 count = 0;
+        for (u32 i = 0; i < probe.admitted && i < 32; ++i) count += probe.order[i] == kind;
+        return count;
+    };
     Probe late_user{};
-    const auto user_failure = project(fixture(65, {}, true), &late_user);
-    check(!user_failure.ok() && !user_failure.interrupted && !user_failure.completed &&
-        user_failure.phase == GatewayReadyProjectionPhase::preflight && !late_user.admitted &&
-        user_failure.failure_stage == GatewayClientFailureStage::ready_user_route,
-        "malformed user after a complete candidate batch publishes no READY or user prefix");
-    const Utf8View malformed_tails[]{
-        utf8_literal(",\"private_channels\":[{\"id\":\"90\",\"type\":1,\"recipients\":[{\"id\":\"2\",\"username\":\"peer\"}]},{\"id\":\"91\",\"type\":99}]"),
+    const auto user_skipped = project(fixture(65, {}, true), &late_user);
+    Probe all_users{};
+    project(fixture(65), &all_users);
+    check(user_skipped.ok() && late_user.complete == 1 && late_user.valid && late_user.users + 1 == all_users.users,
+        "a user READY cannot type is left out; the rest of READY completes");
+    Probe private_channels{};
+    const auto private_skipped = project(fixture(65, utf8_literal(
+        ",\"private_channels\":[{\"id\":\"90\",\"type\":1,\"recipients\":[{\"id\":\"2\",\"username\":\"peer\"}]},{\"id\":\"91\",\"type\":18}]")),
+        &private_channels);
+    check(private_skipped.ok() && private_channels.complete == 1 && !private_skipped.degraded_guilds &&
+        published(private_channels, GatewayClientDispatchKind::channel_create) == 1,
+        "a private channel of a type the client does not know (an ephemeral DM) is left out; READY completes");
+    const Utf8View skipped_rows[]{
         utf8_literal(",\"relationships\":[{\"id\":\"2\",\"type\":1},{\"id\":\"3\",\"type\":99}]"),
         utf8_literal(",\"relationships\":[{\"id\":\"2\",\"type\":1}],\"merged_presences\":{\"friends\":[{\"user_id\":\"2\",\"status\":\"online\"},{\"user_id\":\"3\"}]}"),
     };
-    for (auto tail : malformed_tails) {
-        Probe rejected{};
-        const auto failure = project(fixture(65, tail), &rejected);
-        check(!failure.ok() && !failure.completed && failure.phase == GatewayReadyProjectionPhase::preflight &&
-            !rejected.admitted && !rejected.complete,
-            "malformed final private relationship or presence child publishes no semantic READY prefix");
+    for (auto tail : skipped_rows) {
+        Probe rows{};
+        const auto result = project(fixture(65, tail), &rows);
+        check(result.ok() && rows.complete == 1 && rows.valid,
+            "a relationship or friend presence READY cannot type is left out; READY completes");
     }
     const auto bad_guild = utf8_literal(R"({"v":9,"user":{"id":"1","username":"self"},"session_id":"projection","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"8","unavailable":true},{"id":"9","unavailable":false}]})");
     Probe guild{};
@@ -999,8 +1011,9 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     const auto bad_reads = utf8_literal(R"({"v":9,"user":{"id":"1","username":"self"},"session_id":"projection","resume_gateway_url":"wss://gateway.discord.gg","guilds":[],"read_state":{"entries":[{"id":"9"},{"id":"9"}]}})");
     Probe reads{};
     const auto read_failure = project(bad_reads, &reads);
-    check(!read_failure.ok() && !reads.admitted && read_failure.phase == GatewayReadyProjectionPhase::preflight,
-        "duplicate trailing read-state authority rejects the entire READY before publication");
+    check(read_failure.ok() && reads.complete == 1 &&
+        !published(reads, GatewayClientDispatchKind::read_state_snapshot),
+        "read states READY cannot type are left to the live events; READY completes");
 
     Probe cancel{}; cancel.stop_preflight = 10;
     const auto cancelled = project(fixture(129), &cancel);

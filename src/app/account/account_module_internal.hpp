@@ -39,6 +39,10 @@ struct AccountModuleRuntime {
     u64 upload_id;
     AccountDownloadOwner* download;
     wchar_t session_path[kAccountProfileMaximumPathCharacters];
+    wchar_t profile_path[kAccountProfileMaximumPathCharacters];
+    // A token READY refreshed that the saved profile does not hold yet; its save is
+    // retried with the session autosave, and once more at stop.
+    SecureBuffer refreshed_credential;
     u64 next_autosave_at_ms;
     AccountSessionSaveState save_state;
     u32 session_saves;
@@ -194,6 +198,10 @@ SecureBufferResult WINAPI module_login_copy_webauthn_challenge(void* instance,
 bool copy_path(const wchar_t* source, wchar_t* destination) noexcept;
 bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot,
                    bool include_sequence) noexcept;
+// Takes a token READY refreshed into REST and saves it with the profile (account_profile_save's
+// atomic write). A failed save keeps it; with `retry` (autosave, stop) a kept one is saved
+// again. Rejected credentials are never saved.
+void persist_refreshed_credential(AccountModuleRuntime* runtime, bool retry) noexcept;
 AccountModuleStatus build_status(AccountModuleRuntime* runtime) noexcept;
 AccountModuleStatus stop_failure(AccountModuleRuntime* runtime, AccountModuleError error) noexcept;
 RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_id, u64 message_id,

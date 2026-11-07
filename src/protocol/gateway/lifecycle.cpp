@@ -131,6 +131,15 @@ GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecyc
     return step(reconnect_action(lifecycle, can_resume));
 }
 
+GatewayLifecycleStep gateway_lifecycle_session_retry(GatewayLifecycle* lifecycle) noexcept {
+    if (lifecycle->phase != GatewayLifecyclePhase::reconnecting || lifecycle->heartbeat_interval_ms == 0) {
+        return invalid_state();
+    }
+    lifecycle->phase = GatewayLifecyclePhase::awaiting_session;
+    return step(lifecycle->attempting_resume ? GatewayLifecycleAction::send_resume
+                                             : GatewayLifecycleAction::send_identify);
+}
+
 GatewayCloseDisposition gateway_classify_close(u16 close_code) noexcept {
     switch (close_code) {
     case 4004:

@@ -37,9 +37,9 @@ struct ClientSessionMetadata {
     // Monotonic time of the last activity refresh; zero before the first.
     u64 refreshed_at_ms;
     bool focused;
-    // Request-time keys of the super-properties object: once added they keep
-    // their place, and an absent heartbeat session leaves its key unset.
-    bool heartbeat_key, app_state_key, app_state_first;
+    // Request-time keys of the super-properties object: the app state once
+    // reported; an absent heartbeat session leaves its key out.
+    bool app_state_key;
     bool heartbeat_present, app_state_focused;
     char heartbeat_id[kGatewayUserLaunchIdBytes];
     u32 super_properties_bytes;

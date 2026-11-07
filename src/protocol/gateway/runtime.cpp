@@ -100,10 +100,6 @@ void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept {
     reset_value<GatewayReconnectBackoff>(backoff);
 }
 
-u32 gateway_invalid_session_delay(u32 random) noexcept {
-    return 1'000u + scale_inclusive(random, 4'000u);
-}
-
 u32 gateway_ready_failure_delay(u32 failures) noexcept {
     if (failures == 0)
         return 0;

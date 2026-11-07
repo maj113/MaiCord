@@ -226,6 +226,20 @@ bool user_account_coordinator_snapshot_session(const UserAccountCoordinator* coo
     return gateway_client_snapshot_user_session(&coordinator->gateway, snapshot);
 }
 
+bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* coordinator,
+                                                        SecureBuffer* output) noexcept {
+    if (!coordinator || !output || !gateway_client_take_refreshed_credential(&coordinator->gateway, output))
+        return false;
+    // REST writes every later request head with it; a 401 to a request already sent with the old one is not a
+    // rejection of the session.
+    const ConstSlice<u8> token = secure_buffer_view(*output);
+    if (coordinator->rest.runtime)
+        rest_client_replace_credential(&coordinator->rest, token);
+    if (coordinator->details.runtime)
+        rest_client_replace_credential(&coordinator->details, token);
+    return true;
+}
+
 UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinator* coordinator,
                                                            u32 timeout_ms,
                                                            GatewayUserSessionSnapshot* snapshot) noexcept {

@@ -104,6 +104,13 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
                                               const GatewayUserSessionSnapshot* session) noexcept;
+// Process-wide: this launch signed in interactively, so no identify of it is the
+// fast-connect one (the desktop page fast-connects only when it loads with a stored token).
+void gateway_user_launch_signed_in() noexcept;
+// A token a READY handed out (AUTH_TOKEN_REFRESH, the bit 8 capability) moves into the
+// empty `output`; the worker already identifies and resumes with it. False when none
+// is waiting. The owner hands it to REST and saves it with the profile.
+bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffer* output) noexcept;
 // After the worker finishes, the profile metadata and locked credential are
 // returned together. A client that is not a user one is rejected without
 // stopping and the empty output remains unchanged.

@@ -2982,9 +2982,49 @@ void test_gateway_runtime() noexcept {
     }
     expect(capped.delay_ms == 60'000, "gateway_reconnect_backoff_cap");
     gateway_reconnect_reset(&backoff);
-    expect(backoff.delay_ms == 0 && gateway_invalid_session_delay(0) == 1'000 &&
-               gateway_invalid_session_delay(~0u) == 5'000,
-           "gateway_reconnect_reset_invalid_session_delay");
+    expect(backoff.delay_ms == 0, "gateway_reconnect_reset");
+    // A READY that cannot be projected re-identifies on the floor plus the reconnect jitter. Even on the
+    // shortest schedule (zero jitter randomness) it never comes back within 5 s, nor makes more than four
+    // sessions in any minute, where the desktop client's dispatch-error reset retries at once and then from 1 s.
+    {
+        GatewayReconnectBackoff ready_backoff{};
+        u64 identified_at[17]{};
+        bool spaced = true;
+        for (u32 failures = 1; failures <= 16; ++failures) {
+            const u32 delay =
+                gateway_ready_failure_delay(failures) + gateway_reconnect_next(&ready_backoff, 0).delay_ms;
+            spaced = spaced && delay >= 6'000;
+            identified_at[failures] = identified_at[failures - 1] + delay;
+        }
+        bool bounded = true;
+        for (u32 index = 0; index + 4 <= 16; ++index)
+            bounded = bounded && identified_at[index + 4] - identified_at[index] > 60'000;
+        expect(spaced && bounded && gateway_ready_failure_delay(16) == 600'000,
+               "gateway_ready_failure_reidentify_at_most_four_sessions_a_minute");
+    }
+    // An invalid session is retried on the same socket at once: identify, or resume when it is resumable.
+    {
+        GatewayLifecycle retry{};
+        gateway_lifecycle_initialize(&retry);
+        gateway_lifecycle_connected(&retry, false);
+        gateway_lifecycle_hello(&retry, GatewayHello{41'250}, 0, 1'000);
+        gateway_lifecycle_session_ready(&retry);
+        gateway_lifecycle_dispatch(&retry, 7);
+        const GatewayLifecycleStep invalid = gateway_lifecycle_invalid_session(&retry, false);
+        const GatewayLifecycleStep again = gateway_lifecycle_session_retry(&retry);
+        expect(invalid.action == GatewayLifecycleAction::reconnect_identify &&
+                   again.action == GatewayLifecycleAction::send_identify &&
+                   retry.phase == GatewayLifecyclePhase::awaiting_session && retry.heartbeat_interval_ms == 41'250 &&
+                   !retry.has_sequence && gateway_lifecycle_session_retry(&retry).error ==
+                                              GatewayLifecycleError::invalid_state,
+               "gateway_invalid_session_identifies_again_on_the_same_socket");
+        gateway_lifecycle_dispatch(&retry, 9);
+        gateway_lifecycle_session_ready(&retry);
+        gateway_lifecycle_invalid_session(&retry, true);
+        expect(gateway_lifecycle_session_retry(&retry).action == GatewayLifecycleAction::send_resume &&
+                   retry.last_sequence == 9,
+               "gateway_resumable_invalid_session_resumes_on_the_same_socket");
+    }
 
     GatewayRateLimiter limiter{};
     bool admitted = true;
@@ -3110,8 +3150,8 @@ void test_gateway_endpoint() noexcept {
 }
 
 void test_gateway_commands() noexcept {
-    expect((kGatewayUserCapabilitiesDefault & (1u << 8)) == 0,
-           "gateway_does_not_advertise_unhandled_auth_token_refresh");
+    expect(kGatewayUserCapabilitiesDefault == 1'734'653 && (kGatewayUserCapabilitiesDefault & (1u << 8)) != 0,
+           "gateway_advertises_auth_token_refresh_as_the_desktop_client");
     u8 output[2048]{};
     u8 guarded[2048]{};
     guard_fill(guarded, sizeof(guarded));
@@ -3132,22 +3172,20 @@ void test_gateway_commands() noexcept {
     const ConstSlice<u8> expected_user_properties = byte_literal(
         R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"client_heartbeat_session_id":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
                bytes_equal(ConstSlice<u8>{output, user_identified.bytes}, expected_user_identify),
            "gateway_user_identify_fresh_write");
-    // The client's capabilities minus AUTH_TOKEN_REFRESH (bit 8): READY's replacement auth_token cannot yet be
-    // adopted by every holder of the token, and no installation_id is sent (a server-issued analytics ID the
-    // client keeps in local storage).
+    // The desktop client's capabilities with channel obfuscation off, AUTH_TOKEN_REFRESH (bit 8) included: READY's
+    // replacement auth_token is adopted by the Gateway, REST and the saved profile. No installation_id is sent (a
+    // server-issued analytics ID the client keeps in local storage).
     bool installation_absent = true;
     for (u32 index = 0; index + 15 <= user_identified.bytes; ++index)
         installation_absent = installation_absent && !bytes_equal(ConstSlice<u8>{output + index, 15},
                                                                   ConstSlice<u8>{reinterpret_cast<const u8*>("installation_id"), 15});
-    expect(kGatewayUserCapabilitiesDefault == 1'734'397 && (kGatewayUserCapabilitiesDefault & (1u << 8)) == 0 &&
-               installation_absent,
-           "gateway_user_identify_capabilities_and_properties_pinned");
+    expect(installation_absent, "gateway_user_identify_capabilities_and_properties_pinned");
 
     // The X-Super-Properties header carries the same object: measured without
     // an output, written whole or not at all.
@@ -3169,8 +3207,8 @@ void test_gateway_commands() noexcept {
 #define MAICORD_TEST_PROPERTIES_HEAD \
     R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"launch_signature":"10203040-5060-4708-9090-a0b0c0d0e0f0")"
     // The desktop client's later properties: native build, launch signature,
-    // then the request-time heartbeat session and app state in the order they
-    // first appeared. Identify replaces the app state in place or appends it.
+    // then the request-time heartbeat session and app state. Identify replaces
+    // the app state in place or appends it.
     GatewayUserProperties live_properties = user_identify.properties;
     live_properties.native_build_number = 96160;
     live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0f0");
@@ -3185,11 +3223,12 @@ void test_gateway_commands() noexcept {
                             byte_literal(MAICORD_TEST_PROPERTIES_HEAD
                                          R"(,"client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","client_app_state":"unfocused"})")),
            "gateway_user_properties_desktop_tail_order");
-    live_properties.app_state_first = true;
-    expect(properties_equal(live_properties,
-                            byte_literal(MAICORD_TEST_PROPERTIES_HEAD
-                                         R"(,"client_app_state":"unfocused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110"})")),
-           "gateway_user_properties_app_state_first_order");
+    // Windows reports its update build revision after browser_version.
+    GatewayUserProperties revision_properties = user_identify.properties;
+    revision_properties.os_build_revision = utf8_literal("1000");
+    expect(properties_equal(revision_properties,
+                            byte_literal(R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_build_revision":"1000","client_build_number":603738,"client_event_source":null})")),
+           "gateway_user_properties_windows_build_revision");
     GatewayUserIdentify live_identify = user_identify;
     live_identify.token = utf8_literal("t");
     live_identify.properties = live_properties;
@@ -3200,25 +3239,34 @@ void test_gateway_commands() noexcept {
         return written.ok() && bytes_equal(ConstSlice<u8>{output, written.bytes}, expected);
     };
     expect(identify_equal(live_identify,
-                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":)"
                                        MAICORD_TEST_PROPERTIES_HEAD
-                                       R"(,"client_app_state":"focused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+                                       R"(,"client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_replaces_app_state_in_place");
     live_identify.properties.client_app_state = {};
     live_identify.properties.client_heartbeat_session_id = {};
+    // The page's properties carry the heartbeat session key as null while there is none.
     expect(identify_equal(live_identify,
-                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":)"
                                        MAICORD_TEST_PROPERTIES_HEAD
-                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+                                       R"(,"client_heartbeat_session_id":null,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_appends_absent_app_state");
     // Later identifies: the connect reasons the client counted and its QoS token.
     live_identify.connect_reasons = utf8_literal("AppSkeleton");
     live_identify.qos_token = utf8_literal("CgIIAQ==");
     expect(identify_equal(live_identify,
-                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":)"
                                        MAICORD_TEST_PROPERTIES_HEAD
-                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}})")),
+                                       R"(,"client_heartbeat_session_id":null,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}})")),
            "gateway_user_identify_connect_reasons_and_qos_token");
+    // Before the launch's first session opens the page's presence is unknown.
+    live_identify.status = GatewayUserStatus::unknown;
+    expect(identify_equal(live_identify,
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":)"
+                                       MAICORD_TEST_PROPERTIES_HEAD
+                                       R"(,"client_heartbeat_session_id":null,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"unknown","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}})")),
+           "gateway_user_identify_unknown_presence");
+    live_identify.status = GatewayUserStatus::online;
     live_identify.qos_token = utf8_literal("CgII AQ=");
     expect(gateway_write_user_identify(live_identify, Slice<u8>{output, static_cast<u32>(sizeof(output))}).error ==
                GatewayCommandError::invalid_input,
@@ -3228,14 +3276,14 @@ void test_gateway_commands() noexcept {
     // QoS token.
     live_identify.properties.client_heartbeat_session_id = utf8_literal("ffeeddcc-bbaa-4998-8776-655443322110");
     live_identify.properties.client_app_state = utf8_literal("unfocused");
-    live_identify.properties.app_state_first = true;
+    live_identify.properties.os_build_revision = utf8_literal("1000");
     live_identify.properties.client_launch_id = utf8_literal("99887766-5544-4332-a110-ffeeddccbbaa");
     live_identify.fast_connect = true;
     live_identify.has_since = true;
     live_identify.since_ms = 1759800000000ull;
     live_identify.qos_token = utf8_literal("CgIIAQ==");
     expect(identify_equal(live_identify,
-                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"99887766-5544-4332-a110-ffeeddccbbaa","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"is_fast_connect":true},"client_state":{"guild_versions":{}}}})")),
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"99887766-5544-4332-a110-ffeeddccbbaa","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_build_revision":"1000","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"is_fast_connect":true},"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_fast_connect");
     {
         u8 measured[2048];
@@ -3355,7 +3403,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"idle","since":987654321,"activities":[],"afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_version_is_release":true,"os_sdk_version":"19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","client_build_number":603738,"client_event_source":null,"client_heartbeat_session_id":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"idle","since":987654321,"activities":[],"afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&

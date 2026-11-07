@@ -1,5 +1,6 @@
 #include "client_internal.hpp"
 #include "user_payload.hpp"
+#include "maicord/core/hash.hpp"
 
 namespace maicord {
 namespace {
@@ -10,6 +11,61 @@ bool acquire_send(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     if (!rate.acquired)
         runtime->rate_deadline_ms = rate.next_allowed_ms;
     return rate.acquired;
+}
+
+u64 mix_ranges(u64 hash, const GatewayMemberSubscriptionRange* ranges, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i)
+        hash = hash64_mix(hash64_mix(hash, ranges[i].first), ranges[i].last);
+    return hash;
+}
+
+// The member list ranges of every channel the frame names.
+u64 ranges_digest(const GatewayGuildSubscription& subscription) noexcept {
+    const GatewayMemberSubscriptionRange single{subscription.range_first, subscription.range_last};
+    u64 hash = mix_ranges(hash64_mix(kHash64Seed, subscription.channel_id),
+                          subscription.range_count ? subscription.ranges : &single,
+                          subscription.range_count ? subscription.range_count : 1);
+    for (u32 c = 0; c < subscription.channel_count; ++c)
+        hash = mix_ranges(hash64_mix(hash, subscription.channels[c].channel_id), subscription.channels[c].ranges,
+                          subscription.channels[c].range_count);
+    return hash;
+}
+
+// As the desktop client's subscription store: a guild's typing, activities and threads go once a session, its
+// member list ranges again only when they changed, and thread member lists only to set or clear one. Returns the
+// guild's sent record (null before its first frame) and the frame's ranges digest (zero without ranges); false when
+// the server already holds everything the frame says.
+bool shape_guild_subscription(GatewayClientRuntime* runtime, GatewayGuildSubscription* frame,
+                              GatewayClientRuntime::SentGuildSubscription** sent, u64* ranges) noexcept {
+    *sent = nullptr;
+    for (u32 i = 0; i < runtime->sent_guild_count && !*sent; ++i)
+        if (runtime->sent_guilds[i].guild_id == frame->guild_id)
+            *sent = &runtime->sent_guilds[i];
+    if (*sent)
+        frame->omit_features = true;
+    *ranges = frame->omit_channel_ranges ? 0 : ranges_digest(*frame);
+    if (*sent && *ranges && (*sent)->ranges_digest == *ranges) {
+        frame->omit_channel_ranges = true;
+        frame->channel_id = 0;
+        frame->range_count = frame->channel_count = 0;
+    }
+    if (frame->thread_member_lists_present && !frame->thread_id && !frame->clear_thread_guild_id &&
+        runtime->thread_subscription_owner.sent_guild_id != frame->guild_id)
+        frame->thread_member_lists_present = false;
+    return !frame->omit_features || !frame->omit_channel_ranges || frame->members_present ||
+           frame->thread_member_lists_present;
+}
+
+// Records a guild frame being written.
+void note_guild_subscription(GatewayClientRuntime* runtime, GatewayClientRuntime::SentGuildSubscription* sent,
+                             u64 guild_id, u64 ranges) noexcept {
+    if (!sent && runtime->sent_guild_count < 16)
+        sent = &runtime->sent_guilds[runtime->sent_guild_count++];
+    if (!sent)
+        return;
+    sent->guild_id = guild_id;
+    if (ranges)
+        sent->ranges_digest = ranges;
 }
 
 OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
@@ -31,6 +87,12 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
     if (!gateway_subscription_thread_owner_prepare(runtime->thread_subscription_owner, subscription,
                                                    &prepared))
         return OutboundDrive::failed;
+    GatewayClientRuntime::SentGuildSubscription* sent = nullptr;
+    u64 ranges = 0;
+    if (!shape_guild_subscription(runtime, &prepared, &sent, &ranges)) {
+        runtime->sent_subscription_revision = revision; // The server already holds all of it.
+        return OutboundDrive::idle;
+    }
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
     const GatewayCommandWriteResult command = gateway_write_guild_subscriptions_bulk(
@@ -39,8 +101,24 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
     if (result == OutboundDrive::sending) {
         runtime->active_subscription_revision = revision;
         gateway_subscription_thread_owner_admit(&runtime->thread_subscription_owner, prepared);
+        note_guild_subscription(runtime, sent, prepared.guild_id, ranges);
     }
     return result;
+}
+
+// The desktop client releases a followed user a minute after the view stops showing them, so a user who drops out
+// and comes back (an author list refilling after a reload) sends nothing.
+inline constexpr u64 kGatewayMemberReleaseDelayMs = 60'000;
+
+bool members_within(const GatewayGuildSubscription& desired, const u64* sent, u32 sent_count) noexcept {
+    for (u32 i = 0; i < desired.member_count; ++i) {
+        bool found = false;
+        for (u32 j = 0; j < sent_count && !found; ++j)
+            found = sent[j] == desired.members[i];
+        if (!found)
+            return false;
+    }
+    return true;
 }
 
 // The members key of op 37: the users followed in the guild (see gateway_client_subscribe_guild_members).
@@ -58,13 +136,30 @@ OutboundDrive drive_member_subscription(GatewayClientRuntime* runtime, u64 now_m
     ReleaseSRWLockShared(&runtime->subscription_lock);
     if (!changed)
         return OutboundDrive::idle;
+    const bool same_guild = runtime->sent_members_guild == subscription.guild_id;
+    if (same_guild && members_within(subscription, runtime->sent_member_ids, runtime->sent_member_count)) {
+        if (subscription.member_count == runtime->sent_member_count) {
+            runtime->sent_members_revision = revision; // The server already follows exactly these users.
+            runtime->members_release_ms = 0;
+            return OutboundDrive::idle;
+        }
+        if (!runtime->members_release_ms)
+            runtime->members_release_ms = deadline_after(now_ms, kGatewayMemberReleaseDelayMs);
+        if (now_ms < runtime->members_release_ms)
+            return OutboundDrive::idle; // Only releases: they wait out the delay.
+    }
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
     const GatewayCommandWriteResult command = gateway_write_guild_subscriptions_bulk(
         subscription, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     const auto result = send_control_command(runtime, command, SendPurpose::guild_members);
-    if (result == OutboundDrive::sending)
+    if (result == OutboundDrive::sending) {
         runtime->sent_members_revision = revision;
+        runtime->members_release_ms = 0;
+        runtime->sent_members_guild = subscription.guild_id;
+        runtime->sent_member_count = subscription.member_count;
+        copy_bytes(runtime->sent_member_ids, subscription.members, subscription.member_count * sizeof(u64));
+    }
     return result;
 }
 
@@ -152,6 +247,31 @@ OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* r
     return result;
 }
 
+// Opcode 3 for `presence` into gateway_payload; with activities, the custom status and the shared game the session
+// publishes. Caller holds subscription_lock.
+GatewayCommandWriteResult write_self_presence(GatewayClientRuntime* runtime, const GatewayPresenceUpdate& presence,
+                                              bool activities) noexcept {
+    SelfCustomStatus custom{};
+    GatewayCustomStatusActivity activity{};
+    const ConstSlice<u8> status_group{runtime->self_status_group, runtime->self_status_group_bytes};
+    const bool visible = activities && presence.status != GatewayUserStatus::invisible;
+    const bool publish = visible && self_status_settings_read_custom(status_group, &custom) &&
+                         self_custom_status_active(custom, clock_unix_milliseconds());
+    if (publish)
+        activity = {{custom.text, custom.text_bytes}, {custom.emoji_name, custom.emoji_name_bytes}, custom.emoji_id,
+                    custom.expires_at_ms};
+    // The game is shared only while "Share my activity" is on.
+    const auto& local = runtime->local_presence;
+    bool share = true;
+    const bool game = visible && local.game && self_status_settings_read_show_game(status_group, &share) && share;
+    const GatewayGameActivity played{{local.game_name, local.game_name_bytes}, local.game_application_id,
+                                     local.game_started_ms, local.game_ends_ms,
+                                     {local.game_details, local.game_details_bytes},
+                                     {local.game_state, local.game_state_bytes}, local.game_type};
+    return gateway_write_presence_update(presence, publish ? &activity : nullptr, game ? &played : nullptr,
+                                         {runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+}
+
 OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
@@ -171,26 +291,8 @@ OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexc
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         return OutboundDrive::rate_limited;
     }
-    SelfCustomStatus custom{};
-    GatewayCustomStatusActivity activity{};
-    const ConstSlice<u8> status_group{runtime->self_status_group, runtime->self_status_group_bytes};
-    const bool visible = owner.desired.status != GatewayUserStatus::invisible;
-    const bool publish = visible && self_status_settings_read_custom(status_group, &custom) &&
-                         self_custom_status_active(custom, clock_unix_milliseconds());
-    if (publish)
-        activity = {{custom.text, custom.text_bytes}, {custom.emoji_name, custom.emoji_name_bytes}, custom.emoji_id,
-                    custom.expires_at_ms};
-    // The game is shared only while "Share my activity" is on.
-    const auto& local = runtime->local_presence;
-    bool share = true;
-    const bool game = visible && local.game && self_status_settings_read_show_game(status_group, &share) && share;
-    const GatewayGameActivity played{{local.game_name, local.game_name_bytes}, local.game_application_id,
-                                     local.game_started_ms, local.game_ends_ms,
-                                     {local.game_details, local.game_details_bytes},
-                                     {local.game_state, local.game_state_bytes}, local.game_type};
-    const auto written = gateway_write_presence_update(
-        gateway_presence_effective(owner.desired, &local), publish ? &activity : nullptr, game ? &played : nullptr,
-        {runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+    const auto written =
+        write_self_presence(runtime, gateway_presence_effective(owner.desired, &runtime->local_presence), true);
     const auto sent = send_control_command(runtime, written, SendPurpose::self_status);
     if (sent == OutboundDrive::sending)
         gateway_self_status_admit(&owner, owner.revision, now_ms);
@@ -278,6 +380,67 @@ OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRunti
         return subscription;
     const auto followed = drive_member_subscription(runtime, now_ms);
     return followed == OutboundDrive::idle ? drive_channel_info(runtime, now_ms) : followed;
+}
+
+GatewayPresenceUpdate ready_presence(const GatewayClientRuntime* runtime) noexcept {
+    const auto& owner = runtime->self_status;
+    return gateway_presence_effective(
+        owner.authoritative ? owner.desired : GatewayPresenceUpdate{0, GatewayUserStatus::online, false, false},
+        &runtime->local_presence);
+}
+
+// As the desktop client's connection store does on CONNECTION_OPEN: it commits the presence its identify carried
+// unless that is plain Online (its starting state), then the voice state, then the presence the session settles on
+// once it differs from the first. The server then holds the owner's status: drive_self_status adds nothing.
+void queue_ready_outputs(GatewayClientRuntime* runtime) noexcept {
+    static constexpr char plain[] = R"({"op":3,"d":{"status":"online","since":0,"activities":[],"afk":false}})";
+    const u8* payload = runtime->gateway_payload;
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    auto& owner = runtime->self_status;
+    const GatewayPresenceUpdate ready = ready_presence(runtime);
+    const auto initial = write_self_presence(runtime, runtime->identify_presence, false);
+    const u64 initial_digest = hash64_bytes(kHash64Seed, payload, initial.bytes);
+    const bool initial_plain = initial.bytes == sizeof(plain) - 1 && bytes_equal(payload, plain, initial.bytes);
+    const auto settled = write_self_presence(runtime, ready, true);
+    const bool changed = settled.ok() && hash64_bytes(kHash64Seed, payload, settled.bytes) != initial_digest;
+    if (initial.ok() && !initial_plain)
+        gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_identify_presence);
+    gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_idle_voice_state);
+    if (changed)
+        gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_ready_presence);
+    else if (owner.authoritative)
+        owner.transmitted_revision = owner.revision;
+    note_launch_presence(ready.status);
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+}
+
+// One of the post-READY frames; the outbound queue already took its send from the rate limit.
+OutboundDrive send_ready_output(GatewayClientRuntime* runtime, GatewayLifecycleAction action, u64 now_ms) noexcept {
+    if (action == GatewayLifecycleAction::send_idle_voice_state) {
+        AcquireSRWLockShared(&runtime->voice_lock);
+        const GatewayVoiceStateUpdate idle{0, 0, runtime->desired_voice.self_mute, runtime->desired_voice.self_deaf,
+                                           false, false};
+        ReleaseSRWLockShared(&runtime->voice_lock);
+        return send_control_command(
+            runtime,
+            gateway_write_voice_state(idle,
+                                      runtime->voice_recording_disallowed ? 0 : kGatewayVoiceStateAllowVoiceRecording,
+                                      {runtime->gateway_payload, static_cast<u32>(sizeof(runtime->gateway_payload))}),
+            SendPurpose::gateway_action);
+    }
+    const bool settled = action == GatewayLifecycleAction::send_ready_presence;
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    auto& owner = runtime->self_status;
+    const auto written = write_self_presence(runtime, settled ? ready_presence(runtime) : runtime->identify_presence,
+                                             settled);
+    const auto sent = send_control_command(runtime, written, settled ? SendPurpose::self_status
+                                                                     : SendPurpose::gateway_action);
+    if (sent == OutboundDrive::sending && settled && owner.authoritative) {
+        gateway_self_status_deadline(&owner, now_ms);
+        gateway_self_status_admit(&owner, owner.revision, now_ms);
+    }
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+    return sent;
 }
 
 PlaintextDrive fail_plaintext(GatewayClientRuntime* runtime, GatewayClientFailureStage stage) noexcept {
@@ -429,9 +592,10 @@ PlaintextDrive drive_queued_actions(GatewayClient* client, GatewayClientRuntime*
                : (outbound == OutboundDrive::sending ? PlaintextDrive::sending : PlaintextDrive::receive);
 }
 
-// A dispatch that cannot be handed to the consumer ends the connection; the session resumes.
+// A dispatch that cannot be handed to the consumer ends the connection as the page's socket reset does (a close
+// frame without a code); the session resumes.
 PlaintextDrive resume_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_resume, now_ms, 0)
+    return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_resume, now_ms, 0, kCloseWithoutCode)
                ? PlaintextDrive::reconnecting
                : PlaintextDrive::failed;
 }

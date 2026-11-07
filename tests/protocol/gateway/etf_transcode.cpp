@@ -305,7 +305,7 @@ bool encoding() noexcept {
     CHECK(etf_from_json({"[1,2,3]", 7}, {etf, 13}).ok());
 
     // Commands round-trip to the same JSON.
-    const char* command = R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows",)"
+    const char* command = R"({"op":2,"d":{"token":"t","capabilities":1734653,"properties":{"os":"Windows",)"
                           R"("client_build_number":627798,"client_event_source":null,"is_fast_connect":true},)"
                           R"("client_state":{"guild_versions":{}},"ids":["1097750000000000001"],"ranges":[[0,99]]}})";
     const auto packed = etf_from_json({command, c_string_length(command)}, {etf, sizeof(etf)});

@@ -69,7 +69,6 @@ enum class GatewayClientFailureStage : u8 {
     close_random,
     close_reconnect,
     reconnect_request,
-    invalid_session_random,
     invalid_session_reconnect,
     session_event,
     tls_decrypt,

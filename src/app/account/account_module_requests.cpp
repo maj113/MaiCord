@@ -489,6 +489,9 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
                                    user_account_coordinator_rest(&runtime->coordinator, true));
     const bool rejected =
         runtime->coordinator.state.error == UserAccountCoordinatorError::authentication_rejected;
+    // A refreshed token not saved yet gets one more try before its Gateway goes.
+    persist_refreshed_credential(runtime, true);
+    secure_buffer_release(&runtime->refreshed_credential);
     GatewayUserSessionSnapshot snapshot{};
     const UserAccountCoordinatorResult stopped =
         user_account_coordinator_stop(&runtime->coordinator, timeout_ms, &snapshot);
