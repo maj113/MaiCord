@@ -26,6 +26,9 @@ made up; the server answers from it instead of its built-in QA guild. world.json
                         API host plays one, so a capture can show someone typing and a message arriving
     videos              11-character id -> {file under cdn/ (an MP4 with H.264 and AAC), width, height, seconds}: a
                         YouTube embed of that id plays the file when www.youtube.com and VIDEO_HOST point at the server
+
+Message times are minutes before the server's start; MAICORD_FAKE_WORLD_NOW=MS (Unix milliseconds) pins that clock, so
+captures made at different times (or on two systems) show the same timestamps.
 """
 import json
 import os
@@ -37,7 +40,7 @@ EPOCH = 1420070400000
 CDN = "https://cdn.discordapp.com"
 VIDEO_HOST = "rr1---sn-world.googlevideo.com"
 PERMISSIONS = 1071698660929
-NOW = int(time.time() * 1000)
+NOW = int(os.environ.get("MAICORD_FAKE_WORLD_NOW") or time.time() * 1000)
 
 
 def snowflake(ms: int, low: int) -> int:
