@@ -1,5 +1,7 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 
+#include "maicord/core/ascii.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
 
@@ -37,6 +39,42 @@ static_assert(kEmojiPoolBytes == kEmojiPoolPrimaryOffset + (kEmojiPoolAliasCount
 
 InflatedBlock pool_block;
 
+// Search index, built once when the pool is published. An alias row's owner is its catalog entry, or for a
+// glyph the catalog lacks (regional indicators, hair components, the asterisk keycap) kShortcodeOnly with the
+// glyph's first row, or kNoRow for a lone skin-tone modifier. A catalog entry's primary row is the alias its
+// shortcode key names (kNoRow: the key is the catalog name or derived from the base's).
+constexpr u16 kNoRow = 0xFFFFu;
+constexpr u16 kShortcodeOnly = 0x8000u;
+static_assert(kEmojiPoolCatalogEntryCount < kShortcodeOnly && kEmojiPoolAliasCount < kShortcodeOnly);
+u16 alias_owner[kEmojiPoolAliasCount];
+u16 primary_rows[kEmojiPoolCatalogEntryCount];
+u8 toned_entries[(kEmojiPoolCatalogEntryCount + 7) / 8];
+// Which characters each name holds (search_letters): a search skips the names that lack one of the key's.
+u32 entry_letters[kEmojiPoolCatalogEntryCount];
+u32 alias_letters[kEmojiPoolAliasCount];
+
+bool bit(const u8* bits, u32 index) noexcept {
+    return (bits[index >> 3] >> (index & 7) & 1) != 0;
+}
+void set_bit(u8* bits, u32 index) noexcept {
+    bits[index >> 3] = static_cast<u8>(bits[index >> 3] | 1u << (index & 7));
+}
+
+// One bit per letter, five for the digits (by value mod 5) and one for any other byte; '_' has none.
+u32 search_letters(Utf8View text) noexcept {
+    u32 letters = 0;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        const u8 c = ascii_lower(static_cast<u8>(text.data[i]));
+        if (c >= 'a' && c <= 'z')
+            letters |= 1u << (c - 'a');
+        else if (c >= '0' && c <= '9')
+            letters |= 1u << (26 + (c - '0') % 5);
+        else if (c != '_')
+            letters |= 1u << 31;
+    }
+    return letters;
+}
+
 // A table's rows ship as byte planes of 256-row blocks; this interleaves each block back to 6-byte rows in place.
 void interleave_rows(u8* rows, u32 count) noexcept {
     u8 block[256 * 6];
@@ -50,12 +88,73 @@ void interleave_rows(u8* rows, u32 count) noexcept {
     }
 }
 
+u8 first_skin_tone(Utf8View v) noexcept;
+
+// Identical glyph bytes share one pool offset (the generators place each glyph at its first occurrence), so an
+// alias finds its entry by offset and length.
+constexpr u32 glyph_key(u16 offset, u8 bytes) noexcept {
+    return static_cast<u32>(offset) << 8 | bytes;
+}
+void index_pool(const u8* pool) noexcept {
+    const auto* entries = reinterpret_cast<const EmojiCatalogEntry*>(pool + kEmojiPoolCatalogEntryOffset);
+    const auto* aliases = reinterpret_cast<const EmojiAliasEntry*>(pool + kEmojiPoolAliasOffset);
+    const u8* primary = pool + kEmojiPoolPrimaryOffset;
+    // primary_rows holds the catalog in glyph order until the owners are known.
+    u16* order = primary_rows;
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        order[i] = static_cast<u16>(i);
+        if (first_skin_tone(entries[i].glyph()))
+            set_bit(toned_entries, i);
+    }
+    heap_sort_shared(order, kEmojiPoolCatalogEntryCount, [entries](u16 left, u16 right) noexcept {
+        return glyph_key(entries[left].glyph_offset, entries[left].glyph_bytes) <
+               glyph_key(entries[right].glyph_offset, entries[right].glyph_bytes);
+    });
+    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
+        const u32 key = glyph_key(aliases[row].glyph_offset, aliases[row].glyph_bytes);
+        u32 first = 0, count = kEmojiPoolCatalogEntryCount;
+        while (count) {
+            const u32 step = count / 2;
+            const auto& entry = entries[order[first + step]];
+            if (glyph_key(entry.glyph_offset, entry.glyph_bytes) < key) {
+                first += step + 1;
+                count -= step + 1;
+            } else {
+                count = step;
+            }
+        }
+        const auto& found = entries[order[minimum(first, kEmojiPoolCatalogEntryCount - 1)]];
+        if (first < kEmojiPoolCatalogEntryCount && glyph_key(found.glyph_offset, found.glyph_bytes) == key) {
+            alias_owner[row] = order[first];
+            continue;
+        }
+        alias_owner[row] = first_skin_tone(aliases[row].glyph()) ? kNoRow : static_cast<u16>(kShortcodeOnly | row);
+        for (u32 earlier = 0; earlier < row && alias_owner[row] != kNoRow; ++earlier)
+            if (alias_owner[earlier] != kNoRow && (alias_owner[earlier] & kShortcodeOnly) &&
+                glyph_key(aliases[earlier].glyph_offset, aliases[earlier].glyph_bytes) == key) {
+                alias_owner[row] = alias_owner[earlier];
+                break;
+            }
+    }
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        primary_rows[i] = kNoRow;
+        entry_letters[i] = search_letters(entries[i].name());
+    }
+    // The packer guarantees at most one primary row per glyph, each a catalog glyph.
+    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
+        alias_letters[row] = search_letters(aliases[row].name());
+        if (bit(primary, row) && !(alias_owner[row] & kShortcodeOnly))
+            primary_rows[alias_owner[row]] = static_cast<u16>(row);
+    }
+}
+
 void publish_pool(const u8* bytes) noexcept {
     auto* pool = const_cast<u8*>(bytes);
     emoji_pool_detail::catalog_names = reinterpret_cast<const char*>(pool + kEmojiPoolCatalogNamesOffset);
     emoji_pool_detail::catalog_glyphs = reinterpret_cast<const char*>(pool + kEmojiPoolCatalogGlyphsOffset);
     interleave_rows(pool + kEmojiPoolCatalogEntryOffset, kEmojiPoolCatalogEntryCount);
     interleave_rows(pool + kEmojiPoolAliasOffset, kEmojiPoolAliasCount);
+    index_pool(pool);
 }
 
 bool pool_ready() noexcept {
@@ -208,16 +307,8 @@ Utf8View skin_tone_variant(Utf8View base, u8 tone) noexcept {
 // Primary rows are emoji whose shortcode key (favorites, frecency) is neither
 // the catalog name nor the base's key with _toneN.
 Utf8View primary_row(u32 index) noexcept {
-    const auto& glyph = catalog_rows()[index];
-    const EmojiAliasEntry* aliases = alias_rows();
-    const u8* primary = pool_block.data + kEmojiPoolPrimaryOffset;
-    // The packer guarantees at most one primary row per glyph.
-    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
-        if ((primary[row >> 3] >> (row & 7) & 1) && aliases[row].glyph_offset == glyph.glyph_offset &&
-            aliases[row].glyph_bytes == glyph.glyph_bytes)
-            return aliases[row].name();
-    }
-    return {};
+    const u16 row = primary_rows[index];
+    return row == kNoRow ? Utf8View{} : alias_rows()[row].name();
 }
 } // namespace
 
@@ -329,6 +420,77 @@ bool emoji_catalog_name_contains(Utf8View name, Utf8View query) noexcept {
         }
     }
     return false;
+}
+
+bool emoji_search_key(Utf8View query, Slice<char> output, u32* bytes) noexcept {
+    if (!bytes || (query.bytes && !query.data))
+        return false;
+    u32 used = 0;
+    for (u32 i = 0; i < query.bytes; ++i) {
+        const char c = query.data[i];
+        if (c == '_' || c == ' ')
+            continue;
+        if (used == output.count)
+            return false;
+        output.data[used++] = static_cast<char>(ascii_lower(static_cast<u8>(c)));
+    }
+    *bytes = used;
+    return true;
+}
+
+bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept {
+    if (!key.bytes)
+        return true;
+    if (!name.data || !key.data)
+        return false;
+    const u8 lead = static_cast<u8>(key.data[0]);
+    for (u32 start = 0; start < name.bytes; ++start) {
+        if (ascii_lower(static_cast<u8>(name.data[start])) != lead)
+            continue;
+        u32 matched = 1;
+        for (u32 at = start + 1; matched < key.bytes && at < name.bytes; ++at) {
+            const u8 c = static_cast<u8>(name.data[at]);
+            if (c == '_')
+                continue;
+            if (ascii_lower(c) != static_cast<u8>(key.data[matched]))
+                break;
+            ++matched;
+        }
+        if (matched == key.bytes)
+            return true;
+    }
+    return false;
+}
+
+bool emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept {
+    if (!visit || (key.bytes && !key.data) || !pool_ready())
+        return false;
+    u8 found[(kEmojiPoolCatalogEntryCount + 7) / 8]{};
+    u8 shortcode_only[(kEmojiPoolAliasCount + 7) / 8]{};
+    const u32 letters = search_letters(key);
+    const EmojiAliasEntry* aliases = alias_rows();
+    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
+        const u16 owner = alias_owner[row];
+        const bool catalog = !(owner & kShortcodeOnly);
+        if ((alias_letters[row] & letters) != letters || owner == kNoRow ||
+            (catalog && (bit(toned_entries, owner) || bit(found, owner))) ||
+            !emoji_search_name_matches(aliases[row].name(), key))
+            continue;
+        set_bit(catalog ? found : shortcode_only, owner & (kShortcodeOnly - 1u));
+    }
+    const EmojiCatalogEntry* entries = catalog_rows();
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        if (bit(toned_entries, i) ||
+            (!bit(found, i) &&
+             ((entry_letters[i] & letters) != letters || !emoji_search_name_matches(entries[i].name(), key))))
+            continue;
+        const u16 primary = primary_rows[i];
+        visit(context, {primary == kNoRow ? entries[i].name() : aliases[primary].name(), entries[i].glyph(), i});
+    }
+    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row)
+        if (bit(shortcode_only, row))
+            visit(context, {aliases[row].name(), aliases[row].glyph(), ~0u});
+    return true;
 }
 
 } // namespace maicord

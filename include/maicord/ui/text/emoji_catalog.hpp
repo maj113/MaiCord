@@ -120,4 +120,25 @@ u32 emoji_catalog_find_glyph(Utf8View glyph) noexcept;
 // Catalog index of an exact CLDR name; ~0u when absent.
 u32 emoji_catalog_find_name(Utf8View name) noexcept;
 
+// Shortcode search as the official client's ':' suggestions do it: a name
+// matches when it contains the search key, ASCII case-insensitively, once '_'
+// is dropped from the name ("flags" finds flag_sk). The key is the query
+// lowercased without '_' and ' '; false when it does not fit `output`.
+bool emoji_search_key(Utf8View query, Slice<char> output, u32* bytes) noexcept;
+bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept;
+// One emoji a search found, named by its primary shortcode: the name
+// emoji_shortcode_key writes, or a shortcode-only emoji's first alias.
+struct EmojiSearchMatch {
+    Utf8View name;
+    Utf8View glyph;
+    // ~0u for a shortcode-only emoji (the catalog lacks regional indicators,
+    // hair components and the asterisk keycap).
+    u32 catalog_index;
+};
+using EmojiSearchVisit = void (*)(void* context, const EmojiSearchMatch& match) noexcept;
+// Visits once each emoji whose catalog name or any shortcode matches `key`:
+// catalog order, then shortcode-only emoji. Skin-tone variants are never
+// results of their own. No allocation; false when the catalog is unavailable.
+bool emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept;
+
 } // namespace maicord

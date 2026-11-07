@@ -11,6 +11,7 @@
 #include "maicord/ui/chat/composer/autocomplete.hpp"
 #include "maicord/ui/chat/messages/typing_presentation.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "maicord/ui/chat/messages/reaction_picker.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 
 namespace maicord {
@@ -509,6 +510,43 @@ void test_message_composer() noexcept {
            "message_composer_owned_storage_release");
 }
 
+namespace {
+// The leading ':' suggestions are these emoji, by name: a custom emoji's label
+// is its name, a Unicode emoji's ends with ":name:".
+bool emoji_suggestions_lead(const ComposerAutocomplete& autocomplete, const Utf8View* names, u32 count) noexcept {
+    if (autocomplete.kind != ComposerAutocompleteKind::emoji || autocomplete.count < count)
+        return false;
+    for (u32 i = 0; i < count; ++i) {
+        const Utf8View label = autocomplete.suggestions[i].label;
+        const Utf8View name = names[i];
+        if (autocomplete.suggestions[i].emoji_id ? !utf8_equal(label, name)
+                                                 : label.bytes < name.bytes + 2 || label.data[label.bytes - 1] != ':' ||
+                                                       label.data[label.bytes - name.bytes - 2] != ':' ||
+                                                       !bytes_equal(label.data + label.bytes - name.bytes - 1, name.data,
+                                                                    name.bytes))
+            return false;
+    }
+    return true;
+}
+u32 emoji_insertions(const ComposerAutocomplete& autocomplete, Utf8View glyph) noexcept {
+    u32 found = 0;
+    for (u32 i = 0; i < autocomplete.count; ++i)
+        found += autocomplete.suggestions[i].insertion_bytes == glyph.bytes + 1 &&
+                 bytes_equal(autocomplete.suggestions[i].insertion, glyph.data, glyph.bytes);
+    return found;
+}
+// Synced composer frecency (emoji_frecency): `uses` uses an hour apart before `now_ms`.
+ReactionPreferenceRemoteUsage message_use(Utf8View key, u32 uses, u64 now_ms) noexcept {
+    ReactionPreferenceRemoteUsage usage{};
+    usage.emoji = reaction_emoji_from_settings_key(key);
+    usage.total_uses = uses;
+    usage.recent_count = static_cast<u8>(uses);
+    for (u32 i = 0; i < uses; ++i)
+        usage.recent_uses[i] = now_ms - (uses - i) * 3'600'000ull;
+    return usage;
+}
+} // namespace
+
 void test_composer_autocomplete() noexcept {
     char text[128]{};
     MessageComposer composer{};
@@ -617,6 +655,86 @@ void test_composer_autocomplete() noexcept {
         autocomplete.suggestions[0].emoji_id == 800 && autocomplete.suggestions[0].animated_emoji &&
         utf8_equal({autocomplete.suggestions[0].insertion, autocomplete.suggestions[0].insertion_bytes}, utf8_literal("<a:maiblob:800> ")),
         "custom_emoji_autocomplete_preserves_animated_identity_and_excludes_unavailable_or_other_guild_matches");
+
+    // ':' ranking as the official client ranks it (owner's side-by-side for ":sk").
+    constexpr u64 now_ms = 1'800'000'000'000ull;
+    ReactionPreferenceStore preferences{};
+    const auto build = [&](Utf8View query, const ReactionPreferenceStore* history) noexcept {
+        return message_composer_restore(&composer, 7, query, query.bytes, query.bytes) &&
+               composer_autocomplete_build(&autocomplete, composer, members, users, navigation, state, nullptr,
+                                           nullptr, history);
+    };
+    const auto remember = [&](ConstSlice<ReactionPreferenceRemoteUsage> message) noexcept {
+        return reaction_preferences_apply_remote(&preferences, {}, {}, message, now_ms);
+    };
+    constexpr auto skull = utf8_literal("\xF0\x9F\x92\x80");
+    const Utf8View no_history_order[] = {
+        utf8_literal("flag_sk"), utf8_literal("skateboard"), utf8_literal("ski"), utf8_literal("skier"),
+        utf8_literal("skull"), utf8_literal("skull_crossbones"), utf8_literal("skunk"), utf8_literal("asterisk"),
+        utf8_literal("basket"), utf8_literal("basketball"), utf8_literal("cd"), utf8_literal("city_dusk"),
+        utf8_literal("desktop"), utf8_literal("diving_mask")};
+    expect(reaction_preferences_initialize(&preferences) && build(utf8_literal(":sk"), &preferences) &&
+               emoji_suggestions_lead(autocomplete, no_history_order, 14) && emoji_insertions(autocomplete, skull) == 1 &&
+               build(utf8_literal(":sk"), nullptr) && emoji_suggestions_lead(autocomplete, no_history_order, 14) &&
+               autocomplete.count == kComposerAutocompleteCapacity,
+           "emoji_autocomplete_without_history_ranks_word_then_prefix_then_substring_by_primary_name");
+
+    const ReactionPreferenceRemoteUsage skull_used[] = {message_use(utf8_literal("skull"), 5, now_ms)};
+    const Utf8View frecent_order[] = {
+        utf8_literal("skull"), utf8_literal("flag_sk"), utf8_literal("skateboard"), utf8_literal("ski"),
+        utf8_literal("skier"), utf8_literal("skull_crossbones"), utf8_literal("skunk"), utf8_literal("asterisk"),
+        utf8_literal("basket"), utf8_literal("basketball"), utf8_literal("cd"), utf8_literal("city_dusk"),
+        utf8_literal("desktop"), utf8_literal("diving_mask")};
+    expect(remember({skull_used, 1}) && build(utf8_literal(":sk"), &preferences) &&
+               emoji_suggestions_lead(autocomplete, frecent_order, 14) && emoji_insertions(autocomplete, skull) == 1 &&
+               emoji_insertions(autocomplete, utf8_literal("\xF0\x9F\x87\xB8\xF0\x9F\x87\xB0")) == 1,
+           "emoji_autocomplete_frequently_used_skull_leads_sk_as_in_the_official_client");
+
+    // A substring match weighs 1 against a prefix's 2 and flag_sk's word match
+    // 3: three recent uses (score 300) tie it with flag_sk, broken by name.
+    // Settings keys below 2^22 are Unicode names, so the custom emoji takes a real snowflake.
+    const auto whisky = utf8_literal("whisky");
+    copy_bytes(custom_emojis[0].name, whisky.data, whisky.bytes);
+    custom_emojis[0].name_bytes = static_cast<u8>(whisky.bytes);
+    custom_emojis[0].id = 1'100'000'000'000'000'001ull;
+    const ReactionPreferenceRemoteUsage whisky_used[] = {
+        message_use(utf8_literal("1100000000000000001"), 3, now_ms)};
+    const Utf8View custom_order[] = {utf8_literal("flag_sk"), whisky, utf8_literal("skateboard"),
+                                     utf8_literal("ski"), utf8_literal("skier"), utf8_literal("skull")};
+    const auto whisky_insertion = utf8_literal("<a:whisky:1100000000000000001> ");
+    const bool unweighted_custom_absent =
+        build(utf8_literal(":sk"), nullptr) &&
+        emoji_insertions(autocomplete, {whisky_insertion.data, whisky_insertion.bytes - 1}) == 0;
+    expect(unweighted_custom_absent && remember({whisky_used, 1}) && build(utf8_literal(":sk"), &preferences) &&
+               emoji_suggestions_lead(autocomplete, custom_order, 6) &&
+               autocomplete.suggestions[1].emoji_id == custom_emojis[0].id &&
+               utf8_equal({autocomplete.suggestions[1].insertion, autocomplete.suggestions[1].insertion_bytes},
+                          whisky_insertion),
+           "emoji_autocomplete_weighs_a_frequent_custom_substring_match_by_its_frecency");
+
+    // Skin tones: base emoji only; a toned key is its own entry and does not
+    // weigh the base, which the official client scores by its own name.
+    const ReactionPreferenceRemoteUsage toned_used[] = {message_use(utf8_literal("thumbsup_tone3"), 5, now_ms)};
+    const u32 toned_index = emoji_catalog_find_glyph(emoji_shortcode_glyph(utf8_literal("thumbsup_tone3")));
+    const Utf8View thumbs_order[] = {utf8_literal("thumbsdown"), utf8_literal("thumbsup")};
+    bool untoned = build(utf8_literal(":thumbs"), nullptr) && emoji_suggestions_lead(autocomplete, thumbs_order, 2);
+    for (u32 i = 0; i < autocomplete.count; ++i)
+        for (u32 at = 0; at + 4 <= autocomplete.suggestions[i].insertion_bytes; ++at)
+            untoned = untoned && !(bytes_equal(autocomplete.suggestions[i].insertion + at, "\xF0\x9F\x8F", 3) &&
+                                   static_cast<u8>(autocomplete.suggestions[i].insertion[at + 3]) >= 0xBBu &&
+                                   static_cast<u8>(autocomplete.suggestions[i].insertion[at + 3]) <= 0xBFu);
+    const bool toned_key_maps = toned_index != ~0u && toned_used[0].emoji.valid() &&
+                                toned_used[0].emoji.catalog_index == toned_index &&
+                                toned_index != emoji_catalog_find_glyph(utf8_literal("\xF0\x9F\x91\x8D"));
+    const bool toned_does_not_weigh_base = remember({toned_used, 1}) && build(utf8_literal(":thumbs"), &preferences) &&
+                                           emoji_suggestions_lead(autocomplete, thumbs_order, 2);
+    const ReactionPreferenceRemoteUsage base_used[] = {message_use(utf8_literal("thumbsup"), 2, now_ms)};
+    const Utf8View base_order[] = {utf8_literal("thumbsup"), utf8_literal("thumbsdown")};
+    expect(untoned && toned_key_maps && toned_does_not_weigh_base && remember({base_used, 1}) &&
+               build(utf8_literal(":thumbs"), &preferences) && emoji_suggestions_lead(autocomplete, base_order, 2) &&
+               emoji_insertions(autocomplete, utf8_literal("\xF0\x9F\x91\x8D")) == 1,
+           "emoji_autocomplete_lists_base_emoji_and_scores_them_by_their_own_key");
+    reaction_preferences_release(&preferences);
     composer_autocomplete_release(&autocomplete);
     expect(!autocomplete.storage.base && !autocomplete.suggestions && autocomplete.count == 0,
            "composer_autocomplete_storage_release");

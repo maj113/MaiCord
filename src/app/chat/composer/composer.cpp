@@ -114,7 +114,7 @@ bool synchronize_autocomplete() noexcept {
     AccountUiRuntime& ui = *g_app.account_ui;
     if (!composer_autocomplete_build(&g_app.composer_autocomplete, g_app.message_composer, ui.member_list,
                                      ui.user_store, ui.navigation_view, ui.chat_state, &ui.guild_member_store,
-                                     &g_app.message_view.store)) {
+                                     &g_app.message_view.store, &ui.reaction_preferences)) {
         return false;
     }
     note_mention_member_query();
@@ -151,8 +151,8 @@ bool synchronize_autocomplete() noexcept {
             items[index].media_id = suggestion.emoji_id;
             items[index].media_flags = suggestion.animated_emoji ? 1 : 0;
         } else if (autocomplete.kind == ComposerAutocompleteKind::emoji && suggestion.insertion_bytes) {
-            // Insertion has one trailing space. Label remains the searchable
-            // alias while its preview carries the exact Unicode identity.
+            // Insertion has one trailing space. The label is the primary
+            // shortcode while its preview carries the exact Unicode identity.
             const auto flag = regional_flag_sequence({suggestion.insertion, suggestion.insertion_bytes - 1u});
             if (flag) {
                 items[index].flags |= popup_item_emoji_preview;

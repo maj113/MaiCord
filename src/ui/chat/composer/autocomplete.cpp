@@ -10,6 +10,7 @@
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/model/chat/message_store.hpp"
+#include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord {
@@ -545,21 +546,168 @@ void append_mention_users(ComposerAutocomplete* autocomplete, const MessageCompo
         append_user(autocomplete, users, members, ranking.fuzzy[index]);
 }
 
-bool append_emoji(ComposerAutocomplete* autocomplete, const Utf8View& name, const Utf8View& glyph) noexcept {
-    for (u32 i = 0; i < autocomplete->count; ++i) {
-        const auto& existing = autocomplete->suggestions[i];
-        if (!existing.emoji_id && existing.insertion_bytes == glyph.bytes + 1 &&
-            emoji_catalog_name_starts_with({existing.insertion, existing.insertion_bytes}, glyph)) return true;
+// ':' suggestions rank as the official client ranks them. A name scores 1,
+// plus 4 when it is the query, 2 when the query is one of its words (after the
+// start, '_' or a capital letter, before the end, '_' or a capital letter; an
+// 's' may follow) and 1 when it starts with the query. Composer frecency
+// multiplies that by score / 100 when that exceeds 1. Ties go by name, then
+// Unicode before server emoji. A Unicode emoji is named and scored by its
+// primary shortcode, whichever of its names matched.
+constexpr u32 kEmojiUnweighted = 100;
+constexpr u32 kEmojiQueryMaximumBytes = 128;
+
+// `fold` reads the name lowercased; as written, a capital letter also bounds a word.
+bool emoji_query_word(Utf8View name, Utf8View query, bool fold) noexcept {
+    const auto byte = [&](u32 index) noexcept {
+        const u8 value = static_cast<u8>(name.data[index]);
+        return fold ? ascii_lower(value) : value;
+    };
+    const auto bound = [&](u32 index) noexcept {
+        const u8 value = static_cast<u8>(name.data[index]);
+        return value == '_' || (!fold && value >= 'A' && value <= 'Z');
+    };
+    for (u32 start = 0; start + query.bytes <= name.bytes; ++start) {
+        if (start && !bound(start - 1))
+            continue;
+        u32 matched = 0;
+        while (matched < query.bytes && byte(start + matched) == static_cast<u8>(query.data[matched]))
+            ++matched;
+        const u32 end = start + query.bytes;
+        if (matched == query.bytes &&
+            (end == name.bytes || bound(end) ||
+             (byte(end) == 's' && (end + 1 == name.bytes || bound(end + 1)))))
+            return true;
     }
-    ComposerAutocompleteSuggestion* suggestion = append(autocomplete, name);
-    if (!suggestion) {
-        return false;
+    return false;
+}
+
+// `query` is lowercased.
+u32 emoji_match_points(Utf8View name, Utf8View query) noexcept {
+    if (!name.data)
+        return 1;
+    return 1 + (name.bytes == query.bytes && ascii_equal_ignore_case(name, query) ? 4 : 0) +
+           (emoji_query_word(name, query, true) || emoji_query_word(name, query, false) ? 2 : 0) +
+           (starts_with_folded_ascii(name, query) ? 1 : 0);
+}
+
+struct EmojiCandidate {
+    u32 score;
+    u32 order;
+    Utf8View name;
+    Utf8View glyph;
+    const CustomEmojiRecord* custom;
+};
+
+bool emoji_ranks_before(const EmojiCandidate& left, const EmojiCandidate& right) noexcept {
+    if (left.score != right.score)
+        return left.score > right.score;
+    const u32 common = minimum(left.name.bytes, right.name.bytes);
+    for (u32 i = 0; i < common; ++i)
+        if (left.name.data[i] != right.name.data[i])
+            return static_cast<u8>(left.name.data[i]) < static_cast<u8>(right.name.data[i]);
+    return left.name.bytes != right.name.bytes ? left.name.bytes < right.name.bytes : left.order < right.order;
+}
+
+struct EmojiRanking {
+    EmojiCandidate best[kComposerAutocompleteCapacity];
+    u32 count;
+    u32 order;
+    Utf8View query;
+    const ReactionPreferenceTable* usage;
+    u8 unicode_used[(kUnicodeEmojiCatalogEntryCount + 7) / 8];
+    bool custom_used;
+
+    void prepare(const ReactionPreferenceTable* table) noexcept {
+        usage = table;
+        for (u32 i = 0; table && i < kReactionPreferenceUsageCapacity; ++i) {
+            const ReactionEmojiRef emoji = table->usage[i].emoji;
+            if (!table->usage[i].occupied || !emoji.valid())
+                continue;
+            if (emoji.custom())
+                custom_used = true;
+            else if (emoji.catalog_index < kUnicodeEmojiCatalogEntryCount)
+                unicode_used[emoji.catalog_index >> 3] |= static_cast<u8>(1u << (emoji.catalog_index & 7));
+        }
     }
-    if (!set_emoji_label(suggestion, name, glyph) || !set_emoji_insertion(suggestion, glyph)) {
-        --autocomplete->count;
-        return false;
+    // Scaled by 100: max(100, frecency score), and 100 for an emoji without history.
+    u32 weight(ReactionEmojiRef emoji) const noexcept {
+        if (!usage || !emoji.valid() || (emoji.custom() ? !custom_used
+                                                         : emoji.catalog_index >= kUnicodeEmojiCatalogEntryCount ||
+                                                               !(unicode_used[emoji.catalog_index >> 3] >>
+                                                                     (emoji.catalog_index & 7) & 1)))
+            return kEmojiUnweighted;
+        for (const auto& entry : usage->usage)
+            if (entry.occupied && entry.emoji == emoji)
+                return maximum<u32>(kEmojiUnweighted, entry.score);
+        return kEmojiUnweighted;
     }
-    return true;
+    void offer(Utf8View name, Utf8View glyph, ReactionEmojiRef identity, const CustomEmojiRecord* custom) noexcept {
+        const EmojiCandidate candidate{emoji_match_points(name, query) * weight(identity), order++, name, glyph,
+                                       custom};
+        if (count == kComposerAutocompleteCapacity && !emoji_ranks_before(candidate, best[count - 1]))
+            return;
+        u32 at = count < kComposerAutocompleteCapacity ? count++ : count - 1;
+        for (; at && emoji_ranks_before(candidate, best[at - 1]); --at)
+            best[at] = best[at - 1];
+        best[at] = candidate;
+    }
+};
+
+void offer_unicode_emoji(void* context, const EmojiSearchMatch& match) noexcept {
+    // A shortcode-only emoji has no catalog index, so no history.
+    static_cast<EmojiRanking*>(context)->offer(
+        match.name, match.glyph,
+        reaction_emoji_unicode(static_cast<u16>(minimum<u32>(match.catalog_index, kReactionPreferenceInvalidCatalogIndex))),
+        nullptr);
+}
+
+void append_emoji_suggestions(ComposerAutocomplete* autocomplete, const ChatStateStore& state, Utf8View query,
+                              const ReactionPreferenceStore* preferences) noexcept {
+    char key[kEmojiQueryMaximumBytes];
+    char lowered[kEmojiQueryMaximumBytes];
+    u32 key_bytes = 0;
+    if (query.bytes > kEmojiQueryMaximumBytes || !emoji_search_key(query, {key, kEmojiQueryMaximumBytes}, &key_bytes))
+        return;
+    for (u32 i = 0; i < query.bytes; ++i)
+        lowered[i] = ascii_lower(query.data[i]);
+    EmojiRanking ranking{};
+    ranking.query = {lowered, query.bytes};
+    ranking.prepare(preferences ? reaction_preferences_table(*preferences, ReactionPreferenceKind::message) : nullptr);
+    const Utf8View search{key, key_bytes};
+    emoji_catalog_search(search, offer_unicode_emoji, &ranking);
+    for (u32 i = 0; i < state.emoji_count; ++i) {
+        const auto& emoji = state.emojis[i];
+        if (emoji.guild_id != state.selected_guild_id || !chat_state_store_emoji_usable(state, emoji))
+            continue;
+        const auto name = chat_state_store_emoji_name(emoji);
+        if (emoji_search_name_matches(name, search))
+            ranking.offer(name, {}, reaction_emoji_custom(emoji.id), &emoji);
+    }
+    for (u32 rank = 0; rank < ranking.count; ++rank) {
+        const EmojiCandidate& candidate = ranking.best[rank];
+        auto* suggestion = append(autocomplete, candidate.name);
+        if (!suggestion)
+            continue;
+        if (!candidate.custom) {
+            if (!set_emoji_label(suggestion, candidate.name, candidate.glyph) ||
+                !set_emoji_insertion(suggestion, candidate.glyph))
+                --autocomplete->count;
+            continue;
+        }
+        const auto& emoji = *candidate.custom;
+        const auto name = candidate.name;
+        suggestion->emoji_id = emoji.id;
+        suggestion->animated_emoji = (emoji.flags & custom_emoji_animated) != 0;
+        u32 used = 0;
+        suggestion->insertion[used++] = '<';
+        if (suggestion->animated_emoji) suggestion->insertion[used++] = 'a';
+        suggestion->insertion[used++] = ':';
+        copy_bytes(suggestion->insertion + used, name.data, name.bytes); used += name.bytes;
+        suggestion->insertion[used++] = ':';
+        used += decimal_u64(emoji.id, {suggestion->insertion + used, kComposerAutocompleteInsertionBytes - used - 2});
+        suggestion->insertion[used++] = '>'; suggestion->insertion[used++] = ' ';
+        suggestion->insertion_bytes = static_cast<u16>(used);
+    }
 }
 
 } // namespace
@@ -568,7 +716,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
                                  const MemberListView& members, const UserStore& users,
                                  const NavigationView& navigation,
                                  const ChatStateStore& state, const GuildMemberStore* member_store,
-                                 const MessageStore* messages) noexcept {
+                                 const MessageStore* messages, const ReactionPreferenceStore* preferences) noexcept {
     if (!autocomplete) {
         return false;
     }
@@ -626,49 +774,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
             return false;
         }
         autocomplete->kind = ComposerAutocompleteKind::emoji;
-        const ConstSlice<EmojiCatalogEntry> entries = unicode_emoji_catalog();
-        const auto aliases = emoji_shortcodes();
-        // Pass 0 takes prefix matches; pass 1 adds substring matches after them.
-        for (u32 pass = 0; pass < 2 && autocomplete->count < kComposerAutocompleteCapacity; ++pass) {
-            for (u32 i = 0; i < state.emoji_count && autocomplete->count < kComposerAutocompleteCapacity; ++i) {
-                const auto& emoji = state.emojis[i];
-                if (emoji.guild_id != state.selected_guild_id || !chat_state_store_emoji_usable(state, emoji)) continue;
-                const auto name = chat_state_store_emoji_name(emoji);
-                const bool prefix = emoji_catalog_name_starts_with(name, query);
-                if (!(pass == 0 ? prefix : !prefix && emoji_catalog_name_contains(name, query))) continue;
-                auto* suggestion = append(autocomplete, name);
-                if (!suggestion) continue;
-                suggestion->emoji_id = emoji.id;
-                suggestion->animated_emoji = (emoji.flags & custom_emoji_animated) != 0;
-                u32 used = 0;
-                suggestion->insertion[used++] = '<';
-                if (suggestion->animated_emoji) suggestion->insertion[used++] = 'a';
-                suggestion->insertion[used++] = ':';
-                copy_bytes(suggestion->insertion + used, name.data, name.bytes); used += name.bytes;
-                suggestion->insertion[used++] = ':';
-                used += decimal_u64(emoji.id, {suggestion->insertion + used, kComposerAutocompleteInsertionBytes - used - 2});
-                suggestion->insertion[used++] = '>'; suggestion->insertion[used++] = ' ';
-                suggestion->insertion_bytes = static_cast<u16>(used);
-            }
-            for (u32 alias_index = 0; alias_index < aliases.count; ++alias_index) {
-                const auto& alias = aliases[alias_index];
-                if (autocomplete->count >= kComposerAutocompleteCapacity) break;
-                const auto name = alias.name();
-                const bool prefix = emoji_catalog_name_starts_with(name, query);
-                if (pass == 0 ? prefix : !prefix && emoji_catalog_name_contains(name, query))
-                    append_emoji(autocomplete, name, alias.glyph());
-            }
-            for (u32 entry = 0;
-                 entry < entries.count && autocomplete->count < kComposerAutocompleteCapacity; ++entry) {
-                const bool prefix = emoji_catalog_name_starts_with(entries[entry].name(), query);
-                const bool match =
-                    pass == 0 ? prefix
-                              : !prefix && emoji_catalog_name_contains(entries[entry].name(), query);
-                if (match) {
-                    append_emoji(autocomplete, entries[entry].name(), entries[entry].glyph());
-                }
-            }
-        }
+        append_emoji_suggestions(autocomplete, state, query, preferences);
     }
 
     if (autocomplete->count == 0) {

@@ -455,15 +455,12 @@ bool regional_flag_surfaces_ui_probe(RegionalFlagSurfacesProbeContext c) noexcep
         !composer_autocomplete_build(&autocomplete,c.composer,{},c.users,c.navigation,c.state) ||
         autocomplete.kind!=ComposerAutocompleteKind::emoji || !autocomplete.count) return fail(__LINE__);
     const auto& suggestion=autocomplete.suggestions[0];
-    Utf8View canonical{};
-    const auto catalog=unicode_emoji_catalog();
-    for (u32 entry=0;entry<catalog.count;++entry)
-        if (utf8_equal(catalog[entry].glyph(),tj)) {canonical=catalog[entry].name();break;}
+    // The label names the emoji by its primary shortcode (flag_tj), whichever name matched.
     char expected_label[kUnicodeEmojiMaximumNameBytes+2]{};
-    if (!canonical.data || canonical.bytes>kUnicodeEmojiMaximumNameBytes) return fail(__LINE__);
-    expected_label[0]=':';copy_bytes(expected_label+1,canonical.data,canonical.bytes);
-    expected_label[canonical.bytes+1]=':';
-    const Utf8View expected_alias{expected_label,canonical.bytes+2};
+    const u32 primary=emoji_shortcode_key(tj,{expected_label+1,kUnicodeEmojiMaximumNameBytes});
+    if (!primary) return fail(__LINE__);
+    expected_label[0]=':';expected_label[primary+1]=':';
+    const Utf8View expected_alias{expected_label,primary+2};
     if (suggestion.emoji_id || suggestion.animated_emoji || suggestion.insertion_bytes!=tj.bytes+1 ||
         !utf8_equal({suggestion.insertion,tj.bytes},tj) || suggestion.insertion[tj.bytes]!=' ') return fail(__LINE__);
     if (!utf8_equal(suggestion.label,expected_alias)) {
