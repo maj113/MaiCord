@@ -121,7 +121,7 @@ maicord_compact_sources(
         src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/net/tls_client.cpp
         src/app/account/account_module.cpp src/app/account/account_module_login.cpp src/app/account/account_module_requests.cpp
         src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp
-        src/app/net/rest_client_worker.cpp
+        src/app/net/rest_client_worker.cpp src/app/net/signed_out_session.cpp
         src/app/voice/account_soundboard.cpp src/app/voice/account_voice_message.cpp
         src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp
         src/media/video/h264_parameters.cpp src/media/video/hevc_parameters.cpp src/media/video/h264_configuration.cpp
@@ -332,6 +332,20 @@ maicord_fold_helpers(
         "(^|/)src/gpu/(d3d11|gles)/" "(^|/)src/platform/net/(linux/)?socket\\.cpp$" "(^|/)src/media/image/"
     EXCLUDE "(^|/)src/model/(chat|voice)/" "(^|/)src/protocol/(encoding|http)/" "(^|/)src/render/(text|media)/"
         "(^|/)src/text/opentype/" "(^|/)src/gpu/d3d11/shader_pack\\.cpp$")
+# The application's cold units that fold to less code, linked: sign-in, the account module's session and request
+# wrappers, the Gateway client's connection, outputs and storage, plugins, packages, the stores, updates and the UI
+# Automation provider, all once per user action, request or session. The rest of src/app keeps /Ob1: folded as a
+# whole it grew the client by 40 KiB, its helpers inlined into /O2 callers. So do the units beside the byte paths:
+# REST and CDN transfer, TLS records and the Gateway transport.
+maicord_fold_helpers(
+    INCLUDE "(^|/)src/app/account/(account_(host|module|module_login|profile|session_store))\\.cpp$"
+        "(^|/)src/app/account/login/(account_credential_forget|browser_sign_in_receiver|captcha_bridge|captcha_challenge|oauth_sign_in|remote_auth_client|remote_auth_handshake)\\.cpp$"
+        "(^|/)src/app/gateway/client(_outputs|_storage)?\\.cpp$" "(^|/)src/app/chat/messages/send_tracker\\.cpp$"
+        "(^|/)src/app/media/(account_media_requests|regional_flag_assets)\\.cpp$" "(^|/)src/app/packages/(link|mcfx)\\.cpp$"
+        "(^|/)src/app/plugins/(api|binding|catalog_index|catalog_service|catalog_state|http|keep|pipeline_api|settings_page)\\.cpp$"
+        "(^|/)src/app/settings/(catalog|client_theme_document)\\.cpp$" "(^|/)src/app/shell/startup_shell_state\\.cpp$"
+        "(^|/)src/app/store/store_(act|page)\\.cpp$" "(^|/)src/app/update/(acceptance|artifact|https|package|service)\\.cpp$"
+        "(^|/)src/app/voice/(account_voice_message|connection_setup)\\.cpp$" "(^|/)src/platform/uia/provider(_patterns)?\\.cpp$")
 # The Linux client's third tier. It carries what the Windows one gets from the operating system (the D-Bus and AT-SPI
 # services, the TLS and crypto wrappers over OpenSSL, the Wayland and EGL backends, the in-house AAC decoder, the Lottie
 # geometry, the ELF plugin loader), and with the lists above it stayed over the Windows client's size cap
