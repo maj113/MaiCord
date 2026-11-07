@@ -226,10 +226,19 @@ void boundaries(Check check, XChaChaBackend backend) noexcept {
 } // namespace
 
 void test_xchacha20_poly1305(Check check) noexcept {
-    // Exercise the selected native backend where available, and always force
-    // the portable implementation. Older Windows 10 can run this same suite
-    // without requiring a provider it does not ship.
+    // Exercise the selected native backend where available, and on Windows also force the portable implementation:
+    // older Windows 10 can run this same suite without requiring a provider it does not ship. Linux has no portable
+    // cipher.
+#if defined(_WIN32)
     constexpr XChaChaBackend backends[]{XChaChaBackend::automatic, XChaChaBackend::portable};
+#else
+    constexpr XChaChaBackend backends[]{XChaChaBackend::automatic};
+    XChaChaKey refused{};
+    u8 refused_secret[32]{};
+    check(xchacha_initialize(&refused, {refused_secret, 32}, XChaChaBackend::portable).error ==
+              AeadError::platform_failure,
+          "XChaCha has no portable backend on Linux");
+#endif
     for (auto backend : backends) {
         draft_vector(check, backend);
         matrix(check, backend);

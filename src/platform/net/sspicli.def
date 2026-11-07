@@ -5,7 +5,6 @@
 LIBRARY SspiCli.dll
 EXPORTS
     AcquireCredentialsHandleW
-    CompleteAuthToken
     DecryptMessage
     DeleteSecurityContext
     EncryptMessage

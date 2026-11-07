@@ -46,19 +46,8 @@ RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) n
         return result(RemoteAuthCryptoError::invalid_input);
     }
 
-    BCRYPT_ALG_HANDLE rsa_algorithm = nullptr;
-    NTSTATUS status = BCryptOpenAlgorithmProvider(&rsa_algorithm, BCRYPT_RSA_ALGORITHM, nullptr, 0);
-    if (status < 0) {
-        return result(RemoteAuthCryptoError::platform_failure, 0, status);
-    }
-    BCRYPT_ALG_HANDLE sha256_algorithm = nullptr;
-    status = BCryptOpenAlgorithmProvider(&sha256_algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
-    if (status < 0) {
-        BCryptCloseAlgorithmProvider(rsa_algorithm, 0);
-        return result(RemoteAuthCryptoError::platform_failure, 0, status);
-    }
     BCRYPT_KEY_HANDLE key = nullptr;
-    status = BCryptGenerateKeyPair(rsa_algorithm, &key, 2048, 0);
+    NTSTATUS status = BCryptGenerateKeyPair(BCRYPT_RSA_ALG_HANDLE, &key, 2048, 0);
     if (status >= 0) {
         status = BCryptFinalizeKeyPair(key, 0);
     }
@@ -66,14 +55,12 @@ RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) n
         if (key) {
             BCryptDestroyKey(key);
         }
-        BCryptCloseAlgorithmProvider(sha256_algorithm, 0);
-        BCryptCloseAlgorithmProvider(rsa_algorithm, 0);
         return result(RemoteAuthCryptoError::platform_failure, 0, status);
     }
 
-    crypto->rsa_algorithm = rsa_algorithm;
+    crypto->rsa_algorithm = BCRYPT_RSA_ALG_HANDLE;
     crypto->rsa_key = key;
-    crypto->sha256_algorithm = sha256_algorithm;
+    crypto->sha256_algorithm = BCRYPT_SHA256_ALG_HANDLE;
     return result(RemoteAuthCryptoError::none);
 }
 
@@ -83,12 +70,6 @@ void remote_auth_crypto_release(RemoteAuthCrypto* crypto) noexcept {
     }
     if (crypto->rsa_key) {
         BCryptDestroyKey(static_cast<BCRYPT_KEY_HANDLE>(crypto->rsa_key));
-    }
-    if (crypto->sha256_algorithm) {
-        BCryptCloseAlgorithmProvider(static_cast<BCRYPT_ALG_HANDLE>(crypto->sha256_algorithm), 0);
-    }
-    if (crypto->rsa_algorithm) {
-        BCryptCloseAlgorithmProvider(static_cast<BCRYPT_ALG_HANDLE>(crypto->rsa_algorithm), 0);
     }
     SecureZeroMemory(crypto, sizeof(*crypto));
 }

@@ -27,8 +27,8 @@ struct RemoteAuthCryptoResult {
 };
 
 // Holds one process-local ephemeral RSA-2048 key and what the system crypto library needs
-// for Remote Auth v2 (QR sign-in): CNG providers, or on Linux the key alone (the provider
-// handles stay null). The handles are opaque; callers must call remote_auth_crypto_release on every exit path.
+// for Remote Auth v2 (QR sign-in): the CNG algorithm pseudo handles, or on Linux the key alone
+// (the algorithm handles stay null). The handles are opaque; callers must call remote_auth_crypto_release on every exit path.
 struct RemoteAuthCrypto {
     void* rsa_algorithm;
     void* rsa_key;

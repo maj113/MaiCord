@@ -211,17 +211,6 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
         client->context_valid = true;
     }
 
-    if (status == SEC_I_COMPLETE_NEEDED || status == SEC_I_COMPLETE_AND_CONTINUE) {
-        const SECURITY_STATUS completed = CompleteAuthToken(context(client), &output_descriptor);
-        if (completed != SEC_E_OK) {
-            if (output_buffer.pvBuffer) {
-                FreeContextBuffer(output_buffer.pvBuffer);
-            }
-            return handshake_failure(TlsError::complete_token, completed);
-        }
-        status = status == SEC_I_COMPLETE_NEEDED ? SEC_E_OK : SEC_I_CONTINUE_NEEDED;
-    }
-
     if (output_buffer.cbBuffer > outgoing.count) {
         if (output_buffer.pvBuffer) {
             FreeContextBuffer(output_buffer.pvBuffer);

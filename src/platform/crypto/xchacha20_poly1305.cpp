@@ -57,6 +57,9 @@ void derive(const u8* secret, const u8* nonce, u8* subkey) noexcept {
     SecureZeroMemory(state, sizeof(state));
 }
 
+#if defined(_WIN32)
+// The in-house ChaCha20-Poly1305, for Windows 10 builds whose CNG lacks the cipher. Linux always has OpenSSL by the
+// time a voice key exists (the Gateway's TLS needs it), so it carries no copy.
 struct ChaChaStream {
     u32 initial[16], state[16];
     u8 block[64];
@@ -227,6 +230,8 @@ AeadResult portable_crypt(const u8* subkey, const u8* nonce, ConstSlice<u8> aad,
     return aead_result(AeadError::none, input.count);
 }
 
+#endif
+
 AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                  Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     if (!key.storage.data || !key.storage.locked)
@@ -241,12 +246,12 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
     derive(secret, nonce.data, subkey);
     u8 ietf_nonce[12]{};
     copy_bytes(ietf_nonce + 4, nonce.data + 16, 8);
+#if defined(_WIN32)
     if (key.backend == XChaChaBackend::portable) {
         const auto result = portable_crypt(subkey, ietf_nonce, aad, input, output, tag, encrypt);
         SecureZeroMemory(subkey, 32);
         return result;
     }
-#if defined(_WIN32)
     BCRYPT_KEY_HANDLE handle = nullptr;
     const NTSTATUS status = BCryptGenerateSymmetricKey(BCRYPT_CHACHA20_POLY1305_ALG_HANDLE, &handle,
                                                        key.storage.data, key.object_bytes, subkey, 32, 0);
@@ -295,16 +300,12 @@ AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret, XChaChaBac
         }
     }
 #else
-    // OpenSSL needs no object storage of ours: the key lives in the storage only as its two 32-byte keys.
+    // OpenSSL needs no object storage of ours: the key lives in the storage only as its two 32-byte keys. There is
+    // no portable cipher here: a system without OpenSSL cannot reach a voice key at all.
     const u32 bytes = 0;
-    if (backend != XChaChaBackend::portable) {
-        if (aead_openssl_available())
-            backend = XChaChaBackend::native;
-        else if (backend == XChaChaBackend::automatic)
-            backend = XChaChaBackend::portable;
-        else
-            return aead_result(AeadError::platform_failure);
-    }
+    if (backend == XChaChaBackend::portable || !aead_openssl_available())
+        return aead_result(AeadError::platform_failure);
+    backend = XChaChaBackend::native;
 #endif
     const auto allocated = secure_buffer_initialize(&key->storage, bytes + 64);
     if (!allocated.ok())

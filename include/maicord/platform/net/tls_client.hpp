@@ -12,7 +12,6 @@ enum class TlsError : u8 {
     credential_acquire,
     output_too_small,
     handshake,
-    complete_token,
     stream_sizes,
     encrypt,
     decrypt,

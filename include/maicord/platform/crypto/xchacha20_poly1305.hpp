@@ -6,7 +6,8 @@
 namespace maicord {
 
 // native is the operating system's ChaCha20-Poly1305 (CNG, or OpenSSL on Linux); portable is the in-house one,
-// which also serves systems that lack the native cipher (older Windows 10 builds, a Linux without OpenSSL).
+// which serves Windows 10 builds that lack the native cipher (Linux has none: portable and a missing OpenSSL are
+// platform_failure there).
 enum class XChaChaBackend : u8 {
     automatic,
     native,
