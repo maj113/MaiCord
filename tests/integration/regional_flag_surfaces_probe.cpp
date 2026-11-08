@@ -6,7 +6,6 @@
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/chat/messages/reaction_viewer_presentation.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/chat/messages/reaction_viewer.hpp"
@@ -59,29 +58,10 @@ void font_diagnostic(const D3D11Renderer& renderer) noexcept {
 bool same_handle(MediaAtlasHandle a,MediaAtlasHandle b) noexcept {
     return a.slot==b.slot && a.generation==b.generation;
 }
-// Read exactly the fixed metadata target from the supplied offline corpus.
 bool upload_flags(D3D11Renderer& renderer) noexcept {
-    wchar_t directory[1000]{};
-    const u32 chars=GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY",directory,1000);
-    if (!chars || chars>=1000 || !renderer.media_atlas) return false;
-    Arena scratch{};struct Release {Arena& arena;~Release() noexcept {arena_release(&arena);}} release{scratch};
-    if (!arena_initialize(&scratch,kRegionalFlagSvgMaximumBytes,0,4096)) return false;
-    auto* encoded=arena_allocate<u8>(&scratch,kRegionalFlagSvgMaximumBytes);
-    if (!encoded) return false;
+    if (!renderer.media_atlas) return false;
     for (auto sequence:sequences) {
-        char target[kRegionalFlagSvgTargetBytes]{};wchar_t path[1024]{};
-        const u32 target_bytes=regional_flag_svg_target(sequence,{target,sizeof(target)});
-        if (!target_bytes || chars > 977) return false;
-        copy_bytes(path,directory,chars*sizeof(wchar_t));u32 used=chars;path[used++]=L'\\';
-        for (u32 i=kRegionalFlagSvgTargetPrefixBytes;i<target_bytes;++i) path[used++]=static_cast<wchar_t>(target[i]);
-        HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-        if (file==INVALID_HANDLE_VALUE) return false;
-        Win32LargeInteger size{};DWORD read=0;
-        const bool valid=GetFileSizeEx(file,size.native()) && size.QuadPart>0 && size.QuadPart<=kRegionalFlagSvgMaximumBytes &&
-            ReadFile(file,encoded,static_cast<DWORD>(size.QuadPart),&read,nullptr) && read==static_cast<DWORD>(size.QuadPart);
-        const bool closed=CloseHandle(file)!=FALSE;
-        if (!valid || !closed) return false;
-        const auto uploaded=probe_upload_regional_flag(&renderer,media_asset_regional_flag(sequence),{encoded,read});
+        const auto uploaded=probe_upload_regional_flag(&renderer,sequence);
         if (!uploaded.ok() || uploaded.allocation.width!=64 || uploaded.allocation.height!=64 ||
             !colr_compute_bindings_empty(renderer.graphics.context)) return false;
     }

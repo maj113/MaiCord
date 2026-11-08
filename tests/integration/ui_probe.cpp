@@ -6,8 +6,7 @@
 // Manual modes, deliberately not in the suite:
 //   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames.
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
-//   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
-//     the pinned external flag corpus; registered only when the CMake option names it.
+//   MAICORD_REGIONAL_FLAG_SURFACES_PROBE  the bundled flags on message, composer and reaction surfaces.
 #include "ui_probe_internal.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/application_downloads_inactive.hpp"
@@ -1870,8 +1869,7 @@ int run_probe() noexcept {
     const bool resize_text_requested = probe_option_enabled(L"MAICORD_UI_RESIZE_TEXT_PROBE");
     const bool store_requested = probe_option_enabled(L"MAICORD_STORE_UI_PROBE");
     const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
-    if (!flag_surfaces_requested &&
-        GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0))
+    if (probe_option_enabled(L"MAICORD_REGIONAL_FLAG_PROBE"))
         return finish_gate(regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame),
                            "regional_flag_gpu_probe_passed", "regional_flag_gpu_probe_failed", 242);
     wchar_t title_only[2]{};

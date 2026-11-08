@@ -6,8 +6,8 @@ namespace maicord {
 
 struct GlyphOutline;
 
-// MIPK v1, written by tools/generate_icon_pack.py. Coordinates are 1/64 units
-// on a 24-unit grid.
+// MIPK v2, written by tools/generate_icon_pack.py. Coordinates are 1/64 units
+// on a 24-unit grid, each point stored as its difference from the previous one.
 inline constexpr u32 kIconPackGrid = 24;
 inline constexpr u32 kIconPackUnits = 64;
 inline constexpr u32 kIconMaximumOutlineCommands = 512;

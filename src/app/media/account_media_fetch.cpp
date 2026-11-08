@@ -2,7 +2,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/render/effects/lottie_program.hpp"
 #include "maicord/media/containers/hevc_mp4_demux.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
+#include "maicord/media/image/regional_flag_art.hpp"
 
 namespace maicord {
 namespace account_media_detail {
@@ -126,7 +126,7 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
     const ConstSlice<u8> encoded = encoded_view;
     const bool lottie = lottie_asset(key);
     if (!supported_key(key) || (!lottie && key.kind != MediaAssetKind::regional_flag) || !encoded.data ||
-        encoded.count > (lottie ? kLottieMaximumBytes : kRegionalFlagSvgMaximumBytes))
+        encoded.count > (lottie ? kLottieMaximumBytes : kRegionalFlagScratchBytes))
         return false;
     // Both vector kinds compile here into the shared paint workspace; the
     // client only rasterizes the borrowed program.
@@ -143,10 +143,10 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
         if (!lottie_program_compile_frame(encoded, frame_index, static_cast<float>(pixels), &timing, workspace, media))
             return false;
     } else {
-        RegionalFlagSvg image{};
+        RegionalFlagArt art;
         ColrPaintProgram* program = nullptr;
-        if (!regional_flag_svg_parse(encoded, &image) || !(program = workspace(media)) ||
-            !regional_flag_svg_compile(image, program, kRegionalFlagPixelsPerUnit))
+        if (!regional_flag_record_parse(encoded, &art) || !(program = workspace(media)) ||
+            !regional_flag_compile(art, program, kRegionalFlagPixelsPerUnit))
             return false;
     }
     stage_frame(media, key, static_cast<u32>(sizeof(ColrPaintProgram)), request_id, 0, 0);
@@ -167,9 +167,9 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
 
 // Separate frame so the inflate scratch only occupies stack on this path.
 __declspec(noinline) bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept {
-    u8 scratch[kRegionalFlagSvgMaximumBytes];
+    u8 scratch[kRegionalFlagScratchBytes];
     return publish_vector(media, key,
-                          regional_flag_bundled_svg(static_cast<u16>(key.id), {scratch, sizeof(scratch)}), 0);
+                          regional_flag_bundled_record(static_cast<u16>(key.id), {scratch, sizeof(scratch)}), 0);
 }
 
 bool consume_response(void* opaque, const CdnClientResponse& response,

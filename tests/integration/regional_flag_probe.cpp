@@ -2,7 +2,6 @@
 #include "glyph_gpu_footprint.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
@@ -30,31 +29,6 @@ constexpr u16 sequences[]{504, 505, 679, 69};
 bool fail(u32 line) noexcept {
     log_u64(LogLevel::error,"probe","regional_flag_failure_line",line);
     return false;
-}
-
-// The directory supplies the independently verified offline corpus. Only the
-// fixed metadata filename is appended; no corpus enumeration or URL is used.
-bool read_flag(const wchar_t* directory, u32 chars, u16 sequence, Slice<u8> bytes,
-               u32* count) noexcept {
-    char target[kRegionalFlagSvgTargetBytes]{};
-    const u32 target_bytes=regional_flag_svg_target(sequence,{target,sizeof(target)});
-    if (!count || !target_bytes || chars > 977)
-        return false;
-    wchar_t path[1024]{};
-    copy_bytes(path,directory,chars*sizeof(wchar_t));
-    path[chars++]=L'\\';
-    for (u32 i=kRegionalFlagSvgTargetPrefixBytes;i<target_bytes;++i) path[chars++]=static_cast<wchar_t>(target[i]);
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,
-                            FILE_ATTRIBUTE_NORMAL,nullptr);
-    if (file==INVALID_HANDLE_VALUE) return false;
-    Win32LargeInteger size{};DWORD read=0;
-    const bool valid=GetFileSizeEx(file,size.native()) && size.QuadPart>0 &&
-        size.QuadPart<=kRegionalFlagSvgMaximumBytes && size.QuadPart<=bytes.count &&
-        ReadFile(file,bytes.data,static_cast<DWORD>(size.QuadPart),&read,nullptr) &&
-        read==static_cast<DWORD>(size.QuadPart);
-    const bool closed=CloseHandle(file)!=FALSE;
-    if (!valid || !closed) return false;
-    *count=read;return true;
 }
 
 bool readback_flags(D3D11Renderer& renderer, const MediaAtlasResult (&allocations)[4],
@@ -160,15 +134,12 @@ bool draw_grid(D3D11Renderer& renderer,PopupScene& scene,UiScene& title,u32 dpi,
 }
 } // namespace
 
-// Optional early, offline-only probe. It proves the flag artwork/command/native
+// Early, offline-only probe. It proves the bundled flag artwork/command/native
 // draw path through popup emoji cells, without creating an account or running
 // a media worker. Root UIProbe owns the window, renderer and capture.
 bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
                            bool(*capture)(const wchar_t*) noexcept) noexcept {
-    wchar_t directory[1000]{};
-    const DWORD chars=GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY",directory,1000);
-    if (!chars) return true;
-    if (chars>=1000 || !capture || !renderer.graphics.device || !renderer.graphics.context1 ||
+    if (!capture || !renderer.graphics.device || !renderer.graphics.context1 ||
         renderer.media_atlas || renderer.preview_media_atlas || renderer.media_gpu.surface ||
         renderer.content_text || scene.owned_storage.base || scene.items.data || scene.widgets.storage.data ||
         renderer.media_quad_count || renderer.media_batch_count || !colr_compute_bindings_empty(renderer.graphics.context))
@@ -194,12 +165,11 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
             renderer.menu_paint_first_batch=markers[2];renderer.menu_media_first_batch=markers[3];
         }
     } release{renderer,scene,title,scratch,saved_popup,saved_scene,saved_dpi,false,false,saved_markers};
-    constexpr usize scratch_bytes=kRegionalFlagSvgMaximumBytes+widget_count*(sizeof(UiWidget)+sizeof(UiLayoutNode))+256;
+    constexpr usize scratch_bytes=widget_count*(sizeof(UiWidget)+sizeof(UiLayoutNode))+256;
     if (!arena_initialize(&scratch,scratch_bytes,0,4096)) return fail(__LINE__);
-    auto* encoded=arena_allocate<u8>(&scratch,kRegionalFlagSvgMaximumBytes);
     auto* widgets=arena_allocate_zero<UiWidget>(&scratch,widget_count);
     auto* nodes=arena_allocate_zero<UiLayoutNode>(&scratch,widget_count);
-    if (!encoded || !widgets || !nodes || !popup_scene_initialize_owned(&scene,item_count,{widgets,widget_count},{nodes,widget_count}))
+    if (!widgets || !nodes || !popup_scene_initialize_owned(&scene,item_count,{widgets,widget_count},{nodes,widget_count}))
         return fail(__LINE__);
     release.initialized=true;
     if (!ui_scene_initialize_bootstrap(&title) || !standalone_title_layout(&title,renderer.width*96.f/saved_dpi,renderer.height*96.f/saved_dpi) ||
@@ -212,10 +182,8 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
         d3d11_glyph_text_color_view(renderer.glyph_text)) return fail(__LINE__);
     MediaAtlasResult allocations[4]{};
     for (u32 i=0;i<4;++i) {
-        u32 bytes=0;
-        if (regional_flag_sequence(flags[i])!=sequences[i] || !read_flag(directory,chars,sequences[i],{encoded,kRegionalFlagSvgMaximumBytes},&bytes))
-            return fail(__LINE__);
-        const auto result=probe_upload_regional_flag(&renderer,media_asset_regional_flag(sequences[i]),{encoded,bytes});
+        if (regional_flag_sequence(flags[i])!=sequences[i]) return fail(__LINE__);
+        const auto result=probe_upload_regional_flag(&renderer,sequences[i]);
         if (!result.ok() || result.allocation.width!=64 || result.allocation.height!=64 ||
             !colr_compute_bindings_empty(renderer.graphics.context)) return fail(__LINE__);
         allocations[i]=result.allocation;
@@ -246,9 +214,7 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
     D3D11GlyphGpuFootprint tall_before{},tall_after{};
     if (!d3d11_glyph_text_gpu_footprint(renderer.glyph_text,&tall_before)) return fail(__LINE__);
     for (u32 i=0;i<4;++i) {
-        u32 bytes=0;
-        if (!read_flag(directory,chars,sequences[i],{encoded,kRegionalFlagSvgMaximumBytes},&bytes)) return fail(__LINE__);
-        const auto result=probe_upload_regional_flag(&renderer,media_asset_regional_flag(sequences[i]),{encoded,bytes});
+        const auto result=probe_upload_regional_flag(&renderer,sequences[i]);
         if (!result.ok() || result.allocation.width!=64 || result.allocation.height!=64 ||
             !colr_compute_bindings_empty(renderer.graphics.context)) return fail(__LINE__);
         allocations[i]=result.allocation;

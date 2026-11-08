@@ -26,13 +26,11 @@ constexpr i32 read_i16(const u8* p) noexcept {
 }
 
 static_assert(sizeof(kUiIconPackData) > kHeaderBytes && kUiIconPackData[0] == 'M' &&
-              kUiIconPackData[1] == 'I' && kUiIconPackData[2] == 'P' && kUiIconPackData[3] == 'K');
+              kUiIconPackData[1] == 'I' && kUiIconPackData[2] == 'P' && kUiIconPackData[3] == 'K' &&
+              read_u16(kUiIconPackData + 4) == 2);
 constexpr u32 kBuiltinIconCount = read_u16(kUiIconPackData + 6);
 IconPack g_builtin;
 InflatedBlock builtin_block;
-void publish_builtin(const u8* data) noexcept {
-    g_builtin = {data, sizeof(kUiIconPackData), kBuiltinIconCount};
-}
 
 struct Header {
     u32 commands, stems;
@@ -49,6 +47,9 @@ struct Record {
 Record record(const IconPack& pack, u32 index) noexcept {
     const u8* p = pack.data + kHeaderBytes + index * kRecordBytes;
     return {read_u32(p), read_u16(p + 4), read_u16(p + 6), read_u16(p + 8), p[10]};
+}
+void publish_builtin(const u8* data) noexcept {
+    g_builtin = {data, sizeof(kUiIconPackData), kBuiltinIconCount};
 }
 } // namespace
 
@@ -86,17 +87,9 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
     const float unit = transform.scale / kIconPackUnits;
     float min_x = 3.4e38f, min_y = 3.4e38f, max_x = -3.4e38f, max_y = -3.4e38f;
     u32 count = 0, at = 0;
+    i32 x = 0, y = 0; // Each point is stored as its difference from the previous one.
     bool open = false;
     GlyphPathCommandKind begin_kind{};
-    const auto point = [&](float* x, float* y) noexcept {
-        *x = static_cast<float>(read_i16(p + at)) * unit + transform.offset_x;
-        *y = static_cast<float>(read_i16(p + at + 2)) * unit + transform.offset_y;
-        at += 4;
-        min_x = minimum(min_x, *x);
-        min_y = minimum(min_y, *y);
-        max_x = maximum(max_x, *x);
-        max_y = maximum(max_y, *y);
-    };
     const auto end_contour = [&](bool closed) noexcept {
         GlyphPathCommand& command = outline->commands[count++];
         reset_value(&command);
@@ -116,6 +109,7 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
             end_contour(false);
         GlyphPathCommand& command = outline->commands[count++];
         reset_value(&command);
+        u32 points = 1;
         if (op == op_move_stroke || op == op_move_fill) {
             const auto closed_follows = [&]() noexcept {
                 // Scan ahead to this contour's terminator for the solid variant.
@@ -134,16 +128,31 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
                              ? GlyphPathCommandKind::begin_filled
                              : GlyphPathCommandKind::begin_hollow;
             command.kind = begin_kind;
-            point(&command.x1, &command.y1);
             open = true;
         } else if (op == op_line) {
             command.kind = GlyphPathCommandKind::line;
-            point(&command.x1, &command.y1);
         } else {
             command.kind = GlyphPathCommandKind::cubic;
-            point(&command.x1, &command.y1);
-            point(&command.x2, &command.y2);
-            point(&command.x3, &command.y3);
+            points = 3;
+        }
+        float xy[6];
+        for (u32 i = 0; i < points; ++i, at += 4) {
+            x += read_i16(p + at);
+            y += read_i16(p + at + 2);
+            xy[2 * i] = static_cast<float>(x) * unit + transform.offset_x;
+            xy[2 * i + 1] = static_cast<float>(y) * unit + transform.offset_y;
+            min_x = minimum(min_x, xy[2 * i]);
+            min_y = minimum(min_y, xy[2 * i + 1]);
+            max_x = maximum(max_x, xy[2 * i]);
+            max_y = maximum(max_y, xy[2 * i + 1]);
+        }
+        command.x1 = xy[0];
+        command.y1 = xy[1];
+        if (points == 3) {
+            command.x2 = xy[2];
+            command.y2 = xy[3];
+            command.x3 = xy[4];
+            command.y3 = xy[5];
         }
     }
     if (open)

@@ -1,4 +1,4 @@
-"""Compile the MaiCord icon manifest into the compact MIPK v1 icon pack.
+"""Compile the MaiCord icon manifest into the compact MIPK v2 icon pack.
 
 Standard library only and deterministic: identical inputs produce identical bytes.
 
@@ -11,7 +11,8 @@ Pack layout (little endian):
   records  16 bytes each: u32 command offset, u16 command bytes, u16 outline commands,
            u16 first stem, u8 stem count, u8 flags, u16 name offset, u8 name length, u8 0
   index    u16 record numbers sorted by name
-  commands u8 opcode + i16 coordinates in 1/64 grid units:
+  commands u8 opcode + i16 coordinates in 1/64 grid units, each point stored as its difference from the
+           icon's previous point (the first from 0,0), which deflates smaller than absolute positions:
            0 move (stroked contour), 1 move (filled contour), 2 line, 3 cubic, 4 close
   stems    4 bytes each: i16 position, u8 axis (0 vertical, 1 horizontal), u8 length
   names    ASCII manifest identifiers
@@ -30,7 +31,7 @@ from font_reference.embed_fixture import embed_arrays, write_if_changed
 
 GRID = 24
 UNITS = 64
-VERSION = 1
+VERSION = 2
 DATA_FILE = 'ui_icon_pack_data.bin'  # beside the include, read by #embed
 PACKED_FILE = 'ui_icon_pack_packed.bin'
 HEADER_BYTES = 40
@@ -463,10 +464,14 @@ def quantize(value):
 def compile_icon(contours):
     commands, outline_count, flags = bytearray(), 0, 0
     stems = {}
+    previous = (0, 0)
 
     def coordinates(*points):
+        nonlocal previous
         for x, y in points:
-            commands.extend(struct.pack('<hh', quantize(x), quantize(y)))
+            point = (quantize(x), quantize(y))
+            commands.extend(struct.pack('<hh', point[0] - previous[0], point[1] - previous[1]))
+            previous = point
 
     for contour in contours:
         points = [contour.start] + [point for _, segment in contour.segments for point in segment]

@@ -9,7 +9,7 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/text/ansi_text.hpp"
 #include "maicord/render/effects/colr_paint.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
+#include "maicord/media/image/regional_flag_art.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/sys/simd.hpp"

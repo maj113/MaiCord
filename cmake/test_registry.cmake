@@ -544,20 +544,11 @@ maicord_test(MaiCordRegionalFlagNativeGeometryTests ENTRY maicord_flag_native_ge
         src/ui/media/emoji_presentation.cpp src/core/log.cpp
     LIBS maicord_core maicord_font maicord_media_core maicord_ui kernel32 advapi32 gdi32
     TIMEOUT 15 ENVIRONMENT LOCALAPPDATA= TEST maicord_regional_flag_native_geometry)
-maicord_test(MaiCordRegionalFlagSvgTests ENTRY maicord_regional_flag_svg_test_entry
-    SOURCES tests/media/image/regional_flag_svg_test.cpp
+maicord_test(MaiCordRegionalFlagArtTests ENTRY maicord_regional_flag_art_test_entry
+    SOURCES tests/media/image/regional_flag_art_test.cpp
     LIBS maicord_render_core maicord_paint_program
     BUNDLE MaiCordUiUnitTests
-    TIMEOUT 15 TEST maicord_regional_flag_svg --self-test)
-set(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY "" CACHE PATH
-    "External pinned licensed flag SVG corpus for the optional full reference check")
-if(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY)
-    if(NOT IS_DIRECTORY "${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY}")
-        message(FATAL_ERROR "MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY does not exist")
-    endif()
-    maicord_add_tests(MaiCordRegionalFlagSvgTests TIMEOUT 15
-        WORKING_DIRECTORY ${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY} TEST maicord_regional_flag_svg_reference)
-endif()
+    TIMEOUT 15 TEST maicord_regional_flag_art)
 maicord_test(MaiCordTextFormConfirmationTests ENTRY maicord_text_form_confirmation_entry
     SOURCES tests/app/chat/composer/text_form_confirmation_runtime.cpp tests/app/chat/application_link_trust_runtime.cpp
         src/app/shell/state.cpp src/app/chat/composer/text_form.cpp src/render/text/form_surface.cpp
@@ -1979,17 +1970,8 @@ maicord_ui_probe_test(maicord_colr_binding_probe COLR_BINDING_PROBE TIMEOUT 15 L
 # Live-resize stress in a shown window: 64 WM_SIZE steps down and back, each
 # painted once as a clipped update with no swap-chain reallocation.
 maicord_ui_probe_test(maicord_resize_stress_probe UI_PROBE_RESIZE_STRESS TIMEOUT 15 LABELS gpu display)
-# The two regional flag probes read the pinned external flag corpus, so they run
-# only when MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY names it.
-if(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY)
-    maicord_add_tests(MaiCordUiProbe TIMEOUT 20 LABELS native-ui display
-        ENV MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY}
-        TEST maicord_regional_flag_reference_probe)
-    maicord_add_tests(MaiCordUiProbe TIMEOUT 20 LABELS native-ui display
-        ENV MAICORD_REGIONAL_FLAG_SURFACES_PROBE=1
-            MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY}
-        TEST maicord_regional_flag_surfaces_probe)
-endif()
+# The bundled regional flags through popup emoji cells at three DPIs and two atlas shapes.
+maicord_ui_probe_test(maicord_regional_flag_probe REGIONAL_FLAG_PROBE TIMEOUT 20 LABELS native-ui display)
 # Fast CPU decode paths (PNG filters, GIF LZW, JPEG entropy) against bit-serial references.
 maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_reference_tests_entry
     SOURCES tests/media/image/media_decode_reference.cpp

@@ -59,7 +59,7 @@ maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/
 
 maicord_library(maicord_media_core
     src/media/core/animation_timeline.cpp src/media/core/encoded_cache.cpp src/media/core/presentation_policy.cpp
-    src/media/image/regional_flag_svg.cpp src/ui/text/regional_flag.cpp
+    src/media/image/regional_flag_art.cpp src/ui/text/regional_flag.cpp
     LIBS maicord_core)
 
 set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)

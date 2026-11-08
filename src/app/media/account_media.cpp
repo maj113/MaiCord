@@ -7,7 +7,7 @@
 #include "maicord/app/media/embed_resolver.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
+#include "maicord/media/image/regional_flag_art.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"

@@ -110,7 +110,7 @@ maicord_compact_sources(
         src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
         src/app/voice/account_stage.cpp src/app/gateway/stage_dispatch.cpp src/app/gateway/stream_control.cpp
         src/app/gateway/stream_session.cpp src/app/gateway/voice_control.cpp
-        src/app/guild/account_guild_assets.cpp src/media/image/regional_flag_svg.cpp
+        src/app/guild/account_guild_assets.cpp src/media/image/regional_flag_art.cpp
         # Opened on a click: the user's own reaction requests; shell/tray registration;
         # the account module's API wrappers (its pump only forwards), the REST
         # request queue, the TLS handshake, soundboard and voice-message
