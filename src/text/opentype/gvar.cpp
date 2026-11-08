@@ -150,7 +150,8 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
 }
 #pragma float_control(pop)
 }
-SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work,u32* used) noexcept {
+// Once per face and per instance: compiled for size.
+__attribute__((minsize)) SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;if(r16(table,4)!=axes || r16(table,12)!=glyphs || (r16(table,14)&~1))return SfntStatus::malformed;
     const u16 shared=r16(table,6),stride=r16(table,14)&1?4:2;const u32 tuples=r32(table,8),data=r32(table,16),header=20+(static_cast<u32>(glyphs)+1)*stride,cells=static_cast<u32>(shared)*axes;
@@ -159,7 +160,7 @@ SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* out
     SfntGvar result{table,{table.data+20,header-20},shared?ConstSlice<u8>{table.data+tuples,cells*2}:ConstSlice<u8>{},data,axes,glyphs,shared,stride};
     *output=result;return SfntStatus::ok;
 }
-SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> storage,SfntGvarInstance* output,u32 work,u32* used) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> storage,SfntGvarInstance* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data || coordinates.count!=font.axis_count || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(storage.count<font.shared_count || (font.shared_count && !storage.data))return SfntStatus::output_too_small;

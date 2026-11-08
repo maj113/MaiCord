@@ -7,7 +7,8 @@
 namespace maicord {
 using namespace sfnt_read;
 
-SfntStatus variation_index_map_open(ConstSlice<u8> table,u32 at,VariationIndexMap* output,u32 work,u32* work_used) noexcept {
+// Once per table of a variable font, before any delta: compiled for size.
+__attribute__((minsize)) SfntStatus variation_index_map_open(ConstSlice<u8> table,u32 at,VariationIndexMap* output,u32 work,u32* work_used) noexcept {
     WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,at,4))return SfntStatus::truncated;
@@ -90,7 +91,8 @@ SfntStatus item_variation_store_open(ConstSlice<u8> table,u32 at,ItemVariationSt
 }
 
 #pragma float_control(precise,on,push)
-SfntStatus variation_instance_prepare(const ItemVariationStore& store,ConstSlice<double> coordinates,
+// Once per instance and table: compiled for size.
+__attribute__((minsize)) SfntStatus variation_instance_prepare(const ItemVariationStore& store,ConstSlice<double> coordinates,
                                      Slice<double> storage,VariationInstance* output,u32 work,VariationCoordinatePrecision precision) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!store.table.data || coordinates.count!=store.axis_count || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;

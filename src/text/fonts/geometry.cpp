@@ -3,7 +3,8 @@
 #include "../opentype/sfnt_read.hpp"
 namespace maicord {
 using namespace sfnt_read;
-SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
+// Once per face: compiled for size. Outline emission below stays /O2.
+__attribute__((minsize)) SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);auto& font=*output;font.face=face;
     const bool cff=face.version==sfnt_tag('O','T','T','O');font.kind=cff?FontGeometryKind::cff:FontGeometryKind::truetype;
     auto status=cff?cff_open(face,&font.outline.cff):sfnt_truetype_open(face,&font.outline.truetype,true);

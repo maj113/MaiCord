@@ -28,7 +28,8 @@ u32 find_glyph(ConstSlice<u8> records,u32 stride,u16 glyph) noexcept {
     return low;
 }
 }
-SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
+// Once per colour face binding: compiled for size.
+__attribute__((minsize)) SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);ColrFont& result=*output;
     const auto opened=[&]() noexcept { // Fills the zeroed output; cleared again on failure below.
     auto status=sfnt_table(face,sfnt_tag('C','O','L','R'),&result.table);

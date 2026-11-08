@@ -6,8 +6,10 @@
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::span;using layout_read::view;using layout_read::tail;
+// Opens, requirements and lookup visits run once per lookup of a cached plan:
+// compiled for size (minsize). Matching stays /O2.
 struct Header {u32 end,sets_at,back_at,input_at,look_at,actions_at;u16 format,sets,back,input,look,actions,classes;};
-SfntStatus header(ConstSlice<u8> b,SfntContextKind kind,Header* h) noexcept {
+__attribute__((minsize)) SfntStatus header(ConstSlice<u8> b,SfntContextKind kind,Header* h) noexcept {
     reset_value(h);if(!b.data || static_cast<u8>(kind)>1)return SfntStatus::invalid_input;if(!span(b,0,2))return SfntStatus::truncated;h->format=r16(b,0);const bool chained=kind==SfntContextKind::chained;
     if(h->format==1 || h->format==2){h->sets_at=h->format==1?6u:chained?12u:8u;if(!span(b,0,h->sets_at))return SfntStatus::truncated;h->sets=r16(b,h->sets_at-2);h->end=h->sets_at+static_cast<u32>(h->sets)*2;h->classes=h->format==2?(chained?3:1):0;return span(b,0,h->end)?SfntStatus::ok:SfntStatus::truncated;}
     if(h->format!=3)return SfntStatus::unsupported;
@@ -28,7 +30,7 @@ inline Header prepared_header(const SfntContext& context) noexcept {
         h.actions_at=h.look_at+static_cast<u32>(h.look)*2+2;h.actions=r16(context.table,h.actions_at-2);}
     return h;
 }
-SfntStatus pattern(ConstSlice<u8> b,bool chained,Pattern* p) noexcept {
+__attribute__((minsize)) SfntStatus pattern(ConstSlice<u8> b,bool chained,Pattern* p) noexcept {
     reset_value(p);if(!chained){if(!span(b,0,4))return SfntStatus::truncated;p->input_count=r16(b,0);if(!p->input_count)return SfntStatus::malformed;const u32 n=(static_cast<u32>(p->input_count)-1)*2,actions=r16(b,2);if(!span(b,4,n+actions*4))return SfntStatus::truncated;p->input=view(b,4,n);p->actions=view(b,4+n,actions*4);return SfntStatus::ok;}
     u32 at=0;ConstSlice<u8>* arrays[]{&p->back,&p->input,&p->look};
     for(u32 i=0;i<3;++i){if(!span(b,at,2))return SfntStatus::truncated;u32 count=r16(b,at);at+=2;if(i==1){if(!count)return SfntStatus::malformed;p->input_count=static_cast<u16>(count);--count;}if(!span(b,at,count*2))return SfntStatus::truncated;*arrays[i]=view(b,at,count*2);at+=count*2;}
@@ -43,13 +45,13 @@ Pattern prepared_pattern(const u8* b,bool chained) noexcept {
     for(u32 i=0;i<3;++i){u32 count=byte_load_be16(b+at);at+=2;if(i==1)p.input_count=static_cast<u16>(count--);*arrays[i]={b+at,count*2};at+=count*2;}
     p.actions={b+at+2,byte_load_be16(b+at)*4u};return p;
 }
-SfntStatus actions_valid(ConstSlice<u8> a,u16 inputs,u16 lookups,u32* work) noexcept {
+__attribute__((minsize)) SfntStatus actions_valid(ConstSlice<u8> a,u16 inputs,u16 lookups,u32* work) noexcept {
     if(!spend(work,a.count/4))return SfntStatus::resource_limit;for(u32 i=0;i<a.count;i+=4)if(r16(a,i)>=inputs || r16(a,i+2)>=lookups)return SfntStatus::malformed;return SfntStatus::ok;
 }
-SfntStatus coverage_open(ConstSlice<u8> b,u32 at,u32 minimum,u32 limit,SfntCoverage* out,u32* work) noexcept {
+__attribute__((minsize)) SfntStatus coverage_open(ConstSlice<u8> b,u32 at,u32 minimum,u32 limit,SfntCoverage* out,u32* work) noexcept {
     ConstSlice<u8> data{};auto s=tail(b,at,minimum,&data);if(s!=SfntStatus::ok)return s;if(!span(data,0,4))return SfntStatus::truncated;if(!spend(work,r16(data,2)))return SfntStatus::resource_limit;return sfnt_coverage_open(data,limit,out);
 }
-SfntStatus class_open(ConstSlice<u8> b,u32 at,u32 minimum,u32 limit,SfntClassDef* out,u32* work) noexcept {
+__attribute__((minsize)) SfntStatus class_open(ConstSlice<u8> b,u32 at,u32 minimum,u32 limit,SfntClassDef* out,u32* work) noexcept {
     reset_value(out);if(!at)return SfntStatus::ok;ConstSlice<u8> data{};auto s=tail(b,at,minimum,&data);if(s!=SfntStatus::ok)return s;if(!span(data,0,4))return SfntStatus::truncated;
     const u16 format=r16(data,0);if(format==1 && !span(data,0,6))return SfntStatus::truncated;if(!spend(work,r16(data,format==1?4:2)))return SfntStatus::resource_limit;return sfnt_class_def_open(data,limit,out);
 }
@@ -69,13 +71,13 @@ SfntStatus match_pattern(const SfntContext& c,const Pattern& p,const SfntGdef& g
     if(p.input_count>positions.count){out->input_count=p.input_count;return SfntStatus::output_too_small;}*out={p.actions,p.input_count,last,true};return SfntStatus::ok;
 }
 struct ReverseHeader {u32 back_at,look_at,outputs_at,end;u16 back,look,outputs;};
-SfntStatus reverse_header(ConstSlice<u8> b,ReverseHeader* h) noexcept {
+__attribute__((minsize)) SfntStatus reverse_header(ConstSlice<u8> b,ReverseHeader* h) noexcept {
     reset_value(h);if(!b.data)return SfntStatus::invalid_input;if(!span(b,0,6))return SfntStatus::truncated;if(r16(b,0)!=1)return SfntStatus::unsupported;
     h->back=r16(b,4);h->back_at=6;u32 at=6+static_cast<u32>(h->back)*2;if(!span(b,at,2))return SfntStatus::truncated;h->look=r16(b,at);h->look_at=at+2;at+=2+static_cast<u32>(h->look)*2;
     if(!span(b,at,2))return SfntStatus::truncated;h->outputs=r16(b,at);h->outputs_at=at+2;h->end=h->outputs_at+static_cast<u32>(h->outputs)*2;return span(b,0,h->end)?SfntStatus::ok:SfntStatus::truncated;
 }
 }
-SfntStatus sfnt_context_visit_lookups(ConstSlice<u8> bytes,SfntContextKind kind,u16 lookups,
+__attribute__((minsize)) SfntStatus sfnt_context_visit_lookups(ConstSlice<u8> bytes,SfntContextKind kind,u16 lookups,
     SfntLookupVisitor visit,void* context,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!visit)return SfntStatus::invalid_input;
     Header h{};auto s=header(bytes,kind,&h);if(s!=SfntStatus::ok)return s;
@@ -98,10 +100,10 @@ SfntStatus sfnt_context_visit_lookups(ConstSlice<u8> bytes,SfntContextKind kind,
             s=actions(p.actions,p.input_count);if(s!=SfntStatus::ok)return s;}
     }return SfntStatus::ok;
 }
-SfntStatus sfnt_context_requirements(ConstSlice<u8> bytes,SfntContextKind kind,SfntContextRequirements* output) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_context_requirements(ConstSlice<u8> bytes,SfntContextKind kind,SfntContextRequirements* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);Header h{};const auto s=header(bytes,kind,&h);if(s!=SfntStatus::ok)return s;*output={h.format==3?static_cast<u32>(h.back)+h.input+h.look:1u,h.classes};return SfntStatus::ok;
 }
-SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 limit,u16 lookup_limit,Slice<SfntCoverage> coverages,Slice<SfntClassDef> classes,SfntContext* output,u32 work,u32* work_used) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 limit,u16 lookup_limit,Slice<SfntCoverage> coverages,Slice<SfntClassDef> classes,SfntContext* output,u32 work,u32* work_used) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!limit || limit>65536)return SfntStatus::invalid_input;Header h{};auto s=header(bytes,kind,&h);if(s!=SfntStatus::ok)return s;
     const u32 coverage_count=h.format==3?static_cast<u32>(h.back)+h.input+h.look:1u;if(coverages.count<coverage_count || classes.count<h.classes)return SfntStatus::output_too_small;if(!coverages.data || (h.classes && !classes.data))return SfntStatus::invalid_input;
@@ -139,10 +141,10 @@ SfntStatus context_match(const SfntContext& c,const SfntGdef& gdef,const SfntLoo
         const auto s=match_pattern(c,prepared_pattern(set+byte_load_be16(set+2+i*2),chained),gdef,filter,glyphs,start,input_end,positions,output,work,mask);if(s!=SfntStatus::ok || output->matched)return s;}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_gsub_reverse_requirements(ConstSlice<u8> bytes,u32* count) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_gsub_reverse_requirements(ConstSlice<u8> bytes,u32* count) noexcept {
     if(!count)return SfntStatus::invalid_input;*count=0;ReverseHeader h{};const auto s=reverse_header(bytes,&h);if(s==SfntStatus::ok)*count=1u+h.back+h.look;return s;
 }
-SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 limit,Slice<SfntCoverage> coverages,SfntReverseSubstitution* output,u32 work,u32* work_used) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 limit,Slice<SfntCoverage> coverages,SfntReverseSubstitution* output,u32 work,u32* work_used) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!limit || limit>65536)return SfntStatus::invalid_input;ReverseHeader h{};auto s=reverse_header(bytes,&h);if(s!=SfntStatus::ok)return s;const u32 count=1u+h.back+h.look;
     if(coverages.count<count)return SfntStatus::output_too_small;if(!coverages.data)return SfntStatus::invalid_input;if(!spend(&work,count+h.outputs))return SfntStatus::resource_limit;

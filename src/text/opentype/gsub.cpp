@@ -6,6 +6,8 @@
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::span;using layout_read::tail;
 inline u16 r16(const u8* b,u32 at) noexcept {return byte_load_be16(b+at);}
+// Subtable opens run once per lookup of a cached plan: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus glyph_array(ConstSlice<u8> b,u32 at,u32 count,u32 limit,u32* work) noexcept {
     if(!span(b,at,count*2))return SfntStatus::truncated;if(!spend(work,count))return SfntStatus::resource_limit;
     for(u32 i=0;i<count;++i)if(r16(b,at+i*2)>=limit)return SfntStatus::malformed;return SfntStatus::ok;
@@ -37,6 +39,7 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
     }
     *output=result;return SfntStatus::ok;
 }
+#pragma clang attribute pop
 }
 SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32* work,u8 mask) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
@@ -95,7 +98,7 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
     if(result.input_count>positions.count){output->input_count=result.input_count;return SfntStatus::output_too_small;}
     *output=result;return SfntStatus::ok;
 }
-SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGsubSubtable* output,u32 work,u32* work_used,bool ignore_empty) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGsubSubtable* output,u32 work,u32* work_used,bool ignore_empty) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;return open(bytes,type,glyph_limit,output,&work,ignore_empty);
 }

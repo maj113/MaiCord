@@ -5,7 +5,8 @@
 namespace maicord {namespace {
 using namespace sfnt_read;
 }
-SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* used) noexcept {
+// Once per plan of a variable font: compiled for size.
+__attribute__((minsize)) SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;
@@ -16,7 +17,7 @@ SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* us
         s=variation_index_map_open(table,map,&result.advances,work,&child);work-=child;if(s!=SfntStatus::ok)return s;}
     *output=result;return SfntStatus::ok;
 }
-SfntStatus sfnt_mvar_open(ConstSlice<u8> table,SfntMvar* output,u32 work,u32* used) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_mvar_open(ConstSlice<u8> table,SfntMvar* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,0,12))return SfntStatus::truncated;if(r16(table,0)!=1)return SfntStatus::unsupported;
     const u16 stride=r16(table,6),count=r16(table,8),store=r16(table,10);

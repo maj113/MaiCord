@@ -9,8 +9,7 @@ namespace maicord {
 namespace {
 
 float floor_float(float value) noexcept {
-    const i32 truncated = static_cast<i32>(value);
-    return static_cast<float>(value < static_cast<float>(truncated) ? truncated - 1 : truncated);
+    return __builtin_elementwise_floor(value) + 0.f;
 }
 
 float ceil_float(float value) noexcept {

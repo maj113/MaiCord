@@ -7,7 +7,7 @@
 namespace maicord {
 namespace {
 #pragma float_control(precise,on,push)
-double ceil_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)+(static_cast<double>(n)<value?1:0);}
+double ceil_value(double value) noexcept {return __builtin_elementwise_ceil(value)+0.0;}
 SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock& block,u32 base,u32 field,double* value) noexcept {
     *value=0;
     if(!instance.present)return SfntStatus::ok;
@@ -29,7 +29,8 @@ bool before(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexc
 }
 }
 
-SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* output,u32 work) noexcept {
+// Once per colour face binding: compiled for size.
+__attribute__((minsize)) SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* output,u32 work) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data)return SfntStatus::invalid_input;
     if(!font.variation_store)return SfntStatus::ok;
@@ -39,7 +40,7 @@ SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* outp
     if(font.variation_map){status=variation_index_map_open(font.table,font.variation_map,&result.map,work);if(status!=SfntStatus::ok)return status;}
     result.present=true;*output=result;return SfntStatus::ok;
 }
-SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSlice<double> coordinates,
+__attribute__((minsize)) SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSlice<double> coordinates,
                                           Slice<double> storage,ColrVariationInstance* output,u32 work,ColrVariationMode mode) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!data.present){output->mode=mode;return SfntStatus::ok;}

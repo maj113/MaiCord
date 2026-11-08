@@ -8,7 +8,9 @@ inline u16 read(const ConstSlice<u8>& bytes,u32 at) noexcept {return byte_load_b
 bool span(const ConstSlice<u8>& bytes,u32 at,u32 count) noexcept {return at<=bytes.count && count<=bytes.count-at;}
 ConstSlice<u8> slice(const ConstSlice<u8>& bytes,u32 at,u32 count) noexcept {return {bytes.data+at,count};}
 }
-SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntCoverage* output) noexcept {
+// Opens, bounds and coverage enumeration run while a cached plan is prepared:
+// compiled for size. The index, class and device queries stay /O2.
+__attribute__((minsize)) SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntCoverage* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;
@@ -66,7 +68,7 @@ SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph
     }
     return SfntStatus::malformed; // A prepared, immutable view cannot reach this.
 }
-SfntStatus sfnt_class_def_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntClassDef* output) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_class_def_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntClassDef* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;

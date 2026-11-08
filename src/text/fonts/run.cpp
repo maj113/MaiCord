@@ -6,7 +6,8 @@ NativeFontRunSlot* slot(const NativeFontRunStore* store,NativeFontRunHandle h) n
 }
 NativeFontResult invalid() noexcept {return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};}
 }
-NativeFontResult native_font_run_acquire(NativeFontRunStore* store,NativeFontInstanceHandle instance,const NativeFontSelection& source,u32 simulations,NativeFontRunHandle* output) noexcept {
+// Acquiring and preparing a run record happen once per selection: compiled for size.
+__attribute__((minsize)) NativeFontResult native_font_run_acquire(NativeFontRunStore* store,NativeFontInstanceHandle instance,const NativeFontSelection& source,u32 simulations,NativeFontRunHandle* output) noexcept {
     if(output)reset_value(output);if(!store||!store->session||!output||source.count>2||simulations>3)return invalid();
     const auto* raw=native_font_instance_get(*native_font_session_instances(store->session),instance);
     if(!raw||raw->face.slot!=source.face.slot||raw->face.generation!=source.face.generation||raw->geometry.font->axes.axis_count!=source.count)return invalid();
@@ -27,7 +28,7 @@ bool native_font_run_retain(NativeFontRunStore* store,NativeFontRunHandle h) noe
 bool native_font_run_release(NativeFontRunStore* store,NativeFontRunHandle h) noexcept {
     auto* s=slot(store,h);if(!s)return false;if(s->references==1){if(!native_font_instance_release(native_font_session_instances(store->session),s->run.instance))return false;reset_value(&s->run);}--s->references;return true;
 }
-NativeFontResult native_font_run_prepare(NativeFontRunStore* store,NativeFontRunHandle h,Arena* scratch,NativeFontInstanceHandle* output,bool* oblique,bool* bold,bool instructions) noexcept {
+__attribute__((minsize)) NativeFontResult native_font_run_prepare(NativeFontRunStore* store,NativeFontRunHandle h,Arena* scratch,NativeFontInstanceHandle* output,bool* oblique,bool* bold,bool instructions) noexcept {
     if(output)reset_value(output);if(oblique)*oblique=false;if(bold)*bold=false;auto* s=slot(store,h);
     if(!s||!scratch||!scratch->base||!output)return invalid();arena_reset(scratch);
     return native_font_prepare(store->session,s->run.source.face,{s->run.source.settings,s->run.source.count},s->run.simulations,instructions,scratch,output,oblique,bold);

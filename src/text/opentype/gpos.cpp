@@ -9,6 +9,9 @@ bool span(const ConstSlice<u8>& b,u32 at,u64 size) noexcept {return at<=b.count 
 SfntStatus device(ConstSlice<u8> parent,u16 offset,u32 minimum,SfntDevice* output,u32* work) noexcept {
     reset_value(output);if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;
 }
+// Subtable opens run once per lookup of a cached plan: compiled for size. The
+// readers below and device(), which anchor opens reach while positioning, stay /O2.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus value_valid(ConstSlice<u8> parent,u32 offset,u16 format,u32 minimum,u32* work) noexcept {
     const u16 size=sfnt_position_value_size(format);if(size==0xffff)return SfntStatus::unsupported;
     if((parent.count && !parent.data) || minimum>parent.count)return SfntStatus::invalid_input;if(!span(parent,offset,size))return SfntStatus::truncated;
@@ -64,6 +67,7 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output
     else result.last_covered_glyph=0;
     *output=result;return SfntStatus::ok;
 }
+#pragma clang attribute pop
 }
 SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 end,SfntGposMatch* output,u32* work) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);if(!sfnt_glyph_valid(first,sub.glyph_limit))return SfntStatus::invalid_input;
@@ -108,7 +112,7 @@ SfntStatus sfnt_position_value_resolve(const SfntPositionValue& value,const Sfnt
         else {if(d.format>3)return SfntStatus::invalid_input;if(instance.variable)continue;const auto s=sfnt_device_pixels(d,(i&1)?instance.ppem_y:instance.ppem_x,&result.pixels[i]);if(s!=SfntStatus::ok)return s;}}
     *output=result;return SfntStatus::ok;
 }
-SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntGposSubtable* output,u32 work,u32* used) noexcept {
+__attribute__((minsize)) SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntGposSubtable* output,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(table,type,limit,output,&work);
 }
 }

@@ -5,6 +5,9 @@
 
 namespace maicord {namespace {
 using namespace layout_read;
+// Opens and lookup filters are prepared once per cached plan: compiled for size.
+// Class queries and sfnt_lookup_ignores stay /O2.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* count) noexcept {
     reset_value(table);*count=0;if(!gdef.table.data || gdef.minor_version<2)return SfntStatus::missing_table;
     // The offset was checked against the header and the table size when opened.
@@ -32,7 +35,9 @@ SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output)
     }
     *output=result;return SfntStatus::ok;
 }
+#pragma clang attribute pop
 SfntGlyphClass sfnt_gdef_glyph_class(const SfntGdef& gdef,u16 glyph) noexcept {return static_cast<SfntGlyphClass>(sfnt_class_value(gdef.glyph_classes,glyph));}
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus sfnt_gdef_mark_set(const SfntGdef& gdef,u16 index,SfntCoverage* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> table{};u16 count=0;auto status=mark_sets(gdef,&table,&count);if(status!=SfntStatus::ok)return status;
     if(index>=count)return SfntStatus::glyph_out_of_range;ConstSlice<u8> data{};status=tail(table,byte_load_be32(table.data+4+static_cast<u32>(index)*4),4+static_cast<u32>(count)*4,&data);if(status!=SfntStatus::ok)return status;
@@ -49,6 +54,7 @@ SfntStatus sfnt_lookup_filter_prepare(const SfntGdef& gdef,u16 flags,u16 mark_se
         result.mark_records=coverage.records;result.mark_format=coverage.format;result.mark_count=coverage.record_count;}
     *output=result;return SfntStatus::ok;
 }
+#pragma clang attribute pop
 bool sfnt_lookup_ignores(const SfntGdef& gdef,const SfntLookupFilter& filter,u16 glyph,SfntGlyphClass type) noexcept {
     const u16 flags=filter.flags;
     if(type==SfntGlyphClass::base)return (flags&2)!=0;

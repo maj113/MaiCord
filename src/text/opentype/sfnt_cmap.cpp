@@ -15,7 +15,8 @@ bool selector_valid(u32 scalar) noexcept {
 }
 
 // Validate before exposing a view. Multiplications follow count/span checks.
-SfntStatus subtable(ConstSlice<u8> table, u32 offset, ConstSlice<u8>* out) noexcept {
+// The validators run once per face from sfnt_cmap_open: compiled for size.
+__attribute__((minsize)) SfntStatus subtable(ConstSlice<u8> table, u32 offset, ConstSlice<u8>* out) noexcept {
     reset_value(out);
     if (offset > table.count || table.count - offset < 2) return SfntStatus::truncated;
     const u8* p = table.data + offset;
@@ -38,7 +39,7 @@ SfntStatus subtable(ConstSlice<u8> table, u32 offset, ConstSlice<u8>* out) noexc
     return SfntStatus::ok;
 }
 
-SfntStatus validate_base(ConstSlice<u8> table, u16 glyphs) noexcept {
+__attribute__((minsize)) SfntStatus validate_base(ConstSlice<u8> table, u16 glyphs) noexcept {
     const u8* p = table.data;
     const u16 format = be16(p);
     if (format == 0) return table.count >= 262 ? SfntStatus::ok : SfntStatus::truncated;
@@ -88,7 +89,7 @@ SfntStatus validate_base(ConstSlice<u8> table, u16 glyphs) noexcept {
     return SfntStatus::ok;
 }
 
-SfntStatus validate_uvs(ConstSlice<u8> table, u16 glyphs) noexcept {
+__attribute__((minsize)) SfntStatus validate_uvs(ConstSlice<u8> table, u16 glyphs) noexcept {
     const u8* p = table.data;
     const u32 count = be32(p + 6);
     if (count > (table.count - 10u) / 11u) return SfntStatus::truncated;

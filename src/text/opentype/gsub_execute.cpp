@@ -6,6 +6,9 @@
 #include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
+// Lookup preparation runs once per lookup of a cached plan: compiled for size;
+// the executor below stays at speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
     reset_value(req);if(lookup.type<=4)return SfntStatus::ok;
     if(lookup.type==5 || lookup.type==6)return sfnt_context_requirements(bytes,lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,req);
@@ -60,6 +63,7 @@ struct LookupBuilder {
         return SfntStatus::ok;
     }
 };
+#pragma clang attribute pop
 inline SfntGlyphView prefix(SfntGlyphView v,u32 end) noexcept {if(end<v.prefix_count){v.prefix_count=end;v.suffix_count=0;}else v.suffix_count=end-v.prefix_count;return v;}
 struct Executor {
     struct CoverageCache {
@@ -231,6 +235,7 @@ struct Executor {
     }
 };
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout& layout,u16 index,SfntGsubProgramRequirements* output,u32 budget) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
     if(!budget)return SfntStatus::resource_limit;
@@ -250,6 +255,7 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     s=builder.prepare(lookup,gdef,limit,layout.lookup_count,result,ignore_empty,ignore_unreachable);
     if(s==SfntStatus::ok)*output=result;return s;
 }
+#pragma clang attribute pop
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
     // Preparation rejects an index or directory it cannot resolve.

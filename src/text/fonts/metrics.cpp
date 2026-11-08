@@ -7,7 +7,7 @@ i16 signed_word(ConstSlice<u8> bytes,u32 offset) noexcept {return static_cast<i1
 #pragma float_control(precise,on,push)
 // Nearest integer of base plus its MVAR delta, ties upward. Without variations
 // that is base itself. The first failure is kept in status and later calls are no-ops.
-i32 varied(i32 base,u32 tag,const SfntMvar* mvar,ConstSlice<double> scalars,SfntStatus& status) noexcept {
+__attribute__((minsize)) i32 varied(i32 base,u32 tag,const SfntMvar* mvar,ConstSlice<double> scalars,SfntStatus& status) noexcept {
     if(!mvar||status!=SfntStatus::ok)return base;
     double delta=0;status=sfnt_mvar_delta(*mvar,scalars,tag,&delta);if(status!=SfntStatus::ok)return base;
     const double value=base+delta+.5;
@@ -16,7 +16,8 @@ i32 varied(i32 base,u32 tag,const SfntMvar* mvar,ConstSlice<double> scalars,Sfnt
 }
 #pragma float_control(pop)
 }
-SfntStatus sfnt_font_layout_metrics(const SfntFace& face,const SfntHorizontalMetrics& h,
+// Once per plan: compiled for size. The line geometry below runs per line and stays /O2.
+__attribute__((minsize)) SfntStatus sfnt_font_layout_metrics(const SfntFace& face,const SfntHorizontalMetrics& h,
     const SfntMvar* mvar,ConstSlice<double> scalars,SfntFontLayoutMetrics* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!h.units_per_em)return SfntStatus::invalid_input;
     ConstSlice<u8> os2{},post{};auto status=sfnt_table(face,sfnt_tag('O','S','/','2'),&os2);if(status!=SfntStatus::ok)return status;

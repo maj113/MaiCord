@@ -5,7 +5,9 @@
 namespace maicord {
 using namespace sfnt_read;
 
-SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_index, SfntFace* face) noexcept {
+// Opens run once per face or plan: compiled for size. sfnt_table and the
+// metric queries stay /O2.
+__attribute__((minsize)) SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_index, SfntFace* face) noexcept {
     if (!face) return SfntStatus::invalid_input;
     reset_value(face);
     if (!bytes.data) return SfntStatus::invalid_input;
@@ -84,7 +86,7 @@ SfntStatus sfnt_glyph_count(const SfntFace& face, u16* count) noexcept {
     return SfntStatus::ok;
 }
 
-SfntStatus sfnt_horizontal_metrics_open(const SfntFace& face,
+__attribute__((minsize)) SfntStatus sfnt_horizontal_metrics_open(const SfntFace& face,
                                          SfntHorizontalMetrics* metrics) noexcept {
     if (!metrics) return SfntStatus::invalid_input;
     reset_value(metrics);

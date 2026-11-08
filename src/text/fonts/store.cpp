@@ -16,7 +16,9 @@ void close(NativeFontFileSlot& f) noexcept {
 }
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 }
-NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,u32 index,NativeFontHandle* output,NativeFontStoreGrow grow,void* context) noexcept {
+// Opening a face (file I/O, table directory, cmap) and the statistics are once per
+// face: compiled for size. The handle operations below stay /O2.
+__attribute__((minsize)) NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,u32 index,NativeFontHandle* output,NativeFontStoreGrow grow,void* context) noexcept {
     if(output)reset_value(output);
     if(!store||!valid(*store)||!path||!*path||!output)return result(NativeFontError::invalid_input);
     NativeFontFileSlot opened{};
@@ -73,7 +75,7 @@ bool native_font_release(NativeFontStore* s,NativeFontHandle h) noexcept {
 const NativeFontFace* native_font_get(const NativeFontStore& s,NativeFontHandle h) noexcept {
     const auto* f=slot(s,h);return f?&f->face:nullptr;
 }
-NativeFontStoreStats native_font_stats(const NativeFontStore& s) noexcept {
+__attribute__((minsize)) NativeFontStoreStats native_font_stats(const NativeFontStore& s) noexcept {
     NativeFontStoreStats stats{};if(!valid(s))return stats;
     for(u32 i=0;i<s.files.count;++i){const auto& f=s.files[i];if(f.faces){++stats.files;stats.mapped_bytes+=f.bytes.count;}}
     for(u32 i=0;i<s.faces.count;++i){const auto& f=s.faces[i];if(f.references){++stats.faces;stats.references=f.references>0xffffffffu-stats.references?0xffffffffu:stats.references+f.references;}}
