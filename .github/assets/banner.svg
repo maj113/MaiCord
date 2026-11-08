@@ -46,7 +46,7 @@
       <rect x="630" y="226" width="150" height="36" rx="18" fill="#0c0b14" fill-opacity="0.55" stroke="#ffffff" stroke-opacity="0.16"/>
       <text x="705" y="251" text-anchor="middle">No Electron</text>
       <rect x="792" y="226" width="110" height="36" rx="18" fill="#0c0b14" fill-opacity="0.55" stroke="#ffffff" stroke-opacity="0.16"/>
-      <text x="847" y="251" text-anchor="middle">~6.5 MB</text>
+      <text x="847" y="251" text-anchor="middle">~6.3 MB</text>
     </g>
   </g>
 </svg>

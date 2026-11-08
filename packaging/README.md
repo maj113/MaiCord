@@ -129,7 +129,7 @@ information into the runtime's `.upd_info` section, the bytes `appimagetool` wri
   the in-app updates are; the release's `SHA256SUMS` and build provenance attestation cover the file for anyone who checks.
 * **Start-up.** The FUSE mount and `AppRun` (a shell script that `exec`s the program) add about 6 ms to a launch (a stand-in that exits
   at once: 1.3 ms directly, 7.5 ms through the AppImage, on a busy machine); nothing after. `APPIMAGE_EXTRACT_AND_RUN=1` also writes the
-  whole image to `$TMPDIR` on every launch, which costs more (the program is 6.5 MB).
+  whole image to `$TMPDIR` on every launch, which costs more (the program is 6.3 MB).
 
 ## The one-line installer
 
