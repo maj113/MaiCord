@@ -10,7 +10,9 @@
 # /usr/bin/maicord links to it, and the desktop entry, icons and AppStream metadata go to /usr/share. The tarball's
 # .maicord-portable marker is left out: a package manager owns these files, so the program does not update itself.
 # The hard dependencies are the libraries the program cannot run without (the C library, OpenSSL, the Wayland client
-# libraries, xkbcommon, EGL and GLES); the others it opens with dlopen when present are recommended or suggested.
+# libraries, xkbcommon, EGL and GLES); the others it opens with dlopen when present are recommended or suggested. These
+# lists are the source: debian/debian/control, rpm/maicord.spec and the AUR PKGBUILDs repeat them, and
+# packaging/check_recipes.py (run by packaging/check.sh) fails when they differ.
 name: maicord
 arch: amd64
 platform: linux

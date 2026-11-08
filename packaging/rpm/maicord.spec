@@ -25,9 +25,12 @@ URL:            https://maicord.com/
 Source0:        https://github.com/maj113/MaiCord/releases/download/v%{version}/maicord-%{version}-linux-x86_64.tar.gz
 ExclusiveArch:  x86_64
 BuildRequires:  desktop-file-utils
-# What the program cannot start without, by the sonames it opens (the names of the packages differ between distributions,
-# the capabilities do not): OpenSSL 3 or 4 for TLS (it opens libssl.so.4, else libssl.so.3; a boolean dependency, RPM 4.13+),
-# the Wayland client libraries, xkbcommon, and the EGL and GLESv2 loaders.
+# What the program cannot start without: the C library (2.34 or newer, the newest GLIBC_ version the image uses; the
+# generated libc requirement is excluded above), and by the sonames it opens (the names of the packages differ between
+# distributions, the capabilities do not) OpenSSL 3 or 4 for TLS (it opens libssl.so.4, else libssl.so.3; a boolean
+# dependency, RPM 4.13+), the Wayland client libraries, xkbcommon, and the EGL and GLESv2 loaders. The lists are
+# nfpm/nfpm.yaml's rpm overrides (packaging/check_recipes.py), with openSUSE's own package names in its branch below.
+Requires:       glibc >= 2.34
 Requires:       (libssl.so.3()(64bit) or libssl.so.4()(64bit))
 Requires:       libwayland-client.so.0()(64bit)
 Requires:       libwayland-egl.so.1()(64bit)

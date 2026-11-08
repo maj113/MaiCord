@@ -1,10 +1,10 @@
 #!/bin/sh
-# Checks the packaging that needs no client: builds the tarball around the stand-in program, validates the desktop entry
-# and the AppStream metadata, checks that two builds are byte for byte the same, and installs and uninstalls the tarball
-# under a private home (the link handler, the marker, the default-handler lines, the files left behind); then the AppImages
-# (run unpacked and, where FUSE works, mounted; --integrate and --unintegrate), the one-line installer against a throwaway
-# key (packaging/online/test_installer.py) and, when nfpm is on PATH, the .deb and .rpm and the whole artifact set
-# (packaging/check_artifacts.sh).
+# Checks the packaging that needs no client: that the recipes agree with nfpm.yaml (packaging/check_recipes.py), builds
+# the tarball around the stand-in program, validates the desktop entry and the AppStream metadata, checks that two builds
+# are byte for byte the same, and installs and uninstalls the tarball under a private home (the link handler, the marker,
+# the default-handler lines, the files left behind); then the AppImages (run unpacked and, where FUSE works, mounted;
+# --integrate and --unintegrate), the one-line installer against a throwaway key (packaging/online/test_installer.py) and,
+# when nfpm is on PATH, the .deb and .rpm and the whole artifact set (packaging/check_artifacts.sh).
 #
 #   packaging/check.sh            needs python3, openssl, desktop-file-validate (desktop-file-utils), appstreamcli (appstream),
 #                                 mksquashfs (squashfs-tools) and zsyncmake (zsync); the AppImage runtime is downloaded once
@@ -15,11 +15,24 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+python3 -B "$root/packaging/check_recipes.py"
+
+# The three stand-in tarballs at once (the icons take most of each build): the glibc one twice, which must come out byte for
+# byte the same, and the musl one.
+python3 -B "$root/packaging/build_tarball.py" --stub --output-dir "$scratch/two" >/dev/null &
+two=$!
+python3 -B "$root/packaging/build_tarball.py" --stub --libc musl --output-dir "$scratch/one" >/dev/null &
+musl=$!
 version="$(python3 -B "$root/packaging/build_tarball.py" --stub --output-dir "$scratch/one" | sed -n 's/^maicord-\([0-9.]*\)-linux.*/\1/p')"
-python3 -B "$root/packaging/build_tarball.py" --stub --output-dir "$scratch/two" >/dev/null
+wait "$two"
+wait "$musl"
 tarball="maicord-$version-linux-x86_64.tar.gz"
 cmp "$scratch/one/$tarball" "$scratch/two/$tarball" || { echo "the tarball is not reproducible" >&2; exit 1; }
 (cd "$scratch/one" && sha256sum -c "$tarball.sha256")
+
+# The one-line installer against a throwaway key, beside the checks below.
+python3 -B "$root/packaging/online/test_installer.py" "$scratch/one/$tarball" >"$scratch/installer.log" 2>&1 &
+installer=$!
 
 mkdir "$scratch/unpacked"
 tar -xzf "$scratch/one/$tarball" -C "$scratch/unpacked"
@@ -44,9 +57,9 @@ left="$(find "$home" -type f -o -type l | grep -i maicord || true)"
 
 # The AppImage around the stand-in: it runs unpacked (no FUSE needed) and, where FUSE works, mounted; the integration it
 # writes names the AppImage file and is removed again, leaving nothing.
-python3 -B "$root/packaging/build_tarball.py" --stub --libc musl --output-dir "$scratch/one" >/dev/null
+python3 -B "$root/packaging/appimage/build_appimage.py" --tarball "$scratch/one/maicord-$version-linux-x86_64-musl.tar.gz" --output-dir "$scratch/one" >/dev/null &
+musl_appimage=$!
 python3 -B "$root/packaging/appimage/build_appimage.py" --tarball "$scratch/one/$tarball" --output-dir "$scratch/one" >/dev/null
-python3 -B "$root/packaging/appimage/build_appimage.py" --tarball "$scratch/one/maicord-$version-linux-x86_64-musl.tar.gz" --output-dir "$scratch/one" >/dev/null
 appimage="$scratch/one/MaiCord-$version-x86_64.AppImage"
 [ "$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version)" = "MaiCord $version (stub)" ] || { echo "the AppImage does not run unpacked" >&2; exit 1; }
 if [ -c /dev/fuse ] && { command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1; }; then
@@ -60,8 +73,8 @@ APPIMAGE="$appimage" HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME=
 left="$(find "$home" -type f -o -type l | grep -i maicord || true)"
 [ -z "$left" ] || { echo "the AppImage's --unintegrate left: $left" >&2; exit 1; }
 
-# The one-line installer against a throwaway key.
-python3 -B "$root/packaging/online/test_installer.py" >/dev/null || { python3 -B "$root/packaging/online/test_installer.py" >&2; exit 1; }
+wait "$musl_appimage"
+wait "$installer" || { cat "$scratch/installer.log" >&2; exit 1; }
 
 # The .deb and .rpm and the consistency of the whole release set, when nfpm is installed (packaging/nfpm/install_nfpm.sh).
 if command -v nfpm >/dev/null 2>&1; then

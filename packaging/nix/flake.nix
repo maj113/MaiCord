@@ -34,7 +34,8 @@
       };
 
       maicord = pkgs.callPackage ./package.nix { inherit src version; };
-      maicord-bin = pkgs.callPackage ./package-bin.nix { inherit version; };
+      # The release tarball of the version package-bin.nix pins (its hash is per release), with this source's libraries.
+      maicord-bin = pkgs.callPackage ./package-bin.nix { inherit maicord; };
     in
     {
       packages.${system} = {
@@ -53,7 +54,7 @@
 
       overlays.default = final: _prev: {
         maicord = final.callPackage ./package.nix { inherit src version; };
-        maicord-bin = final.callPackage ./package-bin.nix { inherit version; };
+        maicord-bin = final.callPackage ./package-bin.nix { };
       };
     };
 }

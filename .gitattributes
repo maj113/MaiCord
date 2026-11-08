@@ -27,7 +27,6 @@ packaging/online/*.in text eol=lf
 packaging/metainfo/*.in text eol=lf
 packaging/appimage/AppRun text eol=lf
 packaging/aur/*/PKGBUILD text eol=lf
-packaging/aur/*/.SRCINFO text eol=lf
 packaging/alpine/APKBUILD text eol=lf
 packaging/void/*/template text eol=lf
 packaging/rpm/_service text eol=lf
@@ -51,9 +50,6 @@ packaging/debian/debian/* text eol=lf
 *.bin binary
 *.zip binary
 *.sig binary
-
-# Shell scripts run in Linux (WSL): LF in the working tree on every platform.
-*.sh text eol=lf
 
 # Zone files of the time zone tests (no extension).
 tests/fixtures/zoneinfo/** binary

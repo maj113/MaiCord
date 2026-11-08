@@ -5,7 +5,7 @@
     python3 packaging/build_tarball.py --stub --output-dir DIR        a stand-in program, for the packaging checks
     python3 packaging/build_tarball.py --binary PATH --libc musl ...  maicord-<version>-linux-x86_64-musl.tar.gz
 
-A real program is audited first (tools/audit_elf.py --no-test-hooks: a client built with --test, which carries test-only
+A real program is audited first (tools/audit_image.py --no-test-hooks: a client built with --test, which carries test-only
 switches, is refused); --libc musl first retargets the glibc image to musl's loader (tools/retarget_libc.py) and audits
 that. The archive holds one directory, maicord-<version>-linux-x86_64[-musl]/:
 
@@ -18,9 +18,9 @@ that. The archive holds one directory, maicord-<version>-linux-x86_64[-musl]/:
     install.sh uninstall.sh    per-user installation under ~/.local
     README.md LICENSE
 
-The distribution packages (AUR, Nix -bin, Flatpak, nfpm) install this tarball's contents; only the tarball install
-keeps the marker, which is what lets the program replace itself. The archive is reproducible: sorted entries, root
-ownership, a fixed modification time (SOURCE_DATE_EPOCH, else the date of --date, else the commit date) and no gzip
+The distribution packages (nfpm, AUR, PPA, COPR, Nix -bin and the rest) install this tarball's contents; only the tarball
+install keeps the marker, which is what lets the program replace itself. The archive is reproducible: sorted entries, root
+ownership, a fixed modification time (SOURCE_DATE_EPOCH, else the commit date) and no gzip
 timestamp. Standard library only.
 """
 import argparse
@@ -73,11 +73,9 @@ def project_version() -> str:
     return match.group(1)
 
 
-def epoch(arguments) -> int:
+def epoch() -> int:
     if os.environ.get('SOURCE_DATE_EPOCH'):
         return int(os.environ['SOURCE_DATE_EPOCH'])
-    if arguments.date:
-        return int(datetime.datetime.strptime(arguments.date, '%Y-%m-%d').replace(tzinfo=datetime.timezone.utc).timestamp())
     try:
         out = subprocess.run(['git', 'log', '-1', '--format=%ct'], cwd=ROOT, capture_output=True, text=True, check=True)
         return int(out.stdout.strip())
@@ -165,7 +163,7 @@ def prepared_binary(binary: Path, libc: str, scratch: Path) -> Path:
         retargeted = scratch / 'MaiCord-musl'
         subprocess.run([sys.executable, '-B', str(tools / 'retarget_libc.py'), '--libc', 'musl', str(binary), str(retargeted)], check=True)
         binary = retargeted
-    subprocess.run([sys.executable, '-B', str(tools / 'audit_elf.py'), '--libc', libc, '--no-test-hooks', str(binary)], check=True)
+    subprocess.run([sys.executable, '-B', str(tools / 'audit_image.py'), '--libc', libc, '--no-test-hooks', str(binary)], check=True)
     return binary
 
 
@@ -179,7 +177,6 @@ def main() -> int:
                         help='tools/release/test_release_tools.py only: package a synthetic ELF without the ELF audit '
                              '(and, with --libc musl, without the retarget); never for a program that ships')
     parser.add_argument('--version', help='X.Y.Z, or X.Y.Z-dev.N for a master build (default: the project version of CMakeLists.txt)')
-    parser.add_argument('--date', help='YYYY-MM-DD of the release (default: the commit date)')
     parser.add_argument('--output-dir', type=Path, required=True)
     arguments = parser.parse_args()
     if bool(arguments.binary) == arguments.stub:
@@ -189,7 +186,7 @@ def main() -> int:
     version = arguments.version or project_version()
     if not re.fullmatch(r'\d+\.\d+\.\d+(-dev\.\d+)?', version):
         parser.error(f'version {version} is not X.Y.Z or X.Y.Z-dev.N')
-    mtime = epoch(arguments)
+    mtime = epoch()
     date = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).strftime('%Y-%m-%d')
     arguments.output_dir.mkdir(parents=True, exist_ok=True)
     name = f'maicord-{version}-linux-x86_64' + ('-musl' if arguments.libc == 'musl' else '')
@@ -198,7 +195,7 @@ def main() -> int:
             if not arguments.skip_audit_for_synthetic_image:
                 arguments.binary = prepared_binary(arguments.binary, arguments.libc, Path(scratch))
         directory = Path(scratch) / name
-        stage(arguments, directory, version, arguments.date or date)
+        stage(arguments, directory, version, date)
         output = arguments.output_dir / f'{name}.tar.gz'
         archive(directory, output, mtime)
     digest = hashlib.sha256(output.read_bytes()).hexdigest()

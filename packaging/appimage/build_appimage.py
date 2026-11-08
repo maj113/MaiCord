@@ -5,8 +5,7 @@
     python3 packaging/appimage/build_appimage.py --tarball maicord-0.6.6-linux-x86_64-musl.tar.gz --output-dir dist
       the second makes MaiCord-0.6.6-x86_64-musl.AppImage for musl systems (Alpine, Void musl): the same builder around the
       musl tarball's program (the runtime is musl-static, so it starts anywhere; AppRun is the same)
-    options: --runtime PATH    a type 2 runtime to use instead of the pinned download (it is not checked against the pin)
-             --cache DIR       where the pinned runtime is kept (default $MAICORD_TOOLCHAIN_CACHE, else ~/.cache/maicord-toolchain)
+    The pinned runtime is downloaded once into $MAICORD_TOOLCHAIN_CACHE (default ~/.cache/maicord-toolchain).
 
 An AppImage is the type 2 runtime (a static executable that mounts the squashfs behind it through FUSE and runs AppRun) with
 a SquashFS image of an AppDir appended. The AppDir is the tarball's program with its fonts and licenses, the desktop entry,
@@ -17,8 +16,8 @@ runtime carries the zsync update information (`gh-releases-zsync|...`, in its .u
 writes), so AppImageUpdate, Gear Lever and the like can update the file; a development build (X.Y.Z-dev.N) carries none.
 
 Needs mksquashfs (squashfs-tools 4.5+) and zsyncmake (zsync). The image is reproducible for one tarball, runtime and
-mksquashfs: the SquashFS time stamps are the tarball's SOURCE_DATE_EPOCH-style time (--epoch, else the newest member of
-the tarball), entries are root owned, and the .zsync carries the same time. Standard library only.
+mksquashfs: the SquashFS time stamps are the tarball's SOURCE_DATE_EPOCH-style time (the newest member of the tarball),
+entries are root owned, and the .zsync carries the same time. Standard library only.
 """
 import argparse
 import hashlib
@@ -78,8 +77,12 @@ def pinned_runtime(cache: Path) -> bytes:
     if hashlib.sha256(data).hexdigest() != runtime['sha256'] or len(data) != runtime['bytes']:
         cached.unlink(missing_ok=True)
         raise SystemExit(f"error: {runtime['asset']} of {runtime['repository']} {runtime['tag']} does not match the pinned SHA-256")
-    cache.mkdir(parents=True, exist_ok=True)
-    cached.write_bytes(data)
+    if not cached.is_file():
+        # Written under a name of its own and renamed, so a build running beside this one never reads half a file.
+        cache.mkdir(parents=True, exist_ok=True)
+        partial = cache / f'{cached.name}.{os.getpid()}'
+        partial.write_bytes(data)
+        partial.replace(cached)
     return data
 
 
@@ -137,9 +140,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--tarball', type=Path, required=True, help='maicord-X.Y.Z-linux-x86_64.tar.gz (build_tarball.py)')
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--runtime', type=Path, help='a runtime binary instead of the pinned release')
-    parser.add_argument('--cache', type=Path, help='where the pinned runtime is cached')
-    parser.add_argument('--epoch', type=int, help='time stamp of the image (default: the newest member of the tarball)')
     arguments = parser.parse_args()
 
     found = re.fullmatch(r'maicord-(\d+\.\d+\.\d+(?:-dev\.\d+)?)-linux-x86_64(-musl)?\.tar\.gz', arguments.tarball.name)
@@ -150,9 +150,8 @@ def main() -> int:
     for tool in ('mksquashfs', 'zsyncmake'):
         if not shutil.which(tool):
             parser.error(f'{tool} is not on PATH (squashfs-tools and zsync)')
-    cache = arguments.cache or Path(os.environ.get('MAICORD_TOOLCHAIN_CACHE') or Path.home() / '.cache' / 'maicord-toolchain')
-    runtime = arguments.runtime.read_bytes() if arguments.runtime else pinned_runtime(cache)
-    epoch = arguments.epoch if arguments.epoch is not None else newest_member(arguments.tarball)
+    runtime = pinned_runtime(Path(os.environ.get('MAICORD_TOOLCHAIN_CACHE') or Path.home() / '.cache' / 'maicord-toolchain'))
+    epoch = newest_member(arguments.tarball)
 
     # A release names where its updates are; a master build's file is not on a release feed.
     info = b'' if '-dev.' in version else PIN['update_information'].replace('@LIBC@', libc).encode('ascii')

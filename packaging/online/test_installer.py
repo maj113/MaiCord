@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Tests the one-line installer (install.sh.in) against a throwaway signing key, with openssl and the stand-in program.
 
-    python3 packaging/online/test_installer.py
+    python3 packaging/online/test_installer.py maicord-X.Y.Z-linux-x86_64.tar.gz
 
-It builds the stand-in tarball (packaging/build_tarball.py --stub), signs a manifest the way tools/release/maicord_release.py
-does (ECDSA P-256 over SHA-256 of the domain line and the manifest, 64 bytes r || s), lays out a site and a release
-directory, and runs the rendered installer over file:// URLs into a private home: the good install, then a wrong key, a
-tampered manifest, a tarball of the right size with other bytes, a short tarball, an expired manifest, a manifest of another
-architecture and an unknown channel file. Each failure must stop before anything is installed. Needs openssl and sh.
+The tarball is the stand-in one (packaging/build_tarball.py --stub; packaging/check.sh passes the one it built). The test
+signs a manifest the way tools/release/maicord_release.py does (ECDSA P-256 over SHA-256 of the domain line and the
+manifest, 64 bytes r || s), lays out a site and a release directory, and runs the rendered installer over file:// URLs
+into a private home: the good install, then a wrong key, a tampered manifest, a tarball of the right size with other
+bytes, a short tarball, an expired manifest, a manifest of another architecture and an unknown channel file. Each failure
+must stop before anything is installed. Needs openssl and sh.
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,7 +20,6 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 import render_installer  # noqa: E402
 
@@ -56,14 +57,17 @@ def manifest(arch: str, issued: int, expires: int, size: int, digest: str, versi
 
 
 def main() -> int:
-    version = '0.6.6'
+    found = re.fullmatch(r'maicord-(\d+\.\d+\.\d+)-linux-x86_64\.tar\.gz', Path(sys.argv[1]).name) if len(sys.argv) == 2 else None
+    if not found:
+        raise SystemExit(__doc__)
+    version = found.group(1)
     with tempfile.TemporaryDirectory() as scratch_text:
         scratch = Path(scratch_text)
         release = scratch / 'releases' / f'v{version}'
-        subprocess.run([sys.executable, '-B', str(ROOT / 'packaging' / 'build_tarball.py'), '--stub', '--version', version,
-                        '--output-dir', str(release)], check=True, capture_output=True)
+        release.mkdir(parents=True)
         name = f'maicord-{version}-linux-x86_64.tar.gz'
-        tarball = (release / name).read_bytes()
+        tarball = Path(sys.argv[1]).read_bytes()
+        (release / name).write_bytes(tarball)
         digest = hashlib.sha256(tarball).hexdigest()
 
         key = scratch / 'key.pem'

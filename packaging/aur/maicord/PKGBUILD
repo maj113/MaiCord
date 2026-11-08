@@ -32,7 +32,6 @@ optdepends=(
     'xdg-desktop-portal: file chooser, settings and global shortcut portals'
     'gnome-keyring: Secret Service to keep the sign-in key (KeePassXC and KWallet work too)'
 )
-provides=('maicord')
 conflicts=('maicord-bin')
 # The program is a hardened, stripped, size-optimized image built under the project's own contract (-nostdinc, no unwind
 # tables, its own headers): makepkg's compiler flags and stripping do not apply.

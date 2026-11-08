@@ -1,27 +1,16 @@
 # MaiCord from the release tarball (packaging/build_tarball.py, attached to every GitHub release): the same program the
 # source package builds, patched for Nix. The image is a freestanding glibc PIE with libc as its only
-# DT_NEEDED entry and every other library opened with dlopen: autoPatchelfHook gives it the Nix loader and glibc,
-# runtimeDependencies puts the dlopen()ed libraries on its run path, and appendRunpaths adds /run/opengl-driver/lib for
-# the GPU drivers. The tarball's .maicord-portable marker is not installed: the Nix store is read only, so the program does
-# not update itself.
+# DT_NEEDED entry and every other library opened with dlopen: autoPatchelfHook gives it the Nix loader and glibc, and the
+# run path is the source package's (package.nix: runtimeDependencies for the dlopen()ed libraries, appendRunpaths for the
+# GPU drivers under /run/opengl-driver/lib). The tarball's .maicord-portable marker is not installed: the Nix store is
+# read only, so the program does not update itself. The version is the release the hash belongs to, not the checkout's.
 {
   lib,
   stdenvNoCC,
   fetchurl,
   autoPatchelfHook,
-  addDriverRunpath,
-  openssl,
-  wayland,
-  libxkbcommon,
-  libglvnd,
-  fontconfig,
-  libpulseaudio,
-  libva,
-  dav1d,
-  openh264,
-  libfido2,
-  speechd-minimal,
-  hunspell,
+  # The source package, for its run-time libraries.
+  maicord,
   stdenv,
   version ? "0.6.6",
   # Not called src: callPackage would fill that from the (renamed) top-level attribute of nixpkgs.
@@ -39,23 +28,7 @@ stdenvNoCC.mkDerivation {
 
   nativeBuildInputs = [ autoPatchelfHook ];
   buildInputs = [ stdenv.cc.libc ];
-  # The library output of each (openssl's default output is its command line tool, not libssl).
-  runtimeDependencies = map lib.getLib [
-    openssl
-    wayland
-    libxkbcommon
-    libglvnd
-    fontconfig
-    libpulseaudio
-    libva
-    dav1d
-    openh264
-    libfido2
-    speechd-minimal
-    hunspell
-  ];
-  # The GPU drivers of NixOS (and of non-NixOS systems with nixGL-style setups) live under /run/opengl-driver.
-  appendRunpaths = [ "${addDriverRunpath.driverLink}/lib" ];
+  inherit (maicord) runtimeDependencies appendRunpaths;
 
   dontConfigure = true;
   dontBuild = true;

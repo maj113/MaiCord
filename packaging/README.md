@@ -4,7 +4,7 @@ The application id is `io.github.maj113.MaiCord`; it is the Wayland `app_id`, th
 entry's file name and the AppStream id. Every format installs the same files, which `build_tarball.py` stages: the program,
 `fonts/` and `licenses/` next to it, the desktop entry and hicolor icons (`tools/generate_desktop_entry.py --icons`) and the
 AppStream metadata. Everything that ships is built **without `--test`** (a test build carries test-only switches;
-`build_tarball.py` runs `tools/audit_elf.py --no-test-hooks` on the program and refuses one that has them).
+`build_tarball.py` runs `tools/audit_image.py --no-test-hooks` on the program and refuses one that has them).
 
 ## Installing (the text for the project README)
 
@@ -61,9 +61,9 @@ accept new accounts again.
 | `rpm/` | `maicord.spec` for COPR and the openSUSE Build Service, `_service` (OBS download), `.copr/Makefile` |
 | `aur/maicord-bin`, `aur/maicord` | the Arch User Repository packages: the tarball, and a source build with Arch's LLVM 23 (kept for when the AUR accepts new accounts again; not published) |
 | `alpine/APKBUILD`, `void/maicord-bin/template`, `gentoo/*.ebuild` | musl and source-distribution packages of the tarball (untested where a note says so) |
-| `flatpak/`, `nix/` | the Flatpak manifest (not for Flathub, see below) and the Nix flake |
+| `nix/` | the Nix flake |
 | `metainfo/` | the AppStream template (`@RELEASES@` is filled per version) |
-| `check.sh`, `check_artifacts.sh` | the checks (see *Verification*) |
+| `check.sh`, `check_artifacts.sh`, `check_recipes.py` | the checks (see *Verification*) |
 
 ## The tarball and its self-update
 
@@ -157,7 +157,9 @@ OpenSSL is 3 or 4 everywhere (the program opens `libssl.so.4`, else `libssl.so.3
 `(libssl.so.3()(64bit) or libssl.so.4()(64bit))` (RPM 4.13+; nfpm writes it into the header as it is), the deb's
 `libssl3t64 | libssl3 | libssl4`, Gentoo's `|| ( dev-libs/openssl:0/4 dev-libs/openssl:0/3 )`; Arch, the AUR, Alpine and Void
 name the unversioned `openssl` (apk has no alternatives), Nix its own. Tested: the `.rpm` installs on Fedora 45 (OpenSSL 4.0) and
-43 (3.5), the `.deb` on Debian 12.
+43 (3.5), the `.deb` on Debian 12. `nfpm/nfpm.yaml` holds the deb, rpm and Arch lists; `debian/debian/control`, `rpm/maicord.spec`
+(outside its openSUSE branch) and the AUR PKGBUILDs repeat them, and `check_recipes.py` (run by `check.sh`) fails when they differ
+or when the recipes that take a release tarball name different releases.
 
 * **`.deb`, `.rpm` and Arch package (`nfpm/`).** `build.sh <tarball> <dir>` runs the pinned [nfpm](https://nfpm.goreleaser.com/). The rpm's
   dependencies are library capabilities (`libssl.so.3()(64bit)` or `.so.4`, `libEGL.so.1()(64bit)`, ...), which resolve on Fedora, openSUSE
@@ -209,11 +211,14 @@ name the unversioned `openssl` (apk has no alternatives), Nix its own. Tested: t
 * **Alpine, Void, Gentoo.** `alpine/APKBUILD` and `void/maicord-bin/template` take the musl tarball; the ebuild takes the glibc one
   (`net-im/maicord-bin` in the GURU overlay). They are set up for a personal repository: all three distributions build official packages
   from source, and none has the project's LLVM.
-* **Flatpak (`flatpak/`).** For a self-hosted repository or a `.flatpak` bundle, not Flathub (below).
-* **Nix (`nix/`) and nixpkgs.** `nix/package.nix` is the recipe that nixpkgs' `pkgs/by-name/ma/maicord/package.nix` is made from (the
-  two differ only in where `src` and `version` come from (arguments here, `fetchFromGitHub` there) and in `maintainers`) and
-  `nix/gpu-tests.nix` is its `passthru.tests.gpu`; the flake adds `-bin` and a `gpu-tests` output. Both build with `llvmPackages_23`
-  and need no shader tools. Keep the two copies in step:
+* **Nix (`nix/`) and nixpkgs.** `nix/package.nix` is the recipe that nixpkgs' `pkgs/by-name/ma/maicord/package.nix` is made from, and
+  `nix/gpu-tests.nix` is its `passthru.tests.gpu` (copied as it is); the flake adds `-bin` (`package-bin.nix`, the release tarball
+  of the version it pins, with the source package's run-time libraries) and a `gpu-tests` output. Both build with
+  `llvmPackages_23` and need no shader tools. The nixpkgs copy is `package.nix` of the tag it builds (its comments and the audit
+  script it runs, `tools/audit_image.py`, earlier `audit_elf.py`, belong to that source) with the lines marked `nixpkgs:`
+  changed: the `src` and `version` arguments become `fetchFromGitHub` (owner `maj113`, repo `MaiCord`, `tag = "v${finalAttrs.version}"`
+  and its `hash`; the tree has no submodules, LFS files or `export-ignore` paths, so the tag's archive is the whole source),
+  `maintainers` names `maj113`, and the header paragraph that points here is left out. Keep the two in step:
   `diff packaging/nix/package.nix <nixpkgs>/pkgs/by-name/ma/maicord/package.nix` shows only those lines.
 
 ### Building from source in a distribution
@@ -244,7 +249,7 @@ cmake --build BUILD
 * **Install** `MaiCord` with `fonts/` and `licenses/` beside it (the program reads them next to its real executable, so a `bin/`
   link to `lib/<name>/MaiCord` works and a copy of the program elsewhere does not), `BUILD/packaging/{applications,icons}` into
   `share/` (target `maicord_desktop_entry`, part of `all`) and the metainfo from `metainfo/*.in` with `@RELEASES@` replaced by a
-  `<releases>` element or nothing. Never install the marker. Run `tools/audit_elf.py --no-test-hooks BUILD/MaiCord` before the
+  `<releases>` element or nothing. Never install the marker. Run `tools/audit_image.py --no-test-hooks BUILD/MaiCord` before the
   distribution patches the interpreter or adds a run path (the audit forbids RUNPATH); the image is linked stripped already.
 * **Run-time libraries** are all `dlopen`ed by soname (below); a distribution that sets no loader search path itself can name
   directories in `MAICORD_LIBRARY_PATH`, or give the image a RUNPATH after the audit, as the Nix recipe does.
@@ -267,7 +272,7 @@ hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the porta
 | Fedora COPR | `-bin` as the spec is (COPR builds have no network unless enabled; the SRPM step downloads the tarball) | owner: COPR account and project, webhook or manual build per release | small | `rpm/` |
 | openSUSE Build Service | `-bin`; OBS builds `.rpm` for openSUSE, Fedora and others from one spec, and `.deb` from a `debian/` ([OBS Debian builds](https://en.opensuse.org/openSUSE:Build_Service_Debian_builds)); `download_url` service fetches the tarball | owner: OBS account and project | small | `rpm/` |
 | nixpkgs | yes: `nix/package.nix` is the recipe, with a `--version` check and `passthru.tests.gpu` (the GPU golden tests on llvmpipe) | owner (a person): the [Automation/AI policy](https://github.com/NixOS/nixpkgs/blob/master/CONTRIBUTING.md) requires a responsible person who reviews the change and an `Assisted-by:` trailer, naming the tool and the primary model, on any commit made with AI tools; `hash` after tagging (`nix-update maicord --version v0.6.7` or `nix-prefetch-github`) | medium | `nix/` |
-| Flathub | must build from source with no network and the manifest must be written and submitted by a person (the owner's rule: none is written here) | owner only | large | `flatpak/` is for a self-hosted repo |
+| Flathub | must build from source with no network and the manifest must be written and submitted by a person (the owner's rule: none is written here) | owner only | large | - |
 | Snap Store | `-bin` from the tarball in a strict snap (`wayland`, `opengl`, `audio-playback`, `audio-record`, `network`, `desktop`, `password-manager-service` plugs; libraries from `core24` and `stage-packages`; the GPU driver from the graphics content snap) | owner: Snap Store account, name registration, review for the plugs that need approval | medium and ongoing; not done: a second sandbox to keep working (fonts, tray, Secret Service, VA-API, io_uring under snapd's seccomp) for few users | - |
 | Homebrew on Linux | no | not planned | - | - |
 | Gentoo GURU | `-bin` (an ebuild with `QA_PREBUILT`) | owner or a GURU contributor | small | `gentoo/` |
@@ -287,10 +292,11 @@ pacman repositories and `pages` deploys them.
 
 ## Verification
 
-`packaging/check.sh` (python3, desktop-file-utils, appstream, squashfs-tools, zsync, openssl; nfpm for the packages) builds the
-stand-in tarballs (`build_tarball.py --stub`), checks reproducibility and the desktop and metadata files, installs and uninstalls the
+`packaging/check.sh` (python3, desktop-file-utils, appstream, squashfs-tools, zsync, openssl; nfpm for the packages) runs
+`check_recipes.py`, builds the stand-in tarballs (`build_tarball.py --stub`, the three at once), checks reproducibility and the
+desktop and metadata files, installs and uninstalls the
 tarball under a private home, builds and runs the AppImage unpacked and mounted, integrates and unintegrates it, runs
-`online/test_installer.py` and, with nfpm, builds the packages and runs `check_artifacts.sh` (the Arch package: member list,
+`online/test_installer.py` on the stand-in tarball and, with nfpm, builds the packages and runs `check_artifacts.sh` (the Arch package: member list,
 `.PKGINFO`, `.MTREE`, version). `repo/test_pacman_repo.sh` (podman, nfpm) is the pacman repository's end-to-end test and is run by hand
 when `repo/build_repo.py` or `nfpm/` changes. Distribution installs were tested
 in podman containers (see the channel notes above). The installed client is checked on headless sway
@@ -312,8 +318,8 @@ in podman containers (see the channel notes above). The installed client is chec
 3. **Screenshots**: `metainfo/…metainfo.xml.in` has a placeholder entry and a `TODO(owner)` comment; AppStream and Flathub need real
    16:9 screenshots of at least 1248x702, redacted, at a tag-pinned URL. Review the OARS rating.
 4. **AUR** (deferred until registration reopens; the pacman repository serves Arch users meanwhile): an account, the SSH key, then
-   `git clone ssh://aur@aur.archlinux.org/maicord-bin.git` (and `maicord`), copy the directory's
-   `PKGBUILD` and `.SRCINFO`, push. Per release: `pkgver`, `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`.
+   `git clone ssh://aur@aur.archlinux.org/maicord-bin.git` (and `maicord`), copy the directory's `PKGBUILD`, write its `.SRCINFO`
+   (`makepkg --printsrcinfo > .SRCINFO`; the repository keeps none), push. Per release: `pkgver`, `updpkgsums`, `.SRCINFO`, push.
 5. **COPR / OBS** (optional): create the project, point it at `packaging/rpm` (see `rpm/.copr/Makefile` and `_service`), bump `Version` and
    `%changelog` per release. **PPA** (optional): `debsign` and `dput` the output of `debian/build_source.sh` per Ubuntu series.
 6. **nixpkgs**: a pull request adding `maj113` to `maintainers/maintainer-list.nix` and `pkgs/by-name/ma/maicord/package.nix` (with

@@ -1,13 +1,15 @@
-# MaiCord built from source: the recipe of nixpkgs' pkgs/by-name/ma/maicord/package.nix, which differs from this file only in
-# where the source and version come from (src and version are arguments here, fetchFromGitHub of the tag there) and in the
-# maintainers. Keep the two in step (packaging/README.md, "Nix (nix/) and nixpkgs"). The decisions are explained beside the
-# lines they concern: a stock LLVM 23 for the project's contract, the run-time libraries on the program's run path, and
-# the tarball's layout without the self-updater's marker. The shaders need no tools beyond python.
+# MaiCord built from source, the recipe of nixpkgs' pkgs/by-name/ma/maicord/package.nix. The nixpkgs copy is this file as
+# it is at the tag it builds, without this paragraph and with the three places marked "nixpkgs:" changed
+# (packaging/README.md, "Nix (nix/) and nixpkgs").
+#
+# The decisions are explained beside the lines they concern: a stock LLVM 23 for the project's contract, the run-time
+# libraries on the program's run path, and the tarball's layout without the self-updater's marker. The shaders need no
+# tools beyond python.
 {
   lib,
   callPackage,
   stdenv,
-  # The checkout the flake is in and its version; nixpkgs fetches the tag instead.
+  # nixpkgs: fetchFromGitHub instead of these two; the flake passes its checkout and the project version.
   src,
   version,
   cmake,
@@ -41,6 +43,8 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "maicord";
+  # nixpkgs: version = "X.Y.Z"; and src = fetchFromGitHub { owner = "maj113"; repo = "MaiCord"; tag = "v${finalAttrs.version}";
+  # hash = "sha256-..."; } (no submodules, no Git LFS, no export-ignore: the tag's archive is the whole tree).
   inherit src version;
 
   strictDeps = true;
@@ -99,10 +103,11 @@ stdenv.mkDerivation (finalAttrs: {
     cmakeBuildDir=$NIX_BUILD_TOP/build
   '';
 
-  # Upstream's audit of the image (no GLIBC_ symbol above 2.34, libc.so.6 the only DT_NEEDED entry, no run path, no test
-  # hooks): it forbids what autoPatchelfHook adds below, so it runs before the fixup.
+  # The project's audit of the image (no GLIBC_ symbol above 2.34, libc.so.6 the only DT_NEEDED entry, no run path, no
+  # test hooks): it forbids what autoPatchelfHook adds below, so it runs before the fixup. The script is the one in the
+  # source being built (tools/audit_elf.py up to 0.6.6).
   postBuild = ''
-    python3 -B $cmakeDir/tools/audit_elf.py --no-test-hooks MaiCord
+    python3 -B $cmakeDir/tools/audit_image.py --no-test-hooks MaiCord
   '';
 
   installPhase = ''
@@ -155,7 +160,7 @@ stdenv.mkDerivation (finalAttrs: {
       unicode-30
     ];
     mainProgram = "maicord";
-    # nixpkgs: maintainers = with lib.maintainers; [ maj113 ]; the flake's nixpkgs-unstable has no such handle until that lands.
+    # nixpkgs: maintainers = with lib.maintainers; [ maj113 ]; (the handle is added to maintainers/maintainer-list.nix first).
     maintainers = [ ];
     platforms = [ "x86_64-linux" ];
   };
