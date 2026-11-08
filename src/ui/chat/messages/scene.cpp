@@ -509,12 +509,16 @@ struct IntroWriter {
     template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
         append(text, Count - 1);
     }
-    void bold(u32 description_begin, const Utf8View& text) noexcept {
-        const u32 begin = used;
-        add(text);
+    // Marks the text written since `begin` bold.
+    void bold_since(u32 description_begin, u32 begin) noexcept {
         if (used > begin && intro->description_span_count < kMessageSceneIntroSpanMaximum)
             intro->description_spans[intro->description_span_count++] = {begin - description_begin, used - begin,
                                                                          text_style_bold, 0, {}};
+    }
+    void bold(u32 description_begin, const Utf8View& text) noexcept {
+        const u32 begin = used;
+        add(text);
+        bold_since(description_begin, begin);
     }
 };
 } // namespace
@@ -574,9 +578,7 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
         const u32 begin = out.used;
         out.add("#");
         out.add(name);
-        if (out.used > begin && intro->description_span_count < kMessageSceneIntroSpanMaximum)
-            intro->description_spans[intro->description_span_count++] = {begin - description, out.used - begin,
-                                                                         text_style_bold, 0, {}};
+        out.bold_since(description, begin);
         out.add(".");
         break;
     }
@@ -926,6 +928,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     }
     const MessageRichRecord* rich = row_rich(*scene, *record);
     const float measured_reply = rich && message_rich_has_header(*rich) ? reply_height : 0.0f;
+    const float text_width = available_text_width(*scene, scene->viewport);
     MessageSceneRichLayout measured_rich = rich_layout ? *rich_layout : row->rich_layout;
     const MessageSceneRichItemLayout& measured_items =
         rich_item_layout ? *rich_item_layout : row->rich_item_layout;
@@ -945,13 +948,13 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                      : kDefaultMessageReactionLayoutMetrics.unicode_text_inset);
         }
         measured_rich.reactions = message_rich_reaction_layout_height(
-            *rich, available_text_width(*scene, scene->viewport),
+            *rich, text_width,
             ConstSlice<float>{intrinsic_reaction_widths, rich->reaction_count});
     }
     if (rich && rich_layout && rich_item_layout &&
         !message_rich_layout_equal(
             measured_rich, message_rich_aggregate_layout(
-                               *rich, measured_items, available_text_width(*scene, scene->viewport),
+                               *rich, measured_items, text_width,
                                ConstSlice<float>{intrinsic_reaction_widths, rich->reaction_count}))) {
         return false;
     }
@@ -977,7 +980,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     if (&measured_items != &row->rich_item_layout)
         copy_value(&row->rich_item_layout, measured_items);
     row->rich_layout_measured = row->rich_layout_measured || rich_layout != nullptr;
-    row->measured_width = available_text_width(*scene, scene->viewport);
+    row->measured_width = text_width;
     row->text_measured = true;
     message_scene_detail::retain_measurement(scene, *row);
     const u32 desired_units = ui_extent_units(row_required_height(*scene, *row, rich));

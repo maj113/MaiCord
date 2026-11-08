@@ -224,7 +224,6 @@ bool bank_accept(void* opaque, u32 index, const MessageSearchMessage& item) noex
 namespace {
 
 struct SearchPollPublication {
-    MessagePollPageInput input;
     GatewayMessagePoll poll;
     MessagePollResultTicket ticket;
     GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers];
@@ -255,37 +254,37 @@ bool publish_polls(ApplicationSearch& s, SearchBank& bank, u32 message_count) no
         return false;
     static_assert(sizeof(SearchPollPublication) % alignof(MessagePollPageInput) == 0);
     auto* inputs = reinterpret_cast<MessagePollPageInput*>(publication + count);
-    u32 at = 0;
+    auto* entry = publication;
+    auto* input = inputs;
     for (u32 i = 0; i < message_count; ++i) {
         if (!poll_first(bank, i))
             continue;
         const auto& message = bank.messages[i].message;
-        auto& entry = publication[at];
-        entry.ticket = poll_ticket(s, message.id);
+        entry->ticket = poll_ticket(s, message.id);
         if (const auto* record = message_poll_store_find(bank.staged_polls, message.id)) {
-            entry.poll = {message_poll_store_string(bank.staged_polls, record->question),
-                          {entry.answers, record->answer_count},
-                          {},
-                          record->expiry_ms,
-                          record->fields,
-                          record->layout_type,
-                          record->allow_multiselect,
-                          record->expiry_null,
-                          record->results_known,
-                          record->is_finalized,
-                          true};
+            entry->poll = {message_poll_store_string(bank.staged_polls, record->question),
+                           {entry->answers, record->answer_count},
+                           {},
+                           record->expiry_ms,
+                           record->fields,
+                           record->layout_type,
+                           record->allow_multiselect,
+                           record->expiry_null,
+                           record->results_known,
+                           record->is_finalized,
+                           true};
             for (u32 j = 0; j < record->answer_count; ++j) {
                 const auto& answer = record->answers[j];
-                entry.answers[j] = {
+                entry->answers[j] = {
                     answer.id, message_poll_store_string(bank.staged_polls, answer.text), answer.emoji_id,
                     message_poll_store_string(bank.staged_polls, answer.emoji_name), answer.emoji_animated};
-                entry.counts[j] = {answer.id, answer.count, answer.me_voted};
+                entry->counts[j] = {answer.id, answer.count, answer.me_voted};
             }
             if (record->fields & gateway_message_poll_field_results)
-                entry.poll.answer_counts = {entry.counts, record->answer_count};
+                entry->poll.answer_counts = {entry->counts, record->answer_count};
         }
-        entry.input = {message.id, message.channel_id, &entry.poll, 0, &entry.ticket};
-        inputs[at++] = entry.input;
+        *input++ = {message.id, message.channel_id, &entry->poll, 0, &entry->ticket};
+        ++entry;
     }
     const auto result =
         message_poll_store_apply_page(&g_app.account_ui->message_poll_store, {inputs, count});

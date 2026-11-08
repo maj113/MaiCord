@@ -36,16 +36,7 @@ const UiLayoutNode* node(const UiAttachmentDraftList& list, u32 row, u32 p) noex
 bool ui_attachment_draft_list_build(UiAttachmentDraftList* list, UiWidgetManager* manager,
                                     UiWidgetHandle parent, ConstSlice<UiAttachmentDraftView> rows,
                                     u32 key_base, const UiAttachmentDraftStyle& style) noexcept {
-    if (!list || !manager || rows.count > kUiAttachmentDraftMaximum || (!rows.data && rows.count))
-        return false;
-    const float lengths[] = {
-        style.minimum_card_width, style.preview_extent,  style.gap,    style.padding,
-        style.control_height,     style.control_padding, style.radius, style.progress_height};
-    for (float length : lengths)
-        if (!ui_coordinate_valid(length) || length < 0)
-            return false;
-    if (style.minimum_card_width < 96 || style.preview_extent < 24 || style.control_height < 24)
-        return false;
+    // The one caller (forum_post_update) has validated the rows and the style.
     reset_value(list);
     list->manager = manager;
     list->rows = rows;
@@ -53,9 +44,6 @@ bool ui_attachment_draft_list_build(UiAttachmentDraftList* list, UiWidgetManager
     list->style = style;
     UiWidgetBuilder builder(*manager);
     for (u32 r = 0; r < rows.count; ++r) {
-        if (!rows[r].id || !rows[r].filename.bytes || !utf8_validate(rows[r].filename).valid ||
-            !utf8_validate(rows[r].status).valid || !utf8_validate(rows[r].description).valid)
-            return false;
         for (u32 p = 0; p < kUiAttachmentDraftParts; ++p) {
             auto layout = ui_layout_style();
             layout.width = ui_layout_fill();

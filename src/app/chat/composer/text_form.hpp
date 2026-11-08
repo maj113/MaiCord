@@ -36,10 +36,10 @@ struct ApplicationTextFormRequest {
     TextFormSave save;
     u32 maximum_codepoints;
     bool confirmation_only;
-    // Optional asynchronous controller. Polls are borrowed views only; closing
-    // cancels this form's controller while accepted transport responses finish.
     u32 maximum_bytes;
     bool single_line;
+    // Optional asynchronous controller. Polls are borrowed views only; closing
+    // cancels this form's controller while accepted transport responses finish.
     TextFormProgress progress;
     TextFormClosed closed;
     // A child may cover only this live post intent. All other forms keep

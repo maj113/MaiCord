@@ -101,9 +101,9 @@ EmbedPlayerError embedded_json(Utf8View html, Utf8View marker, Utf8View* output,
         if (!bytes_equal(html.data + i, marker.data, marker.bytes) ||
             (i && (ascii_is_alnum(html.data[i - 1]) || html.data[i - 1] == '_'))) continue;
         u32 p = i + marker.bytes;
-        while (p < html.bytes && (html.data[p] == ' ' || html.data[p] == '\t' || html.data[p] == '\r' || html.data[p] == '\n')) ++p;
+        while (p < html.bytes && ascii_is_space(html.data[p])) ++p;
         if (p == html.bytes || html.data[p++] != '=') continue;
-        while (p < html.bytes && (html.data[p] == ' ' || html.data[p] == '\t' || html.data[p] == '\r' || html.data[p] == '\n')) ++p;
+        while (p < html.bytes && ascii_is_space(html.data[p])) ++p;
         if (p == html.bytes || html.data[p] != (array ? '[' : '{')) continue;
         if (json.bytes) return E::malformed;
         const u32 start = p;
@@ -191,7 +191,7 @@ bool store(const Candidate& candidate, EmbedStream* out) noexcept {
     out->height = static_cast<u16>(candidate.height);
     return true;
 }
-struct TikTokSelection { JsonIndexedDocument doc; Utf8View id; u64 now; u32 height, items, profiles; EmbedStreams best{}; };
+struct TikTokSelection { JsonIndexedDocument doc; Utf8View id; u64 now; u32 height, items, profiles; EmbedStreams best; };
 u64 stream_expiry_chars(const Utf8View& url, const char* key_data, u32 key_bytes, bool* present) noexcept {
     const Utf8View key{key_data, key_bytes};
     u64 result = 0;
@@ -268,7 +268,7 @@ bool tiktok_item(void* opaque, u32, JsonValue value) noexcept {
     if (!fields(s.doc, f[1].value, video)) return false;
     return !video[0].seen || visit_array(s.doc, video[0].value, tiktok_profile, &s);
 }
-struct ClipSelection { JsonIndexedDocument doc; EmbedStream best{}; u32 height, assets{}, profiles{}; };
+struct ClipSelection { JsonIndexedDocument doc; EmbedStream best; u32 height, assets, profiles; };
 bool clip_quality(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<ClipSelection*>(opaque);
     if (++s.profiles > 32) return false;

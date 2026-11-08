@@ -18,7 +18,7 @@ float avatar_height(const MessageScene& scene, bool grouped) noexcept {
 }
 float group_top(const MessageScene& scene) noexcept {
     static constexpr float spacing[]{0.0f, 0.0f, 4.0f, 8.0f, 16.0f, 24.0f};
-    const u8 code = display(scene).group_spacing;
+    const u8 code = scene.display.group_spacing;
     if (code && code < 6)
         return spacing[code] + 1.0f;
     return compact(scene) ? 1.0f : metrics(scene).message_top;
@@ -334,16 +334,11 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
     return true;
 }
 
+// local_time_from_unix rejects what it cannot convert (Windows: beyond year 9999).
 bool local_message_date(u64 timestamp_ms, u32* date) noexcept {
-    constexpr u64 windows_to_unix_seconds = 11'644'473'600ull;
-    constexpr u64 file_time_ticks_per_second = 10'000'000ull;
-    const u64 seconds = timestamp_ms / 1'000ull;
     CalendarTime local{};
-    if (seconds > ~0ull - windows_to_unix_seconds ||
-        seconds + windows_to_unix_seconds > ~0ull / file_time_ticks_per_second ||
-        !local_time_from_unix(static_cast<i64>(seconds), &local)) {
+    if (!local_time_from_unix(static_cast<i64>(timestamp_ms / 1'000ull), &local))
         return false;
-    }
     *date = static_cast<u32>(local.wYear) * 512u + static_cast<u32>(local.wMonth) * 32u + local.wDay;
     return true;
 }
@@ -355,7 +350,7 @@ struct MessageGroupDate {
 };
 
 bool message_group_neighbors(const MessageScene& scene, const MessageRecord& previous,
-                             const MessageRecord& current, MessageGroupDate* cached) noexcept {
+                             const MessageRecord& current, MessageGroupDate* cached = nullptr) noexcept {
     // System rows always stand alone and never start a group.
     if (message_type_is_system(previous.type) || message_type_is_system(current.type)) {
         if (cached) cached->ready = false;
@@ -390,11 +385,6 @@ bool message_group_neighbors(const MessageScene& scene, const MessageRecord& pre
         cached->ready = true;
     }
     return previous_date == current_date;
-}
-
-bool message_group_neighbors(const MessageScene& scene, const MessageRecord& previous,
-                             const MessageRecord& current) noexcept {
-    return message_group_neighbors(scene, previous, current, nullptr);
 }
 
 bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, const MessageRichRecord* rich,
@@ -742,12 +732,8 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
 }
 
 namespace {
-UiLayoutNode* mutable_layout_node(MessageScene* scene, UiWidgetHandle handle) noexcept {
-    return ui_widget_manager_layout_node(&scene->widgets, handle);
-}
-
 bool set_fixed_height(MessageScene* scene, UiWidgetHandle handle, float height) noexcept {
-    UiLayoutNode* node = mutable_layout_node(scene, handle);
+    UiLayoutNode* node = ui_widget_manager_layout_node(&scene->widgets, handle);
     if (!node || !ui_extent_valid(height)) {
         return false;
     }
@@ -771,7 +757,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
                         row->snapshot_height + row_leading(*scene, *row) +
                         result_card_leading(*scene) + result_card_trailing(*scene);
     const float content = maximum(0.0f, resident_height - fixed);
-    UiLayoutNode* row_node = mutable_layout_node(scene, row->widget);
+    UiLayoutNode* row_node = ui_widget_manager_layout_node(&scene->widgets, row->widget);
     if (!row_node) {
         return false;
     }
@@ -787,7 +773,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
                      result_card_leading(*scene),
                  metrics(*scene).message_right,
                  row_bottom_padding(*scene, row->grouped) + result_card_trailing(*scene)};
-    UiLayoutNode* avatar_node = mutable_layout_node(scene, row->avatar);
+    UiLayoutNode* avatar_node = ui_widget_manager_layout_node(&scene->widgets, row->avatar);
     if (!avatar_node) {
         return false;
     }
@@ -928,11 +914,14 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         *data_changed = *data_changed || row->redacted != hidden;
         row->redacted = hidden;
     }
-    const auto* snapshot = snapshot_rich(*scene, record->id);
-    row->snapshot_height = snapshot_estimated_height(scene, handle, snapshot,
-                                                     maximum(1.f, width - 2 * snapshot_padding(*scene)), rich);
+    // A materialized snapshot row knows its height; otherwise estimate it.
     if (const auto* child = message_scene_snapshot_row(*scene, *row))
-        row->snapshot_height = row_required_height(*scene, *child, snapshot) + snapshot_following_gap(*scene, rich);
+        row->snapshot_height =
+            row_required_height(*scene, *child, nullptr) + snapshot_following_gap(*scene, rich);
+    else
+        row->snapshot_height =
+            snapshot_estimated_height(scene, handle, snapshot_rich(*scene, record->id),
+                                      maximum(1.f, width - 2 * snapshot_padding(*scene)), rich);
     if (text_identity_changed || !row->rich_layout_measured) {
         // A cached measurement overwrites both layouts below (restore_measurement).
         if (!cached) {
@@ -1091,9 +1080,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             message_rich_aggregate_layout(*snapshot, child.rich_item_layout, child.measured_width);
         auto* cached =
             scene->owns_rows ? message_scene_detail::measurement(scene, row.message.slot, true) : nullptr;
-        const u64 key =
-            hash_mix(hash_mix(rich_layout_signature(snapshot), ui_extent_units(child.measured_width)),
-                     scene->theme_geometry_revision);
+        const u64 key = hash_mix(hash_mix(child.rich_signature, ui_extent_units(child.measured_width)),
+                                 scene->theme_geometry_revision);
         if (cached && cached->signature == key)
             message_scene_detail::restore_measurement(*scene, &child, *cached);
         else if (cached) {

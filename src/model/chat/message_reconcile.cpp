@@ -132,7 +132,7 @@ MessageReconcileResult merge_update(
 // Admits a create event and builds its record input.
 MessageReconcileError prepare_create(const MessageStore* store, const GatewayMessageEvent& event,
                                      MessageContentAvailability content_availability,
-                                     MessageInput* input) noexcept {
+                                     MessageInput* input, MessageStoreSlot* at) noexcept {
     if (!store) {
         return MessageReconcileError::invalid_input;
     }
@@ -140,8 +140,8 @@ MessageReconcileError prepare_create(const MessageStore* store, const GatewayMes
         (event.fields & ~known_fields) != 0) {
         return MessageReconcileError::invalid_event;
     }
-    const auto found = message_store_find(*store, event.id);
-    const auto* previous = found.ok() ? message_store_resolve(*store, found.handle) : nullptr;
+    *at = message_store_locate(*store, event.id);
+    const auto* previous = at->found ? &store->records[store->order[at->order_index]] : nullptr;
     *input = MessageInput{event.id, event.channel_id, event.author_id,
                           event.timestamp_ms, event.edited_timestamp_ms,
                           event.content, event.flags, content_availability,
@@ -158,18 +158,20 @@ MessageReconcileResult message_reconcile_create(
     MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
     MessageInput input{};
-    const MessageReconcileError error = prepare_create(store, event, content_availability, &input);
+    MessageStoreSlot at{};
+    const MessageReconcileError error = prepare_create(store, event, content_availability, &input, &at);
     if (error != MessageReconcileError::none) {
         return reconcile_error(error);
     }
-    return store_result(message_store_upsert(store, input));
+    return store_result(message_store_upsert_located(store, input, at));
 }
 
 MessageReconcileResult message_reconcile_validate_create(
     const MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
     MessageInput input{};
-    const MessageReconcileError error = prepare_create(store, event, content_availability, &input);
+    MessageStoreSlot at{};
+    const MessageReconcileError error = prepare_create(store, event, content_availability, &input, &at);
     if (error != MessageReconcileError::none) {
         return reconcile_error(error);
     }
@@ -189,7 +191,7 @@ MessageReconcileResult message_reconcile_update(
     const MessageReconcileResult prepared = merge_update(store, event, content_availability, &merged);
     if (!prepared.ok())
         return prepared;
-    return store_result(message_store_upsert(store, merged));
+    return store_result(message_store_upsert_located(store, merged, {prepared.order_index, true}));
 }
 
 MessageReconcileResult message_reconcile_validate_update(
@@ -215,10 +217,8 @@ MessageReconcileResult message_reconcile_delete(
     if (!found.ok()) {
         return found;
     }
-    return message_store_delete(store, event.id)
-               ? found
-               : reconcile_error(MessageReconcileError::store_failure,
-                                 MessageStoreError::not_found);
+    message_store_delete_at(store, found.order_index);
+    return found;
 }
 
 } // namespace maicord

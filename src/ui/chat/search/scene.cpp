@@ -5,7 +5,6 @@
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "scene_internal.hpp"
 #include "maicord/ui/theme/styles.hpp"
 
@@ -471,7 +470,7 @@ void ui_search_scene_release(UiSearchScene* s) noexcept {
         ui_widget_storage_release(&s->rich_projection->widgets);
     }
     arena_release(&s->rich_projection_storage);
-    ZeroMemory(s, sizeof(*s));
+    clear_bytes(s, sizeof(*s));
     s->choice_selected = kUiSearchFilterNoSelection;
 }
 bool ui_search_scene_scroll(UiSearchScene* s, float offset) noexcept {

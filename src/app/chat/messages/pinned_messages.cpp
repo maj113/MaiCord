@@ -22,7 +22,6 @@
 #include "maicord/ui/chat/pinned_messages_scene.hpp"
 #include "history_decode.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -217,18 +216,15 @@ bool activate(UiPinnedMessagesTarget target) noexcept {
     switch (target.action) {
     case UiPinnedMessagesAction::close: application_pinned_messages_close(); return repaint();
     case UiPinnedMessagesAction::refresh:
-        if (value->controller.read_denied && !value->controller.request_id)
-            pinned_message_controller_open(&value->controller, scope(), application_pinned_messages_available(), pin_permission());
-        else pinned_message_controller_refresh(&value->controller);
-        break;
-    case UiPinnedMessagesAction::previous: pinned_message_controller_previous(&value->controller); break;
-    case UiPinnedMessagesAction::next: pinned_message_controller_next(&value->controller); break;
     case UiPinnedMessagesAction::retry:
         if (value->controller.read_denied && !value->controller.request_id)
             pinned_message_controller_open(&value->controller, scope(), application_pinned_messages_available(), pin_permission());
-        else if (value->controller.permission_denied) pinned_message_controller_refresh(&value->controller);
+        else if (target.action == UiPinnedMessagesAction::refresh || value->controller.permission_denied)
+            pinned_message_controller_refresh(&value->controller);
         else pinned_message_controller_retry(&value->controller);
         break;
+    case UiPinnedMessagesAction::previous: pinned_message_controller_previous(&value->controller); break;
+    case UiPinnedMessagesAction::next: pinned_message_controller_next(&value->controller); break;
     case UiPinnedMessagesAction::unpin:
         return application_pinned_messages_action(target.message_id, false, !application_shift_down());
     case UiPinnedMessagesAction::jump:
@@ -357,7 +353,7 @@ bool application_pinned_messages_synchronize() noexcept {
     while (bytes < name.bytes && bytes && static_cast<u8>(name.data[bytes]) >= 0x80 &&
            static_cast<u8>(name.data[bytes]) < 0xc0) --bytes;
     if (bytes != value->channel_bytes || (bytes && !bytes_equal(value->channel, name.data, bytes))) {
-        if (bytes) CopyMemory(value->channel, name.data, bytes);
+        copy_bytes(value->channel, name.data, bytes);
         value->channel_bytes = static_cast<u16>(bytes);
         ++value->heading_revision;
     }

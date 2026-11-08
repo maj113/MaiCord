@@ -226,7 +226,7 @@ bool settle(ApplicationTextForm* form) noexcept {
 }
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
-    if (form != g_app.text_form || !g_app.window)
+    if (form != g_app.text_form)
         return false;
     const auto* field = text_form_node(form->scene, TextFormElement::edit);
     if (!field)

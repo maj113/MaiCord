@@ -322,11 +322,6 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
                                        u16 backend_revision, bool* changed) noexcept;
 bool message_text_presentation_set_hover(MessageTextPresentation* presentation, const MessageTextHit& hit,
                                          bool* changed) noexcept;
-bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentation,
-                                              const MessageStore& store, const MessageTextHit& hit,
-                                              bool* changed) noexcept;
-Utf8View message_text_presentation_hit_source(const MessageStore& store,
-                                              const MessageTextHit& hit) noexcept;
 Utf8View message_text_presentation_hit_source(const MessageStore& store,
                                               const MessageRichStore* rich_store,
                                               const MessageTextHit& hit) noexcept;

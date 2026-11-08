@@ -15,11 +15,11 @@ bool name_valid(const Utf8View& name) noexcept {
                                             true);
 }
 struct Parse {
-    ThreadCreationSnapshot value{};
+    ThreadCreationSnapshot value;
     JsonIndexedDocument document;
-    JsonValue metadata{}, member{};
-    u32 seen{}, metadata_seen{};
-    ThreadCreationError error{};
+    JsonValue metadata, member;
+    u32 seen, metadata_seen;
+    ThreadCreationError error;
 };
 bool reject(Parse& parse, ThreadCreationError error) noexcept {
     parse.error = error;
@@ -180,7 +180,6 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
     }
     if (!utf8_validate(input).valid)
         return {0, ThreadCreationError::input};
-    const auto query = request;
     const auto scanned = json_scan_structurals_avx1(input, structural_scratch);
     if (!scanned.ok())
         return {0, scanned.error == JsonScanError::output_overflow ? ThreadCreationError::capacity
@@ -192,8 +191,8 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
         return {0, parse.error == ThreadCreationError::none ? ThreadCreationError::json : parse.error};
     if ((parse.seen & 63) != 63)
         return {0, ThreadCreationError::field};
-    if (parse.value.id != query.source_message_id || parse.value.parent_id != query.parent_id ||
-        parse.value.guild_id != query.guild_id || parse.value.type != query.thread_type)
+    if (parse.value.id != request.source_message_id || parse.value.parent_id != request.parent_id ||
+        parse.value.guild_id != request.guild_id || parse.value.type != request.thread_type)
         return {0, ThreadCreationError::identity};
     const auto metadata =
         json_visit_indexed_object(parse.document, parse.metadata, 32, metadata_field, &parse);
@@ -204,7 +203,7 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
     if ((parse.seen & 128) && parse.member.kind == JsonValueKind::object) {
         ThreadMemberSnapshot member{};
         const auto decoded =
-            thread_member_decode(parse.member.source, query.source_message_id, self_user_id, &member);
+            thread_member_decode(parse.member.source, request.source_message_id, self_user_id, &member);
         if (!decoded.ok())
             return {0, member_error(decoded.error)};
         parse.value.fields |= thread_creation_self_joined;

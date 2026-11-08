@@ -132,8 +132,7 @@ Utf8View emoji_alias_at(Utf8View source, u32 begin, u32* end) noexcept {
     u32 cursor = begin + 1;
     while (cursor < source.bytes && cursor - begin <= 255) {
         const char c = source.data[cursor];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              ascii_is_digit(c) || c == '_' || c == '-' || c == '+')) break;
+        if (!(ascii_is_alnum(c) || c == '_' || c == '-' || c == '+')) break;
         ++cursor;
     }
     if (cursor == begin + 1 || cursor >= source.bytes || source.data[cursor] != ':') return {};
@@ -178,8 +177,7 @@ bool emoji_only_source(Utf8View source) noexcept {
 // ASCII \s is \t \n \v \f \r and space; other controls and DEL escape.
 bool markdown_escape_target(u32 cp) noexcept {
     if (cp < 0x80)
-        return !(cp == ' ' || (cp >= '\t' && cp <= '\r')) &&
-               !((cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z'));
+        return !(cp == ' ' || (cp >= '\t' && cp <= '\r')) && !ascii_is_alnum(static_cast<char>(cp));
     return !unicode_space(cp);
 }
 
@@ -822,14 +820,6 @@ __declspec(noinline) MessageMarkdownResult parse_fenced(Utf8View input, Slice<ch
 }
 
 } // namespace
-
-MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_output,
-                                             Slice<u32> byte_style_scratch,
-                                             Slice<TextStyleSpan> span_output) noexcept {
-    const MessageMarkdownOptions options{};
-    return message_markdown_parse(input, text_output, byte_style_scratch, span_output, options,
-                                  Slice<MessageMarkdownSemantic>{});
-}
 
 MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_output,
                                              Slice<u32> byte_style_scratch,

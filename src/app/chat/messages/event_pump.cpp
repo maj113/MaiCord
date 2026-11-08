@@ -584,12 +584,27 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         }
         bool message_validated = false;
         MessageReadBadge read_badge = MessageReadBadge::none;
+        // A create the loaded timeline will apply is decoded once, the way message_timeline_apply decodes
+        // it, and that body serves the read state and the timeline. When that decode fails the plain
+        // decode below and message_timeline_apply reject it exactly as before.
+        GatewayMessageEvent full_message;
+        GatewayMessageNamedUser system_target;
+        const GatewayMessageEvent* full = decoded_message;
+        if (!full && event.dispatch_kind == GatewayClientDispatchKind::message_create && pump->state &&
+            pump->state->selected_channel_id != 0 &&
+            event.message.channel_id == pump->state->selected_channel_id &&
+            (pump->timeline->rich_store
+                 ? gateway_client_event_as_message(event, payload, g_message_scratch.view(false), &full_message)
+                 : gateway_client_event_as_message(event, payload, &full_message)) &&
+            gateway_client_event_message_system_target(event, payload, &full_message, &system_target))
+            full = &full_message;
         if (event.dispatch_kind == GatewayClientDispatchKind::message_create && pump->state) {
-            GatewayMessageEvent message;
-            if (!gateway_client_event_as_message(event, payload, &message)) {
+            // The fallback decode reuses the buffer: the timeline then decodes on its own.
+            if (!full && !gateway_client_event_as_message(event, payload, &full_message)) {
                 reject_resync(pump, &result, MessageEventPumpRejectReason::message_decode);
                 return result;
             }
+            const GatewayMessageEvent& message = full ? *full : full_message;
             const u32 channel_mutations = pump->state->channel_mutations;
             const auto* channel = chat_state_store_find_channel(*pump->state, message.channel_id);
             read_badge = pump->read_badge
@@ -626,14 +641,13 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             return result;
         }
 
-        result.apply = decoded_message
-                           ? (event.dispatch_kind == GatewayClientDispatchKind::message_create
-                                  ? message_timeline_apply_created(pump->timeline, *decoded_message,
-                                                                   resolve_content_access(*pump, event))
-                                  : message_timeline_apply_updated(pump->timeline, *decoded_message,
-                                                                   resolve_content_access(*pump, event)))
-                           : message_timeline_apply(pump->timeline, event, payload, pump->bulk_id_scratch,
-                                                    resolve_content_access(*pump, event));
+        result.apply = full ? (event.dispatch_kind == GatewayClientDispatchKind::message_create
+                                   ? message_timeline_apply_created(pump->timeline, *full,
+                                                                    resolve_content_access(*pump, event))
+                                   : message_timeline_apply_updated(pump->timeline, *full,
+                                                                    resolve_content_access(*pump, event)))
+                            : message_timeline_apply(pump->timeline, event, payload, pump->bulk_id_scratch,
+                                                     resolve_content_access(*pump, event));
         if (result.apply.ok()) {
             if (pump->users && pump->timeline->rich_store) {
                 const auto& rich_store = *pump->timeline->rich_store;

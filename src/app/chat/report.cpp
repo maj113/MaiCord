@@ -47,7 +47,7 @@ struct Owner : SettingsDialog {
     u32 child_targets[kChildChoices];
     u32 child_count;
     ApplicationReportTarget target;
-    u64 lifetime, account_scope, profile_id;
+    u64 account_scope, profile_id;
     Phase phase;
     ReportMenu menu;
     u32 path[kReportMaximumBreadcrumbs];
@@ -58,15 +58,12 @@ struct Owner : SettingsDialog {
     bool queued, failed;
     u64 request_id, retry_at;
     Utf8View status;
-    char title[64];
-    u32 title_bytes;
     char preview[kPreviewBytes];
     u32 preview_bytes;
     u32 structurals[16384];
     u8 body[kUserSocialMaximumBodyBytes];
 };
 Owner* owner;
-u64 lifetime_serial;
 
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.user_social &&
@@ -433,7 +430,6 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
     settings_modal_yield();
     auto& p = *owner;
     report_menu_release(&p.menu);
-    p.lifetime = ++lifetime_serial;
     p.target = target;
     p.account_scope = g_app.plugin_account_scope_serial;
     p.profile_id = g_app.account.status.profile_id;
@@ -443,10 +439,7 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
     reset_value(&p.status);
     p.failed = false;
     capture_preview();
-    const auto title = message ? utf8_literal("Report message") : utf8_literal("Report user");
-    copy_bytes(p.title, title.data, title.bytes);
-    p.title_bytes = title.bytes;
-    if (!settings_dialog_begin(p, kPage, {p.title, p.title_bytes}))
+    if (!settings_dialog_begin(p, kPage, message ? utf8_literal("Report message") : utf8_literal("Report user")))
         return false;
     if (settings_dialog_show(p, kPage, control_status, false, project)) {
         queue(Op::menu);

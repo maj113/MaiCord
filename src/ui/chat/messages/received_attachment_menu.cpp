@@ -1,20 +1,17 @@
 #include "maicord/ui/chat/messages/received_attachment_menu.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord {
 namespace {
-bool equal_ascii_case(const char* data, u32 bytes, const char* literal) noexcept {
-    u32 index = 0;
-    for (; index < bytes && literal[index]; ++index) {
-        char c = data[index];
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-        if (c != literal[index])
-            return false;
-    }
-    return index == bytes && !literal[index];
-}
-// Index of the final path extension, or count when no extension matches.
-u32 path_extension(Utf8View path, const char* const* extensions, u32 count) noexcept {
+// The first seven entries are still-image formats with special CDN wording.
+constexpr u32 kImageExtensionCount = 7;
+constexpr Utf8View kMediaExtensions[]{utf8_literal("png"),  utf8_literal("jpg"),  utf8_literal("jpeg"),
+                                      utf8_literal("webp"), utf8_literal("avif"), utf8_literal("bmp"),
+                                      utf8_literal("svg"),  utf8_literal("gif"),  utf8_literal("mp4"),
+                                      utf8_literal("webm"), utf8_literal("mov")};
+constexpr u32 kMediaExtensionCount = sizeof(kMediaExtensions) / sizeof(kMediaExtensions[0]);
+// Index of the final path extension, or kMediaExtensionCount when no extension matches.
+u32 path_extension(Utf8View path) noexcept {
     u32 dot = path.bytes;
     for (u32 index = path.bytes; index-- > 0;) {
         if (path.data[index] == '/')
@@ -25,18 +22,18 @@ u32 path_extension(Utf8View path, const char* const* extensions, u32 count) noex
         }
     }
     if (dot == path.bytes)
-        return count;
-    for (u32 index = 0; index < count; ++index)
-        if (equal_ascii_case(path.data + dot + 1, path.bytes - dot - 1, extensions[index]))
+        return kMediaExtensionCount;
+    const Utf8View extension{path.data + dot + 1, path.bytes - dot - 1};
+    for (u32 index = 0; index < kMediaExtensionCount; ++index)
+        if (ascii_equal_ignore_case(extension, kMediaExtensions[index]))
             return index;
-    return count;
+    return kMediaExtensionCount;
 }
-// The first seven entries are still-image formats with special CDN wording.
-constexpr u32 kImageExtensionCount = 7;
-constexpr const char* kMediaExtensions[]{"png", "jpg", "jpeg", "webp", "avif", "bmp",
-                                         "svg", "gif", "mp4",  "webm", "mov"};
-template <u32 N> constexpr u32 count_of(const char* const (&)[N]) noexcept {
-    return N;
+constexpr Utf8View kSecureScheme = utf8_literal("https://");
+// Longer than the scheme and starting with it, in any case.
+bool secure_url(const Utf8View& url) noexcept {
+    return url.data && url.bytes > kSecureScheme.bytes &&
+           ascii_equal_ignore_case({url.data, kSecureScheme.bytes}, kSecureScheme);
 }
 inline Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept {
     static constexpr Utf8View labels[2][3]{
@@ -47,29 +44,27 @@ inline Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept 
 } // namespace
 
 ReceivedAttachmentLinkKind received_attachment_link_kind(const Utf8View& url) noexcept {
-    constexpr Utf8View scheme = utf8_literal("https://");
-    if (!url.data || url.bytes <= scheme.bytes || !equal_ascii_case(url.data, scheme.bytes, "https://"))
+    if (!secure_url(url))
         return ReceivedAttachmentLinkKind::link;
-    u32 host_end = scheme.bytes;
+    u32 host_end = kSecureScheme.bytes;
     while (host_end < url.bytes && url.data[host_end] != '/' && url.data[host_end] != '?' &&
            url.data[host_end] != '#')
         ++host_end;
     u32 path_end = host_end;
     while (path_end < url.bytes && url.data[path_end] != '?' && url.data[path_end] != '#')
         ++path_end;
-    const Utf8View path{url.data + host_end, path_end - host_end};
-    const u32 extension = path_extension(path, kMediaExtensions, count_of(kMediaExtensions));
-    if (extension == count_of(kMediaExtensions))
+    const u32 extension = path_extension({url.data + host_end, path_end - host_end});
+    if (extension == kMediaExtensionCount)
         return ReceivedAttachmentLinkKind::link;
     return extension < kImageExtensionCount &&
-                   equal_ascii_case(url.data + scheme.bytes, host_end - scheme.bytes, "cdn.discordapp.com")
+                   ascii_equal_ignore_case({url.data + kSecureScheme.bytes, host_end - kSecureScheme.bytes},
+                                           utf8_literal("cdn.discordapp.com"))
                ? ReceivedAttachmentLinkKind::image
                : ReceivedAttachmentLinkKind::media;
 }
 
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept {
-    if (!output.data || output.count < kReceivedAttachmentMenuItems || !facts.url.data ||
-        facts.url.bytes <= 8 || !equal_ascii_case(facts.url.data, 8, "https://"))
+    if (!output.data || output.count < kReceivedAttachmentMenuItems || !secure_url(facts.url))
         return 0;
     u32 count = 0;
     const auto add = [&](Utf8View label, u32 action, UiIcon icon, bool group_start) noexcept {

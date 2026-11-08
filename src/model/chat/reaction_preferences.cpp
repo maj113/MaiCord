@@ -105,7 +105,7 @@ void recompute_table(ReactionPreferenceTable& table, ReactionPreferenceKind kind
     for (const auto& usage : table.usage)
         if (usage.occupied)
             maximum_total = maximum(maximum_total, usage.total_uses);
-    u16 ordered[kReactionPreferenceUsageCapacity]{};
+    u16 ordered[kReactionPreferenceUsageCapacity]; // only [0, ordered_count) is read
     u32 ordered_count = 0;
     for (u32 index = 0; index < kReactionPreferenceUsageCapacity; ++index) {
         ReactionPreferenceUsage& usage = table.usage[index];
@@ -374,8 +374,7 @@ ReactionPreferenceResult reaction_preferences_toggle_section(ReactionPreferenceS
         u32 found = 0;
         while (found < store->collapsed_guild_count && guilds[found] != guild_id) ++found;
         if (found < store->collapsed_guild_count) {
-            for (u32 i = found + 1; i < store->collapsed_guild_count; ++i)
-                guilds[i - 1] = guilds[i];
+            sorted_erase_gap(guilds, store->collapsed_guild_count, found);
             guilds[--store->collapsed_guild_count] = 0;
             if (!store->collapsed_guild_count) stable_storage_release(&store->collapsed_guilds);
         } else {

@@ -9,9 +9,9 @@ namespace {
 
 #include "chat_state_backing.inc"
 
+// ASCII letters, digits and '_' only, so no UTF-8 check is needed.
 bool valid_emoji_name(Utf8View name) noexcept {
-    if (!name.data || name.bytes == 0 || name.bytes > kCustomEmojiNameMaximumBytes ||
-        !utf8_validate(name).valid) {
+    if (!name.data || name.bytes == 0 || name.bytes > kCustomEmojiNameMaximumBytes) {
         return false;
     }
     for (u32 index = 0; index < name.bytes; ++index) {
@@ -52,22 +52,15 @@ bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
     return true;
 }
 
-u32 resident_emoji_count(const ChatStateStore& store, u64 guild_id) noexcept {
-    u32 count = 0;
-    for (u32 index = 0; index < store.emoji_count; ++index) {
-        count += store.emojis[index].guild_id == guild_id ? 1u : 0u;
-    }
-    return count;
-}
-
-u32 resident_role_count(const ChatStateStore& store, u64 guild_id) noexcept {
-    u32 count = 0;
+// The emojis and emoji roles the guild holds now.
+void resident_counts(const ChatStateStore& store, u64 guild_id, u32* emojis, u32* roles) noexcept {
+    *emojis = *roles = 0;
     for (u32 index = 0; index < store.emoji_count; ++index) {
         if (store.emojis[index].guild_id == guild_id) {
-            count += store.emojis[index].role_count;
+            ++*emojis;
+            *roles += store.emojis[index].role_count;
         }
     }
-    return count;
 }
 
 } // namespace
@@ -131,8 +124,8 @@ ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore&
                                                            u32 emoji_count, u32 role_count) noexcept {
     if (!store.emojis || !store.emoji_roles || guild_id == 0 || emoji_count > kGuildEmojiMaximum)
         return ChatStateStoreError::invalid_input;
-    const u32 old_emojis = resident_emoji_count(store, guild_id);
-    const u32 old_roles = resident_role_count(store, guild_id);
+    u32 old_emojis = 0, old_roles = 0;
+    resident_counts(store, guild_id, &old_emojis, &old_roles);
     // A replacement removes the guild's emojis before appending, so each array
     // peaks at its final count; back both before admitting.
     if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis) ||
@@ -218,14 +211,9 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
         record.name_bytes = static_cast<u8>(input.name.bytes);
         record.flags = input.flags;
         copy_bytes(record.name, input.name.data, input.name.bytes);
-        for (u32 role = 0; role < input.role_count; ++role) {
-            u64 role_id = 0;
-            if (!read_role(input.role_ids_le, role, &role_id)) {
-                ++store->rejected;
-                return false;
-            }
-            store->emoji_roles[store->emoji_role_count++] = role_id;
-        }
+        // roles_valid read every id above.
+        for (u32 role = 0; role < input.role_count; ++role)
+            store->emoji_roles[store->emoji_role_count++] = byte_load_le64(input.role_ids_le.data + role * 8u);
     }
     return true;
 }

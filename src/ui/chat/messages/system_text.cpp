@@ -32,13 +32,6 @@ struct Writer {
     }
 };
 
-Utf8View view(const char* text) noexcept {
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
-    return {text, bytes};
-}
-
 // Original welcome lines, picked by message snowflake time.
 constexpr const char* kJoinLines[kMessageSystemJoinLineCount] = {
     "{a} just arrived. Say hi!",
@@ -250,7 +243,7 @@ bool message_system_text_build(const MessageSystemTextInput& input, const Slice<
     const Utf8View author = input.author.bytes ? input.author : utf8_literal("Someone");
     const Utf8View target = input.target.bytes ? input.target : utf8_literal("someone");
     const Utf8View guild = input.guild.bytes ? input.guild : utf8_literal("this server");
-    const Utf8View text = view(selected.text);
+    const Utf8View text{selected.text, c_string_length(selected.text)};
     // Action span state: [..] jumps to the referenced message or thread,
     // <..> opens the pinned messages.
     u32 span_begin = 0;

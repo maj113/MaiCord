@@ -134,6 +134,18 @@ MessageStoreResult message_store_upsert(MessageStore* store,
                                         const MessageInput& input) noexcept;
 MessageStoreResult message_store_find(const MessageStore& store, u64 id) noexcept;
 bool message_store_delete(MessageStore* store, u64 id) noexcept;
+// Where an id sits in the order (found), or where it would insert. A caller
+// that already located an id passes the position back so the store does not
+// search again; the store must not change in between.
+struct MessageStoreSlot {
+    u32 order_index;
+    bool found;
+};
+MessageStoreSlot message_store_locate(const MessageStore& store, u64 id) noexcept;
+MessageStoreResult message_store_upsert_located(MessageStore* store, const MessageInput& input,
+                                                MessageStoreSlot at) noexcept;
+// Deletes the record at a found order position.
+void message_store_delete_at(MessageStore* store, u32 order_index) noexcept;
 bool message_store_set_delivery(MessageStore* store, u64 id,
                                 MessageDeliveryState delivery) noexcept;
 bool message_store_set_presentation_flags(MessageStore* store, u64 id,

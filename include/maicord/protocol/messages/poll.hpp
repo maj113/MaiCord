@@ -15,30 +15,30 @@ enum class PollOperation : u8 { refresh, vote, remove_vote, voters };
 // All request identity and answer IDs are values copied by the existing REST
 // owner before publication. Clear vote uses PUT with an empty answer_ids array.
 struct PollRequest {
-    u64 channel_id{}, message_id{}, after_user_id{};
-    u32 answer_ids[kGatewayMessagePollMaximumAnswers]{};
-    u32 answer_id{}, limit{};
-    u8 answer_count{};
-    PollOperation operation{};
-    u8 reserved[6]{};
+    u64 channel_id, message_id, after_user_id;
+    u32 answer_ids[kGatewayMessagePollMaximumAnswers];
+    u32 answer_id, limit;
+    u8 answer_count;
+    PollOperation operation;
+    u8 reserved[6];
 };
 enum class PollWriteError : u8 { none, invalid_input, output_capacity };
 struct PollWriteResult {
-    u64 route_id{};
-    u32 target_bytes{}, body_bytes{};
-    RestMethod method{};
-    PollWriteError error{};
+    u64 route_id;
+    u32 target_bytes, body_bytes;
+    RestMethod method;
+    PollWriteError error;
     bool ok() const noexcept { return error==PollWriteError::none; }
 };
 PollWriteResult write_poll_request(const PollRequest&,
     Slice<u8> target, Slice<u8> body) noexcept;
 enum class PollDecodeError : u8 { none, invalid_input, scan, json, identity, poll, users };
 struct PollMessageDecodeResult {
-    GatewayEventDecodeResult poll{};
-    u32 text_bytes{}, error_offset{};
-    PollDecodeError error{};
-    JsonScanError scan_error{};
-    JsonReadError read_error{};
+    GatewayEventDecodeResult poll;
+    u32 text_bytes, error_offset;
+    PollDecodeError error;
+    JsonScanError scan_error;
+    JsonReadError read_error;
     bool ok() const noexcept { return error==PollDecodeError::none; }
 };
 // Validates a complete single-message identity and decodes only its poll. It
@@ -49,11 +49,11 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
     u32 maximum_depth, Slice<char> text_output, const GatewayMessagePollScratch&,
     GatewayMessagePoll* output) noexcept;
 struct PollVotersDecodeResult {
-    ReactionUsersDecodeResult users{};
-    u32 error_offset{};
-    PollDecodeError error{};
-    JsonScanError scan_error{};
-    JsonReadError read_error{};
+    ReactionUsersDecodeResult users;
+    u32 error_offset;
+    PollDecodeError error;
+    JsonScanError scan_error;
+    JsonReadError read_error;
     bool ok() const noexcept { return error==PollDecodeError::none; }
 };
 // Poll voter responses are an object with a required users array, unlike the

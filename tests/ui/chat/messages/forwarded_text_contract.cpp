@@ -88,7 +88,7 @@ void run() noexcept {
           utf8_equal(message_text_presentation_hit_source(store, &rich, embed_link), utf8_literal("https://snapshot-embed.example")) &&
           utf8_equal(message_text_presentation_hit_source(store, &rich, hit(outer_embed, MessageMarkdownSemanticKind::link)),
                 utf8_literal("https://outer-embed.example")), utf8_literal("forwarded_text_exact_link_sources"));
-    check(message_text_presentation_hit_source(store, body_link).bytes == 0,
+    check(message_text_presentation_hit_source(store, nullptr, body_link).bytes == 0,
           utf8_literal("forwarded_text_no_outer_fallback"));
     auto forged = body_link; forged.message_id = 92;
     forged.message_revision = message_store_resolve(store, message_store_find(store, 92).handle)->revision;

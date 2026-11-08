@@ -410,7 +410,7 @@ bool regional_flag_surfaces_ui_probe(RegionalFlagSurfacesProbeContext c) noexcep
         }
     }
     bool changed=false;
-    if (!spoiler.valid || !message_text_presentation_toggle_spoiler(&c.message_text,c.message_view.store,spoiler,&changed) ||
+    if (!spoiler.valid || !message_text_presentation_toggle_spoiler(&c.message_text,c.message_view.store,nullptr,spoiler,&changed) ||
         !changed || !paint(c) || !inline_cells(c,id,6) || flag_quads(c.renderer)!=8 ||
         !c.capture(L"flag-surfaces-revealed.bmp")) return fail(__LINE__);
     GatewayMessageReaction reactions[2]{};

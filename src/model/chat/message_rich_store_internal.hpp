@@ -38,6 +38,8 @@ void reset_slot(MessageRichStore* store, MessageRichRecord* record, u16 generati
 u32 bank_capacity(const MessageRichStore& store) noexcept;
 u32 bank_base(const MessageRichStore& store) noexcept;
 SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept;
+// The forwarded snapshot child of a found outer record, or null (message_rich_store_snapshot without the search).
+const MessageRichRecord* snapshot_of(const MessageRichStore& store, const MessageRichRecord& outer) noexcept;
 Utf8View stored_text(const MessageRichStore& store, MessageRichString value) noexcept;
 u32 free_slot(const MessageRichStore& store, u32 from, u32 skip) noexcept;
 bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target,

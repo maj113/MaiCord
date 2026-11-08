@@ -142,10 +142,10 @@ bool message_reaction_controller_grow_storage(MessageReactionController*,
 // Queue before projecting. Capacity/validation failure leaves all desired and
 // flight state unchanged. Custom emoji identity is ID only; Unicode identity
 // is exact host-canonical bytes. The core never strips variation selectors.
-MessageReactionOutcome message_reaction_controller_queue(MessageReactionController*,
-                                                         const MessageReactionTarget&,
-                                                         MessageReactionSource, MessageReactionAuthority,
-                                                         bool desired_mine, u64 now_ms) noexcept;
+// Queue and complete fill a caller-owned outcome in place.
+void message_reaction_controller_queue(MessageReactionOutcome*, MessageReactionController*,
+                                       const MessageReactionTarget&, MessageReactionSource,
+                                       MessageReactionAuthority, bool desired_mine, u64 now_ms) noexcept;
 bool message_reaction_controller_project(const MessageReactionController&, const MessageReactionTarget&,
                                          MessageReactionProjection*) noexcept;
 bool message_reaction_controller_next_due(const MessageReactionController&, u64* due_at_ms) noexcept;
@@ -154,13 +154,6 @@ bool message_reaction_controller_peek_due(const MessageReactionController&, u64 
 // Call only after transport accepts the peek and nonzero request ID.
 bool message_reaction_controller_admit(MessageReactionController*, const MessageReactionIntent&,
                                        u64 request_id, u64 now_ms, MessageReactionTicket*) noexcept;
-MessageReactionOutcome message_reaction_controller_complete(
-    MessageReactionController*, MessageReactionTicket, MessageReactionCompletion, u64 now_ms,
-    u64 retry_at_ms = 0, MessageReactionRetryScope = MessageReactionRetryScope::intent) noexcept;
-// queue and complete filling a caller-owned outcome in place.
-void message_reaction_controller_queue(MessageReactionOutcome*, MessageReactionController*,
-                                       const MessageReactionTarget&, MessageReactionSource,
-                                       MessageReactionAuthority, bool desired_mine, u64 now_ms) noexcept;
 void message_reaction_controller_complete(MessageReactionOutcome*, MessageReactionController*,
                                           MessageReactionTicket, MessageReactionCompletion, u64 now_ms,
                                           u64 retry_at_ms, MessageReactionRetryScope) noexcept;

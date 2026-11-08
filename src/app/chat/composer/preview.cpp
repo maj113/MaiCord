@@ -66,19 +66,18 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
 MediaAttachmentFormat application_composer_preview_format(const Utf8View& filename) noexcept {
     char lowered[8];
     const Utf8View extension{lowered, ui_attachment_file_extension(filename, {lowered, 8})};
-    if (utf8_equal(extension, utf8_literal("png")))
-        return MediaAttachmentFormat::png;
-    if (utf8_equal(extension, utf8_literal("jpg")) || utf8_equal(extension, utf8_literal("jpeg")) ||
-        utf8_equal(extension, utf8_literal("jfif")))
-        return MediaAttachmentFormat::jpeg;
-    if (utf8_equal(extension, utf8_literal("webp")))
-        return MediaAttachmentFormat::webp;
-    if (utf8_equal(extension, utf8_literal("gif")))
-        return MediaAttachmentFormat::gif;
     // H.264/HEVC movies get a GPU-decoded first-frame poster.
-    if (utf8_equal(extension, utf8_literal("mp4")) || utf8_equal(extension, utf8_literal("m4v")) ||
-        utf8_equal(extension, utf8_literal("mov")))
-        return MediaAttachmentFormat::mp4;
+    static constexpr struct {
+        char name[5];
+        MediaAttachmentFormat format;
+    } kFormats[] = {{"png", MediaAttachmentFormat::png},   {"jpg", MediaAttachmentFormat::jpeg},
+                    {"jpeg", MediaAttachmentFormat::jpeg}, {"jfif", MediaAttachmentFormat::jpeg},
+                    {"webp", MediaAttachmentFormat::webp}, {"gif", MediaAttachmentFormat::gif},
+                    {"mp4", MediaAttachmentFormat::mp4},   {"m4v", MediaAttachmentFormat::mp4},
+                    {"mov", MediaAttachmentFormat::mp4}};
+    for (const auto& entry : kFormats)
+        if (utf8_equal(extension, {entry.name, c_string_length(entry.name)}))
+            return entry.format;
     return MediaAttachmentFormat::unknown;
 }
 

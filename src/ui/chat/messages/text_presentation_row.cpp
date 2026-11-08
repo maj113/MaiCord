@@ -16,7 +16,6 @@ using namespace text_presentation_detail;
 
 namespace text_presentation_detail {
 namespace {
-constexpr CommandLook kLookStart{.wrapping = TextWrapping::no_wrap, .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookStartThemed{.themed = true,
                                        .wrapping = TextWrapping::no_wrap,
                                        .overflow = TextOverflow::ellipsis};
@@ -465,7 +464,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                              UiWidgetReference{&scene.widgets, row.author}, author->content_rectangle,
                              row_clip, author_color, record,
                              kInvalidMessageTextMeasurement,
-                             header.styles.count != 0 ? kLookStartThemed : kLookStart))) {
+                             kLookStartThemed))) {
             return false;
         }
     }

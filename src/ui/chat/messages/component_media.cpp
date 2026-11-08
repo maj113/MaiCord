@@ -1,6 +1,7 @@
 #include "maicord/ui/chat/messages/component_media.hpp"
 
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_rich_store.hpp"
@@ -65,25 +66,16 @@ bool message_component_media_resolve(const MessageRichStore& store, const Messag
 }
 
 namespace {
+// Callers pass a nonzero id.
 u32 cdn_url(const Utf8View& prefix, u64 id, const Utf8View& hash, const Utf8View& suffix, const Slice<char>& output) noexcept {
-    char digits[24];
-    u32 id_bytes = 0;
-    for (u64 value = id; value; value /= 10u)
-        digits[id_bytes++] = static_cast<char>('0' + value % 10u);
-    const Utf8View parts[] = {prefix, {}, utf8_literal("/"), hash, suffix};
+    char digits[20];
+    const Utf8View parts[] = {prefix, {digits, decimal_write(digits, id)}, utf8_literal("/"), hash, suffix};
     u32 bytes = 0;
-    for (u32 p = 0; p < 5; ++p) {
-        if (p == 1) {
-            if (id_bytes > output.count - bytes)
-                return 0;
-            for (u32 i = 0; i < id_bytes; ++i)
-                output.data[bytes++] = digits[id_bytes - 1u - i];
-            continue;
-        }
-        if (parts[p].bytes > output.count - bytes)
+    for (const Utf8View& part : parts) {
+        if (part.bytes > output.count - bytes)
             return 0;
-        copy_bytes(output.data + bytes, parts[p].data, parts[p].bytes);
-        bytes += parts[p].bytes;
+        copy_bytes(output.data + bytes, part.data, part.bytes);
+        bytes += part.bytes;
     }
     return bytes;
 }

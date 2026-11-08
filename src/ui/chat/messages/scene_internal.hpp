@@ -9,12 +9,6 @@
 
 namespace maicord::message_scene_detail {
 
-inline const UiResolvedThemeStyles* theme_bank(const MessageScene& scene) noexcept {
-    return scene.theme_styles;
-}
-inline const MessageSceneDisplay& display(const MessageScene& scene) noexcept {
-    return scene.display;
-}
 __forceinline u64 hash_mix(u64 hash, u64 value) noexcept {
     return hash64_mix(hash, value);
 }
@@ -40,24 +34,24 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept;
 bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept;
 inline const UiThemeMetrics& metrics(const MessageScene& scene) noexcept {
-    return ui_theme_metrics(theme_bank(scene));
+    return ui_theme_metrics(scene.theme_styles);
 }
 inline float message_em(const MessageScene& scene) noexcept {
-    const auto* bank = theme_bank(scene);
+    const auto* bank = scene.theme_styles;
     return bank && bank->ready ? bank->typography.body_size : 16.f;
 }
 inline float content_height(const MessageScene& scene) noexcept {
     return message_em(scene) * 1.3125f;
 }
 inline bool compact(const MessageScene& scene) noexcept {
-    return display(scene).compact;
+    return scene.display.compact;
 }
 // Compact: the avatar column becomes the timestamp column (width by clock
 // shape); the name starts one gap after it. Every compact row, grouped or
 // not, owns that column so the hidden timestamp of a grouped row keeps the
 // name aligned.
 inline float avatar_width(const MessageScene& scene) noexcept {
-    return compact(scene) ? message_em(scene) * message_scene_compact_clock_em(display(scene).clock)
+    return compact(scene) ? message_em(scene) * message_scene_compact_clock_em(scene.display.clock)
                           : metrics(scene).message_avatar;
 }
 inline float avatar_gap(const MessageScene& scene) noexcept {

@@ -38,7 +38,6 @@ struct MessageViewRuntime {
     u32* item_units;
     u64* fenwick;
     bool initialized;
-    bool owns_storage;
 };
 
 MessageViewRuntimeResult message_view_runtime_initialize(MessageViewRuntime* runtime,

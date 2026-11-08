@@ -25,25 +25,6 @@ MessageCreateWriteResult write_message_create_target(u64 channel_id,
 }
 
 MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
-                                                   Slice<u8> output) noexcept {
-    return write_message_create_body(content, nonce, 0, 0, output);
-}
-
-MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
-                                                   u64 channel_id, u64 reply_message_id,
-                                                   Slice<u8> output, bool mention_reply_author) noexcept {
-    return write_message_create_body(content, nonce, channel_id, reply_message_id, {}, output,
-        mention_reply_author);
-}
-
-MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
-    u64 channel_id, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
-    Slice<u8> output, bool mention_reply_author) noexcept {
-    return write_message_create_body(content, nonce, channel_id, reply_message_id, attachments, {}, output,
-        mention_reply_author);
-}
-
-MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
     u64 channel_id, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
     ConstSlice<u64> sticker_ids, Slice<u8> output, bool mention_reply_author, u32 flags) noexcept {
     if (!output.data || (!content.data && content.bytes) || (!content.bytes && !attachments.count && !sticker_ids.count) ||

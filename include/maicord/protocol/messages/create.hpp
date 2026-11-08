@@ -35,16 +35,6 @@ using MessageCreateWriteResult = ByteResult<MessageCreateWriteError>;
 MessageCreateWriteResult write_message_create_target(
     u64 channel_id, Slice<u8> output) noexcept;
 MessageCreateWriteResult write_message_create_body(
-    Utf8View content, u64 nonce, Slice<u8> output) noexcept;
-MessageCreateWriteResult write_message_create_body(
-    Utf8View content, u64 nonce, u64 channel_id, u64 reply_message_id,
-    Slice<u8> output, bool mention_reply_author = true) noexcept;
-
-MessageCreateWriteResult write_message_create_body(
-    Utf8View content, u64 nonce, u64 channel_id, u64 reply_message_id,
-    ConstSlice<UploadedAttachment> attachments, Slice<u8> output,
-    bool mention_reply_author = true) noexcept;
-MessageCreateWriteResult write_message_create_body(
     Utf8View content, u64 nonce, u64 channel_id, u64 reply_message_id,
     ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sticker_ids,
     Slice<u8> output, bool mention_reply_author = true, u32 flags = 0) noexcept;

@@ -119,8 +119,9 @@ bool build_items(MessageActionBar* bar, const MessageRecord& message, const Reac
         return true;
     }
     const bool own = (capabilities & message_action_bar_edit) != 0;
-    const bool pinned = (message.presentation_flags & message_presentation_pinned) != 0;
-    if (capabilities & message_action_bar_expanded) {
+    const bool expanded = (capabilities & message_action_bar_expanded) != 0;
+    if (expanded) {
+        const bool pinned = (message.presentation_flags & message_presentation_pinned) != 0;
         if (capabilities & message_action_bar_copy_id)
             push(bar, Action::copy_id, Kind::copy_id);
         push(bar, Action::copy_link, Kind::copy_link);
@@ -130,40 +131,34 @@ bool build_items(MessageActionBar* bar, const MessageRecord& message, const Reac
             push(bar, pinned ? Action::unpin : Action::pin, pinned ? Kind::unpin : Kind::pin);
         if (own)
             push(bar, Action::reply, Kind::reply);
-        push(bar, Action::add_reaction, Kind::add_reaction);
-        push(bar, own ? Action::edit : Action::reply, own ? Kind::edit : Kind::reply);
-        if (capabilities & message_action_bar_forward)
-            push(bar, Action::forward, Kind::forward);
-        push_plugins(bar, message.id);
-        if (capabilities & message_action_bar_delete)
-            push(bar, Action::delete_message, Kind::delete_message);
-        else
-            push(bar, Action::more, Kind::more);
-        return true;
-    }
-    MessageContextMenuModel context{};
-    const MessageContextMenuResult menu =
-        message_context_menu_build(&context, message, false, false, false, preferences);
-    if (!menu.ok() || context.count < kMessageActionBarQuickReactionCount) {
-        return false;
-    }
-    for (u32 index = 0; index < kMessageActionBarQuickReactionCount; ++index) {
-        MessageContextQuickReaction quick{};
-        if (!message_context_menu_resolve_quick_reaction(
-                context, static_cast<u32>(MessageContextAction::quick_reaction_0) + index, &quick)) {
+    } else {
+        MessageContextMenuModel context{};
+        const MessageContextMenuResult menu =
+            message_context_menu_build(&context, message, false, false, false, preferences);
+        if (!menu.ok() || context.count < kMessageActionBarQuickReactionCount) {
             return false;
         }
-        bar->items[bar->item_count++] = MessageActionBarItem{
-            {}, quick.glyph, quick.catalog_index,
-            static_cast<Action>(static_cast<u32>(Action::quick_reaction_0) + index), Kind::quick_reaction};
+        for (u32 index = 0; index < kMessageActionBarQuickReactionCount; ++index) {
+            MessageContextQuickReaction quick{};
+            if (!message_context_menu_resolve_quick_reaction(
+                    context, static_cast<u32>(MessageContextAction::quick_reaction_0) + index, &quick)) {
+                return false;
+            }
+            bar->items[bar->item_count++] = MessageActionBarItem{
+                {}, quick.glyph, quick.catalog_index,
+                static_cast<Action>(static_cast<u32>(Action::quick_reaction_0) + index), Kind::quick_reaction};
+        }
+        bar->section_end = static_cast<u8>(kMessageActionBarQuickReactionCount);
     }
-    bar->section_end = static_cast<u8>(kMessageActionBarQuickReactionCount);
     push(bar, Action::add_reaction, Kind::add_reaction);
     push(bar, own ? Action::edit : Action::reply, own ? Kind::edit : Kind::reply);
     if (capabilities & message_action_bar_forward)
         push(bar, Action::forward, Kind::forward);
     push_plugins(bar, message.id);
-    push(bar, Action::more, Kind::more);
+    if (expanded && (capabilities & message_action_bar_delete))
+        push(bar, Action::delete_message, Kind::delete_message);
+    else
+        push(bar, Action::more, Kind::more);
     return true;
 }
 

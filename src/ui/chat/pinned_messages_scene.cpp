@@ -17,13 +17,11 @@ float card_height(const UiPinnedMessagesRow& row) noexcept {
     return 56.f + excerpt_height(row) + (row.detail.bytes ? 24.f : 0.f) + 44.f;
 }
 bool row_valid(const UiPinnedMessagesRow& row, u64 channel) noexcept {
-    u32 height_bits = 0;
-    copy_bytes(&height_bits, &row.body_height, sizeof(height_bits));
+    // The range test also rejects NaN and infinities.
     return row.channel_id == channel && row.message_id &&
-           (height_bits & 0x7f800000u) != 0x7f800000u &&
            utf8_validate(row.author).valid && utf8_validate(row.timestamp).valid &&
            utf8_validate(row.body).valid && utf8_validate(row.detail).valid &&
-           utf8_validate(row.avatar_hash).valid && ui_coordinate_valid(row.body_height) &&
+           utf8_validate(row.avatar_hash).valid &&
            (row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 144)) &&
            (row.edited_offset == 0 || row.edited_offset < row.body.bytes);
 }

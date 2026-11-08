@@ -260,6 +260,13 @@ Display* ensure_display(ApplicationNotifications& n) noexcept {
 void purge_display(ApplicationNotifications& n) noexcept {
     if(n.display) desktop_notification_queue_purge_all(&n.display->queue);
 }
+// Queue backpressure, admission scopes and create dedupe start over with a new account session.
+void reset_ingress(ApplicationNotifications& n) noexcept {
+    n.backpressured=n.audio_backpressured=false;
+    n.guild_scope_count=n.channel_scope_count=n.seen_next=0;
+    n.create_sequence=0; n.has_create_sequence=false;
+    clear_bytes(n.seen,sizeof(n.seen));
+}
 void release_retention(ApplicationNotifications& n) noexcept {
     auto* rows=n.retention.rows.data; auto* index=n.retention.index.data;
     reset_value(&n.retention);
@@ -803,11 +810,9 @@ void application_notifications_account_stop(Application* a) noexcept {
     n.ready=n.live=false; n.snapshot=false; n.profile=0; reset_value(&n.pending); reset_value(&n.global); n.mention_on_all=false;
     release_retention(n);
     if(n.display) desktop_notification_queue_reset(&n.display->queue,0,0);
-    n.backpressured=n.audio_backpressured=false;
-    n.guild_scope_count=n.channel_scope_count=n.seen_next=0;
-    n.create_sequence=0; n.has_create_sequence=false;
+    reset_ingress(n);
     n.selected=0; n.focused=false; n.deferred_removal_count=0;
-    clear_bytes(n.seen,sizeof(n.seen)); message_notifications_clear(&n.settings);
+    message_notifications_clear(&n.settings);
     desktop_notifications_discard_activations(&n.native);
 }
 void application_notifications_release(Application* a) noexcept {
@@ -936,10 +941,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         audio_preferences(*a,*n); audio_reset(*n,n->audio_preference);
         if(++n->generation==0) ++n->generation;
         if(n->display) desktop_notification_queue_reset(&n->display->queue,n->profile,n->generation);
-        n->backpressured=n->audio_backpressured=false;
-        n->guild_scope_count=n->channel_scope_count=n->seen_next=0;
-        n->create_sequence=0; n->has_create_sequence=false;
-        clear_bytes(n->seen,sizeof(n->seen)); return;
+        reset_ingress(*n); return;
     }
     if(!n && event.kind==GatewayClientEventKind::dispatch &&
         event.dispatch_kind>=GatewayClientDispatchKind::notification_snapshot_begin &&

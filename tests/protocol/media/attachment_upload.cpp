@@ -72,7 +72,7 @@ void test_attachment_upload(void (*check)(bool, const char*) noexcept) noexcept 
     const UploadedAttachment attachments[] = {
         {utf8_literal("a.txt"), utf8_literal("uploads/id/a.txt"), utf8_literal("Alt \"text\""), 0, true},
         {utf8_literal("b.txt"), utf8_literal("uploads/id/b.txt"), {}, 1, false}};
-    const auto message = write_message_create_body({}, 55, 123, 44, {attachments, 2}, {body, sizeof(body)});
+    const auto message = write_message_create_body({}, 55, 123, 44, {attachments, 2}, {}, {body, sizeof(body)});
     u32 structurals[512]{};
     const Utf8View json{reinterpret_cast<const char*>(body), message.bytes};
     const auto scan = json_scan_structurals_avx1(json, {structurals, 512});
@@ -85,9 +85,9 @@ void test_attachment_upload(void (*check)(bool, const char*) noexcept) noexcept 
         contains(body, message.bytes, utf8_literal("\"message_id\":\"44\"")),
         "attachment-only reply preserves uploaded references, spoiler, description, and reply metadata");
     UploadedAttachment duplicate[]{attachments[0], attachments[0]};
-    check(!write_message_create_body({}, 55, 0, 0, {duplicate, 2}, {body, sizeof(body)}).ok() &&
-        !write_message_create_body({}, 55, {body, sizeof(body)}).ok() &&
-        !write_message_create_body({}, 55, 0, 0, {attachments, 2}, {body, 10}).ok(),
+    check(!write_message_create_body({}, 55, 0, 0, {duplicate, 2}, {}, {body, sizeof(body)}).ok() &&
+        !write_message_create_body({}, 55, 0, 0, {}, {}, {body, sizeof(body)}).ok() &&
+        !write_message_create_body({}, 55, 0, 0, {attachments, 2}, {}, {body, 10}).ok(),
         "message attachments reject duplicate IDs, wholly empty messages, and insufficient capacity");
 }
 }

@@ -13,9 +13,6 @@ struct Registered {
     bool known, startup_failed, protocol_failed;
 } g_registered;
 
-DesktopRegistryScope scope() noexcept {
-    return desktop_registry_user_scope();
-}
 // Refreshes the registry view at most once a second while settings render.
 void observe(bool force) noexcept {
     const u64 now = clock_monotonic_milliseconds();
@@ -23,7 +20,7 @@ void observe(bool force) noexcept {
         return;
     wchar_t executable[1024];
     const auto path = application_desktop_registration_executable(executable, 1024);
-    const auto s = scope();
+    const auto s = desktop_registry_user_scope();
     g_registered.startup = desktop_startup_query(s, path);
     g_registered.protocol = desktop_protocol_query(s, path);
     g_registered.checked_ms = now;
@@ -71,7 +68,7 @@ bool application_desktop_settings_activate(SettingBinding binding, bool checked)
         return false;
     wchar_t executable[1024];
     const auto path = application_desktop_registration_executable(executable, 1024);
-    const auto s = scope();
+    const auto s = desktop_registry_user_scope();
     const bool startup = binding == SettingBinding::open_on_startup;
     const bool saved = path.count && (startup ? desktop_startup_set(s, path, checked) : desktop_protocol_set(s, path, checked));
     (startup ? g_registered.startup_failed : g_registered.protocol_failed) = !saved;

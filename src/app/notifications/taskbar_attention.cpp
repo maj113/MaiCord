@@ -18,9 +18,6 @@ struct Owner {
 };
 Owner g_owner{};
 
-bool focused() noexcept {
-    return application_window_focused();
-}
 // The official client's badge: mentions plus incoming friend requests; unread alone is a dot.
 void recount() noexcept {
     g_owner.mentions = 0;
@@ -79,14 +76,15 @@ void application_taskbar_attention_tick(u64 now_ms) noexcept {
         recount();
     }
     const TaskbarAttentionInput input{g_owner.mentions, g_owner.notify_serial, g_owner.unread,
-                                      g_app.preferences.unread_badge, g_app.preferences.taskbar_flash, focused()};
+                                      g_app.preferences.unread_badge, g_app.preferences.taskbar_flash,
+                                      application_window_focused()};
     const auto plan = taskbar_attention_plan(&g_owner.native.state, input);
     if (plan.set_badge || plan.start_flash || plan.stop_flash)
         taskbar_attention_apply(&g_owner.native, g_app.window, plan, g_app.renderer.dpi);
 }
 
 void application_taskbar_attention_notify() noexcept {
-    if (!focused())
+    if (!application_window_focused())
         ++g_owner.notify_serial;
 }
 

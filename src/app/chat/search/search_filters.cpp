@@ -596,7 +596,7 @@ bool local_date(void*, Utf8View date, u64* first, u64* last) noexcept {
     next.wHour = next.wMinute = next.wSecond = next.wMilliseconds = 0;
     if (!local_time_to_unix(next, &end_seconds))
         return false;
-    constexpr i64 snowflake_epoch_ms = 1'420'070'400'000;
+    constexpr i64 snowflake_epoch_ms = static_cast<i64>(kSnowflakeEpochMilliseconds);
     const i64 start = start_seconds * 1000, end = end_seconds * 1000;
     if (end <= snowflake_epoch_ms)
         return false;

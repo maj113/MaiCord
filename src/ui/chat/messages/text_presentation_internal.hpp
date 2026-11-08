@@ -141,11 +141,12 @@ bool begin_flow_item_clamped(UiTextFlowLayout* flow, float left_inset, float rig
 bool begin_item(MessageTextPresentation* presentation, UiTextFlowLayout* flow, float left_inset,
                 float right_inset, UiRect* rectangle) noexcept;
 bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout* flow) noexcept;
-RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context,
-                                          Utf8View author, Utf8View content, bool available = false,
-                                          u8 content_flags = 0, u8 message_type = 0,
-                                          Utf8View poll_question = {}, u8 quote_flags = 0,
-                                          u64 sent_unix_seconds = 0) noexcept;
+// Stack-heavy (the reply's span and chip records) and only for reply rows: kept out of append_row's frame,
+// which every row enters.
+__declspec(noinline) RetainedReplySummary
+retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context, Utf8View author,
+                     Utf8View content, bool available, u8 content_flags, u8 message_type,
+                     Utf8View poll_question, u8 quote_flags, u64 sent_unix_seconds) noexcept;
 RetainedReplySummary retain_reply_placeholder(MessageTextPresentation* presentation, Utf8View text) noexcept;
 RetainedReplySummary retain_reply_plain(MessageTextPresentation* presentation, const MessageSystemText& system) noexcept;
 RetainedReplySummary retain_reply_media_mention(MessageTextPresentation* presentation, Utf8View author,

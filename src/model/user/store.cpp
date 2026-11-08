@@ -389,13 +389,7 @@ u32 user_avatar_variant(const Utf8View& avatar_hash) noexcept {
     if (!asset_hash_valid(avatar_hash) || avatar_hash.bytes == 0) {
         return 0;
     }
-    u32 value = 2'166'136'261u;
-    #pragma clang loop unroll(disable) // a dependent multiply chain: unrolling only adds code
-    for (u32 index = 0; index < avatar_hash.bytes; ++index) {
-        value ^= static_cast<u8>(avatar_hash.data[index]);
-        value *= 16'777'619u;
-    }
-    return value == 0 ? 1u : value;
+    return asset_hash_variant(avatar_hash);
 }
 
 static_assert(sizeof(UserRecord) == 64);

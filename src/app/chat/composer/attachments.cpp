@@ -41,8 +41,15 @@ bool can_attach() noexcept {
     constexpr u32 actions = channel_action_send_messages | channel_action_attach_files;
     return channel && (channel->actions & actions) == actions;
 }
-void set_drop_registration(bool enabled) noexcept {
-    window_set_drop_target(g_app.window, enabled);
+// Ends a draft's upload and preview, then removes it.
+bool remove_draft(ApplicationAttachments* state, u64 id) noexcept {
+    if (id == state->active_id) application_upload_lane_cancel(state->upload_lease);
+    application_composer_preview_retire(id);
+    return message_attachment_drafts_remove(&state->drafts, id);
+}
+// The picker or a drop takes over from whatever popup is open.
+void close_any_popup() noexcept {
+    if (g_app.popup_scene.active) { popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none); }
 }
 bool description_owner_valid(TextFormOwnerKey key) noexcept {
     const auto* state = g_app.attachments;
@@ -246,7 +253,7 @@ void application_sync_attachment_drop_target() noexcept {
     const auto* state = g_app.attachments;
     const bool enabled = can_attach() && (!state || (!state->picker.runtime &&
         message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id, {}) < kAttachmentUploadMaximumCount));
-    set_drop_registration(enabled || g_install_drop_wanted);
+    window_set_drop_target(g_app.window, enabled || g_install_drop_wanted);
 }
 bool application_drop_attachments(DroppedFiles* drop) noexcept {
     if (!drop) return true;
@@ -263,7 +270,7 @@ bool application_drop_attachments(DroppedFiles* drop) noexcept {
         discard(); notice(state, utf8_literal("Couldn't add these files."));
         return application_manage_attachments();
     }
-    if (g_app.popup_scene.active) { popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none); }
+    close_any_popup();
     application_sync_attachment_drop_target();
     return refresh_message_composer_ui();
 }
@@ -306,7 +313,7 @@ bool application_pick_attachments() noexcept {
     if (opened != NativeFilePickerError::none) {
         notice(state, utf8_literal("Could not open the file picker.")); return application_manage_attachments();
     }
-    if (g_app.popup_scene.active) { popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none); }
+    close_any_popup();
     application_sync_attachment_drop_target();
     return refresh_message_composer_ui();
 }
@@ -389,9 +396,7 @@ bool application_attachment_action(u32 action) noexcept {
             if (!message_attachment_drafts_set_spoiler(&state->drafts, id, !record->spoiler)) return false;
             return show_file(state, id) && refresh_message_composer_ui();
         }
-        if (id == state->active_id) application_upload_lane_cancel(state->upload_lease);
-        application_composer_preview_retire(id);
-        if (!message_attachment_drafts_remove(&state->drafts, id)) return false;
+        if (!remove_draft(state, id)) return false;
     } else if (action == popup_action_attachment_retry) {
         for (u32 i = 0; i < state->menu_count; ++i) {
             auto* record = message_attachment_drafts_get(&state->drafts, state->menu_ids[i]);
@@ -583,7 +588,7 @@ u32 application_attachment_wait_timeout(u64 now_ms) noexcept {
 }
 bool application_clear_channel_attachments() noexcept {
     auto* state = g_app.attachments;
-    if (!current(state) || !g_app.account_ui) return false;
+    if (!current(state)) return false;
     u64 ids[kAttachmentUploadMaximumCount];
     const u32 count = message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id,
         {ids, kAttachmentUploadMaximumCount});
@@ -592,9 +597,7 @@ bool application_clear_channel_attachments() noexcept {
         const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
         // Queued drafts already belong to a send.
         if (!record || record->phase == MessageAttachmentDraftPhase::queued) continue;
-        if (ids[i] == state->active_id) application_upload_lane_cancel(state->upload_lease);
-        application_composer_preview_retire(ids[i]);
-        removed = message_attachment_drafts_remove(&state->drafts, ids[i]) || removed;
+        removed = remove_draft(state, ids[i]) || removed;
     }
     if (removed) state->notice_bytes = 0;
     return removed;
@@ -608,7 +611,7 @@ void application_cancel_attachments() noexcept {
         if (state->active_id) application_upload_lane_cancel(state->upload_lease);
         else application_upload_lane_release(&state->upload_lease);
     }
-    set_drop_registration(false);
+    window_set_drop_target(g_app.window, false);
 }
 bool application_release_attachments() noexcept {
     application_cancel_attachments(); return !g_app.attachments || reap(g_app.attachments);
@@ -724,9 +727,7 @@ bool application_attachment_remove(u64 id) noexcept {
     auto* state = strip_state();
     if (!state || !record_editable(state, id)) return false;
     if (state->detail_id == id) close_menu();
-    if (id == state->active_id) application_upload_lane_cancel(state->upload_lease);
-    application_composer_preview_retire(id);
-    if (!message_attachment_drafts_remove(&state->drafts, id)) return false;
+    if (!remove_draft(state, id)) return false;
     state->notice_bytes = 0;
     application_sync_attachment_drop_target();
     return refresh_message_composer_ui() && pump_message_history();

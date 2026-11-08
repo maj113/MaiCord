@@ -1,4 +1,5 @@
 #include "maicord/app/chat/messages/reaction_controller.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -7,9 +8,6 @@ static_assert(sizeof(MessageReactionController) == 1408);
 static_assert(sizeof(MessageReactionTicket) == 24);
 namespace {
 constexpr u32 kMissingIndex = 0xffffffffu;
-u64 add_time(u64 value, u64 delay) noexcept {
-    return value > ~u64{0} - delay ? ~u64{0} : value + delay;
-}
 
 bool actor_equal(const MessageReactionActor& left, const MessageReactionActor& right) noexcept {
     return left.account_scope == right.account_scope && left.profile_id == right.profile_id &&
@@ -276,7 +274,7 @@ void message_reaction_controller_queue(MessageReactionOutcome* out, MessageReact
         reset_value(&controller->entries[index]);
         controller->entries[index].authority = authority;
         controller->entries[index].mine_revision = controller->mine_revision;
-        controller->entries[index].deadline_at_ms = add_time(now_ms, kMessageReactionIntentLifetimeMs);
+        controller->entries[index].deadline_at_ms = deadline_after(now_ms, kMessageReactionIntentLifetimeMs);
         controller->entries[index].due_at_ms = now_ms;
     }
     auto& intent = controller->entries[index];
@@ -389,7 +387,7 @@ void complete_flight(MessageReactionOutcome* out, MessageReactionController* con
     }
     if (completion == MessageReactionCompletion::retry) {
         const u64 default_retry =
-            add_time(now_ms, u64{250} << (flight.intent.retries < 3 ? flight.intent.retries : 3));
+            deadline_after(now_ms, u64{250} << (flight.intent.retries < 3 ? flight.intent.retries : 3));
         if (retry_at_ms < default_retry)
             retry_at_ms = default_retry;
         if (scope == MessageReactionRetryScope::global) {
@@ -671,25 +669,6 @@ void message_reaction_controller_reset(MessageReactionController* controller,
         controller->global_cooldown_ms = 0;
     }
     ++controller->revision;
-}
-MessageReactionOutcome message_reaction_controller_queue(MessageReactionController* controller,
-                                                         const MessageReactionTarget& target,
-                                                         MessageReactionSource source,
-                                                         MessageReactionAuthority authority, bool desired,
-                                                         u64 now_ms) noexcept {
-    MessageReactionOutcome result;
-    message_reaction_controller_queue(&result, controller, target, source, authority, desired, now_ms);
-    return result;
-}
-
-MessageReactionOutcome message_reaction_controller_complete(MessageReactionController* controller,
-                                                            MessageReactionTicket ticket,
-                                                            MessageReactionCompletion completion,
-                                                            u64 now_ms, u64 retry_at_ms,
-                                                            MessageReactionRetryScope scope) noexcept {
-    MessageReactionOutcome result;
-    message_reaction_controller_complete(&result, controller, ticket, completion, now_ms, retry_at_ms, scope);
-    return result;
 }
 
 } // namespace maicord

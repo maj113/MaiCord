@@ -18,8 +18,8 @@ struct ThreadActionRequest {
 };
 enum class ThreadActionError : u8 { none, input, capacity, json, duplicate, identity, field };
 struct ThreadActionResult {
-    u32 bytes{};
-    ThreadActionError error{};
+    u32 bytes;
+    ThreadActionError error;
     constexpr bool ok() const noexcept { return error == ThreadActionError::none; }
 };
 enum ThreadMemberField : u32 {

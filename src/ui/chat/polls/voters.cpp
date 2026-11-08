@@ -235,13 +235,9 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
     geometry.body = {inner_left, y, inner_right, geometry.page.top - style.gap};
     if (ui_rect_height(geometry.body) < style.row_height)
         return false;
-    char digits[20];
-    const u32 digit_count = decimal_write(digits, static_cast<u64>(state.page_index) + 1);
-    static constexpr char prefix[] = "Page ";
-    for (u32 i = 0; i < sizeof(prefix) - 1; ++i)
-        projected.page_text[projected.page_bytes++] = prefix[i];
-    for (u32 i = 0; i < digit_count; ++i)
-        projected.page_text[projected.page_bytes++] = digits[i];
+    copy_bytes(projected.page_text, "Page ", 5);
+    projected.page_bytes =
+        static_cast<u8>(5 + decimal_write(projected.page_text + 5, static_cast<u64>(state.page_index) + 1));
     publish_scroll(projected, requested_scroll);
     const bool same_owner = current(*scene) && scene->owner.manager == owner.manager &&
                             ui_widget_handle_equal(scene->owner.handle, owner.handle) &&

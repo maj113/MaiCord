@@ -97,7 +97,8 @@ void test_composer_ansi_paste(void (*check)(bool, const char*) noexcept, Message
         utf8_equal(message_composer_text(composer), expected) && composer.caret == 9;
     check(drafted, "composer draft round-trip preserves ANSI escapes and the caret after one");
     u8 body[256]{};
-    const auto created = write_message_create_body(message_composer_text(composer), 99, Slice<u8>{body, sizeof(body)});
+    const auto created =
+        write_message_create_body(message_composer_text(composer), 99, 0, 0, {}, {}, Slice<u8>{body, sizeof(body)});
     constexpr Utf8View created_json = utf8_literal("{\"content\":\"```ansi\\n\\u001B[31mRed\\u001B[0m\\tx\\n```\",\"nonce\":\"99\","
         "\"tts\":false,\"flags\":0,\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}");
     const bool create_ok = created.ok() && created.bytes == created_json.bytes &&

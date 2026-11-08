@@ -47,7 +47,7 @@ enum class EchoPhase : u8 { free, sending, created, settled };
 // One local command message on the active timeline; its id is the nonce. The
 // sent command data is kept so a failed one can be sent again.
 struct Echo {
-    u64 nonce, channel, guild, application, author, interaction_id;
+    u64 nonce, channel, application, author, interaction_id;
     EchoPhase phase;
     bool failed;
     u16 type;
@@ -190,6 +190,9 @@ Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
 Utf8View copy_label(char* out, u32 capacity, const Utf8View& a, const Utf8View& b = {},
                     const Utf8View& c = {}, const Utf8View& d = {}) noexcept;
 void close_popup() noexcept;
+// Closes the commands popup without dismissing the draft's completion (a list
+// with no rows or a cache refresh; the next sync opens it again).
+void hide_popup() noexcept;
 const CommandApplication* find_app(const CommandIndex& source, u64 id) noexcept;
 Utf8View section_name(const CommandApplication& app) noexcept;
 bool starts_with_ignore_case(const Utf8View& text, const Utf8View& prefix) noexcept;

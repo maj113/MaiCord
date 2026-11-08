@@ -34,42 +34,14 @@ bool ensure_suggestion_storage(ComposerAutocomplete* autocomplete) noexcept {
     return true;
 }
 
-bool contains_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
-    if (query.bytes == 0) {
-        return true;
-    }
-    if (!candidate.data || query.bytes > candidate.bytes) {
-        return false;
-    }
-    for (u32 start = 0; start <= candidate.bytes - query.bytes; ++start) {
-        bool match = true;
-        for (u32 index = 0; index < query.bytes; ++index) {
-            if (ascii_lower(static_cast<u8>(candidate.data[start + index])) !=
-                ascii_lower(static_cast<u8>(query.data[index]))) {
-                match = false;
-                break;
-            }
-        }
-        if (match) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool active_token(const MessageComposer& composer, Utf8View* token, u32* begin) noexcept {
     if (!composer.text || composer.anchor != composer.caret ||
         composer.caret > composer.bytes) {
         return false;
     }
     u32 first = composer.caret;
-    while (first != 0) {
-        const char value = composer.text[first - 1];
-        if (value == ' ' || value == '\t' || value == '\r' || value == '\n') {
-            break;
-        }
+    while (first != 0 && !ascii_is_space(composer.text[first - 1]))
         --first;
-    }
     if (first == composer.caret) {
         return false;
     }
@@ -174,7 +146,7 @@ u32 match_sorter_rank(Utf8View name, Utf8View query) noexcept {
     for (u32 start = 1; start + query.bytes <= name.bytes; ++start)
         if (name.data[start - 1] == ' ' && starts_with_folded_ascii({name.data + start, name.bytes - start}, query))
             return 4 * kMatchRankUnit;
-    if (contains_folded_ascii(name, query))
+    if (ascii_contains_ignore_case(name, query))
         return 3 * kMatchRankUnit;
     if (query.bytes == 1)
         return 0;
@@ -185,7 +157,7 @@ u32 match_sorter_rank(Utf8View name, Utf8View query) noexcept {
         if (name.data[index] != ' ' && name.data[index] != '-' &&
             (index == 0 || name.data[index - 1] == ' ' || name.data[index - 1] == '-'))
             acronym[letters++] = name.data[index];
-    if (contains_folded_ascii({acronym, letters}, query))
+    if (ascii_contains_ignore_case({acronym, letters}, query))
         return 2 * kMatchRankUnit;
     // Closeness: 1 + in-order share / spread from the first match.
     u32 first = 0, at = 0, matched = 0;
@@ -728,7 +700,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
 
     Utf8View token{};
     u32 token_begin = 0;
-    if (!active_token(composer, &token, &token_begin) || !token.data || token.bytes == 0) {
+    if (!active_token(composer, &token, &token_begin)) {
         return true;
     }
 
@@ -758,7 +730,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
             }
             const ChannelRecord* channel = chat_state_store_find_channel(state, row.id);
             const Utf8View name = channel ? chat_state_store_channel_name(state, *channel) : Utf8View{};
-            if (!contains_folded_ascii(name, query)) {
+            if (!ascii_contains_ignore_case(name, query)) {
                 continue;
             }
             ComposerAutocompleteSuggestion* suggestion = append(autocomplete, name);

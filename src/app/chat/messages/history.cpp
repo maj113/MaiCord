@@ -1408,11 +1408,9 @@ bool scroll_to_resident_message(u64 message_id) noexcept {
     const u64 viewport = g_app.message_view.timeline.viewport_units;
     const u64 centered =
         item_top + item_height / 2u > viewport / 2u ? item_top + item_height / 2u - viewport / 2u : 0u;
-    const u64 maximum_scroll = message_timeline_maximum_scroll(g_app.message_view.timeline);
-    if (!message_timeline_set_scroll(&g_app.message_view.timeline, minimum(centered, maximum_scroll),
-                                     false)) {
+    // set_scroll clamps to the bottom.
+    if (!message_timeline_set_scroll(&g_app.message_view.timeline, centered, false))
         return false;
-    }
     const MessageSceneResult updated =
         message_scene_update(&g_app.message_scene, g_app.message_scene.viewport);
     if (!updated.ok() || !message_scene_focus_message(&g_app.message_scene, message_id))

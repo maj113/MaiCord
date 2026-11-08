@@ -196,15 +196,11 @@ bool visit_root_component(void* opaque, u32, JsonValue value) noexcept {
     }
 }
 
-struct ApplicationContext {
-    ModalContext* modal;
-};
-
 bool visit_application(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<ApplicationContext*>(opaque);
+    auto* context = static_cast<ModalContext*>(opaque);
     switch (member_index<"id", "name">(name)) {
-    case 0: return json_value_to_u64_or_string(value, &context->modal->modal->application_id);
-    case 1: return decode_string(value, &context->modal->pool, &context->modal->modal->application_name, 256);
+    case 0: return json_value_to_u64_or_string(value, &context->modal->application_id);
+    case 1: return decode_string(value, &context->pool, &context->modal->application_name, 256);
     default: return true;
     }
 }
@@ -315,10 +311,8 @@ bool message_modal_decode(Utf8View json, Slice<u32> structurals, Slice<char> poo
     if (!json_visit_root_object(json, context.document.structurals, kDepth, visit_modal, &context).ok() ||
         !context.components_seen || !modal.interaction_id || !modal.custom_id.bytes)
         return false;
-    ApplicationContext application{&context};
     if (context.application_seen &&
-        !json_visit_indexed_object(context.document, context.application, kDepth, visit_application, &application)
-             .ok())
+        !json_visit_indexed_object(context.document, context.application, kDepth, visit_application, &context).ok())
         return false;
     if (!json_visit_indexed_array(context.document, context.components, kDepth, visit_root_component, &context)
              .ok() ||
@@ -337,9 +331,7 @@ bool message_modal_value_valid(const MessageModalField& field, Utf8View value, U
     }
     // Lengths count characters (UTF-16 code units server-side); scalars are a
     // close, conservative proxy for the limits shown to the user.
-    u32 characters = 0;
-    for (u32 i = 0; i < value.bytes; ++i)
-        characters += (static_cast<u8>(value.data[i]) & 0xC0u) != 0x80u ? 1u : 0u;
+    const u32 characters = validated.codepoints;
     if (!characters) {
         if (field.required) {
             if (reason)

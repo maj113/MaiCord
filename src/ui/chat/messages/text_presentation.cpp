@@ -470,11 +470,6 @@ Utf8View message_text_presentation_hit_source(const MessageStore& store, const M
     return Utf8View{content.data + offset, hit.source_bytes};
 }
 
-Utf8View message_text_presentation_hit_source(const MessageStore& store,
-                                              const MessageTextHit& hit) noexcept {
-    return message_text_presentation_hit_source(store, nullptr, hit);
-}
-
 MessageTextCopyProjectionResult message_text_project_selection_for_copy(const MessageTextCommand& command,
                                                                         Utf8View source, u32 first,
                                                                         u32 last,
@@ -542,12 +537,6 @@ u32 message_text_command_copy_end(const MessageTextCommand& command) noexcept {
         return at != 0 && command.text.data[at - 1] == ' ' ? at - 1 : at;
     }
     return command.text.bytes;
-}
-
-bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentation,
-                                              const MessageStore& store, const MessageTextHit& hit,
-                                              bool* changed) noexcept {
-    return message_text_presentation_toggle_spoiler(presentation, store, nullptr, hit, changed);
 }
 
 bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentation,

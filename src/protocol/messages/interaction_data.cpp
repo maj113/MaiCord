@@ -2,6 +2,7 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/core/text_bank.hpp"
 
 namespace maicord {
@@ -56,10 +57,7 @@ bool visit_option_member(void* opaque, JsonString name, JsonValue value) noexcep
 
 // A snowflake option value: a JSON string of digits (or a number).
 bool entity_id(const JsonValue& value, u64* id) noexcept {
-    JsonString string{};
-    if (json_value_as_string(value, &string))
-        return json_string_to_u64(string, id) && *id != 0;
-    return json_value_to_u64(value, id) && *id != 0;
+    return json_value_to_u64_or_string(value, id) && *id != 0;
 }
 
 // A value printed raw: a string's text, else its JSON text.
@@ -97,10 +95,9 @@ void put_value(State& state, u32 type, const JsonValue& value) noexcept {
         return put_entity(state, value, InteractionDataEntity::role, "@");
     case kMentionable: {
         u64 id = 0;
-        if (entity_id(value, &id) && state.names && state.names->resolve &&
-            state.names->resolve(state.names->context, InteractionDataEntity::role, id).bytes)
-            return put_entity(state, value, InteractionDataEntity::role, "@");
-        return put_entity(state, value, InteractionDataEntity::user, "@");
+        const bool role = entity_id(value, &id) && state.names && state.names->resolve &&
+                          state.names->resolve(state.names->context, InteractionDataEntity::role, id).bytes;
+        return put_entity(state, value, role ? InteractionDataEntity::role : InteractionDataEntity::user, "@");
     }
     case kAttachment:
         return state.out.add("[attachment]");

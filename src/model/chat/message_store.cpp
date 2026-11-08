@@ -200,7 +200,8 @@ MessageStoreError message_store_validate_input(const MessageStore* store,
     return utf8_validate(input.content).valid ? MessageStoreError::none : MessageStoreError::invalid_utf8;
 }
 
-MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput& input) noexcept {
+MessageStoreResult message_store_upsert_located(MessageStore* store, const MessageInput& input,
+                                                MessageStoreSlot at) noexcept {
     const MessageStoreError validation = validate_fields(store, input);
     if (validation != MessageStoreError::none) {
         if (store) {
@@ -208,8 +209,8 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
         }
         return store_error(validation);
     }
-    bool found = false;
-    const u32 order_index = find_order_index(*store, input.id, &found);
+    const u32 order_index = at.order_index;
+    const bool found = at.found;
     const bool unchanged =
         found && content_equal(*store, store->records[store->order[order_index]], input.content);
     // Content equal to the stored, already validated text needs no re-check.
@@ -295,6 +296,18 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
     return result_from_slot(*store, slot, order_index, true);
 }
 
+MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput& input) noexcept {
+    return message_store_upsert_located(store, input, store ? message_store_locate(*store, input.id)
+                                                            : MessageStoreSlot{});
+}
+
+MessageStoreSlot message_store_locate(const MessageStore& store, u64 id) noexcept {
+    MessageStoreSlot at{};
+    if (store.records && store.order && id != 0)
+        at.order_index = find_order_index(store, id, &at.found);
+    return at;
+}
+
 MessageStoreResult message_store_find(const MessageStore& store, u64 id) noexcept {
     if (!store.records || !store.order || id == 0) {
         return store_error(MessageStoreError::invalid_input);
@@ -303,6 +316,16 @@ MessageStoreResult message_store_find(const MessageStore& store, u64 id) noexcep
     const u32 order_index = find_order_index(store, id, &found);
     return found ? result_from_slot(store, store.order[order_index], order_index, false)
                  : store_error(MessageStoreError::not_found);
+}
+
+void message_store_delete_at(MessageStore* store, u32 order_index) noexcept {
+    MessageRecord& record = store->records[store->order[order_index]];
+    store->text_wasted += record.content_bytes;
+    record.occupied = false;
+    sorted_erase_gap(store->order, store->count, order_index);
+    --store->count;
+    store->order[store->count] = ~0u;
+    ++store->deleted;
 }
 
 bool message_store_delete(MessageStore* store, u64 id) noexcept {
@@ -318,13 +341,7 @@ bool message_store_delete(MessageStore* store, u64 id) noexcept {
         ++store->rejected;
         return false;
     }
-    MessageRecord& record = store->records[store->order[order_index]];
-    store->text_wasted += record.content_bytes;
-    record.occupied = false;
-    sorted_erase_gap(store->order, store->count, order_index);
-    --store->count;
-    store->order[store->count] = ~0u;
-    ++store->deleted;
+    message_store_delete_at(store, order_index);
     return true;
 }
 

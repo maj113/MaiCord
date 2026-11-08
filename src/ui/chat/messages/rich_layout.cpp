@@ -395,20 +395,21 @@ Utf8View youtube_queue_url(const MessageRichStore& store, const MessageRichEmbed
 } // namespace
 
 bool message_rich_embed_music_preview(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    return embed.thumbnail.width && embed.thumbnail.height && embed_media_valid(embed.thumbnail) &&
-           (spotify_audio_locator(message_rich_store_string(store, embed.url)).bytes != 0 ||
-            amazon_music_track_locator(message_rich_store_string(store, embed.url)).id.bytes != 0 ||
-            apple_music_track_locator(message_rich_store_string(store, embed.url)).id.bytes != 0 ||
-            apple_music_collection_locator(message_rich_store_string(store, embed.url)).id.bytes != 0);
+    if (!embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail))
+        return false;
+    const Utf8View page = message_rich_store_string(store, embed.url);
+    return spotify_audio_locator(page).bytes != 0 || amazon_music_track_locator(page).id.bytes != 0 ||
+           apple_music_track_locator(page).id.bytes != 0 ||
+           apple_music_collection_locator(page).id.bytes != 0;
 }
 Utf8View message_rich_embed_provider_label(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
     if (apple_collection_url(store,embed).bytes) return utf8_literal("Apple Music · Preview");
-    return message_rich_embed_music_preview(store, embed)
-               ? (embed_provider(message_rich_store_string(store, embed.url)) == EmbedProvider::apple_music
-                      ? utf8_literal("Apple Music · Preview")
-                      : embed_provider(message_rich_store_string(store, embed.url)) == EmbedProvider::amazon_music
-                          ? utf8_literal("Amazon Music · Preview") : utf8_literal("Spotify · Preview"))
-                                                         : message_rich_store_string(store, embed.provider_name);
+    if (!message_rich_embed_music_preview(store, embed))
+        return message_rich_store_string(store, embed.provider_name);
+    const EmbedProvider provider = embed_provider(message_rich_store_string(store, embed.url));
+    return provider == EmbedProvider::apple_music    ? utf8_literal("Apple Music · Preview")
+           : provider == EmbedProvider::amazon_music ? utf8_literal("Amazon Music · Preview")
+                                                     : utf8_literal("Spotify · Preview");
 }
 bool message_rich_embed_media_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                      MessageRichEmbedMediaSelection* selection) noexcept {
@@ -756,15 +757,10 @@ bool message_rich_embed_suppresses_content(const MessageRichStore& store, const 
     if (content.bytes == 0 || rich.embed_count != 1 || !g_display.embeds || !g_display.embed_media) {
         return false;
     }
-    for (u32 index = 0; index < rich.embed_count; ++index) {
-        const MessageRichEmbed& embed = rich.embeds[index];
-        if ((embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::gifv) &&
-            message_rich_embed_media_only(embed) &&
-            utf8_equal(content, message_rich_store_string(store, embed.url))) {
-            return true;
-        }
-    }
-    return false;
+    const MessageRichEmbed& embed = rich.embeds[0];
+    return (embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::gifv) &&
+           message_rich_embed_media_only(embed) &&
+           utf8_equal(content, message_rich_store_string(store, embed.url));
 }
 
 bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selection, float available_width,
@@ -814,10 +810,7 @@ static float message_rich_embed_visual_height(const MessageRichStore& store, con
 }
 
 float message_rich_reaction_button_width(const MessageRichReaction& reaction) noexcept {
-    u32 digits = 1;
-    for (u32 count = reaction.count; count >= 10; count /= 10) {
-        ++digits;
-    }
+    const u32 digits = decimal_digits(reaction.count);
     // Reaction labels use the 14-DIP UI face; its tabular decimal advance is
     // estimated at 8 DIP and emoji occupy a 16-DIP media cell. This keeps layout
     // deterministic before the text pass measures the final glyphs.

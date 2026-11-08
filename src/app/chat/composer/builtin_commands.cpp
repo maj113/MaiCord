@@ -284,7 +284,7 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         // query sends the selected one (the first by default), waiting for
         // results still loading. With none to send the command is refused.
         bool handled = false;
-        if (!builtin_command_results_key(key::enter, &handled))
+        if (!application_media_picker_inline_key(key::enter, &handled))
             return BuiltinCommandRun::failed;
         return handled ? BuiltinCommandRun::results : BuiltinCommandRun::rejected;
     }
@@ -347,14 +347,12 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         return BuiltinCommandRun::handled;
     }
     case kick:
-        return moderate(Action::kick, options, channel_id) ? BuiltinCommandRun::handled
-                                                                     : BuiltinCommandRun::failed;
     case ban:
-        return moderate(Action::ban, options, channel_id) ? BuiltinCommandRun::handled
-                                                                    : BuiltinCommandRun::failed;
     case timeout:
-        return moderate(Action::timeout, options, channel_id) ? BuiltinCommandRun::handled
-                                                                        : BuiltinCommandRun::failed;
+        return moderate(command.id == kick ? Action::kick : command.id == ban ? Action::ban : Action::timeout,
+                        options, channel_id)
+                   ? BuiltinCommandRun::handled
+                   : BuiltinCommandRun::failed;
     default:
         return BuiltinCommandRun::failed;
     }
@@ -431,14 +429,10 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
         char nick_storage[256];
         Utf8View nick{};
         if (ok && body.bytes) {
-            auto& ui = *g_app.account_ui;
-            const auto scan = json_scan_structurals_avx1(
-                body, {ui.message_history_page_structurals, kMessageHistoryPageStructuralCount});
-            if (scan.ok()) {
-                const JsonIndexedDocument document{body, {ui.message_history_page_structurals, scan.count}};
-                command_json_text(command_member(document, {body, 0, JsonValueKind::object}, utf8_literal("nick")),
+            const auto parsed = parse_options(body);
+            if (parsed.ok)
+                command_json_text(command_member(parsed.document, {body, 0, JsonValueKind::object}, utf8_literal("nick")),
                                   {nick_storage, sizeof(nick_storage)}, &nick);
-            }
         }
         text = !ok ? (response.transport_ok() && response.status_code == 403
                           ? utf8_literal("You do not have the **Change Nickname** permission on this server.")
@@ -451,14 +445,10 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
     case Action::thread: {
         u64 id = 0;
         if (ok && body.bytes) {
-            auto& ui = *g_app.account_ui;
-            const auto scan = json_scan_structurals_avx1(
-                body, {ui.message_history_page_structurals, kMessageHistoryPageStructuralCount});
-            if (scan.ok())
+            const auto parsed = parse_options(body);
+            if (parsed.ok)
                 json_value_to_u64_or_string(
-                    command_member({body, {ui.message_history_page_structurals, scan.count}},
-                                   {body, 0, JsonValueKind::object}, utf8_literal("id")),
-                    &id);
+                    command_member(parsed.document, {body, 0, JsonValueKind::object}, utf8_literal("id")), &id);
         }
         // The first message goes to the thread once its channel arrives.
         if (id)
@@ -549,12 +539,5 @@ bool builtin_command_results(const ApplicationCommand* command, const Utf8View& 
     }
     return application_media_picker_inline(command->id == gif ? UiMediaPickerKind::gif : UiMediaPickerKind::sticker,
                                            ascii_trim(query), anchor);
-}
-
-bool builtin_command_results_key(u32 key, bool* handled) noexcept {
-    return application_media_picker_inline_key(key, handled);
-}
-Utf8View builtin_command_results_message() noexcept {
-    return application_media_picker_inline_message();
 }
 } // namespace maicord::app_detail

@@ -137,9 +137,7 @@ MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const Messag
     if (!file_bytes) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
-    for (u32 index = 0; index < sizeof(kMagic); ++index) {
-        file_bytes[index] = kMagic[index];
-    }
+    copy_bytes(file_bytes, kMagic, sizeof(kMagic));
     byte_store_le32(file_bytes + 8, kMessageDraftPersistenceVersion);
     byte_store_le32(file_bytes + 12, kHeaderBytes);
     byte_store_le32(file_bytes + 16, total);
@@ -234,11 +232,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
     const u32 file_size = read.bytes;
     file_guard.count = file_size;
-    bool magic = true;
-    for (u32 index = 0; index < sizeof(kMagic); ++index) {
-        magic = magic && file_bytes[index] == kMagic[index];
-    }
-    if (!magic) {
+    if (!bytes_equal(file_bytes, kMagic, sizeof(kMagic))) {
         return failure(MessageDraftPersistenceError::format);
     }
     const u32 version = byte_load_le32(file_bytes + 8);

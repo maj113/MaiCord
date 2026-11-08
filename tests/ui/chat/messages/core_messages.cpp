@@ -1593,11 +1593,11 @@ void test_message_text_presentation() noexcept {
                                                       : MessageTextHit{};
     bool hover_changed = false;
     bool reveal_changed = false;
-    const Utf8View link_source = message_text_presentation_hit_source(store, link_hit);
+    const Utf8View link_source = message_text_presentation_hit_source(store, nullptr, link_hit);
     const bool interactions_ready =
         utf8_equal(link_source, utf8_literal("https://discord.com")) &&
         message_text_presentation_set_hover(&presentation, link_hit, &hover_changed) &&
-        message_text_presentation_toggle_spoiler(&presentation, store, spoiler_hit, &reveal_changed);
+        message_text_presentation_toggle_spoiler(&presentation, store, nullptr, spoiler_hit, &reveal_changed);
     expect(link && spoiler, "message_text_projection_emits_semantics");
     expect(interactions_ready, "message_text_interactions_are_source_mapped");
     expect(hover_changed && reveal_changed && presentation.has_hover &&
@@ -1720,8 +1720,8 @@ void test_message_text_presentation() noexcept {
             .ok();
     bool stale_changed = true;
     expect(
-        record_updated && message_text_presentation_hit_source(store, link_hit).bytes == 0 &&
-            !message_text_presentation_toggle_spoiler(&presentation, store, spoiler_hit, &stale_changed) &&
+        record_updated && message_text_presentation_hit_source(store, nullptr, link_hit).bytes == 0 &&
+            !message_text_presentation_toggle_spoiler(&presentation, store, nullptr, spoiler_hit, &stale_changed) &&
             !stale_changed,
         "message_text_stale_interaction_revision_is_rejected");
 }

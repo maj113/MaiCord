@@ -7,15 +7,6 @@
 
 namespace maicord::app_detail {
 namespace {
-const MessageRecord* first_authoritative(const MessageStore& store) noexcept {
-    for (u32 index = 0; index < store.count; ++index) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, index));
-        if (record && record->delivery == MessageDeliveryState::authoritative)
-            return record;
-    }
-    return nullptr;
-}
-
 // The resident window begins at the channel's first message.
 bool window_at_channel_start(const ChannelRecord& channel) noexcept {
     if (g_app.pending_message_jump_message_id)
@@ -23,7 +14,7 @@ bool window_at_channel_start(const ChannelRecord& channel) noexcept {
     const MessageTimeline& timeline = g_app.message_view.timeline;
     const MessageHistoryCatchup& catchup = g_app.message_catchup;
     const MessageHistoryOlder& older = g_app.message_older;
-    const MessageRecord* first = first_authoritative(g_app.message_view.store);
+    const MessageRecord* first = message_timeline_authoritative_edge(g_app.message_view.store, false);
     const bool settled = catchup.channel_id == channel.id && message_history_browsing_ready(catchup.state);
     if (!first) // An empty channel (local sends only) once its latest page is known.
         return settled && catchup.state == MessageHistoryCatchupState::complete &&

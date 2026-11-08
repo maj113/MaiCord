@@ -15,17 +15,17 @@ using Field = protocol_detail::FieldValue;
 using protocol_detail::fields_n;
 
 struct Candidate {
-    JsonString url{};
-    u32 content{}, bitrate{}, width{}, height{};
-    bool combined{}, drc{};
+    JsonString url;
+    u32 content, bitrate, width, height;
+    bool combined, drc;
 };
 struct Selection {
     JsonIndexedDocument doc;
     Candidate video, audio, combined;
     u32 maximum_height, count;
 };
-struct TwitterMedia { JsonIndexedDocument doc; JsonValue selected{}; u8 index; u32 count{}; bool found{}; };
-struct TwitterVariants { JsonIndexedDocument doc; EmbedStream selected{}; u16 cap; u32 count{}; };
+struct TwitterMedia { JsonIndexedDocument doc; JsonValue selected; u8 index; u32 count; bool found; };
+struct TwitterVariants { JsonIndexedDocument doc; EmbedStream selected; u16 cap; u32 count; };
 
 bool id_chars(const Utf8View& id, bool dashes = false) noexcept;
 bool video_id(const Utf8View& id) noexcept;

@@ -134,9 +134,7 @@ bool initialize_store(MessageDraftStore* store, Slice<MessageDraftRecord> record
     store->text = text.data;
     store->capacity = records.count;
     store->text_capacity = text.count;
-    for (u32 index = 0; index < records.count; ++index) {
-        reset_value<MessageDraftRecord>(&records[index]);
-    }
+    clear_bytes(records.data, records.count * static_cast<u32>(sizeof(MessageDraftRecord)));
     if (clear_text)
         clear_bytes(text.data, text.count);
     return true;

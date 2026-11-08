@@ -75,8 +75,8 @@ struct HitContext {
     bool seen;
     bool valid;
     bool guild_seen;
-    JsonValue snapshots{};
-    bool snapshots_seen{};
+    JsonValue snapshots;
+    bool snapshots_seen;
 };
 
 bool visit_hit(void* opaque, JsonString name, JsonValue value) noexcept {

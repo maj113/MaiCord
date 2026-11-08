@@ -23,11 +23,11 @@ struct PageParse {
     Slice<ThreadBrowserPost> posts;
     Slice<char> text;
     u64 self;
-    u32 count{}, name_bytes{}, member_count{}, root_fields{}, text_bytes{};
-    u64 member_ids[kThreadBrowserSearchMaximumRows]{};
-    JsonValue threads{}, members{}, first_messages{};
-    bool has_more{};
-    ThreadBrowserError error{};
+    u32 count, name_bytes, member_count, root_fields, text_bytes;
+    u64 member_ids[kThreadBrowserSearchMaximumRows];
+    JsonValue threads, members, first_messages;
+    bool has_more;
+    ThreadBrowserError error;
 };
 bool reject(PageParse& page, ThreadBrowserError error) noexcept {
     page.error = error;
@@ -56,11 +56,11 @@ bool root_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 struct ThreadParse {
     PageParse* page;
-    ThreadBrowserRow row{};
-    ThreadBrowserPost post{};
-    JsonString name{};
-    JsonValue metadata{}, member{};
-    u32 seen{};
+    ThreadBrowserRow row;
+    ThreadBrowserPost post;
+    JsonString name;
+    JsonValue metadata, member;
+    u32 seen;
 };
 bool applied_tag(void* opaque, u32 index, JsonValue value) noexcept {
     auto& thread = *static_cast<ThreadParse*>(opaque);
@@ -123,7 +123,7 @@ bool thread_field(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return valid || reject(page, ThreadBrowserError::field);
 }
-struct MetadataParse { ThreadParse* thread; u8 seen{}; };
+struct MetadataParse { ThreadParse* thread; u8 seen; };
 bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& metadata = *static_cast<MetadataParse*>(opaque);
     auto& thread = *metadata.thread;
@@ -202,10 +202,10 @@ bool visit_thread(void* opaque, u32 index, JsonValue value) noexcept {
 // first_messages: one starter per page thread.
 struct AuthorParse {
     PageParse* page;
-    u64 id{};
-    JsonString username{}, global_name{}, avatar{};
-    u8 seen{};
-    bool global_known{}, avatar_known{};
+    u64 id;
+    JsonString username, global_name, avatar;
+    u8 seen;
+    bool global_known, avatar_known;
 };
 bool author_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& author = *static_cast<AuthorParse*>(opaque);
@@ -223,9 +223,9 @@ bool author_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 struct AttachmentParse {
     PageParse* page;
-    u64 id{}, width{}, height{};
-    JsonString content_type{}, url{};
-    u8 seen{};
+    u64 id, width, height;
+    JsonString content_type, url;
+    u8 seen;
 };
 bool attachment_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& attachment = *static_cast<AttachmentParse*>(opaque);
@@ -244,13 +244,13 @@ bool attachment_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 struct StarterParse {
     PageParse* page;
-    ThreadBrowserPost* post{};
-    u64 id{}, channel{};
-    JsonString content{};
-    JsonValue author{}, attachments{};
-    u32 media_url_bytes{};
-    u8 seen{};
-    bool media{};
+    ThreadBrowserPost* post;
+    u64 id, channel;
+    JsonString content;
+    JsonValue author, attachments;
+    u32 media_url_bytes;
+    u8 seen;
+    bool media;
     char media_url[kThreadBrowserPostMediaUrlMaximumBytes];
 };
 ThreadBrowserMediaType media_type(JsonString content_type) noexcept {
@@ -380,7 +380,7 @@ __declspec(noinline) bool visit_starter(void* opaque, u32 index, JsonValue value
     *post = candidate;
     return true;
 }
-struct MemberIdentity { PageParse* page; u64 id{}, user{}; u8 seen{}; };
+struct MemberIdentity { PageParse* page; u64 id, user; u8 seen; };
 bool member_identity(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& identity = *static_cast<MemberIdentity*>(opaque);
     const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "user_id">(name));
@@ -465,17 +465,16 @@ ThreadBrowserResult decode(
             if (byte_ranges_overlap(spans[at], spans[before])) return {0, ThreadBrowserError::input};
     }
     if (!utf8_validate(input).valid) return {0, ThreadBrowserError::input};
-    const auto query = request;
     const auto scanned = json_scan_structurals_avx1(input, structural_scratch);
     if (!scanned.ok()) return {0, scanned.error == JsonScanError::output_overflow
         ? ThreadBrowserError::capacity : ThreadBrowserError::json};
     PageParse page{};
     page.document = {input, {structural_scratch.data, scanned.count}};
-    page.request = query; page.rows = row_scratch; page.names = name_scratch; page.self = self_user_id;
+    page.request = request; page.rows = row_scratch; page.names = name_scratch; page.self = self_user_id;
     if (post_output) { page.posts = post_scratch; page.text = text_scratch; }
     if (!read_ok(page, json_visit_root_object(input, page.document.structurals, 32, root_field, &page)))
         return {0, page.error};
-    if (!(page.root_fields & 1) || (query.mode == ThreadBrowserMode::archived && !(page.root_fields & 4)))
+    if (!(page.root_fields & 1) || (page.request.mode == ThreadBrowserMode::archived && !(page.root_fields & 4)))
         return {0, ThreadBrowserError::field};
     if (!read_ok(page, json_visit_indexed_array(page.document, page.threads, 32, visit_thread, &page)))
         return {0, page.error};
@@ -487,15 +486,15 @@ ThreadBrowserResult decode(
         return {0, page.error};
     // Search does not expose pagination even if an unknown future server adds
     // has_more. The name-search action consumes one complete result.
-    const bool paged = query.mode != ThreadBrowserMode::search;
+    const bool paged = page.request.mode != ThreadBrowserMode::search;
     if (paged && page.has_more && !page.count)
         return {0, ThreadBrowserError::field};
     // The last reachable page still contains usable rows when the server has
     // more than 10,000 results. Stop local offset pagination without losing it.
     const bool continuation_reachable = paged &&
-        query.offset <= kThreadBrowserMaximumOffset - kThreadBrowserArchivedLimit;
+        page.request.offset <= kThreadBrowserMaximumOffset - kThreadBrowserArchivedLimit;
     *output = {row_scratch, name_scratch, page.count, page.name_bytes,
-        continuation_reachable ? query.offset + kThreadBrowserArchivedLimit : 0,
+        continuation_reachable ? page.request.offset + kThreadBrowserArchivedLimit : 0,
         continuation_reachable && page.has_more, {}};
     if (post_output) *post_output = {post_scratch, text_scratch, page.count, page.text_bytes};
     return {input.bytes};

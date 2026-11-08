@@ -63,8 +63,7 @@ u32 next_boundary(const MessageComposer& composer, u32 position) noexcept {
 }
 
 bool text_boundary(const MessageComposer& composer, u32 position) noexcept {
-    return position <= composer.bytes && (position == 0 || position == composer.bytes ||
-                                          (static_cast<u8>(composer.text[position]) & 0xC0u) != 0x80u);
+    return utf8_is_boundary({composer.text, composer.bytes}, position);
 }
 
 bool usable(const MessageComposer* composer) noexcept {
@@ -243,9 +242,7 @@ bool message_composer_restore(MessageComposer* composer, u64 channel_id, const U
     const Utf8View text = text_view; // the composer is written below
     if (!composer || !composer->text || (!text.data && text.bytes != 0) ||
         text.bytes > composer->capacity || anchor > text.bytes || caret > text.bytes ||
-        !utf8_validate(text).valid ||
-        (anchor != 0 && anchor != text.bytes && (static_cast<u8>(text.data[anchor]) & 0xC0u) == 0x80u) ||
-        (caret != 0 && caret != text.bytes && (static_cast<u8>(text.data[caret]) & 0xC0u) == 0x80u)) {
+        !utf8_validate(text).valid || !utf8_is_boundary(text, anchor) || !utf8_is_boundary(text, caret)) {
         return false;
     }
     const u64 source_begin = reinterpret_cast<u64>(text.data);
@@ -323,17 +320,8 @@ u32 message_composer_codepoints(const MessageComposer& composer) noexcept {
     if (!composer.text || composer.bytes > composer.capacity) {
         return ~0u;
     }
-    u32 count = 0;
-    u32 offset = 0;
-    while (offset < composer.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(composer.text + offset, composer.bytes - offset);
-        if (!decoded.valid) {
-            return ~0u;
-        }
-        offset += decoded.width;
-        ++count;
-    }
-    return count;
+    const auto validated = utf8_validate({composer.text, composer.bytes});
+    return validated.valid ? validated.codepoints : ~0u;
 }
 
 MessageComposerResult message_composer_insert_scalar(MessageComposer* composer, u32 codepoint, u64 time_ms) noexcept {

@@ -559,6 +559,13 @@ float framed_width(const MessageTextCommand& command) noexcept {
     return command.measured_width + (message_text_command_code_block(command) ? 2.0f * kMessageCodeBlockInset : 0.0f);
 }
 
+// Whether the pointer rests on the embed link addressed by `scoped` in this message.
+bool embed_link_hovered(const MessageTextPresentation& presentation, u64 message_id, u32 scoped) noexcept {
+    return presentation.has_hover && presentation.hovered_message_id == message_id &&
+           presentation.hovered_kind == MessageMarkdownSemanticKind::link &&
+           presentation.hovered_source_offset == scoped;
+}
+
 } // namespace
 // The widest framed command from `first` on, each plus `inset`, or `widest`.
 float widest_framed(const MessageTextPresentation* presentation, u32 first, float inset, float widest) noexcept {
@@ -580,11 +587,9 @@ bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiText
         return fail(presentation, MessageTextPresentationError::model);
     if (text.bytes == 0)
         return true;
-    const u64 message_id = context->message->id;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
     const u32 scoped = linked ? scoped_source_offset(link_source, 0) : 0;
-    if (linked && presentation->has_hover && presentation->hovered_message_id == message_id &&
-        presentation->hovered_kind == MessageMarkdownSemanticKind::link && presentation->hovered_source_offset == scoped)
+    if (linked && embed_link_hovered(*presentation, context->message->id, scoped))
         flags |= text_style_underline | text_style_interactive_hover;
     ConstSlice<TextStyleSpan> styles{};
     ConstSlice<MessageMarkdownSemantic> semantics{};
@@ -631,11 +636,9 @@ bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlo
                                        identify_rich_source(*context, source), base_size);
     }
     MessageTextPresentation* const presentation = context->presentation;
-    const u64 message_id = context->message->id;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
     const u32 scoped = linked ? scoped_source_offset(link_source, 0) : 0;
-    if (linked && presentation->has_hover && presentation->hovered_message_id == message_id &&
-        presentation->hovered_kind == MessageMarkdownSemanticKind::link && presentation->hovered_source_offset == scoped)
+    if (linked && embed_link_hovered(*presentation, context->message->id, scoped))
         base_style |= text_style_underline | text_style_interactive_hover;
     context->markdown_rules = rules;
     const u32 command_before = presentation->command_count;
@@ -752,8 +755,7 @@ Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecor
             continue;
         const u32 end = static_cast<u32>(embed.field_begin) + embed.field_count;
         for (u32 f = embed.field_begin; f < end && f < rich.embed_field_count; ++f) {
-            const Utf8View key = message_rich_store_string(store, rich.embed_fields[f].name);
-            if (key.bytes == name.bytes && bytes_equal(key.data, name.data, name.bytes))
+            if (utf8_equal(message_rich_store_string(store, rich.embed_fields[f].name), name))
                 return message_rich_store_string(store, rich.embed_fields[f].value);
         }
     }

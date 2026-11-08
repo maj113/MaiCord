@@ -229,8 +229,10 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {
     if (owner != PopupOwnerKind::none && owner != PopupOwnerKind::autocomplete && owner != PopupOwnerKind::commands)
         application_composer_text_input_suspend();
     ui_button_keyboard_cancel(&g_app.button_keyboard);
-    if (owner != g_app.popup_owner_kind) message_composer_break_history_run(&g_app.message_composer);
-    if (owner != g_app.popup_owner_kind) ui_scroll_host_cancel(&g_app.scroll_host);
+    if (owner != g_app.popup_owner_kind) {
+        message_composer_break_history_run(&g_app.message_composer);
+        ui_scroll_host_cancel(&g_app.scroll_host);
+    }
     if (g_app.popup_owner_kind == PopupOwnerKind::message && owner != PopupOwnerKind::message) {
         message_context_controller_close(&g_app.message_context);
     }

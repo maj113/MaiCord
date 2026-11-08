@@ -26,6 +26,15 @@ static const MessageSceneRowWidget* command_row(const MessageScene& scene, const
                : nullptr;
 }
 
+// The quoted author's avatar left of a reply line; none in the compact display (a reply badge instead).
+static UiRect reply_avatar(const MessageScene& scene, const UiRect& line) noexcept {
+    if (scene.display.compact)
+        return {};
+    const float left = line.left - kMessageReplyTextInset, cy = (line.top + line.bottom) * .5f;
+    return {left, cy - kMessageInteractionAvatar * .5f, left + kMessageInteractionAvatar,
+            cy + kMessageInteractionAvatar * .5f};
+}
+
 bool message_interaction_layout(const MessageScene& scene, const MessageTextCommand& command,
                                 const UserStore& users, UiTextMeasureCache* cache, const Theme& theme,
                                 MessageInteractionLayout* out) noexcept {
@@ -173,14 +182,7 @@ MessageInteractionHit message_interaction_hit_test(const MessageScene& scene,
                                                layout.channel_id, rectangle}
                        : MessageInteractionHit{};
         };
-        const float cy = (command.rectangle.top + command.rectangle.bottom) * .5f;
-        // The compact display shows a reply badge, not an avatar.
-        const UiRect avatar = scene.display.compact
-                                  ? UiRect{}
-                                  : UiRect{command.rectangle.left - kMessageReplyTextInset,
-                                           cy - kMessageInteractionAvatar * .5f,
-                                           command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
-                                           cy + kMessageInteractionAvatar * .5f};
+        const UiRect avatar = reply_avatar(scene, command.rectangle);
         const UiRect command_rectangle = ui_rect_has_area(layout.chip) ? layout.chip : layout.command.rectangle;
         const MessageInteractionHit hits[4]{
             at(MessageInteractionTarget::avatar, avatar),
@@ -247,17 +249,11 @@ MessageInteractionHit message_reply_author_hit_test(const MessageScene& scene,
                           true},
                          &value)
                          .ok();
-        const float cy = (command.rectangle.top + command.rectangle.bottom) * .5f;
+        const UiRect avatar = reply_avatar(scene, command.rectangle);
         const UiRect name_rectangle{command.rectangle.left, command.rectangle.top,
                                     minimum(command.rectangle.right,
                                             command.rectangle.left + (measured ? value.size.width + 2.0f : name.bytes * 8.0f)),
                                     command.rectangle.bottom};
-        const UiRect avatar = scene.display.compact
-                                  ? UiRect{}
-                                  : UiRect{command.rectangle.left - kMessageReplyTextInset,
-                                           cy - kMessageInteractionAvatar * .5f,
-                                           command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
-                                           cy + kMessageInteractionAvatar * .5f};
         const UiRect hit_rectangle = ui_rect_contains(avatar, x, y) ? avatar : name_rectangle;
         if (ui_rect_contains(ui_rect_intersection(hit_rectangle, command.clip), x, y))
             return {ui_rect_contains(avatar, x, y) ? MessageInteractionTarget::avatar : MessageInteractionTarget::name,

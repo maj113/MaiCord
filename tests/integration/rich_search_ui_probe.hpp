@@ -433,7 +433,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         surface_motion_probe_detail::Readback rb{};
         if (!require(read(renderer,theme,rb,0),80) || !require(pixels(f,renderer,theme,rb,0,1),8)) return false;
         bool changed{};
-        if (!require(message_text_presentation_toggle_spoiler(&f.presentation,f.published,spoiler.hit,&changed) && changed &&
+        if (!require(message_text_presentation_toggle_spoiler(&f.presentation,f.published,nullptr,spoiler.hit,&changed) && changed &&
             show(L"rich-search-mixed-revealed.bmp") && read(renderer,theme,rb,1) &&
             semantic(renderer,f,MessageMarkdownSemanticKind::link,utf8_literal("https://original.example/private")).hit.valid,9)) return false;
         const UiRect area{spoiler.point.x - 8,spoiler.point.y - 6,spoiler.point.x + 8,spoiler.point.y + 6};

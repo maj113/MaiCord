@@ -121,8 +121,8 @@ static void apply_style(Parser* parser, u32 begin, u32 end, u32 style) noexcept 
 
 namespace {
 bool ascii_identifier(char value) noexcept {
-    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || ascii_is_digit(value) ||
-           value == '_' || value == '-' || value == '+' || value == '.' || value == '#';
+    return ascii_is_alnum(value) || value == '_' || value == '-' || value == '+' || value == '.' ||
+           value == '#';
 }
 void remove_output(Parser* parser, u32 offset, u32 bytes) noexcept {
     if (bytes == 0 || offset > parser->output_bytes || bytes > parser->output_bytes - offset) {
@@ -153,16 +153,13 @@ void remove_output(Parser* parser, u32 offset, u32 bytes) noexcept {
         }
     }
 }
-bool valid_code_language(const Parser& parser, u32 begin, u32 end) noexcept {
-    if (begin >= end || end - begin > 32) {
+// A fence's language tag: 1-32 identifier bytes, a trailing CR allowed.
+bool valid_code_language(const char* tag, u32 bytes) noexcept {
+    if (bytes == 0 || bytes > 32) {
         return false;
     }
-    for (u32 offset = begin; offset < end; ++offset) {
-        const char value = parser.output[offset];
-        if (value == '\r' && offset + 1 == end) {
-            continue;
-        }
-        if (!ascii_identifier(value)) {
+    for (u32 offset = 0; offset < bytes; ++offset) {
+        if (!ascii_identifier(tag[offset]) && !(tag[offset] == '\r' && offset + 1 == bytes)) {
             return false;
         }
     }
@@ -242,11 +239,8 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
         if (delimiter.kind == DelimiterKind::code && delimiter.marker_bytes == 3) {
             u32 newline = closure.content_begin;
             while (newline < parser->input_offset && parser->input.data[newline] != '\n') ++newline;
-            bool valid = newline > closure.content_begin && newline - closure.content_begin <= 32;
-            for (u32 offset = closure.content_begin; valid && offset < newline; ++offset) {
-                const char value = parser->input.data[offset];
-                valid = ascii_identifier(value) || (value == '\r' && offset + 1 == newline);
-            }
+            const bool valid = valid_code_language(parser->input.data + closure.content_begin,
+                                                   newline - closure.content_begin);
             if (newline < parser->input_offset && valid) {
                 closure.language = code_language_from_tag({parser->input.data + closure.content_begin,
                     newline - closure.content_begin});
@@ -278,7 +272,8 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
         while (newline < parser->output_bytes && parser->output[newline] != '\n') {
             ++newline;
         }
-        if (newline < parser->output_bytes && valid_code_language(*parser, content_begin, newline)) {
+        if (newline < parser->output_bytes &&
+            valid_code_language(parser->output.data + content_begin, newline - content_begin)) {
             language = code_language_from_tag(
                 Utf8View{parser->output.data + content_begin, newline - content_begin});
             remove_output(parser, content_begin, newline - content_begin + 1);
@@ -366,17 +361,12 @@ bool valid_url(Utf8View input, u32 begin, u32 end) noexcept {
     if (begin >= end || end - begin > 2'048) {
         return false;
     }
-    constexpr const char* schemes[] = {"https://", "http://", "discord://"};
-    static constexpr u32 lengths[] = {8, 7, 10};
+    static constexpr Utf8View schemes[]{utf8_literal("https://"), utf8_literal("http://"),
+                                        utf8_literal("discord://")};
     bool scheme = false;
-    for (u32 item = 0; item < 3; ++item) {
-        if (lengths[item] <= end - begin) {
-            bool equal = true;
-            for (u32 index = 0; index < lengths[item]; ++index) {
-                equal = equal && input.data[begin + index] == schemes[item][index];
-            }
-            scheme = scheme || equal;
-        }
+    for (const Utf8View& prefix : schemes) {
+        const bool fits = prefix.bytes <= end - begin;
+        scheme = scheme || (fits && bytes_equal(input.data + begin, prefix.data, prefix.bytes));
     }
     if (!scheme) {
         return false;
@@ -752,13 +742,7 @@ bool channel_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
 
 bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
     char digits[20];
-    const u32 count = decimal_write(digits, value);
-    for (u32 index = 0; index < count; ++index) {
-        if (!emit_byte(parser, digits[index], style)) {
-            return false;
-        }
-    }
-    return true;
+    return emit_view(parser, {digits, decimal_write(digits, value)}, style);
 }
 
 // Chip icon cells are measured spaces the renderer draws the icon over: an em
@@ -1180,7 +1164,7 @@ bool try_emit_timestamp(Parser* parser, u32 begin, u32 end, bool* matched) noexc
     if (!decimal_u64(parser->input, begin + 3, digits_end, &seconds)) {
         return true;
     }
-    char formatted[kMessageMarkdownTimestampMaximumBytes]{};
+    char formatted[kMessageMarkdownTimestampMaximumBytes]; // the formatter writes the bytes it reports
     const TimestampFormatResult result =
         parser->options->format_timestamp(parser->options->context, seconds, style_character,
                                           Slice<char>{formatted, kMessageMarkdownTimestampMaximumBytes});
@@ -1223,8 +1207,8 @@ bool command_mention_name(Utf8View input, u32 begin, u32 end) noexcept {
             length = 0;
             continue;
         }
-        const bool word = ascii_is_digit(static_cast<char>(value)) || (value >= 'a' && value <= 'z') ||
-                          (value >= 'A' && value <= 'Z') || value == '-' || value == '_' || value >= 0x80u;
+        const bool word =
+            ascii_is_alnum(static_cast<char>(value)) || value == '-' || value == '_' || value >= 0x80u;
         if (!word)
             return false;
         // Continuation bytes do not start a new code point.
@@ -1324,12 +1308,8 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             // U+FFFC reserves one shaped inline-object cell.  The renderer
             // suppresses its glyph and places the atlas emoji in this semantic
             // cell, so the raw <:name:id> token is never exposed visually.
-            static constexpr char replacement[] = {'\xEF', '\xBF', '\xBC'};
-            for (u32 byte = 0; byte < 3; ++byte) {
-                if (!emit_byte(parser, replacement[byte], text_style_custom_emoji)) {
-                    return false;
-                }
-            }
+            if (!emit_view(parser, utf8_literal("\xEF\xBF\xBC"), text_style_custom_emoji))
+                return false;
             const bool animated = parser->input.data[begin + 1] == 'a';
             if (!append_semantic(parser, MessageMarkdownSemanticKind::custom_emoji, emoji_id, display_begin,
                                  3, begin, end + 1 - begin, animated ? 1u : 0u)) {
@@ -1381,8 +1361,7 @@ bool word_boundary_after(Utf8View input, u32 offset) noexcept {
         return true;
     }
     const char value = input.data[offset];
-    return !((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || ascii_is_digit(value) ||
-             value == '_');
+    return !(ascii_is_alnum(value) || value == '_');
 }
 
 } // namespace
@@ -1419,14 +1398,8 @@ bool invite_starts(Utf8View input, u32 at, const char* text) noexcept {
             return false;
     return true;
 }
-u32 invite_literal_bytes(const char* text) noexcept {
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
-    return bytes;
-}
 bool invite_code_byte(char c) noexcept {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || ascii_is_digit(c) || c == '-';
+    return ascii_is_alnum(c) || c == '-';
 }
 bool invite_url_byte(char c) noexcept {
     return static_cast<u8>(c) > 0x20 && c != '<' && c != '>' && c != '"' && c != '`';
@@ -1447,7 +1420,7 @@ bool invite_link_at(Utf8View input, u32 begin, InviteLink* link) noexcept {
                                              "discordapp.com"};
     bool host = false;
     for (u32 h = 0; h < 5 && !host; ++h) {
-        const u32 bytes = invite_literal_bytes(kHosts[h]);
+        const u32 bytes = c_string_length(kHosts[h]);
         if (invite_starts(input, at, kHosts[h]) && at + bytes < input.bytes && input.data[at + bytes] == '/') {
             short_host = h == 0;
             at += bytes;

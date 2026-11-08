@@ -35,12 +35,12 @@ void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noe
         test_contains(muted_output, utf8_literal(R"("attachments":[)")) &&
         test_contains(muted_output, utf8_literal(R"("sticker_ids":["123"])")),
         "reply author mention can be disabled without suppressing explicit mentions attachments or stickers");
-    const auto muted_text = write_message_create_body(utf8_literal("reply"), 102, 7, 8,
+    const auto muted_text = write_message_create_body(utf8_literal("reply"), 102, 7, 8, {}, {},
         {body, sizeof(body)}, false);
-    check(muted_text.ok() && test_contains({reinterpret_cast<const char*>(body), muted_text.bytes}, utf8_literal(R"("replied_user":false)")), "reply-only writer overload carries explicit author mention policy");
+    check(muted_text.ok() && test_contains({reinterpret_cast<const char*>(body), muted_text.bytes}, utf8_literal(R"("replied_user":false)")), "reply-only body carries explicit author mention policy");
     const auto muted_attachment = write_message_create_body({}, 103, 7, 8,
-        {&file, 1}, {body, sizeof(body)}, false);
-    check(muted_attachment.ok() && test_contains({reinterpret_cast<const char*>(body), muted_attachment.bytes}, utf8_literal(R"("replied_user":false)")), "attachment-only reply writer carries explicit author mention policy");
+        {&file, 1}, {}, {body, sizeof(body)}, false);
+    check(muted_attachment.ok() && test_contains({reinterpret_cast<const char*>(body), muted_attachment.bytes}, utf8_literal(R"("replied_user":false)")), "attachment-only reply body carries explicit author mention policy");
     const u64 invalid[]{0, 123, 123, 456};
     body[0] = 0xa5;
     check(write_message_create_body({}, 99, 0, 0, {}, {invalid, 1}, {body, sizeof(body)}).error ==

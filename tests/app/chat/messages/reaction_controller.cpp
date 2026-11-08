@@ -3,6 +3,23 @@
 
 namespace maicord {
 namespace reaction_controller_probe {
+MessageReactionOutcome message_reaction_controller_queue(MessageReactionController* controller,
+                                                         const MessageReactionTarget& target,
+                                                         MessageReactionSource source,
+                                                         MessageReactionAuthority authority, bool desired,
+                                                         u64 now_ms) noexcept {
+    MessageReactionOutcome result;
+    maicord::message_reaction_controller_queue(&result, controller, target, source, authority, desired, now_ms);
+    return result;
+}
+MessageReactionOutcome message_reaction_controller_complete(
+    MessageReactionController* controller, MessageReactionTicket ticket, MessageReactionCompletion completion,
+    u64 now_ms, u64 retry_at_ms = 0, MessageReactionRetryScope scope = MessageReactionRetryScope::intent) noexcept {
+    MessageReactionOutcome result;
+    maicord::message_reaction_controller_complete(&result, controller, ticket, completion, now_ms, retry_at_ms,
+                                                  scope);
+    return result;
+}
 struct Fixture {
     MessageReactionController controller{};
     MessageReactionIntent storage[kMessageReactionMaximumIntents]{};

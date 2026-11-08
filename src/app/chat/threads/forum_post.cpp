@@ -390,10 +390,9 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
         if (!old->occupied || old->parent_id != receipt.parent_id || old->guild_id != receipt.guild_id ||
             old->type != receipt.type || !old->thread_archived_known || !old->thread_locked_known)
             return false;
-        owner.known_created = receipt.id;
     } else {
         ChannelInput input{};
-        if (!application_thread_creation_receipt_input(receipt, application_channel_record(receipt.id), &input) ||
+        if (!application_thread_creation_receipt_input(receipt, nullptr, &input) ||
             chat_state_store_preflight_channel(state, input) != ChatStateStoreError::none ||
             !chat_state_store_upsert_channel(&state, input).ok())
             return false;

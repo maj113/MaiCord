@@ -84,7 +84,7 @@ bool saved_misspelling(const ComposerSpellcheck& s, u64 hash) noexcept {
 PassResult pass(ComposerSpellcheck* s, const ComposerSpellcheckDocument& document, u32 budget,
                 bool retain_marks = true) noexcept {
     TextCompositionSpan next[kComposerSpellcheckSpanCapacity]{};
-    u64 next_hashes[kComposerSpellcheckSpanCapacity]{};
+    u64 next_hashes[kComposerSpellcheckSpanCapacity]; // [0, count) written before read
     u32 count = 0;
     u32 first_unchecked = document.text.bytes;
     bool pending = false;
@@ -152,7 +152,7 @@ PassResult pass(ComposerSpellcheck* s, const ComposerSpellcheckDocument& documen
         copy_bytes(s->spans, next, count * sizeof(next[0]));
         s->span_count = count;
     }
-    copy_bytes(s->span_hashes, next_hashes, sizeof(next_hashes));
+    copy_bytes(s->span_hashes, next_hashes, count * sizeof(next_hashes[0]));
     if (!count)
         s->saved_marks_may_be_evicted = false;
     return {changed, pending};

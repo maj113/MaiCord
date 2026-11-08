@@ -41,8 +41,8 @@ enum class ThreadCreationError : u8 {
     field
 };
 struct ThreadCreationResult {
-    u32 bytes{};
-    ThreadCreationError error{};
+    u32 bytes;
+    ThreadCreationError error;
     constexpr bool ok() const noexcept {
         return error == ThreadCreationError::none;
     }

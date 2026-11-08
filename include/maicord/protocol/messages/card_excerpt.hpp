@@ -6,11 +6,11 @@
 namespace maicord {
 inline constexpr u32 kMessageCardExcerptMaximumBytes = 1024;
 struct MessageCardExcerptInput {
-    Utf8View outer{}, quoted{};
-    bool forwarded{}, summarize_media{};
-    u32 attachments{}, embeds{}, stickers{}, components{};
+    Utf8View outer, quoted;
+    bool forwarded, summarize_media;
+    u32 attachments, embeds, stickers, components;
 };
-struct MessageCardExcerptResult { u16 bytes{}; bool truncated{}; u16 quoted_offset{}, quoted_bytes{}; };
+struct MessageCardExcerptResult { u16 bytes; bool truncated; u16 quoted_offset, quoted_bytes; };
 // A card summary is plain text, never a conversation event or mention parser.
 // Reserve room for the quoted portion when an outer caption is also present.
 __declspec(noinline) inline MessageCardExcerptResult message_card_excerpt(
@@ -46,8 +46,8 @@ __declspec(noinline) inline MessageCardExcerptResult message_card_excerpt(
     if (media) {
         if (used) append(utf8_literal("\n"), capacity - used);
         const u32 counts[]{input.attachments, input.embeds, input.stickers, input.components};
-        const Utf8View singular[]{utf8_literal("attachment"), utf8_literal("embed"), utf8_literal("sticker"), utf8_literal("component")};
-        const Utf8View plural[]{utf8_literal("attachments"), utf8_literal("embeds"), utf8_literal("stickers"), utf8_literal("components")};
+        static constexpr Utf8View names[]{utf8_literal("attachment"), utf8_literal("embed"), utf8_literal("sticker"),
+                                          utf8_literal("component")};
         bool first = true;
         for (u32 at = 0; at < 4; ++at) {
             if (!counts[at]) continue;
@@ -56,7 +56,8 @@ __declspec(noinline) inline MessageCardExcerptResult message_card_excerpt(
             char digits[10];
             append({digits, decimal_write(digits, counts[at])}, capacity - used);
             append(utf8_literal(" "), capacity - used);
-            append(counts[at] == 1 ? singular[at] : plural[at], capacity - used);
+            append(names[at], capacity - used);
+            if (counts[at] != 1) append(utf8_literal("s"), capacity - used);
         }
     }
     return {static_cast<u16>(used), truncated, quoted_offset, quoted_bytes};

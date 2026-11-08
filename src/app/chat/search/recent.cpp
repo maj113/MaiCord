@@ -2,6 +2,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -81,13 +82,14 @@ u32 search_recent_encode(const SearchRecentList& list, Slice<u8> output) noexcep
         return 0;
     for (u32 i = 0; i < list.count; ++i) {
         const auto entry = search_recent_entry(list, i);
-        const u8 length[] = {static_cast<u8>(entry.bytes), static_cast<u8>(entry.bytes >> 8)};
+        u8 length[2];
+        byte_store_le16(length, static_cast<u16>(entry.bytes));
         if (!text_valid(entry) || !put(length, 2) || !put(entry.data, entry.bytes))
             return 0;
     }
     const u32 hash = hash32_bytes(output.data, used);
-    const u8 tail[] = {static_cast<u8>(hash), static_cast<u8>(hash >> 8), static_cast<u8>(hash >> 16),
-                       static_cast<u8>(hash >> 24)};
+    u8 tail[4];
+    byte_store_le32(tail, hash);
     return put(tail, 4) ? used : 0;
 }
 
@@ -95,8 +97,7 @@ bool search_recent_decode(ConstSlice<u8> input, SearchRecentList* list) noexcept
     if (!list || !input.data || input.count < 10 || input.count > kSearchRecentFileBytes)
         return false;
     const u32 body = input.count - 4;
-    const u32 stored = input[body] | (u32{input[body + 1]} << 8) | (u32{input[body + 2]} << 16) |
-                       (u32{input[body + 3]} << 24);
+    const u32 stored = byte_load_le32(input.data + body);
     if (!bytes_equal(input.data, kMagic, 4) || input[4] != kVersion || input[5] > kSearchRecentCapacity ||
         stored != hash32_bytes(input.data, body))
         return false;
@@ -105,7 +106,7 @@ bool search_recent_decode(ConstSlice<u8> input, SearchRecentList* list) noexcept
     for (u32 i = 0; i < input[5]; ++i) {
         if (body - at < 2)
             return false;
-        const u32 bytes = input[at] | (u32{input[at + 1]} << 8);
+        const u32 bytes = byte_load_le16(input.data + at);
         at += 2;
         const Utf8View text{reinterpret_cast<const char*>(input.data + at), bytes};
         if (bytes > body - at || !text_valid(text))

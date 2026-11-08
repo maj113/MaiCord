@@ -6,6 +6,7 @@
 #include "../messages/send.hpp"
 #include "text_form.hpp"
 #include "attachments.hpp"
+#include "../../media/picker.hpp"
 #include "../../account/user_actions.hpp"
 #include "maicord/protocol/messages/interaction.hpp"
 #include "maicord/core/hash.hpp"
@@ -301,7 +302,7 @@ bool application_commands_send(bool* handled) noexcept {
             return c.selected.command ? reopen() : true;
         // ...and with none to send the draft stays, the app shakes and the bar says why.
         if (run == BuiltinCommandRun::rejected) {
-            c.error = builtin_command_results_message();
+            c.error = application_media_picker_inline_message();
             shake_app();
             return reopen() && refresh_message_composer_ui();
         }
@@ -532,9 +533,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
         return refresh_message_composer_ui();
     if (c.operation == 3) {
         c.suggestions_dirty =
-            command_autocomplete_transport(&c.autocomplete, c.issued_nonce,
-                                           response.transport_ok() && response.status_code >= 200 &&
-                                               response.status_code < 300) ||
+            command_autocomplete_transport(&c.autocomplete, c.issued_nonce, response.succeeded()) ||
             c.suggestions_dirty;
         return application_commands_tick(clock_monotonic_milliseconds());
     }
@@ -568,7 +567,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
         c.sending = false;
         // Uploads a command took are spent either way (no resend with files).
         application_attachment_complete(c.issued_nonce);
-        if (!response.transport_ok() || response.status_code < 200 || response.status_code >= 300) {
+        if (!response.succeeded()) {
             log_u64(LogLevel::warning, "commands", "command_status", response.status_code);
             CommandInteractionFailure failure{};
             char message[512];
@@ -745,7 +744,7 @@ bool application_commands_key(u32 key) noexcept {
     if (!c.selected.command)
         return picker_key(c, key);
     bool handled = false;
-    if (!builtin_command_results_key(key, &handled))
+    if (!application_media_picker_inline_key(key, &handled))
         return false;
     if (handled)
         return true;
@@ -855,7 +854,7 @@ bool application_commands_builtin_used(Utf8View replacement) noexcept {
 bool application_commands_results_refused() noexcept {
     if (!commands || !commands->selected.command)
         return true;
-    commands->error = builtin_command_results_message();
+    commands->error = application_media_picker_inline_message();
     shake_app();
     return render() && refresh_message_composer_ui();
 }
@@ -907,6 +906,27 @@ void application_commands_gateway(Utf8View body) noexcept {
                                                        kMessageHistoryPageStructuralCount}) ||
                           c.suggestions_dirty;
 }
+namespace {
+// An index is going: a selection pointing into it ends, the picker's projection
+// (which borrows every index) goes and the catalog is published again.
+void drop_index(Commands& c, const CommandIndex* index) noexcept {
+    if (c.selected.index == index) {
+        reset_value(&c.selected);
+        reset_value(&c.focused_option);
+        c.choice_count = c.option_count = 0;
+        command_autocomplete_cancel(&c.autocomplete);
+    }
+    arena_release(&c.projection);
+    c.entries = nullptr;
+    c.rail = c.body = nullptr;
+    c.count = c.rail_count = c.body_count = 0;
+    c.filter_app = 0;
+    c.revision = 0;
+    c.catalog_dirty = true;
+    ++c.catalog_revision;
+    ++c.generation;
+}
+} // namespace
 void application_commands_invalidate_guild(u64 guild_id) noexcept {
     if (!guild_id || !commands || !commands->channel || (commands->guild && commands->guild != guild_id))
         return;
@@ -919,32 +939,14 @@ void application_commands_invalidate_guild(u64 guild_id) noexcept {
         c.retry_at = 0;
         c.indexing_retry = false;
     }
-    if (c.selected.index == &c.index[0]) {
-        reset_value(&c.selected);
-        reset_value(&c.focused_option);
-        c.choice_count = c.option_count = 0;
-        command_autocomplete_cancel(&c.autocomplete);
-    }
+    drop_index(c, &c.index[0]);
     // Visible context-menu labels can still borrow this arena. Retire it until
     // post-drain UI refresh, while making the stale commands unselectable now.
     if (c.index[0].storage.base)
         c.retired_index_storage = c.index[0].storage;
     reset_value(&c.index[0]);
-    arena_release(&c.projection);
-    c.entries = nullptr;
-    c.rail = c.body = nullptr;
-    c.count = c.rail_count = c.body_count = 0;
-    c.filter_app = 0;
-    c.revision = 0;
-    c.catalog_dirty = true;
-    ++c.catalog_revision;
-    ++c.generation;
     // This close is a cache refresh, not a dismissal of the unchanged draft.
-    const u64 dismissed_document = c.dismissed_document;
-    const u32 dismissed_revision = c.dismissed_revision;
-    close_popup();
-    c.dismissed_document = dismissed_document;
-    c.dismissed_revision = dismissed_revision;
+    hide_popup();
 }
 bool application_commands_tick(u64 now) noexcept {
     if (!commands)
@@ -953,22 +955,8 @@ bool application_commands_tick(u64 now) noexcept {
     shake_step(now);
     // Plugins were enabled or disabled: what points into their index goes, then the index is rebuilt.
     if (plugin_commands_changed()) {
-        if (c.selected.index == plugin_commands_storage()) {
-            reset_value(&c.selected);
-            reset_value(&c.focused_option);
-            c.choice_count = c.option_count = 0;
-            command_autocomplete_cancel(&c.autocomplete);
-        }
-        arena_release(&c.projection);
-        c.entries = nullptr;
-        c.rail = c.body = nullptr;
-        c.count = c.rail_count = c.body_count = 0;
-        c.filter_app = 0;
-        c.revision = 0;
-        ++c.generation;
+        drop_index(c, plugin_commands_storage());
         plugin_commands_refresh();
-        c.catalog_dirty = true;
-        ++c.catalog_revision;
     }
     // A /msg or /thread message goes out once its channel is there.
     if (!builtin_commands_tick())

@@ -144,28 +144,24 @@ bool parse_cache_control(ResponseFields* fields, ConstSlice<u8> value) noexcept 
 
 bool response_field_visitor(void* context, HttpField field) noexcept {
     ResponseFields* fields = static_cast<ResponseFields*>(context);
-    if (name_equal(field.name, "content-type")) {
-        if (fields->has_content_type) {
+    // Headers kept as they are, each at most once.
+    static constexpr const char* kSingle[] = {"content-type", "content-encoding", "location", "content-range"};
+    ConstSlice<u8>* const values[] = {&fields->content_type, &fields->content_encoding, &fields->location,
+                                      &fields->content_range};
+    bool* const seen[] = {&fields->has_content_type, &fields->has_content_encoding, &fields->has_location,
+                          &fields->has_content_range};
+    for (u32 index = 0; index < 4; ++index) {
+        if (!name_equal(field.name, kSingle[index]))
+            continue;
+        if (*seen[index]) {
             fields->error = CdnHttpError::duplicate_field;
             return false;
         }
-        fields->has_content_type = true;
-        fields->content_type = field.value;
-    } else if (name_equal(field.name, "content-encoding")) {
-        if (fields->has_content_encoding) {
-            fields->error = CdnHttpError::duplicate_field;
-            return false;
-        }
-        fields->has_content_encoding = true;
-        fields->content_encoding = field.value;
-    } else if (name_equal(field.name, "location")) {
-        if (fields->has_location) {
-            fields->error = CdnHttpError::duplicate_field;
-            return false;
-        }
-        fields->has_location = true;
-        fields->location = field.value;
-    } else if (name_equal(field.name, "etag")) {
+        *seen[index] = true;
+        *values[index] = field.value;
+        return true;
+    }
+    if (name_equal(field.name, "etag")) {
         if (fields->has_etag || field.value.count == 0 || !cdn_etag_valid(field.value)) {
             fields->error =
                 fields->has_etag ? CdnHttpError::duplicate_field : CdnHttpError::invalid_etag;
@@ -173,13 +169,6 @@ bool response_field_visitor(void* context, HttpField field) noexcept {
         }
         fields->has_etag = true;
         fields->etag = field.value;
-    } else if (name_equal(field.name, "content-range")) {
-        if (fields->has_content_range) {
-            fields->error = CdnHttpError::duplicate_field;
-            return false;
-        }
-        fields->has_content_range = true;
-        fields->content_range = field.value;
     } else if (name_equal(field.name, "age")) {
         if (fields->has_age || !decimal_parse_padded(field.value, &fields->age)) {
             fields->error =
@@ -312,18 +301,15 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
             const auto name = cdn_host_name(current_host);
             if (slice_equal_case(authority, {reinterpret_cast<const u8*>(name.data), name.bytes}))
                 parsed_host = current_host;
-        }
-        static constexpr CdnHost allowed_hosts[] = {CdnHost::cdn, CdnHost::media,
-                                             CdnHost::images_ext_1,
-                                             CdnHost::images_ext_2};
-        for (CdnHost candidate : allowed_hosts) {
-            if (cdn_catalog_provider(current_host))
-                break;
-            const Utf8View name = cdn_host_name(candidate);
-            if (slice_equal_case(authority,
-                                 ConstSlice<u8>{reinterpret_cast<const u8*>(name.data), name.bytes})) {
-                parsed_host = candidate;
-                break;
+        } else {
+            static constexpr CdnHost allowed_hosts[] = {CdnHost::cdn, CdnHost::media, CdnHost::images_ext_1,
+                                                        CdnHost::images_ext_2};
+            for (CdnHost candidate : allowed_hosts) {
+                const Utf8View name = cdn_host_name(candidate);
+                if (slice_equal_case(authority, {reinterpret_cast<const u8*>(name.data), name.bytes})) {
+                    parsed_host = candidate;
+                    break;
+                }
             }
         }
         if (parsed_host == CdnHost::none) {

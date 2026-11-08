@@ -18,7 +18,7 @@ static MessageRichRecord* dimension_target(MessageRichStore* store, u64 message_
     if (!store || !store->records || !store->order || !message_id || !message_revision)
         return nullptr;
     const SearchResult search = find_record(*store, message_id);
-    if (!search.found || (snapshot && !message_rich_store_snapshot(*store, message_id)))
+    if (!search.found || (snapshot && !snapshot_of(*store, store->records[search.slot])))
         return nullptr;
     MessageRichRecord& record =
         store->records[snapshot ? store->records[search.slot].forwarded_snapshot_slot : search.slot];
@@ -292,7 +292,7 @@ bool message_rich_store_pack(const MessageRichStore& store, u64 message_id, Slic
         return true;
     const MessageRichRecord& outer = store.records[found.slot];
     const MessageRichRecord* child =
-        outer.has_forwarded_snapshot ? message_rich_store_snapshot(store, message_id) : nullptr;
+        outer.has_forwarded_snapshot ? snapshot_of(store, outer) : nullptr;
     if (outer.has_forwarded_snapshot && !child)
         return false;
     u8* data = output.data && output.count ? output.data : nullptr;

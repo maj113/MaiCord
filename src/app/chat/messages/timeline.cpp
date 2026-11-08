@@ -224,6 +224,16 @@ u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept {
     return timeline.list->total_units - timeline.viewport_units;
 }
 
+const MessageRecord* message_timeline_authoritative_edge(const MessageStore& store, bool newest) noexcept {
+    for (u32 i = 0; i < store.count; ++i) {
+        const MessageRecord* record =
+            message_store_resolve(store, message_store_ordered_handle(store, newest ? store.count - 1 - i : i));
+        if (record && record->delivery == MessageDeliveryState::authoritative)
+            return record;
+    }
+    return nullptr;
+}
+
 bool message_timeline_initialize(MessageTimeline* timeline, MessageStore* store, UiVariableList* list,
                                  u32 default_item_units, u64 viewport_units, bool follow_bottom) noexcept {
     if (!timeline || !store || !list || !store->records || !list->item_units || !list->fenwick ||
@@ -507,20 +517,12 @@ MessageTimelineApplyResult message_timeline_insert_retained(MessageTimeline* tim
                                                             const MessageInput& input) noexcept {
     if (validate_timeline(timeline) != MessageTimelineError::none)
         return insert_resident(timeline, input, {}, true);
-    const MessageStore& store = *timeline->store;
     // The window of confirmed messages the tombstone must lie inside.
-    const MessageRecord *first = nullptr, *last = nullptr;
-    for (u32 i = 0; i < store.count && !first; ++i) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i));
-        if (record && record->delivery == MessageDeliveryState::authoritative) first = record;
-    }
-    for (u32 i = store.count; i && !last; --i) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i - 1));
-        if (record && record->delivery == MessageDeliveryState::authoritative) last = record;
-    }
+    const MessageRecord* first = message_timeline_authoritative_edge(*timeline->store, false);
+    const MessageRecord* last = message_timeline_authoritative_edge(*timeline->store, true);
     const bool inside = first && last && input.id > first->id &&
                         (input.id < last->id || (timeline->follow_bottom && !timeline->newer_refetch_required));
-    if (!inside || message_store_find(store, input.id).ok()) return {};
+    if (!inside || message_store_find(*timeline->store, input.id).ok()) return {};
     return insert_resident(timeline, input, {}, true);
 }
 

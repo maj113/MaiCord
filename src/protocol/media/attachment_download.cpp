@@ -49,15 +49,6 @@ bool replaced(u32 cp) noexcept {
         cp == '/' || cp == '\\' || cp == '|' || cp == '?' || cp == '*' ||
         (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069);
 }
-u32 units(Utf8View text) noexcept {
-    u32 total = 0;
-    for (u32 i = 0; i < text.bytes;) {
-        const auto scalar = utf8_decode_one(text.data + i, text.bytes - i);
-        total += scalar.codepoint > 0xffff ? 2u : 1u;
-        i += scalar.width;
-    }
-    return total;
-}
 u32 prefix_bytes(Utf8View text, u32 maximum_units, u32 maximum_bytes) noexcept {
     u32 used = 0, i = 0;
     while (i < text.bytes) {
@@ -180,11 +171,11 @@ AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name
         copy_bytes(safe + 1, safe, used);
         safe[0] = '_'; ++used;
     }
-    if (units({safe, used}) > 240 || used > kAttachmentDownloadMaximumSuggestedFilenameBytes) {
+    if (utf8_utf16_units({safe, used}) > 240 || used > kAttachmentDownloadMaximumSuggestedFilenameBytes) {
         u32 suffix = used;
         while (suffix && safe[suffix - 1] != '.') --suffix;
         if (suffix) --suffix;
-        const u32 suffix_units = units({safe + suffix, used - suffix});
+        const u32 suffix_units = utf8_utf16_units({safe + suffix, used - suffix});
         if (!suffix || suffix_units > 64) suffix = used;
         const u32 keep_units = suffix == used ? 240 : 240 - suffix_units;
         const u32 suffix_bytes = used - suffix;

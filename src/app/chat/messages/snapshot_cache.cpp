@@ -114,26 +114,23 @@ MessageSnapshotEntry* victim(MessageSnapshotCache* cache, const MessageSnapshotE
     return selected;
 }
 
+MessageSnapshotEntry* free_entry(MessageSnapshotCache* cache) noexcept {
+    for (auto& entry : cache->entries)
+        if (!entry.occupied)
+            return &entry;
+    return nullptr;
+}
+
 bool make_room(MessageSnapshotCache* cache, u32 bytes, const MessageSnapshotEntry* protect,
                bool need_entry) noexcept {
     for (;;) {
-        bool free_entry = !need_entry;
-        for (const auto& entry : cache->entries)
-            free_entry = free_entry || !entry.occupied;
-        if (free_entry && bytes <= cache->budget - cache->used)
+        if ((!need_entry || free_entry(cache)) && bytes <= cache->budget - cache->used)
             return true;
         MessageSnapshotEntry* evicted = victim(cache, protect);
         if (!evicted)
             return false;
         remove_entry(cache, evicted);
     }
-}
-
-MessageSnapshotEntry* free_entry(MessageSnapshotCache* cache) noexcept {
-    for (auto& entry : cache->entries)
-        if (!entry.occupied)
-            return &entry;
-    return nullptr;
 }
 
 u32 row_bytes(u32 content_bytes, u32 rich_bytes) noexcept {
@@ -195,14 +192,15 @@ MessageSnapshotScratch* scratch(MessageSnapshotCache* cache) noexcept {
     return value;
 }
 
+const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
+    return message_store_resolve(store, message_store_ordered_handle(store, index));
+}
+
 void scratch_clear(MessageSnapshotScratch* value) noexcept {
-    if (value->store.count) {
-        const MessageRecord* record = message_store_resolve(value->store, message_store_ordered_handle(value->store, 0));
-        if (record) {
-            const u64 id = record->id;
-            message_rich_store_delete(&value->rich, id);
-            message_store_delete(&value->store, id);
-        }
+    if (const MessageRecord* record = ordered_record(value->store, 0)) {
+        const u64 id = record->id;
+        message_rich_store_delete(&value->rich, id);
+        message_store_delete(&value->store, id);
     }
     if (value->list.count)
         ui_variable_list_remove(&value->list, 0, 1);
@@ -259,9 +257,7 @@ bool splice_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u32 of
 // Writes the single scratch row back over the entry row at offset.
 bool scratch_store_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u32 offset,
                        MessageSnapshotScratch* value) noexcept {
-    const MessageRecord* record =
-        value->store.count ? message_store_resolve(value->store, message_store_ordered_handle(value->store, 0))
-                           : nullptr;
+    const MessageRecord* record = ordered_record(value->store, 0);
     u32 rich_bytes = 0;
     if (!record || !record_rich_bytes(&value->rich, *record, &rich_bytes))
         return false;
@@ -284,10 +280,6 @@ bool delete_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u64 me
     if (entry->anchor_id == message_id)
         entry->anchor_units = 0;
     return true;
-}
-
-const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
-    return message_store_resolve(store, message_store_ordered_handle(store, index));
 }
 
 } // namespace

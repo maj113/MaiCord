@@ -51,7 +51,7 @@ bool custom_emoji(Utf8View text, u64* id) noexcept {
     u64 value = 0;
     for (++at; at + 1 < text.bytes; ++at) {
         const char c = text.data[at];
-        if (c < '0' || c > '9' || value > (~0ull - 9) / 10)
+        if (!ascii_is_digit(c) || value > (~0ull - 9) / 10)
             return false;
         value = value * 10 + static_cast<u64>(c - '0');
     }
@@ -67,7 +67,7 @@ bool unicode_emoji(Utf8View text) noexcept {
         const u8 c = static_cast<u8>(text.data[i]);
         if (c >= 0x80)
             symbol = true;
-        else if (!((c >= '0' && c <= '9') || c == '#' || c == '*'))
+        else if (!(ascii_is_digit(c) || c == '#' || c == '*'))
             return false;
     }
     return symbol;

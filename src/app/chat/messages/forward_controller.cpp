@@ -95,7 +95,6 @@ bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope,
     source.reference = {record->id, record->channel_id, channel->guild_id};
     source.store = store; source.handle = handle; source.author_id = record->author_id; source.channel_generation = channel->generation;
     source.age_restricted = source_age_restricted(sources, source);
-    if (!valid_source_channel(sources, source)) return fail(c, MessageForwardError::invalid_source);
     utf8_assign(source.author, source.author_bytes, author);
     utf8_assign(source.preview, source.preview_bytes, message_store_content(*store, handle));
     utf8_assign(source.media_summary, source.media_summary_bytes, media_summary);

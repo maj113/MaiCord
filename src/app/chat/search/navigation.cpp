@@ -265,8 +265,8 @@ bool begin_navigation(const ApplicationSearchNavigationSource& source, const Mes
         notice(utf8_literal("Loading thread…"), ApplicationMessageNavigationStage::waiting_channel);
         return true;
     }
-    const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, target.guild_id);
-    if (!target.guild_id || !guild || guild->unavailable || !g_app.account.api.channel_overview) {
+    // A named guild was proven present and available above.
+    if (!target.guild_id || !g_app.account.api.channel_overview) {
         finish(utf8_literal("This channel isn't available on this account."), ApplicationMessageNavigationStage::message_missing, 404);
         return true;
     }

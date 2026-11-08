@@ -49,8 +49,8 @@ enum class ForumPostError : u8 {
     field
 };
 struct ForumPostResult {
-    u32 bytes{};
-    ForumPostError error{};
+    u32 bytes;
+    ForumPostError error;
     constexpr bool ok() const noexcept {
         return error == ForumPostError::none;
     }

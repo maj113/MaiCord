@@ -220,12 +220,9 @@ struct MessageMarkdownResult {
 // All scratch/output belongs to the caller.
 MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_output,
                                              Slice<u32> byte_style_scratch,
-                                             Slice<TextStyleSpan> span_output) noexcept;
-MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_output,
-                                             Slice<u32> byte_style_scratch,
                                              Slice<TextStyleSpan> span_output,
-                                             const MessageMarkdownOptions& options,
-                                             Slice<MessageMarkdownSemantic> semantic_output) noexcept;
+                                             const MessageMarkdownOptions& options = {},
+                                             Slice<MessageMarkdownSemantic> semantic_output = {}) noexcept;
 // Uses the same parser/highlighter but retains editable source delimiters;
 // bounded recognition replay emits source spans without source-sized scratch.
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept;

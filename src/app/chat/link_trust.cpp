@@ -36,7 +36,7 @@ bool protocol_valid(Utf8View protocol) noexcept {
     for (u32 i = 0; i + 1 < protocol.bytes; ++i) {
         const char c = protocol.data[i];
         const bool letter = c >= 'a' && c <= 'z';
-        if (!letter && (i == 0 || !((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.')))
+        if (!letter && (i == 0 || !(ascii_is_digit(c) || c == '+' || c == '-' || c == '.')))
             return false;
     }
     return true;

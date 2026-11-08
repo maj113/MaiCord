@@ -40,25 +40,24 @@ bool mobile_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept {
 }
 } // namespace
 
+// Row statuses and presences share their numbering; the sources share offline..dnd as 0..3.
+static_assert(static_cast<u8>(UiPrivateRowStatus::online) == static_cast<u8>(UiPresence::online) &&
+              static_cast<u8>(UiPrivateRowStatus::idle) == static_cast<u8>(UiPresence::idle) &&
+              static_cast<u8>(UiPrivateRowStatus::dnd) == static_cast<u8>(UiPresence::busy) &&
+              static_cast<u8>(UiPrivateRowStatus::offline) == static_cast<u8>(UiPresence::offline));
+static_assert(static_cast<u8>(RelationshipPresence::dnd) == 3 && static_cast<u8>(ClientPlatformStatus::dnd) == 3 &&
+              static_cast<u8>(RelationshipPresence::online) == 1 && static_cast<u8>(ClientPlatformStatus::online) == 1 &&
+              static_cast<u8>(RelationshipPresence::idle) == 2 && static_cast<u8>(ClientPlatformStatus::idle) == 2);
 UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept {
+    static constexpr UiPresence kPresence[]{UiPresence::offline, UiPresence::online, UiPresence::idle, UiPresence::busy};
     const auto* relation = source.relationships && user ? relationship_store_find(*source.relationships, user) : nullptr;
-    if (relation && relation->type == RelationshipType::friend_ && relation->presence != RelationshipPresence::unknown) {
-        switch (relation->presence) {
-        case RelationshipPresence::online: return UiPresence::online;
-        case RelationshipPresence::idle: return UiPresence::idle;
-        case RelationshipPresence::dnd: return UiPresence::busy;
-        default: return UiPresence::offline;
-        }
-    }
+    if (relation && relation->type == RelationshipType::friend_ && relation->presence != RelationshipPresence::unknown)
+        return kPresence[static_cast<u8>(relation->presence)];
     // Everyone else: the latest presence of any scope (a guild presence of an
     // open DM's recipient included) left its platforms on the user record.
-    switch (source.users && user ? client_status_overall(user_store_client_status(*source.users, user))
-                                 : ClientPlatformStatus::offline) {
-    case ClientPlatformStatus::online: return UiPresence::online;
-    case ClientPlatformStatus::idle: return UiPresence::idle;
-    case ClientPlatformStatus::dnd: return UiPresence::busy;
-    default: return UiPresence::offline;
-    }
+    return source.users && user
+               ? kPresence[static_cast<u8>(client_status_overall(user_store_client_status(*source.users, user)))]
+               : UiPresence::offline;
 }
 UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 channel_id) noexcept {
     const ChannelRecord* channel = nullptr;
@@ -74,13 +73,7 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
         return UiPrivateRowStatus::none;
     }
     const u64 peer = private_row_peer(source, channel_id);
-    if (!peer) return UiPrivateRowStatus::none;
-    switch (ui_user_presence(source, peer)) {
-    case UiPresence::online: return UiPrivateRowStatus::online;
-    case UiPresence::idle: return UiPrivateRowStatus::idle;
-    case UiPresence::busy: return UiPrivateRowStatus::dnd;
-    default: return UiPrivateRowStatus::offline;
-    }
+    return peer ? static_cast<UiPrivateRowStatus>(ui_user_presence(source, peer)) : UiPrivateRowStatus::none;
 }
 // A one-to-one peer's activity line while online (activity_status.hpp), its
 // glyph leading it: the DM rows' subtitle and the DM header.
@@ -175,12 +168,6 @@ u8 ui_private_avatar_shape(const ChatStateStore* state, u64 channel_id, u8 type)
     return type == 3 && state && ui_private_row_custom_icon(*state, channel_id).bytes ? 1 : type;
 }
 namespace {
-UiPresence presence(UiPrivateRowStatus status) noexcept {
-    return status == UiPrivateRowStatus::online ? UiPresence::online
-           : status == UiPrivateRowStatus::idle ? UiPresence::idle
-           : status == UiPrivateRowStatus::dnd  ? UiPresence::busy
-                                                : UiPresence::offline;
-}
 bool ring(PaintStream* stream, const UiRect& r, const Color& color) noexcept {
     return paint_stream_push_rounded_border(stream, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, Color{0, 0, 0, 0},
                                             color, ui_rect_width(r) * .5f + 2.f, 2);
@@ -210,7 +197,8 @@ bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 chan
         return ui_presence_paint(stream, dot, UiPresence::online, surface, theme, true) &&
                (!highlight || paint_stream_push_rounded_border(stream, phone.cutout, Color{0, 0, 0, 0}, *highlight, phone.cutout_radius, 2));
     }
-    return ui_presence_paint(stream, dot, presence(status), surface, theme) &&
+    // `status` is not none here: it maps onto UiPresence by value.
+    return ui_presence_paint(stream, dot, static_cast<UiPresence>(status), surface, theme) &&
            (!highlight || ring(stream, dot, *highlight));
 }
 } // namespace

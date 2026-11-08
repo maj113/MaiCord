@@ -224,22 +224,6 @@ MessageHistoryTargetResult write_message_history_target(
 }
 #pragma clang attribute pop
 
-MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
-    Slice<GatewayMessageEvent> messages) noexcept {
-    return decode_message_history_page(
-        body, page_structural_scratch, maximum_depth, content_output, messages,
-        Slice<GatewayMessageNamedUser>{}, MessageHistoryRichScratch{});
-}
-
-MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
-    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept {
-    return decode_message_history_page(body, page_structural_scratch, maximum_depth, content_output, messages,
-                                       mention_users, MessageHistoryRichScratch{});
-}
-
-
 namespace {
 MessageHistoryDecodeResult decode_page(
     Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,

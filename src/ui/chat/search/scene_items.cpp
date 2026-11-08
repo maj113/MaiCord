@@ -4,7 +4,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/theme/styles.hpp"
 
 namespace maicord {
@@ -636,13 +635,9 @@ bool measure_rows(UiSearchScene& s) noexcept {
         UiSearchRow row{};
         if (!s.source->resolve(s.source->context, i, &row))
             return false;
-        // /fp:fast permits compilers to remove floating NaN comparisons. Validate
-        // IEEE-754 exponent bits before any arithmetic or ordered comparisons.
-        u32 height_bits = 0;
-        copy_bytes(&height_bits, &row.body_height, sizeof(height_bits));
-        if ((height_bits & 0x7f800000u) == 0x7f800000u || !row_text_valid(row) ||
-            !ui_coordinate_valid(row.body_height) || row.body_height < 0 ||
-            (row.body_height != 0 && (row.body_height < 24 || row.body_height > 464)))
+        // The range test also rejects NaN and infinities.
+        if (!row_text_valid(row) ||
+            !(row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 464)))
             return false;
         s.row_offsets[i + 1] = s.row_offsets[i] + 48 +
                                (row.body_height ? row.body_height : default_body_height) + 8 +
@@ -737,7 +732,7 @@ UiWidgetHandle add_action(UiSearchScene& s, const UiRect& rectangle, UiSearchAct
 }
 } // namespace
 void count_label(UiSearchScene& s) noexcept {
-    s.count_bytes = 0;
+    UiLabelWriter writer{s.count_text, &s.count_bytes};
     for (u32 tab = 0; tab < 5; ++tab)
         s.tab_bytes[tab] = (s.content->tab_known >> tab) & 1u
                                ? compact_count(s.tab_text[tab], s.content->tab_totals[tab])
@@ -748,19 +743,12 @@ void count_label(UiSearchScene& s) noexcept {
                                  ? utf8_literal("Indexing messages…")
                              : s.content->phase == UiSearchPhase::failed ? utf8_literal("Search failed")
                                                                          : utf8_literal("Enter a search");
-        CopyMemory(s.count_text, heading.data, heading.bytes);
-        s.count_bytes = static_cast<u8>(heading.bytes);
+        writer << heading;
         return;
     }
-    if (s.content->total_estimated) {
-        constexpr auto prefix = utf8_literal("About ");
-        CopyMemory(s.count_text, prefix.data, prefix.bytes);
-        s.count_bytes = static_cast<u8>(prefix.bytes);
-    }
-    s.count_bytes += static_cast<u8>(decimal_write(s.count_text + s.count_bytes, s.content->total));
-    const auto suffix = utf8_literal(" results");
-    CopyMemory(s.count_text + s.count_bytes, suffix.data, suffix.bytes);
-    s.count_bytes += static_cast<u8>(suffix.bytes);
+    if (s.content->total_estimated)
+        writer << utf8_literal("About ");
+    writer << static_cast<u64>(s.content->total) << utf8_literal(" results");
 }
 UiRect overlay_region(const UiSearchScene& s, const UiRect& rectangle) noexcept {
     auto region = s.body;
@@ -1005,7 +993,7 @@ bool rebuild(UiSearchScene& s) noexcept {
     const UiSearchTarget focus = old_focus.generation && old_focus.slot < s.storage.widgets.count
                                      ? s.targets[old_focus.slot]
                                      : UiSearchTarget{};
-    ZeroMemory(s.targets, s.storage.widgets.count * sizeof(UiSearchTarget));
+    clear_bytes(s.targets, s.storage.widgets.count * sizeof(UiSearchTarget));
     s.root = ui_scene_root(&s.widgets, utf8_literal("Message search"));
     if (!s.root.generation)
         return false;

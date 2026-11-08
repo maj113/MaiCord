@@ -20,21 +20,15 @@ struct ScopedJob {
     ApplicationScopedReadTicket ticket;
     u32 total, pending, completed, failed;
 };
-struct ScopedFlightEntry {
-    BulkReadAckIntent intent;
-    ReadScopeSource source;
-    BulkMessageAckEntry wire;
-    ApplicationReadEchoProof proof;
-};
 } // namespace
 struct ApplicationScopedRead {
     ApplicationScopedReadTicket actor;
     BulkReadAckController queue;
-    StableStorage queued, admitted, targets, plan, candidates, jobs, flight;
+    StableStorage queued, admitted, targets, plan, candidates, jobs;
     BulkReadAckTicket flight_ticket;
     ApplicationScopedReadTicket flight_actor;
     u64 admission_due;
-    u32 target_count, job_count, flight_count, revision;
+    u32 target_count, job_count, revision;
     u32 channels_epoch, permissions_epoch, guilds_epoch;
     bool flight_active, retired, cancel_requested, release_pending;
 };
@@ -61,15 +55,12 @@ bool reserve_admitted(void* context, u32 count) noexcept {
     return stable_storage_reserve(&static_cast<ApplicationScopedRead*>(context)->admitted, count);
 }
 void destroy(ApplicationScopedRead* o) noexcept {
-    if (!o)
-        return;
     stable_storage_release(&o->queued);
     stable_storage_release(&o->admitted);
     stable_storage_release(&o->targets);
     stable_storage_release(&o->plan);
     stable_storage_release(&o->candidates);
     stable_storage_release(&o->jobs);
-    stable_storage_release(&o->flight);
     pages_release(o);
     if (g_app.scoped_read == o)
         g_app.scoped_read = nullptr;
@@ -90,8 +81,6 @@ ApplicationScopedRead* ensure_owner(const ApplicationScopedReadTicket& actor) no
         !stable_storage_initialize(&o->candidates, 4096, 0, sizeof(BulkReadAckIntent),
                                    alignof(BulkReadAckIntent)) ||
         !stable_storage_initialize(&o->jobs, 4096, 0, sizeof(ScopedJob), alignof(ScopedJob)) ||
-        !stable_storage_initialize(&o->flight, 100, 0, sizeof(ScopedFlightEntry),
-                                   alignof(ScopedFlightEntry)) ||
         !bulk_read_ack_initialize(&o->queue, {stable_storage_data<BulkReadAckIntent>(o->queued), 4096},
                                   {stable_storage_data<BulkReadAckIntent>(o->admitted), 100},
                                   reserve_queued, reserve_admitted, o)) {
@@ -192,8 +181,7 @@ bool install(const ApplicationScopedReadTicket& ticket, ConstSlice<ReadScopeTarg
     if (new_targets > 4096 || new_jobs > 4096 ||
         (new_targets && !stable_storage_reserve(&o->targets, new_targets)) ||
         !stable_storage_reserve(&o->jobs, new_jobs) ||
-        (scratch_count && !stable_storage_reserve(&o->candidates, scratch_count)) ||
-        (bulk_work && !stable_storage_reserve(&o->flight, 100)))
+        (scratch_count && !stable_storage_reserve(&o->candidates, scratch_count)))
         return false;
     u64 first{};
     if (!application_read_state_scoped_prepare(plan, individual, &first))
@@ -384,22 +372,18 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
     u32 count{};
     if (!bulk_read_ack_peek(&o->queue, now, {candidates, 100}, &count))
         return false;
-    if (!stable_storage_reserve(&o->flight, count))
-        return false;
-    auto* rows = stable_storage_data<ScopedFlightEntry>(o->flight);
     // UI-thread scratch, filled before it is read; 100 entries each would otherwise cost this request a stack probe.
     static BulkMessageAckEntry wire[100];
     static ApplicationReadEchoProof proofs[100];
     for (u32 i = 0; i < count; ++i) {
         auto* t = target(*o, candidates[i].channel_id);
-        auto* j = t ? serial_job(*o, t->scope_serial) : nullptr;
         if (t && (candidates[i].action_serial != t->action_serial ||
                   candidates[i].scope_serial != t->scope_serial ||
                   candidates[i].message_id != t->target.message_id || t->individual)) {
             bulk_read_ack_cancel(&o->queue, candidates[i].channel_id, candidates[i].action_serial);
             return false;
         }
-        if (!t || !j || !target_current(*o, *t)) {
+        if (!t || !target_current(*o, *t)) {
             bulk_read_ack_cancel(&o->queue, candidates[i].channel_id, candidates[i].action_serial);
             if (t)
                 application_scoped_read_superseded(t->target.channel_id, 0);
@@ -407,7 +391,6 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
         }
         wire[i] = {t->target.channel_id, t->target.message_id, 0};
         proofs[i] = {t->target.channel_id, t->target.message_id, t->action_serial};
-        rows[i] = {candidates[i], j->ticket.source, wire[i], proofs[i]};
     }
     if (!application_read_state_echo_prepare({proofs, count})) {
         // A different request can consume echo capacity after plan capture.
@@ -440,7 +423,6 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
     if (!bulk_read_ack_admit(&o->queue, {candidates, count}, request_id, &o->flight_ticket))
         return false;
     o->flight_actor = o->actor;
-    o->flight_count = count;
     o->flight_active = true;
     o->retired = o->cancel_requested = false;
     o->admission_due = 0;
@@ -469,11 +451,10 @@ bool application_scoped_read_response(const RestClientResponse& response, Utf8Vi
     const u32 attempts = o->queue.flight_count ? o->queue.flight[0].attempts : 3;
     const u64 due = maximum(response.retry_at_ms, deadline_after(now, attempts < 2 ? 2000 : 4000));
     if (current) {
-        auto* rows = stable_storage_data<ScopedFlightEntry>(o->flight);
-        for (u32 i = 0; i < o->flight_count; ++i) {
-            auto* t = target(*o, rows[i].intent.channel_id);
-            if (!t || t->action_serial != rows[i].intent.action_serial ||
-                t->scope_serial != rows[i].intent.scope_serial)
+        for (u32 i = 0; i < o->queue.flight_count; ++i) {
+            const auto& flight = o->queue.flight[i];
+            auto* t = target(*o, flight.channel_id);
+            if (!t || t->action_serial != flight.action_serial || t->scope_serial != flight.scope_serial)
                 continue;
             if (!target_current(*o, *t)) {
                 application_scoped_read_superseded(t->target.channel_id, 0);
@@ -481,7 +462,7 @@ bool application_scoped_read_response(const RestClientResponse& response, Utf8Vi
             }
             if (success)
                 t->completed = true;
-            else if (!retry || o->queue.flight[i].attempts >= 3)
+            else if (!retry || flight.attempts >= 3)
                 t->failed = true;
         }
         bulk_read_ack_complete(&o->queue, o->flight_ticket, success, !success && retry, now, due);
@@ -490,7 +471,6 @@ bool application_scoped_read_response(const RestClientResponse& response, Utf8Vi
     } else
         bulk_read_ack_reset(&o->queue, same_actor);
     o->flight_active = false;
-    o->flight_count = 0;
     o->retired = o->cancel_requested = false;
     if (o->release_pending)
         destroy(o);

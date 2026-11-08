@@ -100,7 +100,7 @@ u32 readable(Utf8View source, char* output, u32 capacity) noexcept {
                 ++scan;
             u64 id = 0;
             const u32 digits = scan;
-            while (scan < source.bytes && source.data[scan] >= '0' && source.data[scan] <= '9' && id < ~u64{0} / 10)
+            while (scan < source.bytes && ascii_is_digit(source.data[scan]) && id < ~u64{0} / 10)
                 id = id * 10 + static_cast<u64>(source.data[scan++] - '0');
             if (scan < source.bytes && source.data[scan] == '>' && scan > digits && id) {
                 Utf8View name{};

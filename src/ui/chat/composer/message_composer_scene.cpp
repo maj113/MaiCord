@@ -1,4 +1,5 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/core/ascii.hpp"
@@ -80,15 +81,11 @@ inline constexpr u32 kComposerCommandBarId = kComposerPluginId + kMessageCompose
 inline constexpr u32 kComposerCommandCloseId = kComposerCommandBarId + 1;
 inline constexpr float kComposerRowGap = kUiComposerPadding;
 
-const UiThemeMetrics& composer_metrics(const UiResolvedThemeStyles* styles) noexcept {
-    return styles && styles->ready ? styles->metrics : kUiThemeMetricsDefault;
-}
-
 inline float accessory_width(const UiResolvedThemeStyles* styles) noexcept {
-    return maximum(32.f, composer_metrics(styles).menu_row_height);
+    return maximum(32.f, ui_theme_metrics(styles).menu_row_height);
 }
 inline float accessory_height(const UiResolvedThemeStyles* styles) noexcept {
-    return maximum(32.f, composer_metrics(styles).control_height);
+    return maximum(32.f, ui_theme_metrics(styles).control_height);
 }
 // Plugin composer-toolbar buttons currently published; global, so the static
 // width functions and the scene agree without a scene argument.
@@ -150,7 +147,7 @@ UiLayoutStyle root_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
     style.flow = UiLayoutFlow::vertical;
     style.width = ui_layout_fill();
     style.height = ui_layout_fill();
-    style.gap = composer_metrics(styles).composer_padding;
+    style.gap = ui_theme_metrics(styles).composer_padding;
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
@@ -160,8 +157,8 @@ UiLayoutStyle root_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
 UiLayoutStyle surface_style(const UiResolvedThemeStyles* styles = nullptr) noexcept {
     UiLayoutStyle style = root_style(styles);
     style.padding =
-        UiInsets{composer_metrics(styles).composer_padding, composer_metrics(styles).composer_padding,
-                 composer_metrics(styles).composer_padding, composer_metrics(styles).composer_padding};
+        UiInsets{ui_theme_metrics(styles).composer_padding, ui_theme_metrics(styles).composer_padding,
+                 ui_theme_metrics(styles).composer_padding, ui_theme_metrics(styles).composer_padding};
     return style;
 }
 
@@ -170,7 +167,7 @@ UiLayoutStyle controls_style(const UiResolvedThemeStyles* styles = nullptr) noex
     style.flow = UiLayoutFlow::horizontal;
     style.width = ui_layout_fill();
     style.height = ui_layout_fill();
-    style.gap = composer_metrics(styles).composer_padding;
+    style.gap = ui_theme_metrics(styles).composer_padding;
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     return style;
@@ -181,8 +178,8 @@ UiLayoutStyle reply_style(const UiResolvedThemeStyles* styles = nullptr) noexcep
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(0.0f);
     style.padding =
-        UiInsets{composer_metrics(styles).menu_gap, composer_metrics(styles).menu_padding * .5f,
-                 composer_metrics(styles).menu_gap, composer_metrics(styles).menu_padding * .5f};
+        UiInsets{ui_theme_metrics(styles).menu_gap, ui_theme_metrics(styles).menu_padding * .5f,
+                 ui_theme_metrics(styles).menu_gap, ui_theme_metrics(styles).menu_padding * .5f};
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_allow_zero_size | ui_layout_node_clip_children |
                                    ui_layout_node_text_content);
@@ -203,8 +200,8 @@ UiLayoutStyle edit_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
     style.height = ui_layout_fill();
-    style.padding = UiInsets{composer_metrics(styles).menu_gap, composer_metrics(styles).menu_padding,
-                             composer_metrics(styles).menu_gap, composer_metrics(styles).menu_padding};
+    style.padding = UiInsets{ui_theme_metrics(styles).menu_gap, ui_theme_metrics(styles).menu_padding,
+                             ui_theme_metrics(styles).menu_gap, ui_theme_metrics(styles).menu_padding};
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
@@ -215,7 +212,7 @@ UiLayoutStyle edit_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
 // Inline text gets at least the width of the complete trailing action group.
 // Below that width the four trailing actions wrap after the editor instead.
 float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto& metrics = composer_metrics(styles);
+    const auto& metrics = ui_theme_metrics(styles);
     const float accessory = accessory_width(styles), gap = metrics.composer_padding;
     const float plugins = static_cast<float>(plugin_slot_count());
     const float trailing_width = (4.f + plugins) * accessory + (3.f + plugins) * gap;
@@ -227,7 +224,7 @@ float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr)
 // emoji and send keep one row with at least this much editable width.
 inline constexpr float kComposerCompactEditorMinimum = 120.0f;
 float compact_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto& metrics = composer_metrics(styles);
+    const auto& metrics = ui_theme_metrics(styles);
     const float plugins = static_cast<float>(plugin_slot_count());
     return metrics.composer_padding + metrics.composer_padding +
            (3.f + plugins) * (accessory_width(styles) + metrics.composer_padding) + kComposerCompactEditorMinimum +
@@ -239,7 +236,7 @@ inline bool compact_controls(float composer_width, const UiResolvedThemeStyles* 
 }
 
 inline float editor_padding_height(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto& metrics = composer_metrics(styles);
+    const auto& metrics = ui_theme_metrics(styles);
     return metrics.composer_padding + metrics.composer_padding + metrics.menu_padding + metrics.menu_padding;
 }
 
@@ -262,13 +259,13 @@ bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, flo
         return false;
     root->spec.style = root_style(styles);
     surface_node->spec.style = surface_style(styles);
-    reply->spec.style.padding = UiInsets{composer_metrics(styles).menu_gap, 0.f, 0.f, 0.f};
+    reply->spec.style.padding = UiInsets{ui_theme_metrics(styles).menu_gap, 0.f, 0.f, 0.f};
     // The right margin clears Cancel and a 1 DIP divider.
-    mention->spec.style.margin.right = kComposerReplyHeight + 2 * composer_metrics(styles).composer_padding + 1;
+    mention->spec.style.margin.right = kComposerReplyHeight + 2 * ui_theme_metrics(styles).composer_padding + 1;
     // The upload strip spans the surface; the label row keeps its inset.
     attachments->spec.style.padding =
         scene->attachment_strip && scene->attachment_strip->count ? UiInsets{} : reply_style(styles).padding;
-    typing->spec.style.padding.right = composer_metrics(styles).composer_padding;
+    typing->spec.style.padding.right = ui_theme_metrics(styles).composer_padding;
     const float width = ui_rect_width(viewport);
     // The recording bar folds the media pickers and plugins away.
     const bool voice_bar = ui_composer_voice_bar_visible(scene->voice_mode);
@@ -365,7 +362,7 @@ UiLayoutStyle typing_style(const UiResolvedThemeStyles* styles = nullptr) noexce
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(kComposerTypingHeight);
-    style.padding = UiInsets{kUiTypingLabelInset, 0.0f, composer_metrics(styles).composer_padding, 0.0f};
+    style.padding = UiInsets{kUiTypingLabelInset, 0.0f, ui_theme_metrics(styles).composer_padding, 0.0f};
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
@@ -931,7 +928,7 @@ bool message_composer_scene_control_visible(const MessageComposerScene& scene,
 
 float message_composer_scene_text_width(float composer_width,
                                         const UiResolvedThemeStyles* styles) noexcept {
-    const auto& metrics = composer_metrics(styles);
+    const auto& metrics = ui_theme_metrics(styles);
     const float plugins = static_cast<float>(plugin_slot_count());
     const float actions = composer_width >= full_controls_minimum_width(styles) ? 5.f + plugins
                           : compact_controls(composer_width, styles)            ? 3.f + plugins
@@ -945,7 +942,7 @@ float message_composer_scene_toolbar_height(float composer_width,
                                             const UiResolvedThemeStyles* styles) noexcept {
     if (composer_width <= 0.f || composer_width >= compact_controls_minimum_width(styles))
         return 0.f;
-    const float gap = composer_metrics(styles).composer_padding;
+    const float gap = ui_theme_metrics(styles).composer_padding;
     const float available = maximum(0.f, composer_width - gap - gap);
     const u32 trailing = 4u + plugin_slot_count();
     const u32 columns =
@@ -955,7 +952,7 @@ float message_composer_scene_toolbar_height(float composer_width,
 }
 
 static float composer_row_height(float natural, const UiResolvedThemeStyles* styles) noexcept {
-    const auto& metrics = composer_metrics(styles);
+    const auto& metrics = ui_theme_metrics(styles);
     const float minimum_height =
         maximum(kMessageComposerMinimumHeight,
                 maximum(32.f, metrics.control_height) + 2.f * metrics.composer_padding);
@@ -1220,7 +1217,7 @@ UiRect message_composer_scene_command_avatar(const MessageComposerScene& scene) 
     const auto* attachment = message_composer_scene_layout_node(scene, MessageComposerControl::add_attachment);
     if (!scene.active || scene.command.avatar.kind == MediaAssetKind::none || !attachment)
         return {};
-    const float extent = composer_metrics(scene.theme_styles).menu_icon;
+    const float extent = ui_theme_metrics(scene.theme_styles).menu_icon;
     const float x = (attachment->rectangle.left + attachment->rectangle.right) * .5f;
     const float y = (attachment->rectangle.top + attachment->rectangle.bottom) * .5f;
     return {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
@@ -1489,13 +1486,13 @@ UiRect message_composer_scene_reply_text_rectangle(const MessageComposerScene& s
         return {};
     auto rectangle = reply->content_rectangle;
     rectangle.right =
-        maximum(rectangle.left, cancel->rectangle.left - composer_metrics(scene.theme_styles).menu_gap);
+        maximum(rectangle.left, cancel->rectangle.left - ui_theme_metrics(scene.theme_styles).menu_gap);
     if (scene.reply_mention_visible) {
         const auto* mention =
             message_composer_scene_layout_node(scene, MessageComposerControl::reply_mention);
         if (mention)
             rectangle.right = maximum(rectangle.left, mention->rectangle.left -
-                                                          composer_metrics(scene.theme_styles).menu_gap);
+                                                          ui_theme_metrics(scene.theme_styles).menu_gap);
     }
     return rectangle;
 }
@@ -1514,7 +1511,7 @@ UiRect message_composer_scene_command_bar_text_rectangle(const MessageComposerSc
     if (!bar || !close || !scene.command_bar_name_bytes)
         return {};
     auto rectangle = bar->content_rectangle;
-    rectangle.right = maximum(rectangle.left, close->rectangle.left - composer_metrics(scene.theme_styles).menu_gap);
+    rectangle.right = maximum(rectangle.left, close->rectangle.left - ui_theme_metrics(scene.theme_styles).menu_gap);
     return rectangle;
 }
 
@@ -1623,11 +1620,11 @@ u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
 float message_composer_scene_chrome_height(
     bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles,
     bool command_bar) noexcept {
-    const float gap = styles && styles->ready ? styles->metrics.composer_padding : 4.f;
-    return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? 28.f + gap : 0.f) +
-           (typing ? 20.f + gap : 0.f) +
+    const float gap = ui_theme_metrics(styles).composer_padding;
+    return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? kComposerReplyHeight + gap : 0.f) +
+           (typing ? kComposerTypingHeight + gap : 0.f) +
            (attachments == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height() + gap
-            : attachments                                         ? 28.f + gap
+            : attachments                                         ? kComposerReplyHeight + gap
                                                                   : 0.f);
 }
 

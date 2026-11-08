@@ -3,7 +3,6 @@
 #include "maicord/app/chat/read_scope.hpp"
 namespace maicord {
 struct RestClientResponse;
-struct GatewayClientEvent;
 namespace app_detail {
 struct Application;
 struct ApplicationReadState;

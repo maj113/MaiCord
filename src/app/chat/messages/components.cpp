@@ -97,7 +97,7 @@ bool ensure_owner() noexcept {
 }
 
 u64 next_nonce() noexcept {
-    const u64 stamp = (clock_unix_milliseconds() - 1420070400000ull) << 22;
+    const u64 stamp = (clock_unix_milliseconds() - kSnowflakeEpochMilliseconds) << 22;
     owner->nonce_serial = maximum(owner->nonce_serial + 1, stamp);
     return owner->nonce_serial;
 }

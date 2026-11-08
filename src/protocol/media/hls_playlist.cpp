@@ -150,6 +150,12 @@ bool valid_text(Utf8View input) noexcept {
     }
     return true;
 }
+// A segment or map URI of a media playlist in this mode.
+bool segment_uri(HlsPlaylistMode mode, Utf8View s) noexcept {
+    return mode == HlsPlaylistMode::complete_uri ? reference_uri(s)
+           : mode == HlsPlaylistMode::sliding    ? master_uri(s)
+                                                 : local_path(s);
+}
 bool output_valid(const HlsMediaPlaylist& p, const void* output, u32 bytes) noexcept {
     return output && byte_range_valid(output, bytes) && p.input.data && p.input.bytes &&
         (p.mode == HlsPlaylistMode::complete || p.mode == HlsPlaylistMode::sliding || p.mode == HlsPlaylistMode::complete_uri) &&
@@ -164,7 +170,7 @@ bool segment(const HlsMediaPlaylist& p, u32 offset, u32 index, u64 time, HlsMedi
         if (prefix(line, utf8_literal("#EXTINF:"))) {
             if (duration_us || !duration({line.data + 8, line.bytes - 8}, &duration_us)) return false;
         } else if (line.bytes && line.data[0] != '#') {
-            if (!duration_us || !(p.mode == HlsPlaylistMode::complete_uri ? reference_uri(line) : p.mode == HlsPlaylistMode::sliding ? master_uri(line) : local_path(line)) ||
+            if (!duration_us || !segment_uri(p.mode, line) ||
                 time > p.duration_us || duration_us > p.duration_us - time) return false;
             *output = {line, time, duration_us, index, r.at}; return true;
         }
@@ -231,7 +237,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
         if (prefix(line, utf8_literal("#EXT-X-STREAM-INF:"))) {
             if (pending) return E::malformed;
             if (++count > 64) return E::capacity;
-            Attribute fields[16]{}; u32 fields_count{}; reset_value(&candidate); reset_value(&candidate_group); codec = 0;
+            Attribute fields[16]; u32 fields_count{}; reset_value(&candidate); reset_value(&candidate_group); codec = 0;
             if (!attributes({line.data + 18, line.bytes - 18}, fields, &fields_count)) return E::malformed;
             bool known_codec = false;
             for (u32 i = 0; i < fields_count; ++i) {
@@ -287,7 +293,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
         while (reader.line(&line)) {
             if (!prefix(line, utf8_literal("#EXT-X-MEDIA:"))) continue;
             if (++renditions > 64) return E::capacity;
-            Attribute fields[16]{}; u32 fields_count{};
+            Attribute fields[16]; u32 fields_count{};
             if (!attributes({line.data + 13, line.bytes - 13}, fields, &fields_count)) return E::malformed;
             Utf8View type{}, group{}, name{}, uri{}; bool preferred = false, automatic = false;
             for (u32 i = 0; i < fields_count; ++i) {
@@ -333,7 +339,7 @@ HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, Hl
             if (pending > largest) largest = pending;
         } else if (line.data[0] != '#') {
             if (ended || !pending) return E::malformed;
-            if (!(mode == HlsPlaylistMode::complete_uri ? reference_uri(line) : sliding ? master_uri(line) : local_path(line))) return E::unsupported;
+            if (!segment_uri(mode, line)) return E::unsupported;
             if (++value.segments > (sliding ? 128u : 8192u) || pending > 86400000000ull - value.duration_us) return E::capacity;
             value.duration_us += pending; pending = 0;
         } else if (prefix(line, utf8_literal("#EXT-X-MAP:"))) {
@@ -341,7 +347,7 @@ HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, Hl
             if (value.initialization.bytes) return E::unsupported;
             if (!prefix(line, start) || line.bytes <= start.bytes || line.data[line.bytes - 1] != '"') return E::unsupported;
             value.initialization = {line.data + start.bytes, line.bytes - start.bytes - 1};
-            if (!(mode == HlsPlaylistMode::complete_uri ? reference_uri(value.initialization) : sliding ? master_uri(value.initialization) : local_path(value.initialization)) || value.segments || pending) return E::unsupported;
+            if (!segment_uri(mode, value.initialization) || value.segments || pending) return E::unsupported;
         } else if (equal(line, utf8_literal("#EXT-X-ENDLIST"))) {
             if (ended || pending || !value.segments) return E::malformed;
             ended = true;

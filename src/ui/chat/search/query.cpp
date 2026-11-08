@@ -1,10 +1,9 @@
 #include "maicord/ui/chat/search/query.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -127,8 +126,6 @@ u32 has(Utf8View value) noexcept {
     return 0;
 }
 } // namespace
-} // namespace maicord
-namespace maicord {
 UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchScope scope, u64 scope_id,
                                           MessageSearchSort sort,
                                           const UiSearchQueryContext* context) noexcept {
@@ -272,7 +269,7 @@ UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchSco
             }
             if (q.content_bytes)
                 q.content[q.content_bytes++] = ' ';
-            CopyMemory(q.content + q.content_bytes, token.data, token.bytes);
+            copy_bytes(q.content + q.content_bytes, token.data, token.bytes);
             q.content_bytes += static_cast<u16>(token.bytes);
         }
     }

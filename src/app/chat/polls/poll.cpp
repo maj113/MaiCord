@@ -43,7 +43,6 @@ struct PollOwner {
     PollController controller;
     ApplicationPollSource source;
     MessagePollResultTicket result_ticket;
-    PollRequest request;
     UiPollAnswer answers[kUiPollMaximumAnswers];
     UiPollVoter voters[page_limit];
     UiPollVotersScene scene;
@@ -1053,7 +1052,6 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
         // accepted result even if a server-state change raced the request.
         value.controller.flight = {command, {id, command.epoch}, true, true};
     }
-    value.request = request;
     value.cancel_requested = false;
     const auto* p = poll(value.source);
     value.result_ticket = result_ticket;

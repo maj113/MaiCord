@@ -70,13 +70,6 @@ bool content_overlaps_store(const MessageStore& store, Utf8View content) noexcep
 const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
     return message_store_resolve(store, message_store_ordered_handle(store, index));
 }
-const MessageRecord* authoritative_edge(const MessageStore& store, bool newest) noexcept {
-    for (u32 i = 0; i < store.count; ++i) {
-        const auto* record = ordered_record(store, newest ? store.count - 1 - i : i);
-        if (record && record->delivery == MessageDeliveryState::authoritative) return record;
-    }
-    return nullptr;
-}
 
 MessageContentAvailability resolved_availability(const GatewayMessageEvent& message,
                                                  MessageContentAvailability empty_availability) noexcept {
@@ -430,11 +423,9 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
 
     u32 selected_begin = 0;
     u32 selected_count = kept_count;
-    if (const MessageRecord* first = authoritative_edge(store, false)) {
-        const MessageRecord* last = authoritative_edge(store, true);
-        if (!last) {
-            return apply_error(MessageHistoryApplyError::reconcile);
-        }
+    if (const MessageRecord* first = message_timeline_authoritative_edge(store, false)) {
+        // A first confirmed row is also found searching from the newest end.
+        const MessageRecord* last = message_timeline_authoritative_edge(store, true);
         if (direction == MessageHistoryDirection::newer) {
             selected_count = 0;
             while (selected_count < kept_count && page_message(selected_count).id > last->id) {
@@ -1099,7 +1090,7 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
         return false;
     }
     if (older->state == MessageHistoryOlderState::exhausted) {
-        const auto* first = authoritative_edge(*timeline->store, false);
+        const auto* first = message_timeline_authoritative_edge(*timeline->store, false);
         if (first && older->cursor_before && first->id > older->cursor_before) older->state = MessageHistoryOlderState::idle;
     }
     if (older->state != MessageHistoryOlderState::idle) {
@@ -1116,7 +1107,7 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
         older->state = MessageHistoryOlderState::exhausted;
         return true;
     }
-    const MessageRecord* first = authoritative_edge(store, false);
+    const MessageRecord* first = message_timeline_authoritative_edge(store, false);
     if (!first) { older->state = MessageHistoryOlderState::idle; older->cursor_before = 0; return true; }
     if (first->channel_id != channel_id || first->id == 0) {
         older->state = MessageHistoryOlderState::failed;

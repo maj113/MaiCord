@@ -31,7 +31,7 @@ MessagePollStoreResult failure(MessagePollStore* store, MessagePollStoreError er
     return {nullptr, error, false, false};
 }
 bool valid_text(Utf8View value, u32 maximum_bytes, u32 maximum_scalars) noexcept {
-    if (value.bytes > maximum_bytes || (value.bytes && !value.data))
+    if (value.bytes > maximum_bytes)
         return false;
     const auto valid = utf8_validate(value);
     return valid.valid && valid.codepoints <= maximum_scalars;
@@ -348,7 +348,7 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         }
     if (old && !content_changed && !results_changed) {
         if (serial)
-            find(*store, id)->last_gateway_serial = serial;
+            const_cast<MessagePollRecord*>(old)->last_gateway_serial = serial;
         if ((input.fields & gateway_message_poll_field_results) && !ignore_results)
             clear_observations(*store, id);
         return {old, MessagePollStoreError::none, false,
@@ -362,7 +362,7 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
     if (content_changed && bytes > store->text_capacity)
         return failure(store, MessagePollStoreError::capacity);
     const u32 old_bytes = old ? string_bytes(*old) : 0;
-    const u32 at = position(*store, id);
+    const u32 at = old ? static_cast<u32>(old - store->records) : position(*store, id);
     if (!ensure_storage(*store, store->count + (old ? 0 : 1)))
         return failure(store, MessagePollStoreError::capacity);
     const u32 before_compactions = store->compactions;

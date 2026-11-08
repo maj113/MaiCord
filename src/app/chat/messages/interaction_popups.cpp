@@ -847,10 +847,6 @@ bool application_refresh_thread_actions_menu() noexcept {
 
 namespace {
 
-bool open_guild_context_popup(u64 guild_id, const UiRect& anchor) noexcept {
-    return application_scoped_read_menu_open(ReadScopeKind::guild, guild_id, anchor);
-}
-
 // Folder header rows: the folder's own settings (name and colour).
 bool open_folder_context_popup(u64 row_id, UiRect anchor) noexcept {
     const auto* row = g_app.account_ui ? navigation_view_find_guild(g_app.account_ui->navigation_view, row_id) : nullptr;
@@ -941,7 +937,7 @@ bool open_focused_context_popup() noexcept {
             return open_folder_context_popup(row->view.id, anchor);
         if (row && row->view.folder_role == GuildFolderRole::conversation)
             return open_channel_context_popup(row->view.id, anchor);
-        return !row || open_guild_context_popup(row->view.id, anchor);
+        return !row || application_scoped_read_menu_open(ReadScopeKind::guild, row->view.id, anchor);
     }
     if (g_app.context_focus == &g_app.message_composer_scene.widgets &&
         message_composer_scene_focused_control(g_app.message_composer_scene) ==
@@ -1003,13 +999,13 @@ bool open_context_popup(i32 client_x, i32 client_y) noexcept {
         header && header->id == static_cast<u32>(UiSemantic::guild_menu) + 1u) {
         const auto& state = g_app.account_ui->chat_state;
         return state.home_selected || !state.selected_guild_id ||
-               open_guild_context_popup(state.selected_guild_id, anchor);
+               application_scoped_read_menu_open(ReadScopeKind::guild, state.selected_guild_id, anchor);
     }
     const auto navigation = renderer_navigation_hit_test(g_app.renderer, client_x, client_y);
     if (navigation.kind == RendererNavigationHitKind::guild && guild_folder_row_id(navigation.id))
         return open_folder_context_popup(navigation.id, anchor);
     if (navigation.kind == RendererNavigationHitKind::guild)
-        return open_guild_context_popup(navigation.id, anchor);
+        return application_scoped_read_menu_open(ReadScopeKind::guild, navigation.id, anchor);
     const auto* channel =
         navigation.kind == RendererNavigationHitKind::channel
             ? chat_state_store_find_channel(g_app.account_ui->chat_state, navigation.id)

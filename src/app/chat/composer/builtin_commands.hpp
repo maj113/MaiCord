@@ -43,12 +43,8 @@ bool builtin_commands_tick() noexcept;
 void builtin_commands_release() noexcept;
 // The inline results of the selected command (any; only /gif and /sticker
 // have them) for its query option, above anchor (the commands popup). A null
-// command or an empty query hides them.
+// command or an empty query hides them. Their keys and refusal message are the
+// media picker's (application_media_picker_inline_key and _message).
 bool builtin_command_results(const ApplicationCommand* command, const Utf8View& query,
                              const UiRect& anchor) noexcept;
-// Up/Down, Enter and Tab while results show (application_media_picker_inline_key);
-// Enter also waits for loading results.
-bool builtin_command_results_key(u32 key, bool* handled) noexcept;
-// The reason the results have nothing to send, for the refusal's message.
-Utf8View builtin_command_results_message() noexcept;
 } // namespace maicord::app_detail

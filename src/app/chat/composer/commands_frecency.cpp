@@ -212,6 +212,14 @@ void close_popup() noexcept {
         set_popup_owner(PopupOwnerKind::none);
     }
 }
+void hide_popup() noexcept {
+    auto& c = *commands;
+    const u64 dismissed_document = c.dismissed_document;
+    const u32 dismissed_revision = c.dismissed_revision;
+    close_popup();
+    c.dismissed_document = dismissed_document;
+    c.dismissed_revision = dismissed_revision;
+}
 const CommandApplication* find_app(const CommandIndex& source, u64 id) noexcept {
     for (u32 n = 0; n < source.application_count; ++n)
         if (source.applications[n].id == id)

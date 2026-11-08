@@ -1,5 +1,6 @@
 #include "maicord/app/chat/read_scope.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord {
@@ -45,10 +46,9 @@ bool capture_eligible(const ChatStateStore& state, const ReadScopeSource& source
              (channel.last_message_id > channel.last_read_message_id || channel.mention_count)));
 }
 u64 clock_cursor(u64 time_ms) noexcept {
-    constexpr u64 epoch = 1420070400000ull;
-    if (time_ms <= epoch)
+    if (time_ms <= kSnowflakeEpochMilliseconds)
         return 0;
-    const u64 delta = time_ms - epoch;
+    const u64 delta = time_ms - kSnowflakeEpochMilliseconds;
     constexpr u64 limit = ~u64{0} >> 22;
     return (delta > limit ? limit : delta) << 22;
 }

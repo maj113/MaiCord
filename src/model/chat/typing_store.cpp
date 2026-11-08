@@ -1,5 +1,6 @@
 #include "maicord/model/chat/typing_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -24,13 +25,9 @@ u32 find_record(const TypingStore& store, u64 channel_id, u64 user_id) noexcept 
     return ~0u;
 }
 
+// `index` names a stored record.
 void remove_record(TypingStore* store, u32 index) noexcept {
-    if (index >= store->count) {
-        return;
-    }
-    for (u32 cursor = index + 1; cursor < store->count; ++cursor) {
-        store->records[cursor - 1] = store->records[cursor];
-    }
+    sorted_erase_gap(store->records.data, store->count, index);
     --store->count;
     reset_value<TypingRecord>(&store->records[store->count]);
 }
@@ -173,15 +170,14 @@ TypingStoreResult typing_store_tick(TypingStore* store, u64 now_ms) noexcept {
     if (!store || !store_valid(*store)) {
         return result(TypingStoreError::invalid_input);
     }
-    bool changed = false;
-    for (u32 index = 0; index < store->count;) {
-        if (store->records[index].expires_at_ms <= now_ms) {
-            remove_record(store, index);
-            changed = true;
-        } else {
-            ++index;
-        }
-    }
+    u32 kept = 0;
+    for (u32 index = 0; index < store->count; ++index)
+        if (store->records[index].expires_at_ms > now_ms)
+            store->records[kept++] = store->records[index];
+    const bool changed = kept != store->count;
+    for (u32 index = kept; index < store->count; ++index)
+        reset_value<TypingRecord>(&store->records[index]);
+    store->count = kept;
     saturating_increment_if(changed, store->revision);
     return result(TypingStoreError::none, changed, changed);
 }

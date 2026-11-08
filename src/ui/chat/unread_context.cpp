@@ -58,10 +58,10 @@ const ShellNavigationRowWidget* channel_row(const UnreadContextSource& source, u
     return nullptr;
 }
 } // namespace
+// `target` is zeroed by the caller.
 static bool resolve_target(UnreadContextSource source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target) noexcept {
-    if (target) reset_value(target);
-    if (!target || !id || !valid_source(source)) return false;
+    if (!id || !valid_source(source)) return false;
     UnreadContextTarget value{}; value.source = source; value.id = id; value.kind = kind;
     const ChannelRecord* channel = nullptr;
     if (kind == UnreadContextKind::message) {
@@ -92,8 +92,8 @@ bool unread_context_available(UnreadContextSource source, UnreadContextKind kind
 }
 bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target, u32 action) noexcept {
-    if (target) reset_value(target);
-    if (!target || !source.popup || !source.popup->active || source.popup->kind != PopupKind::context_menu ||
+    reset_value(target);
+    if (!source.popup || !source.popup->active || source.popup->kind != PopupKind::context_menu ||
         source.popup->owner_id != id || source.popup->item_count > source.popup->items.count ||
         (source.popup->item_count && !source.popup->items.data) || !resolve_target(source, kind, id, target)) return false;
     if (action) {

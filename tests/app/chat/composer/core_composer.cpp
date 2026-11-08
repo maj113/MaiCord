@@ -373,9 +373,9 @@ void test_message_composer() noexcept {
     const MessageTypingWriteResult typing_target_written =
         write_message_typing_target(42, Slice<u8>{typing_target, sizeof(typing_target)});
     const MessageCreateWriteResult body_written =
-        write_message_create_body(utf8_literal("a\n\"b\\c"), 99, Slice<u8>{body, 256});
+        write_message_create_body(utf8_literal("a\n\"b\\c"), 99, 0, 0, {}, {}, Slice<u8>{body, 256});
     const MessageCreateWriteResult reply_body_written =
-        write_message_create_body(utf8_literal("reply"), 99, 42, 77, Slice<u8>{reply_body, sizeof(reply_body)});
+        write_message_create_body(utf8_literal("reply"), 99, 42, 77, {}, {}, Slice<u8>{reply_body, sizeof(reply_body)});
     expect(
         target_written.ok() &&
             bytes_equal(ConstSlice<u8>{target, target_written.bytes},
@@ -393,9 +393,9 @@ void test_message_composer() noexcept {
                                      "exists\":false},\"allowed_mentions\":{\"parse\":[\"users\",\"roles\","
                                      "\"everyone\"],\"replied_user\":true},\"tts\":false,\"flags\":0,\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}")),
         "message_create_reply_reference_and_ping_policy");
-    const auto exact_nonce_body = write_message_create_body(utf8_literal("a\n\"b\\c"), 99,
+    const auto exact_nonce_body = write_message_create_body(utf8_literal("a\n\"b\\c"), 99, 0, 0, {}, {},
         {body, body_written.bytes});
-    const auto short_nonce_body = write_message_create_body(utf8_literal("a\n\"b\\c"), 99,
+    const auto short_nonce_body = write_message_create_body(utf8_literal("a\n\"b\\c"), 99, 0, 0, {}, {},
         {body, body_written.bytes - 1});
     expect(exact_nonce_body.ok() && exact_nonce_body.bytes == body_written.bytes &&
         short_nonce_body.error == MessageCreateWriteError::output_too_small && !short_nonce_body.bytes,
@@ -464,9 +464,9 @@ void test_message_composer() noexcept {
     }
     expect(write_message_create_target(0, Slice<u8>{target, 96}).error ==
                    MessageCreateWriteError::invalid_input &&
-               write_message_create_body(Utf8View{}, 99, Slice<u8>{body, 256}).error ==
+               write_message_create_body(Utf8View{}, 99, 0, 0, {}, {}, Slice<u8>{body, 256}).error ==
                    MessageCreateWriteError::invalid_input &&
-               write_message_create_body(utf8_literal("x"), 0, Slice<u8>{body, 256}).error ==
+               write_message_create_body(utf8_literal("x"), 0, 0, 0, {}, {}, Slice<u8>{body, 256}).error ==
                    MessageCreateWriteError::invalid_input,
            "message_create_validation");
 

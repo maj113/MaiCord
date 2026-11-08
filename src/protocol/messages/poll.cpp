@@ -26,10 +26,10 @@ bool request_valid(const PollRequest& r) noexcept {
     return false;
 }
 struct MessageMembers {
-    JsonValue poll{};
-    u64 channel{},message{};
-    bool poll_seen{},channel_seen{},message_seen{};
-    PollDecodeError error{};
+    JsonValue poll;
+    u64 channel,message;
+    bool poll_seen,channel_seen,message_seen;
+    PollDecodeError error;
 };
 bool message_member(void* opaque,JsonString name,JsonValue value) noexcept {
     auto& c=*static_cast<MessageMembers*>(opaque);
@@ -70,7 +70,7 @@ bool page_message(void* opaque,u32,JsonValue value) noexcept {
     }
     return true;
 }
-struct VoterMembers { JsonValue users{}; bool seen{}; };
+struct VoterMembers { JsonValue users; bool seen; };
 bool voters_member(void* opaque,JsonString name,JsonValue value) noexcept {
     auto& c=*static_cast<VoterMembers*>(opaque);
     if (json_string_equals_ascii(name,utf8_literal("users"))) {

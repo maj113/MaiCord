@@ -89,7 +89,6 @@ void queue_command(u64 application, u64 author, const Utf8View& name, u16 type) 
     echo.failed = false;
     echo.nonce = c.nonce;
     echo.channel = c.channel;
-    echo.guild = c.guild;
     echo.application = application;
     echo.type = type;
     echo.author = author;
@@ -127,24 +126,18 @@ void mark_indexes_stale(Commands& c) noexcept {
 // Entry for a command picked by id outside the picker (a profile chip or a
 // command mention): the id, its app when known, and the full name must match.
 bool find_entry(u64 application_id, u64 command_id, Utf8View name, Entry* output) noexcept {
-    for (const auto& source : commands->index)
-        for (u32 n = 0; n < source.command_count; ++n) {
-            const auto& command = source.commands[n];
+    // The plugin index last, built only when the channel's and user's indexes lack the command.
+    for (u32 slot = 0; slot < 3; ++slot) {
+        const CommandIndex* source = slot < 2 ? &commands->index[slot] : plugin_commands_index();
+        for (u32 n = 0; source && n < source->command_count; ++n) {
+            const auto& command = source->commands[n];
             if (command.id == command_id && (!application_id || command.application_id == application_id) &&
                 utf8_equal(command.name, name)) {
-                *output = {&command, &source, find_app(source, command.application_id)};
+                *output = {&command, source, find_app(*source, command.application_id)};
                 return true;
             }
         }
-    if (const CommandIndex* plugins = plugin_commands_index())
-        for (u32 n = 0; n < plugins->command_count; ++n) {
-            const auto& command = plugins->commands[n];
-            if (command.id == command_id && (!application_id || command.application_id == application_id) &&
-                utf8_equal(command.name, name)) {
-                *output = {&command, plugins, find_app(*plugins, command.application_id)};
-                return true;
-            }
-        }
+    }
     return false;
 }
 
@@ -202,11 +195,7 @@ void resolve_wanted(const Utf8View& input) noexcept {
 namespace {
 
 Utf8View trimmed_text(Utf8View input, u32 first, u32 last) noexcept {
-    while (first < last && ascii_is_space(input.data[first]))
-        ++first;
-    while (last > first && ascii_is_space(input.data[last - 1]))
-        --last;
-    return {input.data + first, last - first};
+    return ascii_trim({input.data + first, last - first});
 }
 
 } // namespace
@@ -220,9 +209,7 @@ bool select_typed(Utf8View input) noexcept {
     if (input.bytes < 3 || input.data[0] != '/' || input.data[input.bytes - 1] != ' ')
         return false;
     const Utf8View name = trimmed_text(input, 1, input.bytes);
-    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, c.channel);
-    const bool permitted =
-        !channel || !channel->permissions_resolved || (channel->effective_permissions & (1ull << 31));
+    const bool permitted = commands_permitted(c);
     Entry found{};
     u32 matches = 0;
     const auto consider = [&](const ApplicationCommand& command, const CommandIndex& source) noexcept {
@@ -272,6 +259,55 @@ MessageComposerResult rewrite_draft(Utf8View text, u32 caret) noexcept {
     const auto selected = message_composer_set_selection(&g_app.message_composer, caret, caret);
     return replaced == MessageComposerResult::changed ? replaced : selected;
 }
+// A marker no chip value ends at.
+bool stray_marker(const Utf8View& input, const CommandArgumentSpan* spans, u32 count, u32 at) noexcept {
+    if (!option_end_at(input, at))
+        return false;
+    for (u32 n = 0; n < count; ++n)
+        if (spans[n].end_last != spans[n].value_last && spans[n].value_last == at)
+            return false;
+    return true;
+}
+// Rebuilds the draft with a marker at each insert and without the stray ones. A caret
+// at a new marker stays before it (in the value); one in a removed marker goes to its
+// place. Its own frame: the draft copy must not weigh on every keystroke's scan.
+__declspec(noinline) MessageComposerResult rewrite_markers(Utf8View input, const CommandArgumentSpan* spans,
+                                                           u32 count, const u32* inserts,
+                                                           u32 insert_count) noexcept {
+    auto& composer = g_app.message_composer;
+    const u32 anchor = composer.anchor, caret = composer.caret;
+    char text[kMessageComposerMaximumBytes];
+    u32 used = 0, next = 0, new_anchor = 0, new_caret = 0;
+    for (u32 at = 0;;) {
+        if (at == anchor)
+            new_anchor = used;
+        if (at == caret)
+            new_caret = used;
+        for (; next < insert_count && inserts[next] == at; ++next) {
+            if (used + kCommandOptionEndBytes > sizeof(text))
+                return MessageComposerResult::unchanged;
+            copy_bytes(text + used, kCommandOptionEnd, kCommandOptionEndBytes);
+            used += kCommandOptionEndBytes;
+        }
+        if (at >= input.bytes)
+            break;
+        if (stray_marker(input, spans, count, at)) {
+            if (anchor > at && anchor < at + kCommandOptionEndBytes)
+                new_anchor = used;
+            if (caret > at && caret < at + kCommandOptionEndBytes)
+                new_caret = used;
+            at += kCommandOptionEndBytes;
+            continue;
+        }
+        if (used == sizeof(text))
+            return MessageComposerResult::unchanged;
+        text[used++] = input.data[at++];
+    }
+    const auto replaced = message_composer_replace_range(&composer, 0, input.bytes, {text, used});
+    if (replaced == MessageComposerResult::changed)
+        message_composer_set_selection(&composer, new_anchor, new_caret);
+    return replaced;
+}
 
 } // namespace
 namespace commands_detail {
@@ -297,61 +333,22 @@ MessageComposerResult normalize_markers(Utf8View input, bool command) noexcept {
             --end;
         inserts[insert_count++] = end;
     }
-    const auto stray = [&](u32 at) noexcept {
-        if (!option_end_at(input, at))
-            return false;
-        for (u32 n = 0; n < count; ++n)
-            if (spans[n].end_last != spans[n].value_last && spans[n].value_last == at)
-                return false;
-        return true;
-    };
+    // Only a marker's lead byte can start one: the scan runs on every keystroke.
     for (u32 at = 0; at < input.bytes; ++at)
-        if (stray(at)) {
+        if (input.data[at] == kCommandOptionEnd[0] && stray_marker(input, spans, count, at)) {
             ++removals;
             at += kCommandOptionEndBytes - 1;
         }
     if (!insert_count && !removals)
         return MessageComposerResult::unchanged;
-    const u32 anchor = composer.anchor, caret = composer.caret;
-    if (!removals && insert_count == 1 && anchor == caret && caret == inserts[0]) {
+    const u32 caret = composer.caret;
+    if (!removals && insert_count == 1 && composer.anchor == caret && caret == inserts[0]) {
         const auto inserted = message_composer_insert_scalar(&composer, 0x2063, clock_monotonic_milliseconds());
         if (inserted == MessageComposerResult::changed)
             message_composer_set_selection(&composer, caret, caret);
         return inserted;
     }
-    // A caret at a new marker stays before it (in the value); one in a removed
-    // marker goes to its place.
-    char text[kMessageComposerMaximumBytes];
-    u32 used = 0, next = 0, new_anchor = 0, new_caret = 0;
-    for (u32 at = 0;;) {
-        if (at == anchor)
-            new_anchor = used;
-        if (at == caret)
-            new_caret = used;
-        for (; next < insert_count && inserts[next] == at; ++next) {
-            if (used + kCommandOptionEndBytes > sizeof(text))
-                return MessageComposerResult::unchanged;
-            copy_bytes(text + used, kCommandOptionEnd, kCommandOptionEndBytes);
-            used += kCommandOptionEndBytes;
-        }
-        if (at >= input.bytes)
-            break;
-        if (stray(at)) {
-            if (anchor > at && anchor < at + kCommandOptionEndBytes)
-                new_anchor = used;
-            if (caret > at && caret < at + kCommandOptionEndBytes)
-                new_caret = used;
-            at += kCommandOptionEndBytes;
-            continue;
-        }
-        if (used == sizeof(text))
-            return MessageComposerResult::unchanged;
-        text[used++] = input.data[at++];
-    }
-    const auto replaced = message_composer_replace_range(&composer, 0, input.bytes, {text, used});
-    if (replaced == MessageComposerResult::changed)
-        message_composer_set_selection(&composer, new_anchor, new_caret);
-    return replaced;
+    return rewrite_markers(input, spans, count, inserts, insert_count);
 }
 // The single optional option: with no chip yet, text typed
 // after "/<name> " becomes the value of a command's only option when that is
@@ -639,7 +636,6 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
     // danger colour; else the command's "/name" and description, or its error.
     projection->command_bar_name = copy_label(commands->bar_name, sizeof(commands->bar_name), utf8_literal("/"), name);
     projection->command_bar_detail = c.selected.command->description;
-    projection->command_bar_error = false;
     if (prepared && c.focused_option.source.bytes) {
         const auto& state = c.option_states[c.focused_slot];
         projection->command_bar_name =

@@ -1,4 +1,5 @@
 #include "text_presentation_internal.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/ui/text/ansi_text.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/hash.hpp"
@@ -101,7 +102,7 @@ namespace {
 constexpr u32 kMarkdownLabelMargin = 16;
 
 void note_emission(MarkdownParseTrace* trace, u32 bytes) noexcept {
-    trace->extra_bytes = trace->extra_bytes + bytes < trace->extra_bytes ? ~0u : trace->extra_bytes + bytes;
+    saturating_accumulate(trace->extra_bytes, bytes);
     trace->largest_emission = maximum(trace->largest_emission, bytes);
 }
 
@@ -555,17 +556,15 @@ namespace {
 u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept {
     u32 used = 0, at = 0;
     bool fence = false, ansi = false;
-    const auto lower = [](char value) noexcept {
-        return value >= 'A' && value <= 'Z' ? static_cast<char>(value + 32) : value;
-    };
     while (at < content.bytes) {
         const char* text = content.data + at;
         const u32 left = content.bytes - at;
         if (left >= 3 && text[0] == '`' && text[1] == '`' && text[2] == '`') {
             if (used + 3 > capacity)
                 break;
-            ansi = !fence && left >= 8 && lower(text[3]) == 'a' && lower(text[4]) == 'n' && lower(text[5]) == 's' &&
-                   lower(text[6]) == 'i' && (text[7] == '\n' || (text[7] == '\r' && left >= 9 && text[8] == '\n'));
+            ansi = !fence && left >= 8 && ascii_lower(text[3]) == 'a' && ascii_lower(text[4]) == 'n' &&
+                   ascii_lower(text[5]) == 's' && ascii_lower(text[6]) == 'i' &&
+                   (text[7] == '\n' || (text[7] == '\r' && left >= 9 && text[8] == '\n'));
             fence = !fence;
             copy_bytes(output + used, text, 3);
             used += 3;
@@ -600,10 +599,10 @@ u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept 
     return used;
 }
 } // namespace
-RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context,
-                                          Utf8View author, Utf8View content, bool available,
-                                          u8 content_flags, u8 message_type,
-                                          Utf8View poll_question, u8 quote_flags, u64 sent_unix_seconds) noexcept {
+__declspec(noinline) RetainedReplySummary
+retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context, Utf8View author,
+                     Utf8View content, bool available, u8 content_flags, u8 message_type,
+                     Utf8View poll_question, u8 quote_flags, u64 sent_unix_seconds) noexcept {
     if (!presentation || !context || (!author.data && author.bytes != 0) ||
         (!content.data && content.bytes != 0) || (!poll_question.data && poll_question.bytes != 0)) {
         return RetainedReplySummary{};
@@ -681,12 +680,15 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     // A reply that pings its quoted author names them "@Author".
     const u32 at_sign = author.bytes != 0 && (content_flags & gateway_reference_mentions_author) ? 1u : 0u;
     const u32 author_bytes = author.bytes + at_sign;
-    // Reply timestamps: the quoted message's sent time follows its author.
-    char time_text[kMessageMarkdownTimestampMaximumBytes];
+    // Reply timestamps: the quoted message's sent time follows its author. It is formatted into the byte
+    // styles, which the parse no longer needs, so the frame stays under the 4 KiB that takes a stack probe.
+    char* const time_text = reinterpret_cast<char*>(byte_styles);
+    static_assert(kMessageMarkdownTimestampMaximumBytes <= maximum_display_bytes * sizeof(u32));
     u32 time_bytes = 0;
     if (sent_unix_seconds != 0 && author.bytes != 0) {
-        const TimestampFormatResult sent = format_timestamp_calendar(
-            sent_unix_seconds, context->now_unix_seconds, Slice<char>{time_text, sizeof(time_text)});
+        const TimestampFormatResult sent =
+            format_timestamp_calendar(sent_unix_seconds, context->now_unix_seconds,
+                                      Slice<char>{time_text, kMessageMarkdownTimestampMaximumBytes});
         time_bytes = sent.ok ? sent.bytes : 0u;
     }
     const u32 time_gap = time_bytes != 0 ? 1u + time_bytes : 0u;

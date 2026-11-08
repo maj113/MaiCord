@@ -28,7 +28,7 @@ u32 bucket(u64 channel,u32 mask) noexcept {
     // bytes, rather than masking a one-step mix of the unshifted integer.
     return static_cast<u32>(hash64_bytes(kHash64Seed,&channel,sizeof(channel)))&mask;
 }
-struct Found {u32 slot{},row{};bool exists{};};
+struct Found {u32 slot,row;bool exists;};
 Found find(const NotificationRetention& n,u64 channel) noexcept {
     if(!n.index.count)return {};
     const u32 mask=n.index.count-1;
@@ -38,7 +38,7 @@ Found find(const NotificationRetention& n,u64 channel) noexcept {
         if(n.rows[n.index[slot]-1].channel==channel)return {slot,n.index[slot]-1,true};
     return {slot};
 }
-void zero_index(Slice<u32> index) noexcept {for(u32 i=0;i<index.count;++i)index[i]=0;}
+void zero_index(Slice<u32> index) noexcept {clear_bytes(index.data,index.count*static_cast<u32>(sizeof(u32)));}
 void erase(NotificationRetention& n,const Found& found) noexcept {
     const u32 last=n.count-1,mask=n.index.count-1;
     u32 moved_slot=found.row!=last?find(n,n.rows[last].channel).slot:0;

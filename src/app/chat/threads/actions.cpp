@@ -40,9 +40,6 @@ struct ThreadOwner {
 static_assert(sizeof(ThreadOwner) <= 4096);
 ThreadOwner* owner{};
 u64 next_serial{};
-bool thread(u8 type) noexcept {
-    return type == 10 || type == 11 || type == 12;
-}
 bool actor_live() noexcept {
     return g_app.account_ui && g_app.account.instance && g_app.account.status.running &&
            !g_app.account.stop_failed && !g_app.login.visible && g_app.plugin_account_scope_serial &&
@@ -56,7 +53,7 @@ bool actor_current(const ApplicationThreadActionTicket& source) noexcept {
 }
 const ChannelRecord* source_current(const ApplicationThreadActionTicket& source) noexcept {
     const auto* value = actor_current(source) ? application_channel_record(source.thread_id) : nullptr;
-    return value && value->occupied && thread(value->type) && value->generation == source.channel_generation
+    return value && value->occupied && channel_is_thread(value->type) && value->generation == source.channel_generation
                ? value
                : nullptr;
 }
@@ -64,7 +61,7 @@ bool readable(const ChannelRecord& value) noexcept {
     return application_channel_record_readable(g_app.account_ui->chat_state, value);
 }
 bool fetchable(const ChannelRecord& value) noexcept {
-    if (!thread(value.type) || !value.guild_id || !value.parent_id ||
+    if (!channel_is_thread(value.type) || !value.guild_id || !value.parent_id ||
         (value.flags & kChannelObfuscatedFlag))
         return false;
     const auto* parent = application_channel_record(value.parent_id);
@@ -158,7 +155,7 @@ void free_owner() noexcept {
 Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* output) noexcept {
     application_thread_actions_synchronize();
     const auto* value = actor_live() ? application_channel_record(id) : nullptr;
-    if (!value || !thread(value->type))
+    if (!value || !channel_is_thread(value->type))
         return Admission::stale;
     if (!flag(operation))
         return Admission::invalid;
@@ -221,7 +218,7 @@ bool channel_receipt(const Flight& flight, const ChannelRecord& current, const U
 ApplicationThreadActionView application_thread_actions_view(u64 id) noexcept {
     ApplicationThreadActionView result{};
     const auto* value = actor_live() ? application_channel_record(id) : nullptr;
-    if (!value || !thread(value->type)) {
+    if (!value || !channel_is_thread(value->type)) {
         result.membership = Membership::stale;
         return result;
     }
@@ -551,6 +548,6 @@ bool application_thread_actions_channel_sendable(u64 id) noexcept {
         return value->type == 1 || value->type == 3;
     const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, value->guild_id);
     return guild && !guild->unavailable && value->permissions_resolved &&
-           (!thread(value->type) || (value->thread_archived_known && !value->thread_archived));
+           (!channel_is_thread(value->type) || (value->thread_archived_known && !value->thread_archived));
 }
 } // namespace maicord::app_detail

@@ -26,8 +26,8 @@ struct ThreadBrowserRequest {
 };
 enum class ThreadBrowserError : u8 { none, input, capacity, json, duplicate, identity, field };
 struct ThreadBrowserResult {
-    u32 bytes{};
-    ThreadBrowserError error{};
+    u32 bytes;
+    ThreadBrowserError error;
     constexpr bool ok() const noexcept { return error == ThreadBrowserError::none; }
 };
 enum ThreadBrowserField : u8 {

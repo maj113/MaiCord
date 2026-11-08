@@ -16,29 +16,32 @@ u32 request_storage_bytes(const MessageComposerRequest& request) noexcept {
     return bytes ? bytes : 1;
 }
 
-// A pending voice message renders as one (waveform and duration, Ogg audio).
-void local_voice(const UploadedAttachment& source, GatewayMessageAttachment* local) noexcept {
-    if (!attachment_upload_is_voice(source))
-        return;
-    local->waveform = source.waveform;
-    local->duration_ms = source.duration_ms;
-    local->has_duration = true;
-    local->content_type = utf8_literal("audio/ogg");
+// Local cards contain display metadata only. Signed upload URLs and source
+// paths never enter message rendering or the CDN media scheduler. A pending
+// voice message renders as one (waveform and duration, Ogg audio).
+void local_attachments(ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sizes,
+                       GatewayMessageAttachment* local) noexcept {
+    for (u32 i = 0; i < attachments.count; ++i) {
+        const auto& source = attachments[i];
+        reset_value(&local[i]);
+        local[i].id = i + 1;
+        local[i].filename = source.filename;
+        local[i].description = source.description;
+        local[i].size = sizes.count ? sizes[i] : 0;
+        if (attachment_upload_is_voice(source)) {
+            local[i].waveform = source.waveform;
+            local[i].duration_ms = source.duration_ms;
+            local[i].has_duration = true;
+            local[i].content_type = utf8_literal("audio/ogg");
+        }
+    }
 }
 
-// Local cards contain display metadata only. Signed upload URLs and source
-// paths never enter message rendering or the CDN media scheduler.
 __declspec(noinline) MessageSendBeginResult begin_attachment_send(MessageComposerController* controller,
     u64 author_id, Utf8View content, u64 now_unix_ms, u64 now_monotonic_ms,
     ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sizes) noexcept {
     GatewayMessageAttachment local[kAttachmentUploadMaximumCount];
-    for (u32 i = 0; i < attachments.count; ++i) {
-        reset_value(&local[i]);
-        local[i].id = i + 1; local[i].filename = attachments[i].filename;
-        local[i].description = attachments[i].description;
-        local[i].size = sizes.count ? sizes[i] : 0;
-        local_voice(attachments[i], &local[i]);
-    }
+    local_attachments(attachments, sizes, local);
     return message_send_tracker_begin(&controller->sends, controller->timeline, controller->composer->channel_id,
         author_id, content, now_unix_ms, now_monotonic_ms, true, {local, attachments.count});
 }
@@ -61,11 +64,7 @@ __declspec(noinline) bool restore_request(MessageComposerController* controller,
     if (request.attachment_bytes && !message_attachment_storage_read(
         {controller->request_text + request.text_offset + request.text_bytes, request.attachment_bytes},
         {references, kAttachmentUploadMaximumCount}, &count, {sizes, kAttachmentUploadMaximumCount})) return false;
-    for (u32 i = 0; i < count; ++i) {
-        reset_value(&local[i]); local[i].id = i + 1; local[i].filename = references[i].filename;
-        local[i].description = references[i].description; local[i].size = sizes[i];
-        local_voice(references[i], &local[i]);
-    }
+    local_attachments({references, count}, {sizes, count}, local);
     if (!message_timeline_insert_local(controller->timeline,
         {request.nonce, request.channel_id, request.author_id, request.created_at_ms, 0,
             !request.text_bytes && request.forward_reference.message_id ? kForwardPlaceholder :
@@ -175,6 +174,18 @@ MessageComposerControllerError tracker_error(MessageSendTrackerError error) noex
 
 void advance_reply_revision(MessageComposerController* controller) noexcept {
     if (!++controller->reply_revision) ++controller->reply_revision;
+}
+void clear_reply(MessageComposerController* controller) noexcept {
+    controller->reply_message_id = 0;
+    controller->mention_reply_author = true;
+    advance_reply_revision(controller);
+}
+
+const MessageSendAttempt* find_attempt(const MessageComposerController& controller, u64 nonce) noexcept {
+    for (const auto& attempt : controller.sends.attempts)
+        if (attempt.active && attempt.nonce == nonce)
+            return &attempt;
+    return nullptr;
 }
 
 bool reply_snapshot_matches(const MessageComposerController& controller,
@@ -305,9 +316,7 @@ MessageComposerControllerResult message_composer_controller_clear_reply(
     if (!cleared.ok()) return controller_error(controller, MessageComposerControllerError::draft);
     bool changed = cleared.changed;
     if (controller->composer->channel_id == channel_id && controller->reply_message_id == reply_message_id) {
-        controller->reply_message_id = 0;
-        controller->mention_reply_author = true;
-        advance_reply_revision(controller);
+        clear_reply(controller);
         changed = true;
     }
     for (auto& request : controller->requests) {
@@ -415,10 +424,7 @@ MessageComposerControllerResult queue_send(
     // Best effort: the send is committed; an unquoted preview only loses its header early.
     if (reply_message_id)
         message_timeline_set_local_reply(controller->timeline, begun.nonce, reply_message_id);
-    ++controller->request_sequence;
-    if (controller->request_sequence == 0) {
-        ++controller->request_sequence;
-    }
+    if (!++controller->request_sequence) ++controller->request_sequence;
     *request = MessageComposerRequest{
         begun.nonce,
         composer->channel_id,
@@ -460,14 +466,10 @@ MessageComposerControllerResult queue_send(
     // failure after the send was committed.
     if (active_source) {
         message_draft_store_delete(controller->drafts, channel_id);
-        controller->reply_message_id = 0;
-        controller->mention_reply_author = true;
-        advance_reply_revision(controller);
+        clear_reply(controller);
     } else if (reply_message_id && !detached) {
         message_draft_store_clear_reply(controller->drafts, channel_id, reply_message_id);
-        controller->reply_message_id = 0;
-        controller->mention_reply_author = true;
-        advance_reply_revision(controller);
+        clear_reply(controller);
     }
     return MessageComposerControllerResult{begun.invalidation, begun.nonce,
                                            MessageComposerControllerError::none, true};
@@ -854,9 +856,7 @@ MessageComposerControllerResult message_composer_controller_observe_response(Mes
     if (!controller_valid(controller) || !nonce)
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     auto* request = find_request(controller, nonce);
-    const MessageSendAttempt* attempt = nullptr;
-    for (const auto& candidate : controller->sends.attempts)
-        if (candidate.active && candidate.nonce == nonce) { attempt = &candidate; break; }
+    const MessageSendAttempt* attempt = find_attempt(*controller, nonce);
     // Gateway completion, including a subsequent edit/delete, wins over an
     // older POST response. Do not recreate a message from that stale body.
     if (!request || !attempt || request->phase == MessageComposerRequestPhase::confirmed)
@@ -918,9 +918,7 @@ bool message_composer_controller_restore_local(MessageComposerController* contro
     u32 count = 0;
     for (const auto& request : controller->requests) {
         if (!request.occupied || request.channel_id != channel_id) continue;
-        const MessageSendAttempt* attempt = nullptr;
-        for (const auto& candidate : controller->sends.attempts)
-            if (candidate.active && candidate.nonce == request.nonce) { attempt = &candidate; break; }
+        const MessageSendAttempt* attempt = find_attempt(*controller, request.nonce);
         if (!attempt || attempt->gateway_observed) continue;
         u32 at = count;
         while (at && selected[at - 1]->sequence > request.sequence) {

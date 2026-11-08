@@ -1,5 +1,6 @@
 #include "maicord/ui/chat/messages/reaction_picker.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
@@ -215,11 +216,6 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
     return valid;
 }
 
-inline bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
-    *catalog_index = emoji_catalog_find_name(name);
-    return *catalog_index != ~0u;
-}
-
 bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKind kind, u64 now_ms) noexcept {
     const auto* table = reaction_preferences_table(*preferences, kind);
     if (table && table->seeded) {
@@ -231,9 +227,9 @@ bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKi
     if (table->usage_count == 0) {
         const bool reaction = kind == ReactionPreferenceKind::reaction;
         for (NameList seed{reaction ? kReactionSeeds : kMessageSeeds}; seed; seed.next()) {
-            u32 catalog_index = 0;
-            // Seeds are local defaults only; they are written with later real use.
-            if (!find_exact_name(seed.name(), &catalog_index) || catalog_index > 0xFFFEu ||
+            // Seeds are local defaults only; they are written with later real use. A missing name is ~0u.
+            const u32 catalog_index = emoji_catalog_find_name(seed.name());
+            if (catalog_index > 0xFFFEu ||
                 !reaction_preferences_track_emoji(preferences, kind,
                                                   reaction_emoji_unicode(static_cast<u16>(catalog_index)),
                                                   now_ms, 1, false)
@@ -521,17 +517,9 @@ bool settings_key_digits(Utf8View key) noexcept {
 u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, const Slice<char>& output) noexcept {
     if (!emoji.valid() || !output.data)
         return 0;
-    if (emoji.custom()) {
-        char reversed[20];
-        u32 count = 0;
-        for (u64 value = emoji.custom_id; value; value /= 10)
-            reversed[count++] = static_cast<char>('0' + value % 10);
-        if (count > output.count)
-            return 0;
-        for (u32 i = 0; i < count; ++i)
-            output[i] = reversed[count - 1 - i];
-        return count;
-    }
+    if (emoji.custom())
+        return decimal_digits(emoji.custom_id) > output.count ? 0
+                                                              : decimal_write(output.data, emoji.custom_id);
     const auto catalog = unicode_emoji_catalog();
     if (emoji.catalog_index >= catalog.count)
         return 0;

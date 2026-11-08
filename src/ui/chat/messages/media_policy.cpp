@@ -76,16 +76,9 @@ MessageMediaObscure message_media_obscure(const MessageMediaReveals& reveals, u6
 
 bool message_rich_attachment_spoiler(const MessageRichStore& store,
                                      const MessageRichAttachment& attachment) noexcept {
-    if (attachment.flags & kGatewayAttachmentSpoilerFlag)
-        return true;
-    const Utf8View name = message_rich_store_string(store, attachment.filename);
-    static constexpr char prefix[] = "SPOILER_";
-    if (name.bytes < sizeof(prefix) - 1u)
-        return false;
-    for (u32 i = 0; i + 1u < sizeof(prefix); ++i)
-        if (name.data[i] != prefix[i])
-            return false;
-    return true;
+    return (attachment.flags & kGatewayAttachmentSpoilerFlag) != 0 ||
+           utf8_starts_with(message_rich_store_string(store, attachment.filename),
+                            utf8_literal("SPOILER_"));
 }
 
 bool message_rich_attachment_explicit(const MessageRichAttachment& attachment) noexcept {

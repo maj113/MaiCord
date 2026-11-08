@@ -22,23 +22,17 @@ u32 query_score(const Entry& entry, Utf8View query) noexcept {
                 : fuzzy_ignore_case(query, section)          ? 11
                                                              : ~0u;
     }
-    u32 first_word = query.bytes;
-    for (u32 at = 0; at < query.bytes; ++at)
-        if (query.data[at] == ' ') {
-            first_word = at;
-            break;
-        }
-    u32 name_word = name.bytes;
-    for (u32 at = 0; at < name.bytes; ++at)
-        if (name.data[at] == ' ') {
-            name_word = at;
-            break;
-        }
+    // The text after the first space (empty without one); *word ends at that space.
+    const auto after_word = [](Utf8View text, u32* word) noexcept {
+        u32 at = 0;
+        while (at < text.bytes && text.data[at] != ' ')
+            ++at;
+        *word = at;
+        return at < text.bytes ? Utf8View{text.data + at + 1, text.bytes - at - 1} : Utf8View{};
+    };
+    u32 first_word = 0, name_word = 0;
+    const Utf8View rest = after_word(query, &first_word), name_rest = after_word(name, &name_word);
     const Utf8View head{query.data, first_word};
-    const Utf8View rest = first_word < query.bytes ? Utf8View{query.data + first_word + 1, query.bytes - first_word - 1}
-                                                   : Utf8View{};
-    const Utf8View name_rest = name_word < name.bytes ? Utf8View{name.data + name_word + 1, name.bytes - name_word - 1}
-                                                      : Utf8View{};
     // Option names: prefix 3 (alone or after the command name), substring 4,
     // fuzzy 10.
     OptionMatch options{entry.index, name, query, ~0u};
@@ -514,31 +508,27 @@ Utf8View focused_query() noexcept {
     const auto input = message_composer_text(g_app.message_composer);
     if (!c.focused_option.source.bytes || c.value_begin > c.value_end || c.value_end > input.bytes)
         return {};
-    u32 first = c.value_begin, last = c.value_end;
-    while (first < last && ascii_is_space(input.data[first]))
-        ++first;
-    while (last > first && ascii_is_space(input.data[last - 1]))
-        --last;
-    return {input.data + first, last - first};
+    return ascii_trim({input.data + c.value_begin, c.value_end - c.value_begin});
 }
 
 } // namespace commands_detail
 namespace {
 
-// A title row of the option lists (plain
-// text, upper case): the title, or "<matching> <query>" with the query too.
+// A title's label in labels[n]: one plain line, upper case.
+Utf8View upper_label(u32 n, const Utf8View& a, const Utf8View& b, const Utf8View& d = {}) noexcept {
+    char* label = commands->labels[n];
+    const Utf8View text = copy_label(label, 512, a, b, d);
+    for (u32 at = 0; at < text.bytes; ++at)
+        if (label[at] >= 'a' && label[at] <= 'z')
+            label[at] = static_cast<char>(label[at] - ('a' - 'A'));
+    return text;
+}
+// A title row of the option lists: the title, or "<matching> <query>" with the query too.
 void list_title(PopupItem* items, u32* count, Utf8View title, Utf8View matching, Utf8View query) noexcept {
     if (*count >= 31)
         return;
-    auto& c = *commands;
     const u32 n = (*count)++;
-    Utf8View label = title;
-    if (query.bytes) {
-        label = copy_label(c.labels[n], 512, matching, utf8_literal(" "), query);
-        for (u32 at = matching.bytes; at < label.bytes; ++at)
-            if (c.labels[n][at] >= 'a' && c.labels[n][at] <= 'z')
-                c.labels[n][at] = static_cast<char>(c.labels[n][at] - ('a' - 'A'));
-    }
+    const Utf8View label = query.bytes ? upper_label(n, matching, utf8_literal(" "), query) : title;
     // Popup actions are unique: each title takes its own below the messages'.
     popup_item_set(&items[n], label, value_base - 2 - n, popup_item_command_section);
 }
@@ -667,16 +657,6 @@ void render_options(PopupItem* items, u32* count, const CommandArgumentSpan* spa
             ++c.option_count;
         }
     }
-}
-// Closes the commands popup without dismissing the draft's completion (a
-// list with no rows; the next one opens again).
-void hide_popup() noexcept {
-    auto& c = *commands;
-    const u64 dismissed_document = c.dismissed_document;
-    const u32 dismissed_revision = c.dismissed_revision;
-    close_popup();
-    c.dismissed_document = dismissed_document;
-    c.dismissed_revision = dismissed_revision;
 }
 
 } // namespace
@@ -950,12 +930,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
             c.rendered_generation = c.generation;
             return true;
         }
-        // The title is one plain line, the query uppercased too.
-        const Utf8View title = copy_label(c.labels[count], 512, utf8_literal("COMMANDS MATCHING /"),
-                                          {c.query, c.query_bytes});
-        for (u32 at = 0; at < title.bytes; ++at)
-            if (c.labels[count][at] >= 'a' && c.labels[count][at] <= 'z')
-                c.labels[count][at] = static_cast<char>(c.labels[count][at] - ('a' - 'A'));
+        const Utf8View title = upper_label(count, utf8_literal("COMMANDS MATCHING /"), {c.query, c.query_bytes});
         popup_item_set(&items[count], title, section_base - 1, popup_item_command_section);
         ++count;
     }

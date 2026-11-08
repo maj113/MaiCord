@@ -119,14 +119,8 @@ MessageHistoryTargetResult write_message_history_target(
 // points into content_output.
 MessageHistoryDecodeResult decode_message_history_page(
     Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
-    Slice<GatewayMessageEvent> messages) noexcept;
-MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
-    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept;
-MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
-    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users,
-    const MessageHistoryRichScratch& rich_scratch) noexcept;
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users = {},
+    const MessageHistoryRichScratch& rich_scratch = {}) noexcept;
 // GET /users/@me/mentions: the same message array, spanning channels.
 MessageHistoryDecodeResult decode_message_mentions_page(
     Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,

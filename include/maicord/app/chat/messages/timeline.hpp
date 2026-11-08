@@ -92,6 +92,8 @@ UiScrollAnchor message_timeline_capture_anchor(const MessageTimeline& timeline) 
 void message_timeline_settle_scroll(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 previous_scroll) noexcept;
 // The bottom scroll offset: content height beyond the viewport, or 0.
 u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept;
+// The oldest (or newest) confirmed message resident in `store`; null when it holds only local rows.
+const MessageRecord* message_timeline_authoritative_edge(const MessageStore& store, bool newest) noexcept;
 bool message_timeline_scroll_by(MessageTimeline* timeline, i64 delta_units, u64 bottom_tolerance_units,
                                 bool* changed) noexcept;
 bool message_timeline_scroll_to_start(MessageTimeline* timeline, bool* changed) noexcept;

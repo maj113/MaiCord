@@ -39,7 +39,7 @@ bool stage(ReadStateStore* reads, const ReadStateEntry& entry) noexcept {
         return true;
     }
     if (!read_state_reserve_pending(reads, reads->count + 1)) return false;
-    for (u32 i = reads->count; i > position; --i) reads->pending[i] = reads->pending[i - 1];
+    sorted_insert_gap(reads->pending.data, reads->count, position);
     reads->pending[position] = entry; ++reads->count;
     saturating_increment(reads->revision);
     return true;

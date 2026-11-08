@@ -8,8 +8,8 @@
 namespace maicord {
 namespace {
 struct MemberParse {
-    ThreadMemberSnapshot value{};
-    ThreadActionError error{};
+    ThreadMemberSnapshot value;
+    ThreadActionError error;
 };
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<MemberParse*>(opaque);

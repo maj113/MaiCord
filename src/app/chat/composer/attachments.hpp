@@ -54,9 +54,9 @@ void application_attachment_fail_url() noexcept;
 bool application_attachment_prepare_send(u64 channel_id, Slice<UploadedAttachment> references, Slice<u64> ids, u32* count,
     Slice<u64> sizes = {}) noexcept;
 void application_attachment_did_queue(ConstSlice<u64> ids, u64 nonce) noexcept;
-// Recorded voice messages share the URL/upload pipeline as unlisted drafts.
 // Files attached to, or being prepared for, the channel's draft.
 bool application_attachment_channel_pending(u64 channel_id) noexcept;
+// Recorded voice messages share the URL/upload pipeline as unlisted drafts.
 bool application_attachment_add_voice(u64 channel_id, UploadSource content, Utf8View waveform, u32 duration_ms,
                                       u64* id) noexcept;
 // False once the draft is gone (removed, or completed after its send).

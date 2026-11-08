@@ -587,7 +587,7 @@ EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u3
     u32 at = head.used;
     while (valid && at < decoded.bytes && (ascii_is_alnum(staged.url[at]) || staged.url[at] == '-' || staged.url[at] == '_')) ++at;
     valid = valid && at > head.used && is_text({staged.url + at, decoded.bytes - at}, "/stream/hls");
-    char key[64]{}, grant[512]{}; JsonString key_json{}, grant_json{};
+    char key[64], grant[512]; JsonString key_json{}, grant_json{}; // read only up to their decoded bytes
     const auto key_decoded = text(client[0], &key_json) ? decode(key_json, key, sizeof(key)) : JsonStringDecodeResult{};
     const auto grant_decoded = text(sound[7], &grant_json) ? decode(grant_json, grant, sizeof(grant)) : JsonStringDecodeResult{};
     valid = valid && key_decoded.ok() && key_decoded.bytes == 32 && grant_decoded.ok() && grant_decoded.bytes;

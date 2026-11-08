@@ -325,17 +325,6 @@ bool load_schema(const CommandIndex& index, const ApplicationCommand& command, A
     return !command.options.source.bytes ||
            json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, schema).ok();
 }
-bool blank(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-}
-// Option text is trimmed before use.
-Utf8View trimmed(Utf8View input, u32 first, u32 last) noexcept {
-    while (first < last && blank(input.data[first]))
-        ++first;
-    while (last > first && blank(input.data[last - 1]))
-        --last;
-    return {input.data + first, last - first};
-}
 bool option_end_at(const Utf8View& input, u32 at) noexcept {
     return at + kCommandOptionEndBytes <= input.bytes &&
            bytes_equal(input.data + at, kCommandOptionEnd, kCommandOptionEndBytes);
@@ -343,8 +332,8 @@ bool option_end_at(const Utf8View& input, u32 at) noexcept {
 // The unused option whose key starts at `at` (start of the arguments, after a
 // blank or right after an option's end), or schema.count.
 u32 key_at(const ArgumentSchema& schema, Utf8View input, u32 at, const bool* used) noexcept {
-    if (at >= input.bytes || blank(input.data[at]) ||
-        (at && !blank(input.data[at - 1]) &&
+    if (at >= input.bytes || ascii_is_space(input.data[at]) ||
+        (at && !ascii_is_space(input.data[at - 1]) &&
          !(at >= kCommandOptionEndBytes && option_end_at(input, at - kCommandOptionEndBytes))))
         return schema.count;
     for (u32 n = 0; n < schema.count; ++n) {
@@ -386,7 +375,7 @@ u32 scan_spans(const ArgumentSchema& schema, Utf8View input, CommandArgumentSpan
                           end_last,                slot};
     }
     for (u32 n = 0; n < count; ++n)
-        spans[n].value = trimmed(input, spans[n].value_first, spans[n].value_last);
+        spans[n].value = ascii_trim({input.data + spans[n].value_first, spans[n].value_last - spans[n].value_first});
     return count;
 }
 struct ChoiceMatch {
@@ -432,9 +421,6 @@ struct NumberText {
     bool negative, exponent_negative, has_exponent;
     char text[64];
 };
-bool digit(char c) noexcept {
-    return c >= '0' && c <= '9';
-}
 bool parse_number(Utf8View input, NumberText* out) noexcept {
     *out = {};
     u32 bytes = 0;
@@ -470,12 +456,12 @@ bool parse_number(Utf8View input, NumberText* out) noexcept {
         return true;
     }
     const u32 whole = pos;
-    while (pos < text.bytes && digit(text.data[pos]))
+    while (pos < text.bytes && ascii_is_digit(text.data[pos]))
         ++pos;
     out->whole = {text.data + whole, pos - whole};
     if (pos < text.bytes && text.data[pos] == '.') {
         const u32 fraction = ++pos;
-        while (pos < text.bytes && digit(text.data[pos]))
+        while (pos < text.bytes && ascii_is_digit(text.data[pos]))
             ++pos;
         out->fraction = {text.data + fraction, pos - fraction};
     }
@@ -486,7 +472,7 @@ bool parse_number(Utf8View input, NumberText* out) noexcept {
         if (pos < text.bytes && (text.data[pos] == '+' || text.data[pos] == '-'))
             out->exponent_negative = text.data[pos++] == '-';
         const u32 first = pos;
-        while (pos < text.bytes && digit(text.data[pos]))
+        while (pos < text.bytes && ascii_is_digit(text.data[pos]))
             ++pos;
         if (pos == first)
             return false;
@@ -584,7 +570,7 @@ bool mention_id(Utf8View value, u64 type, Utf8View* id) noexcept {
     }
     u64 parsed = 0;
     for (u32 n = 0; n < digits.bytes; ++n)
-        if (!digit(digits.data[n]))
+        if (!ascii_is_digit(digits.data[n]))
             return false;
     if (!json_string_to_u64({{digits.data, digits.bytes}, 0, false}, &parsed) || !parsed)
         return false;

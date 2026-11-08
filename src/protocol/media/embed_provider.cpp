@@ -470,9 +470,8 @@ YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
     for (u32 i = 0; i < result.list.bytes; ++i) if (!ascii_is_alnum(result.list.data[i]) && result.list.data[i] != '-' && result.list.data[i] != '_') return {};
     if (!parameter(u.query, utf8_literal("v"), &result.video)) return {};
     if (result.video.bytes) {
-        const auto item = embed_video_locator(url);
-        if (item.id.bytes != 11) return {};
-        result.video = item.id;
+        if (video.id.bytes != 11) return {};
+        result.video = video.id;
     }
     if (!result.video.bytes) result.video = video.id;
     if (prefix(result.list, utf8_literal("RD")) && !result.video.bytes) return {};

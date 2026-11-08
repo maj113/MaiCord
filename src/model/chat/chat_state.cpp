@@ -303,15 +303,6 @@ bool valid_name(Utf8View name) noexcept {
 
 #include "asset_hash_validation.inc"
 
-u32 guild_icon_variant(Utf8View hash) noexcept {
-    u32 value = 2'166'136'261u;
-    for (u32 index = 0; index < hash.bytes; ++index) {
-        value ^= static_cast<u8>(hash.data[index]);
-        value *= 16'777'619u;
-    }
-    return value == 0 ? 1u : value;
-}
-
 // Writes `hash` into a zero-padded record field; returns its length.
 u8 store_asset_hash(char (&field)[kGuildIconHashMaximumBytes], Utf8View hash) noexcept {
     for (u32 index = 0; index < kGuildIconHashMaximumBytes; ++index)
@@ -536,7 +527,7 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
     }
     if (replace_icon) {
         record.icon_hash_bytes = store_asset_hash(record.icon_hash, input.icon_hash);
-        record.icon_variant = input.icon_hash.bytes != 0 ? guild_icon_variant(input.icon_hash) : 0;
+        record.icon_variant = input.icon_hash.bytes != 0 ? asset_hash_variant(input.icon_hash) : 0;
     }
     // Banners are presentation: a malformed hash is dropped, never the guild.
     if (input.banner_known)
@@ -586,6 +577,21 @@ bool chat_state_store_set_self_timeout(ChatStateStore* store, u64 guild_id, u64 
     return chat_state_store_set_guild_settings(store, guild_id, settings);
 }
 
+// The guild's record slot and its name in the batch's name budget.
+static ChatStateStoreError preflight_guild_name(const ChatStateStore& store, const GuildInput& guild,
+                                                NamePreflight* budget) noexcept {
+    bool found = false;
+    const u32 order_index = find_guild_order(store, guild.id, &found);
+    const u32 slot = found ? store.guild_order[order_index] : empty_guild_slot(store);
+    if (slot >= store.guild_capacity || (!found && store.guild_count >= store.guild_capacity))
+        return ChatStateStoreError::guild_capacity;
+    const auto& resident = store.guilds[slot];
+    return preflight_replace_name(store, budget, found ? resident.name_offset : 0,
+                                  found ? resident.name_bytes : u16{0}, guild.name)
+               ? ChatStateStoreError::none
+               : ChatStateStoreError::name_capacity;
+}
+
 ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatStateStore& store,
                                                                        const GuildInput& guild,
                                                                        u32 role_count,
@@ -597,16 +603,8 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
         !valid_name(guild.name) || (guild.icon_known && !asset_hash_valid(guild.icon_hash)) ||
         !read_role || role_count == 0 || role_count > kGuildRoleMaximum)
         return ChatStateStoreError::invalid_input;
-    bool found = false;
-    const u32 guild_order = find_guild_order(store, guild.id, &found);
-    const u32 slot = found ? store.guild_order[guild_order] : empty_guild_slot(store);
-    if (slot >= store.guild_capacity || (!found && store.guild_count >= store.guild_capacity))
-        return ChatStateStoreError::guild_capacity;
-
-    const auto& resident_guild = store.guilds[slot];
-    if (!preflight_replace_name(store, &budget, found ? resident_guild.name_offset : 0,
-                                found ? resident_guild.name_bytes : u16{0}, guild.name))
-        return ChatStateStoreError::name_capacity;
+    if (const auto error = preflight_guild_name(store, guild, &budget); error != ChatStateStoreError::none)
+        return error;
 
     u32 old_roles = 0;
     for (u32 index = 0; index < store.role_count; ++index) {
@@ -655,15 +653,8 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
         (guild.icon_known && !asset_hash_valid(guild.icon_hash)) || !read_role || role_count == 0 ||
         role_count > kGuildRoleMaximum || (channel_count != 0 && !read_channel))
         return ChatStateStoreError::invalid_input;
-    bool found = false;
-    const u32 guild_order = find_guild_order(store, guild.id, &found);
-    const u32 slot = found ? store.guild_order[guild_order] : empty_guild_slot(store);
-    if (slot >= store.guild_capacity || (!found && store.guild_count >= store.guild_capacity))
-        return ChatStateStoreError::guild_capacity;
-    const auto& resident_guild = store.guilds[slot];
-    if (!preflight_replace_name(store, &budget, found ? resident_guild.name_offset : 0,
-                                found ? resident_guild.name_bytes : u16{0}, guild.name))
-        return ChatStateStoreError::name_capacity;
+    if (const auto error = preflight_guild_name(store, guild, &budget); error != ChatStateStoreError::none)
+        return error;
     // Full guild creation removes every target channel and role after the guild
     // upsert, then recreates incoming roles and channels in packet order.
     u32 old_roles = 0, old_channels = 0;

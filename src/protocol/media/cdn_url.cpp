@@ -1052,15 +1052,7 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
 }
 
 u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept {
-    if (!guild_icon_hash_valid(icon_hash)) {
-        return 0;
-    }
-    u32 value = 2'166'136'261u;
-    for (u32 index = 0; index < icon_hash.bytes; ++index) {
-        value ^= static_cast<u8>(icon_hash.data[index]);
-        value *= 16'777'619u;
-    }
-    return value == 0 ? 1u : value;
+    return guild_icon_hash_valid(icon_hash) ? asset_hash_variant(icon_hash) : 0;
 }
 
 namespace {

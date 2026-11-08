@@ -150,6 +150,12 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
         if (!ui_rect_intersects(geometry.card, row_clip))
             continue;
         const UiWidgetReference owner{&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i)};
+        const UiRect glyph{geometry.icon.left + 13.0f, geometry.icon.top + 13.0f,
+                           geometry.icon.right - 13.0f, geometry.icon.bottom - 13.0f};
+        // The card's cover or guild icon is media keyed by its URL; the View or Join button follows it.
+        char url[192];
+        u32 url_bytes = 0;
+        const Color* button = nullptr;
         if (invite_link_event(links[i])) {
             // Event cards: the cover image (or a calendar) and a View action.
             const ScheduledEvent* event = scene.scheduled_events
@@ -158,47 +164,34 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
             if (!push_card(paint, geometry.card, theme, 8.0f, UiBackgroundTier::high) ||
                 !paint_stream_push_rounded(paint, geometry.icon, theme.surface_high, 12.0f))
                 return false;
-            char url[192];
-            const u32 url_bytes = event ? message_event_cover_url(*event, {url, sizeof(url)}) : 0;
-            if (url_bytes) {
-                const MediaAssetKey key = message_component_media_key(hash64_bytes(kHash64Seed, url, url_bytes),
-                                                                      MediaAttachmentFormat::png);
-                if (!append_media(media, key.id, MessageMediaCommandKind::component,
-                                  static_cast<u8>(MediaAttachmentFormat::png), false, geometry.icon, row_clip, owner))
-                    return false;
-            } else {
-                const UiRect glyph{geometry.icon.left + 13.0f, geometry.icon.top + 13.0f, geometry.icon.right - 13.0f,
-                                   geometry.icon.bottom - 13.0f};
-                if (!ui_icon_paint(paint, UiIcon::calendar, glyph,
-                                   event && event->status == ScheduledEventStatus::active
-                                       ? theme.tokens.accent.success
-                                       : theme.text_secondary))
-                    return false;
-            }
-            if (event) {
-                const Color fill = event->interested ? theme.interactive : theme.tokens.accent.brand;
-                if (!paint_stream_push_rounded(paint, geometry.button, fill, 4.0f))
-                    return false;
-            }
-            continue;
-        }
-        const InviteCardEntry* entry =
-            scene.invite_cards ? invite_card_cache_find(*scene.invite_cards, {links[i].code, links[i].code_bytes})
-                               : nullptr;
-        const bool known = entry && entry->invite.guild_id;
-        if (!push_card(paint, geometry.card, theme, 8.0f, UiBackgroundTier::high) ||
-            !paint_stream_push_rounded(paint, geometry.icon, theme.surface_high, 16.0f))
-            return false;
-        if (!known) {
-            const UiRect glyph{geometry.icon.left + 13.0f, geometry.icon.top + 13.0f, geometry.icon.right - 13.0f,
-                               geometry.icon.bottom - 13.0f};
-            if (!ui_icon_paint(paint, entry && entry->state == InviteCardState::invalid ? UiIcon::circle_x : UiIcon::guild,
-                               glyph, theme.text_secondary))
+            url_bytes = event ? message_event_cover_url(*event, {url, sizeof(url)}) : 0;
+            if (!url_bytes && !ui_icon_paint(paint, UiIcon::calendar, glyph,
+                                             event && event->status == ScheduledEventStatus::active
+                                                 ? theme.tokens.accent.success
+                                                 : theme.text_secondary))
                 return false;
-            continue;
+            if (event)
+                button = event->interested ? &theme.interactive : &theme.tokens.accent.brand;
+        } else {
+            const InviteCardEntry* entry =
+                scene.invite_cards
+                    ? invite_card_cache_find(*scene.invite_cards, {links[i].code, links[i].code_bytes})
+                    : nullptr;
+            const bool known = entry && entry->invite.guild_id;
+            if (!push_card(paint, geometry.card, theme, 8.0f, UiBackgroundTier::high) ||
+                !paint_stream_push_rounded(paint, geometry.icon, theme.surface_high, 16.0f))
+                return false;
+            if (!known) {
+                if (!ui_icon_paint(paint,
+                                   entry && entry->state == InviteCardState::invalid ? UiIcon::circle_x
+                                                                                      : UiIcon::guild,
+                                   glyph, theme.text_secondary))
+                    return false;
+                continue;
+            }
+            url_bytes = message_invite_icon_url(entry->invite, {url, sizeof(url)});
+            button = entry->joined ? &theme.interactive : &theme.tokens.accent.success;
         }
-        char url[192];
-        const u32 url_bytes = message_invite_icon_url(entry->invite, {url, sizeof(url)});
         if (url_bytes) {
             const MediaAssetKey key = message_component_media_key(hash64_bytes(kHash64Seed, url, url_bytes),
                                                                   MediaAttachmentFormat::png);
@@ -206,8 +199,7 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
                               static_cast<u8>(MediaAttachmentFormat::png), false, geometry.icon, row_clip, owner))
                 return false;
         }
-        const Color fill = entry->joined ? theme.interactive : theme.tokens.accent.success;
-        if (!paint_stream_push_rounded(paint, geometry.button, fill, 4.0f))
+        if (button && !paint_stream_push_rounded(paint, geometry.button, *button, 4.0f))
             return false;
     }
     return true;
@@ -285,8 +277,10 @@ __declspec(noinline) bool paint_audio_attachment(const MessageRichStore& store, 
            ui_audio_controls_paint(projection, style, row_clip, theme, owner, paint);
 }
 
+// `hovered` is the row under the pointer (message_scene_resolve of the hovered widget), resolved once a build.
 bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, const Theme& theme,
-                PaintStream* paint, MessageMediaCommandStream* media, u32* geometry_quads) noexcept {
+                PaintStream* paint, MessageMediaCommandStream* media, u32* geometry_quads,
+                const MessageSceneRowWidget* hovered) noexcept {
     if (row.redacted || scene.content_gated)
         return true;
     const UiLayoutNode* avatar = message_scene_layout_node(scene, row.avatar);
@@ -306,7 +300,6 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     if (ui_rect_has_area(divider) &&
         !ui_unread_divider_paint(paint, divider, theme, scene.unread_divider_style, scene.pixel_scale))
         return false;
-    const MessageSceneRowWidget* hovered = message_scene_resolve(scene, scene.widgets.hovered);
     if (!row.forwarded_snapshot && hovered == &row) {
         Color hover_fill = theme.surface;
         hover_fill.alpha = 0.55f;
@@ -995,15 +988,16 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
         rollback();
         return false;
     }
+    const MessageSceneRowWidget* hovered = message_scene_resolve(scene, scene.widgets.hovered);
     for (u32 index = 0; index < scene.count; ++index) {
         const u32 outer_media_begin = media->count;
-        if (!append_row(scene, scene.rows[index], theme, paint, media, &result->geometry_quads)) {
+        if (!append_row(scene, scene.rows[index], theme, paint, media, &result->geometry_quads, hovered)) {
             rollback();
             return false;
         }
         const auto* child = message_scene_snapshot_row(scene, scene.rows[index]);
         const u32 child_media_begin = media->count;
-        if (child && !append_row(scene, *child, theme, paint, media, &result->geometry_quads)) {
+        if (child && !append_row(scene, *child, theme, paint, media, &result->geometry_quads, hovered)) {
             rollback();
             return false;
         }

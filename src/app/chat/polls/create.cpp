@@ -50,7 +50,6 @@ struct Form : SettingsDialog {
     // Built poll borrowing draft text; the draft is read-only while queued or sent.
     PollCreate poll;
     PopupItem popup_items[kPollDurationCount];
-    UiWidgetManager* previous_focus;
     u64 lifetime, channel_id, account_scope, profile_id, nonce, request_id, retry_at;
     u16 channel_generation;
     Utf8View status;
@@ -339,7 +338,6 @@ bool application_poll_create_open(u64 channel_id) noexcept {
     p.channel_generation = channel->generation;
     p.account_scope = g_app.plugin_account_scope_serial;
     p.profile_id = g_app.account.status.profile_id;
-    p.previous_focus = g_app.context_focus;
     p.queued = p.failed = false;
     reset_value(&p.status);
     poll_draft_reset(&p.draft);

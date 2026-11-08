@@ -231,7 +231,7 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     before = presentation.markdown_parses;
     bool toggled = false;
     const bool revealed = spoiler.valid &&
-                          message_text_presentation_toggle_spoiler(&presentation, f.store, spoiler, &toggled) &&
+                          message_text_presentation_toggle_spoiler(&presentation, f.store, nullptr, spoiler, &toggled) &&
                           toggled && build(&presentation, kNow);
     check(revealed && presentation.markdown_parses == before + 1,
           "markdown_cache_spoiler_reveal_reparses_only_its_message");

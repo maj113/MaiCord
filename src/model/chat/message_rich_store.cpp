@@ -1024,7 +1024,7 @@ bool message_rich_store_advance_revision(MessageRichStore* store, u64 message_id
         return false;
     auto& parent = store->records[found.slot];
     if (parent.has_forwarded_snapshot) {
-        if (!message_rich_store_snapshot(*store, message_id))
+        if (!snapshot_of(*store, parent))
             return false;
         store->records[parent.forwarded_snapshot_slot].message_revision = next_revision;
     }
@@ -1041,9 +1041,11 @@ struct RichValidationPlan {
     u32 mention_bytes;
 };
 
+// `known` is the caller's find_record result for message_id on the unchanged order (not for a child).
 static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id, u32 message_revision,
                                          const GatewayMessageEvent& input, bool child = false,
-                                         u16 child_slot = 0, const RichValidationPlan* validated = nullptr) noexcept {
+                                         u16 child_slot = 0, const RichValidationPlan* validated = nullptr,
+                                         const SearchResult* known = nullptr) noexcept {
     MessageRichStoreResult result{};
     const auto reject = [&](MessageRichStoreError error) noexcept {
         result.error = error;
@@ -1054,7 +1056,7 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         return reject(MessageRichStoreError::invalid_input);
     u32 fields = input.fields & kRichFields & (child ? ~static_cast<u32>(gateway_message_field_thread) : ~0u);
     SearchResult search = child ? SearchResult{0, child_slot, store->records[child_slot].occupied}
-                                : find_record(*store, message_id);
+                          : known ? *known : find_record(*store, message_id);
     // System metadata: mentions only for recipient changes, call objects only
     // while present (or to clear a retained one). Snapshots never carry them.
     if (child || !(input.fields & gateway_message_field_type) || !system_target_type(input.type))
@@ -1157,14 +1159,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     return result;
 }
 
-const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
-                                                     u64 outer_message_id) noexcept {
-    if (!store.records || !store.order)
-        return nullptr;
-    const auto found = find_record(store, outer_message_id);
-    if (!found.found)
-        return nullptr;
-    const auto& outer = store.records[found.slot];
+namespace message_rich_store_detail {
+const MessageRichRecord* snapshot_of(const MessageRichStore& store, const MessageRichRecord& outer) noexcept {
     if (!outer.has_forwarded_snapshot || outer.forwarded_snapshot_child ||
         outer.forwarded_snapshot_slot >= store.record_extent)
         return nullptr;
@@ -1173,6 +1169,15 @@ const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& sto
                    child.message_id == outer.message_id && child.message_revision == outer.message_revision
                ? &child
                : nullptr;
+}
+} // namespace message_rich_store_detail
+
+const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
+                                                     u64 outer_message_id) noexcept {
+    if (!store.records || !store.order)
+        return nullptr;
+    const auto found = find_record(store, outer_message_id);
+    return found.found ? snapshot_of(store, store.records[found.slot]) : nullptr;
 }
 
 MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 message_id,
@@ -1183,14 +1188,14 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         return {nullptr, MessageRichStoreError::invalid_input, false, false};
     const auto found = find_record(*store, message_id);
     const auto* outer = found.found ? &store->records[found.slot] : nullptr;
-    const auto* previous = outer ? message_rich_store_snapshot(*store, message_id) : nullptr;
+    const auto* previous = outer ? snapshot_of(*store, *outer) : nullptr;
     if (outer && outer->has_forwarded_snapshot && !previous)
         return {nullptr, MessageRichStoreError::corrupt_state, false, false};
     const bool supplied = (input.fields & gateway_message_field_message_snapshots) != 0;
     if (!supplied && input.snapshot.present)
         return {nullptr, MessageRichStoreError::invalid_input, false, false};
     if (!outer && (!(input.fields & kRichFields) || store->count >= store->capacity))
-        return apply_body(store, message_id, message_revision, input);
+        return apply_body(store, message_id, message_revision, input, false, 0, nullptr, &found);
     const u16 previous_slot = previous ? outer->forwarded_snapshot_slot : 0;
     GatewayMessageEvent body{};
     constexpr u32 body_fields = gateway_message_field_attachments | gateway_message_field_embeds |
@@ -1265,12 +1270,11 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         store->records[found.slot].has_forwarded_snapshot = false;
     }
     auto result = apply_body(store, message_id, message_revision, input, false, 0,
-                             removed_snapshot ? nullptr : &validated);
+                             removed_snapshot ? nullptr : &validated, &found);
     if (!result.ok() || !result.record)
         return result;
-    const auto resident = find_record(*store, message_id);
-    if (!resident.found)
-        return {nullptr, MessageRichStoreError::corrupt_state, false, false};
+    // The parent apply_body returned is the resident record; nothing has moved since.
+    const u16 resident_slot = static_cast<u16>(result.record - store->records);
     if (!supplied) {
         if (previous)
             store->records[previous_slot].message_revision = message_revision;
@@ -1287,9 +1291,9 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
     const auto copied = apply_body(store, message_id, message_revision, body, true, slot);
     if (!copied.ok())
         return copied;
-    store->records[resident.slot].forwarded_snapshot_slot = slot;
-    store->records[resident.slot].has_forwarded_snapshot = true;
-    result.record = &store->records[resident.slot];
+    store->records[resident_slot].forwarded_snapshot_slot = slot;
+    store->records[resident_slot].has_forwarded_snapshot = true;
+    result.record = &store->records[resident_slot];
     result.storage_truncated = result.storage_truncated || copied.storage_truncated;
     return result;
 }

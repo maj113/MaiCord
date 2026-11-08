@@ -472,7 +472,7 @@ void test_silent_send(Check check) noexcept {
     const auto written = write_message_create_body(utf8_literal("hello"), 5, 0, 0, {}, {}, {body, sizeof(body)},
                                                    true, kMessageFlagSuppressNotifications);
     const Utf8View json{reinterpret_cast<const char*>(body), written.bytes};
-    const auto plain = write_message_create_body(utf8_literal("x"), 6, {body + 256, 256});
+    const auto plain = write_message_create_body(utf8_literal("x"), 6, 0, 0, {}, {}, {body + 256, 256});
     check(written.ok() && test_contains(json, utf8_literal(R"("flags":4096)")) &&
               test_contains(json, utf8_literal(R"({"content":"hello")")) && plain.ok() &&
               test_contains({reinterpret_cast<const char*>(body + 256), plain.bytes}, utf8_literal(R"("flags":0,)")) &&
