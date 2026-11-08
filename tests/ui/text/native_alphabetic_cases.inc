@@ -1,4 +1,4 @@
-// Independent app comparisons: source text is intentionally unnormalized.
+// Source text is intentionally unnormalized.
 const Utf8View alphabetic_samples[]{
     utf8_literal("\xce\x9a\xce\xb1\xce\xbb\xce\xb7\xce\xbc\xce\xad\xcf\x81\xce\xb1\x20\xce\xba\xcf\x8c\xcf\x83\xce\xbc\xce\xb5"),
     utf8_literal("\xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82\x20\xd0\xbc\xd0\xb8\xd1\x80"),
@@ -27,24 +27,25 @@ const Utf8View alphabetic_samples[]{
     utf8_literal("\xce\xb2\x20\xc2\xa8\xcd\x82\xe2\x80\x8c\x20\xce\xb3"),
     utf8_literal("\xce\xb2\x20\xce\x91\xcc\x81\xcc\x81\x20\xce\xb3"),
 };
-bool alphabetic_corpus(DWriteTextSystem system,bool required) noexcept {
+bool alphabetic_corpus(AppSystem system,bool required) noexcept {
     const float widths[]{8,37,95,1000000};const u32 flags[]{0,text_style_link,text_style_underline|text_style_strikethrough,text_style_bold|text_style_italic,text_style_monospace,text_style_heading_2|text_style_underline};
-    const float em=system.format->GetFontSize();system.em_size=em;
+    const float em=system.em_size;
     for(u32 sample=0;sample<sizeof(alphabetic_samples)/sizeof(alphabetic_samples[0]);++sample){const auto text=alphabetic_samples[sample];
         for(u32 mode=0;mode<4;++mode)for(u32 flag:flags){system.independent_letters=(mode&1)!=0;system.tracking=(mode&2)?.03f:0;
             const TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
             for(float w:widths)for(u32 nowrap=0;nowrap<2;++nowrap){++cases;const float width=w==1000000?w:w*(em/16);const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-                shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);auto reference=system;reference.native_text=nullptr;
-                const bool native=flag?native_text_candidate_styled(system,text,styles,width,1000000,&native_output.text,nullptr,wrap):native_text_candidate_line(system,text,width,1000000,&native_output.text,nullptr,wrap);
-                // Segoe UI italic faces lack these controls. Windows font
-                // fallback changes the clusters; keep that transition explicit.
+                shaped_text_reset(&native_output.text);
+                const bool native=flag?native_text_candidate_styled(system,{text,styles,width,1000000,wrap},&native_output.text,nullptr):native_text_candidate_line(system,{text,{},width,1000000,wrap},&native_output.text,nullptr);
+                // Segoe UI italic faces lack these controls: the font fallback for them changes the clusters, which the
+                // line candidates decline.
                 bool fallback=false;if(flag&text_style_italic)for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);fallback|=cp.codepoint==0x200c||cp.codepoint==0x200d||cp.codepoint==0x34f;at+=cp.width;}
                 if(required&&!fallback&&!native){print("alphabetic declined sample/mode/flag=");number(sample);print("/");number(mode);print("/");number(flag);print("\n");return false;}
-                if(native)++native_cases;else CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
-                CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
-                const auto a=text_measure_utf8(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrap);
-                if(!same(native_output,reference_output,true,true)||!a.ok()||!b.ok()||!bytes_equal(&a.width,&b.width,12)||a.line_count!=b.line_count){
+                observe_value(static_cast<u32>(native));
+                if(native)++native_cases;else{const auto shaped=text_shape_utf8(&system, {text,styles,width,1000000,wrap}, &native_output.text);observe(shaped);if(!shaped.ok())continue;}
+                const auto a=text_measure_utf8(&system, {text,styles,width,1000000,wrap});
+                if(!native_output.text.native_fonts()||!a.ok()||!same_metrics(a,native_output.text)){
                     print("alphabetic sample/mode/flag/em/width/nowrap=");number(sample);print("/");number(mode);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");return false;}
+                observe(native_output.text,text,system);
                 if(native&&!mode&&!compare_hits(system,text,width,wrap,styles)){print("alphabetic hit sample/flag/em/width/nowrap=");number(sample);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");return false;}
             }
         }

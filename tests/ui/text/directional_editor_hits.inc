@@ -5,7 +5,7 @@ const Utf8View directional_cut_holdouts[]{
     utf8_literal("\xd7\x90\xd7\x91\xce\xb1\xcc\x81"),
     utf8_literal("\xd7\x90\xd7\x91\xd0\x91\xcc\x88"),
     utf8_literal("A\xcc\x81\xcc\x88\xd7\x90\xd7\x91")};
-bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
+bool directional_editor_hit_corpus(AppSystem system,bool cuts) noexcept {
     const u64 captured_identity=native_text_format_identity(system);
     CHECK(system.native_text&&system.native_format&&captured_identity);
     const auto& texts=directional_editor_samples;
@@ -24,7 +24,7 @@ bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
             if(byte>=middle&&boundary){middle=byte;break;}byte+=cp.width;if(byte==text.bytes)middle=byte;}
         const auto execute=[&](u32 first,u32 end,u32 flag,const Scenario& scenario) noexcept {
             const TextStyleSpan style{first,end-first,flag};const float width=scenario.width==1000000?scenario.width:scenario.width*system.em_size/16;
-                if(!compare_hits(system,text,width,scenario.wrap,{&style,flag&&style.byte_count?1u:0u},true,false,true)){
+                if(!compare_hits(system,text,width,scenario.wrap,{&style,flag&&style.byte_count?1u:0u})){
                     print("directional editor sample/first/end/flag/em/width/nowrap=");number(sample);print("/");number(first);print("/");number(end);print("/");number(flag);print("/");real(system.em_size);print("/");real(width);print("/");number(scenario.wrap==TextWrapping::no_wrap);print("\n");return false;}
             return true;
         };
@@ -40,9 +40,7 @@ bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
         }
         else for(u32 i=0;i<3;++i)if(scale_cases[i].sample==sample){const auto& scale=scale_cases[i];CHECK(execute(offsets[scale.scalar],offsets[scale.scalar+1],scale.flag,scenarios[0]));}
     }
-    // The corpus keeps its COM format alive for this complete font/em cell.
-    // Re-read the real declaration once more before that owner releases it.
-    auto control=system;
-    CHECK(native_text_format_capture(&control)&&native_text_format_identity(control)==captured_identity);
+    // The format the whole corpus laid out with is still the same declaration.
+    CHECK(native_text_format_identity(system)==captured_identity);
     return true;
 }

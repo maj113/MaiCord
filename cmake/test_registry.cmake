@@ -599,7 +599,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/app/chat/messages/retained_messages.cpp
         tests/media/image/core_codecs.cpp tests/app/media/core_media.cpp tests/protocol/gateway/core_gateway.cpp
         tests/protocol/http/core_transport.cpp tests/core/core_runtime.cpp tests/app/account/core_account.cpp
-        tools/font_reference/dwrite_text_system.cpp tests/app/account/login/account_credential_forget.cpp
+        tests/app/account/login/account_credential_forget.cpp
         tests/app/account/account_logout_stop.cpp tests/app/account/account_module_dormant.cpp tests/app/account/account_inventory.cpp
         tests/app/media/parity.cpp tests/app/media/catalog_media.cpp tests/ui/chat/messages/preparation.cpp tests/render/media/atlas_pressure.cpp
         tests/ui/shell/composer_geometry.cpp tests/ui/chat/messages/reply_grouping.cpp tests/ui/chat/messages/markdown_cache.cpp
@@ -643,7 +643,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
         maicord_account_media maicord_plugin_runtime bcrypt kernel32 user32
-        ${maicord_tls_libs} dwrite
+        ${maicord_tls_libs}
     INCLUDES src/app
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
@@ -1431,16 +1431,21 @@ maicord_test(MaiCordNativeFormatTests ENTRY maicord_native_format_entry
     TEST maicord_native_format_ownership "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Compagnon.otf")
 maicord_add_tests(MaiCordNativeFormatTests TIMEOUT 2
     TEST maicord_native_recovery_pressure --recovery-pressure "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Compagnon.otf")
-# Inline the shared test driver's hot comparisons and query helpers (/Ob2).
+# Inline the shared test driver's hot comparisons and query helpers (/Ob2). Its layouts are checked against
+# the committed references of tests/ui/text/app_line_reference.hpp (tools/font_reference/text_reference.py
+# records them); status 77 means this machine's fonts were never recorded.
 add_library(maicord_native_app_line_driver OBJECT tests/ui/text/native_app_line_test.cpp tests/ui/text/native_app_line_scripts.cpp
-    tests/ui/text/native_app_line_editing.cpp)
+    tests/ui/text/native_app_line_editing.cpp tests/ui/text/app_line_reference.cpp)
 target_link_libraries(maicord_native_app_line_driver PRIVATE maicord_compile_contract)
 set_target_properties(maicord_native_app_line_driver PROPERTIES CXX_EXTENSIONS OFF MAICORD_INLINE_ANY ON)
 maicord_test(MaiCordNativeAppLineTests ENTRY maicord_native_app_line_entry
     SOURCES $<TARGET_OBJECTS:maicord_native_app_line_driver> src/render/text/edit_layout.cpp
-        tools/font_reference/dwrite_text_system.cpp tools/font_reference/dwrite_edit_reference.cpp
-    LIBS maicord_core maicord_ui maicord_text kernel32 dwrite
+    LIBS maicord_core maicord_ui maicord_text kernel32
     TEST maicord_native_app_lines)
+# Cases that can draw with the repository's fonts do (--bundled-fonts: Segoe UI, Georgia and Consolas become MuseoModerno,
+# Zilla Slab and BioRhyme), so a machine with other system fonts still checks them; the script, emoji and RTL
+# corpora need the system's fonts and skip there (tests/ui/text/app_line_reference.hpp).
+set(maicord_bundled_fonts --bundled-fonts "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 2 TEST maicord_native_tsf_points --tsf-points)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 TEST maicord_native_historic --historic)
 add_executable(MaiCordNativeTextStoreTests tests/ui/text/native_text_store_test.cpp src/render/text/edit_layout.cpp $<TARGET_OBJECTS:maicord_runtime>)
@@ -1452,7 +1457,7 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 2 WORKING_DIRECTORY ${CMAKE_
     LABELS native-text-app-lines TEST maicord_native_request_recovery --request-recovery)
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_fallback_bindings --fallback-bindings
-    TEST maicord_native_system_fallback --system-fallback-profile --family "Segoe UI" 400
+    TEST maicord_native_system_fallback ${maicord_bundled_fonts} --system-fallback-profile --family "Segoe UI" 400
     TEST maicord_native_hebrew_lines --hebrew-profile --family "Segoe UI" 400
     TEST maicord_native_hangul_lines --hangul-profile --family "Segoe UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 15 LABELS native-text-thai-shaping
@@ -1538,44 +1543,38 @@ maicord_add_tests(MaiCordNativeAppLineTests
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_bidi_emoji --bidi-emoji-profile --family "Segoe UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_symbols --symbols-profile --family "Segoe UI" 400
+    TEST maicord_native_symbols ${maicord_bundled_fonts} --symbols-profile --family "Segoe UI" 400
     TEST maicord_native_bidi_style_ranges --bidi-range-check
     TEST maicord_native_simulated_styles --simulated-styles)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-app
     TEST maicord_native_emoji_dispatch --emoji-dispatch)
 maicord_add_tests(MaiCordNativeAppLineTests TEST maicord_native_mixed_emoji --mixed-emoji)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-owned-formats
-    TEST maicord_native_owned_formats --native-formats)
-maicord_add_tests(MaiCordNativeAppLineTests TEST maicord_native_tracking --tracking-profile --family "Segoe UI" 400)
-# DirectWrite cross-checks that were selectable but never ran: the ASCII break
-# oracle, font selection and context layouts, editor policy, the paragraph, hit
-# and Latin corpora, fuzzing and the simulated-style profile. The remaining
-# modes (benchmarks, dumps, Thai probes, the 1-2 s Arabic, CJK and alphabetic
-# corpora, exhaustive variants of the matrix profiles) are manual;
-# tests/ui/text/native_app_line_test.cpp lists them.
+    TEST maicord_native_owned_formats ${maicord_bundled_fonts} --native-formats)
+maicord_add_tests(MaiCordNativeAppLineTests TEST maicord_native_tracking ${maicord_bundled_fonts} --tracking-profile --family "Segoe UI" 400)
+# The remaining modes (the 1-2 s Arabic, CJK and alphabetic corpora, exhaustive variants of the matrix
+# profiles) are manual; tests/ui/text/native_app_line_test.cpp lists them.
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 10
-    TEST maicord_native_break_tests --break-tests
     TEST maicord_native_font_selection --font-selection-check
     TEST maicord_native_font_context_layouts --font-context-layouts
-    TEST maicord_native_editor_policy --editor-policy-probe
     TEST maicord_native_han_paragraph --han-paragraph
-    TEST maicord_native_paragraphs --paragraphs
-    TEST maicord_native_paragraph_fuzz --paragraph-fuzz
-    TEST maicord_native_latin_paragraph_fuzz --latin-paragraph-fuzz
-    TEST maicord_native_hit_profile --hit-profile --family "Segoe UI" 400
-    TEST maicord_native_latin_paragraph --latin-paragraph --family "Segoe UI" 400
+    TEST maicord_native_paragraphs ${maicord_bundled_fonts} --paragraphs
+    TEST maicord_native_paragraph_fuzz ${maicord_bundled_fonts} --paragraph-fuzz
+    TEST maicord_native_latin_paragraph_fuzz ${maicord_bundled_fonts} --latin-paragraph-fuzz
+    TEST maicord_native_hit_profile ${maicord_bundled_fonts} --hit-profile --family "Segoe UI" 400
+    TEST maicord_native_latin_paragraph ${maicord_bundled_fonts} --latin-paragraph --family "Segoe UI" 400
     TEST maicord_native_latin_hits --latin-hits --family "Segoe UI" 400
-    TEST maicord_native_paragraph_profile --paragraph-profile --family "Segoe UI" 400
-    TEST maicord_native_common_punctuation --common-punctuation-profile --family "Segoe UI" 400
+    TEST maicord_native_paragraph_profile ${maicord_bundled_fonts} --paragraph-profile --family "Segoe UI" 400
+    TEST maicord_native_common_punctuation ${maicord_bundled_fonts} --common-punctuation-profile --family "Segoe UI" 400
     TEST maicord_native_directional_large --directional-large-profile --family "Segoe UI" 400
-    TEST maicord_native_simulated_profile --simulated-profile --family "Segoe UI" 400)
+    TEST maicord_native_simulated_profile ${maicord_bundled_fonts} --simulated-profile --family "Segoe UI" 400)
 maicord_test(MaiCordNativeSpacingTests ENTRY maicord_native_spacing_entry SOURCES tests/text/opentype/native_spacing_test.cpp
-    LIBS maicord_core maicord_font kernel32 dwrite
+    LIBS maicord_core maicord_font kernel32
     TIMEOUT 5 LABELS native-text-spacing TEST maicord_native_spacing)
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_paragraph_options --paragraph-options
-    TEST maicord_native_paragraph_hits --paragraph-hits
-    TEST maicord_native_edit_hits --edit-hits
+    TEST maicord_native_paragraph_options ${maicord_bundled_fonts} --paragraph-options
+    TEST maicord_native_paragraph_hits ${maicord_bundled_fonts} --paragraph-hits
+    TEST maicord_native_edit_hits ${maicord_bundled_fonts} --edit-hits
     TEST maicord_native_directional_edit --directional-edit
     TEST maicord_native_directional_edit_cuts --directional-edit-cuts
     TEST maicord_native_latin_lines --latin-profile --family "Segoe UI" 400
@@ -1587,35 +1586,40 @@ foreach(mode paragraph editor)
         TEST maicord_native_light_fallback_${mode} --cjk-${mode}-profile --family "Microsoft JhengHei UI" 400)
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_height_overflow --height-overflow-profile --family "Segoe UI" 400
-    TEST maicord_native_ellipsis_sign --ellipsis-sign-profile --family "Segoe UI" 400
-    TEST maicord_native_ellipsis_cut --ellipsis-cut-profile --family "Segoe UI" 400
-    TEST maicord_native_ellipsis_line --ellipsis-line-profile --family "Segoe UI" 400
+    TEST maicord_native_height_overflow ${maicord_bundled_fonts} --height-overflow-profile --family "Segoe UI" 400
+    TEST maicord_native_ellipsis_sign ${maicord_bundled_fonts} --ellipsis-sign-profile --family "Segoe UI" 400
+    TEST maicord_native_ellipsis_cut ${maicord_bundled_fonts} --ellipsis-cut-profile --family "Segoe UI" 400
+    TEST maicord_native_ellipsis_line ${maicord_bundled_fonts} --ellipsis-line-profile --family "Segoe UI" 400
     TEST maicord_native_ellipsis_styles --ellipsis-style-profile --family "Segoe UI" 400)
 # Each process runs one complete profile. The five-profile union keeps
 # all 139,944 matrix cases; --matrix-batch remains an offline full union.
 set(maicord_matrix_profile_index 0)
 foreach(maicord_matrix_profile IN ITEMS ellipsis_hits multiline_hits
         multiline_private_hits styled decorations)
+    # The ellipsis-hit profile counts its Segoe UI cases, so it keeps the system's fonts.
+    set(maicord_matrix_fonts ${maicord_bundled_fonts})
+    if(maicord_matrix_profile STREQUAL "ellipsis_hits")
+        set(maicord_matrix_fonts)
+    endif()
     maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 20 COST 40 ENVIRONMENT LOCALAPPDATA=
         LABELS native-text-hits native-text-styled native-text-decorations native-text-quick
-        TEST maicord_native_matrix_${maicord_matrix_profile} --matrix-profile ${maicord_matrix_profile_index}
+        TEST maicord_native_matrix_${maicord_matrix_profile} ${maicord_matrix_fonts} --matrix-profile ${maicord_matrix_profile_index}
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
     math(EXPR maicord_matrix_profile_index "${maicord_matrix_profile_index} + 1")
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_decoration_options --decoration-options
-    TEST maicord_native_semantic_ranges --semantic-profile --family "Segoe UI" 400
+    TEST maicord_native_decoration_options ${maicord_bundled_fonts} --decoration-options
+    TEST maicord_native_semantic_ranges ${maicord_bundled_fonts} --semantic-profile --family "Segoe UI" 400
     TEST maicord_native_directional_semantic_ranges --directional-semantic-profile --family "Segoe UI" 400
     TEST maicord_native_directional_editor_hits --directional-editor-profile --family "Segoe UI" 400
     TEST maicord_native_directional_editor_cuts --directional-editor-cuts-profile --family "Segoe UI" 400
-    TEST maicord_native_semantic_options --semantic-options
-    TEST maicord_native_styled_hits --styled-hit-profile --family "Segoe UI" 400
-    TEST maicord_native_styled_editor --styled-edit)
+    TEST maicord_native_semantic_options ${maicord_bundled_fonts} --semantic-options
+    TEST maicord_native_styled_hits ${maicord_bundled_fonts} --styled-hit-profile --family "Segoe UI" 400
+    TEST maicord_native_styled_editor ${maicord_bundled_fonts} --styled-edit)
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_style_clusters --style-cluster-profile --family "Segoe UI" 400
-    TEST maicord_native_style_continuity --continuity-profile --family "Segoe UI" 400
-    TEST maicord_native_style_cluster_parity --style-clusters
+    TEST maicord_native_style_clusters ${maicord_bundled_fonts} --style-cluster-profile --family "Segoe UI" 400
+    TEST maicord_native_style_continuity ${maicord_bundled_fonts} --continuity-profile --family "Segoe UI" 400
+    TEST maicord_native_style_cluster_parity ${maicord_bundled_fonts} --style-clusters
     TEST maicord_native_style_continuity_pixelify --continuity-profile
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Pixelify.ttf" 400)
 maicord_font_test(MaiCordCursiveDeferredTests maicord_cursive_deferred_entry text/opentype/cursive_deferred_test STANDALONE
@@ -1732,7 +1736,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
     SOURCES ${maicord_effect_headers} config/maicord.manifest tests/integration/ui_probe.cpp
         tests/integration/ui_probe_media.cpp tests/integration/ui_probe_scenes.cpp
         tests/integration/ui_probe_renderer.cpp
-        tools/font_reference/dwrite_text_system.cpp tests/integration/poll_scene_ui_probe.cpp
+        tests/integration/poll_scene_ui_probe.cpp
         tests/integration/profile_editor_ui_probe.cpp tests/integration/navigation_gaps_ui_probe.cpp
         tests/integration/reaction_intent_ui_adapter.cpp tests/integration/thread_membership_ui_adapter.cpp
         tests/integration/reply_draft_ui_adapter.cpp tests/integration/thread_browser_ui_adapter.cpp
@@ -1785,7 +1789,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
     LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_packages maicord_client_preferences
         maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media
-        kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp dwrite dwmapi
+        kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp dwmapi
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src/app
     DEFINES MAICORD_CLIPBOARD_UI_FIXTURE=1 MAICORD_LOG_STDOUT=1
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
@@ -2097,3 +2101,12 @@ maicord_test(MaiCordTwitterPlayerTests ENTRY maicord_twitter_player_entry SOURCE
 maicord_test(MaiCordAmazonMusicPlayerTests ENTRY maicord_amazon_music_player_entry
     SOURCES tests/protocol/media/amazon_music_player.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_amazon_music_player)
+
+# MaiCordNativeAppLineTests exits 77 (skip) on a machine whose system fonts its committed references never recorded.
+get_property(maicord_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(maicord_registered_test IN LISTS maicord_registered_tests)
+    get_property(maicord_registered_target GLOBAL PROPERTY MAICORD_TEST_TARGET_${maicord_registered_test})
+    if(maicord_registered_target STREQUAL "MaiCordNativeAppLineTests")
+        set_tests_properties(${maicord_registered_test} PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+endforeach()

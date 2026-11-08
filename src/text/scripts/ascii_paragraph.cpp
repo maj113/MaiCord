@@ -143,12 +143,6 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
     if(styles.count){if(!styles.data)return SfntStatus::invalid_input;
         if(hits&&(styles.count>65535||styles.count>hits->styles.count||!hits->styles.data))return SfntStatus::output_too_small;
         for(u32 i=0;i<styles.count;++i){const auto& s=styles[i];if(!is_finite(s.baseline)||!is_finite(s.descent)||s.baseline<0||s.descent<0||!(layout_add(s.baseline,s.descent)>0))return SfntStatus::invalid_input;}}
-    bool nominal_groups=styles.count&&clusters.count&&(clusters[0].flags&native_paragraph_metric_group)&&!(clusters[0].flags&native_paragraph_nonvisual);float nominal_done=0,nominal_part=0;
-    for(u32 i=0;nominal_groups&&i<clusters.count;++i){const auto& c=clusters[i];
-        if(c.flags&(native_paragraph_tab|native_paragraph_newline))nominal_groups=false;
-        if(c.flags&native_paragraph_metric_group){nominal_done=layout_add(nominal_done,nominal_part);nominal_part=0;}nominal_part=layout_add(nominal_part,c.width);
-    }
-    nominal_groups=nominal_groups&&!(clusters[clusters.count-1].flags&native_paragraph_space)&&(!wrap||layout_add(nominal_done,nominal_part)<width);
     NativeParagraphLayout layout{};u32 start=0,hit_count=0,advance_count=0;float top=0;bool hidden=false;
     do{
         const u32 hit_first=hit_count,run_first=layout.run_count;
@@ -158,7 +152,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
             if(end>start&&(c.flags&native_paragraph_break_before))last_break=end;
             const float next=(c.flags&native_paragraph_tab)?tab(pen,stop):layout_add(pen,c.width);
             if(next<0||!is_finite(next))return SfntStatus::resource_limit;
-            if(wrap&&!nominal_groups&&next>width&&!(c.flags&(native_paragraph_space|native_paragraph_tab))&&end>start){
+            if(wrap&&next>width&&!(c.flags&(native_paragraph_space|native_paragraph_tab))&&end>start){
                 if(last_break>start){end=last_break;break;}if(!trimming_height){layout.flags|=native_paragraph_emergency_break;break;}}
             pen=next;++end;
         }
@@ -181,7 +175,8 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
             if(lines.data){if(layout.line_count==lines.count)return SfntStatus::output_too_small;lines[layout.line_count]={static_cast<u16>(layout.run_count),0,top,0,0};}
             ++layout.line_count;start=end;continue;
         }
-        const float baseline=layout_add(top,line_baseline);float metric=0,ink_metric=0,x=0,metric_done=0,metric_part=0;
+        // Line metrics sum cluster widths left to right, as the clusters are placed.
+        const float baseline=layout_add(top,line_baseline);float metric=0,ink_metric=0,x=0;
         u32 trailing=end;while(trailing>start&&(sink.trailing_reset.count?sink.trailing_reset[trailing-1]!=0:(clusters[trailing-1].flags&(native_paragraph_space|native_paragraph_newline|native_paragraph_crlf_prefix))!=0))--trailing;
         u32 at=start;
         while(at<end){const auto& first=clusters[at];const bool control=(first.flags&(native_paragraph_tab|native_paragraph_newline|native_paragraph_nonvisual|native_paragraph_crlf_prefix))!=0;
@@ -190,7 +185,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
             u32 last=at+1;if(!control)while(last<end&&!(clusters[last].flags&(native_paragraph_tab|native_paragraph_newline|native_paragraph_nonvisual|native_paragraph_crlf_prefix))&&last!=trailing&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style)&&
                 (!split_space||(clusters[last].flags&native_paragraph_space)))++last;
             else if(first.flags&native_paragraph_tab)while(last<end&&(clusters[last].flags&native_paragraph_tab)&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
-            else if(first.flags&native_paragraph_nonvisual)while(last<end&&(clusters[last].flags&native_paragraph_nonvisual)&&!(clusters[last].flags&native_paragraph_metric_group)&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
+            else if(first.flags&native_paragraph_nonvisual)while(last<end&&(clusters[last].flags&native_paragraph_nonvisual)&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
             else if((first.flags&native_paragraph_crlf_prefix)&&last<end&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
             if(layout.run_count==runs.count)return SfntStatus::output_too_small;
             // A run is placed relative to its own font baseline, then drawn from that
@@ -199,15 +194,14 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
             const auto& final=clusters[last-1];runs[layout.run_count++]={static_cast<u16>(first.source_first),static_cast<u16>(final.source_end-first.source_first),first.glyph_first,final.glyph_first+final.glyph_count-first.glyph_first,x,run_baseline,0};
             float group_pen=0,tab_pen=metric,point_pen=x;
             for(u32 c=at;c<last;++c){const auto& item=clusters[c];
-                if(nominal_groups&&(item.flags&native_paragraph_metric_group)){metric_done=layout_add(metric_done,metric_part);metric_part=0;}
                 if(item.glyph_first>placements.count||item.glyph_count>placements.count-item.glyph_first)return SfntStatus::invalid_input;
                 const float hit_left=layout_add(x,group_pen);float hit_width=item.width;const u32 advance_first=advance_count;
                 if(hits){const u32 needed=(item.flags&native_paragraph_tab)?1u:item.glyph_count;
                     if(needed>native_hit_advance_mask-advance_count)return SfntStatus::resource_limit;
                     if(needed>hits->advances.count-advance_count)return SfntStatus::output_too_small;}
-                if(item.flags&native_paragraph_tab){const float next=tab(tab_pen,stop);if(next<0)return SfntStatus::resource_limit;const float delta=next-tab_pen;metric=layout_add(metric,delta);metric_done=metric;metric_part=0;group_pen=layout_add(group_pen,delta);tab_pen=next;ink_metric=metric;hit_width=delta;if(hits)hits->advances[advance_count++]=delta;}
+                if(item.flags&native_paragraph_tab){const float next=tab(tab_pen,stop);if(next<0)return SfntStatus::resource_limit;const float delta=next-tab_pen;metric=layout_add(metric,delta);group_pen=layout_add(group_pen,delta);tab_pen=next;ink_metric=metric;hit_width=delta;if(hits)hits->advances[advance_count++]=delta;}
                 else if(!(item.flags&(native_paragraph_newline|native_paragraph_crlf_prefix))){
-                    if(nominal_groups){metric_part=layout_add(metric_part,item.width);metric=layout_add(metric_done,metric_part);}else metric=layout_add(metric,item.width);
+                    metric=layout_add(metric,item.width);
                     if(!(item.flags&native_paragraph_space))ink_metric=metric;
                     for(u32 g=0;g<item.glyph_count;++g){const float advance=placements[item.glyph_first+g].advance;group_pen=layout_add(group_pen,advance);if(hits)hits->advances[advance_count++]=advance;}
                 }

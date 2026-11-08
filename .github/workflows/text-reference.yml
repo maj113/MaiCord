@@ -1,0 +1,55 @@
+name: Text references
+
+# Records the MaiCordNativeAppLineTests references (tests/ui/text/app_line_reference.hpp) on the hosted Windows runner
+# and merges them into the committed ones, so CI also checks the cases that draw with the runner's own system fonts
+# (Segoe UI, Nirmala UI, Segoe UI Emoji and the rest, whose versions differ from a developer's Windows). Run it from
+# the commit whose references it should extend; it uploads tests/generated/app_line_reference.{bin,inc} for a
+# maintainer to commit. tools/font_reference/README.md (text_reference.py) describes the format.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One recording per ref; a newer dispatch replaces a running one.
+concurrency:
+  group: text-reference-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Record and merge (windows-2025)
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+
+      # The app-line tests stay in the build directory (-KeepIntermediates) for the recorder to run.
+      - name: Build the app-line tests
+        shell: powershell
+        run: ./tools/build.ps1 -SkipClient -Test -KeepIntermediates -TestNames maicord_native_app_lines -TestDeadlineSeconds 300 -TestTimeoutScale 5
+
+      - name: Record and merge
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check uharfbuzz==0.57.0
+          $build = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'MaiCord-build\Release'
+          python -B tools/font_reference/text_reference.py record --merge --jobs 2 --build $build --report "$env:RUNNER_TEMP\divergence.txt"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-line-reference
+          path: |
+            tests/generated/app_line_reference.bin
+            tests/generated/app_line_reference.inc
+            ${{ runner.temp }}/divergence.txt
+          if-no-files-found: error
+          retention-days: 14

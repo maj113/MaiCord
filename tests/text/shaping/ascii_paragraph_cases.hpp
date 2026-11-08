@@ -30,7 +30,7 @@ bool latin_boundary_cases() noexcept {
     }
     {
         // Collection can defer analysis without accessing boundary scratch.
-        // Final analysis must recover the same CRLF/tab/bidi source policy;
+        // Final analysis must recover the same CRLF/tab source policy;
         // malformed input and collection-capacity failures still reject.
         const SfntFontLayoutMetrics metrics{1000,800,200};
         const auto controls=utf8_literal("\r\n\t\xe2\x80\xaa\xe2\x80\xab\xe2\x80\xac\xe2\x80\xa9");
@@ -64,11 +64,13 @@ bool latin_boundary_cases() noexcept {
     CHECK(native_latin_paragraph_boundaries(utf8_literal("\xf0\x90"),{clusters,5},storage)==SfntStatus::invalid_input);
     clusters[0].source_end=1;clusters[1].source_first=1;CHECK(native_latin_paragraph_boundaries(text,{clusters,5},storage)==SfntStatus::unsupported_sequence);
     CHECK(native_latin_paragraph_boundaries({}, {},{{},{breaks,1}})==SfntStatus::ok&&breaks[0]==0);
+    // UAX #14 LB9 does not attach a combining mark to a space and LB10 makes it AL, so a selector after a space is
+    // its own visible base with a break before it (LB18): it is not whitespace, and a wrapped line may start there.
     const auto selectors=utf8_literal(" \xef\xb8\x8f\xef\xb8\x8e" "A\xef\xb8\x8f");
     NativeParagraphCluster split_selectors[]{{0,1,0,1,2,0},{1,2,1,1,7,0},{2,3,2,1,7,0},{3,4,3,1,8,0},{4,5,4,1,7,0}};
     CHECK(native_latin_paragraph_boundaries(selectors,{split_selectors,5},storage)==SfntStatus::ok);
-    CHECK((split_selectors[0].flags&native_paragraph_space)&&(split_selectors[1].flags&native_paragraph_space));
-    CHECK(!(split_selectors[2].flags&native_paragraph_space)&&!(split_selectors[3].flags&native_paragraph_space)&&!(split_selectors[4].flags&native_paragraph_space));
+    CHECK(split_selectors[0].flags==native_paragraph_space&&split_selectors[1].flags==native_paragraph_break_before);
+    CHECK(!split_selectors[2].flags&&!split_selectors[3].flags&&!split_selectors[4].flags);
     CHECK(split_selectors[1].glyph_count==1&&split_selectors[1].width==7);
     return true;
 }

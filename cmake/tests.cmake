@@ -59,13 +59,14 @@ endif()
 # compile at /Od: several times faster, and nothing measures their own speed.
 # Sources using an application PCH keep its /O2 (clang rejects a mismatch),
 # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
-# temporaries are about 130 KB each), stays optimized, and so does the DirectWrite
-# comparison driver of MaiCordNativeAppLineTests, the largest share of the suite's
-# CPU time (its 149 cases ran about 15% faster with it optimized).
+# temporaries are about 130 KB each), stays optimized, and so does the reference
+# driver of MaiCordNativeAppLineTests, the largest share of the suite's CPU time
+# (its cases ran about 15% faster with it optimized).
 set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_test.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_scripts.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_editing.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_editing.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/app_line_reference.cpp")
 set(maicord_unoptimized_sources)
 foreach(target IN LISTS maicord_test_targets)
     get_target_property(sources ${target} SOURCES)

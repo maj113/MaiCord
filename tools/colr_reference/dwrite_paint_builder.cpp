@@ -3,7 +3,7 @@
 // Never linked into MaiCord.exe.
 #include "dwrite_paint_builder.hpp"
 #include "maicord/render/effects/colr_paint.hpp"
-#include "../font_reference/dwrite_text_system.hpp"
+#include "../font_reference/dwrite_outline_reference.hpp"
 #include <d2d1.h> // Gradient-stop POD only; no Direct2D renderer or dependency.
 
 namespace maicord {

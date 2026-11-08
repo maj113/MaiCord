@@ -1,18 +1,15 @@
-bool native_bidi_format_controls(DWriteTextSystem system) noexcept {
+bool native_bidi_format_controls(AppSystem system) noexcept {
     const u32 controls[]{0x202a,0x202b,0x202c,0x202d,0x202e,0x2066,0x2067,0x2068,0x2069};
-    auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
     for(u32 length=1,total=9;length<=3;++length,total*=9)for(u32 word=0;word<total;++word)for(u32 context=0;context<(length<3?2u:1u);++context){char source[64];u32 bytes=0,value=word;
         if(context){source[bytes++]='A';source[bytes++]=' ';}
         for(u32 i=0;i<length;++i){bytes+=utf8_encode(controls[value%9],source+bytes);value/=9;}
         if(context){const auto suffix=utf8_literal(" हिन्दी אב");copy_bytes(source+bytes,suffix.data,suffix.bytes);bytes+=suffix.bytes;}
         const Utf8View text{source,bytes};const float width=context?37.f:1000000.f;++cases;
-        CHECK(text_shape_utf8(&reference,text,{},width,1000000,{utf16,256},&reference_output.text).ok());
-        CHECK(text_shape_utf8(&native,text,{},width,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
-        if(!same(native_output,reference_output,true)||!compare_hits(system,text,width,TextWrapping::wrap,{},true,devanagari_tracking)){
+        if(!shape_observed(system,text,{},width,TextWrapping::wrap)||!compare_hits(system,text,width,TextWrapping::wrap)){
             print("bidi-format length/word/context=");number(length);print("/");number(word);print("/");number(context);print("\n");return false;}++native_cases;
     }return true;
 }
-bool native_devanagari_corpus(DWriteTextSystem system) noexcept {
+bool native_devanagari_corpus(AppSystem system) noexcept {
     const Utf8View tibetan[]{utf8_literal("བོད་ཡིག བཀྲ་ཤིས"),utf8_literal("ཀི ཀུ ཀཱི ཀྲྀ ཀླྀ ཀཱྀ"),
         utf8_literal("བསྒྲུབས ཀྐི སྐྱ"),utf8_literal("ཀ\u200d ཀ\u200c ཀ\u034fི"),
         utf8_literal("ཀཱི ཀཱི ཀཱྀ ཀཱྀ"),utf8_literal("ཀཷ ཀཹ ཀཱུ ཿ"),utf8_literal("ཨོཾ མཎི པདྨེ ཧཱུྃ"),
@@ -122,22 +119,17 @@ bool native_devanagari_corpus(DWriteTextSystem system) noexcept {
             CHECK(selected_sample<0x19999999u||digit<=5);selected_sample=selected_sample*10+digit;}
         CHECK(selected_sample<samples.count);print(tibetan_profiles?"Diagnostic Tibetan sample=":myanmar_profiles?"Diagnostic Myanmar sample=":khmer_profiles?"Diagnostic Khmer sample=":sinhala_profiles?"Diagnostic Sinhala sample=":malayalam_profiles?"Diagnostic Malayalam sample=":kannada_profiles?"Diagnostic Kannada sample=":telugu_profiles?"Diagnostic Telugu sample=":odia_profiles?"Diagnostic Odia sample=":gurmukhi_profiles?"Diagnostic Gurmukhi sample=":gujarati_profiles?"Diagnostic Gujarati sample=":bengali_profiles?"Diagnostic Bengali sample=":tamil_profiles?"Diagnostic Tamil sample=":"Diagnostic Devanagari sample=");number(selected_sample);print("; separate control corpus excluded\n");}
     const u32 flags[]{0,text_style_bold,text_style_italic,text_style_underline,text_style_monospace,text_style_heading_3};const float widths[]{1000000,37};
-    auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
     for(u32 sample=0;sample<samples.count;++sample)for(u32 mode=0;mode<2;++mode)for(u32 flag:flags)for(float width:widths)
         for(u32 partial=0;partial<(sample==1&&flag?2u:1u);++partial)for(u32 tracked=0;tracked<(devanagari_tracking?(tamil_shape_only?3u:2u):1u);++tracked){
         if(selected&&sample!=selected_sample)continue;
-        system.tracking=native.tracking=reference.tracking=devanagari_tracking?(tracked==2?0:tracked?.13f:.03f):0;
-        ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];
+        system.tracking=devanagari_tracking?(tracked==2?0:tracked?.13f:.03f):0;
+        ++cases;system.independent_letters=mode!=0;const auto text=samples[sample];
         const TextStyleSpan style{0,partial?static_cast<u32>(utf8_decode_one(text.data,text.bytes).width):text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
         const auto wrap=width==37?TextWrapping::wrap:TextWrapping::no_wrap;
-        const auto expected=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
-        const auto actual=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
-        if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)){
-            const Output* outputs[]{&native_output,&reference_output};for(u32 side=0;side<2;++side){const auto& t=outputs[side]->text;
-                for(u32 i=0;i<t.run_count;++i){const auto& r=t.runs[i];print(side?"ref shape run=":"native shape run=");number(r.text_position);print("/");number(r.text_length);print("/");number(r.glyph_count);print(" level=");number(r.bidi_level);print(" x=");real(r.baseline_x);print(" advances=");
-                    for(u32 g=0;g<r.glyph_count;++g){if(g)print(",");real(t.glyphs[r.first_glyph+g].advance);}print("\n");}}
+        const auto actual=text_shape_utf8(&system, {text,styles,width,1000000,wrap}, &native_output.text);
+        if(!actual.ok()||!native_output.text.native_fonts()){
             print(tibetan_profiles?"Tibetan app sample/mode/style/partial/width/em/error=":myanmar_profiles?"Myanmar app sample/mode/style/partial/width/em/error=":khmer_profiles?"Khmer app sample/mode/style/partial/width/em/error=":sinhala_profiles?"Sinhala app sample/mode/style/partial/width/em/error=":malayalam_profiles?"Malayalam app sample/mode/style/partial/width/em/error=":kannada_profiles?"Kannada app sample/mode/style/partial/width/em/error=":telugu_profiles?"Telugu app sample/mode/style/partial/width/em/error=":odia_profiles?"Odia app sample/mode/style/partial/width/em/error=":gurmukhi_profiles?"Gurmukhi app sample/mode/style/partial/width/em/error=":gujarati_profiles?"Gujarati app sample/mode/style/partial/width/em/error=":bengali_profiles?"Bengali app sample/mode/style/partial/width/em/error=":tamil_profiles?"Tamil app sample/mode/style/partial/width/em/error=":"Devanagari app sample/mode/style/partial/width/em/error=");number(sample);print("/");number(mode);print("/");number(flag);print("/");number(partial);print("/");real(width);print("/");real(system.em_size);print("/");number(static_cast<u32>(actual.error));print("\n");return false;}
-        ++native_cases;if(!tamil_shape_only&&!mode&&!compare_hits(system,text,width,wrap,styles,true,devanagari_tracking)){
+        observe(native_output.text,text,system);++native_cases;if(!tamil_shape_only&&!mode&&!compare_hits(system,text,width,wrap,styles)){
             print("Directional hits sample/style/width/em/tracked=");number(sample);print("/");number(flag);print("/");real(width);print("/");real(system.em_size);print("/");number(tracked);print("\n");return false;}
-    }if(!selected&&!tamil_profiles&&!arabic_context_profiles&&devanagari_directional&&system.em_size==14)CHECK(native_bidi_format_controls(system));return true;
+    }system.independent_letters=false;if(!selected&&!tamil_profiles&&!arabic_context_profiles&&devanagari_directional&&system.em_size==14)CHECK(native_bidi_format_controls(system));return true;
 }

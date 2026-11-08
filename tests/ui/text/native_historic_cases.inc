@@ -1,5 +1,5 @@
 // Four scalars from each simple script (simple_script.hpp) except N'Ko,
-// whose adjacent letters join under Windows.
+// whose adjacent letters join.
 constexpr u32 simple_script_samples[][4]{
     {0xa6a0,0x1684c,0x168f0,0x16994},{0xa000,0xa131,0xa262,0xa393},{0xa500,0xa54b,0xa596,0xa5e1},{0x2d30,0x2d3e,0x2d4c,0x2d5a},
     {0x1400,0x14b5,0x156a,0x161f},{0x1c50,0x1c5c,0x1c68,0x1c74},{0xa4d0,0xa4dc,0xa4e8,0xa4f4},{0x10c00,0x10c12,0x10c24,0x10c36},
@@ -19,22 +19,13 @@ constexpr u32 simple_script_samples[][4]{
 // Base and mark pairs from the simple scripts that encode marks.
 constexpr u32 simple_mark_samples[][2]{{0x2c80,0x2cef},{0x2c82,0x2cf1},{0x10350,0x10376},{0x10351,0x1037a},{0x1e800,0x1e8d0},{0x1e801,0x1e8d6},
     {0x16ad0,0x16af0},{0x16ad1,0x16af4},{0xa6a0,0xa6f0}};
-bool historic_corpus(DWriteTextSystem system,bool samples) noexcept {
-    CHECK(native_text_format_capture(&system));auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
+bool historic_corpus(const AppSystem& system,bool samples) noexcept {
     const auto compare=[&](Utf8View text) noexcept {
         const float widths[]{40,120,1000000};const u32 flags[]{0,text_style_bold,text_style_italic};
         for(float width:widths)for(u32 flag:flags){TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
-            shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
-            CHECK(text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text).ok());
-            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text).ok());
-            CHECK(native_output.text.native_fonts());
-            if(!same(native_output,reference_output,true,true)){
-                print("historic width/style=");real(width);print("/");number(flag);print("\n");
-                const ShapedText* values[]{&native_output.text,&reference_output.text};
-                for(const auto* value:values)for(u32 i=0;i<value->run_count;++i){IDWriteFontFace* face=nullptr;
-                    CHECK(native_run_reference(owner.factory,*value,value->runs[i],&face));print_face_file(face);com_release(face);}
-                return false;
-            }++cases;++native_cases;
+            shaped_text_reset(&native_output.text);
+            if(!shape_observed(system,text,styles,width,TextWrapping::wrap)){print("historic width/style=");real(width);print("/");number(flag);print("\n");return false;}
+            ++cases;++native_cases;
         }return true;
     };
     const u32 ranges[][2]{{0x13000,0x13430},{0x16a0,0x1700},{0x10c00,0x10c49}};
@@ -57,27 +48,24 @@ bool historic_corpus(DWriteTextSystem system,bool samples) noexcept {
 // A display name ending in Old Turkic resolves to Segoe UI Historic, maps a
 // real glyph and stays a right-to-left run after the left-to-right prefix.
 bool old_turkic_name() noexcept {
-    auto system=owner;CHECK(native_text_format_capture(&system));system.factory=nullptr;system.format=nullptr;
+    auto system=owner;
     const auto text=utf8_literal("pouty Shigi ᶻ 𝗓 𐰁");shaped_text_reset(&native_output.text);
-    CHECK(text_shape_utf8(&system,text,{},1000000,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
+    CHECK(text_shape_utf8(&system, {text,{},1000000,1000000}, &native_output.text).ok()&&native_output.text.native_fonts());
     const auto& shaped=native_output.text;const u32 position=shaped.cluster_count-2;u32 found=0;
     for(u32 i=0;i<shaped.run_count;++i){const auto& run=shaped.runs[i];if(position<run.text_position||position>=run.text_position+run.text_length)continue;
-        ++found;CHECK((run.bidi_level&1)&&run.glyph_count==1);IDWriteFontFace* face=nullptr;CHECK(native_run_reference(owner.factory,shaped,run,&face));
-        IDWriteFontFace3* named=nullptr;IDWriteLocalizedStrings* names=nullptr;wchar_t family[64]{};u16 glyph=0;const u32 scalar=0x10c01;
-        const bool ok=SUCCEEDED(face->QueryInterface(__uuidof(IDWriteFontFace3),reinterpret_cast<void**>(&named)))&&SUCCEEDED(named->GetFamilyNames(&names))&&
-            SUCCEEDED(names->GetString(0,family,64))&&SUCCEEDED(face->GetGlyphIndicesW(&scalar,1,&glyph));
-        com_release(names);com_release(named);com_release(face);
-        CHECK(ok&&lstrcmpW(family,L"Segoe UI Historic")==0&&glyph&&shaped.glyphs[run.first_glyph].index==glyph&&shaped.glyphs[run.first_glyph].advance>0);
-        CHECK(!native_empty_glyph(shaped,run.first_glyph));}
+        ++found;CHECK((run.bidi_level&1)&&run.glyph_count==1&&run.native_font);
+        const auto* record=native_font_run_get(*native_font_session_runs(shaped.native_fonts()),run.native_face);CHECK(record);
+        const auto* font=native_font_get(*native_font_session_fonts(shaped.native_fonts()),record->source.face);CHECK(font);
+        u16 name[64];NativeFontFamily family{};u16 glyph=0;
+        CHECK(native_font_family(font->geometry.face,{name,64},&family)==SfntStatus::ok&&sfnt_cmap_glyph(font->cmap,0x10c01,0,&glyph)==SfntStatus::ok);
+        const wchar_t expected[]=L"Segoe UI Historic";bool same=family.units==17;for(u32 c=0;same&&c<17;++c)same=name[c]==expected[c];
+        CHECK(same&&glyph&&shaped.glyphs[run.first_glyph].index==glyph&&shaped.glyphs[run.first_glyph].advance>0);}
     CHECK(found==1);return true;
 }
 bool historic_cases() noexcept {
     CHECK(old_turkic_name());
     CHECK(historic_corpus(owner,true));
     const wchar_t* families[]{L"Segoe UI Historic",L"Consolas"};
-    for(const auto* family:families){
-        auto system=owner;system.format=nullptr;
-        CHECK(SUCCEEDED(owner.factory->CreateTextFormat(family,nullptr,DWRITE_FONT_WEIGHT_NORMAL,DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,16,L"en-US",&system.format)));
-        const bool ok=historic_corpus(system,false);com_release(system.format);CHECK(ok);
-    }return true;
+    for(const auto* family:families){auto system=owner;CHECK(set_format(system,family,16));CHECK(historic_corpus(system,false));}
+    return true;
 }

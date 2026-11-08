@@ -1,19 +1,16 @@
 bool native_mixed_emoji_capacity() noexcept {
-    char bytes[4096];wchar_t wide[4096];const auto atom=utf8_literal("A\xf0\x9f\x98\x80");
+    char bytes[4096];const auto atom=utf8_literal("A\xf0\x9f\x98\x80");
     for(u32 i=0;i<819;++i)copy_bytes(bytes+i*5,atom.data,5);bytes[4095]='B';const Utf8View text{bytes,4096};
     CHECK(native_text_candidate_style_capacity(text,{})==1639);
-    auto system=owner;CHECK(native_text_format_capture(&system));system.factory=nullptr;system.format=nullptr;
-    auto reference=owner;reference.native_text=nullptr;
-    DWriteEditLayoutOwner layouts[2]{};TextEditMetric selections[2][48];
-    for(u32 i=0;i<2;++i){layouts[i].selections=selections[i];layouts[i].selection_capacity=48;}
-    struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
+    const auto& system=owner;
+    TextEditLayoutOwner editor{};TextEditMetric selections[48];editor.selections=selections;editor.selection_capacity=48;
+    struct Release {TextEditLayoutOwner& p;~Release() noexcept {text_edit_layout_release(&p);}} release{editor};
     const u32 carets[]{0,1228,2458};const u32 flags[]{0,text_style_underline|text_style_link};
     for(u32 flag:flags){const TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
-        const auto a=text_measure_utf8(&system,text,styles,1000000,1000000,{wide,4096}),b=text_measure_utf8(&reference,text,styles,1000000,1000000,{wide,4096});
-        CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==1&&a.utf16_units==2458);
+        auto measuring=owner;const auto a=text_measure_utf8(&measuring, {text,styles,1000000,1000000});observe_measure(a);
+        CHECK(a.ok()&&a.line_count==1&&a.utf16_units==2458);
         for(u32 caret:carets){++cases;const TextEditLayoutInput input{text,text_edit_signature(text),0,caret,0,0,1000000,40,1000000,0,styles};
-            CHECK(text_edit_layout_measure(layouts,input,system)&&layouts[0].geometry);++native_cases;
-            CHECK(text_edit_layout_measure(layouts+1,input,reference)&&same_edit(layouts[0],layouts[1]));}
+            CHECK(text_edit_layout_measure(&editor,input,system)&&editor.geometry&&observe_edit(editor));++native_cases;}
     }
     return true;
 }
@@ -33,17 +30,11 @@ bool native_mixed_emoji_corpus() noexcept {
         // Every family/text runs at fractional em. Scaling needs one family
         // and the plain emoji, ZWJ family and keycap boundary examples.
         if(em!=17.5f&&family_index)continue;
-        IDWriteTextFormat* format=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextFormat(family,nullptr,DWRITE_FONT_WEIGHT_NORMAL,DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,em,L"en-US",&format)));
-        struct Release {IDWriteTextFormat*& p;~Release() noexcept {com_release(p);}} release{format};
-        auto reference=owner;reference.native_text=nullptr;reference.format=format;reference.em_size=em;
-        auto system=owner;system.factory=nullptr;system.format=nullptr;system.em_size=em;
-        u16 name[32];u32 count=0;while(family[count]){name[count]=static_cast<u16>(family[count]);++count;}
-        CHECK(native_text_format_create(system.native_text,{{name,count},0,{400,5,0},em,em*4,true},&system.native_format));
+        auto system=owner;system.em_size=em;CHECK(set_format(system,family,em));
         if(em==17.5f)for(u32 i=0;i<sizeof(texts)/sizeof(texts[0]);++i){
-            if(!emoji_dispatch_case(system,reference,texts[i],true,true,true)){print("mixed index/em/family_initial=");number(i);print("/");real(em);print("/");number(family[0]);print("\n");return false;}
-            auto observed=system;observed.factory=owner.factory;observed.format=format;
-            CHECK(emoji_dispatch_cuts(observed,reference,texts[i],true));}
-        else {const u32 scale_samples[]{0,5,6};for(u32 i:scale_samples)CHECK(emoji_dispatch_case(system,reference,texts[i],false,true,true));}
+            if(!emoji_dispatch_case(system,texts[i],true)){print("mixed index/em/family_initial=");number(i);print("/");real(em);print("/");number(family[0]);print("\n");return false;}
+            CHECK(emoji_dispatch_cuts(system,texts[i],true));}
+        else {const u32 scale_samples[]{0,5,6};for(u32 i:scale_samples)CHECK(emoji_dispatch_case(system,texts[i],false));}
     }
     return true;
 }

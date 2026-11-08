@@ -20,7 +20,6 @@ maicord_program(MaiCordFontFallbackReference ENTRY maicord_font_fallback_referen
 set(maicord_gsub_reference ENTRY maicord_gsub_execution_reference_entry
     SOURCES tools/font_reference/gsub_execution_reference.cpp LIBS ${maicord_reference_libs})
 maicord_program(MaiCordGsubExecutionReference ${maicord_gsub_reference})
-maicord_program(MaiCordGposExecutionReference ${maicord_gsub_reference} DEFINES MAICORD_PLACEMENT_REFERENCE=1)
 maicord_program(MaiCordFeaturePlanReference ${maicord_gsub_reference} DEFINES ${maicord_plan_reference})
 maicord_program(MaiCordEmojiLineReference ${maicord_gsub_reference}
     DEFINES ${maicord_plan_reference} MAICORD_FORCED_FACE_REFERENCE=1)
@@ -28,7 +27,7 @@ maicord_program(MaiCordEmojiItemsReference ${maicord_gsub_reference}
     DEFINES ${maicord_plan_reference} MAICORD_FORCED_FACE_REFERENCE=1 MAICORD_ITEMIZED_LAYOUT_REFERENCE=1)
 maicord_program(MaiCordFontReference ENTRY maicord_font_reference_entry
     SOURCES tools/font_reference/main.cpp tools/font_reference/program_oracle.cpp
-        tools/font_reference/dwrite_text_system.cpp tools/colr_reference/dwrite_paint_builder.cpp
+        tools/font_reference/dwrite_outline_reference.cpp tools/colr_reference/dwrite_paint_builder.cpp
     LIBS maicord_core maicord_font maicord_text maicord_paint_program maicord_renderer kernel32 dwrite)
 
 # The oracles call DirectWrite through the SDK's own headers (see MAICORD_SDK_INCLUDES in

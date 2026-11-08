@@ -198,7 +198,10 @@ try {
         if ($VerbosePreference -eq 'Continue') { $arguments += '--verbose' }
         if ($skippedLabels) { $arguments += '--label-exclude', (Get-Regex $skippedLabels) }
         if ($TestNames -or $TestShard) { $arguments += '--tests-regex', (Get-Regex $selected.Name) }
-        $environment = @{ LOCALAPPDATA = $testProfile; TEMP = "$testProfile\Temp"; TMP = "$testProfile\Temp"; MAICORD_UI_PROBE_CAPTURE_DIR = $null }
+        # Each app-line test process appends "<checked> <skipped>" reference groups (tests/ui/text/app_line_reference.hpp).
+        $textReference = "$testProfile\text-reference.txt"
+        $environment = @{ LOCALAPPDATA = $testProfile; TEMP = "$testProfile\Temp"; TMP = "$testProfile\Temp"; MAICORD_UI_PROBE_CAPTURE_DIR = $null
+            MAICORD_TEXT_REFERENCE_SUMMARY = $textReference }
         if ($ProbeCaptureDirectory) {
             $environment.MAICORD_UI_PROBE_CAPTURE_DIR = (New-Item -ItemType Directory -Force -Path $ProbeCaptureDirectory).FullName
         }
@@ -212,6 +215,17 @@ try {
             foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
         }
         $seconds = $timer.Elapsed.TotalSeconds
+        if (Test-Path -LiteralPath $textReference) {
+            # Groups that used a system font this machine has another version of are skipped, not failed: show the loss.
+            $runs = @(Get-Content -LiteralPath $textReference | ForEach-Object { , [long[]]($_ -split ' ') })
+            $checked = ($runs | ForEach-Object { $_[0] } | Measure-Object -Sum).Sum
+            $skipped = ($runs | ForEach-Object { $_[1] } | Measure-Object -Sum).Sum
+            $whole = @($runs | Where-Object { $_[0] -eq 0 -and $_[1] -gt 0 }).Count
+            $message = "Text references: $whole of $($runs.Count) app-line tests skipped entirely; $checked of $($checked + $skipped) case groups checked."
+            if ($skipped) { $message += ' This machine has system fonts the references were not recorded with (tools/font_reference/text_reference.py record --merge).' }
+            Write-Host $message
+            if ($skipped -and $env:GITHUB_ACTIONS) { Write-Host "::warning::$message" }
+        }
         if ($AudioPlaybackProbe) {
             # The playback probe's report, which passing tests do not print.
             $log = [IO.File]::ReadAllText("$build\Testing\Temporary\LastTest.log")

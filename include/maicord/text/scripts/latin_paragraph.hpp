@@ -14,7 +14,7 @@ struct NativeLatinBoundaryStorage {
 };
 // The policy is stored in padding, so no additional transient storage is needed.
 static_assert(sizeof(NativeLatinBoundaryStorage)==32);
-// Apply the en-US line policy at complete shaping-cluster boundaries; an explicit
+// Apply the UAX #14 line policy at complete shaping-cluster boundaries; an explicit
 // call runs even when the storage is deferred. Source coordinates remain UTF-16.
 // Input must already be itemized as a supported alphabetic script.
 SfntStatus native_latin_paragraph_boundaries(Utf8View,Slice<NativeParagraphCluster>,NativeLatinBoundaryStorage) noexcept;

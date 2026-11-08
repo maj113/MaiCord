@@ -407,7 +407,7 @@ __declspec(noinline) bool normalize_flag_cells(Utf8View text, ConstSlice<StyledS
         unit += (flag.end_byte - flag.first_byte) / 2; byte = flag.end_byte;
         end_unit = unit; return true;
     };
-    bool have_flag = next_flag(), changed = false;
+    bool have_flag = next_flag();
     u32 written = 0;
     for (u32 read = 0; read < shape.cluster_count;) {
         const auto& original = storage.clusters[read];
@@ -433,17 +433,13 @@ __declspec(noinline) bool normalize_flag_cells(Utf8View text, ConstSlice<StyledS
         if (last == read || storage.clusters[last - 1].source_end != end_unit ||
             glyph_end <= cell.glyph_first || glyph_end > shape.glyph_count) return false;
         cell.source_end = end_unit; cell.glyph_count = glyph_end - cell.glyph_first; cell.width = em;
-        cell.flags &= ~(native_paragraph_nonvisual | native_paragraph_metric_group);
+        cell.flags &= ~native_paragraph_nonvisual;
         for (u32 g = cell.glyph_first; g < glyph_end; ++g) storage.placements[g] = {};
         storage.placements[cell.glyph_first].advance = em;
         for (u32 u = first_unit; u < end_unit; ++u) storage.source_glyphs[u] = cell.glyph_first;
-        storage.clusters[written++] = cell; read = last; changed = true;
+        storage.clusters[written++] = cell; read = last;
     }
     shape.cluster_count = written;
-    // Nominal glyph reductions must consume the normalized placements/widths.
-    if (changed) for (u32 c = 0; c < written; ++c)
-        if (!(storage.clusters[c].flags & native_paragraph_nonvisual))
-            storage.clusters[c].flags &= ~native_paragraph_metric_group;
     return true;
 }
 
@@ -640,8 +636,8 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         }else{resolved[merged]=resolved[i];continuity[merged]=continuity[i];directions[merged]=directions[i];++merged;}previous_mirrored=mirrored;}count=merged;}
     if(mixed)for(u32 i=0;i<count;++i)analysis[i]=static_cast<u16>((static_cast<u16>(script_bytes[i])<<8)|directions[i]);
     // In a standalone Common paragraph, the requested face's proved-inert
-    // glyphs retain nominal metric groups. Fallback and explicit typography
-    // still require shaped accumulation, even when glyph execution is inert.
+    // glyphs skip shaping. Fallback and explicit typography still shape, even
+    // when glyph execution is inert.
     bool common_only=mixed;for(u32 i=0;i<count;++i)common_only=common_only&&(continuity[i]&~7u)==128;
     u32 longest=0,longest_units=0,longest_ordinary=0;for(u32 i=0;i<count;){u32 last=i+1;while(last<count&&same_group(last,i))++last;
         const u32 bytes=static_cast<u32>(resolved[last-1].end_byte)-resolved[i].first_byte;longest=maximum(longest,bytes);
@@ -760,8 +756,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                 // A drawing effect belongs to the cluster's leading source.
                 // Keep following range identities even when an effect inside
                 // the cluster itself produces no separately colored glyph.
-                cluster.flags|=span<<native_paragraph_style_shift;
-                if(!c||(segment.clusters[c-1].flags>>native_paragraph_style_shift)!=span)cluster.flags|=native_paragraph_metric_group;}
+                cluster.flags|=span<<native_paragraph_style_shift;}
             if(status!=SfntStatus::ok)break;
             for(u32 u=0;u<part.source_units;++u)if(segment.source_glyphs[u]!=0xffffffffu)segment.source_glyphs[u]+=shape.glyph_count;
             shape.source_units+=part.source_units;shape.glyph_count+=part.glyph_count;shape.cluster_count+=part.cluster_count;first=last;
@@ -775,8 +770,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
     }
     if(status!=SfntStatus::ok){++owner.execute_failed;return false;}
-    // Fallback script cuts retain their metric accumulation boundaries even
-    // when adjoining drawing runs happen to use the same physical face.
+    // Fallback cuts and tracked text keep their shaping ranges as drawing runs.
     if(alphabetic&&!system.tracking&&!fallback){
         // Script cuts end after shaping. Restore the original font/paint ranges
         // before fitting and decorations; a script change is not a style change.
@@ -785,10 +779,8 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             const u32 identity=paint<styles.count&&styles[paint].byte_offset<=resolved[i].first_byte?paint+1:0;
             if(merged&&static_cast<u32>(resolved[i].end_unit)-resolved[merged-1].first_unit<=16000&&(continuity[merged-1]&continuity[i]&1)&&identity==previous_paint&&same_plan(resolved[merged-1],resolved[i])&&resolved[merged-1].flags==resolved[i].flags){resolved[merged-1].end_byte=resolved[i].end_byte;resolved[merged-1].end_unit=resolved[i].end_unit;}
             else{resolved[merged]=resolved[i];parts[merged]=parts[i];continuity[merged]=continuity[i];++merged;previous_paint=identity;}remap[i]=merged-1;}
-        u32 previous=0xffffffffu;
         for(u32 i=0;i<shape.cluster_count;++i){auto& c=paragraph_buffers.clusters[i];const u32 selected=remap[c.flags>>native_paragraph_style_shift];
-            c.flags=(c.flags&((1u<<native_paragraph_style_shift)-1))|(selected<<native_paragraph_style_shift);
-            if(selected==previous)c.flags&=~native_paragraph_metric_group;previous=selected;}
+            c.flags=(c.flags&((1u<<native_paragraph_style_shift)-1))|(selected<<native_paragraph_style_shift);}
         count=merged;parts.count=merged;
     }
     spans.count=count;

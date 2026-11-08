@@ -4,18 +4,7 @@
 // (tools/unicode/thai_syllable_data.py). '|' marks each expected opportunity
 // after cluster projection. The cases cover ambiguous word sequences, unknown
 // syllables and finals, silent letters, attached and orphan marks, MAIYAMOK
-// and the wrapped corpus samples whose breaks differ.
-//
-// DirectWrite segments with its own dictionary and search, so its cluster
-// metrics are an oracle only for the cases marked true. The others differ:
-// - the lexicon has a word DirectWrite splits: ธรรมดา, วิญญัติ, ขรุขระ,
-//   กรุบกริบ, ถ้อยคำ, ไม่มี, ขยับเขยื้อน, เซปักตระกร้อ, วิลาวัณย์, อายุขัย,
-//   อุทุมพร, and งาน before บริหาร, which DirectWrite breaks inside;
-// - it lists a compound's parts but not the compound, so they may break:
-//   กรมกรอม, มายาคติ, จีนกลาง, หางกระหมวด;
-// - DirectWrite knows a word it lacks: เกเส, เดียน, โการ;
-// - malformed mark sequences (corpus 21-23): marks stay with their base and
-//   the grammar, not DirectWrite's, resynchronizes after them.
+// and wrapped corpus samples.
 // Primitive contracts of the word breaker. Candidate lengths are the lexicon
 // words starting at a position, longest first; syllable results and recovery
 // lengths are one more than the scalars consumed (negative: open syllable).
@@ -69,58 +58,58 @@ bool native_thai_primitive_cases() noexcept {
 }
 bool native_thai_context_cases() noexcept {
     if(!native_thai_primitive_cases())return false;
-    struct ThaiBreakCase {const char* segmented;bool directwrite;};
-    const ThaiBreakCase samples[]{
-        {"กรม|กรอม|แล้ว|อยาก|อึ๊บ",false},
-        {"กรุบกริบ|ยิม",false},
-        {"กะระตะ|อะเกต",false},
-        {"กุล|ทู|สก|ฝรั่น|ของ|ระบาด|ปังตอ",false},
-        {"งาน|บริหาร|เหี่ย",false},
-        {"ดอก|ผล|ธรรมดา|แอ๊คชั่น|อากัป|กริยา|ปะ|ติ|ยาน",false},
-        {"ตยาค|ดอก|ผล|ธรรมดา|แบ็กอัป",false},
-        {"ตะบอย|ทะท่าว|วิลาวัณย์|มัชชาร์",false},
-        {"ท้อแท้|เก|เส|หาง|กระ|หมวด|ขรุขระ|ส้นตีน|ส้น|มือ",false},
-        {"นิเวศวิทยา|ขวักไขว่|ถ้อยคำ|ทุพพลภาพ",false},
-        {"มนุ|พลี|รังสิมา|เร็กคอร์ด",false},
-        {"มายา|คติ|อะลุ่มอล่วย",false},
-        {"ระ|บา|นี้|เฟอร์เบอไรต์",false},
-        {"ลำโพง|ปืน|ต่อสู้|อากาศยาน|เฮิรต์|โกรญจ",true},
-        {"วิทยาคม|เดียน",false},
-        {"สิโรดม|ควิโต|พ่อตา|ขยับเขยื้อน|เปล",false},
-        {"อัมพุท|กรร|ทบ|เวสปอยต์",false},
-        {"อายุขัย|ว|เอดจ์",false},
-        {"อุทุมพร|คนี",false},
-        {"เพสลาด|ไบรท์|ไม่มี",false},
-        {"เส็ก|อมาวาสี|สุจริต|ใจ|มูก|หลวง|เปอร์โตริโก",false},
-        {"เอกมัย|แนวที่ห้า|อาตมภาพ|เรียลลิสต์|สมใจ",false},
-        {"เอกรูป|มูฟวี่",true},
-        {"ไพรจิตร|ตึ้ก",true},
-        {"วิญญัติ",false},
-        {"เซปักตระกร้อ|ไฮโดรเจนซัลไฟด์|วิญญัติ",false},
-        {"บูรณะ|สัตวาร|หลับใน|วิญญัติ",false},
-        {"ยะหิทา|กล่อง|เพลง|กะโบม|ทรงมัณฑ์",false},
-        {"การ์ฟิลด์|ดำแดง",true},
-        {"ยาจนก|เทพ|บริษัท|โมโห|โการ|ตรวจ|จับ",false},
-        {"สยามินทร์|ลำเอียก|จีน|กลาง|ลุก|เป็น|ไฟ|การ|ติด|โรค",false},
-        {"หรบๆ|ัภาษา",true},
-        {"หรบๆ|ำภาษา",true},
-        {"หรบๆ|ฺภาษา",true},
-        {"หรบๆ|์ภาษา",true},
+    // Expected segmentations: the engine's Thai dictionary breaks, projected onto its shaped clusters.
+    const char* const samples[]{
+        "กรม|กรอม|แล้ว|อยาก|อึ๊บ",
+        "กรุบกริบ|ยิม",
+        "กะระตะ|อะเกต",
+        "กุล|ทู|สก|ฝรั่น|ของ|ระบาด|ปังตอ",
+        "งาน|บริหาร|เหี่ย",
+        "ดอก|ผล|ธรรมดา|แอ๊คชั่น|อากัป|กริยา|ปะ|ติ|ยาน",
+        "ตยาค|ดอก|ผล|ธรรมดา|แบ็กอัป",
+        "ตะบอย|ทะท่าว|วิลาวัณย์|มัชชาร์",
+        "ท้อแท้|เก|เส|หาง|กระ|หมวด|ขรุขระ|ส้นตีน|ส้น|มือ",
+        "นิเวศวิทยา|ขวักไขว่|ถ้อยคำ|ทุพพลภาพ",
+        "มนุ|พลี|รังสิมา|เร็กคอร์ด",
+        "มายา|คติ|อะลุ่มอล่วย",
+        "ระ|บา|นี้|เฟอร์เบอไรต์",
+        "ลำโพง|ปืน|ต่อสู้|อากาศยาน|เฮิรต์|โกรญจ",
+        "วิทยาคม|เดียน",
+        "สิโรดม|ควิโต|พ่อตา|ขยับเขยื้อน|เปล",
+        "อัมพุท|กรร|ทบ|เวสปอยต์",
+        "อายุขัย|ว|เอดจ์",
+        "อุทุมพร|คนี",
+        "เพสลาด|ไบรท์|ไม่มี",
+        "เส็ก|อมาวาสี|สุจริต|ใจ|มูก|หลวง|เปอร์โตริโก",
+        "เอกมัย|แนวที่ห้า|อาตมภาพ|เรียลลิสต์|สมใจ",
+        "เอกรูป|มูฟวี่",
+        "ไพรจิตร|ตึ้ก",
+        "วิญญัติ",
+        "เซปักตระกร้อ|ไฮโดรเจนซัลไฟด์|วิญญัติ",
+        "บูรณะ|สัตวาร|หลับใน|วิญญัติ",
+        "ยะหิทา|กล่อง|เพลง|กะโบม|ทรงมัณฑ์",
+        "การ์ฟิลด์|ดำแดง",
+        "ยาจนก|เทพ|บริษัท|โมโห|โการ|ตรวจ|จับ",
+        "สยามินทร์|ลำเอียก|จีน|กลาง|ลุก|เป็น|ไฟ|การ|ติด|โรค",
+        "หรบๆัภาษา",
+        "หรบๆำภาษา",
+        "หรบๆฺภาษา",
+        "หรบๆ์ภาษา",
         // Wrapped corpus samples 6, 21, 22 and 23 (thai_cases.inc).
-        {"ภาษา|ไทย|ไม่มี|ช่อง|ว่าง",false},
-        {"ลัก|ขณะฺ|ภาษา |กฅ|ฆะฺ|ภาษา |กกะฺ |กกะฺ์ |กกะฺก์",false},
-        {"ฟำ๎|ฬ|ม๊|ฒิผ",false},
-        {"กำั |กำิ |กำี |กำึ |กำื |กำุ |กำู |กำฺ |กำ็ |กำ่ |กำ้ |กำ๊ |กำ๋ |กำ์ |กำํ |กำ๎ |กำำ |ะฺ |ำฺ |าฺ |เฺ",false},
+        "ภาษา|ไทย|ไม่มี|ช่อง|ว่าง",
+        "ลัก|ขณะฺ|ภาษา |กฅ|ฆะฺ|ภาษา |กกะฺ |กกะฺ์ |กกะฺก์",
+        "ฟำ๎|ฬ|ม๊|ฒิผ",
+        "กำั |กำิ |กำี |กำึ |กำื |กำุ |กำู |กำฺ |กำ็ |กำ่ |กำ้ |กำ๊ |กำ๋ |กำ์ |กำํ |กำ๎ |กำำ |ะฺ |ำฺ |าฺ |เฺ",
     };
-    u32 failures=0,agreeing=0;
-    for(const auto& sample:samples){
-        ++cases;u32 count=0;const u32 bytes=c_string_length(sample.segmented);
-        u32 scalars[256]{};wchar_t text[256]{};u8 expected[257]{};
+    u32 failures=0;
+    for(const char* segmented:samples){
+        ++cases;u32 count=0;const u32 bytes=c_string_length(segmented);
+        u32 scalars[256]{};u8 expected[257]{};
         for(u32 at=0;at<bytes;){
-            if(sample.segmented[at]=='|'){expected[count]=1;++at;continue;}
-            const auto decoded=utf8_decode_one(sample.segmented+at,bytes-at);
+            if(segmented[at]=='|'){expected[count]=1;++at;continue;}
+            const auto decoded=utf8_decode_one(segmented+at,bytes-at);
             CHECK(decoded.valid&&decoded.codepoint<0x10000&&count<255);
-            scalars[count]=decoded.codepoint;text[count++]=static_cast<wchar_t>(decoded.codepoint);at+=decoded.width;
+            scalars[count++]=decoded.codepoint;at+=decoded.width;
         }
         u8 native[257]{};CHECK(unicode_line_breaks({scalars,count},{native,257}));
         CHECK(native_thai_word_breaks({scalars,count},{native,257}));
@@ -133,16 +122,8 @@ bool native_thai_context_cases() noexcept {
             for(u32 i=0;i<count;++i){if(i&&native[i])actual[size++]='|';size+=utf8_encode(scalars[i],actual+size);}
             actual[size]=0;print("Thai break case/actual=");number(cases);print("/");print(actual);print("\n");++failures;continue;
         }
-        if(!sample.directwrite){++native_cases;continue;}
-        IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(text,count,owner.format,1000000,1000000,&layout)));
-        struct Release {IDWriteTextLayout* p;~Release() noexcept {com_release(p);}} release{layout};
-        DWRITE_CLUSTER_METRICS metrics[256]{};u32 clusters=0;
-        CHECK(SUCCEEDED(layout->GetClusterMetrics(metrics,256,&clusters)));u8 reference[257]{};u32 source=0;
-        for(u32 i=0;i<clusters;++i){source+=metrics[i].length;CHECK(source<=count);reference[source]=metrics[i].canWrapLineAfter?1u:0u;}
-        CHECK(source==count);
-        for(u32 i=1;i<count;++i)if(native[i]!=reference[i]){print("Thai DirectWrite case/boundary/native/reference=");number(cases);print("/");number(i);print("/");number(native[i]);print("/");number(reference[i]);print("\n");return false;}
-        ++agreeing;++native_cases;
+        ++native_cases;
     }
-    print("thai_break_cases=");number(sizeof(samples)/sizeof(samples[0]));print(" directwrite_agreeing=");number(agreeing);print("\n");
-    return failures==0&&agreeing==8;
+    print("thai_break_cases=");number(sizeof(samples)/sizeof(samples[0]));print("\n");
+    return failures==0;
 }

@@ -1,6 +1,5 @@
-// All positive calls detach platform factories/formats. Font fallback, shaping,
-// fitting and interaction must complete through the candidate.
-bool native_arabic_paragraph_corpus(DWriteTextSystem system,bool editor) noexcept {
+// Font fallback, shaping, fitting and interaction complete through the native candidate.
+bool native_arabic_paragraph_corpus(AppSystem system,bool editor) noexcept {
     const Utf8View texts[]{
         utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
         utf8_literal("\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85\x20\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85\x20\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85"),
@@ -25,20 +24,14 @@ bool native_arabic_paragraph_corpus(DWriteTextSystem system,bool editor) noexcep
         utf8_literal("\x28\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x29\x20\x31\x32\x20\x5b\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85\x5d")};
     const float widths[]{8,37,95,1000000};
     const u32 flags[]{0,text_style_bold,text_style_italic,text_style_underline,text_style_heading_3,text_style_monospace};
-    auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
     u32 sample=0;
     for(const auto text:texts){for(u32 independent=0;independent<(editor?1u:2u);++independent)for(u32 pattern=0;pattern<2;++pattern)for(u32 flag:flags)for(u32 nowrap=0;nowrap<2;++nowrap)for(float width:widths){
         u32 first=0;if(pattern){const auto cp=utf8_decode_one(text.data,text.bytes);CHECK(cp.valid);first=cp.width;}
         const TextStyleSpan span{first,text.bytes-first,flag};const ConstSlice<TextStyleSpan> styles{&span,flag?1u:0u};
-        native.independent_letters=reference.independent_letters=independent!=0;const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-        if(editor){if(!compare_hits(system,text,width,wrapping,styles,true)){print("Arabic hit sample/pattern/flag/width/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(nowrap);print("\n");return false;}continue;}
-        ++cases;const auto a=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
-        const auto b=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
-        if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!same(native_output,reference_output,true)){
-            print("Arabic paragraph sample/pattern/flags/width/independent/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(independent);print("/");number(nowrap);print(" errors=");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");return false;
+        system.independent_letters=independent!=0;const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
+        if(editor){if(!compare_hits(system,text,width,wrapping,styles)){print("Arabic hit sample/pattern/flag/width/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(nowrap);print("\n");return false;}continue;}
+        ++cases;if(!layout(system,text,styles,width,wrapping)){
+            print("Arabic paragraph sample/pattern/flags/width/independent/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(independent);print("/");number(nowrap);print("\n");return false;
         }++native_cases;
-        const auto am=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrapping);
-        CHECK(am.ok()&&bm.ok()&&bytes_equal(&am.width,&bm.width,12)&&am.line_count==bm.line_count);
-
     }++sample;}return true;
 }

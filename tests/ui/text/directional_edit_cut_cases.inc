@@ -1,8 +1,7 @@
 bool directional_edit_cuts() noexcept {
-    CHECK(native_text_format_capture(&owner));auto candidate=owner,reference=owner;candidate.factory=nullptr;candidate.format=nullptr;reference.native_text=nullptr;
-    DWriteEditLayoutOwner layouts[2]{};TextEditMetric selections[2][48];
-    for(u32 i=0;i<2;++i){layouts[i].selections=selections[i];layouts[i].selection_capacity=48;}
-    struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
+    const auto& candidate=owner;
+    TextEditLayoutOwner editor{};TextEditMetric selections[48];editor.selections=selections;editor.selection_capacity=48;
+    struct Release {TextEditLayoutOwner& p;~Release() noexcept {text_edit_layout_release(&p);}} release{editor};
     const float widths[]{7,95,1000000};
     const u32 flags[]{text_style_underline,text_style_strikethrough,text_style_bold,text_style_italic,text_style_monospace,text_style_heading_1,text_style_heading_2,text_style_heading_3,text_style_subtext};
     const u32 base_count=sizeof(directional_editor_samples)/sizeof(directional_editor_samples[0]),sample_count=base_count+sizeof(directional_cut_holdouts)/sizeof(directional_cut_holdouts[0]);
@@ -18,14 +17,13 @@ bool directional_edit_cuts() noexcept {
             // owner checks empty, forward/reverse and cluster-cut transitions.
             const u32 selection_cases[][2]{{0,0},{units,units},{0,units},{units,0},{cut_first,cut_end},{cut_end,cut_first}};
             for(const auto& selection:selection_cases){const u32 a=selection[0],p=selection[1];input.anchor_utf16=a;input.caret_utf16=p;++cases;
-                CHECK(text_edit_layout_measure(layouts,input,candidate)&&text_edit_layout_measure(layouts+1,input,reference));
-                CHECK(layouts[0].geometry&&!layouts[0].layout&&layouts[1].layout);++native_cases;
-                if(!same_edit(layouts[0],layouts[1])){print("retained cluster cut sample/byte/pattern/flag/width/options/anchor/caret=");number(sample);print("/");number(starts[cut]);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(options);print("/");number(a);print("/");number(p);print("\n");return false;}
+                if(!text_edit_layout_measure(&editor,input,candidate)||!editor.geometry||!observe_edit(editor)){print("retained cluster cut sample/byte/pattern/flag/width/options/anchor/caret=");number(sample);print("/");number(starts[cut]);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(options);print("/");number(a);print("/");number(p);print("\n");return false;}
+                ++native_cases;
             }
-            const auto builds=layouts[0].builds;CHECK(text_edit_layout_measure(layouts,input,candidate)&&layouts[0].builds==builds);
-            CHECK(text_measure_utf8(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok()&&same_edit(layouts[0],layouts[1]));
-            CHECK(text_edit_layout_scroll(layouts,-33)&&text_edit_layout_scroll(layouts+1,-33)&&same_edit(layouts[0],layouts[1]));
-            CHECK(text_edit_layout_scroll(layouts,21)&&text_edit_layout_scroll(layouts+1,21)&&same_edit(layouts[0],layouts[1]));
+            const auto builds=editor.builds;CHECK(text_edit_layout_measure(&editor,input,candidate)&&editor.builds==builds);
+            CHECK(text_measure_utf8(&owner, {utf8_literal("Other cached paragraph"),{},95,1000}).ok()&&observe_edit(editor));
+            CHECK(text_edit_layout_scroll(&editor,-33)&&observe_edit(editor));
+            CHECK(text_edit_layout_scroll(&editor,21)&&observe_edit(editor));
         }
     }
     return true;

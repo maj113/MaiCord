@@ -12,9 +12,9 @@ bool nonvisual(u32 cp) noexcept {return cp==0x200b||native_text_bidi_format(cp)|
 }
 SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraphCluster> clusters,NativeLatinBoundaryStorage s) noexcept {
     if((text.bytes&&!text.data)||(clusters.count&&!clusters.data)||(s.scalar_count&&!s.scalar_data)||(s.breaks.count&&!s.breaks.data))return SfntStatus::invalid_input;
-    u32 count=0,units=0;bool thai=false,bidi_format=false;
+    u32 count=0,units=0;bool thai=false;
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
-        if(count==s.scalar_count)return SfntStatus::output_too_small;s.scalar_data[count++]=cp.codepoint;thai|=cp.codepoint-0xe00u<128;bidi_format|=native_text_bidi_format(cp.codepoint);units+=cp.codepoint>65535?2u:1u;at+=cp.width;}
+        if(count==s.scalar_count)return SfntStatus::output_too_small;s.scalar_data[count++]=cp.codepoint;thai|=cp.codepoint-0xe00u<128;units+=cp.codepoint>65535?2u:1u;at+=cp.width;}
     if(s.breaks.count<=count)return SfntStatus::output_too_small;
     if(!unicode_line_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
     if(thai&&!native_thai_word_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
@@ -31,14 +31,10 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
             c.flags=(c.flags&~native_paragraph_newline)|native_paragraph_crlf_prefix;
         c.flags&=~(native_paragraph_break_before|native_paragraph_space);
         if(i&&(s.breaks[scalar]&3))c.flags|=native_paragraph_break_before;
-        if(bidi_format&&(c.flags&native_paragraph_nonvisual)){c.flags&=~native_paragraph_metric_group;if(s.breaks[scalar]&4)c.flags|=native_paragraph_metric_group;}
-        const auto& property=*unicode_properties(s.scalar_data[scalar]);
-        // Source analysis survives font/effect cuts. One selector following a
-        // space retains its whitespace classification even if font mapping
-        // leaves the selector in a separate, nonempty missing-glyph cluster.
-        const bool space=property.has(UnicodeFlag::white_space)||(scalar&&property.has(UnicodeFlag::variation_selector)&&
-            !control(s.scalar_data[scalar-1])&&unicode_properties(s.scalar_data[scalar-1])->has(UnicodeFlag::white_space));
-        if(!(c.flags&(native_paragraph_tab|native_paragraph_newline|native_paragraph_crlf_prefix))&&space)c.flags|=native_paragraph_space;
+        // UAX #14 gives a selector after a space its own base (LB9 does not attach to SP, LB10 makes it AL) and a
+        // break before it, so only white space itself hangs at a line end.
+        if(!(c.flags&(native_paragraph_tab|native_paragraph_newline|native_paragraph_crlf_prefix))&&unicode_properties(s.scalar_data[scalar])->has(UnicodeFlag::white_space))
+            c.flags|=native_paragraph_space;
         previous=c.source_end;
     }
     return previous==units?SfntStatus::ok:SfntStatus::invalid_input;
@@ -65,7 +61,7 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Ut
         at=end;
     }
     if(!boundaries.deferred){status=native_latin_paragraph_boundaries(input,{s.clusters.data,shaped.cluster_count},boundaries);if(status!=SfntStatus::ok)return status;}
-    *output=shaped;if(nominal)*nominal=simple;return SfntStatus::ok;
+    *output=shaped;return SfntStatus::ok;
 }
 SfntStatus native_latin_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
     const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,bool* nominal,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl) noexcept {

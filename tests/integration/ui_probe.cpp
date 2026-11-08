@@ -3830,8 +3830,8 @@ int run_probe() noexcept {
                 g_probe.renderer.glyph_text.font_face_count);
         if (!probe_renderer_font_aliases(g_probe.renderer))
             return 238;
-        // The renderer types hold no DirectWrite objects; this process loads
-        // dwrite.dll only for the text form probe's test oracle.
+        // The renderer types hold no DirectWrite objects, and the probe does
+        // not link dwrite.lib.
         log_write(LogLevel::info, "probe", "native_application_text_objects_absent_passed");
         renderer_shutdown(&g_probe.renderer);
         d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);

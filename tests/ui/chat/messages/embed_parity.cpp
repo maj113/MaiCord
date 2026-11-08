@@ -9,7 +9,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/text/layout/paragraph_hits.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
-#include "maicord/sys/dwrite.hpp"
+#include "../../../support/font_file_probe.hpp"
 #include "../../../support/test_output.hpp"
 #include "../../../support/gateway_message_scratch.hpp"
 
@@ -39,36 +39,57 @@ bool simple_script_covered[sizeof(kSimpleScripts) / sizeof(kSimpleScripts[0])];
 
 namespace {
 
-// Whether any installed family (its regular face) maps the scalar, as an
-// independent DirectWrite oracle for the native fallback.
-void probe_system_coverage() noexcept {
-    IDWriteFactory* factory = nullptr;
-    IDWriteFontCollection* collection = nullptr;
-    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                   reinterpret_cast<IUnknown**>(&factory))) ||
-        FAILED(factory->GetSystemFontCollection(&collection, FALSE)) || !collection) {
-        com_release(factory);
+// Whether an installed font maps the scalar: the cmap of every face in the Windows and per-user font folders, read
+// from the files themselves (tests/support/font_file_probe.hpp, not the engine's SFNT reader). On the recording
+// machine this agrees with fontTools (`TTFont(path, fontNumber=n).getBestCmap()` over the same files): Ebrima covers
+// Bamum, Vai, Tifinagh and N'Ko, Segoe UI Historic Bamum Supplement, Microsoft Yi Baiti Yi, Gadugi Canadian
+// Syllabics, Nirmala UI Ol Chiki and Calibri Lisu.
+u8 cmap_bytes[1u << 20];
+void cover_folder(const wchar_t* folder, u32 length) noexcept {
+    using namespace font_file_probe;
+    wchar_t path[600];
+    if (!length || length + 4 >= 600)
         return;
+    copy_bytes(path, folder, length * 2);
+    path[length] = '\\';
+    path[length + 1] = '*';
+    path[length + 2] = 0;
+    WIN32_FIND_DATAW found{};
+    const HANDLE find = FindFirstFileW(path, &found);
+    if (find == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        u32 name = 0;
+        while (found.cFileName[name])
+            ++name;
+        if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || length + 1 + name >= 600)
+            continue;
+        copy_bytes(path + length + 1, found.cFileName, (name + 1) * 2);
+        const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            continue;
+        u32 offsets[64], faces = 0, bytes = 0;
+        if (face_offsets(file, offsets, 64, &faces))
+            for (u32 f = 0; f < faces; ++f)
+                if (table(file, offsets[f], 0x636D6170, cmap_bytes, sizeof(cmap_bytes), &bytes)) // 'cmap'
+                    for (u32 c = 0; c < sizeof(kSimpleScripts) / sizeof(kSimpleScripts[0]); ++c)
+                        simple_script_covered[c] = simple_script_covered[c] || cmap_maps(cmap_bytes, bytes, kSimpleScripts[c]);
+        CloseHandle(file);
+    } while (FindNextFileW(find, &found));
+    FindClose(find);
+}
+void probe_system_coverage() noexcept {
+    wchar_t folder[600];
+    u32 length = GetWindowsDirectoryW(folder, 560);
+    if (length && length < 560) {
+        copy_bytes(folder + length, L"\\Fonts", 7 * 2);
+        cover_folder(folder, length + 6);
     }
-    const UINT32 families = collection->GetFontFamilyCount();
-    for (UINT32 f = 0; f < families; ++f) {
-        IDWriteFontFamily* family = nullptr;
-        IDWriteFont* font = nullptr;
-        if (SUCCEEDED(collection->GetFontFamily(f, &family)) &&
-            SUCCEEDED(family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                                                   DWRITE_FONT_STYLE_NORMAL, &font)))
-            for (u32 i = 0; i < sizeof(kSimpleScripts) / sizeof(kSimpleScripts[0]); ++i) {
-                BOOL exists = FALSE;
-                if (!simple_script_covered[i] && SUCCEEDED(font->HasCharacter(kSimpleScripts[i], &exists)))
-                    simple_script_covered[i] = exists != FALSE;
-            }
-        if (font)
-            font->Release();
-        if (family)
-            family->Release();
+    length = GetEnvironmentVariableW(L"LOCALAPPDATA", folder, 560);
+    if (length && length < 560) {
+        copy_bytes(folder + length, L"\\Microsoft\\Windows\\Fonts", 25 * 2);
+        cover_folder(folder, length + 24);
     }
-    collection->Release();
-    factory->Release();
 }
 
 } // namespace

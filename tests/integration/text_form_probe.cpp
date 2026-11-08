@@ -5,7 +5,6 @@
 #include "maicord/ui/text/secure_edit.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/text/form_surface.hpp"
-#include "../../tools/font_reference/dwrite_text_system.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -58,37 +57,33 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
     for (u32 i = 0; i < sizeof(long_text); ++i) long_text[i] = line.data[i % line.bytes];
     if(valid)stage=__LINE__;valid = valid && secure_edit_assign(&edit, {long_text, sizeof(long_text)}) == SecureEditResult::changed &&
         secure_edit_select_all(&edit) == SecureEditResult::changed && refresh();
-    DWRITE_HIT_TEST_METRICS reference[1024]{};
-    UINT32 actual = 0;
+    TextEditMetric reference[1024]{};
+    u32 actual = 0;
     const auto contains = [](const auto* metrics, u32 count, float x, float y) noexcept {
         for (u32 i = 0; i < count; ++i) if (x >= metrics[i].left && x < metrics[i].left + metrics[i].width &&
             y >= metrics[i].top && y < metrics[i].top + metrics[i].height) return true;
         return false;
     };
     const SecureEditUtf16Selection ranges[] = {{0, 640}, {640, 0}, {313, 588}, {588, 313}};
-    // Test-only DirectWrite oracle: the full, unclipped selection layout of
-    // the same display text, styles and box the native editor retained.
-    DWriteTextSystem oracle{};
-    IDWriteTextLayout* oracle_layout = nullptr;
-    wchar_t oracle_text[sizeof(long_text)]{};
-    struct ReleaseOracle {DWriteTextSystem& system;IDWriteTextLayout*& layout;
-        ~ReleaseOracle() noexcept {com_release(layout);text_system_release(&system);}} release_oracle{oracle, oracle_layout};
-    const u32 oracle_units = static_cast<u32>(MultiByteToWideChar(CP_UTF8, 0, long_text, sizeof(long_text), oracle_text, sizeof(long_text)));
-    if(valid)stage=__LINE__;valid = valid && oracle_units == surface.layout.utf16_units &&
-        text_system_initialize(&oracle, L"Segoe UI", renderer.glyph_text.system.em_size).ok() &&
-        SUCCEEDED(oracle.factory->CreateTextLayout(oracle_text, oracle_units, oracle.format, surface.layout.width,
-                                                   surface.layout.maximum_layout_height, &oracle_layout)) &&
-        SUCCEEDED(oracle_layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)) &&
-        SUCCEEDED(text_apply_layout_styles(oracle, oracle_layout, {long_text, sizeof(long_text)}, {}));
+    // The reference is the editor's own unclipped range geometry of the same layout, one line ("a😀א\n", five
+    // units) at a time: the retained selection, subdivided past its capacity and clipped to the viewport, must cover
+    // exactly the same pixels in it.
     for (const auto range : ranges) {
         const auto selected = secure_edit_set_utf16_selection(&edit, range);
         if(valid)stage=__LINE__;valid = valid && (selected == SecureEditResult::changed || selected == SecureEditResult::unchanged) && refresh();
         // Selection changes reuse the retained geometry (one key commit each, no reshape).
         if(valid)stage=__LINE__;valid = valid && surface.layout.geometry;
         const u32 first = minimum(range.anchor, range.caret), last = maximum(range.anchor, range.caret);
-        if(valid)stage=__LINE__;valid = valid && SUCCEEDED(oracle_layout->HitTestTextRange(first,
-            last - first, surface.layout.origin_x, surface.layout.origin_y, reference, 1024, &actual)) &&
-            actual > kTextEditSelectionCapacity && actual <= 1024 && surface.layout.selection_count > 0;
+        actual = 0;
+        for (u32 at = first; valid && at < last;) {
+            const u32 end = minimum(last, (at / 5 + 1) * 5);
+            u32 count = 0;
+            if(valid)stage=__LINE__;valid = valid && actual + kTextEditSelectionCapacity <= 1024 &&
+                text_edit_layout_raw_range_geometry(surface.layout, at, end, {reference + actual, kTextEditSelectionCapacity}, &count);
+            actual += count;
+            at = end;
+        }
+        if(valid)stage=__LINE__;valid = valid && actual > kTextEditSelectionCapacity && surface.layout.selection_count > 0;
         for (float y = surface.layout.viewport_top + 0.5f; valid && y < surface.layout.viewport_top + surface.layout.height; y += 1) {
             for (float x = surface.layout.origin_x + 0.5f; x < surface.layout.origin_x + surface.layout.width; x += 1) {
                 if (contains(reference, actual, x, y) != contains(surface.layout.selections, surface.layout.selection_count, x, y)) {

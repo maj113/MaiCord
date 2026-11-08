@@ -15,7 +15,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/ui/text/text.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
-#include "dwrite_text_system.hpp"
+#include "dwrite_outline_reference.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include <dwrite_3.h>
 #include <d2d1.h>

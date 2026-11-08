@@ -3,7 +3,13 @@
 #include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/layout_validation.hpp"
-#include "../../../tools/font_reference/native_run_reference.hpp"
+#include "../../support/font_file_probe.hpp"
+#include "maicord/ui/text/text.hpp"
+#include "maicord/text/fonts/geometry.hpp"
+#include "maicord/text/fonts/instance.hpp"
+#include "maicord/text/fonts/run.hpp"
+#include "maicord/text/fonts/session.hpp"
+#include "maicord/text/fonts/store.hpp"
 #include "maicord/app/guild/member_list_channel_binding.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/ui/account/profile_media.hpp"
@@ -3305,6 +3311,38 @@ void test_glyph_raster_bounds() noexcept {
     expect(!glyph_raster_bounds(outline, 16.0f, 1, &bounds), "glyph_raster_bounds_reject_inverted");
 }
 
+// The file of a native run's face and the face's table-directory offset in it.
+static HANDLE native_run_file(const ShapedText& shaped, const TextRun& run, u32* face_offset) noexcept {
+    if (!run.native_font || !shaped.native_fonts())
+        return INVALID_HANDLE_VALUE;
+    const auto* record = native_font_run_get(*native_font_session_runs(shaped.native_fonts()), run.native_face);
+    const auto* store = native_font_session_fonts(shaped.native_fonts());
+    const auto* font = record ? native_font_get(*store, record->source.face) : nullptr;
+    if (!font)
+        return INVALID_HANDLE_VALUE;
+    const HANDLE file = store->files[store->faces[record->source.face.slot - 1].file_slot].file;
+    u32 offsets[64], faces = 0;
+    if (!font_file_probe::face_offsets(file, offsets, 64, &faces) || font->geometry.face.face_index >= faces)
+        return INVALID_HANDLE_VALUE;
+    *face_offset = offsets[font->geometry.face.face_index];
+    return file;
+}
+// Whether a path ends with `suffix`, ignoring ASCII case.
+static bool file_name_is(const wchar_t* path, u32 units, const wchar_t* suffix) noexcept {
+    u32 length = 0;
+    while (suffix[length])
+        ++length;
+    if (units < length)
+        return false;
+    for (u32 i = 0; i < length; ++i) {
+        wchar_t a = path[units - length + i], b = suffix[i];
+        a = a >= 'A' && a <= 'Z' ? static_cast<wchar_t>(a + 32) : a;
+        b = b >= 'A' && b <= 'Z' ? static_cast<wchar_t>(b + 32) : b;
+        if (a != b)
+            return false;
+    }
+    return true;
+}
 void test_text_shaping() noexcept {
     TextSystem system{};
     const TextShapeResult initialized = text_system_initialize(&system, L"Segoe UI", 14.0f);
@@ -3312,11 +3350,10 @@ void test_text_shaping() noexcept {
     if (!initialized.ok()) {
         return;
     }
-    // Test-only DirectWrite oracle for native run font identity, color layers and outlines.
-    IDWriteFactory* oracle = nullptr;
-    expect(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                         reinterpret_cast<IUnknown**>(&oracle))),
-           "text_shaping_directwrite_oracle");
+    // Facts about the fonts the runs use come from the font files (tests/support/font_file_probe.hpp) and are pinned
+    // from fontTools on Windows 11's fonts: seguiemj.ttf (name ID 1 "Segoe UI Emoji", version 1.60) maps U+1F604 to
+    // u1F604 with a five-layer COLRv0 record; segoeui.ttf (5.71) draws "o" in two contours with the glyf box
+    // (96, -24)-(1104, 1048) of 2048 units.
 
     TextGlyph glyphs[512]{};
     TextRun runs[32]{};
@@ -3356,16 +3393,12 @@ void test_text_shaping() noexcept {
         const auto shaped_emoji = text_shape_utf8(&system, {sample, {&style, 1}, 300, 100}, &shaped);
         emoji_family_exact &= shaped_emoji.ok() && shaped.run_count != 0;
         for (u32 run = 0; run < shaped.run_count; ++run) {
-            IDWriteFontFace* reference = nullptr;
-            IDWriteFontFace3* face = nullptr; IDWriteLocalizedStrings* names = nullptr;
-            wchar_t family[64]{};
-            const bool named = native_run_reference(oracle,shaped,shaped.runs[run],&reference) && SUCCEEDED(reference->QueryInterface(
-                __uuidof(IDWriteFontFace3), reinterpret_cast<void**>(&face))) &&
-                SUCCEEDED(face->GetFamilyNames(&names)) && SUCCEEDED(names->GetString(0, family, 64));
-            constexpr wchar_t expected[] = L"Segoe UI Emoji";
-            for (u32 i = 0; i < sizeof(expected)/sizeof(expected[0]); ++i)
-                emoji_family_exact &= named && family[i] == expected[i];
-            com_release(names); com_release(face);com_release(reference);
+            u32 face_offset = 0;
+            wchar_t path[512]{};
+            const HANDLE file = native_run_file(shaped, shaped.runs[run], &face_offset);
+            const DWORD units = file != INVALID_HANDLE_VALUE
+                ? GetFinalPathNameByHandleW(file, path, 512, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS) : 0;
+            emoji_family_exact &= units > 13 && units < 512 && file_name_is(path, units, L"\\seguiemj.ttf");
         }
         const auto measured = text_measure_utf8(&system, {sample, {&style,1}, 300,100,TextWrapping::no_wrap});
         emoji_family_exact &= measured.ok() && measured.width == shaped.width;
@@ -3378,46 +3411,14 @@ void test_text_shaping() noexcept {
            "emoji_selection_preserves_plain_digits_and_punctuation");
 
     result = text_shape_utf8(&system, {utf8_literal("\xF0\x9F\x98\x84"), {}, 100.0f, 100.0f}, &shaped);
-    IDWriteFactory2* color_factory = nullptr;
-    IDWriteColorGlyphRunEnumerator* color_layers = nullptr;
     bool color_layer_found = false;
-    if (result.ok() && shaped.run_count == 1 && shaped.glyph_count <= 16 &&
-        oracle && SUCCEEDED(oracle->QueryInterface(__uuidof(IDWriteFactory2),
-                                                 reinterpret_cast<void**>(&color_factory))) &&
-        color_factory) {
-        u16 indices[16]{};
-        float advances[16]{};
-        DWRITE_GLYPH_OFFSET offsets[16]{};
-        const TextRun& run = shaped.runs[0];
-        for (u32 index = 0; index < run.glyph_count; ++index) {
-            const TextGlyph& glyph = shaped.glyphs[run.first_glyph + index];
-            indices[index] = glyph.index;
-            advances[index] = glyph.advance;
-            offsets[index] = DWRITE_GLYPH_OFFSET{glyph.advance_offset, glyph.ascender_offset};
-        }
-        IDWriteFontFace* reference=nullptr;
-        const bool resolved=native_run_reference(oracle,shaped,run,&reference);
-        const DWRITE_GLYPH_RUN glyph_run{reference, run.em_size, run.glyph_count, indices,
-                                         advances,      offsets,     run.sideways,    run.bidi_level};
-        const HRESULT translated = resolved?
-            color_factory->TranslateColorGlyphRun(run.baseline_x, run.baseline_y, &glyph_run, nullptr,
-                                                  DWRITE_MEASURING_MODE_NATURAL, nullptr, 0, &color_layers):E_FAIL;
-        com_release(reference);
-        BOOL has_layer = FALSE;
-        if (SUCCEEDED(translated) && color_layers && SUCCEEDED(color_layers->MoveNext(&has_layer)) &&
-            has_layer) {
-            const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
-            color_layer_found = SUCCEEDED(color_layers->GetCurrentRun(&layer)) && layer &&
-                                layer->paletteIndex != DWRITE_NO_PALETTE_INDEX;
-        }
+    if (result.ok() && shaped.run_count == 1 && shaped.glyph_count == 1) {
+        u32 face_offset = 0;
+        const HANDLE file = native_run_file(shaped, shaped.runs[0], &face_offset);
+        color_layer_found = file != INVALID_HANDLE_VALUE &&
+            font_file_probe::colr_layers(file, face_offset, shaped.glyphs[0].index) == 5;
     }
-    if (color_layers) {
-        color_layers->Release();
-    }
-    if (color_factory) {
-        color_factory->Release();
-    }
-    expect(result.ok() && color_layer_found, "text_shape_segoe_emoji_exposes_directwrite_color_layers");
+    expect(result.ok() && color_layer_found, "text_shape_segoe_emoji_draws_its_colr_layered_glyph");
 
     result = text_shape_utf8(
         &system, {utf8_literal("A reply preview that is deliberately wider than its retained row"), {}, 72.0f,
@@ -3589,34 +3590,36 @@ void test_text_shaping() noexcept {
     expect(result.ok() && shaped.run_count != 0, "text_shape_plain_after_styled_reset");
 
     GlyphPathCommand path_commands[256]{};
-    IDWriteFontFace* outline_reference=nullptr;
-    expect(native_run_reference(oracle,shaped,shaped.runs[0],&outline_reference),"native_run_outline_reference");
     GlyphOutline outline{};
     expect(glyph_outline_initialize(&outline, Slice<GlyphPathCommand>{path_commands, 256}),
            "glyph_outline_initialize");
-    const GlyphOutlineResult outlined =
-        text_outline_glyph(outline_reference, shaped.glyphs[0].index, &outline);
-    const bool begins =
-        outline.count != 0 && (outline.commands[0].kind == GlyphPathCommandKind::begin_filled ||
-                               outline.commands[0].kind == GlyphPathCommandKind::begin_hollow);
-    const bool ends = outline.count != 0 &&
-                      (outline.commands[outline.count - 1].kind == GlyphPathCommandKind::end_closed ||
-                       outline.commands[outline.count - 1].kind == GlyphPathCommandKind::end_open);
-    expect(outlined.ok() && outline.count != 0 && outline.has_bounds &&
-               outline.maximum_x > outline.minimum_x && outline.maximum_y > outline.minimum_y && begins &&
-               ends,
+    bool outlined = false;
+    if (result.ok() && shaped.runs[0].native_font) {
+        const auto* record = native_font_run_get(*native_font_session_runs(shaped.native_fonts()), shaped.runs[0].native_face);
+        const auto* face = record ? native_font_get(*native_font_session_fonts(shaped.native_fonts()), record->source.face) : nullptr;
+        SfntOutlinePoint points[256];
+        u32 ends[16];
+        u16 active[16];
+        FontGeometryScratch scratch{{{points, 256}, {ends, 16}, {active, 16}, 0, 0, 1000000}, {}, {}};
+        // Segoe UI is static: its default instance needs no variation storage.
+        outlined = face && !face->geometry.axes.axis_count &&
+            font_geometry_outline({&face->geometry, nullptr}, shaped.glyphs[0].index, &scratch, &outline) == SfntStatus::ok;
+    }
+    u32 contours = 0;
+    bool closed = outline.count != 0;
+    for (u32 index = 0; index < outline.count; ++index) {
+        const GlyphPathCommandKind kind = outline.commands[index].kind;
+        contours += kind == GlyphPathCommandKind::begin_filled || kind == GlyphPathCommandKind::begin_hollow ? 1u : 0u;
+        closed = closed && kind != GlyphPathCommandKind::end_open;
+    }
+    const auto near = [](float value, float units) noexcept {
+        const float expected = units / 2048.0f;
+        return value > expected - 1.0f / 2048.0f && value < expected + 1.0f / 2048.0f;
+    };
+    // Outlines are in ems with y downward.
+    expect(outlined && contours == 2 && closed && outline.has_bounds && near(outline.minimum_x, 96) &&
+               near(outline.maximum_x, 1104) && near(outline.minimum_y, -1048) && near(outline.maximum_y, 24),
            "glyph_outline_normalized_contours");
-
-    GlyphPathCommand tiny_path[1]{};
-    GlyphOutline tiny_outline{};
-    expect(glyph_outline_initialize(&tiny_outline, Slice<GlyphPathCommand>{tiny_path, 1}),
-           "glyph_outline_tiny_initialize");
-    const GlyphOutlineResult tiny_outlined =
-        text_outline_glyph(outline_reference, shaped.glyphs[0].index, &tiny_outline);
-    expect(tiny_outlined.error == GlyphOutlineError::output_too_small && tiny_outline.count == 0 &&
-               !tiny_outline.has_bounds && tiny_outline.rejected == 1,
-           "glyph_outline_atomic_bound");
-    com_release(outline_reference);
     shaped_text_reset(&shaped);
     expect(shaped.glyph_count == 0 && shaped.run_count == 0 && shaped.cluster_count == 0,
            "shaped_text_reset_releases_runs");

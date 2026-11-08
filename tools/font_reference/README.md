@@ -10,6 +10,8 @@ first-party libraries and `kernel32` only.
 - Python generators (`*_oracle.py`, `*_fixture.py`) build first-party fixture
   fonts, drive the oracles and write corpora for the native tests
   (`MaiCord*Tests`). They need fontTools and run from the repository root.
+- `text_reference.py` records the application-line references from HarfBuzz and
+  the engine's own layout; no test in the suite links DirectWrite.
 
 ## Conventions
 
@@ -44,7 +46,7 @@ first-party libraries and `kernel32` only.
 
 ## MaiCordFontReference
 
-`main.cpp`, `program_oracle.cpp`, `dwrite_text_system.cpp` and the paint adapter
+`main.cpp`, `program_oracle.cpp`, `dwrite_outline_reference.cpp` and the paint adapter
 `tools/colr_reference/dwrite_paint_builder.cpp`. Compares MaiCord's SFNT, outline,
 metric and COLR readers with DirectWrite in a separate process (isolated
 factory). Native counterparts: `MaiCordFontTests` and `MaiCordColrProgramTests`.
