@@ -47,12 +47,18 @@ bool has_resources(const GpuStream& stream) noexcept {
            (stream.backend == &kSoftwareStreamBackend && stream.software.decoder);
 }
 
+// Hands the decode thread's counters to readers (any thread) under the lock; the pusher's `received` stays.
 void publish_stats(GpuStream* stream) noexcept {
     auto& stats = stream->stats;
     stream->backend->stats(*stream, &stats);
     stats.coded_width = stream->coded_width;
     stats.coded_height = stream->coded_height;
     stats.surfaces = stream->surfaces.count;
+    AcquireSRWLockExclusive(&stream->lock);
+    const u32 received = stream->published.received;
+    stream->published = stats;
+    stream->published.received = received;
+    ReleaseSRWLockExclusive(&stream->lock);
 }
 
 // Gives a stream whose GPU decoder cannot take its stream (a profile, size or format the driver refuses) to the
@@ -100,11 +106,8 @@ u32 decode_main(void* parameter) noexcept {
             AcquireSRWLockExclusive(&stream->lock);
             const bool idle = !stream->count && !stream->stop;
             ReleaseSRWLockExclusive(&stream->lock);
-            if (idle && release_idle(stream)) {
-                AcquireSRWLockExclusive(&stream->lock);
+            if (idle && release_idle(stream))
                 publish_stats(stream);
-                ReleaseSRWLockExclusive(&stream->lock);
-            }
             continue;
         }
         for (;;) {
@@ -320,7 +323,7 @@ bool gpu_stream_decoder_push(GpuStreamDecoder* stream, ConstSlice<u8> annexb, u3
     if (!stream || !annexb.data || !annexb.count || annexb.count > kGpuStreamMaximumFrameBytes)
         return false;
     if (stream->options.synchronous) {
-        saturating_increment(stream->stats.received);
+        saturating_increment(stream->published.received);
         const bool resynchronize = stream->resynchronize_pending;
         stream->resynchronize_pending = false;
         stream->backend->decode(stream, annexb, rtp_timestamp, intact, resynchronize);
@@ -333,7 +336,7 @@ bool gpu_stream_decoder_push(GpuStreamDecoder* stream, ConstSlice<u8> annexb, u3
         return true;
     }
     AcquireSRWLockExclusive(&stream->lock);
-    saturating_increment(stream->stats.received);
+    saturating_increment(stream->published.received);
     bool resynchronize = stream->resynchronize_pending;
     if (stream->count == kGpuStreamQueueFrames) {
         // The decoder fell behind: queued latency is worse than a freeze.
@@ -375,7 +378,7 @@ GpuStreamDecoderStats gpu_stream_decoder_stats(const GpuStreamDecoder* stream) n
         return {};
     auto* lock = const_cast<SRWLOCK*>(&stream->lock);
     AcquireSRWLockShared(lock);
-    const GpuStreamDecoderStats stats = stream->stats;
+    const GpuStreamDecoderStats stats = stream->published;
     ReleaseSRWLockShared(lock);
     return stats;
 }

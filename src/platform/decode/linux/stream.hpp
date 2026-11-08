@@ -89,7 +89,11 @@ struct GpuStream {
     u8 hardware_failures; // Pictures the GPU decoder failed in a row; the tier is given up after a few
     volatile LONG hold; // Reader-held slot + 1, 0 when none.
     GpuStreamDecoderOptions options;
+    // The decode thread's counters (the pushing thread's for a synchronous stream); `received` is in `published`.
     GpuStreamDecoderStats stats;
+    // What gpu_stream_decoder_stats returns, under `lock`: the pusher counts `received` here, and publish_stats copies the
+    // rest of `stats` after every decode.
+    GpuStreamDecoderStats published;
     u64 last_request_ms;
     SRWLOCK lock;
     Waitable wake;
