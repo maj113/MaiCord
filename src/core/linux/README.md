@@ -18,7 +18,7 @@ bundles one.
   `include/maicord/sys/linux/libc.hpp` (dlopen family, `pthread_create` family,
   `malloc`/`calloc`/`free`, `getaddrinfo`, `clock_gettime`); `malloc_trim` is glibc-only and a *weak* import.
 - The musl image is the same bytes with another interpreter: `python3 tools/retarget_libc.py --libc musl MaiCord
-  MaiCord-musl` rewrites PT_INTERP to `/lib/ld-musl-x86_64.so.1` and nothing else, and `tools/audit_elf.py --libc musl`
+  MaiCord-musl` rewrites PT_INTERP to `/lib/ld-musl-x86_64.so.1` and nothing else, and `tools/audit_image.py --libc musl`
   audits it. It needs nothing more because musl's loader (`ldso/dynlink.c`, `load_library`) answers any needed `libc.*`
   (and `libdl.*`, `libpthread.*`, `libm.*`, `librt.*`, `libutil.*`, `libxnet.*`) by itself whatever the version suffix, takes the
   imports from itself and ignores symbol versions. The tests of a glibc build therefore are the tests of the musl image
@@ -33,7 +33,7 @@ bundles one.
   `RTLD_DEFAULT == 0`, `CLOCK_*`, every `E*` number the code uses (and `EWOULDBLOCK == EAGAIN`, `ENOTSUP == EOPNOTSUPP`), the
   `EAI_*` codes `src/platform/net/linux/resolver.cpp` maps.
 - Adding a libc import: declare it in `libc.hpp`, add it to `tools/generate_libc_stubs.py` and the allow-list of
-  `tools/audit_elf.py`, and make sure musl defines it (else import it weakly and test the pointer, as `heap_trim` does).
+  `tools/audit_image.py`, and make sure musl defines it (else import it weakly and test the pointer, as `heap_trim` does).
 - Not done: a separate musl link (the extra full-LTO link would only differ in PT_INTERP), a static or self-loading
   image (a static-PIE launcher that `execve`s the system loader changes `/proc/self/exe`, the process name and the
   AppArmor/SELinux path to the loader's), our own resolver instead of `getaddrinfo` (NSS, systemd-resolved, mDNS).
@@ -67,7 +67,8 @@ sweep, the overlaps, the guard-page bounds and the streaming sizes.
 
 ## ELF audit
 
-`tools/audit_elf.py` (run by `tools/build_linux.sh` on every image): x86-64 ET_DYN, the interpreter of its libc, exactly one
-needed library (`libc.so.6`), only the allowed imports under `GLIBC_` nodes of at most 2.34 (`malloc_trim` weak), no unwind or debug
-sections, no TEXTREL/RPATH/RUNPATH, `DT_RELR` absent (relative relocations are packed under the Android tags and applied
-by `start.cpp`: glibc's own `DT_RELR` needs 2.36 and a version node), full RELRO, a non-executable stack, no W+X segment.
+`tools/audit_image.py` (after every link of the client, and by `tools/build_linux.sh` on every other image and on the musl
+form): x86-64 ET_DYN, the interpreter of its libc, exactly one needed library (`libc.so.6`), only the allowed imports under
+`GLIBC_` nodes of at most 2.34 (`malloc_trim` weak), no unwind or debug sections, no TEXTREL/RPATH/RUNPATH, `DT_RELR` absent
+(relative relocations are packed under the Android tags and applied by `start.cpp`: glibc's own `DT_RELR` needs 2.36 and a
+version node), full RELRO, a non-executable stack, no W+X segment.

@@ -279,7 +279,8 @@ details.
 
 ## Building from source
 
-**Windows** needs Visual Studio 2026 (or its Build Tools) with *Desktop development with C++*, Python 3.10+ and
+**Windows** needs two Visual Studio 2026 Build Tools components, the MSVC x64 toolset and the Windows SDK (import
+`.vsconfig` in the Visual Studio Installer; no IDE or developer shell), CMake 3.28+ and Ninja on `PATH`, Python 3.10+ and
 Windows PowerShell 5.1; the build fetches its pinned LLVM toolchain on first use.
 
 ```powershell

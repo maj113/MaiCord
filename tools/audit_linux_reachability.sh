@@ -41,17 +41,16 @@ flock 9
 mkdir -p "$source_directory"
 rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log' \
     "$repository/" "$source_directory/"
-# The contract's whole-program switch is the only change to the copy (the Linux contract sets it for the C++ sources,
-# the common one for the C libraries).
+# The contract's whole-program switch is the only change to the copy.
 sed -i 's/^set(MAICORD_WHOLE_PROGRAM_OPTION -flto)$/set(MAICORD_WHOLE_PROGRAM_OPTION "")/' \
-    "$source_directory/cmake/build_contract_linux.cmake" "$source_directory/cmake/build_contract.cmake"
-grep -q '^set(MAICORD_WHOLE_PROGRAM_OPTION "")$' "$source_directory/cmake/build_contract_linux.cmake" || {
+    "$source_directory/cmake/build_contract.cmake"
+grep -q '^set(MAICORD_WHOLE_PROGRAM_OPTION "")$' "$source_directory/cmake/build_contract.cmake" || {
     echo "The contract no longer has the LTO switch this script turns off." >&2; exit 1; }
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_C_COMPILER="$llvm_bin/clang" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
     -DCMAKE_AR="$llvm_bin/llvm-ar" -DCMAKE_RANLIB="$llvm_bin/llvm-ranlib" -DCMAKE_BUILD_TYPE=Release \
-    -DMAICORD_BUILD_TESTS=OFF -DMAICORD_KEEP_SYMBOLS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null
+    -DMAICORD_BUILD_TESTS=OFF -DMAICORD_SIZE_REPORT=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null
 cmake --build "$build_directory" --target MaiCord --parallel "$(nproc)"
 
 # The client's own link command, run again with another output and the audit's flags (the last of two

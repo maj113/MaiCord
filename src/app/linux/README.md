@@ -1,6 +1,6 @@
 # The Linux client
 
-The client is the `MaiCord` target of `cmake/linux_client.cmake`: the shell (`src/app/shell`) with this directory's entry and window
+The client is the `MaiCord` target of `cmake/client.cmake`: the shell (`src/app/shell`) with this directory's entry and window
 glue, over the Wayland backend only (`maicord_window_null` is the tests'). Resources Windows takes from `.rc` are embedded
 (`core/linux/resource.cpp`: sounds and the icon, which `window_app_icon_png` reads as an ICO).
 
@@ -31,15 +31,15 @@ AT-SPI host).
 
 ## Shared code on Linux
 
-`cmake/linux_app_client.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and must use the
+`cmake/linux_libraries.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and must use the
 seams (see AGENTS.md, "Where things live"): `os/process.hpp`, `os/text.hpp`, `os/thread.hpp`, `os/local_time.hpp`, `core/data_path.hpp`,
 `core/module.hpp`, `core/resource.hpp`, `core/virtual_memory.hpp`, `platform/desktop/shell_open.hpp`, and a `Window` wherever a window is
 passed, never an `HWND`. A Windows-only part keeps `#if defined(_WIN32)` in its file with the Linux alternative beside it:
 `notifications/desktop.cpp`, `platform/desktop/taskbar_attention.cpp`, `platform/desktop/linux/notifications.cpp`,
 `platform/desktop/linux/integration.cpp`, `fido2.cpp`/`webauthn_ceremony.cpp`, the plugin loader (`../plugins/README.md`) and game
-detection. Application and UI fixtures that need no Win32 window run on Linux from `cmake/linux_app_ui_tests.cmake` over
+detection. Application and UI fixtures that need no Win32 window run on Linux from `cmake/test_registry.cmake` over
 `maicord_window_null`, with the Win32 calls they make shimmed for tests only in `tests/support/linux_test_app.hpp`; a fixture that calls
-other Windows API directly stays Windows-only and is listed there.
+other Windows API directly stays Windows-only (`ONLY WINDOWS` there).
 
 Text that names the system goes through `MAICORD_OS_TEXT("Windows ...", "your desktop ...")` (`core/os_text.hpp`) and, for the settings
 catalog, the Linux table in `catalog.cpp`; a row with nothing behind it on Linux is `settings_binding_unavailable` (the Windows

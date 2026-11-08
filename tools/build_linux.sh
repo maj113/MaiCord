@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Builds the Linux port of MaiCord, audits what it built and, with --test, runs the Linux test suite.
+# Builds the Linux port of MaiCord, audits what it built and, with --test, runs the Linux test suite. The options are
+# tools/build.ps1's, spelled --kebab-case (-TestNames is --test-names), with the same meaning:
 #
-#   tools/build_linux.sh                       configure, build the client (MaiCord) and the libraries, audit
-#   tools/build_linux.sh --test                also build and run every registered test with ctest
-#   tools/build_linux.sh --test a b            only the ctest cases named a and b
-#   tools/build_linux.sh --test --keep         keep objects, ninja state and compile_commands.json (incremental)
-#   tools/build_linux.sh --symbols             keep the symbol table in MaiCord (nm, bloaty, profilers); it ships stripped
-#   tools/build_linux.sh --check               configure and build only; no audit, no tests
-#   tools/build_linux.sh --sync | --in-place   copy the repository to ext4 first / build the checkout where it is
-#   tools/build_linux.sh --timeout-scale N     multiply every test timeout by N (slow hosted runners)
+#   tools/build_linux.sh       configure, build the client (MaiCord), audit
+#   --test                     also build and run the registered tests with ctest
+#   --test-names a,b           only the tests named a and b (with --test)
+#   --skip-client              tests use the MaiCord already in the build directory instead of building it (with --test)
+#   --keep-intermediates       keep objects, ninja state and compile_commands.json (incremental builds)
+#   --size-report              keep the client's symbol table (it ships stripped) and print its sections and largest
+#                              symbols (tools/report_binary_size.py)
+#   --llvm-bin DIR             the LLVM bin directory (default MAICORD_LLVM_BIN, else the pinned release)
+#   --test-timeout-scale N     multiply every test timeout by N (slow hosted runners)
 #
-# From Windows use tools\build_linux.ps1, which runs this script inside WSL.
+# From Windows: wsl -d Ubuntu-Preview --cd <checkout> -- bash -l tools/build_linux.sh [options].
 #
 # Layout and decisions (docs/ is git-ignored, so the reference lives here):
 #
@@ -18,34 +20,35 @@
 #             cmake >= 3.28, ninja, python3 and, to sync, rsync (tools/install_linux_toolchain.sh installs them). The
 #             compiler is the Linux release of the maj113/llvm-pe fork pinned in tools/llvm_toolchain.json, as on Windows:
 #             clang, clang++, ld.lld, llvm-ar and llvm-ranlib of LLVM 24 (they need glibc 2.38), fetched once into
-#             ~/.cache/maicord-toolchain/<tag> by tools/resolve_llvm_toolchain.sh and put first on PATH. MAICORD_LLVM_BIN
-#             names another LLVM's bin directory instead and MAICORD_LLVM_MAJOR its major (default 24; any other clang
-#             major is refused): a stock LLVM builds the same sources without the fork's code generation options, which
-#             the contract takes only from a compiler that knows them; this is also how an older host (Ubuntu 22.04,
-#             Debian 12) builds (MAICORD_LLVM_BIN=/usr/lib/llvm-23/bin MAICORD_LLVM_MAJOR=23 tools/build_linux.sh). The
-#             Windows toolchain and tools/build.ps1 are unchanged; this is the only Linux entry point.
+#             ~/.cache/maicord-toolchain/<tag> by tools/resolve_llvm_toolchain.sh and put first on PATH. --llvm-bin or
+#             MAICORD_LLVM_BIN names another LLVM's bin directory instead and MAICORD_LLVM_MAJOR its major (default 24; any
+#             other clang major is refused): a stock LLVM builds the same sources without the fork's code generation
+#             options, which the contract takes only from a compiler that knows them; this is also how an older host
+#             (Ubuntu 22.04, Debian 12) builds (MAICORD_LLVM_MAJOR=23 tools/build_linux.sh --llvm-bin /usr/lib/llvm-23/bin).
+#             This is the only Linux entry point.
 #   Source    On a native Linux file system (ext4, xfs, btrfs, tmpfs, overlay: a Linux checkout, GitHub Actions) the
 #             checkout is built where it is. Where it sits on a Windows or network mount (WSL's /mnt/d is 9p, whose metadata
-#             operations make ninja and git 50-700x slower) it is rsynced to ext4 first (default ~/mc,
-#             MAICORD_LINUX_SOURCE; setting that variable, or --sync, always copies; $CI and --in-place never do).
+#             operations make ninja and git 50-700x slower) it is rsynced to ext4 first (default ~/mc; setting
+#             MAICORD_LINUX_SOURCE always copies there; $CI never copies).
 #   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: clang and ld.lld, full LTO, IPRA,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
-#             cmake/build_contract_linux.cmake is the contract; cmake/linux_libraries.cmake and
-#             cmake/linux_tests.cmake list what builds. Size is the Windows client's: cmake/size_policy.cmake (-Oz,
-#             -Os for what no measurement shows hot, and helper folding per source), the machine outliner,
-#             --icf=all, --gc-sections, packed relocations, and the client is linked stripped (--symbols keeps its
-#             symbol table for nm and profilers).
+#             cmake/build_contract.cmake is the contract; the client and the tests the run selects from the
+#             test manifest (maicord-tests.txt, written by CMake as on Windows) are built. Size is the Windows client's:
+#             cmake/size_policy.cmake (-Oz, -Os for what no measurement shows hot, and helper folding per source), the
+#             machine outliner, --icf=all, --gc-sections, packed relocations, and the client is linked stripped
+#             (--size-report keeps its symbol table for nm and profilers).
 #   Image     A dynamic PIE with its own _start (src/core/linux/start.cpp): no CRT, raw syscalls, DT_NEEDED
 #             libc.so.6 alone, as a generated stub (tools/generate_libc_stubs.py) that pins GLIBC_2.2.5, GLIBC_2.17
 #             and GLIBC_2.34; every other library is dlopen()ed (include/maicord/core/shared_library.hpp).
 #             The musl form is the same image with another program interpreter (tools/retarget_libc.py --libc musl).
-#   Audit     tools/audit_elf.py runs on every image: no GLIBC_ symbol version above 2.34, only the libc stub
-#             library needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack;
-#             and on the client's musl form (--libc musl).
+#   Audit     tools/audit_image.py runs on every image: no GLIBC_ symbol version above 2.34, only the libc stub library
+#             needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack. The client runs
+#             it when it links (without a test hook unless the build has tests), and this script on its musl form
+#             (--libc musl) and on the other images in the build directory.
 #   Tests     ctest under the build directory; each case runs with a private XDG_DATA_HOME below it.
-#   Cleanup   Unless --keep, the run ends with the build directory holding only the shipping client (MaiCord) and its
-#             runtime assets (fonts/, licenses/), as tools/build.ps1 leaves the Windows one with only the client.
+#   Cleanup   Unless --keep-intermediates, the run ends with the build directory holding only the client (MaiCord) and
+#             its runtime assets (fonts/, licenses/), as tools/build.ps1 leaves the Windows one.
 #   Foreign   The images run on NixOS through nix-ld, or ld.so --library-path <glibc>:<libs> <image>.
 #
 # Exit status: nonzero on a failed configure, build, audit or test.
@@ -61,74 +64,63 @@ repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source_directory="${MAICORD_LINUX_SOURCE:-}"
 build_directory="${MAICORD_LINUX_BUILD:-$HOME/mc-build}"
 jobs="$(nproc)"
-sync_mode=auto
-timeout_scale="${MAICORD_TEST_TIMEOUT_SCALE:-1}"
+timeout_scale=1
 llvm_major="${MAICORD_LLVM_MAJOR:-24}"
 run_tests=0
 keep=0
-check_only=0
-symbols=OFF
+skip_client=0
+size_report=OFF
 test_names=()
 
+value() {
+    [ "$#" -ge 2 ] && [[ "$2" != --* ]] || { echo "$1 needs a value." >&2; exit 2; }
+}
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --test)
-            run_tests=1
-            shift
-            while [ "$#" -gt 0 ] && [[ "$1" != --* ]]; do
-                if ! [[ "$1" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
-                    echo "Invalid test name: $1" >&2
-                    exit 2
-                fi
-                test_names+=("$1")
-                shift
-            done
-            ;;
-        --keep) keep=1; shift ;;
-        --symbols) symbols=ON; shift ;;
-        --check) check_only=1; shift ;;
-        --jobs) jobs="$2"; shift 2 ;;
-        --sync) sync_mode=sync; shift ;;
-        --in-place) sync_mode=in-place; shift ;;
-        --timeout-scale) timeout_scale="$2"; shift 2 ;;
+        --test) run_tests=1; shift ;;
+        --test-names) value "$@"; IFS=, read -r -a names <<< "$2"; test_names+=("${names[@]}"); shift 2 ;;
+        --skip-client) skip_client=1; shift ;;
+        --keep-intermediates) keep=1; shift ;;
+        --size-report) size_report=ON; shift ;;
+        --llvm-bin) value "$@"; export MAICORD_LLVM_BIN="$2"; shift 2 ;;
+        --test-timeout-scale) value "$@"; timeout_scale="$2"; shift 2 ;;
         -h|--help) usage 0 ;;
         *) echo "Unknown argument: $1" >&2; usage 2 ;;
     esac
 done
-if [ "$check_only" = 1 ] && [ "$run_tests" = 1 ]; then
-    echo "--check builds only; it cannot run tests." >&2
+if [ "$run_tests" = 0 ] && { [ "${#test_names[@]}" -gt 0 ] || [ "$skip_client" = 1 ]; }; then
+    echo "--test-names and --skip-client require --test." >&2
     exit 2
 fi
+for name in "${test_names[@]}"; do
+    [[ "$name" =~ ^[A-Za-z0-9_.+-]+$ ]] || { echo "Invalid test name: $name" >&2; exit 2; }
+done
 if ! [[ "$timeout_scale" =~ ^[1-9][0-9]*$ ]]; then
     echo "Invalid timeout scale: $timeout_scale" >&2
     exit 2
 fi
 
 # Where the source is built from: this checkout when it is on a native Linux file system or in CI, else its ext4 copy.
-if [ "$sync_mode" = auto ]; then
-    if [ -n "${MAICORD_LINUX_SOURCE:-}" ]; then
-        sync_mode=sync
-    elif [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-        sync_mode=in-place
-    else
-        case "$(stat -f -c %T "$repository" 2>/dev/null || echo unknown)" in
-            9p|v9fs|drvfs|fuseblk|fuse|fuse.*|cifs|smb*|nfs*|virtiofs|vboxsf|ncpfs) sync_mode=sync ;;
-            *) sync_mode=in-place ;;
-        esac
-    fi
+sync=0
+if [ -n "${MAICORD_LINUX_SOURCE:-}" ]; then
+    sync=1
+elif [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+    case "$(stat -f -c %T "$repository" 2>/dev/null || echo unknown)" in
+        9p|v9fs|drvfs|fuseblk|fuse|fuse.*|cifs|smb*|nfs*|virtiofs|vboxsf|ncpfs) sync=1 ;;
+    esac
 fi
-if [ "$sync_mode" = sync ]; then
+if [ "$sync" = 1 ]; then
     source_directory="${source_directory:-$HOME/mc}"
 else
     source_directory="$repository"
 fi
 
-# The toolchain: MAICORD_LLVM_BIN, else the pinned release (fetched on first use), first on PATH so a runner's own clang
-# (ubuntu-24.04 ships 18) never wins.
+# The toolchain: --llvm-bin or MAICORD_LLVM_BIN, else the pinned release (fetched on first use), first on PATH so a
+# runner's own clang (ubuntu-24.04 ships 18) never wins.
 llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
 export PATH="$llvm_bin:$PATH"
 tools=(cmake ninja python3)
-[ "$sync_mode" = sync ] && tools+=(rsync)
+[ "$sync" = 1 ] && tools+=(rsync)
 for tool in "${tools[@]}"; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool (see the host notes in this script's header)." >&2; exit 1; }
 done
@@ -147,7 +139,7 @@ if ! flock -n 9; then
 fi
 
 # A checkout on a slow mount is built from its ext4 copy; a run from that copy builds it in place.
-if [ "$sync_mode" = sync ] && [ "$repository" != "$(cd "$source_directory" 2>/dev/null && pwd -P || true)" ]; then
+if [ "$sync" = 1 ] && [ "$repository" != "$(cd "$source_directory" 2>/dev/null && pwd -P || true)" ]; then
     mkdir -p "$source_directory"
     rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log' \
         "$repository/" "$source_directory/"
@@ -159,62 +151,71 @@ elapsed() {
 }
 
 clean() {
-    # Leaves the shipping client and the runtime assets beside it (fonts/, licenses/), as tools/build.ps1 leaves the
-    # Windows directory with only the client and its assets; everything else goes.
+    # Leaves the client and the runtime assets beside it (fonts/, licenses/), as tools/build.ps1 leaves the Windows
+    # directory with only the client and its assets; everything else goes. Also the start of a run, after one that was
+    # interrupted before its cleanup.
     if [ "$keep" = 0 ] && [ -d "$build_directory" ]; then
         find "$build_directory" -mindepth 1 -maxdepth 1 ! -name MaiCord ! -name fonts ! -name licenses -exec rm -rf {} +
     fi
 }
+clean
 trap clean EXIT
 
-if [ "$keep" = 0 ] && [ -d "$build_directory" ]; then
-    # A previous run that was interrupted before its cleanup.
-    find "$build_directory" -mindepth 1 -delete
-fi
-
-# The hand-written GLSL (src/render/shaders/gles) must have been reviewed against every HLSL change.
-python3 -B "$source_directory/tools/check_shader_twins.py"
-
+on() { if [ "$1" = 1 ]; then echo ON; else echo OFF; fi; }
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_C_COMPILER="$llvm_bin/clang" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
     -DCMAKE_AR="$llvm_bin/llvm-ar" -DCMAKE_RANLIB="$llvm_bin/llvm-ranlib" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DMAICORD_BUILD_TESTS="$([ "$run_tests" = 1 ] && echo ON || echo OFF)" \
+    -DMAICORD_BUILD_TESTS="$(on "$run_tests")" \
+    -DMAICORD_TEST_PREBUILT_CLIENT="$(on "$skip_client")" \
     -DMAICORD_TEST_TIMEOUT_SCALE="$timeout_scale" \
-    -DMAICORD_KEEP_SYMBOLS="$symbols" \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS="$([ "$keep" = 1 ] && echo ON || echo OFF)"
+    -DMAICORD_SIZE_REPORT="$size_report" \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS="$(on "$keep")"
 
+# The client (or, without it, the source rules it links after: tools/check_source_rules.py) and the executables of the
+# selected tests (maicord-tests.txt: name, shard, labels and target, tab-separated).
+if [ "$skip_client" = 1 ]; then targets=(maicord_source_rules); else targets=(MaiCord); fi
+if [ "$run_tests" = 1 ]; then
+    declare -A registered=() selected=() built=()
+    for name in "${test_names[@]}"; do selected[$name]=1; done
+    while IFS= read -r line; do
+        name="${line%%$'\t'*}"
+        target="${line##*$'\t'}"
+        registered[$name]=1
+        if [ -n "$target" ] && [ -z "${built[$target]:-}" ] && { [ "${#test_names[@]}" = 0 ] || [ -n "${selected[$name]:-}" ]; }; then
+            built[$target]=1
+            targets+=("$target")
+        fi
+    done < "$build_directory/maicord-tests.txt"
+    for name in "${test_names[@]}"; do
+        [ -n "${registered[$name]:-}" ] || { echo "Unknown registered test: $name" >&2; exit 2; }
+    done
+fi
 started="$(date +%s%N)"
-cmake --build "$build_directory" --parallel "$jobs"
+cmake --build "$build_directory" --parallel "$jobs" --target "${targets[@]}"
 elapsed "Build" "$started" "($jobs workers)"
 
-if [ "$check_only" = 0 ]; then
-    # Every image the build produced: the executables, not the stub libraries or archives.
-    images=()
-    while IFS= read -r -d '' file; do
-        if [ "$(head -c 4 "$file")" = $'\x7fELF' ] && [ "$(dirname "$file")" = "$build_directory" ]; then
-            images+=("$file")
-        fi
-    done < <(find "$build_directory" -maxdepth 1 -type f -perm -u+x -print0)
-    if [ "${#images[@]}" -gt 0 ]; then
-        python3 "$source_directory/tools/audit_elf.py" "${images[@]}"
-    else
-        echo "No images to audit."
-    fi
-    # A build without tests is the one that ships: its client holds no test hook (a --test build's does, and is never packaged).
-    if [ "$run_tests" = 0 ] && [ -f "$build_directory/MaiCord" ]; then
-        python3 "$source_directory/tools/audit_elf.py" --no-test-hooks "$build_directory/MaiCord"
-    fi
-    # The musl form of the client (tools/retarget_libc.py: the same bytes with musl's interpreter) must audit as well.
-    if [ -f "$build_directory/MaiCord" ]; then
-        musl_client="$(mktemp)"
-        if ! python3 "$source_directory/tools/retarget_libc.py" --libc musl "$build_directory/MaiCord" "$musl_client" ||
-                ! python3 "$source_directory/tools/audit_elf.py" --libc musl "$musl_client"; then
-            rm -f "$musl_client"
-            exit 1
-        fi
+# The client audits itself when it links (tools/audit_image.py as its POST_BUILD step, without a test hook in a build
+# without tests: that is the one that ships); here the other images in the build directory (the executables, not the
+# stub libraries or archives) and the musl form of the client this run built (tools/retarget_libc.py: the same bytes
+# with musl's interpreter).
+images=()
+while IFS= read -r -d '' file; do
+    magic=
+    [ "${file##*/}" = MaiCord ] || { IFS= LC_ALL=C read -r -n 4 magic < "$file" || true; }
+    if [ "$magic" = $'\x7fELF' ]; then images+=("$file"); fi
+done < <(find "$build_directory" -maxdepth 1 -type f -perm -u+x -print0)
+[ "${#images[@]}" = 0 ] || python3 -B "$source_directory/tools/audit_image.py" "${images[@]}"
+if [ "$skip_client" = 0 ]; then
+    client="$build_directory/MaiCord"
+    musl_client="$(mktemp)"
+    if ! python3 -B "$source_directory/tools/retarget_libc.py" --libc musl "$client" "$musl_client" ||
+            ! python3 -B "$source_directory/tools/audit_image.py" --libc musl "$musl_client"; then
         rm -f "$musl_client"
+        exit 1
     fi
+    rm -f "$musl_client"
+    if [ "$size_report" = ON ]; then python3 -B "$source_directory/tools/report_binary_size.py" "$client"; fi
 fi
 
 if [ "$run_tests" = 1 ]; then

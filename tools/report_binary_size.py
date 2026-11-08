@@ -1,7 +1,7 @@
 """Report PE sections and linker-map code extents, or the sections and symbol sizes of an ELF image; writes no artifacts.
 
-A Linux client is linked stripped; build it with tools/build_linux.sh --symbols to see symbol sizes (the section sizes
-of the stripped image are the same)."""
+A Linux client is linked stripped; tools/build_linux.sh --size-report keeps its symbol table and runs this report (the
+section sizes of the stripped image are the same)."""
 import argparse
 import collections
 import pathlib
@@ -64,7 +64,7 @@ def report_elf(image, data, limit):
             print(f"  {section_name(section):16} file={0:9,} (bss {section[5]:,})")
     table = next((s for s in sections if s[1] == 2), None)  # SHT_SYMTAB
     if not table:
-        print("  no symbol table: stripped (build with --symbols for symbol sizes)")
+        print("  no symbol table: stripped (build with --size-report for symbol sizes)")
         return
     strings = sections[table[6]][4]
     wanted = {".text": "text", ".rodata": "rodata"}

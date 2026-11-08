@@ -35,33 +35,20 @@ RADIUS_CALL = re.compile(r'\b(%s)\s*\(' % '|'.join(RADIUS_CALLS))
 LITERAL_ARG = re.compile(r'^\s*%s\s*$' % NUMBER)
 
 
+# A comment, or a string or character literal (an unterminated one runs to the end of the text).
+BLANKED = re.compile(r'//[^\n]*|/\*.*?(?:\*/|\Z)|"(?:[^"\\]|\\.)*(?:"|\\?\Z)|\'(?:[^\'\\]|\\.)*(?:\'|\\?\Z)', re.S)
+
+
+def blank(match):
+    text = match.group(0)
+    if text[0] == '/':
+        return re.sub(r'[^\n]', ' ', text)
+    return text[0] + ' ' * (len(text) - 2) + text[0] if len(text) >= 2 else text
+
+
 def strip(text):
     """Blank comments and string/char literals, keeping offsets and newlines."""
-    out = []
-    i, n = 0, len(text)
-    while i < n:
-        c = text[i]
-        if text.startswith('//', i):
-            j = text.find('\n', i)
-            j = n if j < 0 else j
-            out.append(' ' * (j - i))
-            i = j
-        elif text.startswith('/*', i):
-            j = text.find('*/', i + 2)
-            j = n if j < 0 else j + 2
-            out.append(''.join(ch if ch == '\n' else ' ' for ch in text[i:j]))
-            i = j
-        elif c in '"\'':
-            j = i + 1
-            while j < n and text[j] != c:
-                j += 2 if text[j] == '\\' else 1
-            j = min(j + 1, n)
-            out.append(c + ' ' * (j - i - 2) + c if j - i >= 2 else c)
-            i = j
-        else:
-            out.append(c)
-            i += 1
-    return ''.join(out)
+    return BLANKED.sub(blank, text)
 
 
 def arguments(text, start):

@@ -12,7 +12,7 @@ namespace maicord::app_detail {
 // Any nonzero default member initializer reachable from Application (here the
 // taskbar, tray and spellcheck toggles and the viewer's motion style) does the
 // same: ~260 KB of file. List every ClientPreferences member here; the PE
-// audit (tools/audit_pe.ps1 -MaximumInitializedDataBytes) fails the build if
+// audit (tools/audit_image.py --maximum-initialized-data-bytes) fails the build if
 // a new nonzero default brings the aggregate back into initialized .data.
 // The viewer reveal is reset to the default style before first use.
 constinit Application g_app{.preferences = {ClientTheme::dark,

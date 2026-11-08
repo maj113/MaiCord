@@ -1,6 +1,6 @@
-# The release identity the client is built with, shared by both systems' shipping targets (cmake/client.cmake,
-# cmake/linux_client.cmake): the self-updater's publisher, key, installed version and commit, and the plugin catalog's
-# publisher keys. They reach src/app/update/entry.cpp and src/app/plugins/catalog_app.cpp as compile definitions.
+# The release identity the client is built with, shared by both systems' shipping targets (cmake/client.cmake): the
+# self-updater's publisher, key, installed version and commit, and the plugin catalog's publisher keys. They reach
+# src/app/update/entry.cpp and src/app/plugins/catalog_app.cpp as compile definitions.
 # Needs ${Python3_EXECUTABLE}.
 
 # Self-updater publisher. Environment variables override the official defaults,

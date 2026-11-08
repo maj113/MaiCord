@@ -28,7 +28,7 @@ baseline and pill.
 
 ## Tests
 
-`cmake/linux_font_tests.cmake`. The tests hold on any host and are strict about installed families only when
+`cmake/test_registry.cmake`. The tests hold on any host and are strict about installed families only when
 `MAICORD_TEST_FONT_SET=ubuntu` (the registry sets it; the packages are `fonts-dejavu-core`, `fonts-noto-core`, `fonts-noto-cjk`,
 `fonts-noto-color-emoji`, `fonts-liberation`). Tests that observe Windows font files (`catalog_test`, `catalog_coverage_test`) are not
 registered on Linux. `maicord_font_locator` also runs on NixOS, where libfontconfig is found only through `NIX_LD_LIBRARY_PATH` or the

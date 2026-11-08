@@ -2,7 +2,7 @@
 
 The protocol descriptions the Linux window backend (`src/platform/window/wayland`) speaks, unmodified, and under
 the MIT licence stated in each file's `<copyright>` block. `tools/generate_wayland_protocols.py` turns them into the
-`wl_interface` tables and the typed request and listener wrappers at build time (`cmake/linux_window.cmake`);
+`wl_interface` tables and the typed request and listener wrappers at build time (`cmake/generated_sources.cmake`);
 `wayland-scanner` is not used and not needed.
 
 | File | Source | Used for |

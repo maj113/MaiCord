@@ -1,7 +1,7 @@
 # The renderer on both systems
 
 `src/render` (the `D3D11Renderer` logic, text, layout, media, caption, effects, presentation and damage) builds on Linux over the same
-`gpu_*` calls (`cmake/linux_render.cmake`: `maicord_render_core`, `maicord_atlas_gpu`, `maicord_renderer`, `maicord_paint_program`, with
+`gpu_*` calls (`cmake/libraries.cmake`: `maicord_render_core`, `maicord_atlas_gpu`, `maicord_renderer`, `maicord_paint_program`, with
 the scene library `maicord_ui` and the theme in `maicord_theme`). The GPU backends are `src/gpu/d3d11` and `src/gpu/gles`.
 
 - `renderer_initialize` takes a `GpuSurfaceDesc`: the application passes `renderer_window_surface(window)`; a null window is an offscreen

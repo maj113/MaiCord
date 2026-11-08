@@ -5,7 +5,7 @@
 //                  a sound server)
 //   --no-library   MAICORD_PULSE_LIBRARY names a library that does not exist (a machine without libpulse)
 //
-// The cases set those variables themselves (cmake/linux_audio_tests.cmake); neither opens an audio device.
+// The cases set those variables themselves (cmake/test_registry.cmake); neither opens an audio device.
 #include "../../../src/platform/audio/pulse/pulse.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/time.hpp"

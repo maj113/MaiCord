@@ -7,6 +7,8 @@
 /.vscode/
 /.claude/
 /.codex-remote-attachments/
+# CTest's log directory, made wherever ctest runs without --test-dir (the build scripts pass the build directory).
+/Testing/
 
 # Compiler, linker, and profiler output.
 *.obj

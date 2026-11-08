@@ -12,7 +12,7 @@ change to the GLSL (src/render/shaders/gles/README.md says how), review the pair
 
     python tools/check_shader_twins.py --stamp <x>      (one twin at a time: stamping is the statement "this twin matches")
 
-tools/build.ps1 and tools/build_linux.sh run the check before building, and the test suite runs it as maicord_shader_twins.
+Every build runs the check through tools/check_source_rules.py, again whenever a shader or a twin changes.
 """
 import hashlib
 import pathlib
@@ -89,8 +89,7 @@ def stamp(name):
     return 1
 
 
-def main():
-    arguments = sys.argv[1:]
+def main(arguments):
     if arguments[:1] == ['--stamp'] and len(arguments) == 2:
         return stamp(arguments[1])
     if arguments:
@@ -103,4 +102,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

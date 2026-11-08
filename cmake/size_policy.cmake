@@ -1,11 +1,10 @@
 # The size policy of both systems' shipping client: which sources are compiled for size (MAICORD_SIZE_OPTION) and which
 # of those also fold their helpers (MAICORD_FOLD_OPTION: /Ob2 on Windows, -finline-functions on Linux, against the
-# contract's /Ob1 and -finline-hint-functions). cmake/client.cmake (MaiCord.exe) and cmake/linux_client.cmake
-# (MaiCord) include it after their own targets exist, so the lists below name Windows files and Linux files side by
-# side: a path no target of the build holds is ignored, and a target that does not exist (the Windows libraries on
-# Linux, the Linux ones on Windows) is skipped. The Windows build's code generation is the one it had before the
-# lists moved here. The Linux client has a third tier at the end of this file: -Os (MAICORD_BALANCED_OPTION) for the
-# sources that are still at -O2 and are not byte or sample loops.
+# contract's /Ob1 and -finline-hint-functions). cmake/client.cmake includes it once the client and its libraries exist,
+# so the lists below name Windows files and Linux files side by side: a path no target of the build holds is ignored,
+# and a target that does not exist (the Windows libraries on Linux, the Linux ones on Windows) is skipped. The Windows
+# build's code generation is the one it had before the lists moved here. The Linux client has a third tier at the end
+# of this file: -Os (MAICORD_BALANCED_OPTION) for the sources that are still at -O2 and are not byte or sample loops.
 
 # Cold code is compiled for size: source-level -Oz lands after the contract's
 # /O2 /Ob1 -flto. Parsing, crypto, codecs, compression and text shaping stay

@@ -7,7 +7,7 @@
 //   --live         a speech-dispatcher with the dummy output module listens at $SPEECHD_ADDRESS (tools/test_speechd.sh
 //                  starts it and reads its log afterwards; skipped without libspeechd)
 //
-// The cases set the variables themselves (cmake/linux_audio_tests.cmake, tools/test_speechd.sh).
+// The cases set the variables themselves (cmake/test_registry.cmake, tools/test_speechd.sh).
 #include "../../../src/platform/audio/speechd/speechd.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/memory.hpp"

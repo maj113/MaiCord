@@ -1,54 +1,106 @@
-# Helpers for the temporary test configuration (cmake/tests.cmake).
+# Helpers for the temporary test configuration (cmake/tests.cmake), shared by both systems.
 
-# maicord_test(<target> <maicord_program arguments>... [BUNDLE <bundle>] [USES_CLIENT <target>...]
-#              [<test properties>] [TEST <name> [<argument>...]]...)
-# A test executable or fixture (see maicord_program) and the CTest cases that
-# run it. USES_CLIENT, the test properties and the TEST rows come last; they
-# are passed to maicord_test_uses_client() and maicord_add_tests(). BUNDLE
-# links the sources into the shared executable <bundle> instead (declared with
-# maicord_test_bundle, which also lists its libraries); <target> then only
-# names the test, unless STANDALONE also builds it on its own for the tools
-# that run it directly.
+# The Windows import libraries the registry names in LIBS. The Linux build drops them: a test or bundle that runs on
+# both systems lists them with the libraries the two share.
+set(maicord_windows_import_libraries advapi32 bcrypt crypt32 d3d11 dcomp dwmapi dxgi dxguid gdi32 kernel32 ntdll ole32
+    oleaut32 psapi runtimeobject shell32 user32 ws2_32 maicord_sspicli)
+
+# maicord_test_select(<variable> <word>...): the words of a registry call that apply to this system. ONLY WINDOWS or
+# ONLY LINUX registers the whole call on that system alone (<variable> is then unset on the other). After WINDOWS or
+# LINUX the words belong to that system until the next WINDOWS, LINUX or BOTH; on Linux the Windows import libraries
+# are dropped.
+function(maicord_test_select variable)
+    if(MAICORD_LINUX)
+        set(system LINUX)
+    else()
+        set(system WINDOWS)
+    endif()
+    set(words)
+    set(keep TRUE)
+    set(only FALSE)
+    foreach(word IN LISTS ARGN)
+        if(only)
+            if(NOT word STREQUAL system)
+                unset(${variable} PARENT_SCOPE)
+                return()
+            endif()
+            set(only FALSE)
+        elseif(word STREQUAL "ONLY")
+            set(only TRUE)
+        elseif(word MATCHES "^(WINDOWS|LINUX|BOTH)$")
+            set(keep FALSE)
+            if(word STREQUAL system OR word STREQUAL "BOTH")
+                set(keep TRUE)
+            endif()
+        elseif(keep)
+            list(APPEND words "${word}")
+        endif()
+    endforeach()
+    if(MAICORD_LINUX)
+        list(REMOVE_ITEM words ${maicord_windows_import_libraries})
+    endif()
+    set(${variable} "${words}" PARENT_SCOPE)
+endfunction()
+
+# maicord_test(<target> [ONLY WINDOWS|LINUX] <maicord_program arguments>... [WINDOWS|LINUX|BOTH <argument>...]...
+#              [BUNDLE <bundle>] [STANDALONE] [USES_CLIENT <target>...] [<test properties>] [TEST <name> [<argument>...]]...)
+# A test executable or fixture (see maicord_program) and the CTest cases that run it, on both systems unless ONLY names
+# one; WINDOWS and LINUX mark the program arguments of one system (maicord_test_select). USES_CLIENT, the test
+# properties and the TEST rows come last; they are passed to maicord_test_uses_client() and maicord_add_tests(). BUNDLE
+# links the sources into the shared executable <bundle> instead (declared with maicord_test_bundle, which also lists
+# its libraries); <target> then only names the test, unless STANDALONE also builds it on its own on Windows for the
+# tools that run it directly.
 function(maicord_test target)
+    list(FIND ARGN TEST first)
+    foreach(keyword IN ITEMS TIMEOUT COST LABELS RESOURCE_LOCK ENVIRONMENT ENV WORKING_DIRECTORY PASS_REGULAR_EXPRESSION
+            SKIP_RETURN_CODE)
+        list(FIND ARGN ${keyword} index)
+        if(index GREATER_EQUAL 0 AND (first LESS 0 OR index LESS first))
+            set(first ${index})
+        endif()
+    endforeach()
+    set(tests)
+    if(first GREATER_EQUAL 0)
+        list(SUBLIST ARGN ${first} -1 tests)
+        list(SUBLIST ARGN 0 ${first} ARGN)
+    endif()
+    maicord_test_select(words ${ARGN})
+    if(NOT DEFINED words)
+        set_property(GLOBAL PROPERTY MAICORD_TEST_OTHER_SYSTEM_${target} TRUE)
+        return()
+    endif()
     set(program)
     set(client)
-    set(tests)
     set(bundle)
     set(part program)
     set(bundle_name FALSE)
     set(standalone FALSE)
-    foreach(word IN LISTS ARGN)
+    foreach(word IN LISTS words)
         if(bundle_name)
             set(bundle "${word}")
             set(bundle_name FALSE)
-            continue()
-        elseif(NOT part STREQUAL "tests" AND word MATCHES
-                "^(TEST|TIMEOUT|COST|LABELS|RESOURCE_LOCK|ENVIRONMENT|ENV|WORKING_DIRECTORY|PASS_REGULAR_EXPRESSION)$")
-            set(part tests)
         elseif(part STREQUAL "program" AND word STREQUAL "USES_CLIENT")
             set(part client)
-            continue()
         elseif(part STREQUAL "program" AND word STREQUAL "BUNDLE")
             set(bundle_name TRUE)
-            continue()
         elseif(part STREQUAL "program" AND word STREQUAL "STANDALONE")
             set(standalone TRUE)
-            continue()
+        else()
+            list(APPEND ${part} "${word}")
         endif()
-        list(APPEND ${part} "${word}")
     endforeach()
     if(bundle)
         maicord_test_bundle_member(${bundle} ${target} ${program})
     endif()
-    if(NOT bundle OR standalone)
-        if(MAICORD_LINUX)
+    if(MAICORD_LINUX)
+        if(NOT bundle)
             # The shared tests make a few Win32 file and console calls (tests/support/win32_test_compat.hpp) and #embed their
             # fixtures.
             maicord_program(${target} ${program}
                 OPTIONS -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/win32_test_compat.hpp" -Wno-c23-extensions)
-        else()
-            maicord_program(${target} ${program})
         endif()
+    elseif(NOT bundle OR standalone)
+        maicord_program(${target} ${program})
     endif()
     if(client)
         maicord_test_uses_client(${target} ${client})
@@ -58,21 +110,34 @@ function(maicord_test target)
     endif()
 endfunction()
 
-# maicord_add_tests(<target> [TIMEOUT <seconds>] [COST <n>] [LABELS <label>...]
+# maicord_add_tests(<target> [ONLY WINDOWS|LINUX] [TIMEOUT <seconds>] [COST <n>] [LABELS <label>...]
 #                   [RESOURCE_LOCK <lock>...] [ENVIRONMENT <VAR=value>...]
-#                   [WORKING_DIRECTORY <dir>] [PASS_REGULAR_EXPRESSION <regex>]
+#                   [WORKING_DIRECTORY <dir>] [PASS_REGULAR_EXPRESSION <regex>] [SKIP_RETURN_CODE <status>]
 #                   [ENV <VAR=value>...] TEST <name> [<argument>...] [TEST ...]...)
 # One CTest case per TEST row, running <target> with the row's arguments and
 # the shared properties. ENV runs the target through `cmake -E env`. The test
-# manifest (maicord_write_test_manifest) records <target> for each case.
+# manifest (maicord_write_test_manifest) records <target> for each case. Rows of
+# a target registered on the other system only (maicord_test ONLY), or marked
+# ONLY for the other system, register nothing.
 function(maicord_add_tests target)
+    get_property(other GLOBAL PROPERTY MAICORD_TEST_OTHER_SYSTEM_${target})
+    if(other)
+        return()
+    endif()
+    if(ARGV1 STREQUAL "ONLY")
+        maicord_test_select(selected ONLY ${ARGV2})
+        if(NOT DEFINED selected)
+            return()
+        endif()
+        list(REMOVE_AT ARGN 0 1)
+    endif()
     list(FIND ARGN TEST first)
     if(first LESS 0)
         message(FATAL_ERROR "maicord_add_tests(${target}) has no TEST row")
     endif()
     list(SUBLIST ARGN 0 ${first} options)
     list(SUBLIST ARGN ${first} -1 rows)
-    cmake_parse_arguments(ARG "" "TIMEOUT;COST;WORKING_DIRECTORY;PASS_REGULAR_EXPRESSION"
+    cmake_parse_arguments(ARG "" "TIMEOUT;COST;WORKING_DIRECTORY;PASS_REGULAR_EXPRESSION;SKIP_RETURN_CODE"
         "LABELS;RESOURCE_LOCK;ENVIRONMENT;ENV" ${options})
     get_property(bundle GLOBAL PROPERTY MAICORD_BUNDLE_OF_${target})
     if(bundle)
@@ -90,8 +155,8 @@ function(maicord_add_tests target)
             if(NOT name STREQUAL "")
                 add_test(NAME ${name} COMMAND ${command} ${arguments})
                 set_property(GLOBAL PROPERTY MAICORD_TEST_TARGET_${name} ${target})
-                foreach(property IN ITEMS TIMEOUT COST WORKING_DIRECTORY PASS_REGULAR_EXPRESSION LABELS
-                        RESOURCE_LOCK ENVIRONMENT)
+                foreach(property IN ITEMS TIMEOUT COST WORKING_DIRECTORY PASS_REGULAR_EXPRESSION SKIP_RETURN_CODE
+                        LABELS RESOURCE_LOCK ENVIRONMENT)
                     if(DEFINED ARG_${property})
                         set_property(TEST ${name} PROPERTY ${property} ${ARG_${property}})
                     endif()
@@ -107,13 +172,24 @@ function(maicord_add_tests target)
     endforeach()
 endfunction()
 
-# maicord_test_bundle(<bundle> [LIBS <library>...] [INCLUDES <dir>...])
+# maicord_test_target(<test> <target>): the test executable an add_test() case runs through a script, which the test
+# manifest records for it (maicord_write_test_manifest), so that the build scripts build it for that case.
+function(maicord_test_target test target)
+    set_property(GLOBAL PROPERTY MAICORD_TEST_TARGET_${test} ${target})
+endfunction()
+
+# maicord_test_bundle(<bundle> [LIBS <library>...] [INCLUDES <dir>...] [WINDOWS|LINUX|BOTH <argument>...]...)
 # Declares the shared executable <bundle> and what it links: the libraries and
 # include directories of all its members, in link order (a member's own LIBS
-# and INCLUDES are appended after these). maicord_finish_test_bundles() creates
-# it once the registry is complete.
+# and INCLUDES are appended after these). WINDOWS and LINUX mark the arguments of
+# one system (maicord_test_select). maicord_finish_test_bundles() creates it once
+# the registry is complete.
 function(maicord_test_bundle bundle)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES")
+    maicord_test_select(words ${ARGN})
+    if(NOT DEFINED words)
+        return()
+    endif()
+    cmake_parse_arguments(ARG "" "" "LIBS;INCLUDES" ${words})
     set_property(GLOBAL APPEND PROPERTY MAICORD_TEST_BUNDLES ${bundle})
     set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_LIBS_${bundle} ${ARG_LIBS})
     set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_INCLUDES_${bundle} ${ARG_INCLUDES})
@@ -228,10 +304,7 @@ function(maicord_font_test target entry source)
         list(APPEND libs maicord_unicode)
         list(REMOVE_AT ARGN 0)
     endif()
-    if(NOT MAICORD_LINUX)
-        list(APPEND libs kernel32)
-    endif()
-    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs}
+    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs} kernel32
         BUNDLE MaiCordTextUnitTests ${ARGN})
 endfunction()
 
@@ -287,7 +360,7 @@ endfunction()
 # symbols, a non-executable stack and only relative relocations (-fPIC with -Bsymbolic), whose one export is the
 # descriptor; a section per function and object for --gc-sections, and no symbol table (--strip-all), as the DLL.
 # C++ sources take memcpy and the other compiler helpers from plugin.hpp (MC_RUNTIME); C sources list
-# $<TARGET_OBJECTS:maicord_runtime> (Windows) or ${MAICORD_PLUGIN_C_RUNTIME} (Linux) instead.
+# ${MAICORD_PLUGIN_C_RUNTIME} (cmake/test_registry.cmake) instead.
 function(maicord_plugin target)
     add_library(${target} SHARED ${ARGN})
     target_include_directories(${target} PRIVATE include include/maicord/sys/libc)
@@ -319,7 +392,7 @@ endfunction()
 # Tests that exercise the shipping pair itself (update staging, the account
 # DLL's exports) link after it, unless the caller supplies that pair: CI hands
 # the client job's binaries to the test job, and a local run can keep using a
-# client that is open (tools/build.ps1 -PrebuiltClient). The pair is a link
+# client that is open (tools/build.ps1 -SkipClient). The pair is a link
 # input, not a target dependency, so the test's objects compile while it builds.
 function(maicord_test_uses_client target)
     set_property(TARGET ${target} PROPERTY MAICORD_TEST_USES_CLIENT ON)

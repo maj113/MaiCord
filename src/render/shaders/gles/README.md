@@ -10,7 +10,7 @@ inflates it). No shader compiler runs in a client build. The plugin effects keep
 ## Keeping a twin in step
 
 The first line of a twin is `// twin: src/render/shaders/<x>.hlsl <16 hex digits>`, the SHA-256 of the HLSL (line ends as LF).
-`tools/check_shader_twins.py` fails (`build.ps1`, `build_linux.sh`, the suite) when the HLSL no longer has that hash, naming
+`tools/check_shader_twins.py` fails (every build, through `tools/check_source_rules.py`) when the HLSL no longer has that hash, naming
 the twin. To change a shader:
 
 1. Change the HLSL and the GLSL together. A GLSL line is the HLSL line with the GLSL spellings (below); where the HLSL
@@ -20,7 +20,7 @@ the twin. To change a shader:
 3. `python tools/check_shader_twins.py --stamp <x>` records the new HLSL hash, once the pair has been read side by side.
 4. `MAICORD_UPDATE_DEFLATE_CACHE=1 python tools/build_gles_shader_pack.py <inc>` searches the new pack's deflate stream;
    commit `tools/deflate_cache.txt` (CI is strict).
-5. `tools/check_cbuffer_layout.py` (a suite test) compares every uniform block with the HLSL cbuffer of the same name.
+5. `tools/check_cbuffer_layout.py` (part of every build) compares every uniform block with the HLSL cbuffer of the same name.
 
 ## What a file is
 

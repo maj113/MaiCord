@@ -10,16 +10,25 @@ deterministically. Alpha and the white mark are preserved exactly; each image
 must meet the PSNR floor against the original rendering. No external libraries.
 Caption sizes always use 8-bit palette indices to minimize decoder code.
 
+The search takes seconds, and its result depends only on this file, --min-psnr and
+zlib's version: the icon is kept under that key in app-icon/ of the toolchain cache
+($MAICORD_TOOLCHAIN_CACHE, else %LOCALAPPDATA%\\MaiCord-toolchain on Windows and
+${XDG_CACHE_HOME:-~/.cache}/maicord-toolchain elsewhere), and a later run copies it.
+Without a writable cache every run searches.
+
   python generate_app_icon.py --output maicord.ico
 """
 import argparse
 from collections import Counter
 from functools import lru_cache
+import hashlib
 import json
 import math
 from operator import mul, sub
+import os
 from pathlib import Path
 import struct
+import tempfile
 import zlib
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
@@ -292,6 +301,52 @@ def icon(min_psnr=MIN_PSNR):
     return pack_icon([png(extent, min_psnr) for extent in SIZES])
 
 
+def unpack_icon(data):
+    """The PNG images of an icon pack_icon wrote, in SIZES order (None when it is not one)."""
+    if len(data) < 6 or struct.unpack_from('<HHH', data) != (0, 1, len(SIZES)):
+        return None
+    images = []
+    for index, extent in enumerate(SIZES):
+        side, _, _, _, _, _, size, offset = struct.unpack_from('<BBBBHHII', data, 6 + 16 * index)
+        if side != (0 if extent >= 256 else extent) or offset + size > len(data):
+            return None
+        images.append(data[offset:offset + size])
+    return images
+
+
+def cache_path(min_psnr):
+    root = os.environ.get('MAICORD_TOOLCHAIN_CACHE')
+    if not root and os.name == 'nt':
+        root = os.environ.get('LOCALAPPDATA') and os.path.join(os.environ['LOCALAPPDATA'], 'MaiCord-toolchain')
+    elif not root:
+        root = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'maicord-toolchain')
+    if not root:
+        return None
+    key = hashlib.sha256(Path(__file__).read_bytes() + b'\0' + repr(min_psnr).encode() + b'\0' +
+                         zlib.ZLIB_RUNTIME_VERSION.encode()).hexdigest()
+    return Path(root) / 'app-icon' / f'{key}.ico'
+
+
+def cached_icon(min_psnr):
+    """The icon of the cache, else the searched one, which then joins the cache."""
+    path = cache_path(min_psnr)
+    if path and path.is_file():
+        data = path.read_bytes()
+        if unpack_icon(data) is not None:
+            return data
+    data = icon(min_psnr)
+    if path:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Written aside and renamed, so concurrent builds never read a partial icon.
+            with tempfile.NamedTemporaryFile(dir=path.parent, suffix='.tmp', delete=False) as file:
+                file.write(data)
+            os.replace(file.name, path)
+        except OSError:
+            pass  # an unwritable cache (a sandboxed package build): every run searches
+    return data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--output', type=Path, required=True)
@@ -303,14 +358,14 @@ def main():
     if math.isnan(args.min_psnr) or args.min_psnr < 0:
         parser.error('--min-psnr must be nonnegative')
     output = args.output
-    data = icon(args.min_psnr)
+    data = cached_icon(args.min_psnr)
     if not output.exists() or output.read_bytes() != data:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(data)
     if args.png_directory:
         args.png_directory.mkdir(parents=True, exist_ok=True)
-        for extent in SIZES:
-            (args.png_directory / f'maicord-{extent}-optimized.png').write_bytes(png(extent, args.min_psnr))
+        for extent, image in zip(SIZES, unpack_icon(data)):
+            (args.png_directory / f'maicord-{extent}-optimized.png').write_bytes(image)
     if args.report:
         report = []
         for extent in SIZES:

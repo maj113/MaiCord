@@ -1,25 +1,7 @@
-# The static libraries of the Linux build (cmake/libraries.cmake lists the Windows ones). Each source list is the
-# archive's member order; the Linux-only platform files live in src/core/linux.
-
-include(cmake/linux_generated_sources.cmake)
-
-# The core: memory, byte, UTF-8 and JSON primitives, and the Linux side of the platform files the Windows build
-# takes from src/core (data_path, log) and src/core's Win32 sources (src/core/delay_load.cpp, runtime_x64.asm and
-# win32_sdk_conformance.cpp have no Linux counterpart).
-maicord_library(maicord_core
-    src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/linux/data_path.cpp
-    src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
-    src/core/utf.cpp src/core/byte_range.cpp src/core/linux/log.cpp src/core/linux/path.cpp
-    src/core/linux/shared_library.cpp src/core/linux/resource.cpp
-    # The Linux bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits, threads, files
-    # and directories, ordinal compares, the local time zone and date formatting (the TZif reader is pure).
-    src/os/linux/pages.cpp src/os/linux/srwlock.cpp src/os/linux/wait.cpp src/os/linux/thread.cpp
-    src/os/linux/file.cpp src/os/linux/directory.cpp src/os/linux/ordinal.cpp src/os/linux/local_time.cpp
-    src/os/linux/date_format.cpp src/os/linux/process.cpp src/os/linux/text.cpp src/platform/time/tzif.cpp)
-# resource.cpp #embeds the executable's icon (the generated ICO of cmake/linux_generated_sources.cmake) and the sounds.
-set_source_files_properties(src/core/linux/resource.cpp PROPERTIES
-    OBJECT_DEPENDS "${MAICORD_APP_ICON}"
-    COMPILE_OPTIONS "-I${MAICORD_GENERATED_DIRECTORY};-Wno-c23-extensions")
+# The static libraries only the Linux client builds (included by cmake/libraries.cmake, which lists the libraries both
+# clients share): the Linux platform layers (src/core/linux, src/os/linux and the Linux backends under src/platform,
+# src/gpu/gles) and the application, which the Windows build splits into several libraries (cmake/windows_libraries.cmake).
+# Each source list is the archive's member order.
 
 # What the desktop shell asks the system for: the time zone identifier, the spell checker (Hunspell or Enchant
 # through dlopen; spell_checker.cpp holds the language choice the two systems share), opening a link or a file and the
@@ -29,119 +11,6 @@ maicord_library(maicord_desktop_system
     src/platform/desktop/linux/spell_checker.cpp src/platform/desktop/linux/shell_open.cpp
     src/platform/desktop/linux/launch_line.cpp
     LIBS maicord_core maicord_dbus)
-
-maicord_library(maicord_compression
-    src/media/compression/deflate.cpp src/media/compression/zstd.cpp src/media/compression/inflated_block.cpp
-    LIBS maicord_core)
-
-maicord_library(maicord_media_core
-    src/media/core/animation_timeline.cpp src/media/core/encoded_cache.cpp src/media/core/presentation_policy.cpp
-    src/media/image/regional_flag_art.cpp src/ui/text/regional_flag.cpp
-    LIBS maicord_core)
-
-# maiopus (third_party/opus): the Opus decoder, and the voice encoder, as C under the same freestanding contract:
-# only MaiCord's C library and intrinsic headers, no unwind tables, whole-program optimization.
-set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
-set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
-set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
-set(MAIOPUS_LTCG ON)
-set(MAIOPUS_LTCG_OPTION ${MAICORD_WHOLE_PROGRAM_OPTION})
-set(MAIOPUS_ARCH -mavx)
-set(MAIOPUS_SSE4_1 ON)
-add_subdirectory(third_party/opus)
-foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
-    target_include_directories(${maiopus_target} PRIVATE include include/maicord/sys/libc)
-    target_compile_options(${maiopus_target} PRIVATE -nostdinc -fPIE -fvisibility=hidden -fno-stack-protector
-        -fcf-protection=none -ffp-contract=off ${MAICORD_NO_OUTLINE_OPTION})
-    if(NOT MAICORD_UNWIND_TABLES)
-        target_compile_options(${maiopus_target} PRIVATE -fno-asynchronous-unwind-tables -fno-unwind-tables)
-    endif()
-endforeach()
-
-maicord_library(maicord_media_codec
-    src/media/audio/opus_decoder.cpp src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp
-    src/media/audio/wave_pcm.cpp src/media/audio/mp3_stream.cpp src/media/image/apng.cpp src/media/image/gif.cpp
-    src/media/video/h264_parameters.cpp src/media/video/h264_configuration.cpp src/media/video/h264_slice.cpp
-    src/media/video/h264_access_unit.cpp src/media/video/h264_output_queue.cpp src/media/video/h264_picture_order.cpp
-    src/media/video/h264_references.cpp src/media/video/h264_stream.cpp src/media/video/hevc_parameters.cpp
-    src/media/video/hevc_picture.cpp src/media/containers/hevc_mp4_demux.cpp src/media/video/hevc_references.cpp
-    src/media/image/jpeg.cpp src/media/image/jpeg_icc.cpp src/media/image/jpeg_entropy.cpp
-    src/media/image/jpeg_reconstruct.cpp src/media/image/lossy_webp.cpp src/media/containers/mp4_demux.cpp
-    src/media/containers/mp4_audio_demux.cpp src/media/core/progressive_source.cpp src/media/image/png.cpp
-    src/media/image/png_stream.cpp src/media/image/png_encode.cpp src/media/image/png_common.cpp
-    src/media/image/vp8.cpp src/media/image/webp.cpp src/media/image/webp_thumbnail.cpp
-    src/media/image/webp_alpha.cpp src/media/image/animated_webp.cpp src/media/video/rtp_h264.cpp
-    src/media/video/rtp_h265.cpp src/media/video/hevc_stream.cpp src/media/video/rtp_av1.cpp src/media/video/av1.cpp
-    src/media/containers/mp4_fragment.cpp src/media/containers/mp4_fragment_track.cpp
-    src/media/containers/mp4_fragment_source.cpp src/media/containers/mp4_fragment_audio.cpp
-    src/media/containers/mp4_fragment_segment.cpp src/media/containers/mp4_segment_store.cpp
-    src/media/containers/mpeg_ts.cpp src/media/containers/mpeg_ts_codec.cpp
-    src/media/containers/mpeg_ts_segment_store.cpp src/media/audio/mp3_decoder.c
-    LIBS maicord_core maicord_compression maicord_opus_decoder)
-# The MPEG audio decoder is C: the contract's code generation and warnings, for C (LTO comes from the contract).
-target_compile_options(maicord_media_codec PRIVATE
-    "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-mavx;-Wno-missing-braces>")
-
-# Voice send encoder; linked only through the account module.
-maicord_library(maicord_voice_encoder src/media/audio/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
-
-maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp
-    LIBS maicord_core maicord_compression maicord_media_codec)
-
-maicord_library(maicord_unicode
-    src/text/scripts/arabic_joining.cpp src/text/unicode/line_break.cpp src/text/unicode/thai_word_break.cpp
-    src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp src/text/unicode/bidi_tailored.cpp
-    src/text/unicode/unicode.cpp src/text/unicode/canonical.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
-    LIBS maicord_core maicord_compression maicord_media_codec)
-# unicode.cpp and thai_lexical.cpp #embed their tables.
-target_compile_options(maicord_unicode PRIVATE -Wno-c23-extensions)
-
-# The font store, the catalog check and the handle stamp read the file system through the files seam
-# (include/maicord/os/file.hpp); handle_stat.cpp has a Linux twin under src/text/fonts/linux.
-maicord_library(maicord_font
-    src/text/scripts/arabic_shape_run.cpp src/text/scripts/arabic_marks.cpp src/text/scripts/arabic_plan.cpp
-    src/text/scripts/devanagari_plan.cpp src/text/scripts/syllabic_plan.cpp src/text/scripts/syllabic_shape.cpp
-    src/text/shaping/cluster_run.cpp
-    src/text/scripts/devanagari_forms.cpp src/text/shaping/script_paragraphs.cpp src/text/scripts/indic_run_plan.cpp
-    src/text/scripts/indic_syllables.cpp src/text/scripts/indic_shape.cpp src/text/shaping/compact_run.cpp
-    src/text/opentype/tt_orientation.cpp
-    src/text/opentype/tt_bold_points.cpp src/text/fonts/session.cpp src/text/fonts/prepare.cpp
-    src/text/opentype/gpos_cursive_execute.cpp src/text/opentype/position_anchor.cpp
-    src/text/opentype/gpos_mark_execute.cpp src/text/opentype/gpos_ligature_execute.cpp
-    src/text/opentype/gpos_execute.cpp src/text/opentype/gpos_program.cpp src/text/opentype/lookup_selection.cpp
-    src/text/opentype/position_flags.cpp src/text/opentype/gpos_attachment.cpp src/text/opentype/gpos.cpp
-    src/text/shaping/clusters.cpp src/text/opentype/components.cpp src/text/shaping/shape_run.cpp
-    src/text/shaping/run_plan.cpp src/text/fonts/names.cpp src/text/fonts/match.cpp src/text/fonts/candidates.cpp
-    src/text/fonts/family.cpp
-    src/text/fonts/catalog_coverage.cpp src/text/fonts/fallback_range.cpp src/text/fonts/fallback_route.cpp
-    src/text/fonts/fallback_map.cpp src/text/fonts/run.cpp src/text/scripts/arabic_run_plan.cpp
-    src/text/scripts/arabic_run.cpp src/text/scripts/arabic_paragraph.cpp src/text/opentype/gsub_execute.cpp
-    src/text/opentype/glyph_buffer.cpp src/text/opentype/context.cpp src/text/opentype/gsub.cpp
-    src/text/opentype/layout_directory.cpp src/text/opentype/lookup_plan.cpp
-    src/text/opentype/nominal_participation.cpp src/text/opentype/nominal_sources.cpp src/text/scripts/ascii_run.cpp
-    src/text/scripts/latin_run.cpp src/text/shaping/run_profile.cpp
-    src/text/scripts/emoji_run.cpp src/text/scripts/emoji_line.cpp src/text/scripts/emoji_paragraph.cpp
-    src/text/layout/visibility.cpp src/text/unicode/script_class.cpp src/text/layout/unicode_line_geometry.cpp
-    src/text/scripts/latin_line.cpp src/text/scripts/latin_paragraph.cpp src/text/scripts/ascii_line.cpp
-    src/text/scripts/ascii_paragraph.cpp src/text/layout/paragraph_hits.cpp src/text/layout/paragraph_ranges.cpp
-    src/text/fonts/metrics.cpp src/text/opentype/layout_variations.cpp src/text/opentype/gdef.cpp
-    src/text/opentype/layout_tables.cpp src/text/opentype/sfnt.cpp src/text/opentype/sfnt_cmap.cpp
-    src/text/opentype/truetype_outline.cpp src/text/opentype/cff_font.cpp src/text/opentype/cff_charset.cpp
-    src/text/opentype/cff_outline.cpp src/text/opentype/cpal.cpp src/text/opentype/colr_font.cpp
-    src/text/opentype/colr_paint_reader.cpp src/text/opentype/variation_store.cpp
-    src/text/opentype/metric_variations.cpp src/text/opentype/gvar.cpp src/text/fonts/geometry.cpp
-    src/text/fonts/instance.cpp src/text/opentype/tt_interpreter.cpp
-    src/text/opentype/tt_outline.cpp src/text/opentype/colr_variations.cpp src/text/fonts/axes.cpp
-    src/text/fonts/store.cpp src/text/fonts/catalog.cpp src/text/fonts/linux/handle_stat.cpp
-    LIBS maicord_core maicord_unicode)
-# Compact the shared Indic ordering routine; keep -O2 and LTO.
-set_property(SOURCE APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
-# Font table opening, outlines and variations (once per font or glyph), the non-Latin script shapers and the Unicode
-# line geometry keep their short loops rolled, as in the Windows build (cmake/libraries.cmake has the measurements).
-get_target_property(maicord_rolled_sources maicord_font SOURCES)
-list(FILTER maicord_rolled_sources INCLUDE REGEX
-    "/(opentype/(sfnt|cff_|tt_|truetype_outline|colr_|cpal|gvar|variation_store|metric_variations|layout_directory|layout_tables|gdef|layout_variations|lookup_selection|nominal_)|scripts/hebrew|layout/unicode_line_geometry)")
-set_property(SOURCE ${maicord_rolled_sources} APPEND PROPERTY COMPILE_OPTIONS -fno-unroll-loops)
 
 # The system font locator (include/maicord/platform/font): fontconfig through dlopen with a directory scan as the
 # fallback, and the platform's default families.
@@ -174,85 +43,6 @@ maicord_library(maicord_render_colr_paint
     src/render/effects/colr_paint.cpp
     LIBS maicord_gpu_gles maicord_core)
 
-maicord_library(maicord_protocol
-    src/protocol/messages/poll.cpp src/protocol/gateway/message_poll.cpp src/protocol/auth/browser_sign_in.cpp
-    src/protocol/auth/captcha_bridge_page.cpp src/protocol/encoding/base64.cpp src/protocol/encoding/base64_codec.cpp
-    src/protocol/encoding/base64url.cpp src/protocol/media/cdn_url.cpp src/protocol/media/attachment_refresh.cpp
-    src/protocol/media/attachment_upload.cpp src/protocol/media/upload_allowance.cpp
-    src/protocol/http/https_upload.cpp src/protocol/media/cdn_http.cpp src/protocol/http/rest.cpp
-    src/protocol/encoding/json_ids.cpp src/protocol/http/rest_route.cpp src/protocol/gateway/commands.cpp
-    src/protocol/gateway/endpoint.cpp src/protocol/gateway/events.cpp src/protocol/auth/account_requirement.cpp
-    src/protocol/gateway/voice.cpp src/protocol/gateway/stream.cpp src/protocol/guild/stage_channel.cpp
-    src/protocol/user/social.cpp src/protocol/guild/community.cpp src/protocol/voice/gateway.cpp
-    src/protocol/voice/discovery.cpp src/protocol/voice/media_packet.cpp src/protocol/voice/media_events.cpp
-    src/protocol/voice/participants.cpp src/protocol/voice/dave_replay.cpp src/protocol/voice/dave_frame.cpp
-    src/protocol/auth/p256_signature.cpp src/protocol/voice/mls_objects.cpp src/protocol/voice/mls_objects_write.cpp
-    src/protocol/voice/heartbeat.cpp src/protocol/voice/session.cpp src/protocol/http/websocket_message.cpp
-    src/protocol/gateway/lifecycle.cpp src/protocol/gateway/message_events.cpp
-    src/protocol/gateway/message_validation.cpp src/protocol/gateway/reaction_events.cpp
-    src/protocol/gateway/typing_events.cpp src/protocol/gateway/message_rich.cpp
-    src/protocol/gateway/message_rich_reference.cpp src/protocol/gateway/message_rich_attachments.cpp
-    src/protocol/gateway/message_rich_embeds.cpp src/protocol/messages/interaction.cpp
-    src/protocol/gateway/payload.cpp src/protocol/gateway/runtime.cpp src/protocol/gateway/session.cpp
-    src/protocol/http/http1.cpp src/protocol/http/http_response_stream.cpp src/protocol/media/attachment_download.cpp
-    src/protocol/encoding/json_write.cpp src/protocol/messages/history.cpp src/protocol/messages/ack.cpp
-    src/protocol/messages/bulk_message_ack.cpp src/protocol/messages/create.cpp src/protocol/messages/delete.cpp
-    src/protocol/user/private_conversation.cpp src/protocol/messages/edit.cpp src/protocol/messages/reaction.cpp
-    src/protocol/user/profile_decode.cpp src/protocol/gateway/activity_decode.cpp
-    src/protocol/messages/reaction_users.cpp src/protocol/messages/typing.cpp src/protocol/auth/remote_auth.cpp
-    src/protocol/auth/user_auth.cpp src/protocol/auth/webauthn_mfa.cpp src/protocol/http/websocket_frame.cpp
-    src/protocol/http/websocket_handshake.cpp src/protocol/messages/application_commands.cpp
-    src/protocol/encoding/writer.cpp src/protocol/auth/login_continuations.cpp src/protocol/user/relationships.cpp
-    src/protocol/messages/search.cpp src/protocol/messages/pins.cpp src/protocol/messages/thread_actions.cpp
-    src/protocol/messages/thread_browser.cpp src/protocol/messages/thread_creation.cpp
-    src/protocol/messages/forum_post.cpp src/protocol/media/media_catalog.cpp src/protocol/gateway/presence.cpp
-    src/protocol/gateway/client_status.cpp src/protocol/user/self_status_settings.cpp src/protocol/guild/folders.cpp
-    src/protocol/guild/invite.cpp src/protocol/user/settings_proto.cpp src/protocol/user/account_settings.cpp
-    src/protocol/user/emoji_preferences.cpp src/protocol/user/gif_favorites.cpp
-    src/protocol/guild/channel_overview.cpp src/protocol/guild/admin.cpp src/protocol/guild/admin_decode.cpp
-    src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp
-    src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp
-    src/protocol/user/notification_settings.cpp src/protocol/user/guild_settings.cpp
-    src/protocol/media/cdn_icon_hash.cpp src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
-    src/protocol/media/embed_provider.cpp src/protocol/media/embed_player.cpp
-    src/protocol/media/embed_player_video.cpp src/protocol/media/embed_player_audio.cpp
-    src/protocol/media/dash_manifest.cpp src/protocol/media/steam_player.cpp src/protocol/auth/oauth.cpp
-    src/protocol/media/hls_playlist.cpp src/protocol/media/twitch_playback.cpp src/protocol/http/cookie_jar.cpp
-    src/protocol/gateway/qos_token.cpp src/protocol/gateway/etf.cpp src/protocol/messages/interaction_data.cpp
-    LIBS maicord_core maicord_compression maicord_media_core)
-
-maicord_library(maicord_edit_history
-    src/model/chat/edit_history.cpp
-    LIBS maicord_core maicord_crypto)
-
-# Left out until the network seam lands: src/app/voice/dave/connection_dave.cpp (it names the voice socket and its TLS
-# stream, so it includes platform/net/network.hpp, which is built on Winsock types).
-maicord_library(maicord_model
-    src/model/chat/message_poll_store.cpp src/model/chat/bounded_edit.cpp src/model/guild/channel_permissions.cpp
-    src/model/guild/permission_compute.cpp src/model/guild/ban_store.cpp src/model/guild/member_moderation.cpp
-    src/model/guild/member_store.cpp src/model/guild/member_list.cpp src/model/guild/thread_member_store.cpp
-    src/model/guild/thread_member_list.cpp src/model/chat/chat_state.cpp src/model/chat/read_state.cpp
-    src/model/guild/display_order.cpp src/model/guild/folder_edit.cpp src/model/guild/channel_reorder.cpp
-    src/model/user/private_channel_store.cpp src/model/chat/custom_emoji.cpp src/model/user/profile.cpp
-    src/model/user/activity.cpp src/model/user/store.cpp src/model/user/relationship_store.cpp
-    src/model/user/note_store.cpp src/model/user/active_now.cpp src/model/user/friend_search.cpp
-    src/model/chat/typing_store.cpp src/model/chat/message_rich_store.cpp src/model/chat/message_rich_store_pack.cpp
-    src/model/guild/invite_card_cache.cpp src/model/guild/scheduled_event_store.cpp
-    src/model/chat/message_composer.cpp src/model/chat/message_composer_input_target.cpp
-    src/model/chat/message_draft_store.cpp src/model/chat/reaction_preferences.cpp src/model/chat/message_store.cpp
-    src/model/chat/message_search.cpp src/model/notifications/message_notifications.cpp
-    src/model/voice/state_store.cpp src/model/voice/stage_instance_store.cpp src/model/voice/stage_policy.cpp
-    src/model/user/image_crop.cpp src/model/user/profile_editor.cpp src/app/voice/mls/tree_math.cpp
-    src/app/voice/mls/ratchet_tree.cpp src/app/voice/mls/tree_validate.cpp src/app/voice/mls/tree_edit.cpp
-    src/app/voice/mls/treekem.cpp src/app/voice/mls/group_context.cpp src/app/voice/mls/proposal.cpp
-    src/app/voice/mls/commit.cpp src/app/voice/mls/welcome.cpp src/app/voice/mls/group.cpp
-    src/app/voice/dave/session.cpp src/app/voice/log.cpp
-    src/model/notifications/desktop_notification_queue.cpp src/model/notifications/sound_policy.cpp
-    src/model/notifications/sound_admission.cpp src/model/notifications/retention.cpp
-    src/model/guild/permission_grid.cpp src/model/guild/settings_model.cpp src/model/guild/channel_settings_model.cpp
-    src/model/guild/detail_store.cpp src/model/guild/member_search.cpp src/model/voice/channel_info_store.cpp
-    LIBS maicord_core maicord_edit_history maicord_protocol maicord_crypto)
-
 # The platform crypto and the TLS client over the system OpenSSL (dlopen: no DT_NEEDED), with the random bytes from
 # getrandom and the secure buffer on mmap/mlock. aead.cpp, aes_gcm64.cpp and xchacha20_poly1305.cpp are the portable
 # files of src/platform/crypto that the Windows build also compiles (their CNG parts are under _WIN32).
@@ -274,29 +64,210 @@ maicord_library(maicord_net
     src/platform/net/tls_stream.cpp src/platform/net/worker.cpp
     LIBS maicord_core maicord_crypto)
 
-# The OpenGL ES GPU backend (src/gpu/gles).
-include(cmake/linux_gpu.cmake)
+# The OpenGL ES GPU backend of the Linux build (src/gpu/gles, behind include/maicord/gpu/api.hpp). It never enters the
+# Windows build: that one compiles src/render/d3d11 behind the same handles.
+#
+# maicord_gpu_gles          EGL device (libEGL.so.1 and libGLESv2.so.2 by dlopen), caps probe, resources, state tracker
+# maicord_gpu_gles_shaders  the GLSL shader pack (tools/build_gles_shader_pack.py) and the creation of the built-ins
+#
+# Tests that only clear, copy and read back link the first; anything that draws or dispatches needs both. The pack is
+# made from the GLSL in src/render/shaders/gles by python alone: no shader compiler runs in the build (the
+# toolchain of tools/linux_shader_toolchain.json, DXC and SPIRV-Cross, is for plugin effects only). The second library
+# stays out of the default build: the tests that link it build it.
 
-# The shared renderer (src/render) over the GLES backend.
-include(cmake/linux_render.cmake)
+maicord_library(maicord_gpu_gles
+    src/gpu/gles/loader.cpp src/gpu/gles/device.cpp src/gpu/gles/resources.cpp src/gpu/gles/draw.cpp
+    src/gpu/gles/surface.cpp src/gpu/gles/sync.cpp src/gpu/gles/video_planes.cpp
+    LIBS maicord_core INCLUDES src)
 
-# The Wayland window backend (src/platform/window/wayland).
-include(cmake/linux_window.cmake)
+maicord_library(maicord_gpu_gles_shaders src/gpu/gles/shader_pack.cpp
+    LIBS maicord_gpu_gles maicord_compression maicord_core INCLUDES src "${MAICORD_GENERATED_DIRECTORY}")
+set_source_files_properties(src/gpu/gles/shader_pack.cpp PROPERTIES OBJECT_DEPENDS "${MAICORD_GLES_SHADER_PACK}")
+set_target_properties(maicord_gpu_gles_shaders PROPERTIES EXCLUDE_FROM_ALL TRUE)
+# The pack is #embed'ed (a C23 extension to clang's C++).
+target_compile_options(maicord_gpu_gles_shaders PRIVATE -Wno-c23-extensions)
 
-# The audio backend (src/platform/audio/pulse): libpulse behind the platform audio interfaces.
-include(cmake/linux_audio.cmake)
+# The effect host: the pass-graph executor and inputs of .mcfx background effects (the code Windows runs, over the GPU
+# API) and the package parser. The default theme the executor takes its palette from is maicord_theme's (below).
+maicord_library(maicord_effect_host
+    src/render/d3d11/effect_renderer.cpp src/render/d3d11/effect_inputs.cpp src/app/packages/mcfx.cpp
+    src/app/packages/link.cpp
+    LIBS maicord_gpu_gles maicord_media_codec maicord_theme maicord_core INCLUDES src)
+target_compile_options(maicord_effect_host PRIVATE -Wno-c23-extensions)
 
-# The in-house D-Bus client and the desktop services over it (src/platform/dbus).
-include(cmake/linux_dbus.cmake)
+# The default theme (src/ui/theme/theme.cpp), which the effect host takes its palette from; the Windows build compiles it
+# into maicord_ui.
+maicord_library(maicord_theme src/ui/theme/theme.cpp LIBS maicord_core)
 
-# The .desktop file and icons a package installs (tools/generate_desktop_entry.py).
-include(cmake/linux_packaging.cmake)
+# The Wayland window backend of the Linux build (src/platform/window/wayland), behind include/maicord/platform/window.
+# It never enters the Windows build: that one compiles src/platform/window/win32.
+#
+# The protocol bindings are generated at build time (cmake/generated_sources.cmake); libwayland-client,
+# libwayland-egl, libwayland-cursor and libxkbcommon are dlopen()ed, so the image gains no DT_NEEDED. maicord_dbus:
+# the desktop settings (the settings portal) and the session bus the loop waits on.
+maicord_library(maicord_window_wayland
+    src/platform/window/wayland/client.cpp src/platform/window/wayland/xkb.cpp
+    src/platform/window/wayland/keymap.cpp src/platform/window/wayland/window.cpp
+    src/platform/window/wayland/pointer.cpp src/platform/window/wayland/keyboard.cpp
+    src/platform/window/wayland/pump.cpp src/platform/window/wayland/global_keys.cpp
+    src/platform/window/wayland/frame.cpp src/platform/window/wayland/extras.cpp
+    src/platform/window/wayland/data.cpp src/platform/window/wayland/uri.cpp
+    src/platform/window/wayland/text_input.cpp
+    # Copy Image encodes its PNG with the clipboard's own encoder, which the Windows backend shares.
+    src/platform/desktop/clipboard_image.cpp
+    "${MAICORD_WAYLAND_PROTOCOL_HEADER}" "${MAICORD_WAYLAND_PROTOCOL_SOURCE}"
+    LIBS maicord_core maicord_media_codec maicord_dbus INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}")
 
-# The application transport and updater libraries (src/app/net, src/app/gateway, src/app/update).
-include(cmake/linux_app_libraries.cmake)
+# The audio backend of the Linux build (src/platform/audio/pulse), behind include/maicord/platform/audio. It never
+# enters the Windows build: that one compiles the WASAPI sources next to them (src/platform/audio/*.cpp).
+#
+# libpulse is dlopen()ed ("libpulse.so.0": PulseAudio, pipewire-pulse and WSLg), so the image gains no DT_NEEDED and a
+# machine without a sound server library or without a running server reports audio as unavailable. media_audio_ring.cpp
+# and notification_audio_mixer.cpp are the transport-free halves of media and notification audio the Windows build
+# compiles too; text-to-speech is speech-dispatcher through libspeechd, also dlopen()ed (src/platform/audio/speechd).
+maicord_library(maicord_audio_pulse
+    src/platform/audio/pulse/pulse.cpp src/platform/audio/pulse/voice_audio_output.cpp
+    src/platform/audio/pulse/voice_audio_capture.cpp src/platform/audio/media_audio_ring.cpp
+    src/platform/audio/pulse/media_audio.cpp src/platform/audio/notification_audio_mixer.cpp
+    src/platform/audio/pulse/notification_audio.cpp src/platform/audio/speechd/speech.cpp
+    LIBS maicord_core)
 
-# Live video decode (src/platform/decode): the software tier over libdav1d and libopenh264, VA-API, and the stream
-# decoder that drives them.
-include(cmake/linux_video.cmake)
-# The rest of the application (src/app outside the shell) and the secure text field.
-include(cmake/linux_app_client.cmake)
+# The AAC decoder interface of include/maicord/platform/decode/aac_decoder.hpp on Linux (Windows decodes AAC through
+# Media Foundation, src/platform/decode/aac_decoder.cpp): an in-house AAC-LC core in src/media/audio/aac_lc.cpp with
+# the Huffman codebooks and band tables of aac_tables.inc (tools/generate_aac_tables.py), and the adapter that
+# answers submit/read/drain/flush with it.
+maicord_library(maicord_aac_decoder
+    src/media/audio/aac_lc.cpp src/platform/decode/linux/aac_decoder.cpp
+    LIBS maicord_core)
+
+# The D-Bus client of the Linux build (src/platform/dbus, include/maicord/platform/dbus): the wire format, the bus
+# connection over the Unix socket, and the desktop services over it (settings portal, notifications, OpenURI, the Secret
+# Service, portal probes, the tray, global shortcuts, single instance, the file chooser, the launcher badge). It never
+# enters the Windows build; libc's posix_spawnp (xdg-open fallback) is looked up at run time, so the image gains no
+# DT_NEEDED and no import.
+maicord_library(maicord_dbus
+    src/platform/dbus/wire.cpp src/platform/dbus/connection.cpp src/platform/dbus/bus.cpp
+    src/platform/dbus/session.cpp
+    src/platform/dbus/desktop_settings.cpp src/platform/dbus/notifications.cpp src/platform/dbus/open_uri.cpp
+    src/platform/dbus/secret_service.cpp src/platform/dbus/portal.cpp
+    src/platform/dbus/tray.cpp src/platform/dbus/global_shortcuts.cpp src/platform/dbus/instance.cpp
+    src/platform/dbus/file_chooser.cpp src/platform/dbus/launcher_entry.cpp
+    LIBS maicord_core)
+
+# The AT-SPI server over that client (src/platform/atspi, include/maicord/platform/atspi): the application's objects on the
+# accessibility bus for screen readers, answered from the accessibility snapshot (ui/accessibility). Linux only, like
+# the UI Automation server it stands beside (maicord_uia, Windows only). Nothing connects until org.a11y.Status says an
+# assistive technology is on.
+maicord_library(maicord_atspi
+    src/platform/atspi/map.cpp src/platform/atspi/accessible.cpp src/platform/atspi/server.cpp
+    src/platform/atspi/events.cpp
+    LIBS maicord_dbus maicord_ui maicord_core)
+
+# The application's transport and updater libraries: the HTTP/REST and CDN transport, the Gateway client and the
+# updater, over the neutral network, file and TLS layers (cmake/windows_libraries.cmake lists the Windows ones).
+maicord_library(maicord_app_net
+    src/app/net/file_persistence.cpp src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp
+    src/app/net/rest_client_worker.cpp src/app/net/cdn_client.cpp src/app/net/https_file_upload.cpp
+    src/app/net/https_file_download.cpp src/app/net/signed_out_session.cpp
+    src/app/gateway/client.cpp src/app/gateway/client_storage.cpp src/app/gateway/client_transport.cpp
+    src/app/gateway/client_outputs.cpp src/app/gateway/client_session.cpp src/platform/desktop/staged_file.cpp
+    src/app/account/account_logout.cpp src/app/account/client_session_metadata.cpp
+    src/app/account/user_client_configuration.cpp src/app/account/linux/client_identity.cpp
+    LIBS maicord_core maicord_protocol maicord_net maicord_crypto maicord_desktop_system maicord_compression
+        maicord_media_codec INCLUDES src/app)
+
+maicord_library(maicord_app_update
+    src/app/update/manifest.cpp src/app/update/artifact.cpp src/app/update/acceptance.cpp
+    src/app/update/prepare.cpp src/app/update/fetch.cpp src/app/update/https.cpp
+    src/app/update/service.cpp src/app/update/changelog.cpp src/app/account/login/acceptance_record.cpp
+    src/app/update/linux/package.cpp src/app/update/linux/portable.cpp src/app/update/linux/stage.cpp
+    LIBS maicord_app_net maicord_compression maicord_core maicord_protocol maicord_net INCLUDES src/app)
+
+# Effect and theme packages (src/app/packages): the link parser, the container reader and the installer; the session
+# owner packages.cpp talks to the shell and stays Windows-only.
+maicord_library(maicord_app_packages
+    src/app/packages/link.cpp src/app/packages/mcfx.cpp src/app/packages/install.cpp
+    LIBS maicord_app_net maicord_crypto maicord_core INCLUDES src/app)
+
+# The official catalog's index reader (src/app/plugins): the signed index's verifier and schema, for the test that takes
+# a catalog's effects through list, download, parse and install (tests/app/plugins/catalog_effects.cpp). The client
+# compiles the same file with the rest of src/app.
+maicord_library(maicord_app_catalog_index
+    src/app/plugins/catalog_index.cpp
+    LIBS maicord_crypto maicord_core INCLUDES src/app)
+
+# The live video decoders of the Linux build (src/platform/decode), behind include/maicord/platform/decode/
+# gpu_stream_decoder.hpp. Windows decodes in hardware through DXVA (src/platform/decode/*_gpu_*.cpp) and never
+# compiles these.
+#
+# maicord_video_software  libopenh264 (H.264) and libdav1d (AV1), dlopen()ed: access units to CPU pictures
+maicord_library(maicord_video_software
+    src/platform/decode/software/software_decoder.cpp
+    LIBS maicord_media_codec maicord_core INCLUDES src)
+
+# The hardware tier: VA-API through libva.so.2 and libva-drm.so.2 (dlopen), the VA parameter builders over the in-house
+# parsers (and the slice-header parsers VA-API needs that DXVA's short slices do not), and the codec drivers.
+# av1_dxva_parameters.cpp is the DXVA builder of the Windows build, compiled here for av1_warp_valid, which the VA
+# builder shares, and so that the tests can compare both builders' output.
+maicord_library(maicord_video_vaapi
+    src/platform/decode/vaapi/va.cpp src/platform/decode/vaapi/va_h264.cpp src/platform/decode/vaapi/va_hevc.cpp
+    src/platform/decode/vaapi/va_av1.cpp src/platform/decode/vaapi/va_stream.cpp src/platform/decode/vaapi/va_file.cpp
+    src/platform/decode/av1_dxva_parameters.cpp src/media/video/h264_slice_detail.cpp
+    src/media/video/hevc_slice_detail.cpp
+    LIBS maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
+
+# The live stream decoder (the Linux gpu_stream_decoder.hpp) over both tiers, and the movie decoder of attachments
+# (mp4_decoder.hpp: the Windows build's mp4_decoder.cpp over h264_file_decoder.cpp and hevc_file_decoder.cpp, the Linux
+# h264_gpu_decoder.hpp and hevc_gpu_decoder.hpp). h264_gpu_configuration.cpp is the Windows decoder's container-neutral
+# first-picture check and fragment seek.
+maicord_library(maicord_video_decode
+    src/platform/decode/linux/gpu_stream_decoder.cpp src/platform/decode/linux/software_stream.cpp
+    src/platform/decode/mp4_decoder.cpp src/platform/decode/linux/h264_file_decoder.cpp
+    src/platform/decode/linux/hevc_file_decoder.cpp
+    src/platform/decode/h264_gpu_configuration.cpp
+    LIBS maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
+maicord_library(maicord_gpu_gles_video src/gpu/gles/video_frame.cpp
+    LIBS maicord_gpu_gles_shaders maicord_gpu_gles maicord_core INCLUDES src)
+set_target_properties(maicord_gpu_gles_video PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# The application proper on Linux: every unit of src/app that the transport, updater and package libraries above do
+# not already hold, as one library (cmake/client.cmake lists them for Windows). The shell (src/app/shell) belongs to
+# the window layer and is not here, nor are src/app/windows (the Win32 entry and window procedure) and src/app/linux
+# (the Linux entry and window glue): those are the client's own (cmake/client.cmake). accessibility.cpp is the UI
+# Automation server (the units that stand in for it are in
+# src/app/accessibility/linux: the AT-SPI server's host, over platform/atspi); the snapshot (accessibility_describe.cpp),
+# the actions it routes (accessibility_actions.cpp) and the announcements (accessibility_status.cpp) are shared.
+# src/app/update/package.cpp, the zip and PE reader of the Windows updater, is not here either:
+# src/app/update/linux/package.cpp (in maicord_app_update) reads the Linux tarball instead.
+file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/src/app/*.cpp")
+list(FILTER MAICORD_APP_CLIENT_SOURCES EXCLUDE REGEX
+    "^src/app/shell/|^src/app/windows/|^src/app/linux/|^src/app/accessibility/accessibility\\.cpp$|^src/app/update/package\\.cpp$")
+foreach(library maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index)
+    get_target_property(held_sources ${library} SOURCES)
+    list(REMOVE_ITEM MAICORD_APP_CLIENT_SOURCES ${held_sources})
+endforeach()
+
+maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
+    # The desktop integration the application drives (platform/desktop): launch and link parsing, the Linux startup and
+    # protocol registration, the taskbar badge, the notification-area icon's drawing and plans, the sign-in launcher.
+    src/platform/desktop/integration.cpp src/platform/desktop/linux/integration.cpp
+    src/platform/desktop/taskbar_attention.cpp src/platform/desktop/system_tray.cpp
+    src/platform/desktop/browser_sign_in_launcher.cpp src/platform/desktop/linux/fido2.cpp
+    src/platform/desktop/linux/webauthn_ceremony.cpp
+    src/platform/desktop/linux/notifications.cpp src/platform/desktop/linux/notification_identity.cpp
+    # The file dialog (the FileChooser portal) and the dropped and pasted files it checks.
+    src/platform/desktop/linux/file_picker.cpp
+    src/model/chat/message_reconcile.cpp
+    LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index maicord_ui maicord_core maicord_model
+        maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto
+        maicord_desktop_system maicord_dbus maicord_atspi
+    INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
+target_compile_options(maicord_app_client PRIVATE -Wno-c23-extensions)
+
+# The secure text field: the edit model, its history and target, and the Linux text store (the Windows one is the
+# message-driven store in secure_text_store.cpp).
+maicord_library(maicord_ui_secure_text
+    src/ui/text/secure_edit.cpp src/ui/text/secure_edit_history.cpp src/ui/text/secure_edit_target.cpp
+    src/ui/text/linux/secure_text_store.cpp
+    LIBS maicord_ui maicord_core maicord_crypto INCLUDES src)

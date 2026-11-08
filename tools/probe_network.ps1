@@ -48,7 +48,8 @@ $spec = $probes[$Probe]
 
 Invoke-OptInTarget -Target $spec.Target -Label "MaiCord $($spec.Label)" -Run {
     param($binary)
-    & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary
+    python -B (Join-Path $PSScriptRoot 'audit_image.py') $binary
+    if ($LASTEXITCODE -ne 0) { throw "The audit of $binary failed." }
     $rows = @(for ($sample = 1; $sample -le $Samples; $sample++) {
         $output = @(& $binary)
         if ($LASTEXITCODE -ne 0) { throw "MaiCord $($spec.Label) failed: $($output -join ' ')" }

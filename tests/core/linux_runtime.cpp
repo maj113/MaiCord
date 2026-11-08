@@ -1,5 +1,5 @@
 // The Linux runtime: process entry state, the pinned libc imports (dlopen, pthread_create, clock_gettime), the
-// shared-library search and the XDG data path. argv[1] selects the case; cmake/linux_test_registry.cmake runs each
+// shared-library search and the XDG data path. argv[1] selects the case; cmake/test_registry.cmake runs each
 // with the environment it needs.
 #include "../support/test_output.hpp"
 #include "../support/test_thread.hpp"

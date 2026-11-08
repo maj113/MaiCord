@@ -7,8 +7,8 @@
 // parameters, are not declared at all: their code sits under #if defined(MAICORD_TEST_HOOKS)). Only a build with tests (cmake
 // -DMAICORD_BUILD_TESTS=ON, tools/build_linux.sh --test; Windows: tools/build.ps1 -TestHooks, which builds the client alone)
 // defines MAICORD_TEST_HOOKS and reads the process's environment; such a build also carries kTestHooksMarker, which
-// `tools/audit_elf.py --no-test-hooks` (tools/build_linux.sh without --test, packaging/build_tarball.py) and
-// tools/audit_pe.ps1 -ForbidTestHooks reject, so a shipped image can never hold a hook. Overrides that a user or an
+// `tools/audit_image.py --no-test-hooks` (the build's audit of every shipping client, packaging/build_tarball.py)
+// rejects, so a shipped image can never hold a hook. Overrides that a user or an
 // operator may want (MAICORD_LIBRARY_PATH, MAICORD_VAAPI=off, MAICORD_SECRET_SERVICE, ...) are not hooks: they call
 // environment_get() and are documented in CONTRIBUTING.md.
 #if defined(MAICORD_TEST_HOOKS)

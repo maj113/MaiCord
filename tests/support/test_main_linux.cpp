@@ -1,5 +1,5 @@
 // The Linux counterpart of tests/test_main.cpp: the expectation sink and the ordered run of the core tests the Linux
-// build has ported (the order of tests/core_test_cases.inc; cmake/linux_test_registry.cmake lists the sources).
+// build has ported (the order of tests/core_test_cases.inc; cmake/test_registry.cmake lists the sources).
 #include "test_main_shared.hpp"
 
 #include "test_output.hpp"

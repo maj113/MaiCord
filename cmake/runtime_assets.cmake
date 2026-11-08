@@ -1,5 +1,5 @@
-# The runtime assets both clients carry beside the executable (included by cmake/client.cmake and cmake/linux_client.cmake
-# once MaiCord exists): the license texts, and the bundled fonts the renderer reads from fonts/.
+# The runtime assets both clients carry beside the executable (included by cmake/client.cmake once MaiCord exists):
+# the license texts, and the bundled fonts the renderer reads from fonts/.
 add_custom_command(TARGET MaiCord POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:MaiCord>/licenses"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

@@ -1,6 +1,6 @@
 # The packed data both systems' clients embed, generated into ${MAICORD_GENERATED_DIRECTORY} (cmake/generated_sources.cmake
-# and cmake/linux_generated_sources.cmake include this file, set maicord_generated_include_options to the compiler's
-# way of adding that directory to the include path, and wire what they consume themselves).
+# includes this file once maicord_generated_include_options holds the compiler's way of adding that directory to the
+# include path, and wires what each system consumes).
 #
 # Each include #embeds its byte arrays from .bin files written beside it, and ships the deflate streams of
 # tools/deflate_cache.txt (tools/optimal_deflate.py).

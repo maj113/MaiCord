@@ -11,7 +11,7 @@
      SLOW       pre_send sleeps past any small budget
      CRASH      pre_send writes through a null pointer
      NET        HTTP to declared hosts, completions, secret and the other typed settings, setting and keybind hooks
-   Linux shared objects only (cmake/linux_plugin_tests.cmake):
+   Linux shared objects only (cmake/test_registry.cmake):
      ABI        valid, but the descriptor is of the previous ABI
      NEEDED     valid, but the shared object needs another library
      IMPORT     valid, but it calls a function of the C library

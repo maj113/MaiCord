@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Makes the musl form of a Linux MaiCord image: the same bytes but for the program interpreter.
 
-The build links one image per target, for glibc (cmake/build_contract_linux.cmake: interpreter
+The build links one image per target, for glibc (cmake/build_contract.cmake: interpreter
 /lib64/ld-linux-x86-64.so.2, needed libc.so.6 alone, imports under GLIBC_2.2.5, 2.17 and 2.34). musl's
 loader runs it unchanged: it answers a needed libc.* by itself (the reserved names of ldso/dynlink.c's load_library:
 libc, libpthread, librt, libm, libdl, libutil, libxnet), takes every import from itself and ignores the symbol
@@ -13,7 +13,7 @@ and the audit's rules are the glibc image's, which is what the tests ran.
     retarget_libc.py --libc musl --tree DIRECTORY        every executable image under DIRECTORY, in place
 
 The interpreter must fit where the old one was (musl's path is shorter than glibc's), so a glibc image becomes a musl
-one and not the other way round. tools/audit_elf.py --libc musl audits the result.
+one and not the other way round. tools/audit_image.py --libc musl audits the result.
 """
 
 import argparse
@@ -23,7 +23,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from audit_elf import INTERPRETERS, PT_INTERP  # noqa: E402
+from audit_image import INTERPRETERS, PT_INTERP  # noqa: E402
 
 
 def retarget(source, destination, libc):

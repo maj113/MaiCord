@@ -10,13 +10,11 @@ param(
     # MAICORD_TEST_CA_FILE point it at tools/fake_discord_server.py). Not a shipping build, and it replaces the client in
     # the build directory: the next run without -TestHooks rebuilds the shipping one. Builds the client alone.
     [switch]$TestHooks,
-    # Tests use the MaiCord.exe already in the build
-    # directory (e.g. a running client) instead of building and auditing it.
+    # Tests use the MaiCord.exe already in the build directory (e.g. a running client) instead of building and auditing
+    # it; with -ClientWaitSeconds they wait up to that long for it to appear (CI copies it in while the tests build).
     [switch]$SkipClient,
-    # -SkipClient, waiting up to -ClientWaitSeconds for MaiCord.exe before the
-    # tests run (CI copies it in while the tests build).
-    [switch]$PrebuiltClient,
     [ValidateRange(0, 3600)][int]$ClientWaitSeconds = 0,
+    # Only these tests (with -Test).
     [string[]]$TestNames = @(),
     # CI shards (maicord-tests.txt, written by CMake): app = tests whose
     # executable links the application core or a shipping library or runs the
@@ -54,16 +52,16 @@ $split = { param($values) @($values | ForEach-Object { $_ -split ',' } | Where-O
 $TestNames = & $split $TestNames
 $TestShard = & $split $TestShard
 $ExcludeTestLabels = & $split $ExcludeTestLabels
-if (!$Test -and ($TestNames -or $TestShard -or $ProbeCaptureDirectory -or $AudioPlaybackProbe -or $PrebuiltClient)) {
-    throw '-TestNames, -TestShard, -ProbeCaptureDirectory, -AudioPlaybackProbe and -PrebuiltClient require -Test.'
+if (!$Test -and ($TestNames -or $TestShard -or $ProbeCaptureDirectory -or $AudioPlaybackProbe -or $ClientWaitSeconds)) {
+    throw '-TestNames, -TestShard, -ProbeCaptureDirectory, -AudioPlaybackProbe and -ClientWaitSeconds require -Test.'
 }
 if ($SkipClient -and !$Test -and !$PerfProbe) { throw '-SkipClient requires -Test or -PerfProbe.' }
+if ($ClientWaitSeconds -and !$SkipClient) { throw '-ClientWaitSeconds requires -SkipClient.' }
 if ($TestHooks -and ($Test -or $PerfProbe -or $StartupProbe)) { throw '-TestHooks builds the client alone: it cannot be combined with -Test, -PerfProbe or -StartupProbe.' }
 if (@($Test, $PerfProbe, $StartupProbe | Where-Object { $_ }).Count -gt 1) { throw '-Test, -PerfProbe and -StartupProbe are separate runs.' }
 if ($StartupProbe -and $SkipClient) { throw '-StartupProbe builds its own client.' }
 if ($TestShard | Where-Object { $_ -cnotin 'app', 'core' }) { throw "Unknown test shard in: $($TestShard -join ', ')" }
 if ($TestNames | Where-Object { $_ -notmatch '^[A-Za-z0-9_.+-]+$' }) { throw "Invalid test name in: $($TestNames -join ', ')" }
-if ($PrebuiltClient) { $SkipClient = [switch]::Present }
 if ($AudioPlaybackProbe -and $TestNames) { $TestNames += 'maicord_account_audio_playback' }
 
 $repository = Split-Path -Parent $PSScriptRoot
@@ -71,9 +69,9 @@ $build = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
 $client = Join-Path $build 'MaiCord.exe'
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
-$llvm = & (Join-Path $PSScriptRoot 'resolve_llvm_toolchain.ps1') -LlvmBin $LlvmBin
+. (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -LlvmBin $LlvmBin
 $toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
-    "-DCMAKE_LINKER=$llvm\lld-link.exe", "-DCMAKE_AR=$llvm\llvm-lib.exe")
+    "-DCMAKE_LINKER=$llvm\lld-link.exe", "-DCMAKE_AR=$llvm\llvm-lib.exe", "-DCMAKE_ASM_MASM_COMPILER=$msvc\bin\Hostx64\x64\ml64.exe")
 
 function Invoke-Native([string]$Command, [string[]]$Arguments) {
     & $Command @Arguments
@@ -88,13 +86,8 @@ function Invoke-Build([string[]]$Targets) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     Invoke-Native cmake (@('--build', $build, '--parallel', $jobs, '--target') + $Targets)
     Write-Host ('Build: {0:F2} seconds ({1} workers).' -f $timer.Elapsed.TotalSeconds, $jobs)
-    if ($Targets -contains 'MaiCord') {
-        # The image keeps large zero-filled globals in .bss; 16 KiB of initialized
-        # .data leaves room for small tables but not for a serialized aggregate.
-        $hookAudit = @{ ForbidTestHooks = !$TestHooks; RequireTestHooks = [bool]$TestHooks }
-        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo @hookAudit -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, sspicli.dll, ole32.dll, advapi32.dll, combase.dll, bcrypt.dll, crypt32.dll
-        Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)"
-    }
+    # The client audits itself when it links (tools/audit_image.py, cmake/client.cmake).
+    if ($Targets -contains 'MaiCord') { Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)" }
 }
 function Get-Regex([string[]]$Values) { '^(' + (($Values | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$' }
 
@@ -113,19 +106,10 @@ try {
             if ([IO.Path]::GetFullPath($running.Path) -eq $client) { throw "Close MaiCord before rebuilding $client." }
         }
     }
-    # The Linux client's hand-written GLSL (src/render/shaders/gles) must have been reviewed against every HLSL change.
-    Invoke-Native python @("$PSScriptRoot\check_shader_twins.py")
     # Ninja's default worker count, capped at one per free GiB of commit past the first.
     $freeCommit = [long](Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory * 1KB
     $jobs = [string][Math]::Max(1, [Math]::Min([Math]::Min(32, [Environment]::ProcessorCount + 2), [Math]::Floor($freeCommit / 1GB) - 1))
 
-    $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
-    $installation = & "$installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if (!$installation) { throw 'A Visual Studio C++ installation was not found.' }
-    # VsDevCmd calls vswhere.exe by name.
-    $env:PATH = "$installer;$env:PATH"
-    Import-Module "$installation\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-    Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
     # CMake fixes the compiler in its cache: another toolchain starts from a fresh cache.
     $compiler = "$llvm\clang-cl.exe"
     $cache = Join-Path $build 'CMakeCache.txt'
@@ -138,7 +122,8 @@ try {
         }
     }
 
-    $targets = @(if (!$SkipClient) { 'MaiCord' })
+    # The source rules (tools/check_source_rules.py: shader twins, theme literals, ...) run with the client's link, or alone.
+    $targets = @(if ($SkipClient) { 'maicord_source_rules' } else { 'MaiCord' })
     if ($Test -or $PerfProbe -or $StartupProbe) {
         # A private LOCALAPPDATA/TEMP for the run, owned by this repository.
         $testProfile = Join-Path $build ('test-profile-' + [guid]::NewGuid().ToString('N'))
@@ -185,10 +170,10 @@ try {
         & "$PSScriptRoot\perf\run_perf.ps1" -Execute -Probe "$build\MaiCordPerfProbe.exe" -ProfileRoot $testProfile @PerfArguments
     }
     if ($Test) {
-        if ($PrebuiltClient) {
+        if ($ClientWaitSeconds) {
             $wait = [Diagnostics.Stopwatch]::StartNew()
             while (!(Test-Path -LiteralPath $client -PathType Leaf)) {
-                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "-PrebuiltClient needs MaiCord.exe in $build." }
+                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "No MaiCord.exe in $build after $ClientWaitSeconds seconds." }
                 Start-Sleep -Seconds 1
             }
         }
@@ -250,7 +235,11 @@ try {
         if ($restoreClient) { Invoke-Configure @('-DMAICORD_STARTUP_PROBE=OFF'); Invoke-Build @('MaiCord') }
     }, {
         if ($locked -and $KeepIntermediates) { if ($testProfile) { Remove-Item -LiteralPath $testProfile -Recurse -Force -ErrorAction SilentlyContinue } }
-        elseif ($locked) { & "$PSScriptRoot\maintain_build_outputs.ps1" -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
+        elseif ($locked) {
+            & "$PSScriptRoot\maintain_build_outputs.ps1" -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt")
+            # Generated sources and test packages are rebuilt by every run that needs them; none is a runtime asset.
+            if (Test-Path -LiteralPath "$build\generated") { Remove-Item -LiteralPath "$build\generated" -Recurse -Force }
+        }
     }, {
         if ($locked -and $Test) {
             Get-ChildItem -LiteralPath "$([Environment]::GetFolderPath('LocalApplicationData'))\CrashDumps" -Filter 'MaiCord?*.exe.*.dmp' -File -ErrorAction SilentlyContinue |

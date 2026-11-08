@@ -22,39 +22,45 @@ set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
 if(MAICORD_LINUX)
     project(MaiCord VERSION 0.6.6 LANGUAGES C CXX)
 else()
+    # MASM (src/core/runtime_x64.asm) is the Build Tools' ml64 (tools/build.ps1 names it): llvm-ml encodes
+    # register-to-register instructions the other valid way, which would change MaiCord.exe.
     project(MaiCord VERSION 0.6.6 LANGUAGES C CXX RC ASM_MASM)
+    if(NOT CMAKE_ASM_MASM_COMPILER MATCHES "[/\\\\]ml64\\.exe$")
+        message(FATAL_ERROR "MaiCord assembles with the MSVC Build Tools' ml64.exe (CMAKE_ASM_MASM_COMPILER=${CMAKE_ASM_MASM_COMPILER}).")
+    endif()
 endif()
 
-# Shipping build: MaiCord.exe. Targets defined up to
-# cmake/tests.cmake are production targets. Their intermediate products are
-# removed by runtime-only finalization after the wrapper finishes.
-include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
+# The test-only environment switches (include/maicord/core/test_hook.hpp). On Linux a build with tests compiles them
+# into everything, its client included, which is then not a shipping build. On Windows the tests don't need them, and
+# tools/build.ps1 -TestHooks builds a client with them alone, which can be pointed at tools/fake_discord_server.py. The
+# audit that guards shipping images rejects either client.
+option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
 if(MAICORD_LINUX)
-    # What the Linux port builds: the libraries (cmake/linux_libraries.cmake), the client (cmake/linux_client.cmake)
-    # and its tests (cmake/linux_tests.cmake). A build with tests also compiles the environment switches that only the
-    # tests use (include/maicord/core/test_hook.hpp); the shipped client has none.
-    option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
-    if(MAICORD_BUILD_TESTS)
-        add_compile_definitions(MAICORD_TEST_HOOKS=1)
-    endif()
-    include(cmake/linux_libraries.cmake)
-    include(cmake/linux_client.cmake)
-    include(cmake/linux_tests.cmake)
-    return()
+    set(maicord_test_hooks ${MAICORD_BUILD_TESTS})
+else()
+    option(MAICORD_CLIENT_TEST_HOOKS "Compile the test-only environment switches into the client" OFF)
+    set(maicord_test_hooks ${MAICORD_CLIENT_TEST_HOOKS})
 endif()
-# A client with the test-only environment switches (include/maicord/core/test_hook.hpp; tools/build.ps1 -TestHooks): it
-# can be pointed at tools/fake_discord_server.py. Not a shipping build; the audit that guards shipping images rejects it.
-option(MAICORD_CLIENT_TEST_HOOKS "Compile the test-only environment switches into the client" OFF)
-if(MAICORD_CLIENT_TEST_HOOKS)
+if(maicord_test_hooks)
     add_compile_definitions(MAICORD_TEST_HOOKS=1)
 endif()
-include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds
+
+# Shipping build: the client. Targets defined up to cmake/tests.cmake are
+# production targets. Their intermediate products are removed by runtime-only
+# finalization after the build script finishes.
+include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
+include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds, Wayland bindings
 include(cmake/libraries.cmake)          # shipping static libraries
-include(cmake/client.cmake)             # MaiCord.exe, updater identity, cold-code /Os
-include(cmake/reference_tools.cmake)    # opt-in: MAICORD_BUILD_FONT_REFERENCE
+include(cmake/client.cmake)             # MaiCord, updater identity, image audit, cold-code size policy
 
 # Temporary and opt-in targets.
-include(cmake/tests.cmake)              # MAICORD_BUILD_TESTS (tools/build.ps1 -Test)
+if(NOT MAICORD_LINUX)
+    include(cmake/reference_tools.cmake)    # opt-in: MAICORD_BUILD_FONT_REFERENCE
+endif()
+include(cmake/tests.cmake)              # MAICORD_BUILD_TESTS (tools/build.ps1 -Test, tools/build_linux.sh --test)
+if(MAICORD_LINUX)
+    return()
+endif()
 include(cmake/perf_probe.cmake)         # MAICORD_BUILD_PERF_PROBE (tools/build.ps1 -PerfProbe)
 include(cmake/integration.cmake)        # MAICORD_BUILD_INTEGRATION_TESTS (tools/probe_network.ps1, tools/opus_conformance.ps1)
 include(cmake/build_outputs.cmake)      # transient ownership for runtime-only cleanup

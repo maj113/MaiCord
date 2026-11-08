@@ -27,7 +27,7 @@ objects. The descriptor rules (`maicord_plugin_v6`) are shared.
 
 `maicord_plugin_loader_elf` is the policy test (a fixture per defect, symlinks, modes, a renamed pin). `maicord_plugin_abi` checks the
 samples' image shape (read from the file's section headers), descriptors and entry points. `maicord_plugin_binding|network|pipeline|
-ui|surfaces` and `maicord_command_ui` run the Windows runtime tests over `.so` builds (`cmake/linux_plugin_tests.cmake`;
+ui|surfaces` and `maicord_command_ui` run the Windows runtime tests over `.so` builds (`cmake/test_registry.cmake`;
 `maicord_plugin()` in `cmake/test_support.cmake` is the one build recipe; the built plugins are in `plugins/` of the build directory).
 `maicord_plugin_compile_*` check the SDK's diagnostics.
 

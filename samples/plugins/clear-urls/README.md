@@ -34,7 +34,7 @@ clang-cl /nologo /c /std:c++latest /O2 /W4 /WX /utf-8 /Zl /GS- /GR- /DMC_RUNTIME
 lld-link /nologo /DLL /NOENTRY /NODEFAULTLIB /OPT:REF /OPT:ICF plugin.obj /OUT:clear-urls.dll
 ```
 
-On Linux the same source builds a shared object (`cmake/linux_plugin_tests.cmake` registers
+On Linux the same source builds a shared object (`cmake/test_registry.cmake` registers
 it, and the other samples, the same way; the recipe is in `include/maicord/sdk/README.md`):
 
 ```sh
