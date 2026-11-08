@@ -1306,7 +1306,7 @@ maicord_font_test(MaiCordShapeStageTests maicord_shape_stage_entry text/shaping/
 # Keep large QA corpora out of the C++ parser. Reconfigure and rebuild the
 # resource if any binary record changes, including changes of equal size.
 set(MAICORD_INDIC_INPUT_IDENTITIES "")
-foreach(script IN ITEMS bengali gujarati gurmukhi odia telugu kannada malayalam)
+foreach(script IN ITEMS bengali gujarati gurmukhi odia telugu kannada malayalam devanagari tamil)
     set(fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/generated/${script}_input_fixture.bin")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${fixture}")
     file(SHA256 "${fixture}" fixture_sha)
@@ -1317,18 +1317,10 @@ maicord_test(MaiCordDevanagariPlanTests ENTRY maicord_devanagari_plan_entry
     SOURCES tests/text/scripts/devanagari_plan_test.cpp "${CMAKE_CURRENT_BINARY_DIR}/indic_input_fixtures.rc"
     LIBS maicord_core maicord_font kernel32
     TIMEOUT 5 LABELS native-text-devanagari-plan
-    TEST maicord_native_devanagari_plan
-    TEST maicord_native_devanagari_profile --profile)
-maicord_indic_plan_tests(gurmukhi plan)
-maicord_indic_plan_tests(kannada shape)
-maicord_indic_plan_tests(malayalam plan profile shape input)
-maicord_indic_plan_tests(kannada plan profile input)
-maicord_indic_plan_tests(telugu plan profile shape input)
-maicord_indic_plan_tests(odia plan profile input shape)
-maicord_indic_plan_tests(gurmukhi profile input shape)
-maicord_indic_plan_tests(gujarati plan profile input shape)
-maicord_indic_plan_tests(bengali plan profile input shape)
-maicord_indic_plan_tests(tamil plan profile input owned_profile)
+    TEST maicord_native_devanagari_plan)
+foreach(script IN ITEMS devanagari tamil bengali gujarati gurmukhi odia telugu kannada malayalam)
+    maicord_indic_plan_tests(${script} input)
+endforeach()
 maicord_test(MaiCordFontCatalogTests ENTRY maicord_font_catalog_entry SOURCES tests/text/fonts/catalog_test.cpp
     LIBS maicord_core maicord_font kernel32 advapi32
     TIMEOUT 2 LABELS native-text-font-catalog TEST maicord_native_font_catalog)

@@ -133,14 +133,6 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
                     status = cluster_run(owner, cluster_script(script), *item.binding(), input, item.em, s.work.run,
                                          &result, spacing, shaping_rtl);
                     break;
-                case tamil_script:
-                    status = tamil_run(owner, *item.binding(), input, item.em, s.work.run, &result, spacing,
-                                       shaping_rtl);
-                    break;
-                case devanagari_script:
-                    status = devanagari_run(owner, *item.binding(), input, item.em, s.work.run, &result,
-                                            spacing, shaping_rtl);
-                    break;
                 default:
                     if (script == arabic_script)
                         status = native_arabic_run(owner.arabic_store, item.binding()->arabic, input,
@@ -639,10 +631,8 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     // glyphs skip shaping. Fallback and explicit typography still shape, even
     // when glyph execution is inert.
     bool common_only=mixed;for(u32 i=0;i<count;++i)common_only=common_only&&(continuity[i]&~7u)==128;
-    u32 longest=0,longest_units=0,longest_ordinary=0;for(u32 i=0;i<count;){u32 last=i+1;while(last<count&&same_group(last,i))++last;
-        const u32 bytes=static_cast<u32>(resolved[last-1].end_byte)-resolved[i].first_byte;longest=maximum(longest,bytes);
-        longest_units=maximum(longest_units,static_cast<u32>(resolved[last-1].end_unit)-resolved[i].first_unit);
-        if((continuity[i]&~7u)!=devanagari_script)longest_ordinary=maximum(longest_ordinary,bytes);i=last;}
+    u32 longest=0;for(u32 i=0;i<count;){u32 last=i+1;while(last<count&&same_group(last,i))++last;
+        longest=maximum(longest,static_cast<u32>(resolved[last-1].end_byte)-resolved[i].first_byte);i=last;}
     NativeAsciiParagraphStorage paragraph_buffers;NativeParagraphShape shape{};Slice<char> saved{};Slice<TextStyleSpan> saved_styles{};
     Slice<SfntFontLineParts> parts{};Slice<NativeParagraphRun> runs{};Slice<NativeParagraphLine> lines{};SfntStatus status=SfntStatus::ok;
     for(u32 attempt=0;attempt<2;++attempt){if(!arena_rewind(&owner.scratch,prefix))return false;const u32 factor=attempt?4u:1u,glyphs=text.bytes*factor+16;
@@ -650,16 +640,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         // Every emitted run owns at least one source unit. Reuse the already
         // decoded UTF-16 length for both retained runs and borrowed boundaries.
         runs=take<NativeParagraphRun>(owner.scratch,units);lines=take<NativeParagraphLine>(owner.scratch,geometry?units+1:0);if(!saved.data||(styles.count&&!saved_styles.data)||!spans.data||!parts.data||!runs.data||(geometry&&!lines.data))return false;
-        // Devanagari consumes component/lookup/positioning scratch one cluster at
-        // a time, so the first attempt sizes work scratch by the longest other
-        // item; the retry restores the full allocation if a font expands more.
-        const u32 work_source=attempt?longest:minimum(longest,maximum(64u,longest_ordinary));
-        const bool compact=work_source<longest;
-        paragraph_buffers.work=storage(owner.scratch,work_source,compact?maximum(128u,work_source+16):longest*factor+16,false,attempt!=0);
-        if(compact){auto& work=paragraph_buffers.work;work.clusters=take<NativeLineCluster>(owner.scratch,longest_units);
-            work.run.glyphs=take<u16>(owner.scratch,longest+16);work.run.placements=take<SfntPlacement>(owner.scratch,longest+16);
-            work.run.character_glyphs=take<u32>(owner.scratch,longest_units);
-            if(!work.clusters.data||!work.run.glyphs.data||!work.run.placements.data||!work.run.character_glyphs.data)return false;}
+        paragraph_buffers.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);
         paragraph_buffers.glyphs=take<u16>(owner.scratch,glyphs);paragraph_buffers.placements=take<SfntPlacement>(owner.scratch,glyphs);
         paragraph_buffers.source_glyphs=take<u32>(owner.scratch,units);paragraph_buffers.clusters=take<NativeParagraphCluster>(owner.scratch,units);shape={};
         if(!paragraph_buffers.glyphs.data||!paragraph_buffers.placements.data||!paragraph_buffers.source_glyphs.data||!paragraph_buffers.clusters.data)return false;
@@ -704,17 +685,6 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                         status = native_cluster_paragraph_shape(cluster_script(static_cast<u16>(shaping_script)), owner.store, *plan,
                                                                 input, r.em, segment, group_boundaries, &part, tracking,
                                                                 group_rtl);
-                    break;
-                case tamil_script:
-                    if (const auto* plan = indic_profile(owner, *r.binding(), SfntIndicProfile::tamil))
-                        status = native_tamil_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                              group_boundaries, &part, tracking, group_rtl);
-                    break;
-                case devanagari_script:
-                    if (const auto* plan = form_profile(owner, *r.binding(), SfntIndicProfile::devanagari))
-                        status =
-                            native_devanagari_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                              group_boundaries, &part, tracking, group_rtl);
                     break;
                 default:
                     if (r.binding()->font_flags == emoji_font_flag)

@@ -3,35 +3,42 @@
 #include "maicord/text/scripts/indic_run_plan.hpp"
 #include "maicord/text/scripts/devanagari_forms.hpp"
 #include "maicord/text/unicode/unicode.hpp"
-#include "indic_forms.hpp"
 
 namespace maicord {namespace {
+// Context-free font forms of each consonant of the script's block, as HarfBuzz asks the font
+// (would_substitute): rphf on consonant,virama (and Telugu's consonant,virama,ZWJ); pref, blwf, pstf
+// and vatu on virama,consonant or consonant,virama. Rules with context only count for Malayalam, as in
+// HarfBuzz (its zero-context matching for the other modern scripts).
 SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,const SfntGsubProgram& program,
-    NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,const SfntShapeStorage& probe,const SfntShapeLimits& limits) noexcept {
+    NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,const SfntShapeLimits& limits) noexcept {
     const auto* info=sfnt_indic_script(plan.profile);if(!info)return SfntStatus::invalid_input;const u32 first=info->block_first;
-    u16 halant=0;auto status=sfnt_cmap_glyph(*plan.cmap,first+0x4d,0,&halant);if(status!=SfntStatus::ok)return status;
+    u16 halant=0,joiner=0;auto status=sfnt_cmap_glyph(*plan.cmap,first+0x4d,0,&halant);if(status!=SfntStatus::ok)return status;
     if(!halant)return SfntStatus::unsupported_sequence;
-    // Map each consonant once, then reuse it for all five context-free queries.
+    status=sfnt_cmap_glyph(*plan.cmap,0x200d,0,&joiner);if(status!=SfntStatus::ok)return status;
+    // Map each consonant once, then reuse it for all five queries.
     u16 glyphs[128]{};if(limits.stage_work<128)return SfntStatus::resource_limit;
     for(u32 i=0;i<128;++i)if(unicode_properties(first+i)->indic_syllabic_category()==UnicodeIndicSyllabicCategory::consonant){
         status=sfnt_cmap_glyph(*plan.cmap,first+i,0,glyphs+i);if(status!=SfntStatus::ok)return status;}
-    const SfntDevanagariForm kinds[]{sfnt_deva_reph,sfnt_deva_half,sfnt_deva_pre,sfnt_deva_below,sfnt_deva_post};
-    u64 remaining=limits.lookup_operations;
+    const SfntDevanagariForm kinds[]{sfnt_deva_reph,sfnt_deva_pre,sfnt_deva_below,sfnt_deva_post,sfnt_deva_vatu};
+    const bool zero_context=plan.profile!=SfntIndicProfile::malayalam;u64 work=limits.lookup_operations;
     for(auto kind:kinds){ArenaScope temporary{scratch,arena_mark(scratch)};SfntLookupPlanResult result{};
         status=sfnt_indic_form_lookup_plan(layout,variations,plan.profile,kind,mask,{},&result,limits.stage_work);
         if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
         auto steps=take<SfntLookupStep>(scratch,result.lookup_count);if(!filled(steps))return SfntStatus::output_too_small;
         status=sfnt_indic_form_lookup_plan(layout,variations,plan.profile,kind,mask,steps,&result,limits.stage_work);if(status!=SfntStatus::ok)return status;
-        for(u32 i=0;i<128;++i)if(glyphs[i]){SfntDevanagariFormResult formed{};
-            status=sfnt_devanagari_probe_form(program,{steps.data,steps.count},glyphs[i],halant,kind,
-                probe.glyphs,probe.substitutions,&formed,{remaining,limits.match_work});
-            if(formed.operations>remaining)return SfntStatus::invalid_input;remaining-=formed.operations;if(status!=SfntStatus::ok)return status;
-            if(formed.formed)bits[i]|=static_cast<u8>(kind);}
+        for(u32 i=0;i<128&&steps.count;++i)if(glyphs[i]){bool formed=false;
+            const u16 forward[]{glyphs[i],halant,joiner},backward[]{halant,glyphs[i]};
+            status=sfnt_gsub_would_substitute(program,{steps.data,steps.count},{forward,2},zero_context,&formed,&work);if(status!=SfntStatus::ok)return status;
+            if(!formed&&kind==sfnt_deva_reph&&plan.profile==SfntIndicProfile::telugu&&joiner){
+                status=sfnt_gsub_would_substitute(program,{steps.data,steps.count},{forward,3},zero_context,&formed,&work);if(status!=SfntStatus::ok)return status;}
+            if(!formed&&kind!=sfnt_deva_reph){
+                status=sfnt_gsub_would_substitute(program,{steps.data,steps.count},{backward,2},zero_context,&formed,&work);if(status!=SfntStatus::ok)return status;}
+            if(formed)bits[i]|=static_cast<u8>(kind);}
     }return SfntStatus::ok;
 }
 }
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,SfntIndicProfile profile,
-    Arena* state,Arena* scratch,const SfntShapeStorage& probe,NativeIndicPlan* output,Slice<u8> form_output,const SfntShapeLimits& limits) noexcept {
+    Arena* state,Arena* scratch,NativeIndicPlan* output,Slice<u8> form_output,const SfntShapeLimits& limits) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     const auto* info=sfnt_indic_script(profile);
     if(!info||(form_output.count&&(form_output.count!=128||!form_output.data)))return SfntStatus::invalid_input;
@@ -45,21 +52,15 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
         if(!kind&&!parent.substitutions)return SfntStatus::invalid_input;
         SfntFeatureSubstitutions variations{};status=native_layout_variations(*source.instance,layout,*scratch,variations,limits.stage_work);if(status!=SfntStatus::ok)return status;
         auto mask=take<u16>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
-        const bool malayalam_forms=!kind&&form_output.count&&profile==SfntIndicProfile::malayalam;
-        const auto prepare_forms=[&]() noexcept {
-            const auto formed=forms(layout,variations,*parent.substitutions,plan,{form_bits,128},scratch,mask,probe,limits);
-            if(formed==SfntStatus::ok)indic_form_defaults(profile,form_bits);return formed;};
-        if(malayalam_forms&&(status=prepare_forms())!=SfntStatus::ok)return status;
-        const bool ordered_presentation=malayalam_forms&&(form_bits[0x2f]&indic_default_position);
-        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
+        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};Slice<u64> per_syllable{};
         status=native_plan_steps(kind,*state,*scratch,[&](Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
-            return sfnt_indic_lookup_plan(layout,variations,profile,mask,out,result,limits.stage_work,ordered_presentation);},
+            if(!kind&&out.count){per_syllable=take<u64>(state,(out.count+63)/64);if(!filled(per_syllable))return SfntStatus::resource_limit;}
+            return sfnt_indic_lookup_plan(layout,variations,profile,mask,out,result,limits.stage_work,per_syllable);},
             steps,roots,nullptr,!kind);
         if(status!=SfntStatus::ok)return status;
         if(kind){plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);continue;}
-        plan.substitution_steps=steps.data;plan.substitution_count=steps.count;
-        if(form_output.count){if(!malayalam_forms&&(status=prepare_forms())!=SfntStatus::ok)return status;continue;}
-        for(u32 i=0;i<steps.count;++i)if(steps[i].feature_mask)return SfntStatus::unsupported_sequence;
+        plan.substitution_steps=steps.data;plan.substitution_count=steps.count;plan.per_syllable_steps=per_syllable.data;
+        if(form_output.count){status=forms(layout,variations,*parent.substitutions,plan,{form_bits,128},scratch,mask,limits);if(status!=SfntStatus::ok)return status;continue;}
         u16 halant=0;status=sfnt_cmap_glyph(*plan.cmap,info->block_first+0x4d,0,&halant);
         if(status!=SfntStatus::ok)return status;if(!halant)return SfntStatus::unsupported_sequence;
     }

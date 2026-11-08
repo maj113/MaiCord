@@ -78,8 +78,37 @@ bool validation_intervals() noexcept {
         CHECK(policy.calls==2&&!result.glyph_count);}
     return true;
 }
+// Per-cluster steps (HarfBuzz F_PER_SYLLABLE): a ligature lookup 1,2 -> 4 forms only inside a cluster,
+// while an unflagged step still ligates across clusters; ranges follow the edits before them.
+bool per_cluster_steps() noexcept {
+    const u16 words[]{1,8,1,14,1,1,1,1,4,4,2,2};u8 data[32]{};SfntGsubExecutableSubtable subtable{};SfntGsubExecutableLookup lookup{};
+    CHECK(sfnt_gsub_subtable_open(encode(words,data),4,16,&subtable.basic)==SfntStatus::ok);
+    lookup.subtables={&subtable,1};lookup.type=4;lookup.bounds.ready=1;sfnt_lookup_bounds_add(lookup.bounds,subtable.basic.coverage);
+    SfntGsubProgram program{{&lookup,1},{},16};SfntShapePlan plan{};plan.substitutions=&program;plan.units_per_em=1000;
+    plan.advance=+[](void*,u16,double* out) noexcept {*out=100;return SfntStatus::ok;};
+    const SfntClusterGlyph input[]{{{1,SfntGlyphClass::base,0},0},{{2,SfntGlyphClass::base,0},1},{{1,SfntGlyphClass::base,0},2},{{2,SfntGlyphClass::base,0},3}};
+    const SfntLookupStep steps[]{{0,0,0}};Policy policy{};policy.mode=3;SfntShapeRunResult result{};
+    const u64 scoped=1,none=0;
+    const auto shape=[&](ConstSlice<u32> boundaries,ConstSlice<u64> per_cluster,u64 budget=1000000) noexcept {
+        const SfntShapeStagePolicy stages{&policy,stage,1,true,per_cluster};
+        return sfnt_shape_run(plan,{input,4},4,boundaries,false,1000,storage(),&result,{budget,100000,1000000},{steps,1},{},{},nullptr,&stages);};
+    const u32 split[]{0,1,2},pairs[]{0,2};
+    CHECK(shape({split,3},{&scoped,1})==SfntStatus::ok&&result.glyph_count==3&&glyphs[0].glyph.glyph==1&&glyphs[1].glyph.glyph==2&&glyphs[2].glyph.glyph==4);
+    CHECK(characters[0]==0&&characters[1]==1&&characters[2]==2&&characters[3]==2&&result.substitution_edits==1);
+    CHECK(shape({split,3},{&none,1})==SfntStatus::ok&&result.glyph_count==2&&glyphs[0].glyph.glyph==4&&glyphs[1].glyph.glyph==4);
+    CHECK(shape({pairs,2},{&scoped,1})==SfntStatus::ok&&result.glyph_count==2&&glyphs[0].glyph.glyph==4&&glyphs[1].glyph.glyph==4);
+    const u64 full_work=result.lookup_operations;
+    for(u64 budget=0;budget<=full_work;++budget){const auto status=shape({pairs,2},{&scoped,1},budget);
+        CHECK(result.lookup_operations<=budget&&status==(budget==full_work?SfntStatus::ok:SfntStatus::resource_limit));}
+    CHECK(shape({pairs,2},{nullptr,1})==SfntStatus::invalid_input&&!result.glyph_count);
+    const SfntLookupStep many[65]{};
+    const SfntShapeStagePolicy short_bits{&policy,stage,1,true,{&scoped,1}};
+    CHECK(sfnt_shape_run(plan,{input,4},4,{pairs,2},false,1000,storage(),&result,{},{many,65},{},{},nullptr,&short_bits)==SfntStatus::invalid_input);
+    return true;
+}
 bool run() noexcept {
     CHECK(validation_intervals());
+    CHECK(per_cluster_steps());
     // First ligature: 1,2 -> 4. After script reordering, 3,4 -> 5.
     const u16 first[]{1,8,1,14,1,1,1,1,4,4,2,2};
     const u16 second[]{1,8,1,14,1,1,3,1,4,5,2,4};u8 data[2][32]{};

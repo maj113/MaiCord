@@ -25,8 +25,6 @@
 #include "maicord/text/scripts/ascii_paragraph.hpp"
 #include "maicord/text/scripts/arabic_run.hpp"
 #include "maicord/text/scripts/arabic_paragraph.hpp"
-#include "maicord/text/scripts/devanagari_paragraph.hpp"
-#include "maicord/text/scripts/tamil_paragraph.hpp"
 #include "maicord/text/shaping/cluster_paragraph.hpp"
 #include "maicord/text/scripts/detail/indic_form.hpp"
 #include "maicord/text/layout/visibility.hpp"
@@ -50,13 +48,16 @@ constexpr u16 egyptian_script=464,runic_script=480,egyptian_missing_script=496;
 // Simple scripts: native_text_script.hpp profiles, shifted by three.
 constexpr u16 simple_script_first=native_simple_script_profile<<3,simple_script_end=simple_script_first+16*simple_script_count;
 constexpr u16 devanagari_script=224,ethiopic_script=240,cherokee_script=256,tamil_script=272,bengali_script=288,odia_script=336,telugu_script=352,kannada_script=368,malayalam_script=384,sinhala_script=400,khmer_script=416,myanmar_script=432,tibetan_script=448;
+// The nine modern Indic scripts share the HarfBuzz-model Indic engine and its form plan.
 constexpr bool form_script(u16 script) noexcept {
-    return script>=bengali_script&&script<=malayalam_script&&(script-bengali_script)%16==0;
+    return script==devanagari_script||script==tamil_script||(script>=bengali_script&&script<=malayalam_script&&(script-bengali_script)%16==0);
 }
 constexpr SfntIndicProfile form_script_profile(u16 script) noexcept {
-    return static_cast<SfntIndicProfile>(static_cast<u8>(SfntIndicProfile::bengali)+(script-bengali_script)/16);
+    return script==devanagari_script?SfntIndicProfile::devanagari:script==tamil_script?SfntIndicProfile::tamil:
+        static_cast<SfntIndicProfile>(static_cast<u8>(SfntIndicProfile::bengali)+(script-bengali_script)/16);
 }
-static_assert(form_script_profile(odia_script)==SfntIndicProfile::odia&&form_script_profile(telugu_script)==SfntIndicProfile::telugu&&form_script_profile(kannada_script)==SfntIndicProfile::kannada&&form_script_profile(malayalam_script)==SfntIndicProfile::malayalam);
+static_assert(form_script_profile(devanagari_script)==SfntIndicProfile::devanagari&&form_script_profile(tamil_script)==SfntIndicProfile::tamil&&
+    form_script_profile(odia_script)==SfntIndicProfile::odia&&form_script_profile(telugu_script)==SfntIndicProfile::telugu&&form_script_profile(kannada_script)==SfntIndicProfile::kannada&&form_script_profile(malayalam_script)==SfntIndicProfile::malayalam);
 // The final ID (255) is reserved for the synthetic old-Jamo profile.
 constexpr u16 han_script=80,kana_script=96,hangul_script=112,hiragana_script=120,old_hangul_script=255u<<3,armenian_script=160,georgian_script=176,thai_script=192,lao_script=208;
 struct NativeFormatFont {ConstSlice<u16> family;u32 scope;NativeFontProperties properties;};
@@ -79,7 +80,6 @@ constexpr usize arabic_region_bytes=(sizeof(NativeArabicPlanSlot)*capacity+4095u
 // Coordinates are local to the frontend's bounded input, at most native_text_maximum_bytes.
 using StyledSpan=NativeStyledSpan<Binding>;
 struct AlphabeticProfile {AlphabeticProfile* next;NativeAlphabeticPlan plan;};
-struct IndicProfile {IndicProfile* next;NativeIndicPlan plan;};
 struct ClusterProfile {ClusterProfile* next;NativeClusterPlan plan;};
 struct IndicFormProfile {IndicFormProfile* next;NativeIndicFormPlan plan;};
 // Glyphs immediately follow this header in the catalog arena. The cache owns
@@ -115,7 +115,6 @@ struct NativeTextContext {
     // overflow records never move it.
     NativeFormat first_format;u16 first_family[64];
     AlphabeticProfile* alphabetic_profiles;
-    IndicProfile* indic_profiles;
     ClusterProfile* cluster_profiles[4];
     IndicFormProfile* form_profiles;
     NativeOmissionSign* omission_signs;
@@ -137,7 +136,7 @@ static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
 static_assert(sizeof(NativeTextCatalogScope)==112);
 #if defined(_WIN32)
-static_assert(sizeof(NativeTextContext)==2568);
+static_assert(sizeof(NativeTextContext)==2560);
 #endif
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
@@ -349,20 +348,6 @@ const NativeAlphabeticPlan* alphabetic_profile(NativeTextContext& owner,const Bi
     if(!p||native_alphabetic_plan_prepare(owner.store,selected.plan,tag,independent,&arena,&owner.scratch,&p->plan)!=SfntStatus::ok){arena_rewind(&arena,mark);++owner.prepare_failed;return nullptr;}
     p->plan.allow_missing=allow_missing;p->next=owner.alphabetic_profiles;owner.alphabetic_profiles=p;return &p->plan;
 }
-NativeAsciiLineStorage storage(Arena&,u32,u32,bool,bool) noexcept;
-const NativeIndicPlan* indic_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
-    for(auto* p=owner.indic_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.profile==script)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<IndicProfile>(&arena);
-    const auto status=p?native_indic_plan_prepare(owner.store,selected.plan,script,&arena,&owner.scratch,{},&p->plan):SfntStatus::resource_limit;
-    if(status!=SfntStatus::ok){++owner.prepare_failed;
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.profile=script;p->next=owner.indic_profiles;owner.indic_profiles=p;}
-        else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.indic_profiles;owner.indic_profiles=p;return &p->plan;
-}
-SfntStatus tamil_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
-    const auto* profile=indic_profile(owner,binding,SfntIndicProfile::tamil);if(!profile)return SfntStatus::unsupported_sequence;
-    return native_tamil_run(owner.store,*profile,text,em,s,out,{},spacing,rtl);
-}
 // Cluster-shaper plans are cached per script, font plan generation and letter
 // policy. A face without the script's features is cached as unsupported, so a
 // neutral fallback span returning to it does not prepare it again; capacity and
@@ -387,10 +372,8 @@ SfntStatus cluster_run(NativeTextContext& owner,NativeClusterScript script,const
 }
 const NativeIndicFormPlan* form_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
     for(auto* p=owner.form_profiles;p;p=p->next)if(p->plan.indic.run.slot==selected.plan.slot&&p->plan.indic.run.generation==selected.plan.generation&&p->plan.indic.profile==script)return p->plan.indic.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena),temporary=arena_mark(&owner.scratch);
-    auto* p=arena_allocate<IndicFormProfile>(&arena);const auto probe=storage(owner.scratch,64,128,false,false);
-    const auto status=p?native_indic_plan_prepare(owner.store,selected.plan,script,&arena,&owner.scratch,probe.run.shaping,&p->plan.indic,{p->plan.forms,128}):SfntStatus::resource_limit;
-    arena_rewind(&owner.scratch,temporary);
+    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<IndicFormProfile>(&arena);
+    const auto status=p?native_indic_plan_prepare(owner.store,selected.plan,script,&arena,&owner.scratch,&p->plan.indic,{p->plan.forms,128}):SfntStatus::resource_limit;
     if(status!=SfntStatus::ok){++owner.prepare_failed;
         if(p&&status==SfntStatus::unsupported_sequence){p->plan.indic.run=selected.plan;p->plan.indic.profile=script;p->next=owner.form_profiles;owner.form_profiles=p;}
         else arena_rewind(&arena,mark);return nullptr;}
@@ -400,17 +383,9 @@ SfntStatus form_run(SfntIndicProfile script,NativeTextContext& owner,const Bindi
     const auto* profile=form_profile(owner,binding,script);if(!profile)return SfntStatus::unsupported_sequence;
     return indic_owned_run(script,owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
-SfntStatus devanagari_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing=0,bool rtl=false) noexcept {
-    const auto* profile=form_profile(owner,binding,SfntIndicProfile::devanagari);if(!profile)return SfntStatus::unsupported_sequence;
-    const auto status=native_devanagari_run(owner.store,*profile,text,em,{s.shaping,s.glyphs,s.placements,s.character_glyphs},out,{},spacing,rtl);
-    if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<out->glyph_count;++i)if(!s.glyphs[i]){reset_value(out);return SfntStatus::unsupported_sequence;}return SfntStatus::ok;
-}
 bool prepare_script_profile(NativeTextContext& owner,Binding& selected,u16 script,bool independent) noexcept {
     if(form_script(script))return selected.font_flags!=emoji_font_flag&&form_profile(owner,selected,form_script_profile(script))!=nullptr;
     if(script>=sinhala_script&&script<=tibetan_script&&!(script%16))return selected.font_flags!=emoji_font_flag&&cluster_profile(owner,cluster_script(script),selected,independent)!=nullptr;
-    if(script==tamil_script)return selected.font_flags!=emoji_font_flag&&indic_profile(owner,selected,SfntIndicProfile::tamil)!=nullptr;
-    if(script==devanagari_script)return selected.font_flags!=emoji_font_flag&&form_profile(owner,selected,SfntIndicProfile::devanagari)!=nullptr;
     if(script!=arabic_script)return !script||alphabetic_profile(owner,selected,script,independent)!=nullptr;
     if(selected.font_flags==emoji_font_flag)return false;
     if(!owner.arabic_store.slots.count){

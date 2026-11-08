@@ -205,8 +205,13 @@ struct Executor {
             if(s!=SfntStatus::ok)return s;if(!m.matched)continue;*matched=true;return apply(m,lookup.type,resume);
         }return SfntStatus::ok;
     }
-    SfntStatus run(const SfntGsubExecutableLookup& root,u32 start) noexcept {
+    // segmented: each match's input stays inside the segment (run of glyphs whose sources share one
+    // of the sorted segment starts) of its first glyph. Type 8 inputs are single glyphs.
+    template<bool segmented> SfntStatus run(const SfntGsubExecutableLookup& root,u32 start,ConstSlice<u32> segments={}) noexcept {
         const bool reverse=root.type==8;u32 at=reverse?result.input_end:start;
+        // The segment holding the last candidate: its glyph range [segment_first,segment_end) and its
+        // source range [lower,upper) from segments[segment].
+        u32 segment=0,segment_first=0,segment_end=0,lower=0,upper=0;
         // Only a match (with its nested actions) can edit the buffer.
         auto view=sfnt_glyph_buffer_view(buffer);
         for(;;){
@@ -216,8 +221,20 @@ struct Executor {
                 if(!sfnt_lookup_bounds_exclude(root.bounds,g.glyph)&&!(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,g.glyph,g.glyph_class)))break;
                 if(!left){work=0;return SfntStatus::resource_limit;}--left;}
             work=left;if(reverse?at<=start:at>=end)return SfntStatus::ok;
-            const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;
-            auto s=attempt(root,view,current,end,&matched,&resume);if(s!=SfntStatus::ok)return s;
+            const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;u32 limit=end;
+            if constexpr(segmented)if(!reverse){
+                if(current<segment_first||current>=segment_end){
+                    const auto source=[&](u32 i) noexcept {return byte_load_le32(reinterpret_cast<const u8*>(&sfnt_glyph_at(view,i))+4);};
+                    const u32 first=source(current);
+                    if(segment>=segments.count||segments.data[segment]>first)segment=0;
+                    while(segment+1<segments.count&&segments.data[segment+1]<=first)++segment;
+                    lower=segments.data[segment];upper=segment+1<segments.count?segments.data[segment+1]:clusters->text_count;
+                    segment_first=current;segment_end=current+1;
+                    while(segment_end<end){const u32 next=source(segment_end);if(next<lower||next>=upper)break;++segment_end;}
+                    if(!spend(&work,segment_end-current))return SfntStatus::resource_limit;}
+                limit=segment_end;}
+            [[maybe_unused]] u32 before=0;if constexpr(segmented)before=sfnt_glyph_count(view);
+            auto s=attempt(root,view,current,limit,&matched,&resume);if(s!=SfntStatus::ok)return s;
             while(depth){auto& frame=scratch.frames.data[depth-1];
                 if(frame.next_action==frame.actions.count/4){resume=frame.input_end;used=frame.positions;--depth;continue;}
                 // Open validated the action record; next_action is below its count.
@@ -229,7 +246,9 @@ struct Executor {
                 const SfntGsubExecutableLookup* child=nullptr;s=sfnt_gsub_lookup_prepare(program,byte_load_be16(action+2),&child);if(s!=SfntStatus::ok)return s;
                 u32 ignored=0;bool nested=false;s=attempt(*child,sfnt_glyph_buffer_view(buffer),position,frame.input_end,&nested,&ignored);if(s!=SfntStatus::ok)return s;
             }
-            if(matched)view=sfnt_glyph_buffer_view(buffer);
+            if(matched){view=sfnt_glyph_buffer_view(buffer);
+                // Edits stay inside the segment: its end moves by the change in length.
+                if constexpr(segmented)segment_end=segment_end+sfnt_glyph_count(view)-before;}
             if(!reverse)at=resume;
         }
     }
@@ -273,8 +292,28 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
     const u32 count=sfnt_glyph_count(view);const auto status=sfnt_gsub_execute_validated_lookup(program,*root,buffer,start,end,alternate,scratch,{limits.operations-count,limits.match_work},output,clusters,components,mask);
     output->operations+=count;return status;
 }
+SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask,ConstSlice<u32> segments) noexcept {
+    if(!segments.count)return sfnt_gsub_execute_lookup(program,lookup,buffer,start,end,alternate,scratch,limits,output,clusters,components,mask);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    if(!segments.data||!clusters||segments.data[0])return SfntStatus::invalid_input;
+    for(u32 i=0;i<segments.count;++i)if(segments.data[i]>=clusters->text_count||(i&&segments.data[i]<=segments.data[i-1]))return SfntStatus::invalid_input;
+    // The plain entry over the empty range [start,start) validates the arguments and the run without
+    // editing; the segmented continuation then runs the range.
+    auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,start,start,alternate,scratch,limits,output,clusters,components,mask);
+    if(status!=SfntStatus::ok)return status;
+    if(end<start||end>sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer))){reset_value(output);return SfntStatus::invalid_input;}
+    const SfntGsubExecutableLookup* root=nullptr;status=sfnt_gsub_lookup_prepare(program,lookup,&root);if(status!=SfntStatus::ok)return status;
+    const u64 validation=output->operations;
+    status=sfnt_gsub_execute_validated_lookup(program,*root,buffer,start,end,alternate,scratch,{limits.operations-validation,limits.match_work},output,clusters,components,mask,segments);
+    output->operations+=validation;return status;
+}
 SfntStatus sfnt_gsub_execute_validated_lookup(const SfntGsubProgram& program,const SfntGsubExecutableLookup& lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
     reset_value(output);output->input_end=end;
-    Executor e{program,*buffer,scratch,*output,limits.operations,limits.match_work,alternate,clusters,components,mask};const auto status=e.run(lookup,start);output->operations=limits.operations-e.work;return status;
+    Executor e{program,*buffer,scratch,*output,limits.operations,limits.match_work,alternate,clusters,components,mask};const auto status=e.run<false>(lookup,start);output->operations=limits.operations-e.work;return status;
+}
+SfntStatus sfnt_gsub_execute_validated_lookup(const SfntGsubProgram& program,const SfntGsubExecutableLookup& lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask,ConstSlice<u32> segments) noexcept {
+    if(!segments.count)return sfnt_gsub_execute_validated_lookup(program,lookup,buffer,start,end,alternate,scratch,limits,output,clusters,components,mask);
+    reset_value(output);output->input_end=end;
+    Executor e{program,*buffer,scratch,*output,limits.operations,limits.match_work,alternate,clusters,components,mask};const auto status=e.run<true>(lookup,start,segments);output->operations=limits.operations-e.work;return status;
 }
 }

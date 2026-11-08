@@ -7,3 +7,5 @@
 1005 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/telugu_input_fixture.bin"
 1006 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/kannada_input_fixture.bin"
 1007 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/malayalam_input_fixture.bin"
+1008 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/devanagari_input_fixture.bin"
+1009 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/tamil_input_fixture.bin"

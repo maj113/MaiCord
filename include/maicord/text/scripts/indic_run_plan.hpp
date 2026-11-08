@@ -17,17 +17,23 @@ struct NativeIndicPlan {
     ConstSlice<SfntLookupStep> substitutions() const noexcept {return {substitution_steps,substitution_count};}
     ConstSlice<u16> positioning() const noexcept {return {positioning_roots,positioning_count};}
     const SfntGposProgram* positioning_program=nullptr;
+    // Bit i: substitution step i runs within each syllable (sfnt_indic_lookup_plan).
+    const u64* per_syllable_steps=nullptr;
+    ConstSlice<u64> per_syllable() const noexcept {return {per_syllable_steps,(substitution_count+63)/64};}
+    // The GSUB lookups of HarfBuzz's manual-joiner features (SfntShapePlan substitution_manual: two bits per
+    // lookup index of the font's GSUB); null when none.
+    const u64* substitution_manual=nullptr;
 };
-static_assert(sizeof(NativeIndicPlan)==48);
+static_assert(sizeof(NativeIndicPlan)==64);
 struct NativeIndicFormPlan {NativeIndicPlan indic;u8 forms[128];};
-static_assert(sizeof(NativeIndicFormPlan)==176);
+static_assert(sizeof(NativeIndicFormPlan)==192);
 // Appends roots and any required GPOS subset; shares the parent's GSUB, coordinates,
 // mapping and metrics, with no extra parent reference or retained arena. Scratch
 // rewinds on every return; failed calls also rewind state and clear output. The
-// optional 128-byte form output covers the selected script's BMP block and is written
-// only on success; without it, masked GSUB steps are rejected. All form probes share
-// one lookup budget. Only probe.glyphs/substitutions are used; state, scratch,
-// borrowed views and outputs must otherwise be disjoint.
+// optional 128-byte form output covers the selected script's BMP block (sfnt_deva_*
+// would-substitute bits per consonant, the font forms an Indic run needs) and is written
+// only on success. All form queries share one lookup budget. State, scratch, borrowed
+// views and outputs must be disjoint.
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,SfntIndicProfile,
-    Arena* state,Arena* scratch,const SfntShapeStorage& probe,NativeIndicPlan*,Slice<u8> forms={},const SfntShapeLimits& limits={}) noexcept;
+    Arena* state,Arena* scratch,NativeIndicPlan*,Slice<u8> forms={},const SfntShapeLimits& limits={}) noexcept;
 }

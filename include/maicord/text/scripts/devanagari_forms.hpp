@@ -2,18 +2,11 @@
 #include "maicord/text/scripts/devanagari_plan.hpp"
 #include "maicord/text/opentype/gsub_execute.hpp"
 namespace maicord {
-struct SfntDevanagariFormResult {u64 operations;u16 glyph;bool formed;};
-// Tests whether a mapped consonant/halant pair forms in a prepared GSUB program.
-// Reph/half use C,H; pre/below/post use H,C. Steps come from the matching
-// form_lookup_plan, in one unmasked stage with no surrounding glyph context. A
-// positive result requires a single final glyph covering both original source
-// components: deleting one input or merely changing a glyph is not a form. Initial
-// and between-root classes come from GDEF.
-// Scratch and glyph storage are disjoint from each other and from steps, program and
-// result. glyphs needs at least two slots; fonts may need more for transient
-// expansion. Result is written only on success; operations is diagnostic on error.
-// A buffer limit never turns an incomplete query into a negative answer.
-SfntStatus sfnt_devanagari_probe_form(const SfntGsubProgram&,ConstSlice<SfntLookupStep>,
-    u16 consonant,u16 halant,SfntDevanagariForm,Slice<SfntComponentGlyph> glyphs,
-    SfntGsubExecutionScratch,SfntDevanagariFormResult*,SfntGsubExecutionLimits limits={1000000,100000}) noexcept;
+// HarfBuzz hb_ot_layout_lookup_would_substitute over the scheduled lookups of one feature: whether any
+// of them has a rule whose input is exactly these glyphs. Single, multiple and alternate rules take one
+// glyph, ligatures and (chained) context rules the whole sequence; lookup flags are not applied. With
+// zero_context a chained rule must also have no backtrack or lookahead. Steps are prepared lookups of
+// the program; *work is charged per rule examined. Deferred lookups are prepared on demand.
+SfntStatus sfnt_gsub_would_substitute(const SfntGsubProgram&,ConstSlice<SfntLookupStep>,ConstSlice<u16> glyphs,
+    bool zero_context,bool* result,u64* work) noexcept;
 }

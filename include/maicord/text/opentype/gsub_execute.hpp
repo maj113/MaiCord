@@ -92,4 +92,14 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
                                    u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
                                    SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,
                                    SfntClusterMap* clusters=nullptr,SfntComponentForest* components=nullptr,u8 feature_mask=0) noexcept;
+// The same with segments (strictly increasing source units from 0, below the
+// cluster map's text count; clusters required): each match's input span, nested
+// actions included, stays in the segment of its first glyph, the run of glyphs
+// whose sources lie between one start and the next (HarfBuzz per-syllable
+// lookups). Lookaround still crosses segments. Empty segments are the call above.
+SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,
+                                   u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
+                                   SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,
+                                   SfntClusterMap* clusters,SfntComponentForest* components,u8 feature_mask,
+                                   ConstSlice<u32> segments) noexcept;
 }

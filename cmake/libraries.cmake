@@ -354,11 +354,10 @@ maicord_library(maicord_font
     src/text/shaping/cluster_run.cpp src/text/scripts/tibetan_shape_cluster.cpp src/text/scripts/khmer_input.cpp
     src/text/scripts/myanmar_shape_cluster.cpp src/text/scripts/myanmar_input.cpp src/text/scripts/khmer_shape_cluster.cpp
     src/text/scripts/sinhala_shape_cluster.cpp src/text/scripts/devanagari_forms.cpp
-    src/text/scripts/devanagari_clusters.cpp src/text/scripts/indic_input.cpp src/text/scripts/tamil_shape_run.cpp
-    src/text/scripts/tamil_run.cpp src/text/shaping/script_paragraphs.cpp
-    src/text/scripts/indic_run_plan.cpp src/text/scripts/devanagari_order.cpp
-    src/text/scripts/devanagari_shape_cluster.cpp src/text/scripts/indic_run.cpp src/text/shaping/compact_run.cpp src/text/scripts/devanagari_run.cpp
-    src/text/scripts/devanagari_run_plan.cpp src/text/opentype/tt_orientation.cpp
+ src/text/shaping/script_paragraphs.cpp
+    src/text/scripts/indic_run_plan.cpp
+ src/text/shaping/compact_run.cpp src/text/scripts/indic_syllables.cpp src/text/scripts/indic_shape.cpp
+ src/text/opentype/tt_orientation.cpp
     src/text/opentype/tt_bold_points.cpp src/text/fonts/session.cpp src/text/fonts/prepare.cpp
     src/text/opentype/gpos_cursive_execute.cpp src/text/opentype/position_anchor.cpp src/text/opentype/gpos_mark_execute.cpp
     src/text/opentype/gpos_ligature_execute.cpp src/text/opentype/gpos_execute.cpp src/text/opentype/gpos_program.cpp
@@ -385,7 +384,7 @@ maicord_library(maicord_font
     src/text/opentype/colr_variations.cpp src/text/fonts/axes.cpp
     LIBS maicord_core maicord_unicode ntdll)
 # Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTO.
-set_property(SOURCE src/text/scripts/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
+set_property(SOURCE APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 # Font table opening, outlines and variations (once per font or glyph), the
 # non-Latin script shapers and the Unicode line geometry keep their short loops
 # rolled: unrolled they only bloat (text benchmark: cycles_ascii -9%, Latin,

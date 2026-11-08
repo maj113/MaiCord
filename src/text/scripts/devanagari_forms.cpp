@@ -1,45 +1,66 @@
 #include "maicord/text/scripts/devanagari_forms.hpp"
-#include "maicord/core/memory.hpp"
-namespace maicord {
-SfntStatus sfnt_devanagari_probe_form(const SfntGsubProgram& program,ConstSlice<SfntLookupStep> steps,
-    u16 consonant,u16 halant,SfntDevanagariForm form,Slice<SfntComponentGlyph> glyphs,
-    SfntGsubExecutionScratch scratch,SfntDevanagariFormResult* result,SfntGsubExecutionLimits limits) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);bool reverse=false;
-    switch(form){case sfnt_deva_reph:case sfnt_deva_half:break;
-        case sfnt_deva_pre:case sfnt_deva_below:case sfnt_deva_post:reverse=true;break;default:return SfntStatus::invalid_input;}
-    if((steps.count&&!steps.data)||(glyphs.count&&!glyphs.data)||!program.glyph_limit||program.glyph_limit>65536||
-       consonant>=program.glyph_limit||halant>=program.glyph_limit||
-       (program.lookups.count&&!sfnt_gsub_directory_valid(program)))return SfntStatus::invalid_input;
-    if(glyphs.count<2||glyphs.count>0xffffffffu/sizeof(SfntComponentGlyph))return SfntStatus::output_too_small;
-    u64 work=limits.operations;
-    const auto spend=[&](u64 count) noexcept {if(count>work)return false;work-=count;result->operations+=count;return true;};
-    if(!spend(steps.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<steps.count;++i)if(steps[i].lookup>=program.lookups.count||steps[i].stage||steps[i].feature_mask||
-        (i&&steps[i-1].lookup>=steps[i].lookup))return SfntStatus::invalid_input;
-    if(!steps.count)return SfntStatus::ok;
-    // Fixed cost of the two-source setup (map initialization and component open).
-    if(!spend(16))return SfntStatus::resource_limit;
-    const u16 pair[]{reverse?halant:consonant,reverse?consonant:halant};
-    for(u32 i=0;i<2;++i)glyphs[i]={{pair[i],sfnt_gdef_glyph_class(program.gdef,pair[i]),0},i,0,0};
-    SfntComponentNode nodes[2]{};SfntComponentForest forest{};u64 bits=0;const u32 boundary=0;SfntClusterMap clusters{};SfntGlyphBuffer buffer{};
-    auto status=sfnt_components_open({glyphs.data,2},{nodes,2},&forest,16);if(status!=SfntStatus::ok)return status;
-    status=sfnt_cluster_map_open(2,{&boundary,1},{&bits,1},&clusters,16);if(status!=SfntStatus::ok)return status;
-    status=sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs.data),glyphs.count*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),2,&buffer);
-    if(status!=SfntStatus::ok)return status;
-    bool refresh=false;
-    for(u32 i=0;i<steps.count;++i){
-        const auto view=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(view);
-        if(refresh){if(!spend(count))return SfntStatus::resource_limit;
-            for(u32 j=0;j<count;++j){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(view,j));glyph.glyph_class=sfnt_gdef_glyph_class(program.gdef,glyph.glyph);}}
-        SfntGsubExecutionResult execution{};
-        status=sfnt_gsub_execute_lookup(program,steps[i].lookup,&buffer,0,count,0,scratch,{work,limits.match_work},&execution,&clusters,&forest);
-        work-=execution.operations;result->operations+=execution.operations;if(status!=SfntStatus::ok)return status;refresh=execution.edits!=0;
+#include "maicord/core/byte_order.hpp"
+#include "maicord/text/opentype/context.hpp"
+namespace maicord {namespace {
+// Validated subtable bytes; reads past the end yield zero.
+struct Bytes {
+    ConstSlice<u8> data;
+    u16 at(u32 offset) const noexcept {return offset+2<=data.count?byte_load_be16(data.data+offset):0;}
+    Bytes child(u32 offset) const noexcept {return offset&&offset<data.count?Bytes{{data.data+offset,data.count-offset}}:Bytes{};}
+};
+bool charge(u64* work) noexcept {if(!*work)return false;--*work;return true;}
+// LigatureSubst format 1: a ligature whose components are exactly the glyphs.
+SfntStatus ligature(const SfntGsubSubtable& subtable,ConstSlice<u16> glyphs,bool* hit,u64* work) noexcept {
+    const u32 index=sfnt_coverage_index(subtable.coverage,glyphs[0]);const Bytes table{subtable.table};
+    if(index==sfnt_not_covered||index>=table.at(4))return SfntStatus::ok;
+    const Bytes set=table.child(table.at(6+index*2));
+    for(u32 i=0,count=set.at(0);i<count;++i){if(!charge(work))return SfntStatus::resource_limit;
+        const Bytes rule=set.child(set.at(2+i*2));if(rule.at(2)!=glyphs.count)continue;
+        bool same=true;for(u32 j=1;j<glyphs.count&&same;++j)same=rule.at(4+(j-1)*2)==glyphs[j];
+        if(same){*hit=true;return SfntStatus::ok;}}
+    return SfntStatus::ok;
+}
+// One (chained) context rule of format 1 (glyphs) or 2 (input classes).
+bool rule_matches(const SfntContext& context,Bytes rule,ConstSlice<u16> glyphs,bool zero_context) noexcept {
+    const bool chained=context.kind==SfntContextKind::chained;u32 at=0;
+    if(chained){const u16 back=rule.at(0);if(zero_context&&back)return false;at=2+static_cast<u32>(back)*2;}
+    if(rule.at(at)!=glyphs.count)return false;at+=chained?2:4;
+    for(u32 j=1;j<glyphs.count;++j){const u16 value=rule.at(at+(j-1)*2);
+        if(context.format==1?glyphs[j]!=value:sfnt_class_value(context.classes[chained?1:0],glyphs[j])!=value)return false;}
+    return !chained||!zero_context||!rule.at(at+(glyphs.count-1)*2);
+}
+SfntStatus context(const SfntContext& context,ConstSlice<u16> glyphs,bool zero_context,bool* hit,u64* work) noexcept {
+    const bool chained=context.kind==SfntContextKind::chained;const Bytes table{context.table};
+    if(context.format==3){
+        const u32 back=chained?table.at(2):0,input=chained?table.at(4+back*2):table.at(2),look=chained?table.at(6+(back+input)*2):0;
+        if(input!=glyphs.count||(zero_context&&(back||look)))return SfntStatus::ok;
+        for(u32 i=0;i<input;++i){if(!charge(work))return SfntStatus::resource_limit;
+            if(sfnt_coverage_index(context.coverages[back+i],glyphs[i])==sfnt_not_covered)return SfntStatus::ok;}
+        *hit=true;return SfntStatus::ok;}
+    u32 index=sfnt_coverage_index(context.coverages[0],glyphs[0]);if(index==sfnt_not_covered)return SfntStatus::ok;
+    u32 sets_at=6;
+    if(context.format==2){index=sfnt_class_value(context.classes[chained?1:0],glyphs[0]);sets_at=chained?12:8;}
+    if(index>=table.at(sets_at-2))return SfntStatus::ok;
+    const Bytes set=table.child(table.at(sets_at+index*2));
+    for(u32 i=0,count=set.at(0);i<count;++i){if(!charge(work))return SfntStatus::resource_limit;
+        if(rule_matches(context,set.child(set.at(2+i*2)),glyphs,zero_context)){*hit=true;return SfntStatus::ok;}}
+    return SfntStatus::ok;
+}
+}
+SfntStatus sfnt_gsub_would_substitute(const SfntGsubProgram& program,ConstSlice<SfntLookupStep> steps,ConstSlice<u16> glyphs,
+    bool zero_context,bool* result,u64* work) noexcept {
+    if(!result||!work||!glyphs.count||!glyphs.data||(steps.count&&!steps.data))return SfntStatus::invalid_input;*result=false;
+    for(u32 s=0;s<steps.count&&!*result;++s){
+        const SfntGsubExecutableLookup* lookup=nullptr;auto status=sfnt_gsub_lookup_prepare(program,steps[s].lookup,&lookup);if(status!=SfntStatus::ok)return status;
+        for(u32 i=0;i<lookup->subtables.count&&!*result;++i){if(!charge(work))return SfntStatus::resource_limit;const auto& subtable=lookup->subtables[i];
+            switch(lookup->type){
+            case 1:case 2:case 3:*result=glyphs.count==1&&sfnt_coverage_index(subtable.basic.coverage,glyphs[0])!=sfnt_not_covered;break;
+            case 4:status=ligature(subtable.basic,glyphs,result,work);break;
+            case 5:case 6:status=context(subtable.context,glyphs,zero_context,result,work);break;
+            case 8:*result=glyphs.count==1&&sfnt_coverage_index(subtable.reverse.coverages[0],glyphs[0])!=sfnt_not_covered;break;
+            default:break;}
+            if(status!=SfntStatus::ok)return status;}
     }
-    if(!spend(1))return SfntStatus::resource_limit;
-    const auto view=sfnt_glyph_buffer_view(buffer);if(sfnt_glyph_count(view)!=1)return SfntStatus::ok;
-    const auto& glyph=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,0));
-    u32 first=0,last=0;u64 used=0;status=sfnt_component_source_bounds(forest,glyph.component,&first,&last,work,&used);
-    work-=used;result->operations+=used;if(status!=SfntStatus::ok)return status;
-    if(first==0&&last==1){result->formed=true;result->glyph=glyph.glyph.glyph;}return SfntStatus::ok;
+    return SfntStatus::ok;
 }
 }

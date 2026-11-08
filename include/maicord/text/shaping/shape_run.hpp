@@ -27,7 +27,18 @@ struct SfntShapePlan {
     // The fallback Hebrew placement profile keeps GPOS advance changes made
     // after initial mark/ignorable advances were cleared.
     bool retain_zero_positioning=false;
+    // The font's ZWJ and ZWNJ glyphs (zero when unmapped). A run holding one matches as HarfBuzz's apply
+    // context does (SfntGdef joiners): input matching skips ZWJ unless the lookup's feature is F_MANUAL_ZWJ
+    // (and ZWNJ in GPOS); context matching skips ZWJ, and ZWNJ unless F_MANUAL_ZWNJ (always in GPOS).
+    u16 zwj=0,zwnj=0;
+    // Lookups whose features match joiners manually, two bits per lookup index of the table: bit 2L
+    // F_MANUAL_ZWJ, bit 2L+1 F_MANUAL_ZWNJ (a lookup of any manual feature is manual, as HarfBuzz merges
+    // them). Empty when every lookup matches joiners automatically.
+    ConstSlice<u64> substitution_manual,positioning_manual;
 };
+inline u32 sfnt_manual_joiners(ConstSlice<u64> manual,u16 lookup) noexcept {
+    const u32 bit=2u*lookup;return bit/64<manual.count?static_cast<u32>(manual.data[bit/64]>>(bit%64))&3u:0u;
+}
 struct SfntShapeStorage {
     Slice<SfntComponentGlyph> glyphs;
     Slice<SfntComponentNode> components;
@@ -87,8 +98,15 @@ struct SfntShapeStagePolicy {
     // metadata and eligibility bits, never glyph IDs, classes or source indices:
     // later roots then keep the validated lookup entry.
     bool keeps_records=false;
+    // Optional bitset over the steps (bit i of word i/64 is step i): a set step
+    // runs separately on each run of consecutive glyphs whose sources lie in
+    // one initial cluster (cluster_boundaries; HarfBuzz F_PER_SYLLABLE), so its
+    // input sequences stay inside it; context still sees the whole run. Empty
+    // runs every step over the run. It needs at least (steps.count+63)/64 words,
+    // and the boundaries stay readable until substitution ends.
+    ConstSlice<u64> per_cluster{};
 };
-static_assert(sizeof(SfntShapeStagePolicy)==24);
+static_assert(sizeof(SfntShapeStagePolicy)==40);
 
 // Successful glyphs are contiguous in storage.glyphs; source map, flags and
 // placements occupy their respective prefixes. Result lengths are set only on
