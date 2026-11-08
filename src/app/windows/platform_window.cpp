@@ -24,8 +24,13 @@ bool input_blocked(void*) noexcept {
 }
 
 // UI Automation (WM_GETOBJECT) and its deferred actions (it observes WM_DESTROY); tray icon callbacks, Explorer
-// restarts and launches forwarded by a second instance; the taskbar button's registered "created" message.
+// restarts and launches forwarded by a second instance; the taskbar button's registered "created" message; the window
+// menu's appearance.
 bool shell_hook(void*, HWND, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept {
+    // The window menu (Alt+Space, the caption's icon and a right click on it) takes the theme's appearance as it opens,
+    // so a theme change or a system scheme change since the last one shows; the default procedure then shows it.
+    if (message == WM_ENTERMENULOOP)
+        win32_menu_appearance(application_theme().appearance != ThemeAppearance::light);
     if (application_accessibility_window_message(message, wparam, lparam, result))
         return true;
     if (application_desktop_window_message(message, wparam, lparam, result))

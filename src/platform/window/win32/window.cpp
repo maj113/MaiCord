@@ -66,6 +66,29 @@ void win32_cursor_handles_reset() noexcept {
         cursor = nullptr;
 }
 
+void win32_menu_appearance(bool dark) noexcept {
+    // Ordinal 135 takes its argument in ECX on every build: PreferredAppMode from 1903 (2 ForceDark, 0 Default), a
+    // BOOL on 1809 (AllowDarkModeForApp tests its low byte, so 2 allows dark). Neither return value is used.
+    using SetPreferredAppMode = int(WINAPI*)(int mode) noexcept;
+    using FlushMenuThemes = void(WINAPI*)() noexcept;
+    static SetPreferredAppMode set_mode;
+    static FlushMenuThemes flush_menu_themes;
+    static bool resolved;
+    if (!resolved) {
+        resolved = true;
+        if (const HMODULE uxtheme = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
+            set_mode = reinterpret_cast<SetPreferredAppMode>(
+                GetProcAddress(uxtheme, reinterpret_cast<LPCSTR>(static_cast<usize>(135))));
+            flush_menu_themes = reinterpret_cast<FlushMenuThemes>(
+                GetProcAddress(uxtheme, reinterpret_cast<LPCSTR>(static_cast<usize>(136))));
+        }
+    }
+    if (!set_mode || !flush_menu_themes)
+        return;
+    set_mode(dark ? 2 : 0);
+    flush_menu_themes();
+}
+
 const WindowCaps& window_caps() noexcept {
     return kCaps;
 }

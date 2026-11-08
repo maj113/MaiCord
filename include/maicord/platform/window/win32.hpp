@@ -23,6 +23,11 @@ void win32_cursor_handles_reset() noexcept;
 // The system values platform_settings_read keeps (the wheel setting, the app colour mode, the animation switch) are read
 // again after a settings change. The window procedure does it on WM_SETTINGCHANGE.
 void win32_settings_reset() noexcept;
+// The native menus (process-wide: the window menu, the tray's) are dark or light from their next opening. uxtheme's
+// undocumented app mode, export ordinal 135: SetPreferredAppMode from Windows 10 1903 (dark forces dark, light is the
+// default, light menus); AllowDarkModeForApp(BOOL) on 1809, where a dark menu also needs the system's dark app mode.
+// Then FlushMenuThemes (ordinal 136) drops the menu themes uxtheme cached for the previous mode.
+void win32_menu_appearance(bool dark) noexcept;
 
 // A top-down straight-alpha BGRA image (side `extent`, at most 64) as an icon the system copies from it; the caller
 // destroys the icon. Null for an invalid image.

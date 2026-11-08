@@ -195,6 +195,8 @@ void tray_event(UINT event) noexcept {
     case WM_CONTEXTMENU: {
         TrayMenuItem items[kTrayMenuItems];
         const u32 count = tray_menu_build(tray_input(), items, kTrayMenuItems);
+        // The menu opens without WM_ENTERMENULOOP (TPM_NONOTIFY): it takes the theme's appearance here.
+        win32_menu_appearance(application_theme().appearance != ThemeAppearance::light);
         tray_command(system_tray_menu(&g_desktop.tray, items, count));
         break;
     }
